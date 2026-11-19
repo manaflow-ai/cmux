@@ -25,9 +25,24 @@
     "9": "#ea7485",
     "10": "#80b38d",
     "11": "#e8b773",
-    "12": "#86aee4"
+    "12": "#86aee4",
+    // The terminal palette, whole: the slots above as sampled, the rest at a quiet chroma, each
+    // solved in OKLCH over the page (5.5:1, the bright ones 8.5:1, 8 the dim gray 3.4:1), and the
+    // cursor in the accent.
+    "0": "#474c52",
+    "5": "#ba7cb7",
+    "6": "#0ba1a7",
+    "7": "#f0f0f0",
+    "8": "#6a6f75",
+    "13": "#ec9bdc",
+    "14": "#1cc8d9",
+    "15": "#edeef1",
+    "cursor": "#699be1"
   },
   "appearance.accent": "theme",
+  // The terminal face: Menlo at 12 pt, the face and size an editor's terminal opens in on a Mac.
+  "terminal.fontFamily": "Menlo",
+  "terminal.fontSize": 12,
 
   // No wallpaper, no glass: flat fills, as the editor draws them.
   "appearance.background": "none",

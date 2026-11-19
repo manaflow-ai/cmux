@@ -16,6 +16,36 @@
   // selection: the orange at about 25% over the workspace. accent: the policy orange, brighter.
   "colors": { "background": "#141110", "foreground": "#eae8e6", "selection": "#4d2c18", "accent": "#ec6420" },
   "appearance.accent": "theme",
+  // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
+  // ANSI colors at a warm chroma, each solved in OKLCH over the page (5.5:1, the bright ones 8.5:1;
+  // 0 the raised black 2:1; 8, the dim gray, 3.4:1).
+  "ghostty": [
+    "background = #141110",
+    "foreground = #eae8e6",
+    "cursor-color = #ec6420",
+    "cursor-text = #141110",
+    "selection-background = #4d2c18",
+    "selection-foreground = #eae8e6",
+    "palette = 0=#43474d",
+    "palette = 1=#d36e60",
+    "palette = 2=#3d9d5e",
+    "palette = 3=#a78801",
+    "palette = 4=#608adb",
+    "palette = 5=#be70b3",
+    "palette = 6=#039aa5",
+    "palette = 7=#eae8e6",
+    "palette = 8=#65696f",
+    "palette = 9=#ff9075",
+    "palette = 10=#3ec584",
+    "palette = 11=#d1ab17",
+    "palette = 12=#8eadff",
+    "palette = 13=#f18dd5",
+    "palette = 14=#03c0d7",
+    "palette = 15=#e4e6e8"
+  ],
+  // The terminal face: SF Mono at 13 pt, the system's monospaced face beside Inter.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
 
   // Material: opaque, as the workspace app draws it at night.
   "appearance.background": "none",

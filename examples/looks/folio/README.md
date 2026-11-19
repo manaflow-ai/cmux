@@ -21,6 +21,9 @@ It is built only from public surfaces, so you can copy any part of it:
 | `themes/folio-dark.json` | Dark. Page `#191919`, ink `#D4D4D2`, the same blue, selection `#1F3D5C`, the sidebar, tab strip and docks `#202020`, a `#2E2E2D` rule |
 | `agent-pane/theme.css` | A 16 px prompt bubble in the ink at 6% with no edge, cards at 4% with a 9% rule, secondary ink as dark as reads at 4.5:1, links in the blue a step toward the ink, and slash-menu menus (pending, below): `cmux.agentPane.style/1` tokens only, every color mixed from the theme's own |
 | `customize/` | A hover card laid out like a page preview (the title as a heading, an "edited" line, the page's text, its properties as a short table, what needs you in the link blue) and page rows in regular weight with a small dot, not a spinner, while work runs |
+| `markdown/theme.css` | The Markdown viewer's paint: headings with no rule, code on a soft gray with 4 px corners, quotes behind a bar in the ink's own color, tables with a plain header. Only `--cmux-md-*` properties on `:root`, every color mixed from the page's own |
+
+The rest of cmux wears the look too. The terminal is SF Mono at 13 pt (the face a wiki page sets its code blocks in) with a full sixteen-color palette at a document's soft chroma, colors 1 to 7 and 9 to 14 held to WCAG AA over its page (8, the dim gray, to 3:1); the Markdown viewer opens in the system face at 16 px with the chat's line height and code scale in a 86-character column, and `markdown/theme.css` paints it; diffs use muted colors with change bars; sidebar group colors come from the theme's palette. Its `customize/` view also adds **Page properties** to Session Info: the agent, folder and branch as the same short table the hover card ends with.
 
 Both theme files set the same proportions, measured from the references (the traffic lights'
 12 pt as the ruler): a 33 pt tab strip with 14 pt titles in tabs about 190 pt wide, a 44 pt top

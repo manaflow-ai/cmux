@@ -1,5 +1,6 @@
 // Folio's sidebar: the hover card as a page preview, and rows as the pages of a tree.
-// Public surfaces only: cmux.hovercard/1 and cmux.sidebar.rows/1 (docs/cmux-next/sidebar-customization.md).
+// Public surfaces only: cmux.hovercard/1, cmux.sidebar.rows/1 and cmux.session.info.section/1
+// (docs/cmux-next/sidebar-customization.md).
 
 // The card reads like hovering a link to a page: the title as a heading, a small gray "edited"
 // line, then the page's own text (the task, or the last reply), then its properties as a short
@@ -50,4 +51,19 @@ function decorateRows() {
   ])
 }
 
-globalThis.__cmuxAppExports = { renderCard, decorateRows }
+// Session Info: the chat's page properties, the same short table the hover card ends with (a gray
+// icon and label, the value beside it), the way a database page lists its properties above the text.
+function renderPageProperties(context) {
+  const cwd = String((context && context.cwd) || "")
+  const folder = cwd.split("/").filter(Boolean).slice(-2).join("/")
+  const branch = String((context && context.branch) || "").trim()
+  const agent = String((context && context.harness) || "").trim()
+  return VStack({ spacing: 6, alignment: "leading" }, [
+    agent ? property("sparkles", "Agent", agent) : null,
+    folder ? property("folder", "Folder", folder).help(cwd) : null,
+    branch ? property("arrow.triangle.branch", "Branch", branch) : null,
+    !folder && !branch && !agent ? Text("Empty").font("caption").secondary() : null,
+  ])
+}
+
+globalThis.__cmuxAppExports = { renderCard, decorateRows, renderPageProperties }

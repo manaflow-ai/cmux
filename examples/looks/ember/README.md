@@ -21,6 +21,9 @@ It is built only from public surfaces, so you can copy any part of it:
 | `themes/ember-light.json` | Light. White at 96% over glass, titles `#1C1C1C`, coral a step deeper (`#E5484D`, which holds 3:1 on white), selection `#E3E3E3`. The sidebar is `#F0F0F0` at 86%, the browser bar and docks are `#F5F5F5`, and Settings is `#F6F6F6` |
 | `agent-pane/theme.css` | The prompt is a borderless 16 px block with a 6% text tint. Cards are a 5% fill with a faint ring. Secondary and dim text are 70% and 64% of the text color, links the coral a step toward the text. It also sets the action-panel menus and the gray prompt ink (pending, below). Only `cmux.agentPane.style/1` tokens, every color mixed from the theme's own |
 | `customize/` | A hover card laid out like a launcher result row (title with an accessory at the right, a gray subtitle, then the task, short) and plain regular-weight rows with a pulsing dot for work in progress |
+| `markdown/theme.css` | The Markdown viewer's paint: code as soft borderless blocks with 10 px corners, headings with no rule, quotes on a coral rule. Only `--cmux-md-*` properties on `:root`, every color mixed from the page's own |
+
+The rest of cmux wears the look too. The terminal is SF Mono at 13 pt (the system's monospaced face, as a launcher's script output uses) with a full sixteen-color palette at a warm, lively chroma, colors 1 to 7 and 9 to 14 held to WCAG AA over its page (8, the dim gray, to 3:1); the Markdown viewer opens in the system face at 14 px with the chat's line height and code scale in a 88-character column, and `markdown/theme.css` paints it; diffs use theme colors with change bars; sidebar group colors are glass tints.
 
 Both theme files set the same proportions, measured from the references (2x captures):
 

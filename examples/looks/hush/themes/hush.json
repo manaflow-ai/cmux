@@ -13,6 +13,36 @@
   // accent: a muted slate-blue, for Send, focus and links only.
   "colors": { "background": "#fdfcf8", "foreground": "#2a2825", "selection": "#e9e5dc", "accent": "#4a65a3" },
   "appearance.accent": "theme",
+  // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
+  // ANSI colors at a hushed chroma, each solved in OKLCH over the page (5.2:1, the bright ones
+  // 4.7:1, 7 the gray 4.8:1, 15 3:1; 8, the dim gray, 3.4:1).
+  "ghostty": [
+    "background = #fdfcf8",
+    "foreground = #2a2825",
+    "cursor-color = #4a65a3",
+    "cursor-text = #fdfcf8",
+    "selection-background = #e9e5dc",
+    "selection-foreground = #2a2825",
+    "palette = 0=#2a2825",
+    "palette = 1=#975a56",
+    "palette = 2=#47754e",
+    "palette = 3=#7f6830",
+    "palette = 4=#4e6c99",
+    "palette = 5=#875c85",
+    "palette = 6=#1d767b",
+    "palette = 7=#6c7077",
+    "palette = 8=#858991",
+    "palette = 9=#a45f53",
+    "palette = 10=#3f7e56",
+    "palette = 11=#886e2a",
+    "palette = 12=#5771a9",
+    "palette = 13=#96608c",
+    "palette = 14=#047e89",
+    "palette = 15=#909397"
+  ],
+  // The terminal face: SF Mono at 13 pt, the system's monospaced face, nothing louder.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
   // A little less color in the tint, so the accent never shouts.
   "appearance.saturation": 0.85,
 

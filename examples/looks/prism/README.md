@@ -21,6 +21,9 @@ It is built only from public surfaces, so you can copy any part of it:
 | `themes/prism-dark.json` | Dark. Card `#18171F`, text `#EBE8F7` (lavender-white), accent `#7479F5`, selection `#3A3973`, the frame `#2B2945` at 88%, the tab strip `#211F30`, pages `#1D1B29` |
 | `agent-pane/theme.css` | A 16 px accent-tinted prompt bubble with no edge, cards tinted faintly in the accent with an accent hairline, links in the accent, and space-tinted menus (pending, below): `cmux.agentPane.style/1` tokens only, every color mixed from the theme's own |
 | `customize/` | A hover card laid out like a link preview (the folder small and gray first, as a preview names the site, then a bold title, what it is doing, and what it asks of you in the accent) and tab rows in medium weight with the spinning arc |
+| `markdown/theme.css` | The Markdown viewer's paint: code in soft rounded blocks tinted by the space color, headings with no rule, quotes on an indigo rule. Only `--cmux-md-*` properties on `:root`, every color mixed from the page's own |
+
+The rest of cmux wears the look too. The terminal is SF Mono at 13 pt (the system's monospaced face under the bright frame) with a full sixteen-color palette at a vivid, cool chroma, colors 1 to 7 and 9 to 14 held to WCAG AA over its page (8, the dim gray, to 3:1); the Markdown viewer opens in the system face at 15 px with the chat's line height and code scale in a 99-character column, and `markdown/theme.css` paints it; diffs use theme colors with change bars.
 
 Both theme files set the same proportions, measured from captures of the browsers this look comes
 from: a 40 pt top band, a 216 pt sidebar with 32 pt rows (a hovered row is 64 px tall at 2x),

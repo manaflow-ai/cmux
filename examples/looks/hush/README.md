@@ -20,6 +20,9 @@ It is built only from public surfaces, so you can copy any part of it:
 | `themes/hush-dark.json` | Dark. Card `#222424`, text `#E3E2E2`, accent `#6682C2`, selection `#3D4040`, the sidebar, toolbar and tab strip `#1B1D1D`, pages `#202222` |
 | `agent-pane/theme.css` | An 18 px soft gray prompt pill (the text at 6%) with no edge, cards at 3% with a faint hairline, links in the accent a step toward the text, and roomy rounded menus (pending, below): `cmux.agentPane.style/1` tokens only, every color mixed from the theme's own |
 | `customize/` | A two-line hover card (title and age, then one line of what it is doing, or what it asks of you in its place) and still rows in regular weight with a small dot while work runs |
+| `markdown/theme.css` | The Markdown viewer's paint: quiet. Medium-weight headings with no rule, code on a barely-there fill with the card's 12 px corners, quotes on a soft gray line. Only `--cmux-md-*` properties on `:root`, every color mixed from the page's own |
+
+The rest of cmux wears the look too. The terminal is SF Mono at 13 pt (the system's monospaced face, nothing louder) with a full sixteen-color palette at a hushed chroma, colors 1 to 7 and 9 to 14 held to WCAG AA over its page (8, the dim gray, to 3:1); the Markdown viewer opens in the system face at 16 px with the chat's line height and code scale in a 82-character column, and `markdown/theme.css` paints it; diffs use muted colors with change bars; sidebar group colors are grays.
 
 Both theme files set the same proportions, measured from captures of the browsers this look comes
 from: a 44 pt top band, a 200 pt sidebar with 32 pt rows, 13 pt chrome text, a 36 pt tab strip

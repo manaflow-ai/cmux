@@ -36,6 +36,10 @@
     "palette = 14=#0b7068",
     "palette = 15=#9aa0a3"
   ],
+  // The terminal face: JetBrains Mono at 13 pt, a modern terminal face with tall lowercase and
+  // clear zeros.
+  "terminal.fontFamily": "JetBrains Mono",
+  "terminal.fontSize": 13,
 
   "appearance.background": "none",
   "appearance.backgroundBlur": "none",

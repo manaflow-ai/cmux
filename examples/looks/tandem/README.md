@@ -21,6 +21,9 @@ It is built only from public surfaces, so you can copy any part of it:
 | `themes/tandem-dark.json` | Dark. Workspace `#141110`, ink `#EAE8E6`, orange `#EC6420`, selection `#4D2C18`, the sidebar and docks `#1D1B1A`/`#1B1918`, Settings and pages `#1B1918`, a `#2C2927` hairline, opaque |
 | `agent-pane/theme.css` | A 10 px prompt bubble warmed toward the accent (8%) with no edge, cards at 4% with an 8% hairline, secondary ink as dark as reads at 4.5:1, links in the accent a long step toward the ink, and roomy picker menus (pending, below): `cmux.agentPane.style/1` tokens only, every color mixed from the theme's own |
 | `customize/` | A hover card laid out like a task card (a status and age line, the title, the task, the steps under way and where they happen as icon lines, what waits on you in the accent) and one-line rows with the dotted loader while an agent works |
+| `markdown/theme.css` | The Markdown viewer's paint: white sheets. Code on a soft gray with 8 px corners, headings with no rule, quotes on the signal orange. Only `--cmux-md-*` properties on `:root`, every color mixed from the page's own |
+
+The rest of cmux wears the look too. The terminal is SF Mono at 13 pt (the system's monospaced face beside Inter) with a full sixteen-color palette at a warm chroma, colors 1 to 7 and 9 to 14 held to WCAG AA over its page (8, the dim gray, to 3:1); the Markdown viewer opens in the system face at 15 px with the chat's line height and code scale in a 104-character column, and `markdown/theme.css` paints it; diffs use theme colors with change bars; sidebar group colors come from the theme's palette.
 
 Both theme files set the same proportions, measured from the references at their capture scale: a
 42 pt toolbar, a 40 pt tab strip with 13 pt titles in tabs about 160 pt wide, a 272 pt sidebar

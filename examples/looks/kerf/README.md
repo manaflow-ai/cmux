@@ -21,6 +21,9 @@ It is built only from public surfaces, so you can copy any part of it:
 | `themes/kerf-light.json` | Light. Editor `#FAFAFA`, panels and sidebar `#EBEBEC`, title and tab bars `#DCDCDD`, borders `#C9C9CA`, text `#242529`, blue `#5C78E2`, selection `#D3DAF5`, the One Light palette deepened where a color would not read on white |
 | `agent-pane/theme.css` | The prompt in a hairline box (text at 20% for the edge, 4% inside, 4 px corners), cards as one-pixel outlines on an almost invisible fill, the panel's muted gray for secondary text, links in the accent pulled toward the text, and editor menus (pending, below): `cmux.agentPane.style/1` tokens only, every color mixed from the theme's own |
 | `customize/` | A compact, list-like hover card (title and age, then branch and pull request with small icons, status, task, what it waits on in the accent, the agent), and rows in regular weight with the thin arc |
+| `markdown/theme.css` | The Markdown viewer's paint: flat and outlined like the editor. Code on a faint fill with 4 px corners, headings over a hairline, quotes on a one-pixel rule, nothing raised. Only `--cmux-md-*` properties on `:root`, every color mixed from the page's own |
+
+The rest of cmux wears the look too. The terminal is SF Mono at 13 pt (the system's own monospaced face, as a native editor uses) with its own sixteen-color palette, unchanged; the Markdown viewer opens in the system face at 15 px with the chat's line height and code scale in a 97-character column, and `markdown/theme.css` paints it; diffs use theme colors with + and - marks; sidebar group colors come from the theme's palette.
 
 Both theme files set the same proportions, measured from the references at their 3x scale: a
 34 pt title bar, a 260 pt threads sidebar with 24 pt rows (the project panel's), 13 pt chrome and

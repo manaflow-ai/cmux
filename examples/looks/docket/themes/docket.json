@@ -13,6 +13,33 @@
   // selection: the indigo at about a fifth over the panel. accent: the indigo.
   "colors": { "background": "#161718", "foreground": "#e4e5e8", "selection": "#2c3157", "accent": "#5e6ad2" },
   "appearance.accent": "theme",
+  // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
+  // ANSI colors at a muted chroma, each solved in OKLCH over the page (5.5:1, the bright ones
+  // 8.5:1; 0 the raised black 2:1; 8, the dim gray, 3.4:1).
+  "ghostty": [
+    "background = #161718",
+    "foreground = #e4e5e8",
+    "cursor-color = #5e6ad2",
+    "cursor-text = #161718",
+    "selection-background = #2c3157",
+    "selection-foreground = #e4e5e8",
+    "palette = 0=#454a50",
+    "palette = 1=#c87973",
+    "palette = 2=#5f9c68",
+    "palette = 3=#a88b41",
+    "palette = 4=#6890cb",
+    "palette = 5=#b37cb1",
+    "palette = 6=#269ea3",
+    "palette = 7=#e4e5e8",
+    "palette = 8=#686c73",
+    "palette = 9=#f79a8a",
+    "palette = 10=#6fc48c",
+    "palette = 11=#d1af56",
+    "palette = 12=#8eb3fd",
+    "palette = 13=#e49bd5",
+    "palette = 14=#3bc4d3",
+    "palette = 15=#e9ebed"
+  ],
 
   // Material: opaque. No wallpaper, no glass: the calm comes from flat tone steps.
   "appearance.background": "none",
@@ -104,6 +131,8 @@
   "appearance.colorTransition.colorSpace": "oklab",
   "appearance.colorTransition.reduceMotion": "instant",
 
+  // The terminal face: SF Mono, the system's monospaced face beside Inter.
+  "terminal.fontFamily": "SF Mono",
   "terminal.fontSize": 13
 
   // Pending cmux#46861 (layout and proportions): two-line inbox rows of 44 px, 8 px row insets, 28 px toolbar buttons with a 6 px corner and a faint active fill, the view header's hairline, a tall prompt box. Uncomment once your build has it.

@@ -16,6 +16,36 @@
   // accent: the link and focus blue.
   "colors": { "background": "#fbfaf8", "foreground": "#32302c", "selection": "#cfe2f6", "accent": "#2383e2" },
   "appearance.accent": "theme",
+  // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
+  // ANSI colors at a document's soft chroma, each solved in OKLCH over the page (5.2:1, the bright
+  // ones 4.7:1, 7 the gray 4.8:1, 15 3:1; 8, the dim gray, 3.4:1).
+  "ghostty": [
+    "background = #fbfaf8",
+    "foreground = #32302c",
+    "cursor-color = #2383e2",
+    "cursor-text = #fbfaf8",
+    "selection-background = #cfe2f6",
+    "selection-foreground = #32302c",
+    "palette = 0=#32302c",
+    "palette = 1=#a84f45",
+    "palette = 2=#217840",
+    "palette = 3=#816603",
+    "palette = 4=#4169af",
+    "palette = 5=#95518e",
+    "palette = 6=#08757d",
+    "palette = 7=#6b6f76",
+    "palette = 8=#848890",
+    "palette = 9=#b8513b",
+    "palette = 10=#03814e",
+    "palette = 11=#896d00",
+    "palette = 12=#4e6cc2",
+    "palette = 13=#a75293",
+    "palette = 14=#047c8b",
+    "palette = 15=#8f9195"
+  ],
+  // The terminal face: SF Mono at 13 pt, the face a wiki page sets its code blocks in.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
 
   // A plain, opaque window: no wallpaper, no glass.
   "appearance.background": "none",

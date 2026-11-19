@@ -23,6 +23,9 @@ It is built only from public surfaces, so you can copy any part of it:
 | `themes/linen-dark.json` | Dark. Page `#212121`, text `#f3f3f3`, the sidebar a step darker `#181818`, code on `#181818`, accent near-white `#f3f3f3` with the page color on it, selection `#28446e`, the palette lifted for the dark page |
 | `agent-pane/theme.css` | The gray prompt pill (the text at 7% over the page, no edge, 20 px corners), cards on a faint fill with a 10% hairline, gray secondary text at 66% and 58%, links in the text color, and the soft menus (pending, below): `cmux.agentPane.style/1` tokens only, every color mixed from the theme's own |
 | `customize/` | A hover card that reads like a message preview (title and age, then two or three gray lines of the chat's last reply or prompt, then where it runs) and history rows in regular weight with a thin spinning ring |
+| `markdown/theme.css` | The Markdown viewer's paint: plain text with no frame. Headings with no rule, code in a soft gray block with 12 px corners, quotes on a gray line, links in the text's own color. Only `--cmux-md-*` properties on `:root`, every color mixed from the page's own |
+
+The rest of cmux wears the look too. The terminal is SF Mono at 13 pt (the system's monospaced face, as the chat's code blocks use) with a full sixteen-color palette at a plain chroma, colors 1 to 7 and 9 to 14 held to WCAG AA over its page (8, the dim gray, to 3:1); the Markdown viewer opens in the system face at 16 px with the chat's line height and code scale in a 87-character column, and `markdown/theme.css` paints it; diffs use theme colors with change bars; sidebar group colors are grays.
 
 Both theme files set the same proportions: a 52 pt header, the 260 pt history sidebar with 32 pt
 rows and 14 pt text, 13 pt tab titles in a 36 pt strip, a 1 pt divider and no gutter

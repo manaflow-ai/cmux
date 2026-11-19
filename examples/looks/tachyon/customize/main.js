@@ -1,6 +1,7 @@
 // Tachyon's sidebar: a session hover card laid out the way a modern terminal shows a session, and
 // rows with a filling arc while work runs.
-// Public surfaces only: cmux.hovercard/1 and cmux.sidebar.rows/1 (docs/cmux-next/sidebar-customization.md).
+// Public surfaces only: cmux.hovercard/1, cmux.sidebar.rows/1 and cmux.session.info.section/1
+// (docs/cmux-next/sidebar-customization.md).
 
 // The card: the status first, as a small tinted chip ("In progress"), then the session's place
 // (folder, then branch), the title in the monospaced face (it is usually a command or a prompt),
@@ -55,4 +56,21 @@ function decorateRows() {
   ])
 }
 
-globalThis.__cmuxAppExports = { renderCard, decorateRows }
+// Session Info: the session as the prompt line a terminal prints before each block, in the
+// monospaced face: the folder, then the branch in the accent, then the agent in the quiet gray.
+function renderPrompt(context) {
+  const cwd = String((context && context.cwd) || "")
+  const folder = cwd.split("/").filter(Boolean).slice(-2).join("/")
+  const branch = String((context && context.branch) || "").trim()
+  const agent = String((context && context.harness) || "").trim()
+  return VStack({ spacing: 4, alignment: "leading" }, [
+    HStack({ spacing: 6 }, [
+      Text(folder ? `~/${folder}` : "~").monospaced().lineLimit(1).truncation("head").help(cwd),
+      branch ? Text(branch).monospaced().color(cmux.theme.accent).lineLimit(1) : null,
+      Spacer(),
+    ]),
+    agent ? Text(agent).monospaced().font("caption").secondary().lineLimit(1) : null,
+  ])
+}
+
+globalThis.__cmuxAppExports = { renderCard, decorateRows, renderPrompt }

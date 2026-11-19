@@ -35,6 +35,9 @@
     "palette = 14=#24679a",
     "palette = 15=#c9c9ca"
   ],
+  // The terminal face: SF Mono at 13 pt, the system's own monospaced face, as a native editor uses.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
 
   "appearance.background": "none",
   "appearance.backgroundBlur": "none",

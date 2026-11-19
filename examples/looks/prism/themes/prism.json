@@ -13,6 +13,36 @@
   // buttons and radio fills.
   "colors": { "background": "#ffffff", "foreground": "#1f1d2b", "selection": "#d9dbfe", "accent": "#3139fb" },
   "appearance.accent": "theme",
+  // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
+  // ANSI colors at a vivid, cool chroma, each solved in OKLCH over the page (5.2:1, the bright ones
+  // 4.7:1, 7 the gray 4.8:1, 15 3:1; 8, the dim gray, 3.4:1).
+  "ghostty": [
+    "background = #ffffff",
+    "foreground = #1f1d2b",
+    "cursor-color = #3139fb",
+    "cursor-text = #ffffff",
+    "selection-background = #d9dbfe",
+    "selection-foreground = #1f1d2b",
+    "palette = 0=#1f1d2b",
+    "palette = 1=#c23c49",
+    "palette = 2=#137e08",
+    "palette = 3=#8d6603",
+    "palette = 4=#056ec4",
+    "palette = 5=#9f49ad",
+    "palette = 6=#077979",
+    "palette = 7=#6d7279",
+    "palette = 8=#868b92",
+    "palette = 9=#d6373a",
+    "palette = 10=#058635",
+    "palette = 11=#956c07",
+    "palette = 12=#166fe5",
+    "palette = 13=#b544b4",
+    "palette = 14=#098086",
+    "palette = 15=#939599"
+  ],
+  // The terminal face: SF Mono at 13 pt, the system's monospaced face under the bright frame.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
   // A little extra color in the tint, as the frame is meant to be loud and the card quiet.
   "appearance.saturation": 1.15,
 

@@ -15,6 +15,33 @@
   // Selection, focus and Send in neutral gray, as the launcher marks its selected row; the coral stays
   // the theme color that links and the few red marks mix from.
   "appearance.accent": "neutral",
+  // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
+  // ANSI colors at a warm, lively chroma, each solved in OKLCH over the page (5.5:1, the bright
+  // ones 8.5:1; 0 the raised black 2:1; 8, the dim gray, 3.4:1).
+  "ghostty": [
+    "background = #141414",
+    "foreground = #ffffff",
+    "cursor-color = #ff6363",
+    "cursor-text = #141414",
+    "selection-background = #363636",
+    "selection-foreground = #ffffff",
+    "palette = 0=#44484e",
+    "palette = 1=#df685e",
+    "palette = 2=#30a054",
+    "palette = 3=#ac8806",
+    "palette = 4=#548ce7",
+    "palette = 5=#c46dbe",
+    "palette = 6=#089ca4",
+    "palette = 7=#ffffff",
+    "palette = 8=#666b71",
+    "palette = 9=#ff937c",
+    "palette = 10=#1ec97a",
+    "palette = 11=#d7ab03",
+    "palette = 12=#8daffe",
+    "palette = 13=#fa89e1",
+    "palette = 14=#0dc2d5",
+    "palette = 15=#e6e8eb"
+  ],
 
   // Glass: dark glass. The window is translucent over a blurred desktop; the sidebar lets more
   // of it through than the reading surface does.
@@ -111,6 +138,8 @@
   "appearance.colorTransition.colorSpace": "oklab",
   "appearance.colorTransition.reduceMotion": "crossfade",
 
+  // The terminal face: SF Mono, the system's monospaced face, as a launcher's script output uses.
+  "terminal.fontFamily": "SF Mono",
   "terminal.fontSize": 13
 
   // Pending cmux#46861 (layout and proportions): 32 pt list rows with 44 pt two-line rows, a 10 pt inset so the selected row floats as a rounded capsule, grouped 28 pt header buttons on a 8 pt corner, no header hairline, a roomy prompt field. Uncomment once your build has it.

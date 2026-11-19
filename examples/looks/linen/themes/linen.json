@@ -25,9 +25,25 @@
     "9": "#d1352b",
     "10": "#00852e",
     "11": "#a35200",
-    "12": "#2d6be0"
+    "12": "#2d6be0",
+    // The terminal palette, whole: the slots above as sampled, the rest at a plain chroma, each
+    // solved in OKLCH over the page (5.2:1, the bright ones 4.7:1, 7 4.8:1, 8 the dim gray 3.4:1),
+    // and the cursor in the accent.
+    "0": "#0d0d0d",
+    "5": "#925891",
+    "6": "#04787e",
+    "7": "#6e7279",
+    "8": "#878b93",
+    "13": "#a45997",
+    "14": "#05808b",
+    "15": "#939599",
+    "cursor": "#0d0d0d"
   },
   "appearance.accent": "theme",
+  // The terminal face: SF Mono at 13 pt, the system's monospaced face, as the chat's code blocks
+  // use.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
 
   // No wallpaper, no glass: plain fills.
   "appearance.background": "none",

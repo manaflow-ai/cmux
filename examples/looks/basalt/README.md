@@ -22,6 +22,9 @@ It is built only from public surfaces, so you can copy any part of it:
 | `themes/basalt-light.json` | Light. Page `#f9f7f8`, text `#141414`, the sidebar `#eeeeee`, code on `#fcfcfc`, accent `#3d6db3` with white on it, selection `#cddcf0`, the same palette taken down until it reads on the light page |
 | `agent-pane/theme.css` | The bordered prompt box (a fill 3% off the page, a 10% edge, 12 px corners), cards on the same quiet fill, gray secondary text at 70% and 60%, links in the accent pulled a fifth toward the text, and the editor's menus (pending, below): `cmux.agentPane.style/1` tokens only, every color mixed from the theme's own |
 | `customize/` | A hover card laid out like the editor's thread card (the title and age, then the branch and folder lines, each with a gray icon) and rows in regular weight with a plain status dot |
+| `markdown/theme.css` | The Markdown viewer's paint: code in the bordered box's 8 px corners on a quiet gray, headings with no rule, quotes on a gray line; nothing blue but links. Only `--cmux-md-*` properties on `:root`, every color mixed from the page's own |
+
+The rest of cmux wears the look too. The terminal is Menlo at 12 pt (the face and size an editor's terminal opens in on a Mac) with a full sixteen-color palette at a quiet chroma, colors 1 to 7 and 9 to 14 held to WCAG AA over its page (8, the dim gray, to 3:1); the Markdown viewer opens in the system face at 15 px with the chat's line height and code scale in a 92-character column, and `markdown/theme.css` paints it; diffs use theme colors with change bars; sidebar group colors come from the theme's palette.
 
 Both theme files set the same proportions, measured at the references' 2x scale: a 40 pt title
 bar, a 260 pt sidebar with 30 pt rows, the 13 pt interface size the editor ships with, 13 pt tab
