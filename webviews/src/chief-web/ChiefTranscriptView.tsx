@@ -19,7 +19,7 @@ export function ChiefTranscriptView({
   setExpanded,
 }: {
   transcript: ChiefTranscript;
-  rows: AcpmuxRow[];
+  rows: readonly AcpmuxRow[];
   working: boolean;
   sessionId: string;
   expanded: Set<string>;
