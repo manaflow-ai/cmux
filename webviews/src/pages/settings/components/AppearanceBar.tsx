@@ -7,7 +7,7 @@
 // customizations"), leaving the others as they are; each runs on the pick and is itself one Undo
 // step, so none asks first. Cmd-Z and Shift-Cmd-Z run Undo and Redo while no text field has focus.
 import { Button } from "../../../ui/Button";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from "react";
 import { isTypingTarget } from "../../../ui/focusRoute";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../../ui/Menu";
 import { Tooltip } from "../../../ui/Tooltip";
@@ -56,20 +56,19 @@ export function AppearanceBar({ section }: { section: string }) {
     }
   };
   // The page's own Cmd-Z: a text field keeps its own undo; a step running finishes first.
-  const keys = useRef({ live, run });
-  keys.current = { live, run };
+  const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    const chord = undoChord(event);
+    if (!chord || event.defaultPrevented) return;
+    if (isTypingTarget(event.target as Element | null)) return;
+    event.preventDefault();
+    if (!live) return;
+    void run(() => (chord === "undo" ? store.undoAppearance() : store.redoAppearance()));
+  });
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const chord = undoChord(event);
-      if (!chord || event.defaultPrevented) return;
-      if (isTypingTarget(event.target as Element | null)) return;
-      event.preventDefault();
-      if (!keys.current.live) return;
-      void keys.current.run(() => (chord === "undo" ? store.undoAppearance() : store.redoAppearance()));
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [store]);
+    const listener = (event: KeyboardEvent) => onKeyDown(event);
+    document.addEventListener("keydown", listener);
+    return () => document.removeEventListener("keydown", listener);
+  }, []);
   return (
     <div
       className="appearance-bar"
