@@ -424,6 +424,11 @@ extension AgentTabStore {
             host.servesSide = daemon.supports(DaemonCapability.agentSessionSide.rawValue)
             host.servesMachineLogin = daemon.supports(DaemonCapability.agentSessionLoginMachine.rawValue)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
+            // A composer Cloud send's new chat marks its page's steps on the send's timeline (CloudSendTimelines, cmux#45953).
+            if host.cloudMachineID != nil {
+                let timelines = services.cloud.sendTimelines, timedMachine = daemon.machineID, timedTab = key.key
+                host.cloudSendMark = { step, phases in timelines.mark(step, machine: timedMachine, tab: timedTab, phases: phases) }
+            }
             // A Cloud machine never signs its agents in on itself: they reach models through its edge,
             // and the machine holds no provider login, so its chats offer no on-machine sign-in.
             host.servesLogin = host.cloudMachineID == nil && daemon.supports(DaemonCapability.agentSessionLogin.rawValue)
@@ -587,7 +592,12 @@ extension AgentTabStore {
             tabs?.localHostName = name
             return AgentPaneModel.rememberLocalMachineName(AgentTabStore.displayName(name) ?? name)
         }
-        tabs.onPageBuilt = { [weak services, weak tabs] key in services?.cache.hibernation?.agentPages?.pages.pageBuilt(key); services?.paneOwedWork.hand(to: tabs?.views.values.map { $0 } ?? []) } // a pane made now takes what its chat owes
+        tabs.onPageBuilt = { [weak services, weak tabs] key in
+            services?.cache.hibernation?.agentPages?.pages.pageBuilt(key)
+            services?.paneOwedWork.hand(to: tabs?.views.values.map { $0 } ?? []) // a pane made now takes what its chat owes
+            // A chat whose agent used an app before its page was made gets its card now.
+            services?.computerUsePreviews.replayChats()
+        }
         tabs.onCollectingPages = { [weak services] held in services?.cache.hibernation?.agentPages?.pages.holdAwake(held) }
         services.madeAgentTabs = tabs
         return tabs

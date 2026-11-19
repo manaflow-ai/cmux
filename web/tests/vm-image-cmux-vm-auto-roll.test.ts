@@ -375,7 +375,7 @@ describe("auto-roll settle", () => {
 // The workflows that run the decisions above: they read settle's outcome and never decide on their own.
 describe("auto-roll workflows", () => {
   const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
-  type Step = { name?: string; id?: string; if?: string; run?: string; env?: Record<string, string> };
+  type Step = { name?: string; id?: string; if?: string; run?: string; env?: Record<string, string>; uses?: string; with?: Record<string, unknown> };
   type Job = { if?: string; permissions?: Record<string, string>; steps: Step[] };
   const load = (name: string) =>
     YAML.parse(readFileSync(new URL(`../../.github/workflows/${name}`, import.meta.url), "utf8")) as {
@@ -393,13 +393,15 @@ describe("auto-roll workflows", () => {
   });
 
   test("settle takes its outcome from auto-roll.ts settle, with no cancelled shortcut", () => {
+    expect(stepOf(settleJob, "deploy-mode").run).toContain("cmux-platform owns deploy and settle");
+    expect(stepOf(settleJob, "roll").if).toBe("steps.deploy-mode.outputs.enabled == 'true'");
     const read = stepOf(settleJob, "roll").run!;
     expect(read).toContain("auto-roll.ts settle");
     expect(read).not.toMatch(/cancelled/);
-    expect(stepOf(settleJob, "rollback").if).toBe("steps.roll.outputs.outcome == 'rollback'");
-    expect(stepOf(settleJob, "push-token").if).toBe("steps.roll.outputs.outcome == 'rollback'");
+    expect(stepOf(settleJob, "rollback").if).toBe("steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'rollback'");
+    expect(stepOf(settleJob, "push-token").if).toBe("steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'rollback'");
     const retry = stepOf(settleJob, "retry");
-    expect(retry.if).toBe("steps.roll.outputs.outcome == 'retry'");
+    expect(retry.if).toBe("steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'retry'");
     expect(retry.run).toContain("-f action=deploy-production");
     expect(retry.run).toContain('-f image_rollback_attempt="$NEXT"');
     expect(settleJob.permissions).toMatchObject({ actions: "write" });
@@ -425,6 +427,41 @@ describe("auto-roll workflows", () => {
     const promote = roll.jobs["promote"]!;
     expect(stepOf(promote, "message").run).toContain('image="cloud-native-auto-${tui:0:8}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"');
     expect(stepOf(promote, "push").run).toContain('--attempt "$GITHUB_RUN_ATTEMPT"');
+  });
+
+  // Roll 44282278310 (2026-11-18): with vars.LINUX_RUNNER on a 16-vCPU Blacksmith size, plan queued 41 min and
+  // promote 20+ min for that size, each a minute of work. Only the bake needs the big runner.
+  test("the roll's control jobs take the 4-vCPU pool, never LINUX_RUNNER; the bake keeps it", () => {
+    const roll = load("cloud-vm-image-roll.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
+    for (const job of ["platform-readiness", "plan", "promote", "report"]) {
+      const runsOn = roll.jobs[job]!["runs-on"]!;
+      expect(runsOn).not.toContain("vars.LINUX_RUNNER");
+      expect(runsOn).toMatch(/\|\| fromJSON\(vars\.RUNNER_POOLS\)\.linux_4 }}$/);
+      expect(runsOn).toContain("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||");
+    }
+    const bake = load("cloud-vm-image-bake.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
+    expect(bake.jobs["bake"]!["runs-on"]).toContain("vars.LINUX_RUNNER");
+  });
+
+  test("platform mode mints its scoped token, checks out main and passes the split checkout", () => {
+    const roll = load("cloud-vm-image-roll.yml");
+    const promote = roll.jobs["promote"]!;
+    const token = stepOf(promote, "platform-token");
+    expect(token.if).toContain("CMUX_VM_DEPLOY_ENABLED != '1'");
+    expect(token.with).toMatchObject({ owner: "manaflow-ai", repositories: "cmux-platform", "permission-contents": "write" });
+    const checkout = promote.steps.find((step) => step.with?.path === "cmux-platform");
+    expect(checkout?.with).toMatchObject({ repository: "manaflow-ai/cmux-platform", ref: "main" });
+    expect(stepOf(promote, "push").env).toMatchObject({ PLATFORM_CHECKOUT: expect.stringContaining("cmux-platform") });
+    expect(stepOf(promote, "push").run).toContain("--platform-checkout");
+  });
+
+  test("readiness dispatch mints the platform grant and reads main without a push", () => {
+    const roll = load("cloud-vm-image-roll.yml");
+    expect(roll.on.workflow_dispatch.inputs.platform_readiness).toMatchObject({ default: false, type: "boolean" });
+    const readiness = roll.jobs["platform-readiness"]!;
+    const token = stepOf(readiness, "platform-token");
+    expect(token.with).toMatchObject({ owner: "manaflow-ai", repositories: "cmux-platform", "permission-contents": "write" });
+    expect(readiness.steps.find((step) => step.name === "Read cmux-platform main's Wrangler config")?.run).toContain("test -s");
   });
 });
 
@@ -497,6 +534,52 @@ describe("auto-roll scripts", () => {
       expect(approved.image.id).toMatch(/^cloud-native-auto-[0-9a-f]{8}-4242-2$/);
     }), 60_000);
 
+  test("platform mode pushes Wrangler first and leaves cmux with a lock-only commit", () =>
+    withDir(async (dir) => {
+      const src = path.join(dir, "src");
+      const platform = path.join(dir, "platform");
+      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/fallback-image.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
+        mkdirSync(path.dirname(path.join(src, file)), { recursive: true });
+        copyFileSync(path.join(repoRoot, file), path.join(src, file));
+      }
+      mkdirSync(path.join(platform, "workers/cmux-vm"), { recursive: true });
+      copyFileSync(path.join(repoRoot, "workers/cmux-vm/wrangler.jsonc"), path.join(platform, "workers/cmux-vm/wrangler.jsonc"));
+      await git(dir, "init", "-q", "--bare", "cmux.git");
+      await git(dir, "init", "-q", "--bare", "platform.git");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", src);
+      await git(src, "add", ".");
+      await git(src, "commit", "-q", "-m", "base");
+      await git(src, "remote", "add", "origin", path.join(dir, "cmux.git"));
+      await git(src, "push", "-q", "origin", "feat-cmux-next");
+      await git(dir, "init", "-q", "-b", "main", platform);
+      await git(platform, "add", ".");
+      await git(platform, "commit", "-q", "-m", "base");
+      await git(platform, "remote", "add", "origin", path.join(dir, "platform.git"));
+      await git(platform, "push", "-q", "origin", "main");
+      const lock = readFileSync(path.join(src, "images/cmux-vm/inputs.lock.json"), "utf8");
+      // The same cmux-tui as the lock: the never-older check (auto-roll.ts behind) passes without that commit's history.
+      const pinned = (JSON.parse(lock) as { programs: { name: string; version: string }[] }).programs.find((program) => program.name === "cmux-tui")?.version ?? "";
+      const temp = path.join(dir, "runner-temp");
+      const fakeBin = path.join(dir, "bin");
+      mkdirSync(temp);
+      mkdirSync(fakeBin);
+      writeFileSync(path.join(temp, "candidate.json"), JSON.stringify({ ...candidate, lock_sha256: createHash("sha256").update(`${lock}\n`).digest("hex") }));
+      writeFileSync(path.join(temp, "message.txt"), "cmux-vm: image roll platform test\n\nImage-Roll-Run: 4242\nImage-Roll-Image: cloud-native-auto-12345678-4242-2\n");
+      const realBun = (await runChildOk("bash", ["-c", "command -v bun"], { env: process.env })).stdout.trim();
+      writeFileSync(path.join(fakeBin, "bun"), `#!/usr/bin/env bash\nif [ "\${1:-}" = "images/cmux-vm/pin-cmux-tui.ts" ]; then printf '\\n' >> "$(pwd)/images/cmux-vm/inputs.lock.json"; exit 0; fi\nexec ${realBun} "$@"\n`);
+      await runChildOk("chmod", ["+x", path.join(fakeBin, "bun")]);
+      const out = await runChildOk(
+        "bash",
+        ["images/cmux-vm/image-roll-push.sh", "roll", "--candidate", path.join(temp, "candidate.json"), "--revision", "ci-4242-2", "--run", "4242", "--attempt", "2", "--pin", pinned, "--message-file", path.join(temp, "message.txt"), "--platform-checkout", platform, "--dry-run"],
+        { cwd: src, env: { ...gitEnv, PATH: `${fakeBin}:${process.env.PATH}`, PLATFORM_TOKEN: "unused", RUNNER_TEMP: temp, GITHUB_OUTPUT: path.join(temp, "output") } },
+      );
+      expect(out.stdout.trim().split("\n").at(-1)).toMatch(/^dry-run [0-9a-f]{40}/);
+      expect((await git(platform, "show", "--format=", "--name-only", "HEAD")).stdout.trim()).toBe("workers/cmux-vm/wrangler.jsonc");
+      expect((await git(src, "show", "--format=", "--name-only", "HEAD")).stdout.trim()).toBe("images/cmux-vm/inputs.lock.json");
+      expect((await git(platform, "log", "-1", "--format=%s")).stdout.trim()).toBe("cmux-vm: image roll platform test");
+      expect((await git(src, "log", "-1", "--format=%s")).stdout.trim()).toBe("cmux-vm: image roll platform test");
+    }), 60_000);
+
   test("plan fails closed on a shallow checkout or a pin it lacks, and still refuses a build older than the pin", () =>
     withDir(async (dir) => {
       const full = path.join(dir, "full");
@@ -537,6 +620,85 @@ describe("auto-roll scripts", () => {
       expect(missing.status).not.toBe(0);
       expect(missing.stderr).toMatch(/not in this checkout/);
     }), 60_000);
+
+  // Roll 44191283358's re-run (attempt 2) promoted cmux-tui 6c776483 at 2026-11-18 04:53Z over roll 44224051230's
+  // newer ecd5f536 (04:30Z): plan() refused an older build only against the pin at plan time.
+  test("behind refuses a pin older than the tip's, allows the same or a newer one, and fails closed when shallow", () =>
+    withDir(async (dir) => {
+      const full = path.join(dir, "full");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", full);
+      const commitOf = async (msg: string) => {
+        await git(full, "commit", "-q", "--allow-empty", "-m", msg);
+        return (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      };
+      const older = await commitOf("older");
+      const pinned = await commitOf("pinned");
+      const newer = await commitOf("newer");
+      const lock = path.join(dir, "lock.json");
+      writeFileSync(lock, JSON.stringify({ programs: [{ name: "cmux-tui", version: pinned }] }));
+      const script = path.join(repoRoot, "images/cmux-vm/auto-roll.ts");
+      const behind = (repo: string, pin: string) => runChild("bun", [script, "behind", "--pin", pin, "--lock", lock, "--repo", repo]);
+
+      const back = await behind(full, older);
+      expect(back.status).toBe(3);
+      expect((JSON.parse(back.stdout) as { reason: string }).reason).toMatch(/older than the tip's pinned/);
+      expect((await behind(full, pinned)).status).toBe(0);
+      expect((await behind(full, newer)).status).toBe(0);
+
+      const shallow = path.join(dir, "shallow");
+      await git(dir, "clone", "-q", "--depth", "1", "--branch", "feat-cmux-next", `file://${full}`, shallow);
+      const cut = await behind(shallow, older);
+      expect(cut.status).not.toBe(0);
+      expect(cut.status).not.toBe(3);
+      expect(cut.stderr).toMatch(/shallow/);
+    }), 60_000);
+
+  test("the push script lands nothing when a newer roll pinned a newer cmux-tui while this one baked", () =>
+    withDir(async (dir) => {
+      const src = path.join(dir, "src");
+      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/fallback-image.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
+        mkdirSync(path.dirname(path.join(src, file)), { recursive: true });
+        copyFileSync(path.join(repoRoot, file), path.join(src, file));
+      }
+      await git(dir, "init", "-q", "--bare", "remote.git");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", src);
+      await git(src, "commit", "-q", "--allow-empty", "-m", "the roll's build");
+      const older = (await git(src, "rev-parse", "HEAD")).stdout.trim();
+      await git(src, "commit", "-q", "--allow-empty", "-m", "a newer build");
+      const newer = (await git(src, "rev-parse", "HEAD")).stdout.trim();
+      // The tip as a newer roll left it: its lock pins the newer build.
+      const lockPath = path.join(src, "images/cmux-vm/inputs.lock.json");
+      const lock = JSON.parse(readFileSync(lockPath, "utf8")) as { programs: Array<{ name: string; version: string }> };
+      for (const program of lock.programs) if (program.name === "cmux-tui") program.version = newer;
+      writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
+      await git(src, "add", ".");
+      await git(src, "commit", "-q", "-m", "a newer roll");
+      await git(src, "remote", "add", "origin", path.join(dir, "remote.git"));
+      await git(src, "push", "-q", "origin", "feat-cmux-next");
+      const before = readFileSync(path.join(src, "workers/cmux-vm/wrangler.jsonc"), "utf8");
+      const temp = path.join(dir, "runner-temp");
+      mkdirSync(temp);
+      writeFileSync(path.join(temp, "candidate.json"), JSON.stringify(candidate));
+      writeFileSync(path.join(temp, "message.txt"), "cmux-vm: image roll test\n");
+      const out = await runChild(
+        "bash",
+        ["images/cmux-vm/image-roll-push.sh", "roll", "--candidate", path.join(temp, "candidate.json"), "--revision", "ci-4242-2", "--run", "4242",
+          "--attempt", "2", "--pin", older, "--message-file", path.join(temp, "message.txt"), "--dry-run"],
+        { cwd: src, env: { ...gitEnv, RUNNER_TEMP: temp, GITHUB_OUTPUT: path.join(temp, "output") } },
+      );
+      expect(out.status).toBe(0);
+      expect(out.stdout.trim().split("\n").at(-1)).toMatch(/^nothing cmux-tui [0-9a-f]{12} is older than the tip's pinned/);
+      expect(readFileSync(path.join(temp, "output"), "utf8")).toContain("result=nothing");
+      expect(readFileSync(path.join(src, "workers/cmux-vm/wrangler.jsonc"), "utf8")).toBe(before);
+      const pinnedNow = (JSON.parse(readFileSync(lockPath, "utf8")) as typeof lock).programs.find((p) => p.name === "cmux-tui")!.version;
+      expect(pinnedNow).toBe(newer);
+    }), 60_000);
+
+  test("the promote job checks out full history for the never-older check", () => {
+    const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
+    const roll = YAML.parse(readFileSync(new URL("../../.github/workflows/cloud-vm-image-roll.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Array<{ with?: Record<string, unknown> }> }> };
+    expect(roll.jobs["promote"]!.steps[0]!.with).toMatchObject({ "fetch-depth": 0, filter: "blob:none" });
+  });
 
   test("the plan job checks out full history and fails on a pin it cannot fetch", () => {
     const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
