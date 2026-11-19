@@ -195,6 +195,11 @@ UNWIRED: set[str] = {
     # artifacts.yml, cmux-tui-build-package.yml and cmux-tui-tree-request.yml as data. Run it by hand after changing
     # apt-ensure.sh or those install steps. Exit: as above.
     "tests/test_ci_apt_ensure.py",
+    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It runs the Mac build steps of cmux-
+    # tui-build-package.yml with a fake cargo and sysctl and checks their cargo builds run at once at 40 GiB or more
+    # (#46073). Run it by hand after changing those steps, cmux-tui-mac-cargo-builds.sh or cargo-groups.sh. Exit: as
+    # above.
+    "tests/test_ci_cmux_tui_mac_legs_cargo_groups.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It checks that fast-checks.yml's setup=kernel-free Mac job: its
     # owned label, trust boundary and receipt (#46651). Run it by hand after changing that job. Exit: as above.
     "tests/test_ci_fast_checks_kernel_free.py",
