@@ -127,6 +127,12 @@ public struct MobilePlansView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("BillingIneligible")
                 }
+                // Nothing is on sale here, but the plans are still listed.
+                ForEach(account.catalogPlanIDs, id: \.self) { planID in
+                    Section {
+                        MobilePlanCatalogRow(planID: planID, isCurrent: planID == account.currentPlan.planID)
+                    }
+                }
             }
         }
     }
