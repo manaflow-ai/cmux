@@ -2451,6 +2451,8 @@ def run_detect_step_for_paths(
             # The package-test lane's own inputs, which the router reads to
             # decide whether that lane is worth a macOS runner.
             ROOT / "scripts" / "ci" / "select_package_tests.py",
+            # The lane's PACKAGES list, which the router reads to name them.
+            ROOT / "scripts" / "ci" / "package-test-lane.sh",
             # The trusted base router reads the cmux-cli target from these.
             ROOT / "cmux.xcodeproj" / "project.pbxproj",
             *sorted(ROOT.glob("Packages/*/*/Package.swift")),
@@ -2595,6 +2597,19 @@ def test_router_change_with_app_source_uses_trusted_base_product_routing() -> No
 
     assert "classifying product inputs with the trusted base router" in result.stdout
     assert outputs == ["macos=true", "web=false", "agent_session_web=false", "cli=false", "swift_packages=false", "release_build=true"]
+
+
+def test_a_package_edit_selects_the_package_lane_on_the_normal_and_trusted_router() -> None:
+    # The trusted base router read the package lane's PACKAGES list from
+    # scripts/ci/package-test-lane.sh, a file its checkout did not copy: a pull
+    # request that edited any scripts/ci file next to a package skipped that
+    # package's tests (cmux#44963: "Could not read scripts/ci/package-test-lane.sh",
+    # swift_packages=false for a CmuxHomeCore test edit).
+    package_test = "Packages/Shared/CmuxHomeCore/Tests/CmuxHomeCoreTests/ManualClock.swift"
+    for policy_change in ([], ["scripts/ci/detect_ci_change_areas.py"]):
+        result, outputs = run_detect_step_for_paths([package_test, *policy_change])
+        assert "swift_packages=true" in outputs, (policy_change, result.stdout, result.stderr)
+        assert "Could not read scripts/ci/package-test-lane.sh" not in result.stderr, result.stderr
 
 
 def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard() -> None:
