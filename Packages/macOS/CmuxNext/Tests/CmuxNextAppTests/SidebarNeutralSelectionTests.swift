@@ -25,7 +25,7 @@ import Testing
         name == "Codex Dark" ? codexDark : try SidebarSelectionLookTests.input(name)
     }
 
-    static let themes = ["Codex Dark", "Soft Blue", "Clay Orange Light"]
+    nonisolated static let themes = ["Codex Dark", "Soft Blue", "Clay Orange Light"]
 
     @Test(arguments: themes) func neutralKeepsTheGrayCardUnderAnAccent(_ name: String) throws {
         var input = try Self.input(name)
