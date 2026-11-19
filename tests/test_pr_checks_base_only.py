@@ -307,7 +307,7 @@ class WorkflowShapeTests(unittest.TestCase):
 
     def test_a_description_edit_never_cancels_a_push_run(self):
         group = WORKFLOW["concurrency"]["group"]
-        self.assertIn("github.event.action == 'edited' && 'edited' || 'push'", group)
+        self.assertIn("&& 'edited' || github.event.action == 'edited' && format('edit-{0}', github.run_id) || 'push'", group)
         self.assertTrue(WORKFLOW["concurrency"]["cancel-in-progress"])
         for job_id in (*SKIPPED_ON_BASE_ONLY, *ALWAYS):
             self.assertNotIn("concurrency", JOBS[job_id])
