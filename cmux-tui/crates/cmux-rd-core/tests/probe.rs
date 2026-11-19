@@ -1,4 +1,4 @@
-use cmux_rd_core::probe::{ProbeConfig, ProbePlanner, ProbeReason};
+use cmux_rd_core::probe::{ProbeConfig, ProbeEstimate, ProbePlanner, ProbeReason};
 use cmux_rd_proto::Arrival;
 
 fn planner() -> ProbePlanner {
@@ -108,4 +108,62 @@ fn expiry_discards_partial_feedback() {
     assert!(p.record_departure(packet.transport_seq, 0));
     assert!(p.on_feedback(10_000, &[]).is_none());
     assert!(p.active().is_none());
+}
+
+/// Sends a whole train of `count` 100-byte probes back to back at t=0 and reports the
+/// first `arrived` of them 10 us apart.
+fn train_with_loss(count: usize, arrived: usize) -> (ProbePlanner, Option<ProbeEstimate>) {
+    let mut p = ProbePlanner::new(ProbeConfig {
+        stream: 7,
+        datagram_bytes: 100,
+        packet_count: count,
+        spacing_us: 100,
+        expiry_us: 100_000,
+        min_samples: 4,
+        max_rate_bps: 150_000_000,
+        max_capacity_bps: 1_000_000_000,
+    });
+    p.start(ProbeReason::Startup, 0).expect("start");
+    let mut seqs = Vec::new();
+    while let Some(due) = p.next_deadline_us() {
+        let Some(packet) = p.next_packet(due, seqs.len() as u16) else { break };
+        assert!(p.record_departure(packet.transport_seq, 0));
+        seqs.push(packet.transport_seq);
+    }
+    assert_eq!(seqs.len(), count);
+    let arrivals: Vec<Arrival> = seqs
+        .iter()
+        .take(arrived)
+        .enumerate()
+        .map(|(i, &transport_seq)| Arrival { transport_seq, arrival_us: 1_000 + i as u32 * 10 })
+        .collect();
+    let estimate = p.on_feedback(50_000, &arrivals);
+    (p, estimate)
+}
+
+/// D10 (2026-11-17): the held rate comes only from a train that arrived with under 2%
+/// loss, and the estimate says how much was lost. A lossier train gives no capacity and
+/// expires, so ultra keeps its rate and the next idle probe tries again.
+#[test]
+fn only_a_train_with_under_two_percent_loss_is_a_capacity() {
+    let (_, whole) = train_with_loss(16, 16);
+    let whole = whole.expect("a whole train is a capacity");
+    assert_eq!(whole.loss_ppm, 0);
+
+    // One of 64 lost is 1.5625%: under 2%, and reported.
+    let (_, one_in_64) = train_with_loss(64, 63);
+    let one_in_64 = one_in_64.expect("1.6% loss is a capacity");
+    assert_eq!(one_in_64.loss_ppm, 15_625);
+    assert!((one_in_64.loss_fraction() - 0.015_625).abs() < 1e-9);
+    assert_eq!(one_in_64.sent_packets - one_in_64.received_packets, 1);
+
+    // One of 16 lost is 6.25%; two of 64 is 3.1%: no capacity, and the train expires.
+    for (count, arrived) in [(16, 15), (64, 62)] {
+        let (mut p, lossy) = train_with_loss(count, arrived);
+        assert!(lossy.is_none(), "{arrived} of {count} arrived: no capacity");
+        assert!(p.active().is_some(), "the rest may still arrive until expiry");
+        assert!(p.on_feedback(100_000, &[]).is_none());
+        assert!(p.active().is_none(), "expired: the next probe tries again");
+        assert!(p.start(ProbeReason::Idle, 100_000).is_some());
+    }
 }
