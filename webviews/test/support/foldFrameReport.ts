@@ -57,6 +57,9 @@ export type FoldCost = {
   paintMs?: number;
   /// Rows mounted at rest.
   mounted: number;
+  /// Distinct rows mounted when the step started or at rest: a row the step drew and then pushed
+  /// out of the window was one of the mounted rows when it was drawn.
+  held: number;
 };
 
 type Probe = {
@@ -69,6 +72,8 @@ type Probe = {
   longTasks: number;
   /// Bumped by each measurement, so a frame loop from an earlier one stops.
   run: number;
+  /// The rows mounted when the measurement started.
+  startRows: string[];
 };
 
 declare global {
@@ -80,7 +85,17 @@ declare global {
 /// The page side, installed before any of the page's scripts: closes over nothing.
 function defineFoldProbe() {
   if (window.__foldProbe) return;
-  const probe: Probe = { on: false, reads: 0, ro: 0, roEntries: 0, commits: 0, frames: [], longTasks: 0, run: 0 };
+  const probe: Probe = {
+    on: false,
+    reads: 0,
+    ro: 0,
+    roEntries: 0,
+    commits: 0,
+    frames: [],
+    longTasks: 0,
+    run: 0,
+    startRows: [],
+  };
   window.__foldProbe = probe;
   const countGetter = (proto: object, name: string) => {
     const own = Object.getOwnPropertyDescriptor(proto, name);
@@ -245,7 +260,8 @@ export async function measureToggle(
       perf.resetRenders();
     }
     const probe = window.__foldProbe;
-    Object.assign(probe, { reads: 0, ro: 0, roEntries: 0, commits: 0, frames: [], longTasks: 0, on: true });
+    const startRows = [...document.querySelectorAll(".acpmux-row")].map((row) => row.getAttribute("data-row-id") ?? "");
+    Object.assign(probe, { reads: 0, ro: 0, roEntries: 0, commits: 0, frames: [], longTasks: 0, on: true, startRows });
     const run = (probe.run += 1);
     const tick = (now: number) => {
       if (!probe.on || probe.run !== run) return;
@@ -277,6 +293,10 @@ export async function measureToggle(
       mounts: renders.filter(([name]) => name.startsWith("mount:")).length,
       remounts: renders.filter(([name]) => name.startsWith("remount:")).length,
       mounted: document.querySelectorAll(".acpmux-row").length,
+      held: new Set([
+        ...probe.startRows,
+        ...[...document.querySelectorAll(".acpmux-row")].map((row) => row.getAttribute("data-row-id") ?? ""),
+      ]).size,
     };
   });
   const trace = cdp ? traceCost(await stopTrace(cdp)) : undefined;
@@ -303,6 +323,7 @@ export async function measureToggle(
     resizeCallbacks: page_.ro,
     resizeEntries: page_.roEntries,
     mounted: page_.mounted,
+    held: page_.held,
     ...(trace && {
       ...trace,
       layoutsPerFrame: r1(trace.layouts / frames),

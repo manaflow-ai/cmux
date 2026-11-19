@@ -4,6 +4,7 @@
 // The live-tools cases test the `runs` arm of live-turn-work, not the shipped `line` arm: the row over
 // the live line is a finished call of a turn that still runs, which only `runs` draws
 // (support/liveTurnRuns.ts). The other cases take the shipped arms.
+import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -248,11 +249,16 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
               // 4 under its 22px line, 8 over the next row, and no stack gap after it (Codex parity,
               // Lucas, 2026-11-07; conversation.css `.cv-worked.has-divider.is-toggle`, model.ts
               // WORKED_GAP_PT, transcriptGrid.ts MARK_WORKED).
-              expect(measured.headerHeight).toBeCloseTo(22 + 4, 1);
+              expect(measured.headerHeight).toBeCloseTo(ROW_METRIC.height + ROW_METRIC.ruleAbove, 1);
               if (variant === "codex-closed") {
-                expect(measured.replyGap).toBeCloseTo(8, 1);
-                expect(Math.abs(measured.replyCenterGap - 34.375)).toBeLessThan(1);
-              } else expect(measured.nextGap).toBeCloseTo(8, 1);
+                expect(measured.replyGap).toBeCloseTo(ROW_METRIC.ruleBelow, 1);
+                expect(
+                  Math.abs(
+                    measured.replyCenterGap -
+                      (ROW_METRIC.height / 2 + ROW_METRIC.ruleAbove + ROW_METRIC.ruleBelow + 11.375),
+                  ),
+                ).toBeLessThan(1);
+              } else expect(measured.nextGap).toBeCloseTo(ROW_METRIC.ruleBelow, 1);
             }
           }
           if (process.env.FAST_CHECKS_OUT) {

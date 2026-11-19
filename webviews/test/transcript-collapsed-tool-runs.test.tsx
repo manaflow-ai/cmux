@@ -4,6 +4,7 @@
 // Codex app draws it (Leo 2026-10-22: "this is pretty good ui: … the collapsing i mean"). Opened, it
 // lists the rows it holds as they draw on their own. The call in flight stays out of it, on the
 // live line; a failed call is counted on it; an edit waiting for its permission keeps its run open.
+import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -117,7 +118,7 @@ test("the app routes a folded mixed run to tool rows and estimates one summary l
   expect(work.foldRun).toBe(true);
   expect(isEditRow(work)).toBe(false);
   // One 22px line (design/chat-transcript.md "One-line row pitch", #29965).
-  expect(layoutConversation([work], 760).heights[0]).toBe(22);
+  expect(layoutConversation([work], 760).heights[0]).toBe(ROW_METRIC.height);
 });
 
 test("the line's glyph is the run's main kind of work", () => {

@@ -12,6 +12,7 @@
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
 import { expect, test } from "bun:test";
+import { ROW_METRIC } from "./rowMetric";
 import {
   codeCardHeight,
   hasReplyActions,
@@ -338,7 +339,7 @@ test("a hidden row after the chat's last footer leaves it the last one", () => {
 
 // Every one-line row takes a one-call tool run's frame: 2px over the 22px tool line, the 4px run gap
 // under it (model.ts LINE_ROW, conversation.css `.acpmux-row--line`).
-test("another agent's message is one 22px tool line in the one-line rows' frame, however long", () => {
+test("another agent's message is one tool line of the row metric in the one-line rows' frame, however long", () => {
   const row = (id: string, text: string) => ({
     id,
     version: 1,
@@ -348,11 +349,11 @@ test("another agent's message is one 22px tool line in the one-line rows' frame,
     incoming: { kind: "message", message: { name: "cmux16/glass-lens", text, raw: text } },
   });
   const [short, long] = heightsOf([row("m1", "Draft is up."), row("m2", "Line of the report.\n".repeat(40))]);
-  expect(short).toBe(22);
+  expect(short).toBe(ROW_METRIC.height);
   expect(long).toBe(short);
 });
 
-test("a message this agent sent another one is one 22px tool line in the one-line rows' frame", () => {
+test("a message this agent sent another one is one tool line of the row metric in the one-line rows' frame", () => {
   const send = {
     kind: "tool",
     text: "SendMessage",
@@ -365,14 +366,14 @@ test("a message this agent sent another one is one 22px tool line in the one-lin
     },
   };
   const [height] = heightsOf([{ id: "s", version: 1, at: 0, kind: "activity", items: [send] }]);
-  expect(height).toBe(22);
+  expect(height).toBe(ROW_METRIC.height);
 });
 
 test("a task notice is a tool row's line in the one-line rows' frame", () => {
   const [height] = heightsOf([
     { id: "n", version: 1, at: 0, kind: "user", text: "Task done", incoming: { kind: "notice", text: "Task done" } },
   ]);
-  expect(height).toBe(22);
+  expect(height).toBe(ROW_METRIC.height);
 });
 
 // A waiting steer's Send now leads the existing action row, so it adds no height to a text prompt.
@@ -481,7 +482,7 @@ test("a status row between two replies is estimated under the reply's kept room"
   const [alone] = heightsOf([before]);
   const [overPrompt] = heightsOf([before, { id: "p", version: 1, at: 1, kind: "user", text: "Next" }]);
   if (hasReplyActions(before as AcpmuxRow, run as AcpmuxRow)) {
-    expect(step).toBe(2 + 22 + 30);
+    expect(step).toBe(2 + ROW_METRIC.height + 30);
     // The same reply over a prompt: its own action row, then the message gap.
     expect(reply).toBe(overPrompt! - 8);
   } else {
@@ -489,7 +490,7 @@ test("a status row between two replies is estimated under the reply's kept room"
     // 5.5) the stack's block gap above and below the run centres it, so neither row adds room: the
     // run is its one 22 line (design/chat-transcript.md "One-line row pitch") and the reply is as tall
     // as it is over a prompt.
-    expect(step).toBe(22);
+    expect(step).toBe(ROW_METRIC.height);
     expect(reply).toBe(overPrompt!);
   }
   expect(alone).toBeGreaterThan(0);
@@ -552,7 +553,7 @@ test("a folded run with messages to other agents is estimated as the lines it dr
   ];
   // A run adds no margin of its own (grid.md 5.5): its lines are flush 22px lines, one apart top to top
   // (design/chat-transcript.md "One-line row pitch", #29965).
-  const lines = (n: number) => n * 22;
+  const lines = (n: number) => n * ROW_METRIC.height;
   // Plain work still folds to its one summary line.
   expect(heightsOf(run([shell("a", "git status"), read]))[0]).toBe(lines(1));
   // A send between two commands: a line each.
