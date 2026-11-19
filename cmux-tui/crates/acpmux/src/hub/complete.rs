@@ -75,6 +75,8 @@ pub(super) struct ChatRoute {
     meta: SessionMeta,
     /// It forks its parent's conversation (`Session::fork_from`), whose home it runs in.
     forking: bool,
+    /// The owner's Cloud credential its own spawn launches with (`Hub::spawn_profile`, cmux#45953).
+    credential: Option<crate::agent_credentials::AgentCredential>,
 }
 
 impl ChatRoute {
@@ -82,6 +84,7 @@ impl ChatRoute {
         Self {
             meta: session.meta(),
             forking: session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some(),
+            credential: session.credential.lock().unwrap_or_else(|e| e.into_inner()).clone(),
         }
     }
 }
@@ -265,7 +268,13 @@ impl Hub {
             (profile, cfg.defaults_for(&meta.harness))
         };
         let (spawn, ..) = self
-            .spawn_profile_read(meta, chat.forking, &profile, &defaults.env)
+            .spawn_profile_read(
+                meta,
+                chat.forking,
+                &profile,
+                &defaults.env,
+                chat.credential.as_ref(),
+            )
             .await
             .map_err(|e| e.message)?;
         Ok(spawn.env)
