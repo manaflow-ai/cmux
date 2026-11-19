@@ -169,7 +169,9 @@ pub const CMUX_ROUTER_PROFILE: &str = "cmux";
 
 /// The models the hosted cmux model router serves (backend
 /// apps/api/src/inference/catalog.ts and its deployments' `INFERENCE_MODEL_ALLOWLIST`):
-/// `(id, name)`, the DeepSeek models only (user, 2026-10-28). The first is the profile
+/// `(id, name)`: the DeepSeek models (user, 2026-10-28) and Gemini 4 Neon on our own Vertex AI
+/// (user, 2026-11-19). This list is the offline fallback; the live list is the model catalog's
+/// `cmux` harness (cloud-api `/v1/models/catalog`). The first is the profile
 /// default and the Claude fallback model: DeepSeek V4.1 Flash 1017, which takes images.
 /// The cmux setting `agents.modelRouter.model` picks another start model from this list
 /// (the app's Settings, palette, `cmux settings set` and MCP `settings.set` write it).
@@ -179,6 +181,7 @@ pub const CMUX_ROUTER_MODELS: &[(&str, &str)] = &[
     ("deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash"),
     ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash"),
     ("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"),
+    ("google/gemini-4-neon", "Gemini 4 Neon"),
 ];
 
 /// The cmux setting that picks the cmux router profile's start model.
