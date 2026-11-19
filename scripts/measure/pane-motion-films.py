@@ -183,6 +183,12 @@ look as the app resolved it), `window_look` at the top (the option's keys) and i
 A window that does not show the look gets `PREFLIGHT window look FAILED:` and no film: no other launch form is
 tried. `behind=checker|stripes` is refused here (exit 3: this script makes no panel behind the window). The recorder
 films the app's own windows only: what is behind a window with no picture is not in a film.
+A FILM OF A LOOK HAS THE LOOK'S KIND IN ITS NAME: its id in films.json and its files are `<id>-<kind>` (`T-D-picture`,
+`T-D-picture.mov`), so the films of 2 looks do not have the same name. The kind is one word from the app's own answer
+(window_look.py `look_kind`): `picture`, `glass` or `seethrough`; it has no value of the option and no picture's
+name. `--films` takes the ids without it. A window that the app shows as opaque keeps the ids of an opaque run, and
+so do the rows of a run in which no launch showed the look. films.json has the kind as `window_look.kind` and, in
+each film's row, as `window_look_kind`.
 """
 import argparse, importlib.util, json, os, platform, re, shutil, signal, subprocess, sys, threading, time, traceback
 
@@ -1611,11 +1617,12 @@ def main():
         if reason:
             report["failures"].append(f"page mock {'on' if mock else 'off'}: {reason}")
         done = {row["id"] for row in report["films"]}
-        report["films"] += [{"id": i, "status": "not_run", "agent_page_mock": mock, "reason": reason[:800]} for i in idents if i not in done]
+        report["films"] += [{"id": named(report, i), "status": "not_run", "agent_page_mock": mock, "reason": reason[:800]}
+                            for i in idents if named(report, i) not in done]
     report["launch_form"] = forms[0]
     for row in report["films"]:
         if opts.look:
-            row["window_look"] = looks.look_tag(opts.look)
+            row.update(window_look=looks.look_tag(opts.look), **({"window_look_kind": report["window_look"]["kind"]} if "kind" in report["window_look"] else {}))
         # Why this film is not a film of that form, in the app's or the check's words; not on a film that is of that form.
         other = {form: why for form, why in report.get("forms_not_run", {}).items() if row.get("launch_form") != form}
         if other:
@@ -1636,6 +1643,14 @@ def main():
     return 0 if made == len(wanted) else 2 if made else 1
 
 
+def named(report, ident):
+    """A film's id in this run: the id of FILMS, and for a window with a look the look's kind after it (`T-D-picture`).
+    The kind is the app's own answer (window_look.py `look_kind`): no value of the option, no picture's name. An
+    opaque window, and a look that no launch has shown yet, keep the id of FILMS."""
+    kind = (report.get("window_look") or {}).get("kind")
+    return ident + (f"-{kind}" if kind and kind != "opaque" else "")
+
+
 def shown_look(app, look):
     """What the launched app says that its window shows, for the launch's facts. No film of a look from another
     window: the launch's own config files hold each named key, and the app's settings answer and its backdrop are
@@ -1643,6 +1658,8 @@ def shown_look(app, look):
     tag, problem, seen = looks.look_tag(look), looks.look_problem(look, app.launched_env), None
     if not problem:
         seen, problem = looks.shown_look(app.rpc, look, monotonic=time.monotonic, sleep=time.sleep)
+        # A film of a look has the look's kind in its name: no film under a name with no kind.
+        problem = problem or (None if seen["kind"] else "the app's backdrop was not read: the look has no kind")
     if problem:
         print(f"PREFLIGHT window look FAILED: {tag}: {problem}", flush=True)
         raise LookNotShown(f"the window does not show the look {tag}: {problem}")
@@ -1678,6 +1695,7 @@ def launch_films(opts, mock, idents, report, began, form):
                 facts["window"] = place(app)
             if opts.look:
                 facts["window_look"] = shown_look(app, opts.look)
+                report["window_look"]["kind"] = facts["window_look"]["kind"]  # from here each film's id has it (`named`)
             link, maker.zoom = preflight(app, maker.st, opts.out, opts.mbps, form, opts.display)
             facts["zoom"] = maker.zoom
         except PreflightFailed as error:
@@ -1700,12 +1718,12 @@ def launch_films(opts, mock, idents, report, began, form):
             print("PANE-FILMS-SESSION " + json.dumps(facts["session"]), flush=True)
         facts["start_s"] = round(time.monotonic() - began, 1)
         for at, ident in enumerate(idents):
-            report["films"].append(maker.take(next(s for s in FILMS if s["id"] == ident)))
+            report["films"].append(maker.take({**next(s for s in FILMS if s["id"] == ident), "id": named(report, ident)}))
             if maker.stop:
                 # A dialog or an overlay stays over the window: no other film of this launch.
-                reason = f"the launch stopped after the film {ident}: {maker.stop}"
+                reason = f"the launch stopped after the film {named(report, ident)}: {maker.stop}"
                 report["failures"].append(f"page mock {'on' if mock else 'off'}: {reason}")
-                report["films"] += [{"id": i, "status": "not_run", "agent_page_mock": mock, "launch_form": form, "reason": reason[:800]} for i in idents[at + 1:]]
+                report["films"] += [{"id": named(report, i), "status": "not_run", "agent_page_mock": mock, "launch_form": form, "reason": reason[:800]} for i in idents[at + 1:]]
                 break
     finally:
         facts["start_s"] = facts["start_s"] or round(time.monotonic() - began, 1)

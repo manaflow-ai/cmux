@@ -289,12 +289,16 @@ class FakeApp:
             if "look-key-not-taken" in world.faults:
                 appearance.pop("backgroundBlur", None)
             return {"path": params.get("path"), "exists": True, "value": appearance, "file": "/fake/cmux.json"}
+        if method == "debug.themes" and "backdrop-not-read" in world.faults:
+            return {"error": "a fake fault of the themes read"}
         if method == "debug.themes":
             world.theme_reads = getattr(world, "theme_reads", 0) + 1
             late = "picture-loads-late" in world.faults and world.theme_reads < 3
             opacity = appearance.get("backgroundOpacity", 1)
-            backdrop = {"sheet": "#102030FF" if opacity == 1 else "", "tint": "" if opacity == 1 else "#102030%02X" % round(opacity * 255),
-                        "glassTint": "", "picture": "" if late or "look-not-shown" in world.faults else appearance.get("background", ""),
+            # Glass carries the tint itself (`glassTint`); an opaque window paints its sheet and shows no tint.
+            tint, glass = "" if opacity == 1 else "#102030%02X" % round(opacity * 255), str(appearance.get("backgroundBlur", "")).startswith("glass")
+            backdrop = {"sheet": "#102030FF" if opacity == 1 else "", "tint": "" if glass else tint, "glassTint": tint if glass else "",
+                        "picture": "" if late or "look-not-shown" in world.faults else appearance.get("background", ""),
                         "blending": "true" if late else "false"}
             return {"windows": [{"backdrop": backdrop}]}
         # `focus-read-fails`: the read before the preflight's close of a tab, and each read while a film with a speed runs.
@@ -1754,12 +1758,12 @@ class FilmsCase(unittest.TestCase):
         self.assertEqual((code, launches[0].config),
                          (0, {"appearance": {"background": "test-picture", "backgroundOpacity": 0.5, "backgroundBlur": "frosted"}}))
         self.assertEqual(report["window_look"], {"look": self.TAG, "background": "test-picture", "opacity": 0.5, "blur": "frosted",
-                                                 "terminal_config": []})
+                                                 "terminal_config": [], "kind": "picture"})
         seen = report["launches"][0]["window_look"]
         self.assertEqual((seen["resolved"]["background"], seen["resolved"]["picture"], seen["resolved"]["opacity"], seen["resolved"]["blur"]),
                          ("picture", "test-picture", 0.502, "frosted"))
         self.assertEqual(seen["backdrop_shown"]["tint"], "#10203080")
-        self.assertEqual([(row["status"], row["window_look"]) for row in report["films"]], [("made", self.TAG)])
+        self.assertEqual([(row["status"], row["window_look"], row["window_look_kind"]) for row in report["films"]], [("made", self.TAG, "picture")])
         self.assertIn(f"PREFLIGHT window look: {self.TAG}: the app shows picture 'test-picture', opacity 0.502, blur 'frosted'", lines)
 
     def test_a_key_that_is_not_named_is_not_in_the_launchs_config(self):
@@ -1786,13 +1790,56 @@ class FilmsCase(unittest.TestCase):
                              ("look-not-in-the-config", "not in the launch's config: ['appearance.background', 'appearance.backgroundOpacity', 'appearance.backgroundBlur']")):
             code, report, lines, launches = self.run_films({"launch-activates", fault}, "--films", "T-D,T-Z", "--window-look", self.LOOK)
             # One launch: the other launch form has the same config, so it is not tried.
-            self.assertEqual((code, len(launches), launches[0].stopped, [row["status"] for row in report["films"]]),
-                             (1, 1, True, ["not_run", "not_run"]), fault)
+            # No answer of the app says the look's kind: the rows keep the plain ids.
+            self.assertEqual((code, len(launches), launches[0].stopped, [(row["id"], row["status"]) for row in report["films"]]),
+                             (1, 1, True, [("T-D", "not_run"), ("T-Z", "not_run")]), fault)
+            self.assertNotIn("kind", report["window_look"], fault)
             self.assertIn(f"PREFLIGHT window look FAILED: {self.TAG}: {words}", lines, fault)
             for row in report["films"]:
                 self.assertIn("the window does not show the look", row["reason"], fault)
                 self.assertIn(words, row["reason"], fault)
             self.assertNotIn("forms_not_run", report, fault)
+
+    def test_a_film_of_a_look_has_the_looks_kind_in_its_id_and_in_its_file_names(self):
+        # The kind is the app's own answer (a picture shows), never a value of the option and never the picture's name.
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D,T-Z", "--window-look", self.LOOK)
+        self.assertEqual((code, [(row["id"], row["status"], row.get("file")) for row in report["films"]]),
+                         (0, [("T-D-picture", "made", "T-D-picture.mov"), ("T-Z-picture", "made", "T-Z-picture.mov")]))
+        self.assertEqual((report["window_look"]["kind"], report["launches"][0]["window_look"]["kind"]), ("picture", "picture"))
+        self.assertEqual(sorted(name for name in os.listdir(self.out) if name.startswith(("T-D", "T-Z"))),
+                         ["T-D-picture.mov", "T-D-picture.mov.frames.json", "T-Z-picture.mov", "T-Z-picture.mov.frames.json"])
+        for row in report["films"]:
+            self.assertNotIn("test-picture", row["id"] + row["file"])
+
+    def test_the_kind_of_each_look_is_what_the_app_shows(self):
+        for look, kind, name in (("opacity=0.5,blur=glass", "glass", "T-D-glass"), ("opacity=0.5", "seethrough", "T-D-seethrough"),
+                                 ("background=test-picture,opacity=0.5,blur=glass", "picture", "T-D-picture")):
+            code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D", "--window-look", look)
+            self.assertEqual((code, report["window_look"]["kind"], [(row["id"], row["file"]) for row in report["films"]]),
+                             (0, kind, [(name, name + ".mov")]), look)
+
+    def test_a_named_look_that_the_app_shows_as_opaque_keeps_the_names_of_an_opaque_run(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D", "--window-look", "opacity=1")
+        self.assertEqual((code, report["window_look"]["kind"], [(row["id"], row["file"]) for row in report["films"]]),
+                         (0, "opaque", [("T-D", "T-D.mov")]))
+
+    def test_a_film_of_a_look_that_is_not_made_or_not_run_has_the_kind_in_its_id_too(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "dialog-open"}, "--films", "T-D,T-Z", "--window-look", self.LOOK)
+        rows = report["films"]
+        self.assertEqual((code, [(row["id"], row["status"]) for row in rows]), (1, [("T-D-picture", "not_made"), ("T-Z-picture", "not_run")]))
+        self.assertTrue(rows[1]["reason"].startswith("the launch stopped after the film T-D-picture: "))
+
+    def test_a_film_of_a_second_launch_that_does_not_come_has_the_kind_of_the_first_launch(self):
+        # `A-D` needs the page mock: a launch of its own. The first launch's films are in the report one time each.
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D,A-D", "--window-look", self.LOOK)
+        self.assertEqual((code, len(launches), [(row["id"], row["status"]) for row in report["films"]]),
+                         (0, 2, [("T-D-picture", "made"), ("A-D-picture", "made")]))
+
+    def test_a_look_with_no_kind_by_the_app_gets_no_film(self):
+        # The settings answer holds the named key, and the backdrop was not read: no film under a name with no kind.
+        code, report, lines, launches = self.run_films({"launch-activates", "backdrop-not-read"}, "--films", "T-D", "--window-look", "blur=frosted")
+        self.assertEqual((code, [(row["id"], row["status"]) for row in report["films"]]), (1, [("T-D", "not_run")]))
+        self.assertIn("PREFLIGHT window look FAILED: look-blur-frosted: the app's backdrop was not read: the look has no kind", lines)
 
     def test_another_word_starts_no_app(self):
         for value in ("glass", "opacity=2", "behind=checker", "shade=1"):

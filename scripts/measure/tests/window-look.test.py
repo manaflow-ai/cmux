@@ -167,6 +167,38 @@ class LookResolved(unittest.TestCase):
             self.assertIn("picture", problem)
 
 
+class LookKind(unittest.TestCase):
+    """The kind of the look that the app shows: one word for a name (a film's id), with no value of the option."""
+
+    def kind(self, **backdrop):
+        shown = {"sheet": "", "tint": "", "glassTint": "", "picture": "", "blending": "false", **backdrop}
+        return M.look_kind(M.look_resolved(None, shown, {})[0])
+
+    def test_a_window_that_shows_a_picture_is_a_picture(self):
+        self.assertEqual(self.kind(picture="test-picture", tint="#10203080"), "picture")
+        self.assertEqual(self.kind(picture="test-picture", glassTint="#10203080"), "picture")  # a picture under glass
+        self.assertEqual(self.kind(picture="test-picture", sheet="#102030FF"), "picture")
+
+    def test_glass_with_no_picture_is_glass(self):
+        self.assertEqual(self.kind(glassTint="#10203080"), "glass")
+
+    def test_a_tint_below_1_with_no_picture_and_no_glass_is_seethrough(self):
+        self.assertEqual(self.kind(tint="#10203080"), "seethrough")
+        self.assertEqual(self.kind(tint="#102030FE"), "seethrough")
+
+    def test_a_sheet_or_a_full_tint_is_opaque(self):
+        self.assertEqual(self.kind(sheet="#102030FF"), "opaque")
+        self.assertEqual(self.kind(tint="#102030FF"), "opaque")
+
+    def test_a_backdrop_that_was_not_read_has_no_kind(self):
+        self.assertIsNone(M.look_kind(M.look_resolved(None, None, {})[0]))
+        self.assertIsNone(M.look_kind(None))
+
+    def test_the_kind_has_no_value_of_the_look(self):
+        for kind in (self.kind(picture="test-picture", tint="#10203080"), self.kind(glassTint="#10203080"), self.kind(tint="#10203080")):
+            self.assertRegex(kind, r"^[a-z]+$")
+
+
 class ShownLook(unittest.TestCase):
     """The read of the running app: its settings answer one time, then its backdrop until it is the look, the tint
     blends no more, or the bound is over. The clock is a counter: 1 s for each read of it, and no sleep."""

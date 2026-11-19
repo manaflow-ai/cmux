@@ -15,7 +15,7 @@
 # a failed preflight and a run with no film stay exit 1); every other argument goes to pane-motion-films.py (its
 # --launch-form picks how the app is launched and how the keys go; its --window-look the look of the films' window,
 # which that script checks only after the build: a word it refuses ends the step then, exit 3). The artifact:
-# films.json, build-flags.json, each <id>.mov and its <id>.mov.frames.json.
+# films.json, build-flags.json, each <id>.mov and its <id>.mov.frames.json (with a look: <id>-<the look's kind>).
 # films.json's `build` and build-flags.json say the form of the app's build, from the reload's own log
 # (scripts/measure/build-flags.py): the reload's `bench configuration` line, the optimization settings of the build's
 # command line, and the count of the Swift compiler's command lines with -Onone, with -O and with -Osize. The step's

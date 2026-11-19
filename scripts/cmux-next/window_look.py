@@ -161,12 +161,29 @@ def look_resolved(look, backdrop, settings):
     return resolved, "; ".join(faults) or None
 
 
+def look_kind(resolved):
+    """One word for what the app shows (`resolved` of `look_resolved`), for a name: `picture` (the window shows a
+    picture, under a tint or under glass), `glass` (no picture; the glass carries the tint), `seethrough` (no picture
+    and no glass; the tint's opacity is below 1) or `opaque`. None when the app's backdrop gave no opacity and no
+    picture (it was not read). The word has no value of the look and no picture's name."""
+    if not isinstance(resolved, dict):
+        return None
+    if resolved.get("picture"):
+        return "picture"
+    opacity = resolved.get("opacity")
+    if opacity is None:
+        return None
+    if resolved.get("glass"):
+        return "glass"
+    return "seethrough" if opacity < 1 else "opaque"
+
+
 def shown_look(rpc, look, monotonic=time.monotonic, sleep=time.sleep, seconds=10.0, step=0.5):
     """Asks the running app what its first window shows: (facts, problem). `rpc(method, params=None)` is the caller's
     socket call. The settings answer is read one time; the backdrop is read until it is the look and its tint blends
     no more, for `seconds` at most (a picture loads and a tint blends after the launch). An opaque window is read one
-    time and has no problem. `facts` holds `resolved` (`look_resolved`), `backdrop_shown` (the backdrop as the app
-    gave it) and `terminal_background` (the terminal's own background color, as the app says it)."""
+    time and has no problem. `facts` holds `resolved` (`look_resolved`), `kind` (`look_kind`), `backdrop_shown` (the
+    backdrop as the app gave it) and `terminal_background` (the terminal's own background color, as the app says it)."""
     answer = rpc("settings.get", {"path": "appearance"})
     settings = answer.get("value") if isinstance(answer, dict) and isinstance(answer.get("value"), dict) else {"not read": answer}
     deadline = monotonic() + seconds
@@ -179,6 +196,6 @@ def shown_look(rpc, look, monotonic=time.monotonic, sleep=time.sleep, seconds=10
         if not look or not (problem or blending) or monotonic() > deadline:
             break
         sleep(step)  # test harness: the picture's load and the tint's blend, between 2 reads of the app
-    facts = {"resolved": resolved, "backdrop_shown": shown,
+    facts = {"resolved": resolved, "kind": look_kind(resolved), "backdrop_shown": shown,
              "terminal_background": themes.get("ghostty_background") if isinstance(themes, dict) else None}
     return facts, problem
