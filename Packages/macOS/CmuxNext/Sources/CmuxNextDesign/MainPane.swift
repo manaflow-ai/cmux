@@ -199,7 +199,9 @@ extension Metrics {
     public static var titleAreaShadeScale: CGFloat {
         let design = DesignSettings.shared
         guard CornerFlush.current.isOn else { return design.titleAreaContrast }
-        return design.titleAreaTone == .oneColor ? 0 : TitleAreaTone.subtleShare * design.titleAreaContrast
+        // `appearance.tabShape` gooey is two tones, the strip's and the pane's: it tones the frame under One Color too.
+        let toned = design.titleAreaTone != .oneColor || design.tabShape.needsTone
+        return toned ? TitleAreaTone.subtleShare * design.titleAreaContrast : 0
     }
 
     /// The chrome's shade before `appearance.titleAreaContrast`: the shade of the

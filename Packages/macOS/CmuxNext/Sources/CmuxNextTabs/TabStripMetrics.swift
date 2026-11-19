@@ -215,7 +215,9 @@ public struct TabStripMetrics: Equatable, Sendable {
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
-        cornerRadius = Metrics.tabCornerRadius
+        // `appearance.tabShape` rounded: a capsule, half the tab's height (block and gooey keep the tab's corner).
+        cornerRadius = DesignSettings.shared.tabShape.fillCornerRadius(Metrics.tabCornerRadius, height: Metrics.tabHeight,
+                                                                       tabHeight: Metrics.tabHeight)
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)
