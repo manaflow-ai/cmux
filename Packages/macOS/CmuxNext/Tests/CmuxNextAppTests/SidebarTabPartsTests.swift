@@ -201,6 +201,7 @@ struct SidebarTabPartsTests {
         }
         #expect(common == ["terminal": "dead", "page": "dead", "chat": "dead+formerLocalHosts"],
                 "the row's own observation is registered on \(common) of one tab that is not a pick, want `dead` (and the chat's host list for a chat)")
+        #expect(totals == [9, 113], "the row's own observation has \(totals) registrations on the probed fields at \(Base.sizes) tabs, want [9, 113]")
         #expect(totals[1] - totals[0] == growth,
                 "the registrations grew by \(totals[1] - totals[0]) from \(Base.sizes[0]) to \(Base.sizes[1]) tabs, want \(growth): the set of one tab for each tab more, and the same count for the picks")
     }
@@ -213,8 +214,8 @@ struct SidebarTabPartsTests {
     /// where each part is kept. The count is of the calls of `AgentTabStore.daemonListing` for the workspace's
     /// tabs: the row's own page set asks it one time for each tab, and each call of the page rule
     /// (`RestoredNewTabPages.shows(_:in:workspace:)`) for a chat with a session asks it one time. The row's page
-    /// set asks the rule for each chat; what the app gives for each tab asks it for each chat again.
-    @Test func aMapWithEachPartKeptAsksThePageRuleTwoTimesForEachChat() throws {
+    /// set asks the rule for each chat; what the app gives for each tab takes the row's answer and asks nothing more.
+    @Test func aMapWithEachPartKeptAsksThePageRuleOneTimeForEachChat() throws {
         let session = try Session(tabs: Base.sizes[1])
         let services = session.services, tabs = session.tabs
         let ids = Set(tabs.map(\.id)), chats = tabs.count(where: { $0.agentSession != nil })
@@ -239,7 +240,7 @@ struct SidebarTabPartsTests {
             + "by the row's own page set (\(own) asks of the listing daemon); \(given - tabs.count) calls with what the app gives for each tab (\(given) asks): "
             + "the rule is asked \((given - tabs.count) / max(chats, 1)) times for each chat")
         #expect(own == tabs.count + chats, "the row's own page set asked the listing daemon \(own) times, want \(tabs.count + chats): one time for each tab and one rule call for each chat")
-        #expect(given - own == chats, "what the app gives for each tab asked the listing daemon \(given - own) times more, want \(chats): one rule call for each chat")
+        #expect(given == own, "what the app gives for each tab asked the listing daemon \(given - own) times more, want 0: the row's page set has the rule's answer for each chat")
     }
 
     /// A report with no condition on its times: what the app gives for each tab of a workspace of 84 tabs at one
