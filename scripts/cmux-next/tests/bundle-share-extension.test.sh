@@ -143,7 +143,8 @@ let title = arguments[1], url = URL(fileURLWithPath: arguments[2]), opened = arg
 _ = NSApplication.shared.setActivationPolicy(.accessory)
 let services = NSSharingService.sharingServices(forItems: [url])
 guard let service = services.first(where: { $0.title == title }) else {
-    print("no Share service titled \(title); offered: \(services.map(\.title))")
+    let image = NSImage(contentsOf: url).map { NSSharingService.sharingServices(forItems: [$0]).map(\.title) } ?? []
+    print("no Share service titled \(title); offered for the file: \(services.map(\.title)); for the image: \(image)")
     exit(2)
 }
 let watch = Watch()
@@ -158,8 +159,18 @@ print("shared: \(watch.shared.map(String.init(describing:)) ?? "no answer") \(wa
 exit(FileManager.default.fileExists(atPath: opened) ? 0 : 4)
 SWIFT
 xcrun swiftc "$TMP/perform.swift" -o "$TMP/perform" || fail "the performer did not compile"
-said=$("$TMP/perform" "$host_name Chat" "$TMP/shot.png" "$TMP/build/opened.txt" 2>&1) ||
-  fail "performing the Share service did not hand the PNG to the host within 15 s" "$said"
+ext_id="com.cmuxterm.test.share-host.$suffix.share"
+said=$("$TMP/perform" "$host_name Chat" "$TMP/shot.png" "$TMP/build/opened.txt" 2>&1) || {
+  status=$?
+  # Not offered: say whether macOS registered it switched off (pluginkit's "-" or no mark), then switch it on
+  # (pluginkit -e use, what System Settings' Extensions pane does) and ask again.
+  [[ $status == 2 ]] || fail "performing the Share service did not hand the PNG to the host within 15 s" "$said"
+  election=$(/usr/bin/pluginkit -m -v -i "$ext_id" 2>&1 || true)
+  /usr/bin/pluginkit -e use -i "$ext_id" || fail "pluginkit -e use refused the extension" "$said"$'\n'"$election"
+  said=$("$TMP/perform" "$host_name Chat" "$TMP/shot.png" "$TMP/build/opened.txt" 2>&1) ||
+    fail "not offered as registered, nor after pluginkit -e use" "registered as: $election"$'\n'"$said"
+  echo "NOTE: offered only after pluginkit -e use; registered as: $election"
+}
 grep -qx "$(cd "$TMP" && pwd -P)/shot.png\|$TMP/shot.png" "$TMP/build/opened.txt" ||
   fail "the host was opened with something else" "$(cat "$TMP/build/opened.txt")"
 echo "PASS performing \"$host_name Chat\" opens the PNG with the app that carries the extension ($said)"
