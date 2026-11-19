@@ -224,6 +224,11 @@ def http(port, token):
             if self.path == "/token":
                 from urllib.parse import parse_qs
                 form = parse_qs(body.decode())
+                # A refresh grant: ref-1 buys the server's token once.
+                if form.get("grant_type") == ["refresh_token"]:
+                    if form.get("refresh_token") != ["ref-1"]:
+                        return self.reply(400, {"error": "invalid_grant"})
+                    return self.reply(200, {"access_token": token, "refresh_token": "ref-2", "token_type": "Bearer", "expires_in": 3600})
                 if form.get("code") != ["good-code"] or not form.get("code_verifier") or form.get("resource") != [base + "/mcp"]:
                     return self.reply(400, {"error": "invalid_grant"})
                 return self.reply(200, {"access_token": token, "token_type": "Bearer", "expires_in": 3600})
