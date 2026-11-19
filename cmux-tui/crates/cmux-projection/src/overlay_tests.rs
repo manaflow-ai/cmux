@@ -1,6 +1,7 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 use super::*;
 use crate::manifest::Item;
@@ -11,13 +12,13 @@ pub(crate) struct Fake {
     pub bytes: HashMap<u32, Vec<u8>>,
     pub calls: AtomicUsize,
     pub batches: Mutex<Vec<Vec<u32>>>,
-    pub away: bool,
+    pub away: AtomicBool,
 }
 
 impl Fetch for Fake {
     fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
         self.calls.fetch_add(1, Ordering::Relaxed);
-        if self.away {
+        if self.away.load(Ordering::Relaxed) {
             return Err(FetchError::Away);
         }
         let bytes = self.bytes.get(&entry).ok_or(FetchError::Failed)?;
@@ -32,7 +33,7 @@ impl Fetch for Fake {
         entries
             .iter()
             .map(|entry| {
-                if self.away {
+                if self.away.load(Ordering::Relaxed) {
                     Err(FetchError::Away)
                 } else {
                     self.bytes.get(entry).cloned().ok_or(FetchError::Failed)
@@ -78,7 +79,7 @@ fn setup(away: bool) -> (tempfile::TempDir, Arc<Manifest>, Arc<Fake>) {
         link: Some("README.md".into()),
     });
     let manifest = Arc::new(Manifest::build(1, items).unwrap());
-    let mut fake = Fake { away, ..Fake::default() };
+    let mut fake = Fake { away: AtomicBool::new(away), ..Fake::default() };
     for (path, bytes) in files {
         fake.bytes.insert(manifest.resolve(path).unwrap(), bytes);
     }
@@ -220,6 +221,18 @@ fn a_read_while_the_mac_is_away_fails_with_ehostdown() {
 }
 
 #[test]
+fn a_cached_read_survives_the_mac_going_away() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let readme = path_ino(&overlay, "README.md");
+    assert_eq!(overlay.read(readme, 0, 10).unwrap(), b"readme");
+    fake.away.store(true, Ordering::Relaxed);
+    assert_eq!(overlay.read(readme, 0, 10).unwrap(), b"readme");
+    assert!(overlay.stats().cache_hits >= 1);
+    assert_eq!(overlay.read(path_ino(&overlay, "big.bin"), 0, 10), Err(112));
+}
+
+#[test]
 fn a_file_made_read_only_is_still_written_through_its_create() {
     // git makes each loose object 0444 and writes it through the descriptor create returned.
     let (state, manifest, fake) = setup(false);
@@ -239,8 +252,130 @@ fn the_lower_cache_evicts_oldest_entries_before_its_budget() {
     fs::write(cache.join("000-old"), b"123").unwrap();
     fs::write(cache.join("999-new"), b"567").unwrap();
     let target = cache.join("incoming");
-    make_room(&cache, 4, &target, 7);
+    let mut index = CacheIndex::load(&cache).unwrap();
+    assert!(index.admit(4, &target, 7));
     assert!(!cache.join("000-old").exists());
     assert!(cache.join("999-new").exists());
     assert!(cache.join("manifest-id").exists());
+}
+
+#[test]
+fn cache_admission_refuses_when_an_eviction_cannot_be_completed() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    fs::create_dir_all(&cache).unwrap();
+    let blocked = cache.join("blocked");
+    fs::create_dir(&blocked).unwrap();
+    let target = cache.join("incoming");
+    let mut index = CacheIndex::default();
+    index.insert(blocked.clone(), UNIX_EPOCH, 4);
+    assert!(!index.admit(4, &target, 7));
+    assert!(blocked.is_dir());
+    assert!(!target.exists());
+}
+
+#[test]
+fn reopened_cache_index_accounts_for_admitted_bytes_and_keeps_upper_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    let upper = dir.path().join("upper");
+    fs::create_dir_all(&cache).unwrap();
+    fs::create_dir_all(&upper).unwrap();
+    fs::write(cache.join("manifest-id"), b"id\n").unwrap();
+    fs::write(cache.join("000-old"), b"123").unwrap();
+    fs::write(cache.join("999-new"), b"567").unwrap();
+    fs::write(upper.join("edited"), b"keep").unwrap();
+
+    let target = cache.join("incoming");
+    let mut first = CacheIndex::load(&cache).unwrap();
+    assert!(first.admit(4, &target, 7));
+    fs::write(&target, b"four").unwrap();
+    first.insert(target.clone(), SystemTime::now(), 4);
+
+    let mut reopened = CacheIndex::load(&cache).unwrap();
+    reopened.trim(7).unwrap();
+    assert_eq!(reopened.bytes, 7);
+    assert!(upper.join("edited").exists());
+    assert!(cache.join("manifest-id").exists());
+}
+
+#[test]
+fn cache_index_trims_an_oversize_reopened_cache() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    fs::create_dir_all(&cache).unwrap();
+    fs::write(cache.join("manifest-id"), b"id\n").unwrap();
+    fs::write(cache.join("000-old"), b"123").unwrap();
+    fs::write(cache.join("999-new"), b"5678").unwrap();
+
+    let mut reopened = CacheIndex::load(&cache).unwrap();
+    assert_eq!(reopened.bytes, 7);
+    reopened.trim(4).unwrap();
+    assert_eq!(reopened.bytes, 4);
+    assert!(!cache.join("000-old").exists());
+    assert!(cache.join("999-new").exists());
+}
+
+#[test]
+fn cache_index_trims_zero_byte_oldest_entries_before_oversize_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    fs::create_dir_all(&cache).unwrap();
+    fs::write(cache.join("manifest-id"), b"id\n").unwrap();
+    fs::write(cache.join("000-zero"), b"").unwrap();
+    fs::write(cache.join("001-old"), b"123").unwrap();
+    fs::write(cache.join("999-new"), b"5678").unwrap();
+
+    let mut reopened = CacheIndex::load(&cache).unwrap();
+    assert_eq!(reopened.bytes, 7);
+    reopened.trim(4).unwrap();
+    assert_eq!(reopened.bytes, 4);
+    assert!(!cache.join("000-zero").exists());
+    assert!(!cache.join("001-old").exists());
+    assert!(cache.join("999-new").exists());
+}
+
+#[test]
+fn cache_index_load_fails_closed_when_the_cache_is_not_readable() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("cache-file");
+    fs::write(&file, b"not a directory").unwrap();
+    assert!(CacheIndex::load(&file).is_err());
+}
+
+#[test]
+fn concurrent_cache_admissions_keep_the_index_and_files_within_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    fs::create_dir_all(&cache).unwrap();
+    fs::write(cache.join("manifest-id"), b"id\n").unwrap();
+    let index = Arc::new(Mutex::new(CacheIndex::load(&cache).unwrap()));
+    let threads: Vec<_> = (0..32)
+        .map(|at| {
+            let cache = cache.clone();
+            let index = Arc::clone(&index);
+            thread::spawn(move || {
+                let target = cache.join(format!("{at:02}"));
+                let temp = cache.join(format!("tmp-{at:02}"));
+                fs::write(&temp, [at as u8]).unwrap();
+                let mut index = index.lock().unwrap();
+                assert!(index.admit(1, &target, 7));
+                fs::rename(&temp, &target).unwrap();
+                index.insert(target, SystemTime::now(), 1);
+            })
+        })
+        .collect();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    let index = index.lock().unwrap();
+    assert!(index.bytes <= 7);
+    let bytes: u64 = fs::read_dir(&cache)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.metadata().ok())
+        .filter(|metadata| metadata.is_file())
+        .map(|metadata| metadata.len())
+        .sum();
+    assert!(bytes <= 7 + fs::metadata(cache.join("manifest-id")).unwrap().len());
 }

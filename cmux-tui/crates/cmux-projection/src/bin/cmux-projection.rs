@@ -40,7 +40,7 @@ fn main() -> std::process::ExitCode {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use std::net::ToSocketAddrs;
+    use std::net::{IpAddr, SocketAddr};
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -140,28 +140,13 @@ mod linux {
     }
 
     fn listen_is_specific(listen: &str) -> bool {
-        let mut addrs = match listen.to_socket_addrs() {
-            Ok(addrs) => addrs,
-            Err(_) => return false,
-        };
-        let mut saw_addr = false;
-        addrs.all(|addr| {
-            saw_addr = true;
-            !addr.ip().is_unspecified()
-        }) && saw_addr
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::listen_is_specific;
-
-        #[test]
-        fn rejects_every_spelling_of_an_unspecified_listener() {
-            assert!(!listen_is_specific("0.0.0.0:18991"));
-            assert!(!listen_is_specific("[::]:18991"));
-            assert!(!listen_is_specific("[0:0:0:0:0:0:0:0]:18991"));
-            assert!(listen_is_specific("127.0.0.1:18991"));
-        }
+        let Ok(addr) = listen.parse::<SocketAddr>() else { return false };
+        let ip = addr.ip();
+        !ip.is_unspecified()
+            && !matches!(
+                ip,
+                IpAddr::V6(ip) if ip.to_ipv4_mapped().is_some_and(|ip| ip.is_unspecified())
+            )
     }
 
     /// FNV-1a: a short stable name for a mount path.
@@ -182,8 +167,8 @@ mod linux {
             args.git_dir.clone().ok_or_else(|| anyhow::anyhow!("--git-dir is required"))?;
         let git_dir = git_dir.canonicalize()?;
         let rev = args.commit.clone().ok_or_else(|| anyhow::anyhow!("--commit is required"))?;
-        std::fs::create_dir_all(at)?;
-        let at = at.canonicalize()?;
+        let at = if at.is_absolute() { at.to_owned() } else { std::env::current_dir()?.join(at) };
+        let at = if at.exists() { at.canonicalize()? } else { at };
         let at_text = at.to_string_lossy().into_owned();
         let keep = match &args.keep {
             Some(keep) => keep.clone(),
@@ -192,8 +177,11 @@ mod linux {
                 PathBuf::from(home).join(".cache/cmux-projection").join(hash(&at_text))
             }
         };
-        std::fs::create_dir_all(&keep)?;
         let name = args.name.clone().unwrap_or_else(|| format!("projected-{}", hash(&at_text)));
+        let worktree = Worktree::validate(&git_dir, &name, &at)?;
+        let keep = canonical_keep(&keep)?;
+        std::fs::create_dir_all(&at)?;
+        let at = at.canonicalize()?;
 
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
@@ -228,7 +216,7 @@ mod linux {
         let phase = Instant::now();
         let book_file = keep.join("book");
         let mut book = Book::load(&book_file);
-        let admin = git_dir.join("worktrees").join(&name);
+        let admin = worktree.admin.clone();
         let real_root = keep.join("real");
         // New content is a second older than now, so git never finds it racily clean against the
         // index written just after (and cargo still sees it newer than any earlier build).
@@ -284,5 +272,40 @@ mod linux {
                 let _ = std::fs::write(ready, format!("{line}\n"));
             }
         })
+    }
+
+    fn canonical_keep(keep: &Path) -> anyhow::Result<PathBuf> {
+        let base = std::env::current_dir()?;
+        canonical_keep_from(keep, &base)
+    }
+
+    fn canonical_keep_from(keep: &Path, base: &Path) -> anyhow::Result<PathBuf> {
+        let keep = if keep.is_absolute() { keep.to_owned() } else { base.join(keep) };
+        std::fs::create_dir_all(&keep)?;
+        Ok(keep.canonicalize()?)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{canonical_keep_from, listen_is_specific};
+
+        #[test]
+        fn rejects_every_spelling_of_an_unspecified_listener() {
+            assert!(!listen_is_specific("0.0.0.0:18991"));
+            assert!(!listen_is_specific("[::]:18991"));
+            assert!(!listen_is_specific("[0:0:0:0:0:0:0:0]:18991"));
+            assert!(!listen_is_specific("[::ffff:0.0.0.0]:18991"));
+            assert!(listen_is_specific("127.0.0.1:18991"));
+            assert!(listen_is_specific("[::1]:18991"));
+            assert!(!listen_is_specific("seed.example:18991"));
+        }
+
+        #[test]
+        fn relative_keep_is_resolved_before_projection_paths_use_it() {
+            let root = tempfile::tempdir().unwrap();
+            let keep = canonical_keep_from(std::path::Path::new("upper"), root.path()).unwrap();
+            assert_eq!(keep, root.path().join("upper").canonicalize().unwrap());
+            assert!(keep.is_absolute());
+        }
     }
 }

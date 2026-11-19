@@ -1,7 +1,7 @@
 use super::*;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 
 /// A network of fixed answers by URL, recording what was asked.
 struct Fake {
@@ -243,6 +243,23 @@ fn the_bucket_holds_its_rate() {
 }
 
 #[test]
+fn rate_limited_chunks_never_reserve_more_than_five_seconds() {
+    let start = Instant::now();
+    for rate in [1, 2, 10, 1_000, 100_000_000] {
+        let mut bucket = Bucket::new(rate, start);
+        let chunk = rate_chunk_size(rate);
+        let mut now = start;
+        for _ in 0..8 {
+            let wait = bucket.take(chunk as u64, now);
+            assert!(wait <= MAX_CHUNK_DELAY, "rate {rate} reserved {wait:?}");
+            now += wait;
+        }
+    }
+    assert_eq!(rate_chunk_size(1), 5);
+    assert_eq!(rate_chunk_size(100_000_000), MAX_CHUNK_BYTES);
+}
+
+#[test]
 fn verified_blobs_become_loose_objects_git_reads() {
     let dir = tempfile::tempdir().unwrap();
     let git_dir = dir.path().join("m.git");
@@ -255,7 +272,7 @@ fn verified_blobs_become_loose_objects_git_reads() {
     write_loose(&git_dir, HELLO, b"hello\n").unwrap();
     let out = std::process::Command::new("git")
         .arg("--git-dir")
-        .arg(&git_dir)
+        .arg(git_dir)
         .args(["cat-file", "blob", HELLO])
         .output()
         .unwrap();
@@ -263,6 +280,48 @@ fn verified_blobs_become_loose_objects_git_reads() {
     let mut reader = crate::git::ObjectReader::spawn(&git_dir).unwrap();
     assert_eq!(reader.blob(HELLO), Some(b"hello\n".to_vec()));
     assert_eq!(reader.blob(EMPTY), None);
+}
+
+#[test]
+fn concurrent_writers_install_one_complete_object_without_temp_collisions() {
+    let dir = tempfile::tempdir().unwrap();
+    let git_dir = dir.path().join("m.git");
+    let init =
+        std::process::Command::new("git").args(["init", "-q", "--bare"]).arg(&git_dir).status();
+    if !init.is_ok_and(|status| status.success()) {
+        return; // no git on this host
+    }
+    let writers = 16;
+    let ready = Arc::new(Barrier::new(writers));
+    let git_dir = git_dir.as_path();
+    std::thread::scope(|scope| {
+        let mut joins = Vec::with_capacity(writers);
+        for _ in 0..writers {
+            let ready = ready.clone();
+            joins.push(scope.spawn(move || {
+                ready.wait();
+                write_loose(git_dir, HELLO, b"hello\n")
+            }));
+        }
+        for join in joins {
+            join.join().unwrap().unwrap();
+        }
+    });
+    let out = std::process::Command::new("git")
+        .arg("--git-dir")
+        .arg(git_dir)
+        .args(["cat-file", "blob", HELLO])
+        .output()
+        .unwrap();
+    assert_eq!(out.stdout, b"hello\n");
+    let object_dir = git_dir.join("objects").join(&HELLO[..2]);
+    assert!(
+        std::fs::read_dir(object_dir).unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with("tmp_obj_"))
+    );
 }
 
 #[test]
@@ -277,25 +336,20 @@ fn a_seed_serves_its_blobs_and_nothing_else() {
     write_loose(&git_dir, HELLO, b"hello\n").unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap().to_string();
-    drop(listener);
-    let seed_addr = addr.clone();
     std::thread::spawn(move || {
-        serve(&git_dir, &seed_addr, SeedLimits { load_per_core: f64::MAX, ..SeedLimits::default() })
+        serve_on(
+            &git_dir,
+            listener,
+            &SeedLimits { load_per_core: f64::MAX, ..SeedLimits::default() },
+        );
     });
     let http = Http::new().unwrap();
     let base = format!("http://{addr}");
     let wait = Duration::from_secs(2);
-    let mut answer = Answer::Failed;
-    // The listener starts on its own thread; a connection refused before it binds is retried.
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        answer = http.get(&format!("{base}/objects/{HELLO}"), None, wait);
-        if answer != Answer::Failed {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert_eq!(answer, Answer::Found(b"hello\n".to_vec()));
+    assert_eq!(
+        http.get(&format!("{base}/objects/{HELLO}"), None, wait),
+        Answer::Found(b"hello\n".to_vec())
+    );
     assert_eq!(http.get(&format!("{base}/objects/{EMPTY}"), None, wait), Answer::Absent);
     assert_eq!(http.get(&format!("{base}/etc/passwd"), None, wait), Answer::Absent);
     // A peer that refuses connections, over the real network: the seed behind it answers.

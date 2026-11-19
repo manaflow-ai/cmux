@@ -436,6 +436,48 @@ pub struct Worktree {
 }
 
 impl Worktree {
+    /// Checks that an existing admin directory belongs to this projection, without writing it.
+    pub fn validate(git_dir: &Path, name: &str, at: &Path) -> anyhow::Result<Self> {
+        let name_path = Path::new(name);
+        anyhow::ensure!(
+            name_path.components().count() == 1
+                && matches!(name_path.components().next(), Some(std::path::Component::Normal(_))),
+            "invalid worktree name {name:?}"
+        );
+        let admin = git_dir.join("worktrees").join(name_path);
+        match std::fs::symlink_metadata(&admin) {
+            Ok(metadata) => {
+                anyhow::ensure!(
+                    metadata.file_type().is_dir(),
+                    "worktree admin {} is not a directory",
+                    admin.display()
+                );
+                let expected_gitdir = format!("{}\n", at.join(".git").display());
+                let checks = [
+                    ("commondir", b"../..\n".as_slice()),
+                    ("gitdir", expected_gitdir.as_bytes()),
+                    ("locked", b"a cmux-projection mount\n".as_slice()),
+                ];
+                for (file, expected) in checks {
+                    let held = std::fs::read(admin.join(file)).map_err(|error| {
+                        anyhow::anyhow!(
+                            "worktree admin {} is not owned by this projection: cannot read {file}: {error}",
+                            admin.display()
+                        )
+                    })?;
+                    anyhow::ensure!(
+                        held == expected,
+                        "worktree admin {} is not owned by this projection",
+                        admin.display()
+                    );
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        Ok(Self { admin })
+    }
+
     /// Registers worktree `name` of `git_dir` at `at` on `commit` (detached), with `index`, and a
     /// `locked` note so `git worktree prune` keeps it while the mount is down. `excludes` are
     /// paths git should not list as untracked (the build output links), kept in this worktree's
@@ -448,8 +490,31 @@ impl Worktree {
         index: &[u8],
         excludes: &[String],
     ) -> anyhow::Result<Self> {
-        let admin = git_dir.join("worktrees").join(name);
-        std::fs::create_dir_all(&admin)?;
+        let worktree = Self::validate(git_dir, name, at)?;
+        let admin = &worktree.admin;
+
+        let mut bare = git(git_dir);
+        bare.args(["config", "--bool", "core.bare"]);
+        let bare = output(bare).is_ok_and(|out| config_is_true(&out));
+        let mut extension = git(git_dir);
+        extension.args(["config", "--bool", "extensions.worktreeConfig"]);
+        let extension_enabled = output(extension).is_ok_and(|out| config_is_true(&out));
+        if bare && !extension_enabled {
+            let mut command = git(git_dir);
+            command.args(["config", "extensions.worktreeConfig", "true"]);
+            output(command)?;
+        }
+
+        std::fs::create_dir_all(git_dir.join("worktrees"))?;
+        match std::fs::create_dir(admin) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                // A concurrent claimant may have created this directory after the first
+                // validation. Re-read all ownership markers before touching any file.
+                Self::validate(git_dir, name, at)?;
+            }
+            Err(error) => return Err(error.into()),
+        }
         // Each file is written only when its bytes change: build scripts watch `HEAD` (cmux's
         // build identity does), and a rewrite with the same commit would rerun them.
         write_if_changed(&admin.join("commondir"), b"../..\n")?;
@@ -464,11 +529,9 @@ impl Worktree {
         }
         write_if_changed(&exclude, text.as_bytes())?;
         write_if_changed(&admin.join("index"), index)?;
-        // git reads a worktree's own config only with extensions.worktreeConfig (the lane mirrors
-        // have it); without it the build output links show as untracked, and nothing else differs.
-        let mut command = git(git_dir);
-        command.args(["config", "--bool", "extensions.worktreeConfig"]);
-        if output(command).is_ok_and(|out| out.starts_with(b"true")) {
+        // Git reads a worktree's own config only with extensions.worktreeConfig. Enable it for
+        // bare mirrors too; without it the build output links show as untracked.
+        if bare || extension_enabled {
             let config = admin.join("config.worktree");
             let mut read = Command::new("git");
             read.arg("config").arg("--file").arg(&config).args(["--get", "core.excludesFile"]);
@@ -479,8 +542,14 @@ impl Worktree {
                 command.arg("core.excludesFile").arg(&exclude);
                 output(command)?;
             }
+            if bare {
+                let mut command = Command::new("git");
+                command.arg("config").arg("--file").arg(&config);
+                command.args(["core.bare", "false"]);
+                output(command)?;
+            }
         }
-        Ok(Self { admin })
+        Ok(worktree)
     }
 
     /// The `.git` file's text for this worktree.
@@ -488,6 +557,10 @@ impl Worktree {
     pub fn gitfile(admin: &Path) -> String {
         format!("gitdir: {}\n", admin.display())
     }
+}
+
+fn config_is_true(value: &[u8]) -> bool {
+    value.strip_suffix(b"\n").unwrap_or(value) == b"true"
 }
 
 /// Writes `bytes` to `file` (through a temporary file) unless it already holds them, so its mtime
@@ -528,12 +601,21 @@ struct CatFile {
 
 impl CatFile {
     fn spawn(git_dir: &Path) -> anyhow::Result<Self> {
-        let mut child = git(git_dir)
-            .args(["cat-file", "--batch"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?;
+        Self::spawn_with(git_dir, false)
+    }
+
+    fn spawn_local(git_dir: &Path) -> anyhow::Result<Self> {
+        Self::spawn_with(git_dir, true)
+    }
+
+    fn spawn_with(git_dir: &Path, no_lazy_fetch: bool) -> anyhow::Result<Self> {
+        let mut command = git(git_dir);
+        command.args(["cat-file", "--batch"]);
+        if no_lazy_fetch {
+            command.env("GIT_NO_LAZY_FETCH", "1");
+        }
+        let mut child =
+            command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
         let stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("no stdin"))?;
         let stdout =
             BufReader::new(child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout"))?);
@@ -546,11 +628,24 @@ impl CatFile {
         let mut header = String::new();
         self.stdout.read_line(&mut header).map_err(|_| FetchError::Failed)?;
         let mut fields = header.split_whitespace();
-        let (Some(_), Some("blob"), Some(size)) = (fields.next(), fields.next(), fields.next())
+        let (Some(_), Some(kind), Some(size)) = (fields.next(), fields.next(), fields.next())
         else {
             return Err(FetchError::Failed);
         };
         let size: usize = size.parse().map_err(|_| FetchError::Failed)?;
+        if kind != "blob" {
+            let size = u64::try_from(size)
+                .ok()
+                .and_then(|size| size.checked_add(1))
+                .ok_or(FetchError::Failed)?;
+            let mut payload = self.stdout.by_ref().take(size);
+            let drained = std::io::copy(&mut payload, &mut std::io::sink())
+                .map_err(|_| FetchError::Failed)?;
+            if drained != size {
+                return Err(FetchError::Failed);
+            }
+            return Err(FetchError::Failed);
+        }
         let mut bytes = vec![0u8; size + 1];
         self.stdout.read_exact(&mut bytes).map_err(|_| FetchError::Failed)?;
         bytes.pop();
@@ -564,6 +659,11 @@ pub struct ObjectReader(CatFile);
 impl ObjectReader {
     pub fn spawn(git_dir: &Path) -> anyhow::Result<Self> {
         Ok(Self(CatFile::spawn(git_dir)?))
+    }
+
+    /// Starts a reader that never asks a promisor remote for a missing object.
+    pub fn spawn_local(git_dir: &Path) -> anyhow::Result<Self> {
+        Ok(Self(CatFile::spawn_local(git_dir)?))
     }
 
     /// The blob's bytes, or `None` when the store has no blob by that id.
