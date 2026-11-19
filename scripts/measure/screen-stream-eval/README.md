@@ -270,6 +270,28 @@ Adding one (for example Petal, https://github.com/kiruna-labs/petal) means writi
 `targets/petal.sh` with these verbs and passing `--arg=targets=rd,webrtc,petal`. Its numbers then
 appear under `targets.petal` in the same schema.
 
+### External contenders (`eval.py external`)
+
+A contender whose host and viewer live outside this repository plugs in through two commands, with
+no target script here:
+
+```
+python3 scripts/measure/screen-stream-eval/eval.py external NAME OUT.json \
+  --host-cmd 'start the host; touch "$EVAL_STATE/host-ready"' \
+  --viewer-cmd 'connect, drive the marker, write "$EVAL_READBACK"' \
+  [--host-stop-cmd CMD] [--takes 3] [--keep DIR]
+```
+
+The host serves the same marker (`cmux-rd testapp`, or `mac-marker`); the viewer decodes the stream,
+reads the marker's counter from each decoded frame (`src/marker.rs`) and writes the readback, one
+JSON line per key sample (`g2g_ms` or `lost`), per motion second (`bytes`, `frames`), the first frame
+(`ms`) and each end's CPU (`eval.py external --help` lists the records). Each take gets a fresh host;
+OUT.json is the usual target with `motion.kbps`, `motion.fps` and `extra.takes`, every number the
+median of the takes that measured it, and a missing record stays null. `eval.py readback FILE OUT`
+folds one readback without running anything, so the `rd` path's own bench output, converted to the
+same records, lands in the same columns. Running `rd` through this hook too keeps one harness and one set
+of definitions for every contender.
+
 ## Results
 
 `artifacts/screen-stream-eval/results.json` (schema `cmux.screen-stream-eval/1`, the docstring of

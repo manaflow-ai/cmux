@@ -199,7 +199,8 @@ public final class MacScreenHubHost {
             closeLocal()
         case let .sourceFailed(message):
             logger.error("screen host failed: \(message, privacy: .public)")
-            stopSession(reason: .failed)
+            // The viewer's card says why (`failed: <message>`), not that this Mac seems asleep.
+            stopSession(reason: .failed, saying: MacScreenHubReason.failure(message))
         }
     }
 
@@ -218,17 +219,23 @@ public final class MacScreenHubHost {
     /// `immediately` (quitting) closes at once.
     @discardableResult
     public func stopSession(reason: MacScreenHubReason = .hostStopped, immediately: Bool = false) -> Task<Void, Never>? {
+        stopSession(reason: reason, saying: reason.rawValue, immediately: immediately)
+    }
+
+    /// `saying` is the `/end` text: the reason's own, or more (``MacScreenHubReason/failure(_:)``).
+    @discardableResult
+    private func stopSession(reason: MacScreenHubReason, saying text: String, immediately: Bool = false) -> Task<Void, Never>? {
         dropAwaitingConsent(reason: reason)
         guard let current = session else { return nil }
         guard let hub = hub(), !immediately else {
             closeLocal()
-            if let hub = hub() { end(current.id, reason: reason, hub: hub) }
+            if let hub = hub() { end(current.id, text: text, hub: hub) }
             return nil
         }
         let end = endSession
         // task-owner: one /end, then this session's stream closes (its revocation push may close it first)
         return Task { [weak self] in
-            await end(hub, current.id, reason.rawValue)
+            await end(hub, current.id, text)
             guard let self, session?.id == current.id else { return }
             closeLocal()
         }
@@ -278,9 +285,13 @@ public final class MacScreenHubHost {
     }
 
     private func end(_ id: String, reason: MacScreenHubReason, hub: DeviceHub) {
+        end(id, text: reason.rawValue, hub: hub)
+    }
+
+    private func end(_ id: String, text: String, hub: DeviceHub) {
         // task-owner: one /end call; the hub pushes the end to both Macs
         let endSession = endSession
-        Task { await endSession(hub, id, reason.rawValue) }
+        Task { await endSession(hub, id, text) }
     }
 
     private func updateIndicator() {
