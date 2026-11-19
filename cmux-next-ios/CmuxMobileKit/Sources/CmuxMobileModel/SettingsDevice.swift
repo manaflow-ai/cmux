@@ -80,7 +80,7 @@ public enum SettingsDeviceRows {
                 MacDevice(id: $0.id, name: $0.name, isOnline: $0.online == true, lastSeenAt: $0.lastSeenAt, machineID: $0.machineID)
             }
             let pick = picked[teamID].flatMap { id in team.first { $0.ids.contains(id) }?.id }
-            hidden.formUnion(MacRoster(devices, preferring: nil).hiddenIDs)  // red
+            hidden.formUnion(MacRoster(devices, preferring: pick).hiddenIDs)
         }
     }
 

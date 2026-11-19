@@ -58,7 +58,7 @@ public struct MacRoster: Equatable, Sendable {
     public static func accountMacs(_ teams: [Team]) -> [MacDevice] {
         MacNameDisambiguation.scope(teams.map { team in
             var listed = team
-            listed.macs = MacRoster(team.macs, preferring: nil).visible  // red
+            listed.macs = MacRoster(team.macs, preferring: team.pickedMacID).visible
             return listed
         })
     }
@@ -67,7 +67,7 @@ public struct MacRoster: Equatable, Sendable {
     /// Terminal Size When Shared): the active team's picked build stands for its computer, as the
     /// coordinator focuses it.
     public static func acrossTeams(_ teams: [Team], activeTeamID: String) -> [MacDevice] {
-        MacRoster(teams.flatMap(\.macs), preferring: nil).visible  // red
+        MacRoster(teams.flatMap(\.macs), preferring: teams.first { $0.id == activeTeamID }?.pickedMacID).visible
     }
 
     /// The computer a Mac record belongs to: its owner and machine id, or the

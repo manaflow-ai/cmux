@@ -70,7 +70,7 @@ public final class MacFilterMemo {
         if rosterKey == macs, rosterPick == pick { return cachedRoster }
         rosterKey = macs
         rosterPick = pick
-        cachedRoster = MacRoster(macs, preferring: nil)  // red: the pick is not passed yet
+        cachedRoster = MacRoster(macs, preferring: pick)
         return cachedRoster
     }
 
