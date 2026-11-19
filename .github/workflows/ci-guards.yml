@@ -989,6 +989,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
 
+      - name: Validate superseded pull request runs are cancelled
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_runs_cancel_superseded.py
+
       - name: Validate required checks have no paths filters
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_have_no_path_filters.py
