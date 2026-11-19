@@ -107,7 +107,21 @@ function Layers() {
           >
             {layer.name}
           </div>
-          <div style={{ width: layer.width, ...muted }}>{layer.spec}</div>
+          <div
+            style={{
+              width: layer.width,
+              boxSizing: "border-box",
+              padding: "var(--ds-space-1) var(--ds-space-2)",
+              borderRadius: "var(--elev-tooltip-radius, 6px)",
+              // The stage is a dark picture in both themes; a dark chip keeps the caption readable on it.
+              colorScheme: "dark",
+              background: "Canvas",
+              ...muted,
+              color: "CanvasText",
+            }}
+          >
+            {layer.spec}
+          </div>
         </div>
       ))}
     </div>
