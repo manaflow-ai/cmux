@@ -62,7 +62,7 @@ final class EventInspectorUITests: XCTestCase {
     }
 
     @MainActor
-    func testRowsFilterDetailCopyAndClear() {
+    func testRowsFilterAndDetail() {
         let app = launch(count: 40)
         defer { app.terminate() }
         expectHeader(app, "40 events", "a 40-record journal")
@@ -100,13 +100,17 @@ final class EventInspectorUITests: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
         filter(app, "")
         expectHeader(app, "40 events", "back on the list")
+    }
 
-        // More: Copy as JSON Lines, then Clear. Searching hides the navigation bar (its More
-        // button too): close the search first, with the button beside the field.
-        let close = app.searchFields.firstMatch.buttons.matching(NSPredicate(format: "label ==[c] %@ OR label ==[c] %@", "close", "cancel")).firstMatch
-        if close.waitForExistence(timeout: 3) { close.tap() }
+    /// More (Copy as JSON Lines, then Clear), in its own launch: an active search hides the
+    /// navigation bar on iOS 26, and More with it.
+    @MainActor
+    func testMoreCopyAndClear() {
+        let app = launch(count: 40)
+        defer { app.terminate() }
+        expectHeader(app, "40 events", "a 40-record journal")
         let more = app.buttons["chat.inspector.more"].firstMatch
-        XCTAssertTrue(more.waitForExistence(timeout: 10), "More shows once the search is closed\n\(app.debugDescription)")
+        XCTAssertTrue(more.waitForExistence(timeout: 10), "More shows\n\(app.debugDescription)")
         more.tap()
         attach(app, "6-more-menu")
         let copy = app.buttons["Copy as JSON Lines"].firstMatch
