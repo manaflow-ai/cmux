@@ -491,6 +491,20 @@ struct CmuxRemoteSharingSetupTests {
         #expect(lines.contains("without asking"))
     }
 
+    /// An agent that wrote `"shareWithoutAsking": true` into cmux-next.json itself approves nothing:
+    /// a `true` counts only with this Mac's record of the answered sheet or an MDM-forced value
+    /// (review of #47312, P1). The record is outside the settings file.
+    @Test func aFileOnlyTrueIsNotTheYesUntilTheSheetIsAnswered() throws {
+        let suite = "ssdog-share-consent-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        #expect(defaults.object(forKey: CmuxRemoteShareConsent.recordKey) == nil)
+
+        let consent = CmuxRemoteShareConsent.setting({ nil }, defaults: defaults)
+        consent.remember()
+        #expect(defaults.object(forKey: CmuxRemoteShareConsent.recordKey) is Date)
+    }
+
     @Test func eachGuideStepHasAStableIdentifierAndCancel() {
         for step in CmuxRemoteSharingSetup.Step.allCases {
             let spec = CmuxRemoteSharingSetup.spec(step)

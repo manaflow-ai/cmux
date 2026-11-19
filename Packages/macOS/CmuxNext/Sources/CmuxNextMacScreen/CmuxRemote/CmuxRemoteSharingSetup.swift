@@ -191,15 +191,27 @@ public struct CmuxRemoteShareConsent: Sendable {
 }
 
 extension CmuxRemoteShareConsent {
-    /// `macScreen.shareWithoutAsking` from the app's settings: read from the snapshot (MDM forced
-    /// values included) and written as the person once they finish the Share This Mac sheet.
-    public static func setting(_ settings: @escaping @MainActor @Sendable () -> SettingsController?) -> Self {
-        Self(given: { settings()?.snapshot.macScreen.shareWithoutAsking ?? false },
-             remember: {
-                 guard let settings = settings(),
-                       let descriptor = SettingsSchema.descriptor(for: MacScreenSettings.shareWithoutAskingPath) else { return }
-                 // task-owner: one settings write after the person finished the Share This Mac sheet
-                 Task { try? await settings.setSetting(descriptor, to: .bool(true), by: .user) }
-             })
+    /// This Mac's record of the person's answered Share This Mac sheet: a date in the app's
+    /// defaults, outside the settings file (as hang reports keep theirs, HangReportsController).
+    nonisolated static let recordKey = "cmux.macScreen.shareWithoutAsking.consentedAt"
+
+    /// `macScreen.shareWithoutAsking` from the app's settings. A `true` counts only when MDM forces
+    /// it or this Mac holds the record the answered sheet wrote: the user-only policy guards
+    /// `settings set`, not the file, so an agent that wrote `true` into cmux-next.json would
+    /// otherwise approve its own share request (review of #47312). A file-only `true` shows the
+    /// sheet once; answering it writes the record.
+    public static func setting(_ settings: @escaping @MainActor @Sendable () -> SettingsController?,
+                               defaults: UserDefaults = .standard) -> Self {
+        Self(given: {
+            guard let settings = settings(), settings.snapshot.macScreen.shareWithoutAsking else { return false }
+            return settings.managedKeys[MacScreenSettings.shareWithoutAskingPath.joined(separator: ".")] != nil
+                || defaults.object(forKey: recordKey) is Date
+        }, remember: {
+            defaults.set(Date(), forKey: recordKey)
+            guard let settings = settings(),
+                  let descriptor = SettingsSchema.descriptor(for: MacScreenSettings.shareWithoutAskingPath) else { return }
+            // task-owner: one settings write after the person answered the Share This Mac sheet
+            Task { try? await settings.setSetting(descriptor, to: .bool(true), by: .user) }
+        })
     }
 }
