@@ -433,6 +433,7 @@ test("a held right-press dragged off the menu and released after the click time 
   const target = render(items(ran));
   await heldRightPress(target);
   await act(async () => {
+    // fixed-wait: the release must come after PRESS_CLICK_MS (150 ms) on the wall clock (pressRelease.ts uses Date.now())
     await new Promise((resolve) => setTimeout(resolve, 180));
   });
   pointAt(() => document.body);
