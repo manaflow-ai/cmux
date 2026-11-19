@@ -58,6 +58,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_GOD_SCALE",
     // The chat size sweep's sizes (`chat_size_sweep`).
     "ACPMUX_CHAT_SIZES",
+    "ACPMUX_CHAT_SIM_BIN",
     "ACPMUX_GOD_DHAT",
     "ACPMUX_GOD_DHAT_TOP",
     // A control artifact for differential runs; the child still uses the hermetic environment.
@@ -1714,13 +1715,57 @@ fn send_first_token(rpc: &mut Rpc, id: &str, text: &str) -> Result<u64, Value> {
     Ok(us)
 }
 
+/// The chat of `bytes` in a home under `scratch`: coord-sim's (`ACPMUX_CHAT_SIM_BIN`, the
+/// coordinator stress sim's generator, `cmux-tui/crates/coord-sim`, one Claude coordinator drawn
+/// from real sessions' histograms), else [`chat_size_fixture`]'s. Its home, what was written, and
+/// which source wrote it.
+fn write_size_chat(
+    scratch: &Path,
+    bytes: u64,
+) -> (PathBuf, chat_size_fixture::Written, &'static str) {
+    let Some(sim) = std::env::var_os("ACPMUX_CHAT_SIM_BIN").filter(|s| !s.is_empty()) else {
+        let home = scratch.join("acpmux");
+        let w = chat_size_fixture::write_chat(&home, &scratch.join("work"), bytes).unwrap();
+        return (home, w, "chat_size_fixture");
+    };
+    let out = scratch.join("gen");
+    let made = std::process::Command::new(&sim)
+        .args(["gen", "--format", "acpmux", "--coordinators", "1", "--harness", "claude"])
+        .args(["--seed", "1", "--target-bytes", &bytes.to_string()])
+        .arg("--out")
+        .arg(&out)
+        .stdin(Stdio::null())
+        .stderr(Stdio::inherit())
+        .output()
+        .expect("run coord-sim");
+    assert!(made.status.success(), "coord-sim gen: {}", String::from_utf8_lossy(&made.stdout));
+    let manifest: Value =
+        serde_json::from_slice(&std::fs::read(out.join("manifest.json")).unwrap()).unwrap();
+    let chat = &manifest["coordinators"][0];
+    let id = chat["id"].as_str().expect("the manifest names its chat").to_owned();
+    let home = out.join("acpmux-home");
+    let meta: Value = serde_json::from_slice(
+        &std::fs::read(home.join("sessions").join(&id).join("session.json")).unwrap(),
+    )
+    .unwrap();
+    let w = chat_size_fixture::Written {
+        id,
+        bytes: chat["bytes"].as_u64().unwrap_or(0),
+        records: chat["lines"].as_u64().unwrap_or(0),
+        turns: meta["turnCount"].as_u64().unwrap_or(0),
+        last_seq: meta["lastSeq"].as_u64().unwrap_or(0),
+        tool_outputs: 0,
+        largest_output: 0,
+    };
+    (home, w, "coord-sim")
+}
+
 /// One size's run: write the chat, open it on a daemon that never read it (cold), measure every
 /// read once its log is loaded, then restart the daemon with the chat's agent host running and
 /// open it again (the adoption pass).
 fn size_run(label: &str, bytes: u64) -> Value {
     let scratch_dir = daemon_env::Scratch::new(&format!("size-{label}"));
     let scratch = scratch_dir.to_path_buf();
-    let home = scratch.join("acpmux");
     let free = free_bytes(scratch.parent().unwrap_or(&scratch));
     // The log, its kind copies and the daemon's own files, with room to spare.
     if free < bytes + bytes / 4 + (1 << 30) {
@@ -1728,7 +1773,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
                       "freeBytes": free});
     }
     let written_at = Instant::now();
-    let w = chat_size_fixture::write_chat(&home, &scratch.join("work"), bytes).unwrap();
+    let (home, w, source) = write_size_chat(&scratch, bytes);
     let write_ms = ms(written_at);
     write_config(&home, json!({}));
     let id = w.id.clone();
@@ -1828,7 +1873,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
     daemon.stop();
     let home_bytes: u64 = home_files(&home).values().sum();
     json!({
-        "size": label, "bytes": bytes, "logBytes": w.bytes, "records": w.records,
+        "size": label, "source": source, "bytes": bytes, "logBytes": w.bytes, "records": w.records,
         "turns": w.turns, "lastSeq": w.last_seq, "segments": segments,
         "bytesPerRecord": w.bytes / w.records.max(1), "recordsPerTurn": w.records / w.turns.max(1),
         "largestToolOutput": w.largest_output, "writeMs": write_ms,
