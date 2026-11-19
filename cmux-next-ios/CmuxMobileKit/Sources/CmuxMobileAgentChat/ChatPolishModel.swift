@@ -309,8 +309,17 @@ final class EventInspectorRows {
         let token = token
         let generation = generation
         filtering = Task { [weak self] in
-            let result = await Task.detached(priority: .userInitiated) { snapshot.filter { $0.matches(query) } }.value
-            guard let self, self.token == token else { return }
+            // A newer query cancels this one, and the scan stops with it.
+            let scan = Task.detached(priority: .userInitiated) { () -> [AgentInspectorEvent] in
+                var out: [AgentInspectorEvent] = []
+                for event in snapshot {
+                    if Task.isCancelled { return [] }
+                    if event.matches(query) { out.append(event) }
+                }
+                return out
+            }
+            let result = await withTaskCancellationHandler { await scan.value } onCancel: { scan.cancel() }
+            guard let self, self.token == token, !Task.isCancelled else { return }
             self.land(result, through: through, generation: generation, looked: snapshot.count)
         }
     }
@@ -331,7 +340,8 @@ final class EventInspectorRows {
 
     /// The rows matching the query, brought up to the journal (what changed since the last read).
     func rows(_ journal: AgentEventJournal) -> ArraySlice<AgentInspectorEvent> {
-        _ = landed
+        // A new query (set after this read, from the screen's onChange) and a landed filter redraw.
+        _ = (query, landed)
         sync(journal)
         return matched[head...]
     }

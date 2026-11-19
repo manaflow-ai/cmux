@@ -247,8 +247,8 @@ struct EventInspectorScreen: View {
     var body: some View {
         Group {
             if let journal {
-                // Kept as records arrive (one redraw per frame, O(changed) per redraw), not
-                // filtered and reversed over every record per redraw.
+                // Kept as records arrive (one redraw per frame; a record costs one match, a
+                // drop costs itself), not filtered and reversed over every record per redraw.
                 let rows = memo.rows(journal)
                 let total = journal.count
                 List {
@@ -278,7 +278,7 @@ struct EventInspectorScreen: View {
                             Button("Copy as JSON Lines", systemImage: "doc.on.doc") {
                                 // Raw tool output: kept on this iPhone (no Universal Clipboard) and
                                 // gone from the pasteboard after ten minutes.
-                                UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: journal.jsonLines(Array(rows))]],
+                                UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: journal.jsonLines(Array(memo.rows(journal)))]],
                                                               options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(600)])
                                 copied = true
                             }

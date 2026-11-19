@@ -1,5 +1,6 @@
 @testable import CmuxMobileAgentChat
 import Foundation
+import Observation
 import Testing
 
 /// Resumes waiting frames when a test says a frame went by.
@@ -272,6 +273,30 @@ import Testing
         #expect(rows.shownQueries.last == "tool_call_update")
         #expect(!rows.shownQueries.contains("tool"), "an older query's result was shown: \(rows.shownQueries)")
         #expect(rows.rows(journal).map(\.id) == brute(journal, "tool_call_update"))
+    }
+
+    final class Flag: @unchecked Sendable {
+        var on = false
+    }
+
+    /// What the screen's body reads (`rows`, the count) hears of a new query, a record and Clear.
+    @Test func theScreenHearsOfQueriesRecordsAndClear() {
+        let journal = journal()
+        let rows = EventInspectorRows(offMainAbove: .max)
+        for n in 0..<10 { journal.record(Self.record(n)) }
+        func redraws(_ change: () -> Void) -> Bool {
+            let flag = Flag()
+            withObservationTracking {
+                _ = rows.rows(journal)
+                _ = journal.count
+            } onChange: { flag.on = true }
+            change()
+            return flag.on
+        }
+        #expect(redraws { rows.setQuery("tool", journal: journal) }, "a new query redraws")
+        #expect(redraws { rows.setQuery("", journal: journal) }, "clearing the query redraws")
+        #expect(redraws { journal.record(Self.record(10)) }, "a record redraws")
+        #expect(redraws { journal.clear() }, "Clear redraws")
     }
 
     @Test func clearEmptiesAndLaterRecordsShowAtOnce() {
