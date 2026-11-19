@@ -37,9 +37,13 @@ pub(crate) const READ_WAIT: Duration = Duration::from_millis(750);
 pub(crate) struct UsageCache {
     trackers: Arc<StdMutex<HashMap<String, Tracker>>>,
     stats: Arc<StdMutex<HashMap<String, UsageStats>>>,
-    /// Held for a pass, with when the last one started: a read that comes
-    /// meanwhile waits for it instead of reading the stats it is about to replace.
-    pass: tokio::sync::Mutex<u64>,
+    /// Held for a pass, whole or a turn's own, by the task that runs it, never by a read: a
+    /// read that stops waiting leaves it held until the pass ends.
+    pass: tokio::sync::Mutex<()>,
+    /// Whether a whole pass runs or is due, and when the last began ([`WholePasses`]).
+    whole: StdMutex<WholePasses>,
+    /// How many whole passes ended: a read waits until the pass it needs has.
+    ended: Ended,
     /// A turn ended since the last pass began: the next read reads, however soon.
     dirty: AtomicBool,
     /// How many whole passes ran, and how many chats the last one read: a gate's timed pass is
@@ -50,6 +54,43 @@ pub(crate) struct UsageCache {
     sources_read: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     probe: Arc<PassProbe>,
+}
+
+/// The whole passes reads share. One task runs them one after another, to their ends, whoever
+/// still waits; a read that comes while one runs waits for it, or for the one after it when a
+/// turn ended since (`again`). So at most one pass runs and one is due, however many reads
+/// come and give up (huge-blue, 2026-11-19: each read that gave up at [`READ_WAIT`] let the
+/// next one begin a pass of its own, and they queued in the blocking pool by the hundred, the
+/// daemon at 25 GB and 110% CPU, every session read past 30 s).
+#[derive(Default)]
+struct WholePasses {
+    running: bool,
+    again: bool,
+    last_start: u64,
+}
+
+/// The count of whole passes ended, which reads wait on.
+struct Ended(tokio::sync::watch::Sender<u64>);
+
+impl Default for Ended {
+    fn default() -> Self {
+        Self(tokio::sync::watch::Sender::new(0))
+    }
+}
+
+/// A driver that panics or is aborted (its scope closed) ends the passes as one that ends does:
+/// the next read starts one, and the reads waiting go on with the last pass's stats. Disarmed
+/// on a driver's own end, which resets them itself.
+struct Unwind<'a>(&'a UsageCache, bool);
+
+impl Drop for Unwind<'_> {
+    fn drop(&mut self) {
+        if self.1 {
+            let mut whole = self.0.whole.lock().unwrap_or_else(|e| e.into_inner());
+            (whole.running, whole.again) = (false, false);
+            self.0.ended.0.send_modify(|n| *n += 1);
+        }
+    }
 }
 
 /// A test's view into the blocking passes: how many are begun and not ended (queued on the
@@ -97,16 +138,53 @@ pub(super) fn prune_unlisted<T, S>(
 
 impl Hub {
     /// Reads every chat's usage, after the pass that runs if one does, unless one started in
-    /// the last few seconds and no turn ended since.
-    pub(crate) async fn refresh_usage_stats(&self) {
-        let mut last = self.usage_stats.pass.lock().await;
-        let now = crate::store::now_ms();
-        let dirty = self.usage_stats.dirty.swap(false, Ordering::SeqCst);
-        if !dirty && now.saturating_sub(*last) < REFRESH_EVERY_MS {
-            return;
+    /// the last few seconds and no turn ended since. The pass is shared ([`WholePasses`]): a
+    /// read that stops waiting ends no pass and starts none of its own.
+    pub(crate) async fn refresh_usage_stats(self: &Arc<Self>) {
+        let cache = &self.usage_stats;
+        let mut ended = cache.ended.0.subscribe();
+        let target = {
+            let mut whole = cache.whole.lock().unwrap_or_else(|e| e.into_inner());
+            let now = crate::store::now_ms();
+            let dirty = cache.dirty.swap(false, Ordering::SeqCst);
+            let done = *ended.borrow_and_update();
+            if whole.running {
+                // The running pass began before this read; a turn ended since needs the next.
+                whole.again |= dirty;
+                done + if whole.again { 2 } else { 1 }
+            } else {
+                if !dirty && now.saturating_sub(whole.last_start) < REFRESH_EVERY_MS {
+                    return;
+                }
+                whole.running = true;
+                whole.last_start = now;
+                let hub = self.clone();
+                self.scope.spawn_named("usage-passes", async move { hub.run_whole_passes().await });
+                done + 1
+            }
+        };
+        let _ = ended.wait_for(|n| *n >= target).await;
+    }
+
+    /// Runs whole passes until none is due. Ends when a pass ends with no read asking for
+    /// another since it began (`again`), so it runs at most one pass past the last read.
+    async fn run_whole_passes(self: Arc<Self>) {
+        let cache = &self.usage_stats;
+        let mut unwind = Unwind(cache, true);
+        loop {
+            {
+                let _pass = cache.pass.lock().await;
+                self.read_usage(self.usage_candidates(crate::store::now_ms()), true).await;
+            }
+            let mut whole = cache.whole.lock().unwrap_or_else(|e| e.into_inner());
+            cache.ended.0.send_modify(|n| *n += 1);
+            if !std::mem::take(&mut whole.again) {
+                whole.running = false;
+                unwind.1 = false;
+                return;
+            }
+            whole.last_start = crate::store::now_ms();
         }
-        *last = now;
-        self.read_usage(self.usage_candidates(now), true).await;
     }
 
     /// The chats a whole pass may read: the live ones, and those the kept list order
@@ -181,7 +259,7 @@ impl Hub {
     pub(crate) fn refresh_usage_stats_of(self: &Arc<Self>, session: &Arc<Session>) {
         self.usage_stats.dirty.store(true, Ordering::SeqCst);
         let (hub, session) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        self.scope.spawn_named("usage-turn-read", async move {
             let _pass = hub.usage_stats.pass.lock().await;
             hub.read_usage(vec![session], false).await;
         });
