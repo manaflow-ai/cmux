@@ -20,6 +20,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @State private var clearFailure: String?
     /// Why Mark All Notifications as Read failed on a Mac, shown once.
     @State private var markFailure: String?
+    /// The Workspaces sheet (More > Workspaces): which workspaces the Feed shows.
+    @State private var choosingWorkspaces = false
     @State private var rowContext = FeedRowContext(store: FeedStore.shared)
     @Environment(AppStore.self) private var appStore
     @Environment(\.openURL) private var openURL
@@ -57,9 +59,12 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 sidebarItem
-                ToolbarItem(placement: .topBarTrailing) { FeedFilterMenu(store: store, clearFailure: $clearFailure, markFailure: $markFailure) }
+                ToolbarItem(placement: .topBarTrailing) {
+                    FeedMoreMenu(store: store, clearFailure: $clearFailure, markFailure: $markFailure, choosingWorkspaces: $choosingWorkspaces)
+                }
             }
             .agentChatDestinations()
+            .sheet(isPresented: $choosingWorkspaces) { FeedWorkspacesSheet(store: store).environment(appStore) }
             .alert("Couldn't clear notifications", isPresented: Binding(get: { clearFailure != nil }, set: { if !$0 { clearFailure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -119,13 +124,17 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     /// What can change the list header's height: it is measured again only when this changes (a
     /// chip's count or the selected chip redraw in place; the header cell re-reads its view).
     private var headerSignature: [String] {
-        [store.refreshError ?? "", "\(store.visibleItems.isEmpty)", "\(store.syncState)", "\(store.needsYouCount > 0)", store.filter.rawValue]
+        [store.refreshError ?? "", "\(store.visibleItems.isEmpty)", "\(store.syncState)", "\(store.needsYouCount > 0)", store.filter.rawValue, "\(store.hiddenWorkspaceCount > 0)"]
     }
 
-    /// The filter chips, a refresh error and an empty or connecting state, above the events.
+    /// The filter chips, the hidden-workspaces line, a refresh error and an empty or connecting
+    /// state, above the events.
     private var header: some View {
         VStack(spacing: 0) {
             chips
+            if store.hiddenWorkspaceCount > 0 {
+                hiddenWorkspacesRow(store.hiddenWorkspaceCount)
+            }
             if let refreshError = store.refreshError {
                 refreshErrorRow(refreshError)
             }
@@ -186,6 +195,27 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         .trailingOverflowFade(width: 32)
         .padding(.vertical, 2)
         .sensoryFeedback(.selection, trigger: store.filter)
+    }
+
+    /// Says the Feed is leaving workspaces out (Mail's "Filtered by" line), so a hidden workspace
+    /// never reads as a quiet one. Show All brings every workspace back.
+    private func hiddenWorkspacesRow(_ count: Int) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "eye.slash").foregroundStyle(.secondary).accessibilityHidden(true)
+            Text(count == 1 ? "1 workspace hidden" : "\(count) workspaces hidden")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Button("Show All") { store.mutedWorkspaces.removeAll() }
+                .font(.footnote.weight(.semibold))
+                .frame(minHeight: 44)
+                .contentShape(.rect)
+                .buttonStyle(.cmuxPressFill)
+                .accessibilityIdentifier("feed.hiddenWorkspaces.showAll")
+        }
+        .padding(.horizontal, 16)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("feed.hiddenWorkspaces")
     }
 
     private func refreshErrorRow(_ message: String) -> some View {
@@ -288,27 +318,27 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     }
     #endif
 }
-/// The Filter menu: its own view, so the Mac's workspace list (which changes
-/// with every tree update while an agent works: titles, status) re-renders
-/// this menu only, never the Feed's list and its layout.
-private struct FeedFilterMenu: View {
-    @Bindable var store: FeedStore
+/// The Feed's More menu (HIG pull-down buttons: short, grouped, no item that repeats a control on
+/// screen). What it replaced repeated the filter chips as a "Show" picker and listed one toggle per
+/// workspace, so a busy Mac made it scroll. Now: the two Mac-wide actions and one Workspaces item
+/// that opens a sheet for choosing what the Feed shows. Its own view, so the Mac's workspace list
+/// (which changes with every tree update while an agent works: titles, status) re-renders this menu
+/// only, never the Feed's list and its layout.
+private struct FeedMoreMenu: View {
+    let store: FeedStore
     /// Why Clear All Notifications failed (the screen's alert).
     @Binding var clearFailure: String?
     /// Why Mark All Notifications as Read failed (the screen's alert).
     @Binding var markFailure: String?
+    @Binding var choosingWorkspaces: Bool
     @Environment(AppStore.self) private var appStore
 
     var body: some View {
         Menu {
-            Picker("Show", selection: $store.filter) {
-                ForEach(FeedFilter.allCases, id: \.self) { Text($0.rawValue) }
-            }
-            .pickerStyle(.inline)
-            // The Mac's Mark All Notifications as Read (NotificationActionCatalog): every Feed
-            // event here, and every tab each linked Mac shows unread (`ack-tab-notifications`).
             Section {
-                Button("Mark All Notifications as Read", systemImage: "checkmark.circle") {
+                // The Mac's Mark All Notifications as Read (NotificationActionCatalog): every Feed
+                // event here, and every tab each linked Mac shows unread (`ack-tab-notifications`).
+                Button("Mark All as Read", systemImage: "checkmark.circle") {
                     store.markAllRead()
                     guard let mark = FeedRouting.shared.markAllNotificationsRead else { return }
                     Task {
@@ -319,11 +349,22 @@ private struct FeedFilterMenu: View {
                 }
                 .disabled(store.items.allSatisfy(\.isRead) && FeedRouting.shared.markAllNotificationsRead == nil)
                 .accessibilityIdentifier("feed.markAllRead")
+                Button {
+                    choosingWorkspaces = true
+                } label: {
+                    Label {
+                        Text("Workspaces")
+                        Text(workspacesSubtitle)
+                    } icon: {
+                        Image(systemName: "square.stack")
+                    }
+                }
+                .accessibilityIdentifier("feed.chooseWorkspaces")
             }
             if let clear = FeedRouting.shared.clearAllNotifications {
                 // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
                 Section {
-                    Button("Clear All Notifications", systemImage: "clear", role: .destructive) {
+                    Button("Clear All Notifications", systemImage: "xmark.circle", role: .destructive) {
                         Task {
                             do { try await clear() } catch {
                                 clearFailure = UserFacingError.message(error)
@@ -333,20 +374,97 @@ private struct FeedFilterMenu: View {
                     .accessibilityIdentifier("feed.clearAllNotifications")
                 }
             }
-            Section("Workspaces") {
-                ForEach(appStore.workspaces) { workspace in
-                    Toggle(workspace.title, isOn: Binding(
-                        get: { !store.mutedWorkspaces.contains(workspace.id) },
-                        set: { on in
-                            if on { store.mutedWorkspaces.remove(workspace.id) } else { store.mutedWorkspaces.insert(workspace.id) }
+        } label: {
+            Label("More", systemImage: "ellipsis")
+        }
+        .accessibilityIdentifier("feed.more")
+    }
+
+    /// "All shown", or how many of the Mac's workspaces the Feed leaves out.
+    private var workspacesSubtitle: String {
+        let hidden = appStore.workspaces.lazy.filter { store.mutedWorkspaces.contains($0.id) }.count
+        return hidden == 0 ? "All shown" : "\(hidden) hidden"
+    }
+}
+
+/// Which workspaces the Feed shows: a sheet with one switch per workspace (Settings' list of
+/// switches), searchable when the list is long. Replaces the Workspaces section that sat at the
+/// bottom of the filter menu, where each switch closed the menu and a long list scrolled.
+private struct FeedWorkspacesSheet: View {
+    let store: FeedStore
+    @Environment(AppStore.self) private var appStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if !rows.isEmpty {
+                    Section {
+                        ForEach(rows) { workspace in
+                            Toggle(isOn: shown(workspace.id)) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(workspace.title).lineLimit(1)
+                                    if let mac = macName(workspace) {
+                                        Text(mac).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                }
+                            }
+                            .accessibilityIdentifier("feed.workspace.\(workspace.id)")
                         }
-                    ))
+                    } footer: {
+                        Text("Events from hidden workspaces stay out of the Feed until you turn them back on.")
+                    }
                 }
             }
-        } label: {
-            Label("Filter", systemImage: "line.3.horizontal.decrease")
+            .overlay {
+                if appStore.workspaces.isEmpty {
+                    ContentUnavailableView("No Workspaces", systemImage: "square.stack", description: Text("Workspaces on your Mac show up here."))
+                } else if rows.isEmpty {
+                    ContentUnavailableView.search(text: query)
+                }
+            }
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search Workspaces")
+            .navigationTitle("Workspaces")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Show All") { store.mutedWorkspaces.removeAll() }
+                        .disabled(store.mutedWorkspaces.isEmpty)
+                        .accessibilityIdentifier("feed.workspaces.showAll")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .accessibilityIdentifier("feed.workspaces.done")
+                }
+            }
         }
-        .accessibilityLabel("Filter")
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .sensoryFeedback(.selection, trigger: store.mutedWorkspaces)
+    }
+
+    /// The Mac's workspaces in its own order, narrowed by the search.
+    private var rows: [Workspace] {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return appStore.workspaces }
+        return appStore.workspaces.filter { $0.title.localizedStandardContains(needle) }
+    }
+
+    private func shown(_ id: String) -> Binding<Bool> {
+        Binding(
+            get: { !store.mutedWorkspaces.contains(id) },
+            set: { on in
+                if on { store.mutedWorkspaces.remove(id) } else { store.mutedWorkspaces.insert(id) }
+            }
+        )
+    }
+
+    /// The workspace's Mac, only when more than one Mac is linked (with one, it says nothing).
+    private func macName(_ workspace: Workspace) -> String? {
+        let macs = appStore.teams.flatMap(\.macs)
+        guard Set(appStore.workspaces.map(\.macID)).count > 1 else { return nil }
+        return macs.first { $0.id == workspace.macID }?.name
     }
 }
 

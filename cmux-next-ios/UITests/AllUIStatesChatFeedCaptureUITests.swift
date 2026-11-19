@@ -127,6 +127,27 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
     }
 
     @MainActor
+    private static func feedMore(_ app: XCUIApplication) -> String? {
+        tap(app.buttons["feed.more"].firstMatch, "Feed More", timeout: 30)
+    }
+
+    @MainActor
+    private static func openWorkspaces(_ app: XCUIApplication) -> String? {
+        steps([{ feedMore(app) }, { tap(app.buttons["feed.chooseWorkspaces"].firstMatch, "Workspaces") }, { wait(app.switches.firstMatch, "workspace switch", timeout: 10) }])
+    }
+
+    /// Hides the first workspace in the sheet and closes it: the Feed shows its hidden line.
+    @MainActor
+    private static func hideFirstWorkspace(_ app: XCUIApplication) -> String? {
+        steps([
+            { openWorkspaces(app) },
+            { tap(app.switches.firstMatch, "first workspace switch") },
+            { tap(app.buttons["feed.workspaces.done"], "Done") },
+            { wait(app.buttons["feed.hiddenWorkspaces.showAll"], "hidden workspaces line", timeout: 10) },
+        ])
+    }
+
+    @MainActor
     func testFeed() {
         let g = "12 Feed"
         capture([
@@ -136,7 +157,28 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "chip-needs-you", args: Self.feed) { app in C.tap(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Needs you'")).firstMatch, "Needs you chip") },
             Scene(group: g, id: "chip-finished", args: Self.feed) { app in C.tap(app.buttons["Finished"].firstMatch, "Finished chip") },
             Scene(group: g, id: "chip-errors", args: Self.feed) { app in C.tap(app.buttons["Errors"].firstMatch, "Errors chip") },
-            Scene(group: g, id: "filter-menu", args: Self.feed) { app in C.tap(app.buttons["Filter"].firstMatch, "Filter menu") },
+            Scene(group: g, id: "more-menu", args: Self.feed) { app in Self.feedMore(app) },
+            Scene(group: g, id: "workspaces-sheet", args: Self.feed) { app in Self.openWorkspaces(app) },
+            Scene(group: g, id: "workspaces-sheet-one-hidden", args: Self.feed) { app in
+                C.steps([{ Self.openWorkspaces(app) }, { C.tap(app.switches.firstMatch, "first workspace switch") }])
+            },
+            Scene(group: g, id: "workspaces-sheet-large", args: Self.feed) { app in
+                C.steps([{ Self.openWorkspaces(app) }, {
+                    app.navigationBars["Workspaces"].firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                        .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)))
+                    return nil
+                }])
+            },
+            Scene(group: g, id: "workspaces-search-no-match", args: Self.feed) { app in
+                C.steps([{ Self.openWorkspaces(app) }, { C.tap(app.searchFields.firstMatch, "search field") }, { app.typeText("zzzz"); return nil }])
+            },
+            Scene(group: g, id: "hidden-workspaces-line", args: Self.feed) { app in Self.hideFirstWorkspace(app) },
+            Scene(group: g, id: "hidden-workspaces-more-menu", args: Self.feed) { app in
+                C.steps([{ Self.hideFirstWorkspace(app) }, { Self.feedMore(app) }])
+            },
+            Scene(group: g, id: "hidden-workspaces-show-all", args: Self.feed) { app in
+                C.steps([{ Self.hideFirstWorkspace(app) }, { C.tap(app.buttons["feed.hiddenWorkspaces.showAll"], "Show All") }])
+            },
             Scene(group: g, id: "show-more-expanded", args: Self.feed) { app in
                 let row = app.tables["feed.list"].cells["feed.row.f-long"]
                 for _ in 0..<6 where !row.isHittable { _ = C.scrollDown(app) }
