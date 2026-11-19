@@ -224,8 +224,12 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
         OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER"): (
         OWNER + "(inputs.linux_build_runner != '' && inputs.linux_build_runner || inputs.linux_runner != '' && inputs.linux_runner || "
-        # Attempt 1 of a nightly-path tree run: the owned GCP build lanes first (cmux-tui-artifacts.yml jobs: comment).
+        # Attempt 1 of a nightly-path tree run: the reserved release runner, attempt 2 the shared GCP build lane
+        # (cmux-tui-artifacts.yml jobs: comment).
         "github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && "
+        "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || "
+        "github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-lane-release-x64' || "
+        "github.run_attempt == 2 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && "
         "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || "
         "github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-lane-build-x64' || vars.LINUX_BUILD_RUNNER || ", ")"),
     # Owner-gated jobs with no fork branch.

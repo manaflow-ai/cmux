@@ -82,11 +82,14 @@ DARWIN_CROSS_JOB = "macos-cross-shadow"
 DARWIN_CROSS = "darwin-cross-pool"
 # The owned GCP runners the nightly path's attempt 1 takes first (cmux-tui-artifacts.yml's jobs: comment).
 OWNED = "cmux-gcp-lane-build-x64"
+# The reserved release runner attempt 1 takes (no pull request job names it); OWNED is attempt 2's fallback.
+RESERVED = "cmux-gcp-lane-release-x64"
 # Jobs that keep their own route on the nightly path: the daemon tests (linux-placement, then Blacksmith;
 # their full checkout is not repaired for a reused self-hosted workspace) and the shadow (its override).
 OWN_ROUTE_JOBS = ("cmux-next-daemon-tests", DARWIN_CROSS_JOB)
 # The jobs a NEXT nightly waits for; only these take the 4-runner owned GCP lane first.
-NIGHTLY_TREE_JOBS = ("tree-preflight", "tree-owner-wait", "publish", "publish-tree", "mark-tree-commits")
+NIGHTLY_TREE_JOBS = ("tree-preflight", "tree-owner-wait", "darwin-fallback-plan", "publish", "publish-tree", "publish-tree-tested",
+                     "mark-tree-commits", "request-nightly-next")
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
 # The short jobs that sat queued on 2026-10-30; each must stay in the set.
 SHORT_JOBS = (
@@ -157,7 +160,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
             # tests) stays on Blacksmith. The nightly path's attempt 1 takes the owned pool.
             allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
-                       | ({OWNED} if name in NIGHTLY_TREE_JOBS else set()))
+                       | ({OWNED, RESERVED} if name in NIGHTLY_TREE_JOBS else set()))
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertTrue(labels <= allowed, labels - allowed)
 
@@ -193,7 +196,10 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         # nightly path needs (tree request/preflight/publish, nightly.yml legs) to owned fleet runners first, with
         # Blacksmith only as overflow." Every Linux job of the tree path (this workflow's, the build package's
         # select/package jobs when this workflow calls it, the tree request) resolves to the owned pool alone on
-        # attempt 1 of a nightly-path run, whatever LINUX_RUNNER holds; a re-run, and a lane push, keep Blacksmith.
+        # attempt 1 of a nightly-path run, whatever LINUX_RUNNER holds; a lane push keeps Blacksmith.
+        # 2026-11-19 (cmuxterm-hq#13909): attempt 1 takes the reserved release runner, which no pull request job can
+        # name, since the shared lane's runners were busy with PR CI while the tree publisher sat queued; attempt 2
+        # falls back to the shared lane (a dead reserved runner) and attempt 3 keeps Blacksmith.
         routes = [(WORKFLOW.name, name, runs_on) for name, runs_on in linux_routes() if name in NIGHTLY_TREE_JOBS]
         self.assertEqual({name for _, name, _ in routes}, set(NIGHTLY_TREE_JOBS))
         for workflow in ("cmux-tui-build-package.yml", "cmux-tui-tree-request.yml"):
@@ -203,16 +209,19 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         self.assertGreaterEqual(len(routes), len(NIGHTLY_TREE_JOBS) + 3)
         nightly = {"event": "'push'", "ref": "'refs/heads/feat-cmux-next'", "attempt": "1"}
         cases = (
-            ("feat-cmux-next push", nightly, True),
-            ("nightly-next push", {**nightly, "ref": "'refs/heads/nightly-next'"}, True),
-            ("dispatch", {**nightly, "event": "'workflow_dispatch'", "ref": "'refs/heads/feat-cmux-next'"}, True),
-            ("re-run", {**nightly, "attempt": "2"}, False),
-            ("lane push", {**nightly, "ref": "'refs/heads/lane/x'"}, False),
+            ("feat-cmux-next push", nightly, RESERVED),
+            ("nightly-next push", {**nightly, "ref": "'refs/heads/nightly-next'"}, RESERVED),
+            ("dispatch", {**nightly, "event": "'workflow_dispatch'", "ref": "'refs/heads/feat-cmux-next'"}, RESERVED),
+            ("re-run", {**nightly, "attempt": "2"}, OWNED),
+            ("second re-run", {**nightly, "attempt": "3"}, None),
+            ("lane push", {**nightly, "ref": "'refs/heads/lane/x'"}, None),
         )
         for workflow, name, runs_on in routes:
             for case, values, owned in cases:
-                if workflow == "cmux-tui-tree-request.yml" and case == "lane push":
+                if workflow == "cmux-tui-tree-request.yml" and case in ("lane push", "nightly-next push"):
                     continue  # it runs only as a feat-cmux-next dispatch
+                if workflow == "cmux-tui-tree-request.yml":
+                    values = {**values, "event": "'workflow_dispatch'"}
                 text = runs_on.replace("github.run_attempt", values["attempt"])
                 text = text.replace("github.event_name", values["event"])
                 text = re.sub(r"\bgithub\.ref\b", values["ref"], text)
@@ -223,9 +232,9 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                         "LINUX_RUNNER": [linux_runner], "CI_CLOUD_OVERFLOW_SAVED": [""]})
                     with self.subTest(workflow=workflow, job=name, case=case, linux_runner=linux_runner):
                         if owned:
-                            self.assertEqual(labels, {OWNED})
+                            self.assertEqual(labels, {owned})
                         else:
-                            self.assertNotIn(OWNED, labels)
+                            self.assertFalse(labels & {OWNED, RESERVED}, labels)
 
     def test_a_fork_keeps_github_hosted_ubuntu(self) -> None:
         for name, runs_on in linux_routes():
@@ -242,7 +251,7 @@ OWNED_ROUTE = re.compile(
     r"vars\.(?:LINUX_BUILD_RUNNER|LINUX_RUNNER_DARWIN_CROSS|CMUX_TUI_GATE_RUNNER)\b"
     r"|inputs\.linux(?:_build)?_runner\b"
     r"|needs\.[\w-]+\.outputs\.[\w-]*runner\b"
-    r"|'cmux-gcp-lane-build[\w-]*'"
+    r"|'cmux-gcp-lane-(?:build|release)[\w-]*'"
 )
 SUDO = re.compile(r"(?<![\w-])sudo(?![\w-])")
 APT_INSTALL = re.compile(r"\bapt(?:-get)?\s+(?:[^|;&\n]*\s)?install\b")

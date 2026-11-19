@@ -41,7 +41,10 @@ env:
 jobs:
   request:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    # Attempt 1 takes the reserved release runner (cmux-gcp-lane-release-x64), attempt 2 the shared GCP build lane,
+    # and only a later attempt Blacksmith: on 2026-11-19 ticks 44460793985 and the 04:34Z one sat queued on
+    # blacksmith-2vcpu while no Blacksmith label started jobs (cmuxterm-hq#13909, tests/test_release_runner_reserved.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'schedule' || github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-lane-release-x64' || github.run_attempt == 2 && (github.event_name == 'schedule' || github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-lane-build-x64' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     # 15 minutes of work, plus the hour its gh calls may wait for a rate limit (below).
     timeout-minutes: 75
     # One tick runs and the newest waits: GitHub replaces an older pending tick
