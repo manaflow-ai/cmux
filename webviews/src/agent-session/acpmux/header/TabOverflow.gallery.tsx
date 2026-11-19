@@ -160,7 +160,6 @@ function TabOverflow({ mode, resize, width, hoverIndex = SELECTED - 1, menuOpen 
             <button
               type="button"
               className="ttb-ovf-button"
-              style={{ width: MORE_W }}
               data-open={menuOpen ? "" : undefined}
               aria-expanded={menuOpen}
             >

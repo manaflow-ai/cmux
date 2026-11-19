@@ -1,16 +1,19 @@
 /* Gallery-only drawings of the native tab strip's experiments (experiments.tabBarStyle, experiments.tabOverflow):
    TabBarStyles.gallery.tsx and TabOverflow.gallery.tsx. The strip itself is native (PaneContentView); these rules draw
-   its geometry so the arms can be compared side by side. Nothing here ships. */
+   its geometry so the arms can be compared side by side. Nothing here ships. The mock's own measures and the glass
+   picture's colours are custom properties on the stage, so each lives in one place. */
 
-.ttb-window{--ttb-bar:color-mix(in srgb,var(--ds-color-fg) 5%,var(--ds-color-surface,Canvas));--ttb-sheet:var(--ds-color-surface,Canvas);--ttb-tab-h:28px;display:flex;flex-direction:column;width:100%;height:150px;box-sizing:border-box;border:1px solid var(--ds-color-separator);border-radius:10px;overflow:hidden;background:var(--ttb-bar);color:var(--ds-color-fg)}
-.ttb-strip{flex:none;display:flex;align-items:center;gap:6px;height:40px;padding:0 8px;box-sizing:border-box;min-width:0}
+.ttb-sheet-stage,.ttb-ovf-stage{--ttb-window-h:150px;--ttb-strip-h:40px;--ttb-glass-strip-h:48px;--ttb-capsule-h:36px;--ttb-fused-strip-h:38px;--ttb-fused-tab-h:32px;--ttb-tab-h:var(--ds-control-row);--ttb-tab-basis:160px;--ttb-tab-max:180px;--ttb-glass-tab-basis:150px;--ttb-icon:var(--grid-glyph,12px);--ttb-close:18px;--ttb-foot:var(--ds-space-2);--ttb-capsule:999px;--ttb-rule:2px;--ttb-hairline:.5px;--ttb-white:#fff;--ttb-black:#000;--ttb-pic-a:#ff8a3d;--ttb-pic-b:#6a5cff;--ttb-pic-c:#18c2a8;--ttb-pic-d:#e8508a;--ttb-blur:18px;--ttb-sheet-blur:24px;--ttb-shadow-y:4px;--ttb-shadow-r:14px;--ttb-resize-time:7s;--ttb-wide:1200px;--ttb-narrow:420px;--ttb-menu-w:200px;--ttb-menu-h:330px;--ttb-pill-w:92px;--ttb-more-w:84px;--ttb-fade:44px;--ttb-tab-w:140px}
+
+.ttb-window{--ttb-bar:color-mix(in srgb,var(--ds-color-fg) 5%,var(--ds-color-surface,Canvas));--ttb-sheet:var(--ds-color-surface,Canvas);display:flex;flex-direction:column;width:100%;height:var(--ttb-window-h);box-sizing:border-box;border:1px solid var(--ds-color-separator);border-radius:var(--ds-radius-xl);overflow:hidden;background:var(--ttb-bar);color:var(--ds-color-fg)}
+.ttb-strip{flex:none;display:flex;align-items:center;gap:var(--ds-space-2);height:var(--ttb-strip-h);padding:0 var(--ds-space-2);box-sizing:border-box;min-width:0}
 .ttb-tabs{flex:1 1 auto;display:flex;align-items:center;min-width:0;height:100%}
-.ttb-tab{position:relative;flex:1 1 160px;max-width:180px;min-width:0;height:var(--ttb-tab-h);display:flex;align-items:center;gap:6px;padding:0 10px;box-sizing:border-box;border-radius:var(--ds-radius-md,6px);color:var(--ds-color-muted);white-space:nowrap;cursor:default}
+.ttb-tab{position:relative;flex:1 1 var(--ttb-tab-basis);max-width:var(--ttb-tab-max);min-width:0;height:var(--ttb-tab-h);display:flex;align-items:center;gap:var(--ds-space-2);padding:0 var(--ds-space-2);box-sizing:border-box;border-radius:var(--ds-radius-md);color:var(--ds-color-muted);white-space:nowrap;cursor:default}
 .ttb-tab[data-selected]{color:var(--ds-color-fg)}
-.ttb-icon{flex:none;width:12px;height:12px;border-radius:3px;background:currentColor;opacity:.55}
+.ttb-icon{flex:none;width:var(--ttb-icon);height:var(--ttb-icon);border-radius:var(--ds-radius-sm);background:currentColor;opacity:.55}
 .ttb-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.ttb-plus{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:var(--ds-radius-md,6px);color:var(--ds-color-muted);font-size:17px;line-height:1}
-.ttb-content{flex:1 1 auto;padding:12px 14px;color:var(--ds-color-muted);background:var(--ttb-sheet);border-top:1px solid var(--ds-color-separator)}
+.ttb-plus{flex:none;display:inline-flex;align-items:center;justify-content:center;width:var(--ds-control-compact);height:var(--ds-control-compact);border-radius:var(--ds-radius-md);color:var(--ds-color-muted);font-size:var(--text-title);line-height:1}
+.ttb-content{flex:1 1 auto;padding:var(--ds-space-3) var(--ds-space-4);color:var(--ds-color-muted);background:var(--ttb-sheet);border-top:1px solid var(--ds-color-separator)}
 .ttb-content b{color:var(--ds-color-fg);font-weight:600}
 
 /* off: today's strip, a rounded selection fill and a plain + button. */
@@ -20,86 +23,91 @@
 
 /* glass: the window over a picture so the glass reads; every tab inside one translucent capsule with a backdrop blur and
    a hairline edge, the selected tab a lighter inner pill, the + a round glass button of its own beside the capsule. */
-.ttb-window[data-style=glass]{background:radial-gradient(120% 140% at 0% 0%,#ff8a3d 0%,transparent 55%),radial-gradient(120% 160% at 100% 0%,#6a5cff 0%,transparent 60%),radial-gradient(140% 140% at 50% 120%,#18c2a8 0%,transparent 60%),#e8508a;--ttb-sheet:color-mix(in srgb,var(--ds-color-surface,Canvas) 82%,transparent)}
-.ttb-window[data-style=glass] .ttb-strip{height:48px;gap:8px}
-.ttb-window[data-style=glass] .ttb-tabs{flex:0 1 auto;height:36px;padding:3px;gap:2px;box-sizing:border-box;border-radius:999px;background:color-mix(in srgb,var(--ds-color-surface,Canvas) 42%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.7);backdrop-filter:blur(18px) saturate(1.7);box-shadow:inset 0 0 0 .5px color-mix(in srgb,#fff 55%,transparent),0 0 0 .5px color-mix(in srgb,#000 18%,transparent),0 4px 14px color-mix(in srgb,#000 14%,transparent)}
-.ttb-window[data-style=glass] .ttb-tab{flex-basis:150px;height:30px;border-radius:999px;color:color-mix(in srgb,var(--ds-color-fg) 78%,transparent)}
+.ttb-window[data-style=glass]{--ttb-glass-fill:color-mix(in srgb,var(--ds-color-surface,Canvas) 42%,transparent);--ttb-glass-edge:inset 0 0 0 var(--ttb-hairline) color-mix(in srgb,var(--ttb-white) 55%,transparent),0 0 0 var(--ttb-hairline) color-mix(in srgb,var(--ttb-black) 18%,transparent),0 var(--ttb-shadow-y) var(--ttb-shadow-r) color-mix(in srgb,var(--ttb-black) 14%,transparent);background:radial-gradient(120% 140% at 0% 0%,var(--ttb-pic-a) 0%,transparent 55%),radial-gradient(120% 160% at 100% 0%,var(--ttb-pic-b) 0%,transparent 60%),radial-gradient(140% 140% at 50% 120%,var(--ttb-pic-c) 0%,transparent 60%),var(--ttb-pic-d);--ttb-sheet:color-mix(in srgb,var(--ds-color-surface,Canvas) 82%,transparent)}
+.ttb-window[data-style=glass] .ttb-strip{height:var(--ttb-glass-strip-h)}
+.ttb-window[data-style=glass] .ttb-tabs{flex:0 1 auto;height:var(--ttb-capsule-h);padding:var(--ds-space-1);gap:0;box-sizing:border-box;border-radius:var(--ttb-capsule);background:var(--ttb-glass-fill);-webkit-backdrop-filter:blur(var(--ttb-blur)) saturate(1.7);backdrop-filter:blur(var(--ttb-blur)) saturate(1.7);box-shadow:var(--ttb-glass-edge)}
+.ttb-window[data-style=glass] .ttb-tab{flex-basis:var(--ttb-glass-tab-basis);border-radius:var(--ttb-capsule);color:color-mix(in srgb,var(--ds-color-fg) 78%,transparent)}
 .ttb-window[data-style=glass] .ttb-tab:hover{background:color-mix(in srgb,var(--ds-color-surface,Canvas) 30%,transparent)}
-.ttb-window[data-style=glass] .ttb-tab[data-selected]{color:var(--ds-color-fg);background:color-mix(in srgb,var(--ds-color-surface,Canvas) 78%,transparent);box-shadow:inset 0 0 0 .5px color-mix(in srgb,#fff 70%,transparent),0 1px 3px color-mix(in srgb,#000 16%,transparent)}
-.ttb-window[data-style=glass] .ttb-plus{width:36px;height:36px;border-radius:50%;color:var(--ds-color-fg);background:color-mix(in srgb,var(--ds-color-surface,Canvas) 42%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.7);backdrop-filter:blur(18px) saturate(1.7);box-shadow:inset 0 0 0 .5px color-mix(in srgb,#fff 55%,transparent),0 0 0 .5px color-mix(in srgb,#000 18%,transparent),0 4px 14px color-mix(in srgb,#000 14%,transparent)}
-.ttb-window[data-style=glass] .ttb-content{margin:0 8px 8px;border:0;border-radius:10px;-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px)}
+.ttb-window[data-style=glass] .ttb-tab[data-selected]{color:var(--ds-color-fg);background:color-mix(in srgb,var(--ds-color-surface,Canvas) 80%,transparent);box-shadow:inset 0 0 0 var(--ttb-hairline) color-mix(in srgb,var(--ttb-white) 70%,transparent),0 1px var(--ttb-rule) color-mix(in srgb,var(--ttb-black) 16%,transparent)}
+.ttb-window[data-style=glass] .ttb-plus{width:var(--ttb-capsule-h);height:var(--ttb-capsule-h);border-radius:50%;color:var(--ds-color-fg);background:var(--ttb-glass-fill);-webkit-backdrop-filter:blur(var(--ttb-blur)) saturate(1.7);backdrop-filter:blur(var(--ttb-blur)) saturate(1.7);box-shadow:var(--ttb-glass-edge)}
+.ttb-window[data-style=glass] .ttb-content{margin:0 var(--ds-space-2) var(--ds-space-2);border:0;border-radius:var(--ds-radius-xl);-webkit-backdrop-filter:blur(var(--ttb-sheet-blur));backdrop-filter:blur(var(--ttb-sheet-blur))}
+/* Reduce Transparency: the glass turns to the opaque surface, as the shared tokens do. */
+@media (prefers-reduced-transparency: reduce){
+  .ttb-window[data-style=glass]{--ttb-glass-fill:var(--ds-color-surface,Canvas);--ttb-sheet:var(--ds-color-surface,Canvas)}
+  .ttb-window[data-style=glass] :is(.ttb-tabs,.ttb-plus,.ttb-content){-webkit-backdrop-filter:none;backdrop-filter:none}
+}
 
 /* fused: inactive tabs flat on a tinted bar with thin separators; the selected tab takes the content sheet's color with
    rounded top corners and runs into the sheet below, its feet curving out into the bar. */
 .ttb-window[data-style=fused]{--ttb-bar:color-mix(in srgb,var(--ds-color-fg) 9%,var(--ds-color-surface,Canvas))}
-.ttb-window[data-style=fused] .ttb-strip{align-items:flex-end;height:38px;padding-bottom:0}
+.ttb-window[data-style=fused] .ttb-strip{align-items:flex-end;height:var(--ttb-fused-strip-h)}
 .ttb-window[data-style=fused] .ttb-tabs{align-items:flex-end}
-.ttb-window[data-style=fused] .ttb-tab{height:32px;border-radius:8px 8px 0 0}
-.ttb-window[data-style=fused] .ttb-tab+.ttb-tab::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:1px;background:var(--ds-color-separator)}
+.ttb-window[data-style=fused] .ttb-tab{height:var(--ttb-fused-tab-h);border-radius:var(--ds-radius-lg) var(--ds-radius-lg) 0 0}
+.ttb-window[data-style=fused] .ttb-tab+.ttb-tab::before{content:"";position:absolute;left:0;top:var(--ds-space-2);bottom:var(--ds-space-2);width:1px;background:var(--ds-color-separator)}
 .ttb-window[data-style=fused] .ttb-tab[data-selected]::before,.ttb-window[data-style=fused] .ttb-tab[data-selected]+.ttb-tab::before{display:none}
-.ttb-window[data-style=fused] .ttb-tab:not([data-selected]):hover{background:color-mix(in srgb,var(--ds-color-fg) 5%,transparent);border-radius:8px}
-.ttb-window[data-style=fused] .ttb-tab[data-selected]{background:var(--ttb-sheet);z-index:1}
-.ttb-window[data-style=fused] .ttb-tab[data-selected]::after{content:"";position:absolute;left:-8px;right:-8px;bottom:0;height:8px;pointer-events:none;background:radial-gradient(circle at 0 0,transparent 7.5px,var(--ttb-sheet) 8px) left bottom/8px 8px no-repeat,radial-gradient(circle at 100% 0,transparent 7.5px,var(--ttb-sheet) 8px) right bottom/8px 8px no-repeat}
-.ttb-window[data-style=fused] .ttb-plus{align-self:center;margin-top:6px}
+.ttb-window[data-style=fused] .ttb-tab:not([data-selected]):hover{background:color-mix(in srgb,var(--ds-color-fg) 5%,transparent);border-radius:var(--ds-radius-lg)}
+.ttb-window[data-style=fused] .ttb-tab[data-selected]{background:var(--ttb-sheet);z-index:var(--layer-raised)}
+.ttb-window[data-style=fused] .ttb-tab[data-selected]::after{content:"";position:absolute;left:calc(-1 * var(--ttb-foot));right:calc(-1 * var(--ttb-foot));bottom:0;height:var(--ttb-foot);pointer-events:none;background:radial-gradient(circle at 0 0,transparent calc(var(--ttb-foot) - .5px),var(--ttb-sheet) var(--ttb-foot)) left bottom/var(--ttb-foot) var(--ttb-foot) no-repeat,radial-gradient(circle at 100% 0,transparent calc(var(--ttb-foot) - .5px),var(--ttb-sheet) var(--ttb-foot)) right bottom/var(--ttb-foot) var(--ttb-foot) no-repeat}
+.ttb-window[data-style=fused] .ttb-plus{align-self:center}
 .ttb-window[data-style=fused] .ttb-plus:hover{background:var(--ds-color-hover)}
 .ttb-window[data-style=fused] .ttb-content{border-top:0}
 
 /* underline: no fills; a 1px hairline under the strip; the selected label bold over a 2px accent rule. The bold face's
    width is reserved in every label (a hidden bold copy in the same grid cell), so selecting a tab moves no text. */
 .ttb-window[data-style=underline]{--ttb-bar:var(--ds-color-surface,Canvas)}
-.ttb-window[data-style=underline] .ttb-strip{height:40px;gap:4px;border-bottom:1px solid var(--ds-color-separator)}
-.ttb-window[data-style=underline] .ttb-tabs{gap:4px}
+.ttb-window[data-style=underline] .ttb-strip{gap:var(--ds-space-1);border-bottom:1px solid var(--ds-color-separator)}
+.ttb-window[data-style=underline] .ttb-tabs{gap:var(--ds-space-1)}
 .ttb-window[data-style=underline] .ttb-tab{height:100%;border-radius:0}
 .ttb-window[data-style=underline] .ttb-tab:hover{color:var(--ds-color-fg)}
-.ttb-window[data-style=underline] .ttb-tab[data-selected]::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;border-radius:1px;background:var(--ds-color-accent)}
+.ttb-window[data-style=underline] .ttb-tab[data-selected]::after{content:"";position:absolute;left:var(--ds-space-2);right:var(--ds-space-2);bottom:-1px;height:var(--ttb-rule);border-radius:1px;background:var(--ds-color-accent)}
 .ttb-window[data-style=underline] .ttb-tab[data-selected] .ttb-label{font-weight:600}
 .ttb-window[data-style=underline] .ttb-content{border-top:0}
 .ttb-label-stack{flex:1 1 auto;min-width:0;display:grid}
 .ttb-label-stack>*{grid-area:1/1;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .ttb-label-stack>[aria-hidden]{visibility:hidden;font-weight:600}
-.ttb-window[data-style=underline] .ttb-plus{border-radius:var(--ds-radius-md,6px)}
 .ttb-window[data-style=underline] .ttb-plus:hover{color:var(--ds-color-fg)}
 
 /* The style sheet's frame: each arm with its caption. */
-.ttb-sheet-stage{display:grid;gap:10px;padding:12px;box-sizing:border-box;width:100%}
-.ttb-caption{font-size:11px;color:var(--ds-color-muted)}
+.ttb-sheet-stage{display:grid;gap:var(--ds-space-2);padding:var(--ds-space-3);box-sizing:border-box;width:100%}
+.ttb-caption{font-size:var(--text-caption);color:var(--ds-color-muted)}
 
 /* Overflow (TabOverflow.gallery.tsx): 20 tabs of one fixed width, the strip's width a CSS variable a resize animates. */
-.ttb-ovf-stage{padding:12px;box-sizing:border-box;width:100%;display:grid;gap:8px;align-content:start}
-.ttb-ovf{--ttb-tab-w:140px;--ttb-fade:44px;position:relative;width:var(--ttb-strip-width,100%);max-width:100%;height:40px;box-sizing:border-box;display:flex;align-items:center;border:1px solid var(--ds-color-separator);border-radius:8px;background:color-mix(in srgb,var(--ds-color-fg) 5%,var(--ds-color-surface,Canvas));color:var(--ds-color-fg)}
-.ttb-ovf[data-resize]{max-width:none;animation:ttb-ovf-resize 7s ease-in-out infinite}
-@keyframes ttb-ovf-resize{0%,8%{width:1200px}46%,54%{width:420px}92%,100%{width:1200px}}
-.ttb-ovf-scroller{flex:1 1 auto;min-width:0;height:100%;display:flex;align-items:center;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;padding:0 4px;box-sizing:border-box}
+.ttb-ovf-stage{padding:var(--ds-space-3);box-sizing:border-box;width:100%;display:grid;gap:var(--ds-space-2);align-content:start}
+.ttb-ovf{position:relative;width:var(--ttb-strip-width,100%);max-width:100%;height:var(--ttb-strip-h);box-sizing:border-box;display:flex;align-items:center;border:1px solid var(--ds-color-separator);border-radius:var(--ds-radius-lg);background:color-mix(in srgb,var(--ds-color-fg) 5%,var(--ds-color-surface,Canvas));color:var(--ds-color-fg)}
+/* A window resize, recorded: linear between holds, like a drag. Gallery-only; nothing in the app animates this way. */
+.ttb-ovf[data-resize]{max-width:none;animation:ttb-ovf-resize var(--ttb-resize-time) linear infinite}
+@keyframes ttb-ovf-resize{0%,8%{width:var(--ttb-wide)}46%,54%{width:var(--ttb-narrow)}92%,100%{width:var(--ttb-wide)}}
+.ttb-ovf-scroller{flex:1 1 auto;min-width:0;height:100%;display:flex;align-items:center;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;padding:0 var(--ds-space-1);box-sizing:border-box}
 .ttb-ovf-scroller::-webkit-scrollbar{display:none}
-.ttb-ovf .ttb-tab{flex:0 0 var(--ttb-tab-w);width:var(--ttb-tab-w);max-width:none;height:28px;padding:0 6px 0 10px}
+.ttb-ovf .ttb-tab{flex:0 0 var(--ttb-tab-w);width:var(--ttb-tab-w);max-width:none;padding:0 var(--ds-space-1) 0 var(--ds-space-2)}
 .ttb-ovf .ttb-tab:hover,.ttb-ovf .ttb-tab[data-hover]{background:var(--ds-color-hover)}
 .ttb-ovf .ttb-tab[data-selected]{background:var(--ds-color-selection)}
-.ttb-close{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;color:var(--ds-color-muted);font-size:14px;line-height:1;visibility:hidden}
+.ttb-close{flex:none;display:inline-flex;align-items:center;justify-content:center;width:var(--ttb-close);height:var(--ttb-close);border-radius:var(--ds-radius-sm);color:var(--ds-color-muted);font-size:var(--text-body);line-height:1;visibility:hidden}
 .ttb-close:hover{background:var(--ds-color-hover);color:var(--ds-color-fg)}
-.ttb-ovf .ttb-tab:hover .ttb-close,.ttb-ovf .ttb-tab[data-hover] .ttb-close,.ttb-ovf .ttb-tab[data-selected] .ttb-close{visibility:visible}
-.ttb-ovf-button{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:4px;height:26px;min-width:26px;padding:0 6px;box-sizing:border-box;border:0;border-radius:var(--ds-radius-md,6px);background:none;color:var(--ds-color-muted);font:inherit;white-space:nowrap}
+.ttb-ovf .ttb-tab:hover .ttb-close,.ttb-ovf .ttb-tab:has([data-popup-open]) .ttb-close,.ttb-ovf .ttb-tab[data-hover] .ttb-close,.ttb-ovf .ttb-tab[data-selected] .ttb-close{visibility:visible}
+.ttb-ovf-button{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:var(--ds-space-1);height:var(--ds-control-compact);min-width:var(--ds-control-compact);padding:0 var(--ds-space-2);box-sizing:border-box;border:0;border-radius:var(--ds-radius-md);background:none;color:var(--ds-color-muted);font:inherit;white-space:nowrap}
 .ttb-ovf-button:hover{background:var(--ds-color-hover);color:var(--ds-color-fg)}
 
 /* chevrons: the hidden edges fade, and a chevron sits on each one; the fades and the chevrons follow the scroll through two
    attributes the scroller's one listener writes (data-more-start, data-more-end), no React state. */
-.ttb-ovf[data-mode=chevrons] .ttb-ovf-scroller{--ttb-fade-l:0px;--ttb-fade-r:0px;-webkit-mask-image:linear-gradient(to right,transparent 0,#000 var(--ttb-fade-l),#000 calc(100% - var(--ttb-fade-r)),transparent 100%);mask-image:linear-gradient(to right,transparent 0,#000 var(--ttb-fade-l),#000 calc(100% - var(--ttb-fade-r)),transparent 100%);scroll-padding:0 36px}
+.ttb-ovf[data-mode=chevrons] .ttb-ovf-scroller{--ttb-fade-l:0px;--ttb-fade-r:0px;-webkit-mask-image:linear-gradient(to right,transparent 0,var(--ttb-black) var(--ttb-fade-l),var(--ttb-black) calc(100% - var(--ttb-fade-r)),transparent 100%);mask-image:linear-gradient(to right,transparent 0,var(--ttb-black) var(--ttb-fade-l),var(--ttb-black) calc(100% - var(--ttb-fade-r)),transparent 100%)}
 .ttb-ovf[data-mode=chevrons][data-more-start] .ttb-ovf-scroller{--ttb-fade-l:var(--ttb-fade)}
 .ttb-ovf[data-mode=chevrons][data-more-end] .ttb-ovf-scroller{--ttb-fade-r:var(--ttb-fade)}
-.ttb-ovf-chevron{position:absolute;top:6px;z-index:1;visibility:hidden}
-.ttb-ovf-chevron[data-edge=start]{left:4px}
-.ttb-ovf-chevron[data-edge=end]{right:4px}
+.ttb-ovf-chevron{position:absolute;top:50%;translate:0 -50%;z-index:var(--layer-raised);visibility:hidden;background:var(--ds-color-surface,Canvas);box-shadow:0 0 0 var(--ttb-hairline) var(--ds-color-separator)}
+.ttb-ovf-chevron[data-edge=start]{left:var(--ds-space-1)}
+.ttb-ovf-chevron[data-edge=end]{right:var(--ds-space-1)}
 .ttb-ovf[data-more-start] .ttb-ovf-chevron[data-edge=start],.ttb-ovf[data-more-end] .ttb-ovf-chevron[data-edge=end]{visibility:visible}
 
 /* more-menu: the tabs that fit, then a More button; the rest in its menu. */
 .ttb-ovf[data-mode=more-menu] .ttb-ovf-scroller{overflow:hidden}
-.ttb-ovf[data-mode=more-menu] .ttb-ovf-button{margin-right:4px}
+.ttb-ovf[data-mode=more-menu] .ttb-ovf-button{width:var(--ttb-more-w);margin-right:var(--ds-space-1)}
 .ttb-ovf[data-mode=more-menu] .ttb-ovf-button[data-open]{background:var(--ds-color-pressed,var(--ds-color-hover));color:var(--ds-color-fg)}
-.ttb-ovf-menu{position:absolute;top:calc(100% + 4px);right:0;z-index:2;min-width:200px;max-height:330px;overflow:auto;padding:4px;box-sizing:border-box;border-radius:var(--ds-radius-popup,10px);background:var(--ds-color-elevated,var(--ds-color-surface,Canvas));box-shadow:0 0 0 .5px var(--ds-color-separator),0 8px 24px color-mix(in srgb,#000 22%,transparent)}
-.ttb-ovf-menu-row{display:flex;align-items:center;gap:8px;height:24px;padding:0 8px;border-radius:5px;white-space:nowrap;color:var(--ds-color-fg)}
+.ttb-ovf-menu{position:absolute;top:calc(100% + var(--ds-space-1));right:0;z-index:var(--layer-dropdown);min-width:var(--ttb-menu-w);max-height:var(--ttb-menu-h);overflow:auto;padding:var(--ds-space-1);box-sizing:border-box;border-radius:var(--ds-radius-popup);background:var(--ds-color-elevated,var(--ds-color-surface,Canvas));box-shadow:0 0 0 var(--ttb-hairline) var(--ds-color-separator),0 var(--ds-space-2) var(--ds-space-5) color-mix(in srgb,var(--ttb-black) 22%,transparent)}
+.ttb-ovf-menu-row{display:flex;align-items:center;gap:var(--ds-space-2);height:var(--ds-control-compact);padding:0 var(--ds-space-2);border-radius:var(--ds-radius-menu,var(--ds-radius-sm));white-space:nowrap;color:var(--ds-color-fg)}
 .ttb-ovf-menu-row:hover{background:var(--ds-color-hover)}
 
 /* all-tabs: the strip scrolls under a pinned All tabs pill; a trailing fade runs under the pill. */
-.ttb-ovf[data-mode=all-tabs] .ttb-ovf-scroller{padding-right:calc(var(--ttb-pill-w,92px) + 8px);-webkit-mask-image:linear-gradient(to right,#000 calc(100% - var(--ttb-pill-w,92px) - 48px),transparent calc(100% - var(--ttb-pill-w,92px) - 4px));mask-image:linear-gradient(to right,#000 calc(100% - var(--ttb-pill-w,92px) - 48px),transparent calc(100% - var(--ttb-pill-w,92px) - 4px));scroll-padding:0 calc(var(--ttb-pill-w,92px) + 12px) 0 8px}
-.ttb-ovf-pill{position:absolute;right:6px;top:6px;z-index:1;width:var(--ttb-pill-w,92px);height:26px;border-radius:999px;background:color-mix(in srgb,var(--ds-color-fg) 10%,var(--ds-color-surface,Canvas));color:var(--ds-color-fg);box-shadow:0 0 0 .5px var(--ds-color-separator)}
+.ttb-ovf[data-mode=all-tabs] .ttb-ovf-scroller{padding-right:calc(var(--ttb-pill-w) + var(--ds-space-2));-webkit-mask-image:linear-gradient(to right,var(--ttb-black) calc(100% - var(--ttb-pill-w) - var(--ds-space-48)),transparent calc(100% - var(--ttb-pill-w) - var(--ds-space-1)));mask-image:linear-gradient(to right,var(--ttb-black) calc(100% - var(--ttb-pill-w) - var(--ds-space-48)),transparent calc(100% - var(--ttb-pill-w) - var(--ds-space-1)))}
+.ttb-ovf-pill{position:absolute;right:var(--ds-space-1);top:50%;translate:0 -50%;z-index:var(--layer-raised);width:var(--ttb-pill-w);border-radius:var(--ttb-capsule);background:color-mix(in srgb,var(--ds-color-fg) 10%,var(--ds-color-surface,Canvas));color:var(--ds-color-fg);box-shadow:0 0 0 var(--ttb-hairline) var(--ds-color-separator)}
 .ttb-ovf-pill:hover{background:color-mix(in srgb,var(--ds-color-fg) 15%,var(--ds-color-surface,Canvas))}
-.ttb-ovf-width{font-size:11px;color:var(--ds-color-muted);font-variant-numeric:tabular-nums}
+.ttb-ovf-width{font-size:var(--text-caption);color:var(--ds-color-muted);font-variant-numeric:tabular-nums}

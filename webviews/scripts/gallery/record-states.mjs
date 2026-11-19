@@ -58,7 +58,21 @@ try {
         timeout: 90_000,
       });
       if (shot.hover) await page.locator(shot.hover).first().hover({ timeout: 10_000 });
-      await page.waitForTimeout((shot.seconds ?? 8) * 1000);
+      // Optional stills while it records (`frameEvery` seconds), so a clip can be checked frame by frame
+      // without a video decoder: OUT_DIR/<shot>-frames/NN.jpg.
+      const seconds = shot.seconds ?? 8;
+      if (shot.frameEvery) {
+        const frames = path.join(out, `${shot.name}-frames`);
+        fs.mkdirSync(frames, { recursive: true });
+        const started = Date.now();
+        for (let index = 0; Date.now() - started < seconds * 1000; index += 1) {
+          const due = started + index * shot.frameEvery * 1000;
+          if (due > Date.now()) await page.waitForTimeout(due - Date.now());
+          await page.screenshot({ path: path.join(frames, `${String(index).padStart(2, "0")}.jpg`) });
+        }
+      } else {
+        await page.waitForTimeout(seconds * 1000);
+      }
       const video = page.video();
       await context.close();
       const file = path.join(out, `${shot.name}.webm`);
