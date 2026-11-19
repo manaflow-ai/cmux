@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 624,
+  "count": 625,
   "sections": [
     {
       "id": "general",
@@ -345,6 +345,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Guidance and Skills"
+        },
+        {
+          "key": "agents.mcpServers.enabled",
+          "title": "Saved Servers in Agent Chats",
+          "help": "New chats can use the servers listed above.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chats"
         },
         {
           "key": "agents.modelRouter.model",

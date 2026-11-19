@@ -103,6 +103,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.guidance.codex` | boolean | `true` |  | cmux Guidance for Codex. Tells new Codex chats how cmux shows plans, side sessions and recaps. |
 | `agents.guidance.otherAgents` | boolean | `true` |  | cmux Guidance for Other Agents. Gemini, OpenCode and agents you added get the same guidance. |
 | `agents.guidance.userSkills` | boolean | `true` |  | Your Skills in Every Chat. Skills in ~/.config/cmux/skills (a folder with a SKILL.md each) reach every new chat. |
+| `agents.mcpServers.enabled` | boolean | `true` |  | Saved Servers in Agent Chats. New chats can use the servers listed above. |
 | `agents.autoRetry.enabled` | boolean | `true` |  | Retry Automatically. Retries after rate limits, capacity errors or a dropped connection. |
 | `agents.autoRetry.intervalSeconds` | real | `0` | 0 to 3600 | Seconds Between Retries. 0 waits longer after each failed try. |
 | `agents.autoRetry.attempts` | real | `4` | 1 to 12 | Retries per Error. How many times the chat tries again before it stops and waits for you. |

@@ -538,6 +538,12 @@
       "title" : "Your Skills in Every Chat",
       "type" : "boolean"
     },
+    "agents.mcpServers.enabled" : {
+      "default" : true,
+      "description" : "New chats can use the servers listed above.",
+      "title" : "Saved Servers in Agent Chats",
+      "type" : "boolean"
+    },
     "agents.modelRouter.model" : {
       "default" : "deepseek/deepseek-v4.1-flash-1017",
       "description" : "The model new cmux model router chats start on.",
