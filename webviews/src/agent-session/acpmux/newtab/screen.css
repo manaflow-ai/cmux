@@ -1321,3 +1321,58 @@
 .nt-screen .nt-create .nt-tool-icon > svg{width:100%;height:100%}
 
 .nt-row:has(.nt-row-shortcut) .nt-row-title{flex-shrink:1}
+/* The home-card-glow experiment (homeCardGlow.experiment.ts; ChatCards sets `data-glow` and each
+   card's `--nt-card-tint`, the chat's own color). One card shell for every chat: a radial glow in
+   its tint from the top corner and a tinted hairline under the meta row; hover or focus brightens
+   the glow. Layout, contents and actions stay as they are; off draws none of it. */
+.nt-cards[data-glow] {
+  --nt-glow-rest: 0.5;
+  --nt-glow-mix: 22%;
+  --nt-glow-reach: 70%;
+  --nt-glow-divider: 30%;
+}
+.nt-cards[data-glow="vivid"] {
+  --nt-glow-rest: 0.6;
+  --nt-glow-mix: 42%;
+  --nt-glow-reach: 95%;
+  --nt-glow-divider: 50%;
+}
+/* A light page has less dark around the glow to carry it: a little more color, the same reach. */
+:root.light .nt-cards[data-glow] {
+  --nt-glow-mix: 16%;
+}
+:root.light .nt-cards[data-glow="vivid"] {
+  --nt-glow-mix: 30%;
+}
+.nt-cards[data-glow] .nt-card {
+  position: relative;
+  isolation: isolate;
+}
+.nt-cards[data-glow] .nt-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at 0% 0%,
+    color-mix(in oklab, var(--nt-card-tint, currentColor) var(--nt-glow-mix), transparent),
+    transparent var(--nt-glow-reach)
+  );
+  opacity: var(--nt-glow-rest);
+  pointer-events: none;
+}
+.nt-cards[data-glow] .nt-card:hover::before,
+.nt-cards[data-glow] .nt-card:focus-visible::before {
+  opacity: 1;
+}
+.nt-cards[data-glow] .nt-card-meta {
+  box-shadow: 0 var(--cmux-hairline, 0.5px) 0
+    color-mix(in oklab, var(--nt-card-tint, currentColor) var(--nt-glow-divider), transparent);
+}
+/* Reduced motion: the glow changes at once. The scale's ceiling step (the largest calm change). */
+@media (prefers-reduced-motion: no-preference) {
+  .nt-cards[data-glow] .nt-card::before {
+    transition: opacity var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out);
+  }
+}

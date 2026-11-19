@@ -7,6 +7,7 @@ import { steerQueueExperiment } from "../agent-session/acpmux/steerQueue/steerQu
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
+import { homeCardGlow } from "../agent-session/acpmux/newtab/homeCardGlow.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlaceholder.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
@@ -119,6 +120,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapRestTick,
   newTabComposerTrailingGap,
   newTabIconColumn,
+  homeCardGlow,
   threadMinimapLit,
   threadMinimapMark,
   threadMinimapWave,
