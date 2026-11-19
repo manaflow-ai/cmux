@@ -309,6 +309,12 @@ async fn agent_login_over_the_wire() {
     assert_eq!(reason(&e), "unknown_session");
     let r = c.call(method::MUX_AGENT_LOGIN_FINISH, json!({"loginId": s["loginId"]})).await.unwrap();
     assert_eq!(r, json!({"signedIn": true, "restarted": false}));
+    // The device-auth card is complete only when the CLI's own auth.json landed in the
+    // configured Codex home; a signedIn RPC result alone would miss a broken copy path.
+    let auth: Value =
+        serde_json::from_slice(&std::fs::read(d.join("codex-home/auth.json")).unwrap())
+            .expect("Codex auth.json is JSON");
+    assert_eq!(auth["tokens"]["id_token"], "t");
     // This chat uses an alternate Codex home, so its sign-in stays scoped to
     // the chat and does not change the machine-wide canonical choice.
     assert!(!home.join(".config/cmux/agent-auth/codex").exists());

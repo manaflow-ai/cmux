@@ -21,6 +21,13 @@ test("a hung Codex reply is a failure that names the step", () => {
   expect(row.why).toStartWith("reply: no reply within 300 s");
 });
 
+test("the live Codex GitHub cell uses the ChatGPT auth row", () => {
+  const c = cell("codex-github-live");
+  expect(c.agent).toBe("codex");
+  expect(c.args).toEqual(["--agent", "codex"]);
+  expect(c.needs).toEqual({ env: "CODEX_AUTH_JSON", why: "a Codex ChatGPT sign-in (auth.json) for the live GitHub agent cell" });
+});
+
 test("a signed-out agent passes only by failing fast with its sign-in error", () => {
   const c = cell("gemini-signed-out");
   expect(judge(c, [pass("start agent (gemini)"), fail("reply", 2100, "acp wait exit 1: Authentication required")], 1).verdict).toBe("pass");

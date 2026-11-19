@@ -61,6 +61,15 @@ export const CELLS: Cell[] = [
     needs: { env: "CODEX_AUTH_JSON", why: "a Codex ChatGPT sign-in (auth.json) of the test account's own" },
   },
   {
+    id: "codex-github-live",
+    agent: "codex",
+    signIn: "ChatGPT subscription (codex login), the app's copy",
+    proof: "live",
+    // cloud-journey's live GitHub step asks this agent to clone, branch, commit, push and open a draft PR.
+    args: ["--agent", "codex"],
+    needs: { env: "CODEX_AUTH_JSON", why: "a Codex ChatGPT sign-in (auth.json) for the live GitHub agent cell" },
+  },
+  {
     id: "codex-model-plane",
     agent: "codex",
     signIn: "none: the team's model plane (the API-key route)",
