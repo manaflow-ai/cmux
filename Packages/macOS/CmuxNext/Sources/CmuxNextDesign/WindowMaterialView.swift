@@ -306,6 +306,7 @@ public final class WindowMaterialView: NSView {
         videoView.show(showsVideo ? shown?.resolvedImageURL(dark: dark) : nil)
         let shader = hidesArt ? nil : shown?.shader
         showsShader = shader != nil
+        videoView.drivesOtherSight = showsShader
         shaderView.show(shader, dark: dark)
         // Window Glass: the desktop shows through the art. The model value only, so a fade-in in
         // flight runs on to it.

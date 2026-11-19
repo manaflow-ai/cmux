@@ -130,7 +130,9 @@ public final class BackdropShaderView: NSView {
     /// Shown in a window that is on screen, with the screens awake and the session active.
     private var onScreen: Bool {
         guard shader != nil, !isHidden, renderer != nil, let window else { return false }
-        let visible = visibleOverride ?? (window.occlusionState.contains(.visible) && !window.isMiniaturized && !NSApp.isHidden)
+        // Moves off every display re-check through the video view's observers (onSightChange).
+        let visible = (visibleOverride ?? (window.occlusionState.contains(.visible) && !window.isMiniaturized && !NSApp.isHidden))
+            && window.isOnSomeScreen()
         let state = sight?() ?? (screensAsleep: false, sessionInactive: false)
         return visible && !state.screensAsleep && !state.sessionInactive
     }

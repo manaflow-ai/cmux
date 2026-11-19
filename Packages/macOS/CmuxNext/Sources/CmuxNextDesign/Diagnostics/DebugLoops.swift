@@ -17,7 +17,7 @@ public struct DebugLoops {
         let windows = NSApp.windows.compactMap { window -> [String: Any]? in
             guard let root = window.contentView?.superview?.layer ?? window.contentView?.layer else { return nil }
             var loops: [Loop] = []
-            collect(root, windowVisible: window.isVisible && window.occlusionState.contains(.visible), into: &loops)
+            collect(root, windowVisible: window.isVisible && window.isShownOnScreen(), into: &loops)
             guard !loops.isEmpty else { return nil }
             let hiddenHere = loops.count { !$0.visible }
             total += loops.count

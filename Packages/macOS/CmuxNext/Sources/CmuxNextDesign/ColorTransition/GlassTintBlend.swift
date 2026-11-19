@@ -35,7 +35,7 @@ final class GlassTintBlend {
         guard previous != target else { return }
         let transition = ColorTransition.current
         guard let previous, let layer = overlay.layer, !transition.isInstant,
-              let window = view.window, window.isVisible, window.occlusionState.contains(.visible) else {
+              let window = view.window, window.isVisible, window.isShownOnScreen() else {
             stop()
             glass.tintColor = color
             return
