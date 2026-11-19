@@ -25,6 +25,7 @@ import { setNativeHost } from "../native";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { Popover } from "../../../ui/Popover";
+import { noteReplaced } from "../sessionIndex";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -1274,6 +1275,36 @@ test("with Cloud picked and No folder, a send names no folder: not even the tab'
   expect(clouded[0]?.[2]).toBeUndefined();
 });
 
+// cmux#45946: a tab that inherited a folder the chip does not show (no start folder from the host) reads
+// "No folder"; its Cloud send copied that folder anyway ("tmp" on the start card).
+test("with Cloud picked and the chip reading No folder, a send names no folder, not the tab's unshown folder", async () => {
+  const clouded: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        cwd="/tmp/inherited"
+        template="default"
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        onCloud={(...args) => (clouded.push(args), false)}
+      />,
+    );
+  });
+  expect(container.querySelector(".nt-location")?.textContent).toContain("No folder");
+  await typePrompt("1+1");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(clouded.length).toBe(1);
+  expect(clouded[0]?.[2]).toBeUndefined();
+});
+
 test("while a Cloud start is out the box takes no edits, and takes them again once it ends", async () => {
   const page = (cloudStarting: boolean) => (
     <NewTabScreen
@@ -2123,4 +2154,37 @@ test("Return runs a typed shell command in a terminal; Cmd-Return still asks the
   await press(field, "Enter", { metaKey: true });
   expect(shells).toEqual(["git status"]);
   expect(asks.map((ask) => ask[1])).toEqual(["git status"]);
+});
+
+// Leo, 2026-11-18: "Why should non visible thing even affect the renderer thread anyways?" Minimal
+// (an unset template) draws no chat list, so another chat's event must not make it read every chat:
+// counted field reads, not time, so a busy runner cannot fail it.
+test("a Minimal page reads only the changed chat when another chat changes", async () => {
+  let reads = 0;
+  const counted = (fields: Parameters<typeof session>[0]) =>
+    new Proxy(session(fields), {
+      get(target, key, receiver) {
+        if (key !== "sessionId") reads++;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+  const sessions = Array.from({ length: 2_000 }, (_, index) =>
+    counted({
+      sessionId: `s${index}`,
+      cwd: `/Users/me/code/p${index % 40}`,
+      updatedAt: 1_000 + index,
+      ...(index % 4 === 1 ? { spawnedBy: `s${index - 1}` } : {}),
+    }),
+  );
+  await act(async () =>
+    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat(sessions)} />),
+  );
+  await promptField();
+  const next = sessions.slice();
+  next[1_500] = counted({ sessionId: "s1500", cwd: "/Users/me/code/p20", updatedAt: 1_000 + 1_500, title: "Renamed" });
+  noteReplaced(sessions, next, [1_500]);
+  reads = 0;
+  await act(async () => root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat(next)} />));
+  // A pass over the list reads thousands; the page's own lists read the one changed chat.
+  expect(reads).toBeLessThan(400);
 });

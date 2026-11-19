@@ -15,6 +15,7 @@ import {
   workedTurn,
   WORKED_SESSION,
   type SeedStep,
+  fleetListedSession,
 } from "./mockFixture";
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
@@ -61,6 +62,8 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSlowMs?: number;
   /** bench/update-one.bench.ts: that many more listed sessions beside the fixture's, with no history. */
   cmuxAcpmuxMockListSize?: number;
+  /** `fleet`: those listed sessions shaped as a fleet Mac's rows (mockFixture.ts `fleetListedSession`). */
+  cmuxAcpmuxMockListShape?: "fleet";
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -363,7 +366,9 @@ export class MockAcpmuxSocket {
       if (entry.status === "running" || entry.permission) this.openTurns.add(entry.sessionId);
     }
     const listSize = Number((globalThis as MockAuthGlobals).cmuxAcpmuxMockListSize ?? 0);
-    for (let index = 0; index < listSize; index += 1) this.sessions.push(listedSession(index, now));
+    const listed =
+      (globalThis as MockAuthGlobals).cmuxAcpmuxMockListShape === "fleet" ? fleetListedSession : listedSession;
+    for (let index = 0; index < listSize; index += 1) this.sessions.push(listed(index, now));
   }
 
   /// One field change of one session (a status dot, unread, a rename, a cost), told the client the way
@@ -426,6 +431,16 @@ export class MockAcpmuxSocket {
     this.sessions.push(created);
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
     return id;
+  }
+
+  /// Puts `count` prompts in `target`'s queue, delivered as acpmux's `queued` records for prompts sent
+  /// while a turn runs (the composer typing bench's `--queue`).
+  seedQueue(target: string, count: number): void {
+    for (let index = 0; index < count; index += 1)
+      this.emit(target, {
+        mux: "queued",
+        msg: { promptId: `${target}-queued-${index}`, text: `Queued prompt ${index + 1}` },
+      });
   }
 
   /// Records `updates` into `target`'s log in place of subagent `id`'s own records there, without

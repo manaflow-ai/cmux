@@ -1,24 +1,19 @@
-//! One X display per cmux workspace for computer use (cx-ncc.5). On a Linux
-//! cloud machine every agent's `cmux-cua mcp` would otherwise drive the one
-//! shared default display, so agents of two workspaces would click into each
-//! other's windows. The machine image runs this daemon with
-//! [`MODE_ENV`]`=`[`PER_WORKSPACE`]; then:
+//! One X display per cmux workspace (cx-ncc.5), on a Linux cloud machine whose
+//! image runs this daemon with [`MODE_ENV`]`=`[`PER_WORKSPACE`]:
 //!
 //! - A session's workspace is the typed `_meta.acpmux.workspaceId` of its
 //!   `session/new`, else its session env's `CMUX_WORKSPACE_ID` (a request
 //!   naming two different ones is refused, `workspace.mismatch`); a fork
 //!   keeps its parent's unless it names another either way. It is recorded
-//!   in the session meta, so a restart or respawn keeps it. The env never
-//!   sets [`DISPLAY_ENV`] (not an allowed session env key).
-//! - Each workspace gets a display number from [`BASE`] up, allocated once
-//!   and kept in `<ACPMUX_HOME>/agent-displays/displays.json` (0600 in a 0700
-//!   folder, written under a file lock), so it is stable across sessions
-//!   and restarts.
-//! - The session's `cmux-cua` server gets [`DISPLAY_ENV`]`=:N`; the proxy's
-//!   daemon runs each call on that display. Nothing else sees it.
-//! - Fail closed: a session without a workspace id, or one whose display
-//!   cannot be allocated, gets no computer use server at all, so it can
-//!   never drive the shared display.
+//!   in the session meta, so a restart or respawn keeps it.
+//! - Each workspace can get a display number from [`BASE`] up
+//!   ([`display_for`]), allocated once and kept in
+//!   `<ACPMUX_HOME>/agent-displays/displays.json` (0600 in a 0700 folder,
+//!   written under a file lock), so it is stable across sessions and restarts.
+//! - cmux Computer Use runs one worker per machine on the machine's desktop,
+//!   so in this mode no session gets the Computer Use server
+//!   (`agent_tools.rs` `scoped`): it could otherwise drive another
+//!   workspace's windows.
 //!
 //! The workspace reaches `agent_tools.rs` as [`WORKSPACE_KEY`] in the spawn
 //! profile's env (set by [`mark`]); `agent/command.rs` removes it before the
@@ -35,8 +30,6 @@ use serde_json::{Value, json};
 pub const MODE_ENV: &str = "CMUX_AGENT_DISPLAYS";
 /// The [`MODE_ENV`] value that turns them on.
 pub const PER_WORKSPACE: &str = "per-workspace";
-/// The `cmux-cua mcp` env naming the display its calls run on (`:N`).
-pub const DISPLAY_ENV: &str = "CMUX_CUA_DISPLAY";
 /// The private spawn-profile env key carrying the session's workspace to
 /// `agent_tools.rs`; never in an agent's env.
 pub const WORKSPACE_KEY: &str = "ACPMUX_AGENT_WORKSPACE";
