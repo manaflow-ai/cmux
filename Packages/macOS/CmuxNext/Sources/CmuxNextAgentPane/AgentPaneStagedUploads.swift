@@ -38,7 +38,10 @@ package final class AgentPaneStagedUploads<Target> {
         var batch: String?
         var transfer: Transfer?
         var cleanup: Task<Void, Never>?
-        var idle: Bool { transfer == nil && cleanup == nil }
+        /// The chunk being written (``AgentPaneUploadWriter``): one at a time, and the file goes only
+        /// after it.
+        var writing: Task<Bool, Never>?
+        var idle: Bool { transfer == nil && cleanup == nil && writing == nil }
     }
 
     private struct Batch {
@@ -58,6 +61,7 @@ package final class AgentPaneStagedUploads<Target> {
     private var batches: [String: Batch] = [:]
     private var delivered: [String: Delivered] = [:]
     private let expiry: DemandTimer
+    private let writer = AgentPaneUploadWriter()
 
     /// `owner` names the expiry deadline in the wakeup ledger.
     package init(owner: String) {
@@ -105,15 +109,21 @@ package final class AgentPaneStagedUploads<Target> {
         return (token, batchID)
     }
 
-    /// Appends `data`, the bytes at `offset`, to stage `token` when `owns` its target and no transfer
-    /// or cleanup has it: the bytes received so far, or nil.
-    package func chunk(_ token: String, offset: Int, data: Data, owns: (Target) -> Bool, work: BackgroundWork) -> Int? {
-        guard var stage = stages[token], stage.idle, owns(stage.staged.target), stage.received == offset,
+    /// Appends `data`, the bytes at `offset`, to stage `token` when `owns` its target and no transfer,
+    /// cleanup or other write has it: the bytes received so far, or nil. The bytes are decoded and
+    /// written on `work`'s files lane (``AgentPaneUploadWriter``); the main actor runs other work meanwhile.
+    package func chunk(_ token: String, offset: Int, data: AgentPaneUploadChunk, owns: (Target) -> Bool, work: BackgroundWork) async -> Int? {
+        guard let stage = stages[token], stage.idle, owns(stage.staged.target), stage.received == offset,
               data.count <= Self.chunkBytes, data.count <= stage.size - offset else { return nil }
-        do {
-            let handle = try FileHandle(forWritingTo: stage.staged.file)
-            try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close()
-        } catch { return nil }
+        let file = stage.staged.file
+        // task-owner: the stage's one write; `remove` awaits it before the file goes.
+        let writing = Task { [writer] in await writer.append(data, to: file, work: work) }
+        stages[token]?.writing = writing
+        arm(work)
+        let written = await writing.value
+        stages[token]?.writing = nil
+        // A cancel while it was written removes the stage: nothing is received.
+        guard written, var stage = stages[token], stage.cleanup == nil else { arm(work); return nil }
         stage.received += data.count
         stage.expires = Date().addingTimeInterval(Self.lifetime)
         stages[token] = stage
@@ -171,11 +181,13 @@ package final class AgentPaneStagedUploads<Target> {
     private func remove(_ token: String, work: BackgroundWork) async {
         if let cleanup = stages[token]?.cleanup { await cleanup.value; return }
         guard let stage = stages[token] else { return }
-        let removing = stage.removing, batchID = stage.batch
+        let removing = stage.removing, batchID = stage.batch, file = stage.staged.file, writing = stage.writing
         // task-owner: one awaited unlink on the file lane, independent of a cancelled transfer;
-        // blockShutdown keeps it until the unlink completes.
-        let cleanup = Task(priority: WorkPriority.userBlocking.taskPriority) { @MainActor [self] in
+        // blockShutdown keeps it until the unlink completes. A chunk being written finishes first.
+        let cleanup = Task(priority: WorkPriority.userBlocking.taskPriority) { @MainActor [self, writer] in
+            _ = await writing?.value
             _ = try? await work.run(.userBlocking, mayBlock: .files, shutdown: .blockShutdown) {
+                writer.close(file)
                 try? FileManager.checked.removeItem(at: removing)
             }
             stages.removeValue(forKey: token)
