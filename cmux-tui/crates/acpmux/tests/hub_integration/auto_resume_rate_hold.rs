@@ -146,3 +146,28 @@ async fn stop_ends_a_rate_limit_hold_and_the_queue_goes_on() {
     .await
     .unwrap();
 }
+
+/// A 429 that names its reset goes on at that reset, not at a longer backoff step: the probe
+/// lands when the limit lifts (gui-429-finish's live storm, 2026-11-19: the first reply after
+/// the lift waited for the next 60 s tick, 50 to 61 s, where Claude Code's own retry took 1 s).
+#[tokio::test]
+async fn a_named_reset_is_kept_exactly_not_a_backoff_step_after_it() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![5_000]);
+    let id = new_session(&mut c, "exact").await;
+    let r = c.request(method::SESSION_PROMPT, json!({
+        "sessionId": id,
+        "prompt": [{"type": "text", "text": format!("recover-once: {LIMIT}; Retry-After: 1")}],
+        "_meta": {"acpmux": {"promptId": "p-exact"}}
+    })).await;
+    assert!(r.is_err());
+    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_started").count() == 2).await;
+    let reset = of_kind(&hub, &id, "rate_limit_held")[0].msg["until"].as_u64().unwrap();
+    let started = of_kind(&hub, &id, "turn_started");
+    assert_eq!(started.len(), 2, "{k:?}");
+    assert!(
+        started[1].at >= reset && started[1].at < reset + 1_000,
+        "the continuation started at {}, the named reset was {reset} (step 5000 ms): {k:?}",
+        started[1].at
+    );
+}
