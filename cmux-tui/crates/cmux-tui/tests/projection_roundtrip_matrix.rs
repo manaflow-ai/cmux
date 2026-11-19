@@ -985,3 +985,332 @@ mod randomized {
         seed_run(0xdead_beef);
     }
 }
+
+/// The matrix's repository axis: the same round trip, both ways, over real repositories rather
+/// than four generated files. Mac to machine: every file the Mac has reads back through the mount
+/// with the same bytes (`git hash-object --no-filters` on both sides), the same executable bit and
+/// the same link target, and `git status`, HEAD and the shallow marker agree. Machine to Mac: an
+/// edit, a new file in a new folder, a delete, a rename, a `chmod +x` and a commit on the machine
+/// come back by Bring Back beside an edit only the Mac made, and a second Bring Back takes a later
+/// edit. A public repository that can't be cloned here skips with the reason, never passes.
+///
+/// `CMUX_PROJECTION_MATRIX_REPOS` (comma-separated clone URLs or paths) adds repositories of the
+/// runner's own choosing to `extra_repositories_round_trip_both_ways`.
+///
+/// Leo, 2026-11-19: "the projection folder file system thing ... reliable back and forth".
+mod repositories {
+    use super::*;
+
+    /// What a repository case starts from.
+    enum From {
+        /// A clone of a URL or path (`depth` 0: its whole history).
+        Clone { url: String, depth: u32 },
+        /// A generated repository.
+        Made(fn(&Side, &Path)),
+    }
+
+    fn clone_into(side: &Side, at: &Path, url: &str, depth: u32) -> Result<(), String> {
+        let mut command = side.git_command(at, &["clone", "-q", "--no-tags"]);
+        if depth > 0 {
+            command.arg(format!("--depth={depth}"));
+        }
+        command.args(["--", url, "."]).env("GIT_TERMINAL_PROMPT", "0");
+        let output = command.output().map_err(|error| format!("git clone {url}: {error}"))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(format!("git clone {url}: {}", String::from_utf8_lossy(&output.stderr).trim()))
+        }
+    }
+
+    /// Every file of a checkout, NUL-separated as git lists it (tracked and untracked, not
+    /// ignored), without the gitlinks of submodules.
+    fn files(side: &Side, dir: &Path) -> Vec<String> {
+        let listed =
+            side.git(dir, &["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
+        let mut files: Vec<String> = listed
+            .split('\0')
+            .filter(|name| !name.is_empty())
+            .filter(|name| dir.join(name).symlink_metadata().is_ok_and(|meta| !meta.is_dir()))
+            .map(str::to_owned)
+            .collect();
+        files.sort();
+        files.dedup();
+        files
+    }
+
+    /// Each file's blob id as its bytes read on this side (a link: its target's text), its
+    /// executable bit and whether it is a link: every byte of every file is read.
+    fn fingerprint(side: &Side, dir: &Path, names: &[String]) -> Vec<(String, String)> {
+        let mut out = Vec::with_capacity(names.len());
+        let mut regular = Vec::new();
+        for name in names {
+            let meta = dir.join(name).symlink_metadata().unwrap_or_else(|error| {
+                panic!("{}: {error}", dir.join(name).display());
+            });
+            if meta.file_type().is_symlink() {
+                let target = fs::read_link(dir.join(name)).unwrap();
+                out.push((name.clone(), format!("link {}", target.display())));
+            } else {
+                regular.push(name.clone());
+            }
+        }
+        for chunk in regular.chunks(2_000) {
+            let mut command =
+                side.git_command(dir, &["hash-object", "--no-filters", "--stdin-paths"]);
+            let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+            let mut stdin = child.stdin.take().unwrap();
+            let list = chunk.join("\n") + "\n";
+            let writer = std::thread::spawn(move || {
+                use std::io::Write as _;
+                stdin.write_all(list.as_bytes()).unwrap();
+            });
+            let output = child.wait_with_output().unwrap();
+            writer.join().unwrap();
+            assert!(output.status.success(), "hash-object in {}", dir.display());
+            let ids = String::from_utf8(output.stdout).unwrap();
+            for (name, id) in chunk.iter().zip(ids.lines()) {
+                let exec = dir.join(name).metadata().unwrap().permissions().mode() & 0o111 != 0;
+                out.push((name.clone(), format!("{id} {}", if exec { "x" } else { "-" })));
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// The first `count` regular, non-empty text files of `names` under a folder (never `.git`).
+    fn text_files(dir: &Path, names: &[String], count: usize) -> Vec<String> {
+        names
+            .iter()
+            .filter(|name| !name.starts_with(".git") && name.contains('/'))
+            .filter(|name| {
+                let path = dir.join(name);
+                path.symlink_metadata().is_ok_and(|meta| meta.is_file() && meta.len() > 0)
+                    && fs::read(&path).is_ok_and(|bytes| {
+                        bytes.len() < 256 * 1024 && std::str::from_utf8(&bytes).is_ok()
+                    })
+            })
+            .take(count)
+            .cloned()
+            .collect()
+    }
+
+    /// The machine's status without the Mac-only edit's line.
+    fn without(status: &str, name: &str) -> String {
+        status
+            .lines()
+            .filter(|line| !line.ends_with(name))
+            .map(|line| format!("{line}\n"))
+            .collect()
+    }
+
+    fn round_trip(case: &str, from: From) {
+        let mut why_not = None;
+        let started = Instant::now();
+        let result = trip(case, |side, at| match &from {
+            From::Clone { url, depth } => {
+                if let Err(error) = clone_into(side, at, url, *depth) {
+                    why_not = Some(error);
+                }
+            }
+            From::Made(make) => make(side, at),
+        });
+        if let Some(why) = why_not {
+            eprintln!("skipping {case}: {why}");
+            return;
+        }
+        let t = match result {
+            Ok(t) => t,
+            Err(why) => {
+                eprintln!("skipping {case}: {why}");
+                return;
+            }
+        };
+        let projected_in = started.elapsed();
+
+        // Mac to machine: the whole folder, byte for byte.
+        let names = files(&t.mac, &t.local);
+        assert!(!names.is_empty(), "{case}: the Mac's folder lists no files");
+        let read_from = Instant::now();
+        let on_mac = fingerprint(&t.mac, &t.local, &names);
+        let on_machine = fingerprint(&t.machine.side, &t.folder, &names);
+        let read_in = read_from.elapsed();
+        let differ: Vec<_> = on_mac
+            .iter()
+            .zip(&on_machine)
+            .filter(|(mac, machine)| mac != machine)
+            .take(10)
+            .collect();
+        assert!(differ.is_empty(), "{case}: files read differently on the machine: {differ:?}");
+        assert_eq!(on_mac.len(), on_machine.len(), "{case}");
+        assert_eq!(
+            t.mac.git(&t.local, &["rev-parse", "HEAD"]),
+            t.machine.side.git(&t.folder, &["rev-parse", "HEAD"]),
+            "{case}: HEAD"
+        );
+        assert_eq!(
+            t.mac.git(&t.local, &["rev-parse", "--is-shallow-repository"]),
+            t.machine.side.git(&t.folder, &["rev-parse", "--is-shallow-repository"]),
+            "{case}: shallow"
+        );
+        t.statuses_agree();
+
+        // Machine to Mac: the agent's edits, beside one only the Mac made.
+        let picked = text_files(&t.local, &names, 5);
+        assert!(picked.len() >= 4, "{case}: too few text files to edit: {picked:?}");
+        let (edited, deleted, renamed, committed, mac_only) =
+            (&picked[0], &picked[1], &picked[2], &picked[3], picked.get(4));
+        let mut edited_text = read(&t.at(edited));
+        edited_text.push_str("an edit on the machine\n");
+        write(&t.at(edited), &edited_text);
+        write(&t.at("cmux-matrix-new/notes.txt"), "a new file in a new folder\n");
+        t.on_machine(&format!("rm -- '{deleted}' && mv -- '{renamed}' '{renamed}.moved'"));
+        t.on_machine(
+            "printf '#!/bin/sh\\necho hi\\n' > cmux-matrix-tool.sh && chmod +x cmux-matrix-tool.sh",
+        );
+        let mut committed_text = read(&t.at(committed));
+        committed_text.push_str("a commit on the machine\n");
+        write(&t.at(committed), &committed_text);
+        t.machine.side.git(&t.folder, &["commit", "-q", "-m", "on the machine", "--", committed]);
+        let mac_only_text = mac_only.map(|name| {
+            std::thread::sleep(Duration::from_millis(20));
+            let mut text = read(&t.mac(name));
+            text.push_str("an edit only on the Mac\n");
+            write(&t.mac(name), &text);
+            text
+        });
+
+        let back_from = Instant::now();
+        let answer = t.brought_back();
+        let back_in = back_from.elapsed();
+        assert_eq!(read(&t.mac(edited)), edited_text, "{case}: {answer}");
+        assert_eq!(read(&t.mac("cmux-matrix-new/notes.txt")), "a new file in a new folder\n");
+        assert!(!t.mac(deleted).exists(), "{case}: {deleted} still on the Mac: {answer}");
+        assert!(!t.mac(renamed).exists(), "{case}: {renamed} still on the Mac: {answer}");
+        assert!(t.mac(&format!("{renamed}.moved")).exists(), "{case}: {answer}");
+        let tool = t.mac("cmux-matrix-tool.sh");
+        assert!(tool.metadata().unwrap().permissions().mode() & 0o111 != 0, "{case}: exec bit");
+        assert_eq!(read(&t.mac(committed)), committed_text, "{case}: {answer}");
+        assert_eq!(
+            t.mac.git(&t.local, &["rev-parse", "HEAD"]),
+            t.machine.side.git(&t.folder, &["rev-parse", "HEAD"]),
+            "{case}: the machine's commit: {answer}"
+        );
+        if let (Some(name), Some(text)) = (mac_only, &mac_only_text) {
+            assert_eq!(&read(&t.mac(name)), text, "{case}: the Mac's own edit: {answer}");
+            assert_eq!(without(&t.mac_status(), name), t.machine_status(), "{case}: git status");
+        } else {
+            t.statuses_agree();
+        }
+
+        // Again: a later edit comes back by a second Bring Back, and nothing else moves.
+        edited_text.push_str("a second edit on the machine\n");
+        write(&t.at(edited), &edited_text);
+        let again = t.brought_back();
+        assert_eq!(read(&t.mac(edited)), edited_text, "{case}: {again}");
+        assert_eq!(again["deleted"], 0, "{case}: {again}");
+        eprintln!(
+            "matrix {case}: pass files={} projected_ms={} read_all_both_sides_ms={} bring_back_ms={}",
+            names.len(),
+            projected_in.as_millis(),
+            read_in.as_millis(),
+            back_in.as_millis()
+        );
+    }
+
+    /// Exec bits, an empty file, a binary file, names with spaces and non-ASCII, links inside,
+    /// deep folders and a `.gitattributes` with an eol rule.
+    fn mixed(side: &Side, at: &Path) {
+        side.git(at, &["init", "-q"]);
+        write(&at.join(".gitattributes"), "*.txt text eol=lf\n*.bin binary\n");
+        write(&at.join("src/main.rs"), "fn main() {}\n");
+        write(&at.join("src/with space.txt"), "a name with a space\n");
+        write(&at.join("src/naïve café.txt"), "a name past ASCII\n");
+        write(&at.join("docs/a/b/c/d/e/deep.md"), "deep\n");
+        write(&at.join("docs/readme.txt"), "docs\n");
+        write(&at.join("scripts/run.sh"), "#!/bin/sh\necho run\n");
+        fs::set_permissions(at.join("scripts/run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+        write(&at.join("empty.txt"), "");
+        let binary: Vec<u8> = (0..300_000u32).map(|n| (n * 2_654_435_761 >> 13) as u8).collect();
+        fs::write(at.join("data.bin"), binary).unwrap();
+        std::os::unix::fs::symlink("src/main.rs", at.join("main-link.rs")).unwrap();
+        std::os::unix::fs::symlink("../docs", at.join("src/docs-link")).unwrap();
+        side.git(at, &["add", "-A"]);
+        side.git(at, &["commit", "-qm", "mixed"]);
+        write(&at.join("src/untracked.txt"), "untracked on the Mac\n");
+    }
+
+    /// A repository with a submodule (a local one, so no network).
+    fn with_submodule(side: &Side, at: &Path) {
+        let inner = at.parent().unwrap().join("inner-src");
+        fs::create_dir_all(&inner).unwrap();
+        repo(side, &inner);
+        side.git(at, &["init", "-q"]);
+        plain(side, at);
+        side.git(at, &["add", "-A"]);
+        side.git(at, &["commit", "-qm", "outer"]);
+        let mut add =
+            side.git_command(at, &["-c", "protocol.file.allow=always", "submodule", "add", "-q"]);
+        let output = add.arg(&inner).arg("vendor/inner").output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        side.git(at, &["commit", "-qm", "the submodule"]);
+    }
+
+    /// A small Rust repository with its whole history.
+    #[test]
+    fn a_small_repository_with_its_whole_history_round_trips_both_ways() {
+        round_trip(
+            "repo-small-full",
+            From::Clone { url: "https://github.com/BurntSushi/ripgrep".into(), depth: 0 },
+        );
+    }
+
+    /// A bigger repository, cloned shallow as CI and agents clone (`.git/shallow`).
+    #[test]
+    fn a_bigger_shallow_repository_round_trips_both_ways() {
+        round_trip(
+            "repo-big-shallow",
+            From::Clone { url: "https://github.com/rust-lang/cargo".into(), depth: 1 },
+        );
+    }
+
+    /// A C repository of a few thousand files, shallow.
+    #[test]
+    fn a_c_repository_of_thousands_of_files_round_trips_both_ways() {
+        round_trip(
+            "repo-c-shallow",
+            From::Clone { url: "https://github.com/git/git".into(), depth: 1 },
+        );
+    }
+
+    /// A docs repository with deep folders and many small files, shallow.
+    #[test]
+    fn a_deep_docs_repository_round_trips_both_ways() {
+        round_trip(
+            "repo-docs-shallow",
+            From::Clone { url: "https://github.com/microsoft/vscode-docs".into(), depth: 1 },
+        );
+    }
+
+    #[test]
+    fn mixed_names_modes_links_and_binary_round_trip_both_ways() {
+        round_trip("repo-mixed", From::Made(mixed));
+    }
+
+    #[test]
+    fn a_repository_with_a_submodule_round_trips_both_ways() {
+        round_trip("repo-submodule", From::Made(with_submodule));
+    }
+
+    /// The runner's own repositories (`CMUX_PROJECTION_MATRIX_REPOS`), shallow.
+    #[test]
+    fn extra_repositories_round_trip_both_ways() {
+        let Ok(list) = std::env::var("CMUX_PROJECTION_MATRIX_REPOS") else {
+            eprintln!("skipping: CMUX_PROJECTION_MATRIX_REPOS is not set");
+            return;
+        };
+        for (n, url) in list.split(',').map(str::trim).filter(|url| !url.is_empty()).enumerate() {
+            round_trip(&format!("repo-extra-{n}"), From::Clone { url: url.to_owned(), depth: 1 });
+        }
+    }
+}
