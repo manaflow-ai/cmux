@@ -269,8 +269,11 @@ struct ChatComposer: View {
         .padding(.horizontal, collapsed ? 20 : 12)
     }
 
+    /// During an outage the empty field says what the chat waits for
+    /// (``AgentChatStore/connectionLine``): the line takes no row of its own
+    /// (Leo, 2026-11-17: "The reconnect takes an extra line").
     private var placeholder: String {
-        placeholderOverride ?? (store.isNewChat ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
+        placeholderOverride ?? store.connectionLine ?? (store.isNewChat ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
     }
 
     /// Expands the capsule, then focuses the field once it exists.

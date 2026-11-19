@@ -682,8 +682,9 @@ struct AgentChatLoadingState: View {
 }
 
 /// Kept rows show while the chat is away from the Mac or catches up with it; after
-/// ``QuietStatusGate/threshold`` one quiet line by the composer says so
-/// (``AgentChatStore/connectionLine``). Never a pill over the rows.
+/// ``QuietStatusGate/threshold`` the composer's empty field says so
+/// (``AgentChatStore/connectionLine`` as its placeholder); this row only while a
+/// card (sudo, permission) takes the composer's place. Never a pill over the rows.
 struct AgentChatConnectionLine: View {
     let store: AgentChatStore
 
@@ -790,7 +791,11 @@ public struct AgentChatBottomStack: View {
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")
                 }
-                AgentChatConnectionLine(store: store)
+                // The composer's empty field says it (its placeholder); a card that
+                // takes the composer's place leaves the line its own row.
+                if store.pendingElevation != nil || (store.pendingPermission != nil && !surface.permissionBarHidden) {
+                    AgentChatConnectionLine(store: store)
+                }
                 // Pinned plan progress while a turn runs (ACP web UI parity).
                 if let progress = store.runningPlan, let entries = store.runningPlanEntries {
                     PlanProgressBar(progress: progress, entries: entries)

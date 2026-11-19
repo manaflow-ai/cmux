@@ -61,11 +61,15 @@ import UIKit
         #expect(model.connectionLine == nil)
         for _ in 0..<200 where model.connectionLine == nil { try await Task.sleep(for: .milliseconds(10)) }
         #expect(model.connectionLine == "Reconnecting to Mac Studio…")
+        // Leo, 2026-11-17: "The reconnect takes an extra line": the line is
+        // the empty field's placeholder, no row of its own.
+        #expect(model.composerPlaceholder == "Reconnecting to Mac Studio…")
         // Retries keep the first instant; a failure after them reads plainly.
         model.ingest(.connection(.failed(message: "daemon channel closed")))
         #expect(model.connectionLine == "Can't reach this terminal")
         model.ingest(.connection(.attached))
         #expect(model.connectionLine == nil)
+        #expect(model.composerPlaceholder == "Message")
     }
 
     @Test func quietLinesNeverCarryTransportWords() {

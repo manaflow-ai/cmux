@@ -40,10 +40,16 @@ public final class MobileKeyboardFrameTracker {
     /// when it carries none of its own; see ``interruptedAnimation``.
     public private(set) var interruptedAnimation: (duration: TimeInterval, curve: UIView.AnimationCurve)?
     private let now: () -> CFTimeInterval
+    /// Whether some responder takes typed keys, so a soft keyboard may be up.
+    private let hasKeyInputFocus: @MainActor () -> Bool
 
     /// Which keyboard notification a subscriber hears.
     public enum Change: Sendable {
         case willChangeFrame, didChangeFrame
+        /// No keyboard notification came, yet the keyboard the record holds
+        /// as shown cannot be up: nothing takes typed keys
+        /// (``reconcileWithFocus()``). The record now holds it hidden.
+        case reconciledHidden
     }
 
     private var subscribers: [(owner: () -> AnyObject?, handler: @MainActor (CGRect, Change) -> Void)] = []
@@ -54,9 +60,13 @@ public final class MobileKeyboardFrameTracker {
     /// Creates a tracker subscribed to the keyboard frame notifications.
     /// - Parameters:
     ///   - now: the clock notifications are timed by (tests inject one).
-    public init(notificationCenter: NotificationCenter = .default, now: @escaping () -> CFTimeInterval = CACurrentMediaTime) {
+    ///   - hasKeyInputFocus: whether a responder takes typed keys now
+    ///     (nil: the app's first responder is a `UIKeyInput`; tests inject one).
+    public init(notificationCenter: NotificationCenter = .default, now: @escaping () -> CFTimeInterval = CACurrentMediaTime,
+                hasKeyInputFocus: (@MainActor () -> Bool)? = nil) {
         self.notificationCenter = notificationCenter
         self.now = now
+        self.hasKeyInputFocus = hasKeyInputFocus ?? { MobileKeyInputFocus().isAnyFocused() }
         // will + did both update the record: `will` keeps an attach that lands
         // mid-transition current, `did` corrects a transition UIKit retargeted
         // after the `will` payload was posted (unless it is an interruption's
@@ -136,6 +146,34 @@ public final class MobileKeyboardFrameTracker {
             if isShown { shownBottom = endFrame.maxY }
         }
         guard let endFrame else { return }
+        notify(endFrame, change)
+    }
+
+    /// Records the keyboard as hidden when the record holds it shown but no
+    /// responder takes typed keys, so no soft keyboard can be up: UIKit posted
+    /// no hide for it (the app went to the background with the keyboard up and
+    /// came back with nothing focused, or a page lost its focus while it was
+    /// out of its window). Subscribers hear ``Change/reconciledHidden``.
+    /// The tracker's owner calls it when the app comes back to the foreground
+    /// and as it shows a page (Leo, 2026-11-17: "the freaking built in keyboard
+    /// accounting is there when I'm loading back in even when there's no
+    /// keyboard!": a composer docked to a keyboard that was gone sat a
+    /// keyboard's height above the bottom edge, over empty space).
+    /// - Returns: whether the record changed.
+    @discardableResult
+    public func reconcileWithFocus() -> Bool {
+        guard isShown, let shown = lastEndFrame, !hasKeyInputFocus() else { return false }
+        // A hidden keyboard's frame starts where a shown one ends.
+        let hidden = CGRect(x: shown.minX, y: shownBottom ?? shown.maxY, width: shown.width, height: shown.height)
+        latestWill = nil
+        interruptedAnimation = nil
+        lastEndFrame = hidden
+        isShown = false
+        notify(hidden, .reconciledHidden)
+        return true
+    }
+
+    private func notify(_ endFrame: CGRect, _ change: Change) {
         subscribers.removeAll { $0.owner() == nil }
         for subscriber in subscribers { subscriber.handler(endFrame, change) }
     }
@@ -169,6 +207,31 @@ public final class MobileKeyboardFrameTracker {
             keyboardFrameInWindow: keyboardFrameInWindow,
             viewFrameInWindow: viewFrameInWindow
         ).isVisible
+    }
+}
+
+/// Whether any responder in the app takes typed keys: a soft keyboard is up
+/// only for one (a text field, a text view, a terminal surface).
+@MainActor
+final class MobileKeyInputFocus: NSObject {
+    private weak var found: UIResponder?
+
+    /// The first responder, found by an action sent to `nil` with this probe
+    /// as its sender (UIKit routes it to the first responder, which reports
+    /// itself to the probe); a `UIKeyInput` takes typed keys.
+    func isAnyFocused() -> Bool {
+        UIApplication.shared.sendAction(#selector(UIResponder.cmuxMobileReportFirstResponder(_:)), to: nil, from: self, for: nil)
+        return found is any UIKeyInput
+    }
+
+    fileprivate func report(_ responder: UIResponder) {
+        found = responder
+    }
+}
+
+extension UIResponder {
+    @objc fileprivate func cmuxMobileReportFirstResponder(_ sender: Any?) {
+        (sender as? MobileKeyInputFocus)?.report(self)
     }
 }
 

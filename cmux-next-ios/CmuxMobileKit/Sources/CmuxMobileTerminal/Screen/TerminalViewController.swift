@@ -623,6 +623,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // bottom the stack rests at the chrome's line instead.
         keyboardDock = MobileKeyboardDock(view: view, usesBottomSafeArea: false, keyboard: keyboardTracker)
         keyboardDock.trackInteractiveDismissal(of: scrollView)
+        keyboardTracker.subscribe(self) { [weak self] _, change in
+            guard case .reconciledHidden = change else { return }
+            self?.keyboardWentAwayUnannounced()
+        }
         let guide = keyboardDock.guide
         keyRowCollapsed = keyBarClip.heightAnchor.constraint(equalToConstant: 0)
         composerCollapsed = composer.view.heightAnchor.constraint(equalToConstant: 0)
@@ -859,6 +863,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         frameLog.start()
         #endif
         startBlankWatch()
+        // A keyboard recorded as up while nothing takes keys went away
+        // unannounced while the page was away (`keyboardWentAwayUnannounced`).
+        keyboardTracker.reconcileWithFocus()
         // Back on screen (a tab switch, the grid): output that arrived while
         // the page was away was laid out against stale geometry. Recompute
         // the document and, when following, rest the last row above the
@@ -2260,6 +2267,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 ? view.snapshotView(afterScreenUpdates: false) : nil
             return
         }
+        // Back in the app: a keyboard recorded as up while nothing takes keys
+        // went away unannounced (`keyboardWentAwayUnannounced`).
+        keyboardTracker.reconcileWithFocus()
         let still = backgroundStill
         backgroundStill = nil
         guard let still, freezeView == nil, view.window != nil, hostLayout.differsFromPhone else { return }
@@ -3699,6 +3709,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // settling the stack now would lay it out against the hide.
         guard !isStale(note), !endsOnScreen(note, onScreen: true) else { return }
         dock.keyboardDidHide()
+        keyboardStopped()
+        keyboardDidChange()
+    }
+
+    /// The keyboard tracker found the keyboard it held as up gone with no
+    /// notification (`MobileKeyboardFrameTracker.reconcileWithFocus`: back in
+    /// the app with nothing focused). The dock already rests at the bottom;
+    /// the page's own keyboard state follows, as a did-hide would (Leo,
+    /// 2026-11-17: "the freaking built in keyboard accounting is there when
+    /// I'm loading back in even when there's no keyboard!").
+    private func keyboardWentAwayUnannounced() {
+        guard dock.softKeyboard != .none || model.keyboardVisible else { return }
+        dock.keyboardDidHide()
+        model.keyboardVisible = false
+        guard view.window != nil else { return }
         keyboardStopped()
         keyboardDidChange()
     }

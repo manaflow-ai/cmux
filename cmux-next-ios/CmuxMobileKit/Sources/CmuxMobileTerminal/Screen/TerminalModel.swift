@@ -366,8 +366,11 @@ public final class TerminalModel {
     static let reconcileInterval: CFTimeInterval = 0.5
     @ObservationIgnored private var lastReconcile: CFTimeInterval = 0
 
-    /// Classic cmux iOS's placeholder (iMessage's): the field is a message to the program.
-    let composerPlaceholder = "Message"
+    /// Classic cmux iOS's placeholder (iMessage's): the field is a message to the
+    /// program. During an outage the empty field says what is going on instead
+    /// (``connectionLine``), with Retry in the send circle's place: the line
+    /// takes no row of its own (Leo, 2026-11-17: "The reconnect takes an extra line").
+    var composerPlaceholder: String { connectionLine ?? "Message" }
 
     // MARK: Actions
 
