@@ -38,13 +38,6 @@ final class AgentPanePageSettings {
         AgentPaneSuggestedTasks.shared.setting = { [weak settings] in settings?.snapshot.sessions.promptSuggestions ?? SessionSettings.promptSuggestionsDefault }
         // `agentPane.needsYou.enabled` (App Store): read as each new agent page is made.
         AgentPaneTunables.needsYouInstalled = { [weak settings] in settings?.snapshot.agentPaneNeedsYouEnabled ?? false }
-        // `notifications.sounds.lookPack`: a chat's finish moments play the active look's sound pack,
-        // under every notification mute (quiet hours, "none", volume 0). Read as each sound plays.
-        AgentPaneFinishSound.lookSound = { [weak settings] kind in
-            guard let settings, let event = AgentPaneFinishSound.lookEvent(kind) else { return nil }
-            let now = Calendar.current.dateComponents([.hour, .minute], from: Date())
-            return settings.snapshot.notifications.lookSound(for: event, minuteOfDay: (now.hour ?? 0) * 60 + (now.minute ?? 0))
-        }
         previewObservation = observe({ settings.snapshot.previewFeatures }, push: push) { $0.previewFeatures = $1 }
         editedFilesObservation = observe({ settings.snapshot.agentPaneEditedFiles }, push: push) { $0.editedFiles = $1 }
         zoomObservation = observe({ settings.snapshot.agentPaneZoom }, push: push) { $0.zoom = $1 }

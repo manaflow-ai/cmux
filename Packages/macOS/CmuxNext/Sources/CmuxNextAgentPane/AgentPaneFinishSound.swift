@@ -72,10 +72,22 @@ public final class AgentPaneFinishSound {
         return now - last >= minimumGap
     }
 
+    /// Where a page's finish moments find the active look's sound (``AgentPaneShared/lookSound``).
+    public typealias LookSource = @MainActor (Kind) -> NotificationSoundChoice?
+
     /// The active look's sound for `kind`: its theme file's sound pack while
     /// `notifications.sounds.lookPack` is on and no mute applies (``NotificationPreferences/lookSound(for:minuteOfDay:)``).
-    /// The app sets it (AgentPanePageSettings); nil, or a nil answer, keeps the built-in sound.
-    public static var lookSound: ((Kind) -> NotificationSoundChoice?)?
+    /// The pane's view sets it from the app's ``AgentPaneShared``; nil, or a nil answer, keeps the built-in sound.
+    var lookSound: LookSource?
+
+    /// The app's look source: `settings`' notification preferences at the local time of each sound.
+    public static func lookSource(_ settings: @escaping @MainActor () -> SettingsController?) -> LookSource {
+        { kind in
+            guard let settings = settings(), let event = lookEvent(kind) else { return nil }
+            let now = Calendar.current.dateComponents([.hour, .minute], from: Date())
+            return settings.snapshot.notifications.lookSound(for: event, minuteOfDay: (now.hour ?? 0) * 60 + (now.minute ?? 0))
+        }
+    }
 
     /// The pack's moment for `kind`: a turn's end is `finished`, green checks `ciGreen`; a merge has none.
     nonisolated static func lookEvent(_ kind: Kind) -> NotificationSoundPreferences.LookEvent? {
@@ -102,7 +114,7 @@ public final class AgentPaneFinishSound {
         // A merge right after a turn's end still sounds: a bigger moment outranks the gap.
         let outranks = lastKind.map { kind.rank > $0.rank } ?? true
         guard outranks || Self.admits(now: now, last: lastPlayed), Self.systemAllowsUISounds else { return }
-        guard let picked = Self.pick(kind, look: Self.lookSound?(kind), lookOnly: lookOnly),
+        guard let picked = Self.pick(kind, look: lookSound?(kind), lookOnly: lookOnly),
               let sound = sounds[picked.name] ?? Self.load(picked.name) else { return }
         sounds[picked.name] = sound
         sound.volume = picked.volume
