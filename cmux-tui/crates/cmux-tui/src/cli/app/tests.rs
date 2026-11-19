@@ -1787,6 +1787,7 @@ fn an_agent_names_its_own_workspace_in_its_caller() {
 #[test]
 fn open_link_sends_the_caller() {
     assert!(takes_caller("browser.open_link"));
+    assert!(takes_caller("file.open"), "an agent's `cmux open FILE` opens in its own workspace");
 }
 
 /// Every page verb sends its caller: the app runs a verb without a tab on the

@@ -1262,6 +1262,27 @@ def handle_prompt(rid, params):
         sys.stderr.flush()
         os._exit(3)
     # "overloaded: X": the provider's overload with no HTTP status in the text.
+    # "surfaces-tour": one turn that draws every content surface of the chat (design/chat-surfaces.md,
+    # scripts/cmux-next/chat-surfaces-shots.py): a plan, a shell call with its output, a new 55-line
+    # PROPOSAL.md (the edited-files card) and a reply with inline code, a code block and a table.
+    if text.startswith("surfaces-tour"):
+        update(sid, {"sessionUpdate": "plan", "entries": [
+            {"content": "Audit the chat's surfaces", "status": "completed", "priority": "high"},
+            {"content": "Write the proposal", "status": "completed", "priority": "high"},
+            {"content": "Land on the branch", "status": "pending", "priority": "medium"}]})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "tour-run", "title": "bun test test/chat-surfaces.test.ts",
+                     "kind": "execute", "status": "completed", "rawInput": {"command": "bun test test/chat-surfaces.test.ts"},
+                     "content": [{"type": "content", "content": {"type": "text", "text": " 4 pass\n 0 fail\nRan 4 tests across 1 file. [80.00ms]"}}]})
+        body = "\n".join(f"- point {k}: one surface level for every card" for k in range(1, 56))
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "tour-edit", "title": "Write PROPOSAL.md", "kind": "edit",
+                     "status": "completed", "locations": [{"path": os.path.join(os.getcwd(), "PROPOSAL.md")}],
+                     "content": [{"type": "diff", "path": os.path.join(os.getcwd(), "PROPOSAL.md"), "oldText": None, "newText": body + "\n"}]})
+        reply = ("Platform has a red `ci` check. The levels are `--ds-surface-card` and `--ds-surface-inset`.\n\n"
+                 "```ts\nconst card = \"color-mix(in srgb, var(--ds-surface-ink) 4%, transparent)\";\n```\n\n"
+                 "| Level | Fill | Line |\n|---|---|---|\n| card | 4% | 10% |\n| inset | 8% | none |\n")
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("overloaded:"):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"}})
         return
@@ -2193,6 +2214,13 @@ def main():
                 import time as clock  # main() binds `time` locally
                 while not os.path.exists(hold):
                     clock.sleep(0.02)
+        elif m == "_session/goal":
+            # codex-acp's goal control. FAKE_GOAL_LOG=<path>: append its params as one JSON line.
+            # Unanswered, as codex-acp answers a `set` only once the goal's turns are over.
+            path = os.environ.get("FAKE_GOAL_LOG")
+            if path:
+                with open(path, "a") as f:
+                    f.write(json.dumps(params) + "\n")
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))
         elif m == "_acpmux/steer_withdraw" and os.environ.get("FAKE_CLAUDE_STEER") == "1":
