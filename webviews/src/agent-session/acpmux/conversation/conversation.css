@@ -2129,6 +2129,15 @@ pre.cv-math-source {
 .acpmux-thread {
   transition: none;
 }
+/* The loaded rows' box (VirtualTranscript `rowsStart`): it stands at the room held above the loaded
+   rows for older history (conversation/olderReserve.ts) and ends where the content does, so the
+   thread and the stand-ins in it place each row from the first row, and a room that changes moves
+   this box alone. No transition, as the thread: it moves in the frame the room changes. */
+.acpmux-loaded {
+  position: absolute;
+  inset: 0;
+  transition: none;
+}
 /* The stand-ins' layer (conversation/standIns.ts): at the thread's place, under it, its children empty
    boxes with no class that a row rule could match. */
 .acpmux-stand-ins {

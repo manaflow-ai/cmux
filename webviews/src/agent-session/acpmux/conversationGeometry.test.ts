@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { applyHeightChanges, geometryFromArrays, geometryFromHeights } from "./conversationGeometry";
+import {
+  applyHeightChanges,
+  fromFirstRow,
+  geometryFromArrays,
+  geometryFromHeights,
+  geometryFromIndex,
+} from "./conversationGeometry";
 
 describe("indexed conversation geometry", () => {
   test("exposes prefix accessors without a materialized tops array", () => {
@@ -51,5 +57,23 @@ describe("indexed conversation geometry", () => {
     expect(after).toBe(before);
     expect(after.count).toBe(3);
     expect(after.topAt(2)).toBe(17);
+  });
+});
+
+describe("fromFirstRow", () => {
+  test("an indexed geometry's tops from its first row are the same numbers whatever room is above it", () => {
+    const index = geometryFromHeights([10.1, 0.2, 5.3, 7.7]).index;
+    const at = (origin: number) => {
+      const places = fromFirstRow(geometryFromIndex(index, origin), origin);
+      return [0, 1, 2, 3].map((row) => places.topAt(row));
+    };
+    const rest = at(0);
+    // Rooms whose sums round: `origin + top - origin` would differ from `top` in the last bit.
+    for (const origin of [0.1, 0.3, 1234.5678, 98765.4321]) expect(at(origin)).toEqual(rest);
+  });
+  test("an estimate's arrays take the room off", () => {
+    const places = fromFirstRow(geometryFromArrays([0, 10, 20], [10, 10, 5], 25, 100), 100);
+    expect([0, 1, 2].map((row) => places.topAt(row))).toEqual([0, 10, 20]);
+    expect(places.heightAt(2)).toBe(5);
   });
 });

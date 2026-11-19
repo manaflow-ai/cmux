@@ -445,7 +445,12 @@ export function installGutterSelect(
     // Own only known empty layout boxes, never a content element or its descendants. Row-local
     // padding has an explicit hit target, so native media and future content need no denylist.
     const target = event.target;
-    const directTranscriptTarget = target === scroller || target === thread || target === thread.parentElement;
+    // The thread's parent is the loaded rows' box, under the spacer (VirtualTranscript `.acpmux-loaded`).
+    const directTranscriptTarget =
+      target === scroller ||
+      target === thread ||
+      target === thread.parentElement ||
+      (target !== null && target === thread.parentElement?.parentElement);
     const targetElement = target instanceof Element ? target : undefined;
     const rowGapPress = Boolean(
       targetElement?.closest<HTMLElement>("[data-transcript-gap='row']") &&

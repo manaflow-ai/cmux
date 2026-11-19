@@ -76,6 +76,7 @@ import {
 } from "./conversation/scrollCoordinates";
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type PlacedRows, type TailGlide } from "./conversation/tailGlide";
+import { fromFirstRow, type RowPlaceGeometry } from "./conversationGeometry";
 import { finishCarry, notePinPass, pinLiveLine, refreshPinned } from "./conversation/pinnedLiveLine";
 import {
   createFollowChase,
@@ -830,7 +831,8 @@ type RowFrameSources = {
 type RowFramesView = {
   rows: readonly AcpmuxRow[];
   mountedRanges: readonly { first: number; last: number }[];
-  geometry: { topAt(index: number): number; gapAt(index: number): number };
+  /// Each row's place from the first row (`fromFirstRow`): the thread stands at the room above it.
+  geometry: Pick<RowPlaceGeometry, "topAt" | "gapAt">;
   frameKey: string;
   registry: NativeRegistry;
   setSizeRef: React.MutableRefObject<string>;
@@ -865,7 +867,7 @@ type RowFramesView = {
 function standInElements(
   rows: readonly AcpmuxRow[],
   ranges: readonly { first: number; last: number }[],
-  geometry: { topAt(index: number): number; heightAt(index: number): number },
+  geometry: Pick<RowPlaceGeometry, "topAt" | "heightAt">,
   frameKey: string,
 ): React.ReactElement[] {
   const out: React.ReactElement[] = [];
@@ -3031,6 +3033,9 @@ function TranscriptView({
     if (mounted.length !== placed.last - placed.first) return (acpmuxPerf.span("flow.refused.mounted", 1), false);
     acpmuxPerf.span("flow.anchored", 1);
     const geometry = placed.layout.geometry;
+    // The thread's coordinates start at the first row (`.acpmux-loaded` stands at the room above it),
+    // and its box ends where the content does: the room is off its lengths.
+    const rowsStart = placed.layout.origin ?? 0;
     // Each mounted row's gap under it, its margin in the flow; the last one has no row under it there.
     // Written here and not by the row's render: outside a drag a row that arrives must cost what it
     // cost before the rows could flow. A length on every row's style, set again as the row under it
@@ -3055,11 +3060,12 @@ function TranscriptView({
       // taller of the placed height and the view). Over a chat taller than the view that is the
       // latest row's placed bottom; over one that fits, the same room above the view's lower edge.
       const under = latestLayout.current.layout.totalHeight - THREAD_TOP - at;
+      // `100%` is the loaded rows' box (the content less the room), `under` from the content's end.
       writeFlow(live, threadNode, "end", `calc(100% - ${under}px)`);
       // The first row's place when the view holds the whole chat, in the thread's coordinates at
       // this scroll offset. No such place while older rows are unmounted above the first mounted
       // one: the strut then gets the box's own length, which leaves the rows at its end.
-      const whole = placed.first === 0 ? geometry.topAt(0) + scrolled : at;
+      const whole = (placed.first === 0 ? geometry.topAt(0) + scrolled : at) - rowsStart;
       writeFlow(live, threadNode, "start", `${THREAD_TOP + whole}px`);
     } else {
       // The same mounted rows under the same held row keep the padding `holdFlow` gave them.
@@ -3083,7 +3089,7 @@ function TranscriptView({
           break;
         }
       }
-      const pad = THREAD_TOP + geometry.topAt(placed.first);
+      const pad = THREAD_TOP + geometry.topAt(placed.first) - rowsStart;
       if (live.hold) Object.assign(live.hold, { pad, first: placed.first });
       writeFlow(live, threadNode, "start", `${pad}px`);
       writeFlow(live, threadNode, "end", undefined);
@@ -5387,7 +5393,7 @@ function TranscriptView({
     const carry = pinLiveLine(thread.current, pinLive, !followingRef.current);
     // The glide reads where the rows lie from this placement (each frame's `top` is set from it), not
     // from every mounted row's box. Rows that flow (a live resize) lie where the page puts them: read.
-    const placedGeometry = layout.geometry;
+    const placedGeometry = fromFirstRow(layout.geometry, layout.origin ?? 0);
     const placedRows: PlacedRows | undefined = thread.current?.classList.contains(FLOW_CLASS)
       ? undefined
       : {
@@ -7209,10 +7215,19 @@ function TranscriptView({
   // leave nothing behind. A row's own mount effect runs before the sweep, so it reads the length as
   // of the last commit; when this commit changed it, the sweep that follows writes every row anyway.
   const setSizeRef = useRef(setSize);
+  // The room held above the loaded rows for older history (conversation/olderReserve.ts): the loaded
+  // rows' box (`.acpmux-loaded`) stands at it, and each row is placed from the first row, inside that
+  // box. A slow scroll up pays a part of each step into the room (`payOlderRoom`): that moves the one
+  // box and re-places no row (test/transcript-scroll-up-room-renders.test.ts; it re-placed every
+  // mounted row each frame, about 85 row renders a frame). The box's top is whole pixels and its
+  // margin the fraction, as a row's are (RowFrame): WebKit loses a large offset's fractional bits.
+  const rowsStart = layout.origin ?? 0;
+  const rowsStartWhole = Math.floor(rowsStart);
+  const rowPlaces = fromFirstRow(layout.geometry, rowsStart);
   const rowFrames = drawRowFrames(rowFrameCache, rowFrameSources, {
     rows,
     mountedRanges,
-    geometry: layout.geometry,
+    geometry: rowPlaces,
     frameKey,
     registry,
     setSizeRef,
@@ -7363,18 +7378,20 @@ function TranscriptView({
                 width: lane > 0 ? `calc(100% + ${lane}px)` : undefined,
               }}
             >
-              {/* Under the rows, at the thread's place: one empty element per stand-in. */}
-              <div className="acpmux-stand-ins" aria-hidden style={{ top: lift + topInset }}>
-                {standInElements(rows, standIns, layout.geometry, frameKey)}
-              </div>
-              <div
-                ref={thread}
-                className="acpmux-thread"
-                style={{ top: lift + topInset }}
-                onPointerOver={(event) => pointAt(event.target)}
-                onPointerLeave={() => pointAt(null)}
-              >
-                {rowFrames}
+              <div className="acpmux-loaded" style={{ top: rowsStartWhole, marginTop: rowsStart - rowsStartWhole }}>
+                {/* Under the rows, at the thread's place: one empty element per stand-in. */}
+                <div className="acpmux-stand-ins" aria-hidden style={{ top: lift + topInset }}>
+                  {standInElements(rows, standIns, rowPlaces, frameKey)}
+                </div>
+                <div
+                  ref={thread}
+                  className="acpmux-thread"
+                  style={{ top: lift + topInset }}
+                  onPointerOver={(event) => pointAt(event.target)}
+                  onPointerLeave={() => pointAt(null)}
+                >
+                  {rowFrames}
+                </div>
               </div>
             </div>
           </TranscriptContext>

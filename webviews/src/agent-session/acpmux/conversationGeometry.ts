@@ -51,6 +51,22 @@ export function geometryFromIndex(index: PlacedHeightIndex, origin = 0): Indexed
   };
 }
 
+/// What places a row inside the thread: its top, height and the gap above it.
+export type RowPlaceGeometry = Pick<LayoutGeometry, "topAt" | "heightAt" | "gapAt">;
+
+/**
+ * `geometry` counted from its first row instead of from the room held above it (`origin`,
+ * ConversationLayout.origin): where the thread places each row (VirtualTranscript `.acpmux-loaded`
+ * stands at the room). An indexed geometry reads its index as it is, so a room that changes leaves
+ * every top here the same number, bit for bit, and no row's place changes with it.
+ */
+export function fromFirstRow(geometry: LayoutGeometry, origin: number): RowPlaceGeometry {
+  // The index's own tops: its `origin` is the room up to float rounding of the sums that moved it.
+  if ("index" in geometry) return geometryFromIndex((geometry as IndexedLayoutGeometry).index);
+  if (origin === 0) return geometry;
+  return { topAt: (at) => geometry.topAt(at) - origin, heightAt: geometry.heightAt, gapAt: geometry.gapAt };
+}
+
 /** Builds the initial estimate once; later measurements should use applyHeightChanges. */
 export function geometryFromHeights(heights: ArrayLike<number>): IndexedLayoutGeometry {
   return geometryFromIndex(PlacedHeightIndex.fromHeights(heights));
