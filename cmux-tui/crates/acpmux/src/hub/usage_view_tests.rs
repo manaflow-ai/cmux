@@ -177,3 +177,47 @@ async fn a_pass_before_the_order_is_sorted_sorts_it_once() {
     assert_eq!(hub.list_order_rebuilds_for_test(), 1, "a page read patched it");
     assert_eq!(hub.usage_passes_for_test(), (2, 4));
 }
+
+/// huge-blue, 2026-11-19: the daemon at 25 GB and 110% CPU after 19 h, every session read past
+/// 30 s. A list read waits [`READ_WAIT`] for its pass, then drops its wait; the pass lock went
+/// with it while the blocking pass went on, so the next read began another pass (a turn ends
+/// every few seconds there, so none was ever throttled), each a copy of every chat's sources
+/// queued on the trackers' lock in the blocking pool, and single-chat info reads spawn one each.
+/// Here every read gives up first, as there: passes never overlap, and the reads that came
+/// while one ran share the next one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reads_that_stop_waiting_never_pile_up_passes() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    for n in 0..3 {
+        let chat = meta(&format!("c{n}"), "claude", Some("s"), "idle", now - n);
+        hub.store.save(&chat).unwrap();
+        hub.insert_test_session(chat);
+    }
+    let probe = hub.usage_probe_for_test();
+    probe.delay_ms.store(300, Ordering::SeqCst);
+    for _ in 0..40 {
+        // A turn ended since: no throttle, as under steady churn.
+        hub.usage_pass_due_for_test();
+        let read = hub.refresh_usage_stats();
+        let _ = tokio::time::timeout(Duration::from_millis(5), read).await;
+    }
+    // Single-chat info reads: each starts a read nobody waits for (`server/requests/info.rs`).
+    let detached: Vec<_> = (0..40)
+        .map(|_| {
+            let hub = hub.clone();
+            tokio::spawn(async move { hub.refresh_usage_stats().await })
+        })
+        .collect();
+    for read in detached {
+        read.await.unwrap();
+    }
+    hub.refresh_usage_stats().await;
+    assert_eq!(probe.in_flight.load(Ordering::SeqCst), 0, "every pass ended");
+    assert_eq!(probe.peak.load(Ordering::SeqCst), 1, "never two passes at once");
+    let (passes, _) = hub.usage_passes_for_test();
+    assert!(
+        passes <= 3,
+        "80 reads shared {passes} passes; at most 3 (one, then one for those that came while it ran)"
+    );
+}

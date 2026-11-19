@@ -48,6 +48,29 @@ pub(crate) struct UsageCache {
     passes: std::sync::atomic::AtomicU64,
     #[cfg(test)]
     sources_read: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    probe: Arc<PassProbe>,
+}
+
+/// A test's view into the blocking passes: how many are begun and not ended (queued on the
+/// trackers' lock or reading), the most at once, and a delay each pass sleeps first.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct PassProbe {
+    pub(crate) in_flight: std::sync::atomic::AtomicUsize,
+    pub(crate) peak: std::sync::atomic::AtomicUsize,
+    pub(crate) delay_ms: std::sync::atomic::AtomicU64,
+}
+
+/// Counts a test's blocking pass ended when dropped.
+#[cfg(test)]
+struct PassEnd(Arc<PassProbe>);
+
+#[cfg(test)]
+impl Drop for PassEnd {
+    fn drop(&mut self) {
+        self.0.in_flight.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// Drops the trackers and stats of chats not in `sources` (a whole pass's chats): closed a day
@@ -183,8 +206,17 @@ impl Hub {
         let models = Models::from_catalog(&self.catalog.current());
         let cache = &self.usage_stats;
         let (trackers, stats) = (cache.trackers.clone(), cache.stats.clone());
+        #[cfg(test)]
+        let probe = cache.probe.clone();
         // A read that stops waiting lets the pass go on; the trackers' lock keeps passes apart.
         let pass = tokio::task::spawn_blocking(move || {
+            #[cfg(test)]
+            let _ended = {
+                let now = probe.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+                probe.peak.fetch_max(now, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(probe.delay_ms.load(Ordering::SeqCst)));
+                PassEnd(probe)
+            };
             let mut trackers = trackers.lock().unwrap_or_else(|e| e.into_inner());
             let mut fresh = Vec::with_capacity(sources.len());
             for (id, source) in &sources {
@@ -262,6 +294,11 @@ impl Hub {
 
 #[cfg(test)]
 impl Hub {
+    /// The usage passes' probe ([`PassProbe`]).
+    pub(crate) fn usage_probe_for_test(&self) -> Arc<PassProbe> {
+        self.usage_stats.probe.clone()
+    }
+
     /// The next read runs a pass however soon, as after a turn's end.
     pub(crate) fn usage_pass_due_for_test(&self) {
         self.usage_stats.dirty.store(true, Ordering::SeqCst);
