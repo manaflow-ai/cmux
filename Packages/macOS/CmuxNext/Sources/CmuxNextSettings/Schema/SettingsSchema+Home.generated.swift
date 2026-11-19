@@ -65,9 +65,9 @@ extension ChiefDockSetting {
     /// `home.chiefPanel.seesScreen`: On: the eye in the panel shows it, and a click turns it off (user 2026-11-07, default picked by the Chief).
     public nonisolated static let seesScreenPath = ["home", "chiefPanel", "seesScreen"]
     public nonisolated static let seesScreenDefault = true
-    /// `home.chiefDock.openBeside`: On: a link clicked in the Chief opens its workspace with the Chief floating over it.
+    /// `home.chiefDock.openBeside`: On: a link clicked in the Chief opens its workspace with the Chief floating over it. Off by default (cmux#45889): a link opens only its target.
     public nonisolated static let openBesidePath = ["home", "chiefDock", "openBeside"]
-    public nonisolated static let openBesideDefault = true
+    public nonisolated static let openBesideDefault = false
 }
 
 extension HomeChiefEngineSetting {

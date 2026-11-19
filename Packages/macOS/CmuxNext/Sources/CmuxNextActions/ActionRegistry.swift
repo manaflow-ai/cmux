@@ -65,7 +65,7 @@ public final class ActionRegistry {
     public var disabledFeatures: Set<ActionFeature> = [] { didSet { shortcutIndex = nil } }
     /// Why a cmux.json setting turns `id` off now (`browser.import.enabled`), or nil. Such an action
     /// leaves the palette, menus and context menus, and a run is refused with this reason (the
-    /// person's own choice, not `DisabledFeatures`). The App installs it.
+    /// person's own choice, not `DisabledFeatures`). Owners add theirs with `addSettingOffReason` (docks, hang reports too).
     @ObservationIgnored public var settingOffReason: @MainActor (ActionID) -> String? = { _ in nil }
     /// Debug-only actions: offered to the person only while Internal Developer Mode is on, to scripts
     /// wherever developer tools exist (`DebugActionGate`). The App installs the setting's read.
@@ -145,6 +145,13 @@ public final class ActionRegistry {
     /// Ways past an unavailable reason that a person's own gesture may take (``ActionRecovery``),
     /// asked in order with the action and its current reason; the first non-nil answer wins.
     @ObservationIgnored public var unavailableRecoveries: [@MainActor (_ action: ActionID, _ reason: String) -> ActionRecovery?] = []
+    /// Ways to hold a person's run whose handler refused for a reason that passes by itself (cmux still
+    /// starting), asked in order with the run's action, invocation and reason. One that returns true
+    /// keeps the run to perform later, and the refusal is not shown (`refuse(_:quiet:)`). The CLI,
+    /// MCP, scripts and pages are refused as before.
+    @ObservationIgnored public var refusalDeferrals: [@MainActor (_ action: ActionID, _ invocation: ActionInvocation, _ reason: String) -> Bool] = []
+    /// The person's innermost run whose handler runs now, while any ``refusalDeferrals`` is set.
+    @ObservationIgnored var personRun: PersonRun?
     /// Writes a Copy row's text (the App's `AppActionContext.copy`): to the general pasteboard; a test,
     /// whose host may reach no pasteboard, records it instead.
     @ObservationIgnored public var copyText: @MainActor (String) -> Void = { NSPasteboard.general.clearContents(); NSPasteboard.general.setString($0, forType: .string) }

@@ -277,6 +277,16 @@ CMUX_SHIM_EXPORT void cmux_shim_set_default_search(const char* template_url_json
 // Call before cmux_shim_initialize; later calls do nothing.
 // plans/cmux-next/chrome-enterprise-policy-DESIGN.md.
 CMUX_SHIM_EXPORT void cmux_shim_set_chrome_policy_id(const char* policy_id);
+// The keychain item Chromium keeps its cookie and password key in (fork API 25,
+// cmux_set_keychain_item): cmux's own item, never the "Chromium Safe Storage"
+// item every Chromium build shares, which belongs to whichever app made it first
+// (Chromium.app, another Chromium-based app) and so makes macOS ask "cmux wants to
+// use your confidential information stored in Chromium Safe Storage". Returns 1
+// when the fork took the item; 0 when it has no such call or refused the names
+// (the shared names, an empty account), and the caller must then not let
+// Chromium near the real keychain. Call after cmux_shim_load, before
+// cmux_shim_initialize.
+CMUX_SHIM_EXPORT int cmux_shim_set_keychain_item(const char* service, const char* account);
 // Page background before the first paint and for documents without one
 // (CefSettings.background_color and CefBrowserSettings.background_color),
 // as opaque 0xAARRGGBB; 0 keeps Chromium's default. Browsers created after
@@ -765,6 +775,12 @@ CMUX_SHIM_EXPORT int cmux_shim_replace_passwords(const char* profile_cache_path,
 // after an automated click (plans/cmux-next/browser.md, "Secure sign-in").
 // Returns 0 when the fork lacks cmux_tab_set_password_fill (API 15).
 CMUX_SHIM_EXPORT int cmux_shim_set_password_fill(int browser_id, int enabled);
+// Refuses (refuse 1) or allows (0) every WebAuthn create and get of one tab
+// (fork API 23, cmux_tab_set_webauthn_mode): an agent-driven tab never shows
+// a Touch ID sheet, an account chooser or a phone QR code; the page gets
+// NotAllowedError. Its popups start in its mode. Returns 0 when the fork
+// lacks the call or the tab is gone.
+CMUX_SHIM_EXPORT int cmux_shim_tab_set_webauthn_mode(int browser_id, int refuse);
 // Profile (Touch ID) passkeys of profile_cache_path (fork API 18,
 // cmux_profile_passkeys_list / cmux_profile_passkey_delete; the Passwords
 // page, plans/cmux-next/passwords.md 1.4). Metadata only, never key

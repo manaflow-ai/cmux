@@ -9,7 +9,7 @@ import Testing
 /// Home's Set Up cmux card replaces the first-run windows (goal next-first-run-setup): a first run starts
 /// it and marks the Agents window and the CLI toast shown, so neither opens beside it (Bring your history opens
 /// from the card's chat history row, which keeps that page's once flag);
-/// an upgrade, or a channel that already showed the Agents window, never gets it; Hide ends it for good.
+/// an upgrade, or a channel that already showed the Agents window, never starts it automatically; Hide ends it until reopened.
 @MainActor @Suite(.serialized) struct FirstRunSetupTests {
     static let replaced = ["cli.install.offeredAtLaunch"]
 
@@ -58,6 +58,60 @@ import Testing
         let setup = FirstRunSetup(defaults: earlier)
         #expect(!setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
         #expect(!setup.shows)
+    }
+
+    @Test func theSetUpActionReopensAnEndedCardWithItsAnsweredRows() throws {
+        let defaults = try defaults()
+        let setup = FirstRunSetup(defaults: defaults)
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        setup.end()
+        #expect(!setup.shows)
+        #expect(setup.historyDone)
+
+        setup.reopen()
+        #expect(setup.shows)
+        #expect(defaults.string(forKey: FirstRunSetup.stateKey) == "reopened")
+        #expect(setup.historyDone, "reopening keeps the completed history row done")
+        #expect(FirstRunSetup(defaults: defaults).shows)
+    }
+
+    @Test func explicitSetupWorksWhenAutomaticOnboardingIsSkipped() throws {
+        let defaults = try defaults()
+        let setup = FirstRunSetup(defaults: defaults, skipsOnboarding: true)
+        #expect(!setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        setup.reopen()
+        #expect(setup.shows)
+        for key in [OnboardingWindowPresenter.agentsShownKey] + Self.replaced {
+            #expect(!defaults.bool(forKey: key), "reopening never changes first-run markers")
+        }
+        setup.end()
+        #expect(!setup.shows)
+    }
+
+    @Test(arguments: [false, true])
+    func completedRowsAutoHideOnlyOnFirstRun(reopened: Bool) async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        setup.historyAnswered()
+        if reopened { setup.end(); setup.reopen() }
+        let source = MockAgentSignInSource(agents: [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedIn)])
+        let provider = SetupCardPageProvider(setup: setup, agents: source, environment: SetupCardEnvironment(
+            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {},
+            historySources: { true }, importHistory: { false }))
+        defer { provider.stop() }
+        await until { provider.agents.loaded && provider.cli != nil && provider.history != nil }
+        #expect(provider.allDone)
+        var received = false
+        let subscription = try await provider.subscribe("cmux.setup.changed", filter: [:], context: click(1)) { _ in received = true }
+        defer { subscription.cancel() }
+        await until { received }
+        #expect(received)
+        #expect(setup.shows == reopened, "an explicit visit keeps completed rows visible")
+        #expect(provider.state["history"] == ["done": true])
+        #expect(provider.state["cli"] == "installed")
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedIn")
+        _ = try await provider.call("cmux.setup.hide", params: [:], context: click(2))
+        #expect(!setup.shows, "Hide still ends either kind of visit")
     }
 
     /// Chats found on this Mac: the card's chat history row opens Bring your history on a click, and its once flag

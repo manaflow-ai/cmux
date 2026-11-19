@@ -86,6 +86,35 @@ class SettledTime(unittest.TestCase):
         self.assertEqual(s["blinks"], 4)
         self.assertEqual(s["changed_after_first"], 0)
 
+    def test_a_cursor_and_a_caret_blinking_together_do_not_unsettle(self):
+        # A terminal cursor across two tiles and a caret in a third blink on and off every 600 ms, as a split's
+        # terminal and the chat's composer did on a CI mini (2026-11-18): three tiles, more than BLINK_TILES.
+        new = paint(BASE, (0, 0, 64, 16), 0)
+        on = paint(paint(new, (12, 20, 20, 30), 255), (40, 36, 44, 46), 255)
+        frames = [(at(-100), BASE), (at(8), new)]
+        frames += [(at(8 + 600 * i), on if i % 2 else new) for i in range(1, 8)]
+        s = settle.settle(frames, MARK, W, H, FRAME_MS, end=at(6000))
+        self.assertEqual(s["settled_ms"], 8.0)
+        self.assertEqual(s["changed_after_first"], 0)
+
+    def test_compression_noise_is_no_change(self):
+        # The recorder redraws a still window with a few gray levels of noise (a CI mini, 2026-11-18): 1 to 6 levels on
+        # every pixel of the window, 3 s after the action, is not a late change.
+        new = paint(BASE, (0, 0, 64, 16), 0)
+        rng = random.Random(3)
+        noisy = bytes(min(255, max(0, v + rng.randint(-6, 6))) for v in new)
+        frames = [(at(-100), BASE), (at(8), new), (at(3000), noisy)]
+        s = settle.settle(frames, MARK, W, H, FRAME_MS, end=at(6000))
+        self.assertEqual(s["settled_ms"], 8.0)
+
+    def test_a_change_that_never_returns_still_counts(self):
+        # The same three tiles changing to a new picture each time (content still arriving) is no blink.
+        new = paint(BASE, (0, 0, 64, 16), 0)
+        frames = [(at(-100), BASE), (at(8), new)]
+        frames += [(at(8 + 600 * i), paint(new, (12, 20, 44, 46), 40 * i)) for i in range(1, 5)]
+        s = settle.settle(frames, MARK, W, H, FRAME_MS, end=at(6000))
+        self.assertEqual(s["settled_ms"], 2408.0)
+
     def test_quiet_then_change_again_is_a_late_change(self):
         frames = [(at(-100), BASE), (at(5), paint(BASE, (0, 0, 16, 16), 0)),
                   (at(450), paint(BASE, (0, 0, 64, 16), 0))]

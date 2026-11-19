@@ -1084,19 +1084,21 @@ Mechanisms, phone first, then the Mac:
   file importer). Losing that sends `release-surface-size {surface}` on the
   attach channel after a 1 s debounce (`TerminalSizeClaimDebounce`), so a
   quick switch away and back sends nothing and never resizes the Mac twice.
-  The app entering the background (or the lock screen) keeps the claim for
-  45 s, the size lease (2026-11-14, Leo: "we want to bring back the 45 ...
-  seconds"): it renews the lease once on the way out, so the Mac's 45 s start
-  then, and sends no release. Back within 45 s, nothing was sent and nothing
-  resizes or reflows. Gone longer, the Mac's lease ends and its pane gets its
-  own size back (2026-11-12, Leo: "if I do completely switch away, I want to
-  be gone"); a phone still running releases on its own at 45 s, and a
-  suspended one releases on its return, then claims at once. After a release,
-  the page as it was when the app left stays on screen until the reclaim's
-  mirror reset is replayed, so the Mac's wider grid is never painted. The
-  claim:
+  The app entering the background (or the lock screen) releases at once,
+  with no debounce, before iOS suspends it (2026-11-12, Leo: "if I do
+  completely switch away, I want to be gone. I want to leave it. And if I
+  come back, I don't want to see the stretched out version"), so the Mac's
+  pane gets its own size back. Coming back (`willEnterForeground`) claims
+  at once, and the page as it was when the app left stays on screen until
+  the reclaim's mirror reset is replayed, so the Mac's wider grid is never
+  painted. The claim:
   `resize-surface` with the last measured grid. While released, layout passes
   are remembered and not sent, and a reattach attaches without a size.
+  The release goes out at once on the attach channel, never behind a request
+  of the session's still waiting for its answer (that answer comes back
+  behind the terminal's output, and iOS may suspend the app first); the
+  daemon runs one connection's requests in order, so it still lands after
+  any size sent before it (2026-11-12).
 - **Reclaim hold (phone, `TerminalReclaimHold`).** Any release (a page left
   for another tab, the grid or a sheet, or the app going to the background)
   makes the Mac replay its own grid to the hidden page, and the claim makes it
@@ -1110,21 +1112,36 @@ Mechanisms, phone first, then the Mac:
   grid), the held events show in order. The page keeps its last frame at its
   own grid meanwhile (Leo, 2026-11-12: "i swipe up into another app and it
   resize back... then i go to it again and it resize again").
+  On screen too, the page never draws a grid it did not ask for while its
+  claim may still bring its own back (Aziz, 2026-11-12: "ensure that the
+  phone never sees a terminal size that it doesn't want to see even if it
+  receives it"): a grid other than its claimed one (its lease ended over a
+  slow link, a reattach replayed the Mac's grid) starts the same hold, the
+  phone sends its size again at once, and the hold shows what it has only
+  when the Mac keeps its grid past 1.5 s (its policy keeps that grid). The
+  Mac's later grid changes then show as they come, until the phone's grid is
+  back or the page claims again.
 - **Stop (phone).** A session that stops (its tab cooled out of the warm set
   of 4, closed, another account) sends `release-surface-size` and waits for the
   answer (at most 2 s) before it closes its channel. The daemon would read a
   bare close as a dropped link and hold the grid.
-- **Size lease (phone and daemon, `size-lease-v1`).** The phone lists
-  `size-lease-v1` in `set-client-info` `capabilities`; when `identify` lists
-  it, the phone sends its claimed size again every 15 s while it claims (a
-  same-size `resize-surface` renews the lease and never resizes the PTY). A
-  size not refreshed for 45 s is released by the daemon; a connection that
+- **Size lease (phone and daemon, `size-lease-v2`, `size-lease-v1`).** The
+  phone lists both in `set-client-info` `capabilities`. When `identify` lists
+  `size-lease-v2`, the phone sends its claimed size again every 2 s while it
+  claims and the daemon releases a size not refreshed for 8 s; with only
+  `size-lease-v1`, every 15 s and 45 s. A same-size `resize-surface` renews
+  the lease and never resizes the PTY, and a refresh goes out at once, never
+  behind an unanswered request, so a slow link does not let the lease run
+  out while the phone is on screen. With the short lease, a phone that went
+  away without a release (suspended before it left, a dead link, a crash)
+  gives the Mac its grid back within 8 s; a connection that
   ended without releasing ends the departed-view hold its own departure set
   at that moment (a later departure's hold runs on). A suspended or dead phone can never pin the Mac's grid past it.
 - **Departed-view hold (daemon).** A phone's connection that ends without a
   release (the link dropped) keeps the grid from growing for 30 s, so a link
   blip that reattaches finds the grid it left (termqa V2-5); capped by the
-  lease as above, and ended at once by a phone back with a size.
+  lease as above (8 s under `size-lease-v2`), and ended at once by a phone
+  back with a size.
 - **Release on purpose (cmux-mobile-host).** The Mac releases a phone's sizes
   itself, sending `release-surface-size` for every terminal the channel
   attached to or sized and waiting up to 500 ms for the answers before it
@@ -1137,7 +1154,7 @@ Mechanisms, phone first, then the Mac:
 
 The Mac app's Swift phone splice (`DaemonLaneSplice`, the irx connection
 server) has no release of its own: a phone on that path relies on its own
-release and the daemon's size lease.
+release and the daemon's size lease (8 s under `size-lease-v2`).
 
 | Path | Mechanism | Mac pane restored within |
 | --- | --- | --- |
@@ -1149,17 +1166,17 @@ release and the daemon's size lease.
 | Page menu open longer than 1 s | page not interactive → release; claimed again on close | 1 s + RTT |
 | Files and Links, photo picker or file importer over the page | covered → release | 1 s + RTT |
 | A sheet the page does not own (Connected Devices) | still claims (the terminal shows behind it) | n/a |
-| App to the background, screen locked | `didEnterBackground` → lease renewed, claim kept 45 s; back inside it: no change; later: release, then the claim, holding the page from before until the reclaim's replay | 45 s |
-| Force quit, killed by iOS while foreground | no release; lease ends (or keepalive + hold, capped by the lease) | 45 s |
-| Killed by iOS in the background | no release; lease ends | 45 s |
-| Link drop: network loss, roaming | keepalive closes the socket; hold capped by the lease | 45 s (a reattach inside it keeps the phone's grid) |
-| Transport switch | link redialled; hold; reattach finds the grid | no change if it reattaches within 30 s; else 45 s |
+| App to the background, screen locked | `didEnterBackground` → release at once (never behind an unanswered request), inside a short background task; coming back holds the page from before until the reclaim's replay | one round trip; 8 s if the release never leaves the phone |
+| Force quit, killed by iOS while foreground | no release; lease ends (or keepalive + hold, capped by the lease) | 8 s (45 s under `size-lease-v1`) |
+| Killed by iOS in the background | already released on entering it | one round trip |
+| Link drop: network loss, roaming | keepalive closes the socket; hold capped by the lease | 8 s (45 s under `size-lease-v1`); a reattach inside it keeps the phone's grid, and a later one never draws the Mac's grid first |
+| Transport switch | link redialled; hold; reattach finds the grid | no change if it reattaches within 8 s (30 s under `size-lease-v1`); else the Mac's grid until it does |
 | Mac host (hostd) restarts: SIGTERM | hostd releases before exit | 0.7 s |
-| hostd crashes or is killed (SIGKILL) | socket closes; hold capped by the lease | 45 s |
+| hostd crashes or is killed (SIGKILL) | socket closes; hold capped by the lease | 8 s (45 s under `size-lease-v1`) |
 | The Mac's cmux-tui daemon restarts | new daemon, no phone participant until it reattaches | at once |
 | iPhone connections turned off on the Mac | hostd SIGTERM → release | 0.7 s |
 | The owner removes the phone on the Mac | link closed `removed` → hostd releases | 0.5 s |
-| Phone signs out, "Remove This iPhone from My Macs" | links close (sessions stop and release when the link still carries them); else hold capped by the lease | 45 s worst case |
+| Phone signs out, "Remove This iPhone from My Macs" | links close (sessions stop and release when the link still carries them); else hold capped by the lease | 8 s worst case (45 s under `size-lease-v1`) |
 | Tab cooled out of the warm set, tab closed | session stop → release, then close; else hostd releases on the close frame | one round trip |
 | Grid card of a tab not started | `read-screen` only, never attaches | never claims |
 | Grid card of a started tab | its page is not interactive → release | 1 s + RTT |
@@ -1607,7 +1624,7 @@ app process without `client-hello`, so a phone on that path can read the
 policy but not change it. That splice has no size release of its own
 ("Terminal size claims"): under the default Fit the smallest viewer, a phone
 on it that was killed keeps the Mac's pane at its size until the size lease
-ends (45 s).
+ends (8 s under `size-lease-v2`, 45 s under `size-lease-v1`).
 
 `get-host-size-policy` answers the policy in effect: before the daemon's
 settings owner has read the settings file (only at startup, before it
