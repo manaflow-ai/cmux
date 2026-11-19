@@ -356,6 +356,31 @@ pub fn set_up_virtual_display() -> Res<u32> {
     Ok(display)
 }
 
+/// Stops the host unit (`systemctl --user stop`) before this desktop's identity changes; a unit
+/// that was never installed is already stopped. Ok only once no host of this desktop runs (the
+/// unit's, or one started by hand): it is checked gone by its pid file's lock, and killed with
+/// its process group when `systemctl` did not stop it in time (review F1 of #45369).
+pub fn stop_host() -> Res<()> {
+    use cmux_hub_host::{host_process, identity};
+    let stopped = match systemctl(&["stop", HOST_UNIT]) {
+        Err(e) if e.to_string().contains("not loaded") => Ok(()),
+        other => other,
+    };
+    let dir = identity::config_dir()?;
+    match host_process::ensure_gone(&dir, host_process::STOP_WAIT) {
+        Ok(()) => Ok(()),
+        Err(pid) => Err(format!(
+            "the screen host is still running ({}{}); stop it with: {}",
+            pid.map_or("its pid is unknown".into(), |pid| format!("pid {pid}")),
+            stopped.err().map(|e| format!("; {e}")).unwrap_or_default(),
+            pid.map_or(format!("systemctl --user kill --signal=KILL {HOST_UNIT}"), |pid| {
+                format!("kill -KILL {pid}")
+            })
+        )
+        .into()),
+    }
+}
+
 /// Installs the host's user unit (when missing or older) and starts it: with a desktop, as part
 /// of its graphical session; on a virtual display, from the user manager itself. Turns on
 /// lingering for a virtual display, so the host outlives the ssh session (warns if it cannot).
