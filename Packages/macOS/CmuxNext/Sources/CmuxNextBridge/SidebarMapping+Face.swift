@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextSidebar
@@ -202,7 +203,7 @@ extension SidebarMapping {
             agentIcon: rowAgent.icon,
             agentName: agentTab?.agentName,
             progress: facts.progress,
-            tabs: zip(tabs, statuses.tabs).enumerated().map { index, pair in
+            tabs: ObservationWork.counted(Array(zip(tabs, statuses.tabs)), "SidebarMapping.tabItems").enumerated().map { index, pair in
                 let (tab, state) = pair
                 let listed = facts.listed.indices.contains(index) ? facts.listed[index] : nil
                 let blank = listed?.blank ?? false

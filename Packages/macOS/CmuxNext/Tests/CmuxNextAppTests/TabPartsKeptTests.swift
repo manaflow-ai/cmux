@@ -23,8 +23,8 @@ import Testing
 /// closed.
 ///
 /// - The sidebar's row: the count is of the calls of the two functions that the row asks for each tab, which the
-///   test gives (`tabTitle`: the tab list's title of a tab; `pageFace`: a page's face). `rows_made` is the sidebar's
-///   own counter.
+///   test gives (`tabTitle`: the tab list's title of a tab; `pageFace`: a page's face), and of the tab list's items
+///   that the row's map made (the mapping's own count, ``ObservationWork``). `rows_made` is the sidebar's own counter.
 /// - The New Tab bar's rows and the home view's agents: the count is the module's own work counter
 ///   (``ObservationWork``), set around the start of each feed.
 ///
@@ -99,6 +99,8 @@ struct TabPartsKeptTests {
         var otherFaces = 0
         /// `rows_made`: the rows mapped from their stores.
         var rowsMade = 0
+        /// The tab list's items that the row's map made (the mapping's own count, ``ObservationWork``).
+        var items = 0
     }
 
     /// One window's rows over the session through a row feed whose frames run only in `frame()`, as
@@ -159,12 +161,16 @@ struct TabPartsKeptTests {
             _ = SidebarPerfCounters.report(reset: true)
             calls.titles.removeAll()
             calls.faces.removeAll()
-            services.machines.local.store.apply(snapshot: TabPartsKeptTests.tree(keys, storm: tabs))
-            pass()
-            frame()
+            let work = ObservationWork()
+            ObservationWork.$current.withValue(work) {
+                services.machines.local.store.apply(snapshot: TabPartsKeptTests.tree(keys, storm: tabs))
+                pass()
+                frame()
+            }
             let report = SidebarPerfCounters.report(reset: true)
             return RowCost(titles: calls.titles.count, faceCalls: calls.faces.filter { $0 == first }.count,
-                           otherFaces: calls.faces.filter { $0 != first }.count, rowsMade: report["rows_made"] ?? 0)
+                           otherFaces: calls.faces.filter { $0 != first }.count, rowsMade: report["rows_made"] ?? 0,
+                           items: work.byStep["SidebarMapping.tabItems"] ?? 0)
         }
     }
 
@@ -201,6 +207,10 @@ struct TabPartsKeptTests {
                 "one tab closed: the row made the tab list's title of \(small.closed.titles) tabs in a workspace of \(Self.sizes[0]) tabs and of \(large.closed.titles) in one of \(Self.sizes[1]), want the same count")
         #expect(large.made.titles <= 1 && large.closed.titles == 0,
                 "the row made the tab list's title of \(large.made.titles) tabs for one tab made and of \(large.closed.titles) for one tab closed, want the new tab's own and none")
+        #expect(small.made.items == large.made.items && small.closed.items == large.closed.items,
+                "the row made \(small.made.items) and \(small.closed.items) items of the tab list for one tab made and closed in a workspace of \(Self.sizes[0]) tabs, and \(large.made.items) and \(large.closed.items) in one of \(Self.sizes[1]), want the same counts")
+        #expect(large.made.items <= 1 && large.closed.items == 0,
+                "the row made \(large.made.items) items of the tab list for one tab made and \(large.closed.items) for one tab closed, want the new tab's own and none")
         let others = [small.made.otherFaces, small.closed.otherFaces, large.made.otherFaces, large.closed.otherFaces]
         #expect(others == [0, 0, 0, 0],
                 "the row asked a page face for \(others) tabs that are not its first tab (one tab made and closed at \(Self.sizes[0]) tabs, then at \(Self.sizes[1])), want 0: no page changed")
