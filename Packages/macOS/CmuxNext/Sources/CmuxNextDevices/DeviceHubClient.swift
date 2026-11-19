@@ -188,6 +188,13 @@ public actor DeviceHubClient {
         return try await call("POST", "/v1/sessions", body: Body(hostId: host, scope: scope), as: SessionAnswer.self).session
     }
 
+    /// From the viewer: a fresh viewer ticket for an approved or live session (the hub pushes the
+    /// host's matching one), for a ticket push that never came or a dropped stream.
+    public func reattachSession(_ id: String) async throws -> SessionTicket {
+        struct Answer: Decodable { var ticket: SessionTicket }
+        return try await call("POST", "/v1/sessions/\(segment(id))/reattach", body: [String: String](), as: Answer.self).ticket
+    }
+
     /// From the host: answers a pending request. `always` stores the permission with `scope`.
     public func decide(session id: String, decision: SessionDecision, scope: SessionScope) async throws -> HubSession {
         struct Body: Encodable { var decision: SessionDecision; var scope: SessionScope }

@@ -109,6 +109,7 @@ import Testing
         #expect(ran == ["app \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux-tui --version",
                         "cmux Helper (GPU) --version", "cmux Helper --version", "app \(StagedUpdatePrewarm.chromiumArgument)"])
         #expect(line.hasPrefix("launch pre-warm of 200 (cmux.app): cmux exit 0"), "\(line)")
+        #expect(line.hasSuffix(" ms in all"), "\(line)")
         #expect(line.contains("Frameworks read 2 files, 2 pages"), "the two helpers' executables, after they ran: \(line)")
         let none = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "300").perform(work: BackgroundWork())
         #expect(none.contains("no staged bundle of 300"))
@@ -204,6 +205,66 @@ import Testing
         }
     }
 
+    // Leo's NIGHTLY (cmux#43890's read-back): the update staged at 22:07:57Z, he clicked Restart to Update at
+    // 22:08:00Z and it relaunched at 22:08:03Z with no "launch pre-warm" line: a pre-warm that only runs while
+    // the update waits never finished for a person who installs at once. The click now waits for it, bounded.
+
+    /// The harness of the install click (the feed's newest is 300, staged build 400, so the click installs
+    /// what is staged) whose staged-build pre-warm runs until the returned continuation finishes.
+    static func clickHarness() -> (UpdateStagedYieldsToNewerTests.Harness, UpdateClickInstallsNewestTests.Installs,
+                                   AsyncStream<Void>.Continuation) {
+        let (h, installs) = UpdateClickInstallsNewestTests.make(newer: false)
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        h.updater.prewarmRunner = { _ in
+            for await _ in gate {}
+            return "pre-warmed"
+        }
+        // The harness's own staging pre-warmed build 300 (no staged bundle there); 400 is staged just now.
+        h.sparkle.staged = "400"
+        return (h, installs, open)
+    }
+
+    @Test func aClickRightAfterStagingInstallsOnceThePrewarmEnds() async throws {
+        let (h, installs, open) = Self.clickHarness()
+        h.updater.followStagedUpdate(.ready(version: "4.0.0"))
+        h.updater.installClicked()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(installs.count == 0, "the click relaunched before the pre-warm of staged build 400 ended")
+        open.finish()
+        #expect(await eventually { installs.count == 1 }, "the click never installed")
+        #expect(h.updater.log.recent.contains { $0.hasPrefix("launch pre-warm before install: done, the install waited") },
+                "\(h.updater.log.recent)")
+    }
+
+    @Test func aPrewarmThatRunsPastTheBoundDoesNotHoldTheClick() async throws {
+        let (h, installs, open) = Self.clickHarness()
+        defer { open.finish() }
+        h.updater.followStagedUpdate(.ready(version: "4.0.0"))
+        #expect(h.updater.log.recent.contains("launch pre-warm of 400: started (staged)"), "\(h.updater.log.recent)")
+        h.updater.installClicked()
+        #expect(await eventually { h.updater.prewarmWaitTimer.isScheduled }, "no bound was armed")
+        #expect(installs.count == 0)
+        for _ in 0..<40 where installs.count == 0 {
+            h.clock.advance(by: .seconds(1))
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(installs.count == 1, "the click waits past its bound on a pre-warm that never ends")
+        #expect(h.updater.log.recent.contains { $0.hasPrefix("launch pre-warm before install: partial, still running after") },
+                "\(h.updater.log.recent)")
+    }
+
+    /// A click in the same turn as the staging (no phase change seen yet) starts the pre-warm itself.
+    @Test func aClickBeforeAnyPrewarmStartsOneAndWaitsForIt() async throws {
+        let (h, installs, open) = Self.clickHarness()
+        h.updater.installClicked()
+        #expect(await eventually { h.updater.log.recent.contains("launch pre-warm of 400: started (install)") },
+                "the click did not start the pre-warm: \(h.updater.log.recent)")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(installs.count == 0, "the click relaunched before the pre-warm it started ended")
+        open.finish()
+        #expect(await eventually { installs.count == 1 })
+    }
+
     // Leo's NIGHTLY (cmux#43890's second read-back, pid 12985): "staged, waiting for the user" at 22:38:18Z, "staged
     // notes: 4376790554901" at 22:38:19Z (so the pre-warm was started with that build), "kept 4376544293601 for
     // rollback" at 22:38:45Z, the click at 22:39:16Z, and no "launch pre-warm" line at all. The pre-warm's folder
@@ -245,7 +306,7 @@ import Testing
         defer { release.signal() }
         try #require(await eventually { started.wait(timeout: .now()) == .success }, "the stand-in keep never ran")
         updater.followStagedUpdate(.ready(version: "2.0.0"))
-        #expect(updater.log.recent.contains("launch pre-warm of 200: started"), "\(updater.log.recent)")
+        #expect(updater.log.recent.contains("launch pre-warm of 200: started (staged)"), "\(updater.log.recent)")
         let ran = installation.appending(path: "ran.txt")
         let firstRunLogged = await eventually { updater.log.recent.contains { $0.hasPrefix("launch pre-warm of 200: cmux exit 0") } }
         // The update log's pre-warm lines show in the failure itself (a fleet summary keeps one line per issue).
