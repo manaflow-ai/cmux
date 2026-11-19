@@ -4,6 +4,7 @@
 import { diffTreeDisclosure, treeNameFade } from "../agent-session/acpmux/changes/treeMotion.experiment";
 import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment";
 import { steerQueueExperiment } from "../agent-session/acpmux/steerQueue/steerQueue.experiment";
+import { statusIslandExperiment } from "../agent-session/acpmux/statusIsland/statusIsland.experiment";
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
@@ -98,6 +99,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   treeNameFade,
   sessionReplay,
   steerQueueExperiment,
+  statusIslandExperiment,
   chiefDock,
   hoverActions,
   startedSessionCards,
