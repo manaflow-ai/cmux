@@ -19,6 +19,10 @@ struct Run {
     offset: Option<u64>,
 }
 
+/// The queue capacity an idle terminal may keep; a burst's goes once parsed.
+const IDLE_QUEUE_BYTES: usize = 4 * 1024;
+const IDLE_QUEUE_RUNS: usize = 16;
+
 #[derive(Default)]
 struct SinkState {
     /// Bytes for the parser, in order. The first `in_flight` of them were
@@ -156,6 +160,14 @@ impl SinkState {
             if run.len == 0 {
                 self.runs.pop_front();
             }
+        }
+        // An idle terminal keeps no queue: a burst's capacity goes once it
+        // is parsed, not for the terminal's life.
+        if self.bytes.is_empty() && self.bytes.capacity() > IDLE_QUEUE_BYTES {
+            self.bytes = VecDeque::new();
+        }
+        if self.runs.is_empty() && self.runs.capacity() > IDLE_QUEUE_RUNS {
+            self.runs = VecDeque::new();
         }
     }
 
@@ -678,6 +690,26 @@ mod tests {
         // holder's bytes is acknowledged, every ACK_EVERY bytes.
         assert!(acks.len() >= 2, "{acks:?}");
         assert!(last >= ACK_EVERY && last <= 2 * chunk.len() as u64, "{acks:?}");
+    }
+
+    /// An idle terminal keeps none of a parsed burst's queue (CMUX-571:
+    /// 1,000 idle terminals each kept their largest burst's capacity).
+    #[test]
+    fn a_parsed_burst_leaves_no_queue_capacity_behind() {
+        let sink = HolderSink::new(0);
+        let burst = vec![b'a'; 256 * 1024];
+        sink.data(0, &burst);
+        let mut reader = SinkReader(sink.clone());
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut read = 0;
+        while read < burst.len() {
+            read += reader.read(&mut buf).unwrap();
+        }
+        sink.confirm_parsed();
+        let state = sink.state.lock().unwrap();
+        assert!(state.bytes.is_empty());
+        assert!(state.bytes.capacity() <= IDLE_QUEUE_BYTES, "{}", state.bytes.capacity());
+        assert!(state.runs.capacity() <= IDLE_QUEUE_RUNS, "{}", state.runs.capacity());
     }
 
     #[test]
