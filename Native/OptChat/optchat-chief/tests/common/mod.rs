@@ -1234,6 +1234,7 @@ pub fn settings(dir: &Path) -> Settings {
         engine_file: None,
         families: Default::default(),
         codex_preset: None,
+        brains: Default::default(),
         settings_file: dir.join("settings.json"),
         trace_dir: Some(dir.join("traces")),
         cache_ttl: None,
