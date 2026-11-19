@@ -12,17 +12,25 @@ public final class HostsSidebar {
         public var add: @MainActor () -> Void
         public var refresh: @MainActor () async -> Void
         public var startAging: @MainActor (AnyObject, @escaping @MainActor () -> Bool) -> Void
-        public var stopAging: (AnyObject) -> Void
+        public var stopAging: @MainActor (AnyObject) -> Void
         private var openConnected: @MainActor (String) -> Void
         private var openJoined: @MainActor (JoinedMachine) -> Void
 
         public init(rows: @escaping @MainActor () -> [MachineSectionRow],
                     add: @escaping @MainActor () -> Void,
                     openConnected: @escaping @MainActor (String) -> Void,
+                    openJoined: @escaping @MainActor (JoinedMachine) -> Void) {
+            self.init(rows: rows, add: add, openConnected: openConnected, openJoined: openJoined,
+                      refresh: { }, startAging: { _, _ in }, stopAging: { _ in })
+        }
+
+        public init(rows: @escaping @MainActor () -> [MachineSectionRow],
+                    add: @escaping @MainActor () -> Void,
+                    openConnected: @escaping @MainActor (String) -> Void,
                     openJoined: @escaping @MainActor (JoinedMachine) -> Void,
-                    refresh: @escaping @MainActor () async -> Void = {},
-                    startAging: @escaping @MainActor (AnyObject, @escaping @MainActor () -> Bool) -> Void = { _, _ in },
-                    stopAging: @escaping (AnyObject) -> Void = { _ in }) {
+                    refresh: @escaping @MainActor () async -> Void,
+                    startAging: @escaping @MainActor (AnyObject, @escaping @MainActor () -> Bool) -> Void,
+                    stopAging: @escaping @MainActor (AnyObject) -> Void) {
             self.rows = rows
             self.add = add
             self.openConnected = openConnected
@@ -74,9 +82,10 @@ public final class HostsSidebar {
         host.startAging(self, visible)
     }
 
-    nonisolated deinit {
+    public func stop() {
         initialRefresh?.cancel()
-        host?.stopAging(self)
+        initialRefresh = nil
+        if let host { host.stopAging(self) }
     }
 
     /// Rows are transient and therefore never become a second machine catalog or a durable layout item.

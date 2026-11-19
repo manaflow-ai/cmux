@@ -124,9 +124,7 @@ final class SidebarBridge {
             guard byKeyboard, let focus = state?.focus else { return }
             focus.send(.focusTarget(.content, source: .keyboard))
         }
-        seedFromSnapshot(state)
-        hosts.bind(host: services.hostsSidebar, visible: { [weak state] in state?.sidebarHidden == false })
-        bindRemoteMachines()
+        seedFromSnapshot(state); hosts.bind(host: services.hostsSidebar, visible: { [weak state] in state?.sidebarHidden == false }); bindRemoteMachines()
         // Clear until real content (`markReadyForReveal`, or the deadline); a no-op once it is ready.
         services.launchReveal.hold(container, until: .sidebar)
         observe()
@@ -141,7 +139,7 @@ final class SidebarBridge {
         sectionsPass?.cancel()
         appSections?.releaseAll()
         cardsObservation?.cancel()
-        remoteMachines.stop()
+        remoteMachines.stop(); hosts.stop()
         container.sidebarView.tearDownSpaceWindowMarks() // a retained closed window keeps its views (#38333 review)
         container.sidebarView.updateSurfaces = nil // the update surface pages cancel their subscriptions (cx-urd.61.2)
     }
