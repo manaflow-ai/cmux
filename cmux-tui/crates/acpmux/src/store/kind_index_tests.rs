@@ -921,11 +921,12 @@ fn a_kind_scan_past_a_seq_reads_only_the_copies_past_it() {
         return; // A thread's reads are counted on Linux only.
     }
     let root = root();
-    let (store, log) = store_with_log(&root, 60);
+    let (store, log) = store_with_log(&root, 200);
     let kinds = ["queued", "turn_started", "turn_result"];
     // The copies, as a log load makes them.
     let all = scanned(&store, &kinds);
-    assert!(store.segments("c").unwrap().len() > 100);
+    let segments = store.segments("c").unwrap().len();
+    assert!(segments > 40, "{segments} segments");
     let whole = read_bytes();
     assert_eq!(scanned(&store, &kinds), all);
     let whole = read_bytes() - whole;
