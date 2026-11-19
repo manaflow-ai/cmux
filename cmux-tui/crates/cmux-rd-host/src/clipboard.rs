@@ -278,12 +278,12 @@ mod tests {
         let mut ch = ClipboardChannel::new(Box::new(board.clone()), 0);
         board.copy("host secret");
         for t in 0..10 {
-            assert_eq!(ch.poll(t * POLL_INTERVAL_US, false), None);
+            assert!(ch.poll(t * POLL_INTERVAL_US, false).is_none());
         }
         assert_eq!(board.0.borrow().reads, 0);
         assert_eq!(ch.next_deadline_us(false), None);
         // Control comes back: the change made in view is not sent later.
-        assert_eq!(ch.poll(11 * POLL_INTERVAL_US, true), None);
+        assert!(ch.poll(11 * POLL_INTERVAL_US, true).is_none());
         assert_eq!(board.0.borrow().reads, 0);
     }
 
@@ -293,16 +293,16 @@ mod tests {
         board.copy("before the session");
         let mut ch = ClipboardChannel::new(Box::new(board.clone()), 0);
         // What the clipboard held at the start is not sent.
-        assert_eq!(ch.poll(POLL_INTERVAL_US, true), None);
+        assert!(ch.poll(POLL_INTERVAL_US, true).is_none());
         board.copy("copied on the host");
         // Not before the next poll.
-        assert_eq!(ch.poll(POLL_INTERVAL_US + 1, true), None);
+        assert!(ch.poll(POLL_INTERVAL_US + 1, true).is_none());
         assert_eq!(ch.next_deadline_us(true), Some(2 * POLL_INTERVAL_US));
         assert_eq!(
             sent_text(ch.poll(2 * POLL_INTERVAL_US, true)).as_deref(),
             Some("copied on the host")
         );
-        assert_eq!(ch.poll(3 * POLL_INTERVAL_US, true), None);
+        assert!(ch.poll(3 * POLL_INTERVAL_US, true).is_none());
         assert_eq!(board.0.borrow().reads, 1);
     }
 
@@ -312,12 +312,12 @@ mod tests {
         let mut ch = ClipboardChannel::new(Box::new(board.clone()), 0);
         assert_eq!(ch.on_part(part(1, "from viewer"), true), Received::Applied(1));
         for t in 1..5 {
-            assert_eq!(ch.poll(t * POLL_INTERVAL_US, true), None);
+            assert!(ch.poll(t * POLL_INTERVAL_US, true).is_none());
         }
         // Another app copies the same text again (a new change count): still not sent,
         // the viewer has it.
         board.copy("from viewer");
-        assert_eq!(ch.poll(6 * POLL_INTERVAL_US, true), None);
+        assert!(ch.poll(6 * POLL_INTERVAL_US, true).is_none());
         // A different text is.
         board.copy("new on host");
         assert_eq!(sent_text(ch.poll(7 * POLL_INTERVAL_US, true)).as_deref(), Some("new on host"));
@@ -328,7 +328,7 @@ mod tests {
         let board = Shared::default();
         let mut ch = ClipboardChannel::new(Box::new(board.clone()), 0);
         board.copy(&"x".repeat(MAX_CLIPBOARD_TEXT + 1));
-        assert_eq!(ch.poll(POLL_INTERVAL_US, true), None);
+        assert!(ch.poll(POLL_INTERVAL_US, true).is_none());
         assert_eq!(ch.counters().local_too_large, 1);
     }
 }
