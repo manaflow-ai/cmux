@@ -1866,14 +1866,49 @@ const sendsMessage = (tool: NonNullable<AcpmuxActivity["tool"]>): boolean =>
 /// summary line, with its steps under it when the line starts open (`runOpen`; ToolRunSteps.tsx draws
 /// each call on its own line, a quiet thought not at all); another stretch is its entries, groups
 /// closed or open alike.
-function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: number): number {
+/// A line or group the reader opened or closed (transcriptDisclosureModel.ts) is estimated as they left
+/// it, read with the same key, default and links ToolRows gives it (TurnRows.tsx): the estimate is what
+/// places the row whenever its drawn height is gone (another width, its fold closed and opened again,
+/// history paged out and back).
+function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: number, sessionId?: string): number {
   // `.cv-tools` and `.cv-tool-run` stack their lines flush (conversation.css), 22 apart.
   const stretches = runStretches(row, groups);
   return stretches.reduce((height, stretch) => {
     const start = stretchStart(row, stretch);
-    if (stretch.fold) return height + toolRowHeight() + (start.lineOpen ? openRunStepsHeight(stretch.items, width) : 0);
-    return height + stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group, width, start.groupsClosed), 0);
+    const runKey = runDisclosureKey(stretch, row.id);
+    if (stretch.fold) {
+      const open = disclosureOpen(sessionId, runKey, start.lineOpen, {
+        ...runLinks(stretch, row.id),
+        members: callDisclosureKeys(stretch.items),
+      });
+      return height + toolRowHeight() + (open ? openRunBody(openRunStepsHeight(stretch.items, width)) : 0);
+    }
+    return (
+      height +
+      stretch.groups.reduce((sum, group, offset) => {
+        const key = group.type === "group" ? groupDisclosureKey(group, stretch.from + offset, row.id) : undefined;
+        // ToolGroupRow.tsx: open by default unless the run keeps it closed; an edits group keeps its own state.
+        const edits = group.type === "group" && group.kind === "edits";
+        const open =
+          key !== undefined &&
+          disclosureOpen(sessionId, key, !edits && !start.groupsClosed, {
+            inherits: edits ? undefined : [runKey],
+            closedBy: edits ? undefined : [runKey],
+            members: callDisclosureKeys("items" in group ? group.items : [group.item]),
+          });
+        return sum + foldedGroupHeight(group, width, !open);
+      }, 0)
+    );
   }, 0);
+}
+
+/// An opened run line's or group's body under its line (ToolRun.tsx, ToolGroupRow.tsx): the line's
+/// gap, held inside the fold (conversation.css `.cv-tools > * + .cv-fold::before`), over its steps,
+/// which the default arm keeps to a 56-unit (224px) scroll box (RunScroll.tsx `.cv-run-scroll`).
+const RUN_SCROLL_UNITS = 56;
+export function openRunBody(steps: number): number {
+  const base = gridLength("base") * chromeScale;
+  return base + (experimentArm(runScroll) === "box" ? Math.min(steps, RUN_SCROLL_UNITS * base) : steps);
 }
 
 /// An open run line's steps (ToolRunSteps.tsx): a line per call, nothing for a quiet thought.
@@ -1891,7 +1926,7 @@ function openRunStepsHeight(items: readonly AcpmuxActivity[], width: number): nu
 /// (ToolGroupRow.tsx).
 function foldedGroupHeight(group: ToolGroup, width: number, closed = true): number {
   if (group.type === "group" && !closed && group.kind !== "edits")
-    return toolRowHeight() + group.items.reduce((sum, item) => sum + activityStepHeight(item, width), 0);
+    return toolRowHeight() + openRunBody(group.items.reduce((sum, item) => sum + activityStepHeight(item, width), 0));
   if (group.type === "send")
     return messageRowHeight(group.send.state !== "failed" && Boolean(group.send.text?.trim() || group.send.file));
   // A group of sends starts closed: its head, a message row naming the recipients
@@ -2371,6 +2406,8 @@ function fallbackRowHeight(
   beforeFooter = false,
   lastTurn = false,
   actions = false,
+  /// The chat the row is from, which keys the lines the reader opened (transcriptDisclosureModel.ts).
+  sessionId?: string,
 ): number {
   const finish = (height: number) =>
     height === 0 || !lastTurn
@@ -2400,10 +2437,10 @@ function fallbackRowHeight(
     // draws its stretches; one with nothing kept in sight draws one summary line, or its one call.
     if (row.foldRun && items.length) {
       const groups = toolGroups(items);
-      // A run line open from the start (`runOpen`) draws each stretch's line over its steps.
-      if (row.runOpen || groups.some(staysInSight))
-        return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width));
-      if (isFoldedRun(items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
+      // A run line open from the start (`runOpen`) draws each stretch's line over its steps; one the
+      // reader opened draws them too.
+      if (row.runOpen || groups.some(staysInSight) || isFoldedRun(items))
+        return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width, sessionId));
     }
     let steps = items.length
       ? items.reduce((height, item) => height + activityStepHeight(item, width), 0)
@@ -3016,7 +3053,7 @@ function measuredRowHeight(
   if (row.incoming?.kind === "hidden") return finish(0);
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
   if (onlyQuietThoughts(row)) return finish(0);
-  if (!row.text) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+  if (!row.text) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions, sessionId);
   // A prompt with only attachments in its recorded parts draws them in the strip and no bubble
   // (UserBubble.tsx `inlineAttachmentOnly`), so its text is never measured as a bubble's.
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text) && attachmentOnlyPrompt(row))
@@ -3940,6 +3977,9 @@ import {
 } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { runStretches, staysInSight, stretchStart, toolGroups, type ToolGroup } from "./conversation/toolGroups";
+import { callDisclosureKeys, disclosureOpen } from "./conversation/transcriptDisclosureModel";
+import { groupDisclosureKey, runDisclosureKey, runLinks } from "./conversation/turnRowsModel";
+import { runScroll } from "./conversation/runScroll.experiment";
 import { acpmuxSendCalls } from "./conversation/acpmuxSends";
 import { acpmuxMcpSends } from "./conversation/acpmuxMcpSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
