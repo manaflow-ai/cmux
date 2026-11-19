@@ -103,7 +103,7 @@ final class EventInspectorUITests: XCTestCase {
 
         // More: Copy as JSON Lines, then Clear. Searching hides the navigation bar (its More
         // button too): close the search first, with the button beside the field.
-        let close = app.buttons.matching(NSPredicate(format: "label IN %@", ["Close", "Cancel"])).firstMatch
+        let close = app.searchFields.firstMatch.buttons.matching(NSPredicate(format: "label ==[c] %@ OR label ==[c] %@", "close", "cancel")).firstMatch
         if close.waitForExistence(timeout: 3) { close.tap() }
         let more = app.buttons["chat.inspector.more"].firstMatch
         XCTAssertTrue(more.waitForExistence(timeout: 10), "More shows once the search is closed\n\(app.debugDescription)")
