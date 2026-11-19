@@ -2913,3 +2913,77 @@ button.menu-disclosure {
   background: transparent;
   text-decoration: underline;
 }
+
+/* A font row's pictures (components/FontPreview.tsx): a tile per face choice, drawn in that face at the
+   surface's size and line height, under the row; the density tiles' look. */
+.font-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--page-size-150), 1fr));
+  gap: var(--page-size-10);
+  padding: var(--page-size-6) 0;
+}
+
+.font-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--page-size-6);
+  min-width: 0;
+  padding: var(--page-size-6);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-space-2);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.font-tile[data-on] {
+  border-color: var(--text);
+}
+
+.font-tile-picture {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  padding: var(--page-size-6) var(--page-size-10);
+  border: 1px solid var(--border);
+  border-radius: var(--page-size-6);
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.font-tile-glyphs,
+.font-tile-line {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.font-tile-glyphs {
+  font-size: 1.6em;
+}
+
+.font-tile-name {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--page-size-6);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.font-tile-name small {
+  color: var(--muted-text);
+}
+
+.font-sample {
+  overflow: hidden;
+  margin: var(--page-size-6) 0;
+  padding: var(--page-size-6) var(--page-size-10);
+  border: 1px solid var(--border);
+  border-radius: var(--page-size-6);
+  background: var(--input-bg);
+  color: var(--text);
+  white-space: nowrap;
+}

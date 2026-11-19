@@ -1179,6 +1179,7 @@ export class SettingsStore {
 
   preview(key: string, value: unknown, owner?: object): void {
     this.previewOwner = owner ?? {};
+    this.setLive({ key, value });
     if (this.ui.connected) void this.request("cmux.settings.preview", { key, value });
   }
 
@@ -1186,7 +1187,26 @@ export class SettingsStore {
   previewEnd(key: string, owner?: object): void {
     if (owner && this.previewOwner !== owner) return;
     this.previewOwner = null;
+    if (this.live?.key === key) this.setLive(null);
     void this.request("cmux.settings.preview.end", { key });
+  }
+
+  /** The preview showing now, for the page's own pictures (a font row's preview follows a size
+   * slider's drag before the release writes it). Kept apart from the state: a drag step re-renders
+   * only what reads it. */
+  private live: { key: string; value: unknown } | null = null;
+  private readonly liveListeners = new Set<() => void>();
+  private setLive(next: { key: string; value: unknown } | null): void {
+    this.live = next;
+    for (const listener of this.liveListeners) listener();
+  }
+  readonly subscribeLive = (listener: () => void): (() => void) => {
+    this.liveListeners.add(listener);
+    return () => this.liveListeners.delete(listener);
+  };
+  /** The previewed value of `key`, or undefined when no preview of it is showing. */
+  liveValue(key: string): unknown {
+    return this.live?.key === key ? this.live.value : undefined;
   }
 
   /** Opens cmux.json in the editor (the palette's action). The Swift Settings window is gone (R82). */
