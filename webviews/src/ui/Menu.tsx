@@ -105,9 +105,10 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
     if (open === undefined) setInternalOpen(next);
     onOpenChange?.(next);
   };
+  const nativeAvailable = native !== undefined && nativePopup.available;
   const context: MenuContextValue = {
     isOpen,
-    nativeAvailable: native !== undefined && nativePopup.available,
+    nativeAvailable,
     trigger,
     opener,
     keyed,
@@ -133,6 +134,13 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
         handled: false,
       };
       setMenuOpen(true);
+      // The App draws this menu (a native popup): its panel follows the held press and picks the
+      // row the release lands on (NativePopupHost's press-release). The page sees only that
+      // release; a page row under the panel must not run, and the menu must not close on it.
+      if (nativeAvailable) {
+        session.current = null;
+        return;
+      }
       pointerCleanup.current = trackPressRelease(event, {
         hover: (row) => row.focus({ preventScroll: true }),
         // Base UI items act on the click.

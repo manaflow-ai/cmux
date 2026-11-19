@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesignTokens
+import CmuxNextWakeups
 
 /// A body whose layout can stay as it was while the card folds to a smaller size: the workspace
 /// card's Hide details keeps its detail rows drawn (fading out) under the folding edge, instead of
@@ -158,7 +159,6 @@ extension HoverCardPanel {
 
         // The window holds the larger card wherever the slide carries it.
         let travel = max(Self.travel, abs(offset.dx), abs(offset.dy))
-        host.travelMargin = travel
         let margin = PopupStyle.standard.shadowMargin + travel
         restCardFrame = rest
         Self.morphGeneration += 1
@@ -167,6 +167,10 @@ extension HoverCardPanel {
         activeMorph = morph
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        // The card's first frame, in the host the window is about to be, before the window takes that frame: its one
+        // layout is then at the size it shows (not first at the whole larger card, then again at the morph's size).
+        host.cardRect = morphCardRect(in: CGRect(x: margin, y: margin, width: big.width, height: big.height))
+        host.travelMargin = travel
         setFrame(bigFrame.insetBy(dx: -margin, dy: -margin), display: false)
         applyMorphFrame()
         CATransaction.commit()
@@ -178,16 +182,21 @@ extension HoverCardPanel {
     /// The card's surface, rim and shadow at the size the morph in flight is at now (whole device
     /// pixels, so its edge stays crisp), about the fixed corner of the larger card the window holds.
     func applyMorphFrame() {
-        guard let activeMorph, let host else { return }
-        let scale = max(backingScaleFactor, 1)
-        func pixel(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
-        let full = host.restingCardRect
-        let size = CGSize(width: min(pixel(activeMorph.size.width), full.width), height: min(pixel(activeMorph.size.height), full.height))
-        let corner = activeMorph.corner
-        host.cardRect = CGRect(x: full.minX + corner.x * (full.width - size.width), y: full.minY + corner.y * (full.height - size.height),
-                               width: size.width, height: size.height)
+        guard activeMorph != nil, let host else { return }
+        host.cardRect = morphCardRect(in: host.restingCardRect)
         // The body moves with the corner it is pinned to in this same commit (its size does not change).
         host.layoutSubtreeIfNeeded()
+    }
+
+    /// The card's frame at the morph's size now, about its fixed corner of `full` (the larger card's rect in the host).
+    private func morphCardRect(in full: CGRect) -> CGRect? {
+        guard let activeMorph else { return nil }
+        let scale = max(backingScaleFactor, 1)
+        func pixel(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
+        let size = CGSize(width: min(pixel(activeMorph.size.width), full.width), height: min(pixel(activeMorph.size.height), full.height))
+        let corner = activeMorph.corner
+        return CGRect(x: full.minX + corner.x * (full.width - size.width), y: full.minY + corner.y * (full.height - size.height),
+                      width: size.width, height: size.height)
     }
 
     /// A first show that grows out of its target (`HoverCardEntrance.morph`): the same resize as a
@@ -230,6 +239,17 @@ extension HoverCardPanel {
         if let animated = pendingRefit {
             pendingRefit = nil
             refit(animated: animated)
+        }
+        bodyRests()
+    }
+
+    /// The card rests at its size: once this frame committed, a body that reports its own size measures what its next
+    /// change asks for (not while a morph runs: the morph's frames keep the main thread for themselves).
+    func bodyRests() {
+        guard body is HoverCardSizeReporting else { return }
+        AfterFrameCommit().run { [weak self] in
+            guard let self, self.activeMorph == nil, self.isShowingCard, let body = self.body as? HoverCardSizeReporting else { return }
+            body.prepareSizes()
         }
     }
 }
