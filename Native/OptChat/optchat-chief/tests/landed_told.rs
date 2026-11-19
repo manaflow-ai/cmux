@@ -168,3 +168,38 @@ fn a_report_that_did_not_land_does_not_hold_the_turn() {
     let answer = run(&mut h, move || s.sleep(sleep_call())).expect("sleeps");
     assert!(answer.starts_with("outcome: done"), "{answer}");
 }
+
+#[test]
+fn a_turn_that_sends_the_subagent_back_to_work_passes() {
+    for how in ["tell", "restart"] {
+        let (mut h, sp) = report_turn("Landed 1a2b3c4d..5e6f7a8b on feat-cmux-next; tests green.");
+        let s = sp.clone();
+        let sent = run(&mut h, move || {
+            if how == "tell" {
+                s.tell("a1", "Also add the After shots, then report.")
+            } else {
+                s.control(optchat_chief::tools::ControlCall {
+                    action: "restart".into(),
+                    id: Some("a1".into()),
+                    message: Some("Add the After shots, then report.".into()),
+                    option: None,
+                    n: None,
+                    peer: None,
+                })
+            }
+        });
+        assert!(sent.is_ok(), "{how}: {sent:?}");
+        let s = sp.clone();
+        let answer = run(&mut h, move || s.sleep(sleep_call()))
+            .unwrap_or_else(|e| panic!("{how}: its next report is the one to tell: {e}"));
+        assert!(answer.starts_with("outcome: done"), "{how}: {answer}");
+    }
+}
+
+#[test]
+fn a_report_with_one_sha_and_no_range_does_not_hold_the_turn() {
+    let (mut h, sp) = report_turn("Landed 1a2b3c4d5e on feat-cmux-next; tests green.");
+    let s = sp.clone();
+    let answer = run(&mut h, move || s.sleep(sleep_call())).expect("no range: no hold");
+    assert!(answer.starts_with("outcome: done"), "{answer}");
+}
