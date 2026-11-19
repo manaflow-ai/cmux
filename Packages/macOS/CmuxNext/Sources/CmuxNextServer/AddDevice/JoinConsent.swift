@@ -805,10 +805,10 @@ public nonisolated struct JoinConsentStrings {
         s("devices.join.unread", "This Mac could not read what it allows, so Mac Screen is refused until it can. The switches come back when it reads again.")
     }
     static var notRunning: String {
-        s("devices.join.notRunning", "cmux's background service is not running on this Mac, so it can't read what this Mac allows. Mac Screen is refused until it can.")
+        s("devices.join.notRunning", "cmux's background service isn't running, so Mac Screen is refused.")
     }
     static var refusedDaemon: String {
-        s("devices.join.refusedDaemon", "cmux did not trust the program that answered for its background service, so it can't read what this Mac allows. Mac Screen is refused until it can.")
+        s("devices.join.refusedDaemon", "cmux doesn't trust the program answering for its background service, so Mac Screen is refused.")
     }
     static var noAnswer: String {
         s("devices.join.noAnswer", "cmux's background service did not answer, so cmux can't read what this Mac allows. Mac Screen is refused until it can.")
@@ -818,7 +818,7 @@ public nonisolated struct JoinConsentStrings {
     }
     /// Another install's acpmux (`path`) answers on cmux's socket: it shows what it holds, and cmux can't prove it's you there.
     static func otherDaemon(_ path: String) -> String {
-        String(format: s("devices.join.otherDaemon", "Another copy of cmux's background service is running (%@), so cmux shows what this Mac allows but can't change it. Quit it so cmux runs its own."), path)
+        String(format: s("devices.join.otherDaemon", "Another copy of cmux's background service is running (%@), so these can't change. Quit it so cmux runs its own."), path)
     }
     static var notProven: String {
         s("devices.join.notProven", "cmux could not prove it's you to its background service, so these can't change. Quit and reopen cmux to try again.")

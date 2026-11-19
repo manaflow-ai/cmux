@@ -679,8 +679,11 @@ jobs:
         run: |
           # Replay uses this exact runner and result parser, with the base's tests and bun.
           # Different deadline policies can otherwise turn an old named failure into a new timeout.
-          export CMUX_WEB_TEST_RETRY_DEADLINE=$(( CMUX_WEB_TEST_JOB_MINUTES * 60 - 480 ))
-          export CMUX_WEB_TEST_RETRY_BUDGET="$CMUX_WEB_TEST_RETRY_DEADLINE"
+          # Unset (a local run of this script under set -u), the runner keeps its own retry defaults.
+          if [ -n "${CMUX_WEB_TEST_JOB_MINUTES:-}" ]; then
+            export CMUX_WEB_TEST_RETRY_DEADLINE=$(( CMUX_WEB_TEST_JOB_MINUTES * 60 - 480 ))
+            export CMUX_WEB_TEST_RETRY_BUDGET="$CMUX_WEB_TEST_RETRY_DEADLINE"
+          fi
           mkdir -p "$RUNNER_TEMP/webviews-head-results/runner"
           # A push records its webview inputs key with its verdicts (the history job's checkout is sparse, and the key
           # reads files the router routes on). Best effort: no key, and the history job records nothing.
