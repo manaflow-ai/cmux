@@ -47,10 +47,13 @@ pids=()
 cleanup() {
   # Every daemon this script started (local ones and the far side of ssh) serves a mux.sock under $work:
   # end its terminals and stop it, then stop the processes this script started, by PID.
-  local sock
-  while IFS= read -r sock; do
-    "$bin" daemon stop --socket "$sock" --end-terminals >/dev/null 2>&1 || true
-  done < <(find "$work" -name mux.sock -type s 2>/dev/null)
+  local envfile sock
+  while IFS= read -r envfile; do
+    while IFS= read -r sock; do
+      # shellcheck disable=SC2046
+      env $(cat "$envfile") "$bin" daemon stop --socket "$sock" --end-terminals >/dev/null 2>&1 || true
+    done < <(find "$(dirname "$envfile")" -name '*.sock' -type s 2>/dev/null)
+  done < <(find "$work" -name daemon.env 2>/dev/null)
   for pid in "${pids[@]+"${pids[@]}"}"; do kill "$pid" 2>/dev/null || true; done
   [[ -f "$work/ssh/sshd.pid" ]] && kill "$(cat "$work/ssh/sshd.pid")" 2>/dev/null || true
   rm -rf "$work"
@@ -62,7 +65,8 @@ daemon_env() {
   local dir="$1"
   mkdir -p "$dir/rt" "$dir/state" "$dir/config" "$dir/tui"
   chmod 700 "$dir" "$dir/rt"
-  echo "XDG_RUNTIME_DIR=$dir/rt XDG_STATE_HOME=$dir/state XDG_CONFIG_HOME=$dir/config CMUX_TUI_STATE_DIR=$dir/tui"
+  echo "XDG_RUNTIME_DIR=$dir/rt XDG_STATE_HOME=$dir/state XDG_CONFIG_HOME=$dir/config CMUX_TUI_STATE_DIR=$dir/tui" \
+    | tee "$dir/daemon.env"
 }
 
 wait_for_socket() {
@@ -93,8 +97,7 @@ run_local() {  # run_local RUN
   envs="$(daemon_env "$dir")"
   sock="$dir/mux.sock"
   # shellcheck disable=SC2086
-  env $envs "$bin" daemon start --session "tscroll-local-$1" --socket "$sock" >"$dir/daemon.log" 2>&1 &
-  pids+=("$!")
+  env $envs "$bin" daemon ensure --session "tscroll-local-$1" --socket "$sock" >"$dir/daemon.log" 2>&1
   wait_for_socket "$sock"
   probe local "$sock" "$1"
 }
