@@ -218,3 +218,40 @@ fn a_forks_session_info_never_copies_its_chats_history() {
     assert!(!copied.exists(), "the chat's history was copied into the fork");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A sub-session's turn ends read its parent's records once, not once a turn: a chat no accepted
+/// offer started (spawned with its parent, as every side chat is) is never one later, so its
+/// first look is its answer (`offer_results.rs`). Each turn end of each side chat read its
+/// parent's whole kind index, and a parent is often the longest chat there is.
+#[tokio::test]
+async fn a_sub_sessions_turn_ends_read_its_parents_log_once() {
+    let root = std::env::temp_dir().join(format!("acpmux-long-parent-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    {
+        let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+        let log = long_log(20);
+        for rec in &log {
+            writer.append("parent", rec).unwrap();
+        }
+        let meta = |id: &str| -> SessionMeta {
+            serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA, "id": id, "name": id, "harness": "fake",
+                "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
+            }))
+            .unwrap()
+        };
+        let mut parent = meta("parent");
+        parent.last_seq = log.last().unwrap().seq;
+        writer.save(&parent).unwrap();
+        let mut child = meta("child");
+        child.parent_id = Some("parent".into());
+        child.last_turn = Some(json!({"status": "completed", "turnId": "t", "promptId": "p"}));
+        writer.save(&child).unwrap();
+        writer.flush().unwrap();
+    }
+    let hub = hub_over(&sessions);
+    let child = hub.resolve("child").unwrap();
+    // Done: nothing is due, and no later turn end of the chat looks again.
+    assert!(hub.offer_result(&child, "parent").await, "a side chat's turn end looks again");
+    let _ = std::fs::remove_dir_all(&root);
+}

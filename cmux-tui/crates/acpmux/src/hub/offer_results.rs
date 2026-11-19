@@ -62,7 +62,11 @@ impl Hub {
     }
 
     /// Sends the result; false when it was neither sent nor due (another turn retries).
-    async fn offer_result(self: &Arc<Self>, child: &Arc<Session>, parent_id: &str) -> bool {
+    pub(super) async fn offer_result(
+        self: &Arc<Self>,
+        child: &Arc<Session>,
+        parent_id: &str,
+    ) -> bool {
         let Ok(parent) = self.resolve(parent_id) else { return false };
         let Some(started) = self.started_by_offer(&parent, &child.id) else { return false };
         if started.sent {
