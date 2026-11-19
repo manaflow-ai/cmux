@@ -647,17 +647,41 @@ class GalleryRenderPlanTests(unittest.TestCase):
         out, missing = self.tool.resolve(rows, cases, lambda rev, path: files.get((rev, path)), {})
         self.assertEqual((out[0]["state"], out[0]["parent"], missing), ("a.b/x", "p", []))
 
-    def test_a_before_whose_state_its_commit_added_is_named_not_rendered_at_the_parent(self):
-        # agent-file-result-cards added its gallery file: at the parent there was nothing to render (2026-11-09).
+    def test_a_before_whose_state_its_commit_added_grafts_its_gallery_file_onto_the_parent(self):
+        # new-tab-run-command (2026-11-17) added typed-command to an existing file and shipped with no before;
+        # agent-file-result-cards (2026-11-09) added the whole file. Either way the variant is not there at the parent.
         cases = [self.case("a.b", "x"), self.case("a.b", "y")]
-        rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p" * 40}]
+        rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p" * 40, "commit": "c"}]
         for at_parent in (None, "y: {}\n"):
             with self.subTest(at_parent=at_parent):
                 out, missing = self.tool.resolve(rows, cases, lambda rev, path: at_parent, {})
-                self.assertEqual(out, [])
-                self.assertEqual(len(missing), 1)
-                self.assertIn("h before: a.b/x is new in its commit, not in src/a.gallery.tsx at pppppppppppp", missing[0])
-                self.assertIn('"Before:"', missing[0])
+                self.assertEqual(missing, [])
+                self.assertEqual([(r["state"], r["parent"], r["graft"]) for r in out],
+                                 [("a.b/x", "p" * 40, "webviews/src/a.gallery.tsx")])
+        # Present at the parent: rendered there as it is, nothing grafted.
+        out, _ = self.tool.resolve(rows, cases, lambda rev, path: "x: {}\n", {})
+        self.assertNotIn("graft", out[0])
+        # A plan written before rows carried their commit has nothing to graft from: named, as before.
+        out, missing = self.tool.resolve([{k: v for k, v in rows[0].items() if k != "commit"}], cases,
+                                         lambda rev, path: None, {})
+        self.assertEqual(out, [])
+        self.assertIn("h before: a.b/x is new in its commit, not in src/a.gallery.tsx at pppppppppppp", missing[0])
+        self.assertIn('"Before:"', missing[0])
+
+    def test_grafts_lists_each_gallery_file_to_write_at_a_parent_once(self):
+        import contextlib, io, json
+        from pathlib import Path
+        rows = [{"id": "a", "role": "before", "parent": "p", "commit": "c", "graft": "webviews/src/a.gallery.tsx"},
+                {"id": "b", "role": "before", "parent": "p", "commit": "c", "graft": "webviews/src/a.gallery.tsx"},
+                {"id": "c", "role": "before", "parent": "p", "commit": "d"},
+                {"id": "d", "role": "before", "parent": "q", "commit": "e", "graft": "webviews/src/b.gallery.tsx"}]
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "plan.json"
+            plan.write_text(json.dumps(rows))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.tool.main(["grafts", "--plan", str(plan), "--parent", "p"])
+        self.assertEqual(out.getvalue(), "c webviews/src/a.gallery.tsx\n")
 
     def test_parents_come_newest_highlight_first(self):
         import json
