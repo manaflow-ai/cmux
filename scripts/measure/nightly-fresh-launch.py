@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Where a published NEXT nightly's fresh-home launch spends its time (goal next-launch-instant, CMUX-571).
 
-    nightly-fresh-launch.py --dmg DMG --out DIR [--rounds N] [--seconds S]
+    nightly-fresh-launch.py --dmg DMG --out DIR [--rounds N] [--seconds S] [--arms relaunch]
 
 The nightly dogfood's launch number (app_launch_ms) is a first install's launch: a fresh copy of the app out of the
 DMG, an empty HOME (scripts/ci/fresh_home_launch_smoke.py). It mixes two kinds of first-time cost: the first exec
@@ -12,6 +12,7 @@ defaults set aside as it does, and its watch (Home rendered in a visible window)
   fresh-copy   a new copy of the app (ditto out of the DMG), a new HOME: the nightly dogfood's launch
   same-copy    the same copy again, another new HOME: the first-exec cost of the copy is gone, the home's is not
   warm         the same copy and the same-copy arm's HOME again: a person's next launch
+  relaunch     a three-window persisted session (120 workspaces by default), quit with Keep Sessions, then relaunch
 
 and prints, per launch, every launch mark the app streamed (ms since its process start) and the phases:
   pre_main   process start to main_start (exec, dyld, static initializers)
@@ -43,6 +44,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SMOKE_PATH = HERE.parent / "ci" / "fresh_home_launch_smoke.py"
+SEED_PATH = HERE / "launch-ready-seed.py"
 ARMS = ("fresh-copy", "same-copy", "warm")
 # --arms=extra: where a new copy's first-exec cost lives and whether a pre-warm of the copy keeps (each its own copy):
 #   prewarm-main    the copy runs once until main_start (exec and dyld only, then killed), then the fresh-home launch
@@ -84,6 +86,13 @@ SAMPLE_AT, SAMPLE_SECONDS = 2.2, 2
 
 def load_smoke():
     spec = importlib.util.spec_from_file_location("fresh_home_launch_smoke", SMOKE_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_seed():
+    spec = importlib.util.spec_from_file_location("launch_ready_seed", SEED_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -217,6 +226,68 @@ def launch(smoke, root: Path, app: Path, executable: str, home_root: Path, secon
     return {"exit": seen["exit"], "rendered_at": seen["rendered_at"], "host": seen["host"],
             "phases": phases(marks, seen["rendered_at"]), "marks": marks, "repeats": repeated_marks(marks_path),
             "sample_main": main_thread_summary(home_root / f"sample-{name}.txt", 200) if sample else None}
+
+
+def relaunch_round(smoke, seed_module, mount_app: Path, bundle_id: str, executable: str, seconds: float,
+                   index: int, report: dict, workspaces: int, windows: int) -> dict:
+    """Seed a persisted multi-window session, quit it, and measure its relaunch from the same home."""
+    root = Path(tempfile.mkdtemp(prefix="cmux-nfl-relaunch-", dir="/tmp"))
+    app = smoke.copy_app(mount_app, root)
+    home = root / "session"
+    home.mkdir()
+    marks_read, marks_write = os.pipe()
+    socket_path, marks_path = home / "seed.sock", home / "marks-seed"
+    process = None
+    watch_result: dict = {}
+    try:
+        env = smoke.fresh_env(home, socket_path, marks_write)
+        smoke.login_keychain(env)
+        with open(home / "app-seed.log", "wb") as app_log:
+            process = subprocess.Popen([str(app / "Contents" / "MacOS" / executable),
+                                        "-ApplePersistenceIgnoreState", "YES"],
+                                       env=env, cwd=env["HOME"], stdin=subprocess.DEVNULL,
+                                       stdout=app_log, stderr=subprocess.STDOUT, pass_fds=(marks_write,),
+                                       start_new_session=True)
+        os.close(marks_write)
+        watcher = threading.Thread(target=lambda: watch_result.update(
+            smoke.watch(process, marks_read, marks_path, socket_path, 120.0, 180.0)), daemon=True)
+        watcher.start()
+        seed = seed_module.Seed(str(socket_path), windows, workspaces, "home")
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline:
+            if seed.topology().get("loaded") and seed.topology().get("windows"):
+                break
+            if process.poll() is not None:
+                raise RuntimeError(f"seed app exited {process.returncode} before topology loaded")
+            time.sleep(0.25)
+        else:
+            raise RuntimeError("seed topology did not load in 120 s")
+        seed.build()
+        time.sleep(1)
+        reply = seed_module.rpc(str(socket_path), "action.run", {"action": "quitKeepSessions", "origin": "script"}, timeout=20)
+        if isinstance(reply, dict) and reply.get("error"):
+            raise RuntimeError(f"seed quitKeepSessions: {str(reply['error'])[:200]}")
+        watcher.join(timeout=45)
+        if process.poll() is None:
+            smoke.stop_child(process)
+        if watcher.is_alive():
+            raise RuntimeError("seed app did not exit after quitKeepSessions")
+        row = launch(smoke, root, app, executable, home, seconds, "relaunch", sample=True)
+        row["arm"], row["seed"] = "relaunch", seed.row
+        return row
+    finally:
+        try:
+            os.close(marks_read)
+        except OSError:
+            pass
+        try:
+            os.close(marks_write)
+        except OSError:
+            pass
+        if process is not None and process.poll() is None:
+            smoke.stop_child(process)
+        smoke.stop(smoke.own_pids(root))
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def prewarm_until_main(smoke, root: Path, app: Path, executable: str, home_root: Path) -> dict:
@@ -431,10 +502,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--rounds", type=int, default=2, choices=range(1, 6))
     parser.add_argument("--seconds", type=float, default=8.0)
-    parser.add_argument("--arms", choices=("base", "extra", "prewarm", "adhoc"), default="base",
+    parser.add_argument("--workspaces", type=int, default=120, choices=range(1, 201))
+    parser.add_argument("--windows", type=int, default=3, choices=range(1, 4))
+    parser.add_argument("--arms", choices=("base", "extra", "prewarm", "adhoc", "relaunch"), default="base",
                         help="extra: also the EXTRA_ARMS and the unified log around each fresh-copy launch; prewarm: also the PREWARM_ARMS")
     args = parser.parse_args(argv)
     more = {"extra": EXTRA_ARMS, "prewarm": PREWARM_ARMS, "adhoc": ADHOC_ARMS}.get(args.arms, ())
+    seed_module = load_seed() if args.arms == "relaunch" else None
     os.umask(0o022)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -456,8 +530,12 @@ def main(argv: list[str] | None = None) -> int:
         bundle_id, executable = smoke.bundle_info(apps[0])
         report["bundle_id"] = bundle_id
         for index in range(1, args.rounds + 1):
-            rows = round_once(smoke, apps[0], bundle_id, executable, args.seconds, index, report, more=more,
-                              log_first_exec=args.arms == "extra")
+            if args.arms == "relaunch":
+                rows = [relaunch_round(smoke, seed_module, apps[0], bundle_id, executable, args.seconds, index,
+                                       report, args.workspaces, args.windows)]
+            else:
+                rows = round_once(smoke, apps[0], bundle_id, executable, args.seconds, index, report, more=more,
+                                  log_first_exec=args.arms == "extra")
             report["launches"].extend(rows)
             # A diagnostic arm that cannot launch (ADHOC_ARMS) is reported in its own NFL-LAUNCH line, not as the step's failure.
             if any(row["rendered_at"] is None for row in rows if row["arm"] not in ADHOC_ARMS):
@@ -469,7 +547,8 @@ def main(argv: list[str] | None = None) -> int:
         smoke.detach(mount)
         shutil.rmtree(mount, ignore_errors=True)
     medians = {}
-    for arm in ARMS + more:
+    report_arms = ("relaunch",) if args.arms == "relaunch" else ARMS + more
+    for arm in report_arms:
         rows = [r for r in report["launches"] if r["arm"] == arm and r["rendered_at"] is not None]
         med = {}
         for key in ("pre_main", "to_frame", "to_page", "frame", "page", "harness"):

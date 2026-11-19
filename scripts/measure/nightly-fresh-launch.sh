@@ -2,6 +2,7 @@
 # Where a published cmux NEXT nightly's fresh-home launch spends its time (goal next-launch-instant, CMUX-571),
 # on a fleet Mac with a console session: per round, a fresh copy with a fresh home (the nightly dogfood's
 # launch), the same copy with another fresh home, and that home warm (scripts/measure/nightly-fresh-launch.py).
+# arms=relaunch seeds a persisted multi-window session, quits with Keep Sessions, then measures its relaunch.
 #   cmux-ci run --class exclusive --measurement --label measure --display \
 #     --script scripts/measure/nightly-fresh-launch.sh --ref <sha> [--arg=dmg=nightly|URL|build] [--arg=rounds=2] \
 #     [--arg=base=<sha>] --artifact .build/nightly-fresh-launch/report.tgz --timeout 1800
@@ -16,6 +17,9 @@
 #   arms=extra   also the pre-warm arms and the unified log around each fresh launch (nightly-fresh-launch.py --arms)
 #   arms=prewarm also only the pre-warm arms (PREWARM_ARMS)
 #   arms=adhoc   also a new copy re-signed ad hoc (ADHOC_ARMS): does a dmg=build app's first launch cost what the DMG's does
+#   arms=relaunch seeds and relaunches a session (workspaces=120, windows=3 by default)
+#   workspaces=N with arms=relaunch: number of seeded workspaces (1 to 200)
+#   windows=N with arms=relaunch: number of seeded windows (1 to 3)
 # Prints NFL-FACT, NFL-LAUNCH, NFL-MARKS and NFL-MEDIAN lines; keeps report.json in report.tgz.
 set -uo pipefail
 
@@ -24,18 +28,22 @@ main() {
   cd "$(dirname "$0")/../.." || exit 3
   local out="$PWD/.build/nightly-fresh-launch"
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-  local dmg=nightly rounds=2 arms=base base="" config=release arg
+  local dmg=nightly rounds=2 arms=base base="" config=release workspaces=120 windows=3 arg
   for arg in "$@"; do
     case "$arg" in
       dmg=nightly|dmg=build|dmg=https://*) dmg="${arg#dmg=}" ;;
       rounds=*) rounds="${arg#rounds=}" ;;
-      arms=base|arms=extra|arms=prewarm|arms=adhoc) arms="${arg#arms=}" ;;
+      arms=base|arms=extra|arms=prewarm|arms=adhoc|arms=relaunch) arms="${arg#arms=}" ;;
+      workspaces=*) workspaces="${arg#workspaces=}" ;;
+      windows=*) windows="${arg#windows=}" ;;
       base=*) base="${arg#base=}" ;;
       config=bench|config=release) config="${arg#config=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$rounds" =~ ^[1-5]$ ]] || { echo "rounds= must be 1 to 5" >&2; exit 2; }
+  [[ "$workspaces" =~ ^[1-9][0-9]*$ && "$workspaces" -le 200 ]] || { echo "workspaces= takes 1 to 200" >&2; exit 2; }
+  [[ "$windows" =~ ^[1-3]$ ]] || { echo "windows= takes 1 to 3" >&2; exit 2; }
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   echo "NFL host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   if [[ "$dmg" == build ]]; then
@@ -44,7 +52,7 @@ main() {
     cp scripts/cmux-next/resolve-acpmux.sh "$out/resolve-acpmux.sh" && export NFL_RESOLVE_ACPMUX="$out/resolve-acpmux.sh"
     cp scripts/cmux-next/bundle-screen-sharing-helper.sh "$out/bundle-screen-sharing-helper.sh" \
       && export NFL_SCREEN_HELPER_PHASE="$out/bundle-screen-sharing-helper.sh"
-    build_ab "$out" "$rounds" "$arms" "$base" "$config"
+    build_ab "$out" "$rounds" "$arms" "$base" "$config" "$workspaces" "$windows"
     return $?
   fi
   if [[ "$dmg" == nightly ]]; then
@@ -57,7 +65,7 @@ main() {
   source scripts/ci/lib/signing-runtime-guard.sh
   cmux_signing_runtime_guard || exit 3
   GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$PWD/scripts/measure/nightly-fresh-launch.py" \
-    --dmg "$out/in.dmg" --out "$out/run" --rounds "$rounds" --arms "$arms" 2>&1 | tee "$out/run.log"
+    --dmg "$out/in.dmg" --out "$out/run" --rounds "$rounds" --arms "$arms" --workspaces "$workspaces" --windows "$windows" 2>&1 | tee "$out/run.log"
   local rc=${PIPESTATUS[0]}
   rm -f "$out/in.dmg"
   tar -czf "$out.tgz" -C "$out" . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
@@ -120,7 +128,7 @@ build_dmg() {
 }
 
 build_ab() {
-  local out="$1" rounds="$2" arms="$3" base="$4" config="$5" head rc=0 i side
+  local out="$1" rounds="$2" arms="$3" base="$4" config="$5" workspaces="$6" windows="$7" head rc=0 i side
   head="$(git rev-parse HEAD)"
   # The launches below run after the checkout is back at HEAD: base's tree only builds.
   if [[ -n "$base" ]]; then
@@ -144,7 +152,7 @@ build_ab() {
     for side in "${sides[@]}"; do
       echo "NFL-AB-ROUND $i $side"
       GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$PWD/scripts/measure/nightly-fresh-launch.py" \
-        --dmg "$out/$side.dmg" --out "$out/run-$side-$i" --rounds 1 --arms "$arms" 2>&1 | tee -a "$out/run.log" | sed "s/^/[$side] /"
+        --dmg "$out/$side.dmg" --out "$out/run-$side-$i" --rounds 1 --arms "$arms" --workspaces "$workspaces" --windows "$windows" 2>&1 | tee -a "$out/run.log" | sed "s/^/[$side] /"
       [[ ${PIPESTATUS[0]} == 0 ]] || rc=1
     done
   done
