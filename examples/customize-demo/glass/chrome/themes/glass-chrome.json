@@ -1,6 +1,6 @@
 // Glass: chrome. Liquid Glass where the controls are (the sidebar, its cards and group headers, the
 // tab strip and the address bar) and solid panes for everything you read: the platform's rule that
-// glass is the layer floating over content, never the content (design-lab-glass, glass/chrome-only).
+// glass is the layer floating over content, never the content.
 // Monet's water lilies sit behind it, so the glass has color to bend.
 {
   "name": "Glass: chrome",

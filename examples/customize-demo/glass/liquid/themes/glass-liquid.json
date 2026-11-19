@@ -1,7 +1,7 @@
 // Glass: liquid. The most see-through glass cmux draws: Liquid Glass in its clear style over
 // Hokusai's wave, so the painting (and a little of the desktop) bends through the sidebar, the tab
 // bar and the panes. Readability comes from a dark dim under each surface, at the levels the glass
-// lab measured (design-lab-glass, glass/clear-over-art): 55% under chrome reads 5.2:1 over a bright
+// lab measured: 55% under chrome reads 5.2:1 over a bright
 // painting, where the 35% dim usually paired with clear glass reads 2.8:1.
 {
   "name": "Glass: liquid",

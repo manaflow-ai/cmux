@@ -1,3 +1,6 @@
+// Tiling, redone: the showcase's numbered rows and status bar, the bar now a glass strip with
+// the workspace name, tinted segments and a rolling clock, under a riced glass theme.
+//
 // Tiling: the window settings in this profile turn cmux into a scrolling tiling window manager
 // (a column per terminal and browser, sideways scrolling, focus follows the mouse). This script
 // adds the two things a tiling desktop has that cmux does not: numbered tags and a status bar.
@@ -55,20 +58,32 @@ const clock = computed(() => {
   return `${two(d.getHours())}:${two(d.getMinutes())}`
 })
 
-function segment(symbol, text) {
-  return HStack({ spacing: 3 }, [Icon(symbol).color("secondary"), Text(text).font("caption").monospaced()])
+// A status bar like a tiling desktop's: the workspace as the lead line in the accent with the
+// clock, then tinted segments (an icon in its tone, the count rolling when it changes).
+function segment(symbol, text, tone) {
+  return HStack({ spacing: 4 }, [
+    Icon(symbol).font("caption").color(tone).symbolRendering("hierarchical"),
+    Text(text).font("caption").weight("semibold").monospaced().contentTransition("numericText")
+  ])
 }
 
 function renderBar() {
   load()
   for (const stream of ["workspace.changed", "pane.changed", "tab.changed", "agent_chat.changed"]) cmux.events.on(stream, load)
   cmux.timer.every(30000, () => setNow(Date.now()))
-  return HStack({ spacing: 10 }, [
-    segment("square.grid.2x2", () => `${focused().panes}`),
-    segment("rectangle.stack", () => `${focused().tabs}`),
-    segment("sparkles", () => `${agents()}`),
-    Spacer(),
-    Text(clock).font("caption").weight("semibold").monospaced()
+  return Panel({ style: "glass", spacing: 6 }, [
+    HStack({ spacing: 6 }, [
+      Icon("square.split.2x1.fill").font("caption").color(cmux.theme.accent),
+      Text(() => focused().name || "Workspace").font("caption").weight("bold").lineLimit(1).truncation("tail"),
+      Spacer(),
+      Text(clock).font("caption").weight("semibold").monospaced().color(cmux.theme.accent).contentTransition("numericText")
+    ]),
+    HStack({ spacing: 12 }, [
+      segment("square.grid.2x2.fill", () => `${focused().panes}`, cmux.theme.accent),
+      segment("rectangle.stack.fill", () => `${focused().tabs}`, cmux.theme.success),
+      segment("sparkles", () => `${agents()}`, () => (agents() ? cmux.theme.warning : cmux.theme.text.tertiary)),
+      Spacer()
+    ])
   ]).help(() => `${focused().name}: ${focused().panes} panes, ${focused().tabs} tabs; ${agents()} agents working`)
 }
 

@@ -15,12 +15,12 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cli="${CMUX:-cmux}"
 
-# The order of the demo: the app looks first (Claude Code, Codex, T3 Code), then the last demo's
+# The order of the demo: the app looks first (Claude Code, Codex, studio), then the last demo's
 # setups redone, glass, widgets. `steps` drops repeats, so a glob after a named file adds only the rest.
 order=(
   looks/claude.json
   looks/codex.json
-  looks/t3code.json
+  looks/studio.json
   looks/*.json
   last-demo/*.json
   glass/*.json

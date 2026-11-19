@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bundle each app look folder (claude, codex, t3code) into one profile file `cmux customize use` takes.
+"""Bundle each app look folder (claude, codex, studio) into one profile file `cmux customize use` takes.
 
 The same bundler as examples/customize-showcase/bundle.py (imported, not copied), run on this
 folder: <name>/profile.json plus the files under ~/.config/cmux become <name>.json.

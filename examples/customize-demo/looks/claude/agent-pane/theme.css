@@ -1,6 +1,6 @@
 /* The Claude app's chat: your prompt in a warm dark pill, inline code in a warm chip, clay links,
    soft warm cards with a faint ring, and a dark rounded composer.
-   From the claude-code-app recipe (manaflow-ai/cmux#45804) and the RFD 0008 claude look.
+   From the claude-code-app recipe (manaflow-ai/cmux#45804) and a warm reading look.
    Colors and radii only: sizes stay with the settings, so rows keep their measured heights. */
 :root {
   --cv-bubble: #2d2c29;
