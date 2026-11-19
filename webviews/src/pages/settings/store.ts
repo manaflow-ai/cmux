@@ -64,7 +64,11 @@ import {
   type HarnessesState,
   type HostLists,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
+  type McpServersRun,
+  type McpServersState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
@@ -763,10 +767,29 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
+  /** Settings > Agents > Agents on This Mac: one gesture (a refresh reads), and the card as it is
+   * after it; null when the host has none. */
+  async runAgentTools(run: AgentToolsCardRun): Promise<AgentToolsCardState | null> {
+    const reply = await this.request("cmux.settings.agentTools.run", run);
+    return reply.ok ? reply.value : null;
+  }
+
   /** One Agent integrations gesture, then the part as it is after it (null: the host has none). */
   async runIntegrations(run: IntegrationsRun): Promise<IntegrationsState | null> {
     await this.request("cmux.settings.integrations.run", run);
     return this.integrationsState();
+  }
+
+  /** Settings > MCP Servers; null when the host has none. */
+  async mcpServersState(): Promise<McpServersState | null> {
+    const reply = await this.request("cmux.settings.mcp.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One MCP Servers gesture, then the page as it is after it (null: the host has none). */
+  async runMcpServers(run: McpServersRun): Promise<McpServersState | null> {
+    await this.request("cmux.settings.mcp.run", run);
+    return this.mcpServersState();
   }
 
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */

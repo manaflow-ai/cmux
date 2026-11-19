@@ -2193,6 +2193,13 @@ def main():
                 import time as clock  # main() binds `time` locally
                 while not os.path.exists(hold):
                     clock.sleep(0.02)
+        elif m == "_session/goal":
+            # codex-acp's goal control. FAKE_GOAL_LOG=<path>: append its params as one JSON line.
+            # Unanswered, as codex-acp answers a `set` only once the goal's turns are over.
+            path = os.environ.get("FAKE_GOAL_LOG")
+            if path:
+                with open(path, "a") as f:
+                    f.write(json.dumps(params) + "\n")
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))
         elif m == "_acpmux/steer_withdraw" and os.environ.get("FAKE_CLAUDE_STEER") == "1":
