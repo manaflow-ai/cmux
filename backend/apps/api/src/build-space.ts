@@ -57,9 +57,10 @@ export const PER_BUILD_BINDINGS = [
 /**
  * Durable Object bindings shared by every build of the same person: team membership, SSO and plan (TEAM_DO, whose
  * host directory is still per build: each host records its space and a build lists only its own), email domains,
- * billing and spend (USAGE_METER_DO, SPEND_GUARD_DO, FREE_DEVICE_DO) and cloud machines (TEAM_VM_DO, CLOUD_DO).
+ * billing and spend (USAGE_METER_DO, SPEND_GUARD_DO, FREE_DEVICE_DO), cloud machines (TEAM_VM_DO, CLOUD_DO) and the one
+ * live model catalog every build reads (MODEL_CATALOG_DO, which keeps nothing per user).
  */
-export const ACCOUNT_WIDE_BINDINGS = ["TEAM_DO", "DOMAIN_DO", "USAGE_METER_DO", "SPEND_GUARD_DO", "FREE_DEVICE_DO", "TEAM_VM_DO", "CLOUD_DO"] as const
+export const ACCOUNT_WIDE_BINDINGS = ["TEAM_DO", "DOMAIN_DO", "USAGE_METER_DO", "SPEND_GUARD_DO", "FREE_DEVICE_DO", "TEAM_VM_DO", "CLOUD_DO", "MODEL_CATALOG_DO"] as const
 
 export type PerBuildBinding = (typeof PER_BUILD_BINDINGS)[number]
 
