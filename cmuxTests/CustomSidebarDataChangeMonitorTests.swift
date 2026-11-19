@@ -44,7 +44,7 @@ import Testing
         let monitor = manager.customSidebarDataChangeMonitor
         monitor.retain()
         defer { monitor.release() }
-        let added = manager.addWorkspace(select: false)
+        let added = try #require(manager.addWorkspaceIfActive(select: false))
         #expect(await waitForRevision(after: 0, of: monitor))
 
         let before = monitor.revision
@@ -100,7 +100,8 @@ import Testing
 
         // Emptying the collections alone wouldn't stop the tasks; each one
         // must have been cancelled, and must then finish.
-        #expect(tasks.allSatisfy(\.isCancelled))
+        let allCancelled = tasks.allSatisfy { $0.isCancelled }
+        #expect(allCancelled)
         for task in tasks {
             await task.value
         }
