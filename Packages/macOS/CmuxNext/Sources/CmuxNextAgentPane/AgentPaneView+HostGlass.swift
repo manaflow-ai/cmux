@@ -58,7 +58,7 @@ extension AgentPaneView {
     }
 
     private func makeHostGlassView(_ surface: AgentPaneHostGlassSurface, in container: NSView) -> OverlaySurfaceView {
-        let view = Glass.makeSurface(Self.hostGlassRole(surface.level), interactive: false)
+        let view = Glass.makeSurface(surface.role ?? Self.hostGlassRole(surface.level), interactive: false)
         view.tintLevel = Glass.hostTintLevel(surface.level)
         view.translatesAutoresizingMaskIntoConstraints = true
         container.addSubview(view)

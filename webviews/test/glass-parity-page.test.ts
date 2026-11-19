@@ -25,6 +25,8 @@ test("a cell is the web UI's surface for its kind, at its box, marked for host g
     const host = paritySurface(doc, cell, "host");
     for (const name of PARITY_CLASS[cell.kind].split(" ")) expect(host.classList.contains(name)).toBe(true);
     expect(host.getAttribute("data-host-glass")).toBe(PARITY_LEVEL[cell.kind]);
+    // A dialog asks for the native dialog card's glass by role; no other surface names one.
+    expect(host.getAttribute("data-host-glass-role")).toBe(cell.kind === "dialog" ? "sheet" : null);
     expect(host.style.left).toBe(`${cell.left}px`);
     expect(host.style.top).toBe(`${cell.top}px`);
     expect(host.style.width).toBe(`${cell.width}px`);
