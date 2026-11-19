@@ -22,9 +22,9 @@ import Testing
     }
 
     /// An action the catalog marks destructive (it then needs `confirm`).
-    static func destructive(_ id: String, _ targets: [String], requires: [String] = []) -> ControlActionInfo {
+    static func destructive(_ id: String, _ targets: [String], requires: [String] = [], naming: ControlArgumentInfo? = nil) -> ControlActionInfo {
         var info = action(id, targets)
-        info.arguments = [ControlArgumentInfo(name: "confirm", title: "confirm", kind: .bool, isRequired: false)]
+        info.arguments = [ControlArgumentInfo(name: "confirm", title: "confirm", kind: .bool, isRequired: false)] + (naming.map { [$0] } ?? [])
         info.isDestructive = true
         info.requires = requires
         info.requiresMask = requires.isEmpty ? 0 : 1 << 1
@@ -40,7 +40,10 @@ import Testing
             action("renameWorkspace", ["workspace"]), action("closeTab", ["tab"]), action("commandPalette", []),
             action("newTab", ["workspace"]), action("newTab.default", ["tab"], arguments: ["cwd"]),
             action("screen.rename", ["screen"]), destructive("screen.closeOthers", ["screen"]), destructive("tabGroup.close", ["tab-group"]),
-            destructive("browser.pageInfo.deleteSiteData", ["pane"], requires: ["browserFocused"]), destructive("workspace.closeAll", []),
+            destructive("browser.pageInfo.deleteSiteData", ["pane"], requires: ["browserFocused"]),
+            destructive("workspace.closeAll", [], naming: ControlArgumentInfo(name: "window", title: "Window", kind: .target, isRequired: false, targetKind: "window")),
+            action("closeWindow", []), action("cloud.team.archive", ["workspace", "tab"], arguments: ["session"]),
+            action("bookmark.remove", ["bookmark"], arguments: ["bookmark"]),
         ], contextMask: 1 << 1, aliases: [:], targetKinds: ["tab", "tab-group", "pane", "column", "screen", "workspace", "workspace-group", "window"],
                        debugActionsAvailable: true)
     }
@@ -221,10 +224,16 @@ import Testing
         ])).get()
         #expect(terminalExecutor.all.first?.besideCaller == true)
 
-        let identity = try await router.handle(ControlRequest(id: "3", method: "system.identify", params: [
-            "caller": Self.agent, "origin": "mcp",
-        ])).get()
-        #expect(identity["beside"] == ["pane": .null, "placement": "new_column"], "\(String(describing: identity["beside"]))")
+        // `origin: "mcp"` on the reads too: `beside` is never `own_pane` for the MCP server's caller.
+        for method in ["system.identify", "snapshot.get"] {
+            let reply = try await router.handle(ControlRequest(id: "3", method: method, params: ["caller": Self.agent, "origin": "mcp"])).get()
+            #expect(reply["beside"] == ["pane": .null, "placement": "new_column"], "\(method): \(String(describing: reply["beside"]))")
+        }
+        let helper = Self.snapshot(own: shell, right: [Self.pane("pane-web", [Self.browser("tab-web")])])
+        let (beside, _) = install(helper)
+        let withColumn = try await beside.handle(ControlRequest(id: "4", method: "system.identify", params: ["caller": Self.agent, "origin": "mcp"])).get()
+        #expect(withColumn["beside"]?["placement"] == "existing_column")
+        #expect(try await beside.handle(ControlRequest(id: "5", method: "system.identify", params: ["caller": Self.agent])).get()["beside"]?["placement"] == "own_pane")
     }
 
     @Test func anAgentsNewTerminalOpensBesideItInItsOwnFolder() async throws {
@@ -330,7 +339,8 @@ import Testing
         let (router, executor) = install(Self.snapshot())
         let refused = await router.handle(ControlRequest(id: "1", method: "action.run", params: ["action": "closeTab", "caller": Self.agent]))
         #expect(refused.failure?.code == "target_required")
-        #expect(refused.failure?.data?["tab"] == "tab-agent")
+        #expect(refused.failure?.message.contains("target tab:") == true, "it says what to pass: \(String(describing: refused.failure?.message))")
+        #expect(refused.failure?.message.contains("tab-agent") != true, "and never offers the agent its own tab")
         #expect(executor.all.isEmpty, "an agent's close with no target closed something")
 
         let shell = try await run("closeTab", Self.snapshot(own: Self.terminal("tab-agent", "term-agent", agent: nil)))
@@ -348,20 +358,60 @@ import Testing
             "action": .string(action), "args": ["confirm": true], "caller": Self.agent,
         ]))
         #expect(refused.failure?.code == "target_required", "\(action): \(String(describing: refused))")
-        #expect(refused.failure?.data?["tab"] == "tab-agent")
+        #expect(refused.failure?.message.contains("tab-agent") != true, "the refusal never offers the agent its own tab")
         #expect(executor.all.isEmpty, "\(action) ran")
-        // An agent session no tab shows gets the same refusal as a run it cannot be placed for.
+        // An agent session no tab shows is refused the same way.
         let unplaced = await router.handle(ControlRequest(id: "2", method: "action.run", params: [
             "action": .string(action), "args": ["confirm": true], "caller": ["agent_session": "gone"],
         ]))
-        #expect(unplaced.failure?.code == "caller_unavailable")
+        #expect(unplaced.failure?.code == "target_required")
         #expect(executor.all.isEmpty)
     }
 
-    /// A screen is a place a caller has of its own; a global action takes no target and is not refused.
-    @Test func aScreenRunUsesTheCallersOwnScreenAndAGlobalActionIsLeftAlone() async throws {
+    /// An action that names its object by its own argument is not refused, and is never aimed at the caller's own
+    /// tab or workspace: `cmux cloud archive-session --session S` archives S, and with no `--session` the refusal
+    /// says what to pass and does not offer the agent's own tab (that target archives the agent's own session).
+    @Test func aClosingRunNamedByItsOwnArgumentRunsOnThatObject() async throws {
+        let (router, executor) = install(Self.snapshot())
+        let refused = await router.handle(ControlRequest(id: "1", method: "action.run", params: ["action": "cloud.team.archive", "caller": Self.agent]))
+        #expect(refused.failure?.code == "target_required")
+        #expect(refused.failure?.message.contains("--session") == true, "\(String(describing: refused.failure?.message))")
+        #expect(refused.failure?.message.contains("tab-agent") != true)
+        #expect(refused.failure?.data?["arguments"] == ["session"])
+        #expect(executor.all.isEmpty)
+
+        let archived = try await run("cloud.team.archive", Self.snapshot(), args: ["session": "sess-9"])
+        #expect(archived.target == nil, "not also aimed at the agent's own workspace: \(String(describing: archived.target))")
+        #expect(archived.arguments["session"] == .string("sess-9"))
+        let removed = try await run("bookmark.remove", Self.snapshot(), args: ["bookmark": "Docs"])
+        #expect(removed.target == nil)
+        #expect(removed.arguments["bookmark"] == .string("Docs"))
+    }
+
+    /// Close All Workspaces and Close Window take no target: unnamed they act on the window the person has in
+    /// front. An agent must name the window, or cannot run the action at all; a person's shell is not refused.
+    @Test func anAgentNeverClosesThePersonsFrontWindow() async throws {
+        let (router, executor) = install(Self.snapshot())
+        let refused = await router.handle(ControlRequest(id: "1", method: "action.run", params: [
+            "action": "workspace.closeAll", "args": ["confirm": true], "caller": Self.agent,
+        ]))
+        #expect(refused.failure?.code == "target_required")
+        #expect(refused.failure?.message.contains("--window") == true, "\(String(describing: refused.failure?.message))")
+        let unnameable = await router.handle(ControlRequest(id: "2", method: "action.run", params: ["action": "closeWindow", "caller": Self.agent]))
+        #expect(unnameable.failure?.code == "person_required")
+        #expect(executor.all.isEmpty, "an agent closed the person's front window")
+
+        let named = try await run("workspace.closeAll", Self.snapshot(), args: ["confirm": true, "window": "window:win-1"])
+        #expect(named.target == nil)
+        #expect(named.arguments["window"] == .target(ControlTargetRef(kind: "window", id: "win-1")))
+        let shell = Self.snapshot(own: Self.terminal("tab-agent", "term-agent", agent: nil))
+        #expect(try await run("workspace.closeAll", shell, args: ["confirm": true]).actionID == "workspace.closeAll")
+        #expect(try await run("closeWindow", shell).target == nil)
+    }
+
+    /// A screen is a place a caller has of its own.
+    @Test func aScreenRunUsesTheCallersOwnScreen() async throws {
         #expect(try await run("screen.rename", Self.snapshot()).target == ControlTargetRef(kind: "screen", id: "screen-agent"))
-        #expect(try await run("workspace.closeAll", Self.snapshot(), args: ["confirm": true]).target == nil)
     }
 
     @Test func anAgentTheTopologyDoesNotShowIsRefusedAndAnUnknownTerminalIsLeftAlone() async throws {

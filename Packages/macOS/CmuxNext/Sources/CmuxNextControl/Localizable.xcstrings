@@ -16140,133 +16140,264 @@
         }
       }
     },
-    "control.error.callerTargetRequired": {
+    "control.error.agentMustNameObject": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ closes or removes what it runs on, so an agent must name the target; your own tab is %2$@"
+            "value": "%1$@ closes or removes what it runs on, so an agent must name it; pass one of: %2$@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يغلق %1$@ أو يزيل ما يعمل عليه، لذا يجب على الوكيل تحديد الهدف؛ علامة تبويبك هي %2$@"
+            "value": "يغلق %1$@ أو يزيل ما يعمل عليه، لذا يجب على الوكيل تسميته؛ مرّر أحد ما يلي: %2$@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ zatvara ili uklanja ono na čemu se izvršava, pa agent mora navesti cilj; vaša kartica je %2$@"
+            "value": "%1$@ zatvara ili uklanja ono na čemu se izvršava, pa ga agent mora imenovati; proslijedite jedno od: %2$@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ lukker eller fjerner det, den køres på, så en agent skal angive målet; din egen fane er %2$@"
+            "value": "%1$@ lukker eller fjerner det, den køres på, så en agent skal navngive det; angiv en af: %2$@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ schließt oder entfernt, worauf es läuft, daher muss ein Agent das Ziel nennen; dein eigener Tab ist %2$@"
+            "value": "%1$@ schließt oder entfernt, worauf es läuft, daher muss ein Agent es benennen; übergib eines von: %2$@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ cierra o quita aquello sobre lo que se ejecuta, así que un agente debe indicar el destino; tu propia pestaña es %2$@"
+            "value": "%1$@ cierra o quita aquello sobre lo que se ejecuta, así que un agente debe nombrarlo; pasa uno de: %2$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ ferme ou supprime ce sur quoi il s’exécute, un agent doit donc nommer la cible ; votre propre onglet est %2$@"
+            "value": "%1$@ ferme ou supprime ce sur quoi il s’exécute, un agent doit donc le nommer ; passez l’un de : %2$@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ chiude o rimuove ciò su cui viene eseguito, quindi un agente deve indicare la destinazione; la tua scheda è %2$@"
+            "value": "%1$@ chiude o rimuove ciò su cui viene eseguito, quindi un agente deve indicarlo; passa uno tra: %2$@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ は実行対象を閉じるか削除するため、エージェントはターゲットを指定する必要があります。あなた自身のタブは %2$@ です"
+            "value": "%1$@ は実行対象を閉じるか削除するため、エージェントは対象を指定する必要があります。次のいずれかを渡してください: %2$@"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ បិទ ឬដកអ្វីដែលវាដំណើរការលើ ដូច្នេះភ្នាក់ងារត្រូវបញ្ជាក់គោលដៅ; ផ្ទាំងរបស់អ្នកផ្ទាល់គឺ %2$@"
+            "value": "%1$@ បិទ ឬដកអ្វីដែលវាដំណើរការលើ ដូច្នេះភ្នាក់ងារត្រូវបញ្ជាក់វា; សូមផ្តល់មួយក្នុងចំណោម៖ %2$@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@은(는) 실행 대상을 닫거나 제거하므로 에이전트는 대상을 지정해야 합니다. 자신의 탭은 %2$@입니다"
+            "value": "%1$@은(는) 실행 대상을 닫거나 제거하므로 에이전트는 대상을 지정해야 합니다. 다음 중 하나를 전달하세요: %2$@"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ lukker eller fjerner det den kjøres på, så en agent må oppgi målet; din egen fane er %2$@"
+            "value": "%1$@ lukker eller fjerner det den kjøres på, så en agent må navngi det; oppgi en av: %2$@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ zamyka lub usuwa to, na czym działa, więc agent musi wskazać cel; Twoja własna karta to %2$@"
+            "value": "%1$@ zamyka lub usuwa to, na czym działa, więc agent musi to wskazać; podaj jedno z: %2$@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ fecha ou remove aquilo em que é executado, então um agente deve indicar o destino; sua própria aba é %2$@"
+            "value": "%1$@ fecha ou remove aquilo em que é executado, então um agente deve nomeá-lo; passe um destes: %2$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ закрывает или удаляет то, на чём выполняется, поэтому агент должен указать цель; ваша собственная вкладка — %2$@"
+            "value": "%1$@ закрывает или удаляет то, на чём выполняется, поэтому агент должен это указать; передайте одно из: %2$@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ ปิดหรือลบสิ่งที่มันทำงานอยู่ ดังนั้นเอเจนต์ต้องระบุเป้าหมาย แท็บของคุณเองคือ %2$@"
+            "value": "%1$@ ปิดหรือลบสิ่งที่มันทำงานอยู่ ดังนั้นเอเจนต์ต้องระบุสิ่งนั้น โปรดส่งอย่างใดอย่างหนึ่ง: %2$@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ üzerinde çalıştığı şeyi kapatır veya kaldırır, bu yüzden bir ajan hedefi belirtmelidir; kendi sekmeniz %2$@"
+            "value": "%1$@ üzerinde çalıştığı şeyi kapatır veya kaldırır, bu yüzden bir ajan onu belirtmelidir; şunlardan birini verin: %2$@"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ закриває або вилучає те, на чому виконується, тому агент має вказати ціль; ваша власна вкладка — %2$@"
+            "value": "%1$@ закриває або вилучає те, на чому виконується, тому агент має це вказати; передайте одне з: %2$@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ đóng hoặc gỡ thứ nó chạy trên đó, nên tác nhân phải nêu đích; thẻ của chính bạn là %2$@"
+            "value": "%1$@ đóng hoặc gỡ thứ nó chạy trên đó, nên tác nhân phải nêu tên thứ đó; hãy truyền một trong: %2$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ 会关闭或移除它所作用的对象，因此代理必须指定目标；你自己的标签页是 %2$@"
+            "value": "%1$@ 会关闭或移除它所作用的对象，因此代理必须指定该对象；请传入以下之一：%2$@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ 會關閉或移除它所作用的對象，因此代理必須指定目標；你自己的分頁是 %2$@"
+            "value": "%1$@ 會關閉或移除它所作用的對象，因此代理必須指定該對象；請傳入以下其中之一：%2$@"
+          }
+        }
+      }
+    },
+    "control.error.agentCannotNameWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ acts on the window the person has in front and takes no window to name, so an agent cannot run it"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل %@ على النافذة التي أمام المستخدم ولا يقبل تسمية نافذة، لذا لا يمكن للوكيل تشغيله"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ djeluje na prozor koji je osobi ispred i ne prima prozor koji bi se imenovao, pa ga agent ne može pokrenuti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ virker på det vindue, personen har forrest, og tager intet vindue at navngive, så en agent kan ikke køre den"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wirkt auf das Fenster, das die Person vorn hat, und nimmt kein Fenster zum Benennen an, daher kann ein Agent es nicht ausführen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ actúa sobre la ventana que la persona tiene al frente y no admite nombrar una ventana, así que un agente no puede ejecutarlo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ agit sur la fenêtre que la personne a au premier plan et n’accepte aucune fenêtre à nommer, un agent ne peut donc pas l’exécuter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ agisce sulla finestra che la persona ha in primo piano e non accetta una finestra da indicare, quindi un agente non può eseguirlo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はユーザーが前面に出しているウインドウに作用し、ウインドウを指定できないため、エージェントは実行できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ធ្វើសកម្មភាពលើបង្អួចដែលអ្នកប្រើមាននៅខាងមុខ ហើយមិនទទួលយកការបញ្ជាក់បង្អួចទេ ដូច្នេះភ្នាក់ងារមិនអាចដំណើរការវាបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 사용자가 앞에 둔 창에 작용하고 지정할 창을 받지 않으므로 에이전트가 실행할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ virker på vinduet personen har fremst og tar ikke noe vindu å navngi, så en agent kan ikke kjøre den"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ działa na oknie, które osoba ma na wierzchu, i nie przyjmuje okna do wskazania, więc agent nie może tego uruchomić"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ age na janela que a pessoa tem à frente e não aceita uma janela para nomear, então um agente não pode executá-lo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ действует на окно, которое у человека на переднем плане, и не принимает окно для указания, поэтому агент не может это выполнить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ทำงานกับหน้าต่างที่ผู้ใช้เปิดอยู่ด้านหน้าและไม่รับหน้าต่างที่จะระบุ ดังนั้นเอเจนต์จึงเรียกใช้ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kişinin önündeki pencerede işlem yapar ve belirtilecek bir pencere almaz, bu yüzden bir ajan onu çalıştıramaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ діє на вікно, яке в людини на передньому плані, і не приймає вікна для зазначення, тому агент не може це виконати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tác động lên cửa sổ mà người dùng đang để phía trước và không nhận cửa sổ nào để nêu tên, nên tác nhân không thể chạy nó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 作用于用户置于最前的窗口，且不接受指定窗口，因此代理无法运行它"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 作用於使用者置於最前的視窗，且不接受指定視窗，因此代理無法執行它"
           }
         }
       }

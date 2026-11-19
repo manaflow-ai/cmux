@@ -256,8 +256,8 @@ enum TabLifecycle {
             // Never a column that holds another agent's pane (`besideAgentHomes`, ControlCallerPlacement): then a new pane beside the caller.
             let taken = !invocation.besideAgentHomes.isEmpty && LinkOpener.rightColumn(beside: from).panes.contains { invocation.besideAgentHomes.contains($0) }
             if case .pane(let right) = target, right != id, !taken, let shown = from.workspace?.panes[right] { pane = shown.pane } else { pane = invoked }
-            if taken { invocation.newColumnBeside = true } else if case .splitRight = target { invocation.newColumnBeside = true } else if case .newColumn = target { invocation.newColumnBeside = true }
-            invocation.besideCaller = invocation.newColumnBeside
+            let splits = if case .splitRight = target { true } else if case .newColumn = target { true } else { taken }
+            invocation.placeTerminalBrowser(beside: splits, inOwnPane: pane === invoked) // in its own pane (`layout.linkPlacement: same-pane`): behind the terminal, never over it
         } else {
             pane = invoked
         }
