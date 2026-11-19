@@ -39,6 +39,10 @@ def cases(cmux, acpmux, repo):
         ("models", "model picker (every harness's models)", acp + ["--json", "daemon", "models"], None),
         ("harnesses", "model picker (harness catalog)", acp + ["--json", "daemon", "harnesses"], None),
         ("git_status", "git status (branch badge, changes panel)", [cmux, "git", "status", "--json"], repo),
+        ("git_files_list", "Files tree (top folder; a refresh lists it and each expanded folder)",
+         [cmux, "git", "list", "--json"], repo),
+        ("git_files_search", "file search / @ mention (one keystroke)", [cmux, "git", "files", "--json", "readme"], repo),
+        ("git_branches", "branch picker", [cmux, "git", "branches", "--json"], repo),
         ("settings", "settings snapshot", [cmux, "settings", "get", "--json"], None),
     ]
 
