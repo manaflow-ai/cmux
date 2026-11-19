@@ -158,6 +158,30 @@ struct Rebooted {
     front: (String, String),
 }
 
+/// A journal checkpoint, so the screens survive the reboot (a capture refuses
+/// while a shell still writes; a retry under the same key is the client's).
+fn checkpoint(harness: &RecoveryHarness) {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let checkpoint = request_response(
+            &harness.socket,
+            serde_json::json!({
+                "protocol":"cmux.protocol/2",
+                "type":"request",
+                "id":"lazy-checkpoint",
+                "operation":"session.journal.checkpoint.create",
+                "idempotency_key":"lazy-checkpoint",
+                "params":{"machine":"current","session":"current"},
+            }),
+        );
+        if checkpoint["ok"] == true {
+            return;
+        }
+        assert!(Instant::now() < deadline, "{checkpoint}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 fn rebooted_session(harness: &mut RecoveryHarness) -> Rebooted {
     let lazy = new_shell(harness, "lazy");
     send_line(&harness.socket, lazy.2, "printf 'lazy-%s\\n' screen");
@@ -167,8 +191,7 @@ fn rebooted_session(harness: &mut RecoveryHarness) -> Rebooted {
     let command = run_cat_workspace(&harness.socket, 7, "command");
     let (front_id, front_incarnation, _) = new_shell(harness, "front");
     select(harness, "front");
-    // Let the output store keep the lazy shell's screen.
-    std::thread::sleep(Duration::from_secs(2));
+    checkpoint(harness);
     reboot(harness, 4);
     Rebooted {
         lazy,
