@@ -1,6 +1,6 @@
 import { createContext, useContext, useRef, useSyncExternalStore } from "react";
 import type { AnyRouter } from "@tanstack/react-router";
-import type { ManagedInfo } from "./ops";
+import type { ManagedInfo, RowNoteData } from "./ops";
 import { HARNESS_PLACEMENT_KEY } from "../../ui/harnessPlacement";
 import { managedOf, valueOf, type RowError, type SettingsState, type SettingsStore } from "./store";
 
@@ -60,6 +60,7 @@ export type RowState = {
   customized: boolean;
   managed: ManagedInfo | null;
   diagnostics: string[] | undefined;
+  notes: RowNoteData[] | undefined;
   error: RowError | undefined;
   connected: boolean;
   readable: boolean;
@@ -73,6 +74,7 @@ export function useRowState(key: string): RowState {
       customized: state.rows.get(key)?.customized ?? false,
       managed: managedOf(state, key),
       diagnostics: state.diagnostics.get(key),
+      notes: state.notes.get(key),
       error: state.errors.get(key),
       connected: state.connected,
       readable: state.readable && (key !== HARNESS_PLACEMENT_KEY || state.host !== null),
