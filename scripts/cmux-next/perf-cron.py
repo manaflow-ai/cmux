@@ -188,6 +188,13 @@ PARTS = [
     {"name": "memory-agents", "args": [*MEASURE, "--config=bench", "--suite=memory-agents", "--agents=10"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents",
      "run_seconds": 2400},  # 1500 s for the bench, plus a cold bench build (800 s) when this part runs first
+    # The app's memory growth per simulated hour (memory-day-replay.py): a typical day of use replayed in about 10
+    # minutes on the bench build (a chat workspace, a terminal tab with output, a browser tab, switches, the oldest
+    # workspace closed, each simulated hour), MB/h per process kind (app, Chromium renderers, GPU, daemons, total).
+    # Target flat: each row's budget is its noise floor (memory-day-replay.py FLOOR_MB_PER_H).
+    {"name": "memory-day", "args": [*MEASURE, "--config=bench", "--suite=memory-day"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-day",
+     "run_seconds": 2400},  # about 12 minutes of replay, plus a cold bench build (800 s) when this part runs first
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
     # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals. NEXT runs in the
@@ -236,7 +243,7 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
-    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"), (r"^launch\.", "launch"),
+    (r"^memory\.app_agents\.", "memory-agents"), (r"^memory\.day_replay\.", "memory-day"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -1905,7 +1912,7 @@ def supported_parts_at(sha):
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
                                    capture_output=True, text=True).stdout
             ok = "--suite=launch" in text and '"--activation"' in bench
-        elif need in ("perf-gate", "launch", "memory-agents"):
+        elif need in ("perf-gate", "launch", "memory-agents", "memory-day"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text

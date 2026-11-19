@@ -701,12 +701,32 @@ def slope(xs, ys):
 ROWS = []  # every PERF_ROW, printed again at the end as one {"rows": [...]} report (perf-cron's Linux part reads it)
 
 
-def perf_row(name, value, unit, floor=None):
+def perf_row(name, value, unit, floor=None, target=None):
     row = {"name": name, "p50": round(value, 4), "p95": round(value, 4), "unit": unit}
     if floor is not None:
         row["floor"] = floor
+    if target is not None:
+        row["target"] = target
     ROWS.append(row)
     print("PERF_ROW " + json.dumps(row), flush=True)
+
+
+# Growth per hour of a simulated day (24 h), per daemon and in total: flat is the goal (Leo, 2026-11-14: "the dream of
+# never ever needing to close a tab or workspace or anything"; CMUX-571 infinite-items-flat: RAM bounded over days),
+# so each row's target is its noise floor, the per-day floors above over 24 h (MB/day 1.0 in total, 0.5 a daemon).
+MB_PER_H_ROLES = ("acpmux", "cmux-tui")
+MB_PER_H_FLOOR = {"total": round(1.0 / 24, 4), "acpmux": round(0.5 / 24, 4), "cmux-tui": round(0.5 / 24, 4)}
+
+
+def mb_per_h_rows(n, samples):
+    """(name, MB/h) of the total and of each MB_PER_H_ROLES daemon: the slope of its PSS over the simulated days / 24,
+    never negative (a shrinking day is 0 growth) (pure)."""
+    days = [s["day"] for s in samples]
+    out = [(f"infinite_items.n{n}.mb_per_h.total", slope(days, [s["total"]["pss_mb"] for s in samples]) / 24)]
+    for role in MB_PER_H_ROLES:
+        ys = [s["roles"].get(role, {}).get("pss_mb", 0) for s in samples]
+        out.append((f"infinite_items.n{n}.mb_per_h.{role}", slope(days, ys) / 24))
+    return [(name, max(0.0, v)) for name, v in out]
 
 
 # A ratio's denominator is at least its noise floor: an empty pair at 0.00 % CPU or 0 wakeups is no division by 0.
@@ -806,6 +826,9 @@ def report(results):
         perf_row(f"infinite_items.n{n}.wakeups_per_s", t["wakeups_per_s"], "count", floor=WAKEUPS_FLOOR)
         perf_row(f"infinite_items.n{n}.mb_per_day", max(0.0, mb_day), "MB", floor=1.0)
         perf_row(f"infinite_items.n{n}.disk_mb_per_day", max(0.0, disk_day), "MB", floor=0.1)
+        for name, value in mb_per_h_rows(n, r["samples"]):
+            floor = MB_PER_H_FLOOR[name.rsplit(".", 1)[1]]
+            perf_row(name, value, "MB/h", floor=floor, target=floor)
     per_item(results)
     print(json.dumps({"rows": ROWS}), flush=True)
 

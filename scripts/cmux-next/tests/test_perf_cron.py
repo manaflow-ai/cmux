@@ -670,6 +670,67 @@ class WebUiTests(unittest.TestCase):
                          "no empty sample: no ratio either")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
 
+    def test_the_memory_day_part_owns_its_rows_and_judges_growth_per_hour_against_flat(self):
+        """Leo, 2026-11-19: memory growth per hour from a time-compressed day, as rows the cron stores
+        (memory-day-replay.py). Each kind's slope is judged against its noise floor (flat), never null."""
+        self.assertIn("memory-day", FLEET, "a Mac part on the measure host")
+        part = cron.PART_BY_NAME["memory-day"]
+        self.assertIn("--suite=memory-day", part["args"])
+        self.assertIn("--config=bench", part["args"], "the Release (bench) build people run, as memory-agents")
+        self.assertEqual(cron.part_for_row("memory.day_replay.total.mb_per_h@cmux20-bench"), "memory-day")
+        self.assertEqual(cron.part_for_row("memory.day_replay.cef_renderer.mb_per_h@cmux21"), "memory-day")
+        self.assertEqual(cron.part_for_row("memory.app_agents.ratio_vs_empty@cmux20-bench"), "memory-agents")
+        spec2 = importlib.util.spec_from_file_location("memory_day", os.path.join(HERE, "..", "memory-day-replay.py"))
+        day = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(day)
+        self.assertEqual([day.kind_group(k) for k in ("app", "cef-renderer", "cef-gpu", "cef-utility", "webkit-webcontent",
+                                                       "tui-daemon", "terminal-host", "acpmux-daemon")],
+                         ["app", "cef_renderer", "cef_gpu", "cef_other", "webkit", "daemon", "daemon", "daemon"])
+
+        def sample(hour, app, renderer, daemon, workspaces=5):
+            return {"hour": hour, "workspaces": workspaces, "kinds": {
+                "app": {"footprint_mb": app}, "cef-renderer": {"footprint_mb": renderer},
+                "tui-daemon": {"footprint_mb": daemon / 2}, "terminal-host": {"footprint_mb": daemon / 2}}}
+        bench = {"keep": 5, "samples": [sample(0, 100, 400, 50)]  # warm-up: not fitted
+                 + [sample(h, 250 + 3 * h, 500 - h, 80) for h in range(1, 7)]
+                 + [sample(7, 900, 900, 900, workspaces=4)]}  # another shape: not fitted
+        rows, fits = day.rows_from(bench)
+        report = {"rows": rows}
+        got = cron.rows_of_part(part, report, budgets_mod, {})
+        self.assertEqual(got["memory.day_replay.app.mb_per_h"]["p95"], 3.0)
+        self.assertEqual(got["memory.day_replay.app.mb_per_h"]["unit"], "MB/h")
+        self.assertEqual(got["memory.day_replay.cef_renderer.mb_per_h"]["p95"], 0.0, "a shrinking kind is no growth")
+        self.assertEqual(fits["cef_renderer"]["mb_per_h"], -1.0, "the report keeps the signed slope")
+        self.assertEqual(got["memory.day_replay.daemon.mb_per_h"]["p95"], 0.0)
+        self.assertEqual(got["memory.day_replay.total.mb_per_h"]["p95"], 2.0)
+        for name, r in got.items():
+            self.assertEqual(cron.target_of(name, r, 8.33), day.FLOOR_MB_PER_H[name.split(".")[2]],
+                             f"{name}: flat within its noise floor is the target")
+        app = dict(got["memory.day_replay.app.mb_per_h"])
+        self.assertTrue(cron.over_target("memory.day_replay.app.mb_per_h", {**app, "p95": 6.0}, 8.33))
+        self.assertFalse(cron.over_target("memory.day_replay.app.mb_per_h", app, 8.33))
+        self.assertEqual(day.rows_from({"keep": 5, "samples": [sample(h, 1, 1, 1) for h in (0, 1, 2)]}), ([], {}),
+                         "under 3 fitted hours: no rows")
+
+    def test_infinite_items_stores_growth_per_hour_per_daemon(self):
+        """Leo, 2026-11-19: MB/h of a compressed day per process kind; on Linux the daemons' share (infinite-items)."""
+        spec2 = importlib.util.spec_from_file_location("infinite_items", os.path.join(HERE, "..", "..", "measure", "infinite-items.py"))
+        inf = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(inf)
+
+        def s(day, total, acpmux, tui):
+            return {"day": day, "total": {"pss_mb": total}, "roles": {"acpmux": {"pss_mb": acpmux}, "cmux-tui": {"pss_mb": tui}}}
+        got = dict(inf.mb_per_h_rows(100, [s(0, 100, 40, 30), s(1, 124, 52, 29)]))
+        self.assertEqual(got["infinite_items.n100.mb_per_h.total"], 1.0)
+        self.assertEqual(got["infinite_items.n100.mb_per_h.acpmux"], 0.5)
+        self.assertEqual(got["infinite_items.n100.mb_per_h.cmux-tui"], 0.0, "a shrinking daemon is no growth")
+        rows = cron.rows_of_part(cron.PART_BY_NAME["infinite-items"], {"rows": [
+            {"name": "infinite_items.n100.mb_per_h.acpmux", "p50": 0.5, "p95": 0.5, "unit": "MB/h",
+             "floor": inf.MB_PER_H_FLOOR["acpmux"], "target": inf.MB_PER_H_FLOOR["acpmux"]}]}, budgets_mod, {"rows": {}})
+        r = rows["webui.infinite_items.n100.mb_per_h.acpmux"]
+        self.assertEqual(cron.part_for_row("webui.infinite_items.n100.mb_per_h.acpmux@linux"), "infinite-items")
+        self.assertEqual(cron.target_of("webui.infinite_items.n100.mb_per_h.acpmux", r, None), inf.MB_PER_H_FLOOR["acpmux"])
+
     def test_the_memory_agents_part_measures_the_optimized_app(self):
         """CMUX-571 ram-baseline compares the app with other apps' release builds and with the 2026-11-08 Release
         baseline (app process 243-285 MB). The part measured the Debug build (app process 323.3 MB at 8c515cc5), so
