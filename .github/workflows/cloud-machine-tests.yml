@@ -26,6 +26,11 @@ concurrency:
   group: cloud-machine-tests-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # Warnings never fail a pull request's compile (Leo, 2026-11-19); pushes, dispatches, nightly and release
+  # keep them errors. scripts/ci/warnings_policy.py.
+  CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
+
 jobs:
   resolve-ref:
     uses: ./.github/workflows/resolve-dispatch-ref.yml
@@ -109,4 +114,4 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
       - name: Test the package without launching the app
-        run: swift test --package-path Packages/macOS/CmuxCloudMachines -Xswiftc -warnings-as-errors
+        run: python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- swift test --package-path Packages/macOS/CmuxCloudMachines -Xswiftc -warnings-as-errors

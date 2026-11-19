@@ -195,6 +195,10 @@ permissions:
 # R2 cache URL must be declared here or every R2 restore reports a miss.
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+  # Warnings never fail a pull request's compile (Leo, 2026-11-19): the Swift warning budget and the package
+  # lane's -warnings-as-errors only warn there; merge queues, pushes, nightly and release keep them errors.
+  # scripts/ci/warnings_policy.py.
+  CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
   # Which schemes the producer builds, and the profile the product's identity
   # records. A purely CLI-routed change only feeds cli-product-tests, which
   # needs the cmux-cli product and its test bundle -- not the app, and not the

@@ -37,6 +37,11 @@ concurrency:
   group: cloudflare-relay-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # Warnings never fail a pull request's compile (Leo, 2026-11-19); pushes, dispatches, nightly and release
+  # keep them errors. scripts/ci/warnings_policy.py.
+  CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
+
 jobs:
   cloudflare-relay:
     name: Cloudflare Durable Object relay
@@ -75,7 +80,7 @@ jobs:
         run: |
           python3 tests/validate_wrangler_config.py
           cargo test --locked
-          cargo clippy --locked --all-targets -- -D warnings
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy --locked --all-targets -- -D warnings
 
       - name: Audit npm dependencies
         run: npm audit --audit-level=high

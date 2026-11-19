@@ -78,6 +78,11 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Warnings never fail a pull request's compile (Leo, 2026-11-19); pushes, dispatches, nightly and release
+  # keep them errors. scripts/ci/warnings_policy.py.
+  CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
+
 jobs:
   contract:
     name: protocol contract
@@ -314,13 +319,14 @@ jobs:
             -p cmux-sidebar \
             --doc \
             --locked
-          cargo clippy \
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy \
             -p cmux-sdk \
             -p cmux-sidebar \
             --all-targets \
             --locked \
             -- -D warnings
           RUSTDOCFLAGS="-D warnings" \
+            python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- \
             cargo doc \
               -p cmux-sdk \
               -p cmux-sidebar \
@@ -476,7 +482,7 @@ jobs:
           scripts/ci/cargo-test-deadline.sh \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
             --locked
-          cargo clippy \
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
             --locked \
             --all-targets \
@@ -485,7 +491,7 @@ jobs:
             --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
             --locked \
             --all-targets
-          cargo clippy \
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy \
             --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
             --locked \
             --all-targets \
@@ -582,12 +588,12 @@ jobs:
           cargo +1.88.0 test \
             --manifest-path cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.toml \
             --locked
-          cargo +1.88.0 clippy \
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo +1.88.0 clippy \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
             --locked \
             --all-targets \
             -- -D warnings
-          cargo +1.88.0 clippy \
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo +1.88.0 clippy \
             --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
             --locked \
             --all-targets \
