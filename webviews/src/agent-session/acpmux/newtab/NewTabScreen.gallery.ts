@@ -1762,6 +1762,50 @@ export default agentPaneEntry({
       ready: newTab({ template: "console" }),
       snapshot: noChat(manySessions(6)),
     },
+    // Before shots for the threads and console looks (capture only, not for a PR).
+    ...Object.fromEntries(
+      (["threads", "console"] as const).flatMap((template) => [
+        [
+          `look-${template}-empty`,
+          {
+            note: `${template} template with no chats.`,
+            native: { "chats.page": { ready: true, design: "age", chats: [] } },
+            ready: newTab({ template }),
+            snapshot: noChat([]),
+          },
+        ],
+        [
+          `look-${template}-few`,
+          {
+            note: `${template} template with three chats.`,
+            native: { "chats.page": { ...allChatsPage, chats: allChatsPage.chats.slice(0, 3) } },
+            ready: newTab({ template }),
+            snapshot: noChat(manySessions(3)),
+          },
+        ],
+        [
+          `look-${template}-10k`,
+          {
+            note: `${template} template with 10,000 chats.`,
+            native: {
+              "chats.page": {
+                ready: true,
+                design: "age",
+                chats: Array.from({ length: 10000 }, (_, index) => ({
+                  key: `claude:chat-${index}`,
+                  harness: index % 3 === 1 ? "codex" : "claude",
+                  title: `${CHAT_TITLES[index % CHAT_TITLES.length]} ${index}`,
+                  cwd: CHAT_PROJECTS[index % CHAT_PROJECTS.length],
+                  updatedAt: minutesAgo(index * 3),
+                })),
+              },
+            },
+            ready: newTab({ template }),
+            snapshot: noChat(manySessions(14)),
+          },
+        ],
+      ]),
+    ),
     "template-classic": {
       note: "Classic template: the Terminal | Browser | Agent page.",
       ready: newTab({ template: "classic" }),

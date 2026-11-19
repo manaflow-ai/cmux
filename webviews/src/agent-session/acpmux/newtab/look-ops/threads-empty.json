@@ -1,0 +1,143 @@
+[
+  { "id": "n1", "op": "create", "props": { "spacing": 20 }, "type": "VStack" },
+  { "id": "n2", "op": "create", "props": { "spacing": 6 }, "type": "VStack" },
+  { "id": "n3", "op": "create", "props": { "paddingHorizontal": 14, "spacing": 4 }, "type": "HStack" },
+  { "id": "n4", "op": "create", "props": { "color": "tertiary", "size": 11, "symbol": "folder" }, "type": "Icon" },
+  {
+    "id": "n5",
+    "op": "create",
+    "props": { "color": "secondary", "font": "caption", "text": "atlas-web" },
+    "type": "Text"
+  },
+  { "children": ["n4", "n5"], "id": "n3", "op": "children" },
+  {
+    "id": "n6",
+    "op": "create",
+    "props": {
+      "background": "hover",
+      "borderColor": "separator",
+      "borderWidth": 0.5,
+      "cornerRadius": 16,
+      "frame": { "minHeight": 52 },
+      "paddingHorizontal": 18,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n7",
+    "op": "create",
+    "props": {
+      "autofocus": true,
+      "font": 14,
+      "onCancel": true,
+      "onEdit": true,
+      "onSubmit": true,
+      "placeholder": "Ask anything, or type an address",
+      "text": ""
+    },
+    "type": "TextField"
+  },
+  { "id": "n8", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n9", "op": "create", "props": { "disabled": true, "help": "Send", "onTap": true }, "type": "Button" },
+  { "id": "n10", "op": "create", "props": { "color": "tertiary", "size": 12, "symbol": "arrow.up" }, "type": "Icon" },
+  { "children": ["n10"], "id": "n9", "op": "children" },
+  { "children": ["n7", "n8", "n9"], "id": "n6", "op": "children" },
+  { "children": ["n3", "n6"], "id": "n2", "op": "children" },
+  { "id": "n11", "op": "create", "props": {}, "type": "Group" },
+  { "children": [], "id": "n11", "op": "children" },
+  { "id": "n12", "op": "create", "props": { "spacing": 4 }, "type": "VStack" },
+  { "id": "n13", "op": "create", "props": { "paddingHorizontal": 4, "spacing": 4 }, "type": "HStack" },
+  {
+    "id": "n14",
+    "op": "create",
+    "props": {
+      "background": "selected",
+      "color": "primary",
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "font": "caption",
+      "frame": { "height": 24 },
+      "hoverBackground": "hover",
+      "onTap": true,
+      "paddingHorizontal": 8,
+      "text": "Chats",
+      "weight": "medium"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n15",
+    "op": "create",
+    "props": {
+      "background": null,
+      "color": "tertiary",
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "font": "caption",
+      "frame": { "height": 24 },
+      "hoverBackground": "hover",
+      "onTap": true,
+      "paddingHorizontal": 8,
+      "text": "Projects",
+      "weight": "medium"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n16",
+    "op": "create",
+    "props": {
+      "menu": [{ "title": "All" }, { "title": "Working" }, { "title": "Needs input" }, { "title": "Done" }],
+      "title": "Filter"
+    },
+    "type": "Menu"
+  },
+  { "id": "n17", "op": "create", "props": {}, "type": "Spacer" },
+  {
+    "id": "n18",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "frame": { "height": 24, "width": 180 },
+      "hoverBackground": "hover",
+      "paddingHorizontal": 8,
+      "spacing": 4
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n19",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 11, "symbol": "magnifyingglass" },
+    "type": "Icon"
+  },
+  {
+    "id": "n20",
+    "op": "create",
+    "props": { "autofocus": false, "font": 12, "onCancel": true, "onEdit": true, "placeholder": "Search", "text": "" },
+    "type": "TextField"
+  },
+  { "children": ["n19", "n20"], "id": "n18", "op": "children" },
+  { "children": ["n14", "n15", "n16", "n17", "n18"], "id": "n13", "op": "children" },
+  { "id": "n21", "op": "create", "props": {}, "type": "Group" },
+  { "id": "n22", "op": "create", "props": {}, "type": "ProgressView" },
+  { "children": ["n22"], "id": "n21", "op": "children" },
+  { "children": ["n13", "n21"], "id": "n12", "op": "children" },
+  { "children": ["n2", "n11", "n12"], "id": "n1", "op": "children" },
+  { "id": "n1", "op": "root" },
+  { "id": "n22", "op": "remove" },
+  {
+    "id": "n23",
+    "op": "create",
+    "props": {
+      "color": "tertiary",
+      "font": "caption",
+      "frame": { "height": 30 },
+      "paddingHorizontal": 10,
+      "text": "No chats yet"
+    },
+    "type": "Text"
+  },
+  { "children": ["n23"], "id": "n21", "op": "children" }
+]

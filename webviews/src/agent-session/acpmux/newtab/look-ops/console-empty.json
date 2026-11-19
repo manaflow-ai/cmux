@@ -1,0 +1,161 @@
+[
+  { "id": "n1", "op": "create", "props": { "spacing": 20 }, "type": "VStack" },
+  { "id": "n2", "op": "create", "props": { "spacing": 6 }, "type": "VStack" },
+  { "id": "n3", "op": "create", "props": { "paddingHorizontal": 14, "spacing": 4 }, "type": "HStack" },
+  { "id": "n4", "op": "create", "props": { "color": "tertiary", "size": 11, "symbol": "folder" }, "type": "Icon" },
+  {
+    "id": "n5",
+    "op": "create",
+    "props": { "color": "secondary", "font": "caption", "monospaced": true, "text": "atlas-web" },
+    "type": "Text"
+  },
+  { "children": ["n4", "n5"], "id": "n3", "op": "children" },
+  {
+    "id": "n6",
+    "op": "create",
+    "props": {
+      "background": "hover",
+      "borderColor": "separator",
+      "borderWidth": 0.5,
+      "cornerRadius": 8,
+      "frame": { "minHeight": 44 },
+      "paddingHorizontal": 18,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n7",
+    "op": "create",
+    "props": { "color": "secondary", "monospaced": true, "text": ">", "weight": "medium" },
+    "type": "Text"
+  },
+  {
+    "id": "n8",
+    "op": "create",
+    "props": {
+      "autofocus": true,
+      "font": 14,
+      "monospaced": true,
+      "onCancel": true,
+      "onEdit": true,
+      "onSubmit": true,
+      "placeholder": "Ask, open an address, or !run a command",
+      "text": ""
+    },
+    "type": "TextField"
+  },
+  { "id": "n9", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n10", "op": "create", "props": { "disabled": true, "help": "Send", "onTap": true }, "type": "Button" },
+  { "id": "n11", "op": "create", "props": { "color": "tertiary", "size": 12, "symbol": "arrow.up" }, "type": "Icon" },
+  { "children": ["n11"], "id": "n10", "op": "children" },
+  { "children": ["n7", "n8", "n9", "n10"], "id": "n6", "op": "children" },
+  { "children": ["n3", "n6"], "id": "n2", "op": "children" },
+  { "id": "n12", "op": "create", "props": {}, "type": "Group" },
+  { "children": [], "id": "n12", "op": "children" },
+  { "id": "n13", "op": "create", "props": { "spacing": 4 }, "type": "VStack" },
+  { "id": "n14", "op": "create", "props": { "paddingHorizontal": 4, "spacing": 4 }, "type": "HStack" },
+  {
+    "id": "n15",
+    "op": "create",
+    "props": {
+      "background": "selected",
+      "color": "primary",
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "font": "caption",
+      "frame": { "height": 24 },
+      "hoverBackground": "hover",
+      "monospaced": true,
+      "onTap": true,
+      "paddingHorizontal": 8,
+      "text": "Chats",
+      "weight": "medium"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n16",
+    "op": "create",
+    "props": {
+      "background": null,
+      "color": "tertiary",
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "font": "caption",
+      "frame": { "height": 24 },
+      "hoverBackground": "hover",
+      "monospaced": true,
+      "onTap": true,
+      "paddingHorizontal": 8,
+      "text": "Projects",
+      "weight": "medium"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n17",
+    "op": "create",
+    "props": {
+      "menu": [{ "title": "All" }, { "title": "Working" }, { "title": "Needs input" }, { "title": "Done" }],
+      "title": "Filter"
+    },
+    "type": "Menu"
+  },
+  { "id": "n18", "op": "create", "props": {}, "type": "Spacer" },
+  {
+    "id": "n19",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "frame": { "height": 24, "width": 180 },
+      "hoverBackground": "hover",
+      "paddingHorizontal": 8,
+      "spacing": 4
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n20",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 11, "symbol": "magnifyingglass" },
+    "type": "Icon"
+  },
+  {
+    "id": "n21",
+    "op": "create",
+    "props": {
+      "autofocus": false,
+      "font": 12,
+      "monospaced": true,
+      "onCancel": true,
+      "onEdit": true,
+      "placeholder": "Search",
+      "text": ""
+    },
+    "type": "TextField"
+  },
+  { "children": ["n20", "n21"], "id": "n19", "op": "children" },
+  { "children": ["n15", "n16", "n17", "n18", "n19"], "id": "n14", "op": "children" },
+  { "id": "n22", "op": "create", "props": {}, "type": "Group" },
+  { "id": "n23", "op": "create", "props": {}, "type": "ProgressView" },
+  { "children": ["n23"], "id": "n22", "op": "children" },
+  { "children": ["n14", "n22"], "id": "n13", "op": "children" },
+  { "children": ["n2", "n12", "n13"], "id": "n1", "op": "children" },
+  { "id": "n1", "op": "root" },
+  { "id": "n23", "op": "remove" },
+  {
+    "id": "n24",
+    "op": "create",
+    "props": {
+      "color": "tertiary",
+      "font": "caption",
+      "frame": { "height": 30 },
+      "monospaced": true,
+      "paddingHorizontal": 10,
+      "text": "No chats yet"
+    },
+    "type": "Text"
+  },
+  { "children": ["n24"], "id": "n22", "op": "children" }
+]

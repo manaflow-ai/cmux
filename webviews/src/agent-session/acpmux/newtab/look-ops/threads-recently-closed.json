@@ -1,0 +1,544 @@
+[
+  { "id": "n1", "op": "create", "props": { "spacing": 20 }, "type": "VStack" },
+  { "id": "n2", "op": "create", "props": { "spacing": 6 }, "type": "VStack" },
+  { "id": "n3", "op": "create", "props": { "paddingHorizontal": 14, "spacing": 4 }, "type": "HStack" },
+  { "id": "n4", "op": "create", "props": { "color": "tertiary", "size": 11, "symbol": "folder" }, "type": "Icon" },
+  {
+    "id": "n5",
+    "op": "create",
+    "props": { "color": "secondary", "font": "caption", "text": "atlas-web" },
+    "type": "Text"
+  },
+  { "children": ["n4", "n5"], "id": "n3", "op": "children" },
+  {
+    "id": "n6",
+    "op": "create",
+    "props": {
+      "background": "hover",
+      "borderColor": "separator",
+      "borderWidth": 0.5,
+      "cornerRadius": 16,
+      "frame": { "minHeight": 52 },
+      "paddingHorizontal": 18,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n7",
+    "op": "create",
+    "props": {
+      "autofocus": true,
+      "font": 14,
+      "onCancel": true,
+      "onEdit": true,
+      "onSubmit": true,
+      "placeholder": "Ask anything, or type an address",
+      "text": ""
+    },
+    "type": "TextField"
+  },
+  { "id": "n8", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n9", "op": "create", "props": { "disabled": true, "help": "Send", "onTap": true }, "type": "Button" },
+  { "id": "n10", "op": "create", "props": { "color": "tertiary", "size": 12, "symbol": "arrow.up" }, "type": "Icon" },
+  { "children": ["n10"], "id": "n9", "op": "children" },
+  { "children": ["n7", "n8", "n9"], "id": "n6", "op": "children" },
+  { "children": ["n3", "n6"], "id": "n2", "op": "children" },
+  { "id": "n11", "op": "create", "props": {}, "type": "Group" },
+  { "children": [], "id": "n11", "op": "children" },
+  { "id": "n12", "op": "create", "props": { "spacing": 4 }, "type": "VStack" },
+  { "id": "n13", "op": "create", "props": { "paddingHorizontal": 4, "spacing": 4 }, "type": "HStack" },
+  {
+    "id": "n14",
+    "op": "create",
+    "props": {
+      "background": "selected",
+      "color": "primary",
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "font": "caption",
+      "frame": { "height": 24 },
+      "hoverBackground": "hover",
+      "onTap": true,
+      "paddingHorizontal": 8,
+      "text": "Chats",
+      "weight": "medium"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n15",
+    "op": "create",
+    "props": {
+      "background": null,
+      "color": "tertiary",
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "font": "caption",
+      "frame": { "height": 24 },
+      "hoverBackground": "hover",
+      "onTap": true,
+      "paddingHorizontal": 8,
+      "text": "Projects",
+      "weight": "medium"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n16",
+    "op": "create",
+    "props": {
+      "menu": [{ "title": "All" }, { "title": "Working" }, { "title": "Needs input" }, { "title": "Done" }],
+      "title": "Filter"
+    },
+    "type": "Menu"
+  },
+  { "id": "n17", "op": "create", "props": {}, "type": "Spacer" },
+  {
+    "id": "n18",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "frame": { "height": 24, "width": 180 },
+      "hoverBackground": "hover",
+      "paddingHorizontal": 8,
+      "spacing": 4
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n19",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 11, "symbol": "magnifyingglass" },
+    "type": "Icon"
+  },
+  {
+    "id": "n20",
+    "op": "create",
+    "props": { "autofocus": false, "font": 12, "onCancel": true, "onEdit": true, "placeholder": "Search", "text": "" },
+    "type": "TextField"
+  },
+  { "children": ["n19", "n20"], "id": "n18", "op": "children" },
+  { "children": ["n14", "n15", "n16", "n17", "n18"], "id": "n13", "op": "children" },
+  { "id": "n21", "op": "create", "props": {}, "type": "Group" },
+  { "id": "n22", "op": "create", "props": {}, "type": "ProgressView" },
+  { "children": ["n22"], "id": "n21", "op": "children" },
+  { "children": ["n13", "n21"], "id": "n12", "op": "children" },
+  { "children": ["n2", "n11", "n12"], "id": "n1", "op": "children" },
+  { "id": "n1", "op": "root" },
+  { "id": "n22", "op": "remove" },
+  { "id": "n23", "op": "create", "props": { "spacing": 0 }, "type": "VStack" },
+  { "id": "n24", "op": "create", "props": { "spacing": 0 }, "type": "LazyVStack" },
+  { "id": "n25", "op": "create", "props": {}, "type": "ForEach" },
+  {
+    "id": "n26",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 30 },
+      "help": "Add retries to the fetch helper\n/Users/you/src/atlas-web\nclaude",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Open Chat" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n27",
+    "op": "create",
+    "props": { "color": "secondary", "size": 12, "symbol": "circle.dashed" },
+    "type": "Icon"
+  },
+  {
+    "id": "n28",
+    "op": "create",
+    "props": {
+      "font": 13,
+      "layoutPriority": 1,
+      "lineLimit": 1,
+      "text": "Add retries to the fetch helper",
+      "weight": "regular"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n29",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "lineLimit": 1, "text": "atlas-web" },
+    "type": "Text"
+  },
+  { "id": "n30", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n31", "op": "create", "props": {}, "type": "Group" },
+  {
+    "id": "n32",
+    "op": "create",
+    "props": { "color": "secondary", "fixedSize": "horizontal", "font": "caption", "text": "Working" },
+    "type": "Text"
+  },
+  { "children": ["n32"], "id": "n31", "op": "children" },
+  { "children": ["n27", "n28", "n29", "n30", "n31"], "id": "n26", "op": "children" },
+  {
+    "id": "n33",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 30 },
+      "help": "Localize the changes view\n/Users/you/src/atlas-web\nclaude",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Open Chat" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n34",
+    "op": "create",
+    "props": { "color": "warning", "size": 12, "symbol": "questionmark.bubble" },
+    "type": "Icon"
+  },
+  {
+    "id": "n35",
+    "op": "create",
+    "props": {
+      "font": 13,
+      "layoutPriority": 1,
+      "lineLimit": 1,
+      "text": "Localize the changes view",
+      "weight": "regular"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n36",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "lineLimit": 1, "text": "atlas-web" },
+    "type": "Text"
+  },
+  { "id": "n37", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n38", "op": "create", "props": {}, "type": "Group" },
+  {
+    "id": "n39",
+    "op": "create",
+    "props": { "color": "warning", "fixedSize": "horizontal", "font": "caption", "text": "Needs input" },
+    "type": "Text"
+  },
+  { "children": ["n39"], "id": "n38", "op": "children" },
+  { "children": ["n34", "n35", "n36", "n37", "n38"], "id": "n33", "op": "children" },
+  {
+    "id": "n40",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 30 },
+      "help": "cmux-next chief\n/Users/you/src/cmux\nclaude",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Open Chat" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n41",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 12, "symbol": "bubble.left" },
+    "type": "Icon"
+  },
+  {
+    "id": "n42",
+    "op": "create",
+    "props": { "font": 13, "layoutPriority": 1, "lineLimit": 1, "text": "cmux-next chief", "weight": "regular" },
+    "type": "Text"
+  },
+  {
+    "id": "n43",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "lineLimit": 1, "text": "cmux" },
+    "type": "Text"
+  },
+  { "id": "n44", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n45", "op": "create", "props": {}, "type": "Group" },
+  {
+    "id": "n46",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "frame": { "width": 40 }, "text": "1m" },
+    "type": "Text"
+  },
+  { "children": ["n46"], "id": "n45", "op": "children" },
+  { "children": ["n41", "n42", "n43", "n44", "n45"], "id": "n40", "op": "children" },
+  {
+    "id": "n47",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 30 },
+      "help": "Browser use and cmux computer use for cmux-next\n/Users/you/src/cmux-web\ncodex",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Open Chat" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n48",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 12, "symbol": "bubble.left" },
+    "type": "Icon"
+  },
+  {
+    "id": "n49",
+    "op": "create",
+    "props": {
+      "font": 13,
+      "layoutPriority": 1,
+      "lineLimit": 1,
+      "text": "Browser use and cmux computer use for cmux-next",
+      "weight": "regular"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n50",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "lineLimit": 1, "text": "cmux-web" },
+    "type": "Text"
+  },
+  { "id": "n51", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n52", "op": "create", "props": {}, "type": "Group" },
+  {
+    "id": "n53",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "frame": { "width": 40 }, "text": "1m" },
+    "type": "Text"
+  },
+  { "children": ["n53"], "id": "n52", "op": "children" },
+  { "children": ["n48", "n49", "n50", "n51", "n52"], "id": "n47", "op": "children" },
+  {
+    "id": "n54",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 30 },
+      "help": "/loop keep improving things until we are at the theoretical limit for iteration speed\n/Users/you/.acpmux/tags/dev/unattended\nclaude",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Open Chat" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n55",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 12, "symbol": "bubble.left" },
+    "type": "Icon"
+  },
+  {
+    "id": "n56",
+    "op": "create",
+    "props": {
+      "font": 13,
+      "layoutPriority": 1,
+      "lineLimit": 1,
+      "text": "/loop keep improving things until we are at the theoretical limit for iteration speed",
+      "weight": "regular"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n57",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "lineLimit": 1, "text": "unattended" },
+    "type": "Text"
+  },
+  { "id": "n58", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n59", "op": "create", "props": {}, "type": "Group" },
+  {
+    "id": "n60",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "frame": { "width": 40 }, "text": "1m" },
+    "type": "Text"
+  },
+  { "children": ["n60"], "id": "n59", "op": "children" },
+  { "children": ["n55", "n56", "n57", "n58", "n59"], "id": "n54", "op": "children" },
+  {
+    "id": "n61",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 30 },
+      "help": "Fix the flaky sidebar drag test\n/Users/you/src/atlas-web\ncodex",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Open Chat" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  { "id": "n62", "op": "create", "props": { "color": "success", "size": 12, "symbol": "bubble.left" }, "type": "Icon" },
+  {
+    "id": "n63",
+    "op": "create",
+    "props": {
+      "font": 13,
+      "layoutPriority": 1,
+      "lineLimit": 1,
+      "text": "Fix the flaky sidebar drag test",
+      "weight": "medium"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n64",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "lineLimit": 1, "text": "atlas-web" },
+    "type": "Text"
+  },
+  { "id": "n65", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n66", "op": "create", "props": {}, "type": "Group" },
+  {
+    "id": "n67",
+    "op": "create",
+    "props": { "color": "success", "fixedSize": "horizontal", "font": "caption", "text": "Done" },
+    "type": "Text"
+  },
+  { "children": ["n67"], "id": "n66", "op": "children" },
+  { "children": ["n62", "n63", "n64", "n65", "n66"], "id": "n61", "op": "children" },
+  { "children": ["n26", "n33", "n40", "n47", "n54", "n61"], "id": "n25", "op": "children" },
+  { "children": ["n25"], "id": "n24", "op": "children" },
+  { "id": "n68", "op": "create", "props": {}, "type": "Group" },
+  { "children": [], "id": "n68", "op": "children" },
+  { "children": ["n24", "n68"], "id": "n23", "op": "children" },
+  { "children": ["n23"], "id": "n21", "op": "children" },
+  { "id": "n69", "op": "create", "props": { "spacing": 0 }, "type": "VStack" },
+  {
+    "id": "n70",
+    "op": "create",
+    "props": {
+      "color": "secondary",
+      "font": "caption",
+      "frame": { "height": 30 },
+      "paddingHorizontal": 10,
+      "text": "Recently closed",
+      "weight": "medium"
+    },
+    "type": "Text"
+  },
+  { "id": "n71", "op": "create", "props": {}, "type": "ForEach" },
+  {
+    "id": "n72",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 28 },
+      "help": "Reopen",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Reopen" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n73",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 12, "symbol": "rectangle.on.rectangle" },
+    "type": "Icon"
+  },
+  { "id": "n74", "op": "create", "props": { "font": 13, "lineLimit": 1, "text": "PR #17516" }, "type": "Text" },
+  { "id": "n75", "op": "create", "props": {}, "type": "Spacer" },
+  {
+    "id": "n76",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "frame": { "width": 40 }, "text": "1m" },
+    "type": "Text"
+  },
+  { "children": ["n73", "n74", "n75", "n76"], "id": "n72", "op": "children" },
+  {
+    "id": "n77",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 28 },
+      "help": "Reopen",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Reopen" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n78",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 12, "symbol": "rectangle.on.rectangle" },
+    "type": "Icon"
+  },
+  { "id": "n79", "op": "create", "props": { "font": 13, "lineLimit": 1, "text": "zsh" }, "type": "Text" },
+  { "id": "n80", "op": "create", "props": {}, "type": "Spacer" },
+  {
+    "id": "n81",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "frame": { "width": 40 }, "text": "4m" },
+    "type": "Text"
+  },
+  { "children": ["n78", "n79", "n80", "n81"], "id": "n77", "op": "children" },
+  {
+    "id": "n82",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 28 },
+      "help": "Reopen",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Reopen" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n83",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 12, "symbol": "square.stack" },
+    "type": "Icon"
+  },
+  {
+    "id": "n84",
+    "op": "create",
+    "props": { "font": 13, "lineLimit": 1, "text": "Fix the flaky upload test" },
+    "type": "Text"
+  },
+  { "id": "n85", "op": "create", "props": {}, "type": "Spacer" },
+  {
+    "id": "n86",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "frame": { "width": 40 }, "text": "15m" },
+    "type": "Text"
+  },
+  { "children": ["n83", "n84", "n85", "n86"], "id": "n82", "op": "children" },
+  { "children": ["n72", "n77", "n82"], "id": "n71", "op": "children" },
+  { "children": ["n70", "n71"], "id": "n69", "op": "children" },
+  { "children": ["n69"], "id": "n11", "op": "children" }
+]
