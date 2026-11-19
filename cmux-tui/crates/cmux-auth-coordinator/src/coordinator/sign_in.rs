@@ -1,0 +1,142 @@
+//! Sign-in flows: the code exchange, the dev shortcut and their outcomes.
+
+use super::Coordinator;
+use crate::event::{AfterTeams, AuthFailure, Effect, SignInFlow, SignInKind};
+use crate::model::AuthUser;
+
+impl Coordinator {
+    // MARK: - Sign-in
+
+    pub(super) fn on_sign_in_requested(
+        &mut self,
+        kind: SignInKind,
+        sets_loading: bool,
+        fx: &mut Vec<Effect>,
+    ) {
+        if kind == SignInKind::VerifyCode && !self.has_pending_code {
+            fx.push(Effect::SignInFailed { flow: None, failure: AuthFailure::InvalidCode });
+            return;
+        }
+        self.sign_in_attempt_counter = self.sign_in_attempt_counter.wrapping_add(1);
+        let flow = SignInFlow {
+            generation: self.session_generation,
+            attempt: self.sign_in_attempt_counter,
+            sign_out_epoch: self.sign_out_epoch,
+            kind,
+            sets_loading,
+        };
+        self.active_sign_in_flows.insert(flow.attempt, flow);
+        fx.push(Effect::QuiesceTokenWork(flow));
+    }
+
+    pub(super) fn on_token_work_quiesced(
+        &mut self,
+        flow: SignInFlow,
+        result: Result<(), AuthFailure>,
+        fx: &mut Vec<Effect>,
+    ) {
+        let current = flow.generation == self.session_generation
+            && flow.sign_out_epoch == self.sign_out_epoch;
+        if let Err(failure) = result {
+            self.active_sign_in_flows.remove(&flow.attempt);
+            fx.push(Effect::SignInFailed { flow: Some(flow), failure });
+            return;
+        }
+        if !current {
+            self.active_sign_in_flows.remove(&flow.attempt);
+            fx.push(Effect::SignInFailed { flow: Some(flow), failure: AuthFailure::Cancelled });
+            return;
+        }
+        if flow.kind == SignInKind::External {
+            self.is_loading = true;
+            fx.push(Effect::SetLoading(true));
+            fx.push(Effect::ClearExternalSignInFailureDetail);
+            return self.complete_sign_in(flow, fx);
+        }
+        fx.push(Effect::CheckOnline(flow));
+    }
+
+    pub(super) fn complete_sign_in(&mut self, flow: SignInFlow, fx: &mut Vec<Effect>) {
+        if self.token_store_write_high_water < flow.attempt {
+            fx.push(Effect::RecordLatestSignInRefreshToken);
+        }
+        self.token_store_write_high_water = self.token_store_write_high_water.max(flow.attempt);
+        if flow.generation != self.session_generation {
+            // A sign-out (or newer session) landed during the exchange. Roll
+            // back the tokens it re-stored, unless a newer attempt owns the store.
+            let sign_out_began = flow.sign_out_epoch != self.sign_out_epoch;
+            if (sign_out_began || !self.is_authenticated)
+                && self.token_store_write_high_water == flow.attempt
+            {
+                fx.push(Effect::ClearLocalSession);
+            }
+            return self.fail_sign_in(flow, AuthFailure::Cancelled, flow.sets_loading, fx);
+        }
+        fx.push(Effect::FetchUser(flow));
+    }
+
+    pub(super) fn fail_sign_in(
+        &mut self,
+        flow: SignInFlow,
+        failure: AuthFailure,
+        loading_was_set: bool,
+        fx: &mut Vec<Effect>,
+    ) {
+        let loading_was_set = loading_was_set || flow.kind == SignInKind::External;
+        if loading_was_set {
+            self.is_loading = false;
+            fx.push(Effect::SetLoading(false));
+        }
+        self.finish_sign_in_flow(flow, fx);
+        fx.push(Effect::SignInFailed { flow: Some(flow), failure });
+    }
+
+    pub(super) fn finish_sign_in_flow(&mut self, flow: SignInFlow, fx: &mut Vec<Effect>) {
+        self.active_sign_in_flows.remove(&flow.attempt);
+        self.publish_session_identity(fx);
+    }
+
+    pub(super) fn succeed_sign_in(&mut self, flow: SignInFlow, fx: &mut Vec<Effect>) {
+        if flow.sets_loading || flow.kind == SignInKind::External {
+            self.is_loading = false;
+            fx.push(Effect::SetLoading(false));
+        }
+        self.finish_sign_in_flow(flow, fx);
+        if flow.kind == SignInKind::VerifyCode {
+            self.has_pending_code = false;
+            fx.push(Effect::DropPendingCode);
+        }
+        fx.push(Effect::SignInSucceeded(flow));
+    }
+
+    /// Publishes `user`. A completed exchange (`sign_in`) always advances the
+    /// generation; a revalidation advances it only on an account change.
+    pub(super) fn apply_signed_in_user(
+        &mut self,
+        user: AuthUser,
+        sign_in: bool,
+        after: AfterTeams,
+        fx: &mut Vec<Effect>,
+    ) {
+        let runs_hook = if sign_in {
+            self.cancel_team_scope_recovery(fx);
+            self.advance_session_generation(true, fx);
+            true
+        } else {
+            let transition = !self.is_authenticated
+                || self.current_user.as_ref().map(|current| current.id.as_str()) != Some(&user.id);
+            if transition {
+                self.advance_session_generation(true, fx);
+            }
+            transition
+        };
+        let generation = self.session_generation;
+        self.current_user = Some(user.clone());
+        self.is_authenticated = true;
+        self.is_restoring_session = false;
+        self.publish_session_identity(fx);
+        self.save_cached_user(user, fx);
+        self.set_has_tokens(fx);
+        self.begin_team_refresh(generation, runs_hook, after, fx);
+    }
+}

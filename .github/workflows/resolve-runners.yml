@@ -51,15 +51,15 @@ jobs:
     name: Resolve runner capabilities
     # Not the map: the job that resolves the fleet cannot depend on the map it
     # publishes. A fork takes the GitHub-hosted owner branch (no Blacksmith
-    # there). In manaflow-ai this is a declared light job (.github/runners.json
-    # hosted_light_jobs, about 5 s of work): GitHub-hosted Ubuntu on attempt 1,
-    # the CI_TRUSTED_RUNNER selector (Blacksmith by default) on a re-run, so a
-    # GitHub billing block still cannot stop the graph. No fromJSON(vars.*)
+    # there). In manaflow-ai (about 5 s of work) it takes the CI_TRUSTED_RUNNER
+    # selector (Blacksmith by default) on every attempt; it took GitHub-hosted
+    # Ubuntu on attempt 1 until 2026-11-18, when hosted runners left light jobs
+    # queued for hours (cmux#45735). No fromJSON(vars.*)
     # here: an unset variable would fail every caller's workflow. Attempt 1
     # took that selector alone, one Blacksmith size: on 2026-11-04 run
     # 41762274751 job 126357110864 sat unassigned on
     # blacksmith-2vcpu-ubuntu-2404 for 3 min, holding the webview verdict.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && !contains(vars.RUNNER_POOLS, '"hosted_saturated"') && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       map: ${{ steps.resolve.outputs.map }}
