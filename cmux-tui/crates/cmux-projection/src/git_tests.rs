@@ -200,7 +200,8 @@ fn registration_refuses_an_ordinary_worktree_without_touching_its_index() {
     let before = std::fs::read(admin.join("index")).unwrap();
     let error =
         Worktree::write(&git_dir, "projected", &dir.path().join("mnt"), &commit, b"new", &[])
-            .expect_err("ordinary worktrees must never be replaced");
+            .err()
+            .expect("ordinary worktrees must never be replaced");
     assert!(error.to_string().contains("not owned by this projection"));
     assert_eq!(std::fs::read(admin.join("index")).unwrap(), before);
     assert_eq!(run(&ordinary, &["status", "--porcelain"]), "M  README.md\n");

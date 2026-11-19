@@ -272,7 +272,7 @@ fn verified_blobs_become_loose_objects_git_reads() {
     write_loose(&git_dir, HELLO, b"hello\n").unwrap();
     let out = std::process::Command::new("git")
         .arg("--git-dir")
-        .arg(git_dir)
+        .arg(&git_dir)
         .args(["cat-file", "blob", HELLO])
         .output()
         .unwrap();
