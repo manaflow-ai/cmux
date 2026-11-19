@@ -269,9 +269,14 @@ fi
 # A depth only in a checkout that is already shallow (a CI one): never turn a full clone shallow.
 depth=""
 [[ "$(git -C "$root" rev-parse --is-shallow-repository)" != true ]] || depth=--depth=1
+# A fleet step's checkout has no `origin` remote: a commit that it does not hold then comes from
+# the repository's URL (as app-at-commit.sh).
+fetch_url="${CMUX_MEASURE_FETCH_URL:-https://github.com/manaflow-ai/cmux.git}"
 resolve() {
   git -C "$root" cat-file -e "$1^{commit}" 2>/dev/null \
-    || git -C "$root" fetch -q --no-tags --no-recurse-submodules $depth origin "$1"
+    || git -C "$root" fetch -q --no-tags --no-recurse-submodules $depth origin "$1" \
+    || git -C "$root" fetch -q --no-tags --no-recurse-submodules $depth "$fetch_url" "$1" \
+    || { echo "error: cannot fetch $1 from origin or from $fetch_url" >&2; return 1; }
   git -C "$root" rev-parse "$1^{commit}"
 }
 old_sha="$(resolve "$old")"
@@ -326,13 +331,13 @@ wait_child() {
 }
 # A job of a shell with no job control starts with SIGINT and SIGQUIT ignored, and a process keeps
 # an ignored signal through each exec: the compilers, the daemons and their shells would have it.
-# This runs the command in the job's own process with both signals at their default.
-with_plain_signals() {
-  exec python3 -c 'import os, signal, sys
+# This prefix runs the command with both signals at their default: as a background job's simple
+# command, bash's job process becomes python, which then becomes the command. It is a command prefix,
+# not a function that execs: an exec in the script would drop its EXIT trap (mktemp-trap.test.py).
+with_plain_signals=(python3 -c 'import os, signal, sys
 signal.signal(signal.SIGINT, signal.SIG_DFL)
 signal.signal(signal.SIGQUIT, signal.SIG_DFL)
-os.execvp(sys.argv[1], sys.argv[1:])' "$@"
-}
+os.execvp(sys.argv[1], sys.argv[1:])')
 # PID and each process below it. Read before a signal: a process whose parent ended has another
 # parent.
 tree_of() {
@@ -425,7 +430,7 @@ build_at() {
     cd "$scratch/src-$side/cmux-tui"
     export CMUX_GHOSTTY_SRC="$root/ghostty-next" CARGO_TARGET_DIR="$scratch/target"
     export CMUX_TUI_BUILD_COMMIT="$sha" CMUX_TUI_GHOSTTY_COMMIT="$here_ghostty"
-    with_plain_signals cargo build --release --locked -p cmux-tui --bin cmux-tui --bin cmux-tui-host
+    "${with_plain_signals[@]}" cargo build --release --locked -p cmux-tui --bin cmux-tui --bin cmux-tui-host
   ) &
   child_pid=$!
   wait_child
@@ -446,7 +451,7 @@ for ((r = 1; r <= rounds; r++)); do
   else
     first="$scratch/bin-new/cmux-tui" second="$scratch/bin-old/cmux-tui"
   fi
-  with_plain_signals python3 "$root/scripts/cmux-next/daemon-swap-check.py" --old "$first" \
+  "${with_plain_signals[@]}" python3 "$root/scripts/cmux-next/daemon-swap-check.py" --old "$first" \
     --new "$second" --phases terminals --drill --keep --budget "$budget" --work-root "$work" \
     > "$work/report.json" 2> "$work/check.err" &
   child_pid=$!

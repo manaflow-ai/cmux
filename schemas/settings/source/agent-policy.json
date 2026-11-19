@@ -40,6 +40,13 @@
     },
     {
       "agent": "settable",
+      "why": "Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.",
+      "keys": [
+        "customize.fromTheApp"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).",
       "keys": [
         "contextMenus.showCustomizeItem"
@@ -1447,6 +1454,13 @@
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
         "agents.autoRetry.attempts"
+      ]
+    },
+    {
+      "agent": "network",
+      "why": "Whether new chats get the person's saved MCP servers opens their connected services (Linear, Slack and others) to agents: the person's call.",
+      "keys": [
+        "agents.mcpServers.enabled"
       ]
     },
     {

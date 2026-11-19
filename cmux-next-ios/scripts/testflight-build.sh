@@ -7,10 +7,12 @@
 # (.github/workflows/ios-internal-nightly.yml). `--config AppStore` with the
 # production identity (--app-id, --bundle-id com.cmux.app, --app-name and the
 # App Store profile names, or the CMUX_MOBILE_* variables below) builds the
-# public App Store app, the record the classic ios/ app used. No workflow runs
-# that lane yet: the App Store lane for com.cmux.app is not wired
-# (.github/workflows/ios-app-store.yml still builds the classic ios/ app), so
-# `--config AppStore` runs only by hand. The bundle id must be the one
+# public App Store app, the record the classic ios/ app used, at the AppStore
+# configuration's own MARKETING_VERSION (1.0.0; the INTERNAL lane keeps the base
+# one). main's .github/workflows/ios-app-store.yml still builds the classic ios/
+# app; `--config AppStore` runs by hand or from the one-off rc/ upload workflow
+# (ios-appstore-next-review.yml on rc/cnx-ios-appstore-review), which archives
+# with --unsigned --no-asc and signs with --from-archive. The bundle id must be the one
 # project.yml gives the configuration, and the App Store Connect record must
 # have exactly that name and bundle id, or nothing is built.
 #
@@ -212,7 +214,7 @@ display_name=$(config_setting CMUX_MOBILE_DISPLAY_NAME)
 [[ -n "$display_name" ]] || die "$config sets no CMUX_MOBILE_DISPLAY_NAME in project.yml at $sha"
 
 # --- App Store Connect: credentials and the exact app record ----------------
-max_marketing="not checked (--no-asc)" max_build="not checked (--no-asc)"
+max_marketing="not checked (--no-asc)" max_build="not checked (--no-asc)" floor_kind="no App Store Connect check for"
 if [[ $no_asc == 0 ]]; then
 log "App Store Connect: profile, app record"
 [[ $ci_asc == 1 ]] || asc_ auth status --validate --output json | json '
@@ -229,13 +231,32 @@ print(a["name"]+"|"+a["bundleId"])')
 [[ "$record" == "$app_name|$bundle_id" ]] || die "app $app_id is \"$record\", expected \"$app_name|$bundle_id\""
 echo "app $app_id = $app_name ($bundle_id), key $asc_key_id"
 
-# --- Versions above everything already in cmux INTERNAL --------------------
+# --- Versions above everything already in the app record -------------------
+# TestFlight lanes: at or above the highest pre-release version (TestFlight
+# orders builds by it first). AppStore: above the last App Store version Apple
+# approved, the only floor App Store Connect enforces; the record keeps
+# pre-release trains (classic's 1.0.4, an earlier 1.2.0 upload) above the
+# App Store version 1.0.0, and a build of a lower open train still uploads.
 log "versions"
-max_marketing=$(asc_ testflight pre-release list --app "$app_id" --paginate --output json | json '
+if [[ $config == AppStore ]]; then
+  floor_kind="the last approved App Store version of" floor_op=gt floor_fail="is not above"
+  max_marketing=$(asc_ versions list --app "$app_id" --platform IOS --paginate --output json | json '
+import json,sys
+d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]["data"]
+approved={"ACCEPTED","PENDING_APPLE_RELEASE","PENDING_DEVELOPER_RELEASE","PROCESSING_FOR_APP_STORE",
+          "PROCESSING_FOR_DISTRIBUTION","READY_FOR_DISTRIBUTION","READY_FOR_SALE","PREORDER_READY_FOR_SALE",
+          "REPLACED_WITH_NEW_VERSION","REMOVED_FROM_SALE","DEVELOPER_REMOVED_FROM_SALE"}
+def state(a): return a.get("appVersionState") or a.get("appStoreState") or ""
+v=[tuple(map(int,x["attributes"]["versionString"].split("."))) for x in d if state(x["attributes"]) in approved]
+print(".".join(map(str,max(v))) if v else "0")')
+else
+  floor_kind="the highest version in" floor_op=ge floor_fail="is below"
+  max_marketing=$(asc_ testflight pre-release list --app "$app_id" --paginate --output json | json '
 import json,sys
 d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]
 v=[tuple(map(int,x["attributes"]["version"].split("."))) for x in d["data"]]
 print(".".join(map(str,max(v))) if v else "0")')
+fi
 max_build=$(asc_ builds list --app "$app_id" --paginate --output json | json '
 import json,sys
 d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]["data"]
@@ -244,13 +265,14 @@ print(max(v) if v else 0)')
 [[ -n "$marketing" ]] || marketing=$(config_setting MARKETING_VERSION)
 [[ -n "$marketing" ]] || marketing=$(awk '/^    MARKETING_VERSION:/{print $2; exit}' <<<"$project_yml")
 [[ "$marketing" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || die "marketing version '$marketing' is not X.Y.Z"
-python3 -I -c 'import sys; a,b=(tuple(map(int,x.split("."))) for x in sys.argv[1:]); sys.exit(0 if a>=b else 1)' "$marketing" "$max_marketing" \
-  || die "marketing version $marketing is below $max_marketing, the highest in $app_name; TestFlight would never offer it"
+python3 -I -c 'import sys; op,a,b=sys.argv[1],*(tuple(map(int,x.split("."))) for x in sys.argv[2:]); sys.exit(0 if (a>b if op=="gt" else a>=b) else 1)' \
+    "$floor_op" "$marketing" "$max_marketing" \
+  || die "marketing version $marketing $floor_fail $max_marketing, $floor_kind $app_name"
 [[ -n "$build_number" ]] || build_number=$(date -u +%Y%m%d%H%M%S)
 [[ "$build_number" =~ ^[0-9]+$ ]] || die "build number '$build_number' must be digits (the INTERNAL lane uses UTC timestamps)"
 python3 -I -c 'import sys; sys.exit(0 if int(sys.argv[1])>int(sys.argv[2]) else 1)' "$build_number" "$max_build" \
   || die "build number $build_number is not above $max_build, the latest $app_name build"
-echo "version $marketing ($build_number); $app_name has up to $max_marketing ($max_build)"
+echo "version $marketing ($build_number); floor $max_marketing ($floor_kind $app_name), latest build $max_build"
 else
   log "App Store Connect: skipped (--no-asc)"
   [[ "$marketing" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || die "marketing version '$marketing' is not X.Y.Z"
@@ -745,7 +767,7 @@ fi
 | Commit | \`$sha\` ($(git -C "$repo" log -1 --format='%s' "$sha")) |
 | Built | $(date -u +%Y-%m-%dT%H:%M:%SZ) on $(scutil --get LocalHostName 2>/dev/null || hostname), $(xcodebuild -version | head -1) |
 | App Store Connect | "$app_name", app id $app_id, bundle \`$bundle_id\` |
-| Version | $marketing ($build_number); $app_name had up to $max_marketing ($max_build) |
+| Version | $marketing ($build_number); floor $max_marketing ($floor_kind $app_name), latest build $max_build |
 | Configuration | $config: -O, \`$(config_setting SWIFT_ACTIVE_COMPILATION_CONDITIONS)\`, no DEBUG; Stack project \`$stack_project\`; Cloud \`$cloud_api_base\` |
 | Service | \`$api_base\` |
 | Signing | $signing |

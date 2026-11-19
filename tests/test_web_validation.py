@@ -13,8 +13,6 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import web_validation as gate
-sys.path.insert(0, str(ROOT / "tests"))
-from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -216,21 +214,29 @@ class WebValidationTests(unittest.TestCase):
                 self.assertIn("path: ~/.bun/install/cache", block)
                 self.assertIn(f"hashFiles('{lockfile}')", block)
 
-    def test_webviews_tests_run_on_a_runner_with_room_for_the_suite(self):
+    def test_webviews_tests_run_on_a_runner_that_starts_jobs_at_widths_that_fit_it(self):
         """`bun test` in webviews grows memory across the suite: on the 4 vCPU runner
-        (vars.LINUX_RUNNER) it was SIGKILLed, exit 137, twice in run 37666132324."""
+        (vars.LINUX_RUNNER) it was SIGKILLed, exit 137, twice in run 37666132324, running as many
+        files at once as a 16 vCPU runner. On 2026-11-18 RUNNER_POOLS.linux_16 held 2 vCPU after its
+        writer marked the large sizes dead: shards ran 8 files at once there into the 40 min limit
+        (run 44249075431) or queued over an hour (run 44304196887). The shards now read the 4 vCPU
+        pool (linux_4), run the declared 16 vCPU widths at the share of cores the runner has
+        (CMUX_WEB_TEST_SIZED_FOR_VCPU, run-webviews-tests.sh), and get the minutes that takes
+        (tests/test_webviews_test_history.py ShardSize evaluates each arm)."""
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
         start = workflow.index("  react-apps-check-shard:")
         match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
         block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
-        # A fork keeps its label; this is what every other run takes.
-        runs_on = unwrap_fork_pool_reads(re.search(r"^    runs-on: (.+)$", block, re.MULTILINE).group(1))
+        runs_on = re.search(r"^    runs-on: (.+)$", block, re.MULTILINE).group(1)
         self.assertIn("scripts/ci/run-webviews-tests.sh", block)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
-        self.assertNotIn("4vcpu", runs_on)
-        # 16 vCPU (memory for the suite at half the 32 vCPU price), failing over to 32.
-        self.assertTrue(runs_on.endswith("fromJSON(vars.RUNNER_POOLS).linux_16 }}"), runs_on)
-        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_32", runs_on)
+        self.assertNotIn("linux_16", runs_on)
+        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
+        sized_for = int(re.search(r'^          CMUX_WEB_TEST_SIZED_FOR_VCPU: "(\d+)"$', block, re.MULTILINE).group(1))
+        sizes = re.findall(r"'blacksmith-(\d+)vcpu-ubuntu-2404'|RUNNER_POOLS\)\.linux_(\d+)", runs_on)
+        for vcpu in (int(a or b) for a, b in sizes):
+            self.assertLessEqual(vcpu, sized_for, "the widths only narrow to fit a runner, never widen")
+        self.assertIn("CMUX_WEB_TEST_JOB_MINUTES: *webview-shard-minutes", block)
 
     def test_webviews_tests_shard_on_wide_runners(self):
         """Two 8 vCPU shards each ran about 65 dev-server files two at a time for 12 of
@@ -250,7 +256,7 @@ class WebValidationTests(unittest.TestCase):
         shards = [int(n) for n in re.findall(r"^          - shard: (\d+)$", block, re.MULTILINE)]
         counts = set(re.findall(r"^            shard_count: (\d+)$", block, re.MULTILINE))
         self.assertEqual(len(shards), 12)
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_16 }}", unwrap_fork_pool_reads(block))
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4 }}", block)
         self.assertEqual(shards, list(range(1, len(shards) + 1)))
         self.assertEqual(counts, {str(len(shards))})
         base_start = workflow.index("  react-apps-base-check:")
