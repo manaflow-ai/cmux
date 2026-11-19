@@ -118,6 +118,28 @@ public final class AgentTranscriptCache: @unchecked Sendable {
         return entry
     }
 
+    /// The same bounded head read as ``firstScreen(_:)``, with file I/O and JSON decoding on the
+    /// utility queue. The synchronous method remains for callers that already run outside launch;
+    /// relaunch restore uses this form so a large kept transcript cannot block the main actor before
+    /// the chat composer appears.
+    @MainActor public func firstScreenOffMain(_ key: String) async -> AgentTranscriptEntry? {
+        if let held = cached(key) { return held }
+        if let lastHead, lastHead.key == key { return lastHead.entry }
+        let url = headFile(for: key)
+        let started = generation
+        let read: AgentTranscriptEntry? = await withCheckedContinuation { continuation in
+            queue.async {
+                let data = try? Data(contentsOf: url)
+                continuation.resume(returning: data.flatMap { try? JSONDecoder().decode(AgentTranscriptEntry.self, from: $0) })
+            }
+        }
+        guard started == generation else { return nil }
+        // A save during the read is newer than the head file we opened.
+        if let held = cached(key) { return held }
+        if let read { lastHead = (key, read) }
+        return read
+    }
+
     /// The entry for `key`: from memory, else read from disk off the main thread.
     @MainActor public func load(_ key: String) async -> AgentTranscriptEntry? {
         if let held = cached(key) { return held }
