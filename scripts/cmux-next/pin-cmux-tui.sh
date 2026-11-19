@@ -457,7 +457,7 @@ else:
 # Prints how the active cmux-tui artifacts runs of commit <sha> are doing, one line,
 # from their jobs, so a waiter follows the run's live state instead of only "active":
 #   building             a run is making progress: nothing below holds for it
-#   failed <job>: <url>  every active run has a failed build or publish job on its last
+#   failed <job>: <url>  every active run has a failed preflight, build or publish job on its last
 #                        retry attempt, so none publishes the tree
 #   stalled <what>       every active run is stuck: a job (or the run itself, with no
 #                        jobs yet) has waited for a runner longer than
@@ -496,9 +496,9 @@ for r in runs:
 import datetime, json, os, re, sys
 jobs_dir, now, stall, web = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
 runs = {str(r.get("id")): r for r in json.load(open(os.path.join(jobs_dir, "runs.json")))["workflow_runs"] if isinstance(r, dict)}
-# Jobs whose failure means the run publishes no tree: the builds and the publish. The
+# Jobs whose failure means the run publishes no tree: preflight, builds and publish. The
 # primary macOS leg is left out: build-darwin-fallback rebuilds it when it fails.
-REQUIRED = re.compile(r"^(build(-linux|-darwin-fallback)?( / |$)|publish (to R2|tree-addressed))")
+REQUIRED = re.compile(r"^(cmux-tui tree preflight$|build(-linux|-darwin-fallback)?( / |$)|publish (to R2|tree-addressed))")
 DARWIN_PRIMARY = re.compile(r"^build / .*-apple-darwin")
 # cmux-tui-artifacts-retry re-runs a failed run's failed jobs until attempt MAX_ATTEMPTS
 # (scripts/ci/cmux_tui_artifacts_retry.py): before the last attempt a failure is not final
@@ -519,7 +519,7 @@ for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
     if bad and int(run.get("run_attempt") or 1) >= MAX_ATTEMPTS:
         failed.append(f"{bad[0]['name']}: {url}")
         continue
-    # Only a build or publish job holds the tree back; a shadow or upload job may queue.
+    # Preflight, build and publish jobs hold the tree back; a shadow or upload job may queue.
     waiting = [j for j in jobs if j.get("status") in ("queued", "waiting", "pending") and not j.get("runner_name")
                and REQUIRED.match(j.get("name", ""))]
     late = [j for j in waiting if age(j.get("created_at")) >= stall]
