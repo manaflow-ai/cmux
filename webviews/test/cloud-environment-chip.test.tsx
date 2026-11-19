@@ -81,7 +81,10 @@ const environments = [
 ];
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test/",
+  });
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -118,7 +121,11 @@ beforeEach(async () => {
     native.push([method, params]);
     if (method === "cloud.environment.list") return environments;
     if (method === "cloud.environment.create")
-      return { ...environments[1], id: "env_new", name: (params.environment as { name: string }).name };
+      return {
+        ...environments[1],
+        id: "env_new",
+        name: (params.environment as { name: string }).name,
+      };
     return {};
   });
 });
@@ -128,7 +135,9 @@ afterEach(async () => {
   root = undefined;
   host.replaceChildren();
   (await import("../src/agent-session/acpmux/native")).setNativeHost(undefined);
-  (await import("../src/agent-session/acpmux/composerSettings")).setComposerSettings({ cloudEnvironments: false });
+  (await import("../src/agent-session/acpmux/composerSettings")).setComposerSettings({
+    cloudEnvironments: false,
+  });
 });
 
 afterAll(async () => {
@@ -139,7 +148,7 @@ afterAll(async () => {
 const flush = () => act(async () => await new Promise((done) => setTimeout(done, 0)));
 
 /// App.tsx's hold of a new chat's pick (useChatCloudEnvironment): the harness's chat and its send.
-let chatSend: ((explicit?: string) => string | undefined) | undefined;
+let chatSend: ((explicit?: string, retry?: string) => string | undefined) | undefined;
 
 async function mount({ flag, mode, chat: firstChat }: { flag: boolean; mode: "persistent" | "cloud"; chat?: string }) {
   let chat = firstChat;
@@ -150,14 +159,22 @@ async function mount({ flag, mode, chat: firstChat }: { flag: boolean; mode: "pe
   function Held(props: Parameters<typeof ComposerContext>[0] & { chat: string }) {
     const { chat: key, ...rest } = props;
     const held = useChatCloudEnvironment(key);
-    chatSend = (explicit) => held.forSend(explicit);
+    chatSend = (explicit, retry) => held.forSend(explicit, retry);
     return <ComposerContext {...rest} runMode={{ ...rest.runMode!, environment: held.pick }} />;
   }
-  (await import("../src/agent-session/acpmux/composerSettings")).setComposerSettings({ cloudEnvironments: flag });
+  (await import("../src/agent-session/acpmux/composerSettings")).setComposerSettings({
+    cloudEnvironments: flag,
+  });
   const props = {
     environments: true,
     stripLayout: "where-machine",
-    summary: { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local", cwd: "/Users/you/src/cmux" },
+    summary: {
+      sessionId: "",
+      harness: "claude",
+      host: "This Mac",
+      hostKind: "local",
+      cwd: "/Users/you/src/cmux",
+    },
     localName: "studio-mac",
     projectChoices: [{ cwd: "/Users/you/src/cmux", label: "cmux" }],
     onProject: () => undefined,
@@ -337,6 +354,50 @@ test("cloud.startChat's payload: Auto and the flag off send today's; a pick goes
   expect(own).toBe("env_web");
 });
 
+test("a failed start retains its environment unless the person picks another target, including Auto", async () => {
+  const { rememberEnvironment } = await import("../src/agent-session/acpmux/cloudEnvironmentChoice");
+  // The menu shows remembered targets after the first pick; both choices must belong to this folder.
+  rememberEnvironment("/Users/you/src/cmux", "env_web");
+  rememberEnvironment("/Users/you/src/cmux", "env_gpu");
+  await mount({ flag: true, mode: "cloud", chat: "retry-chat" });
+  const { cloudStartKeys, startCloudChat } = await import("../src/agent-session/acpmux/cloudRun");
+  const keys = cloudStartKeys();
+  const first = { task: "Fix the build", cwd: "/project", environment: "env_gpu" };
+  const key = keys.keyFor(first);
+  keys.ended(first, { ok: false, code: "setup_failed", message: "Environment setup failed." });
+  const send = (retry?: string, explicit?: string) => {
+    let result: string | undefined;
+    act(() => void (result = chatSend!(explicit, retry)));
+    return result;
+  };
+  const pick = async (label: string) => {
+    await openChip();
+    const target = row(label);
+    expect(target).toBeDefined();
+    await act(async () => target!.click());
+    await flush();
+  };
+  await pick("GPU training");
+  const failedEnvironment = send();
+  expect(failedEnvironment).toBe("env_gpu");
+  // Send reset the chip to Auto; repairing or cancelling the editor makes no new pick.
+  const retried = { ...first, environment: send(failedEnvironment) };
+  expect(retried.environment).toBe("env_gpu");
+  expect(keys.keyFor(retried)).toBe(key);
+  const sent: unknown[] = [];
+  await startCloudChat(async (method, params) => void sent.push({ method, params }), retried, keys.keyFor(retried));
+  expect(sent).toEqual([{ method: "cloud.startChat", params: { ...first, key } }]);
+  await pick("atlas-web");
+  expect(send(failedEnvironment)).toBe("env_web");
+  await pick(t("composer.envAuto"));
+  expect(send(failedEnvironment)).toBeUndefined();
+  // A changed draft supplies no retry, so it never inherits the previous target.
+  expect(send()).toBeUndefined();
+  // Explicit page starts still name their own environment.
+  await pick("GPU training");
+  expect(send(failedEnvironment, "env_web")).toBe("env_web");
+});
+
 test("the GUI hooks: the chip and every drop-up row carry a stable test id", async () => {
   await mount({ flag: true, mode: "cloud" });
   expect(host.querySelector('[data-testid="cloud-environment-chip"] button[data-menu="Environment"]')).toBe(
@@ -419,7 +480,11 @@ test("the rows' model: order, the picked one never hidden, Edit names Auto's env
     kind: "environment",
     environment: { id: "z", name: "Z" },
   });
-  const auto = { ...control, current: choice.AUTO_ENVIRONMENT, auto: { id: "env_default", name: "Default" } };
+  const auto = {
+    ...control,
+    current: choice.AUTO_ENVIRONMENT,
+    auto: { id: "env_default", name: "Default" },
+  };
   expect(choice.cloudEnvironmentRows(auto, "Auto").find((row) => row.kind === "edit")).toEqual({
     kind: "edit",
     name: "Default",
@@ -447,5 +512,8 @@ test("the recent list: remembered per folder, most recent first, only environmen
     "env_web",
     "env_gpu",
   ]);
-  expect(choice.autoEnvironment(environments as never)).toEqual({ id: "env_default", name: "Default" });
+  expect(choice.autoEnvironment(environments as never)).toEqual({
+    id: "env_default",
+    name: "Default",
+  });
 });

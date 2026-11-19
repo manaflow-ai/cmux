@@ -612,6 +612,7 @@ import {
   type CloudStartProgress,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
+import { openCloudEnvironment } from "./cloudEnvironment";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
 import { cloudPlanHoldsSend } from "./cloudPlans";
 import { startAfterSignIn, waitForCloudSignIn, type CloudSignInWait } from "./cloudSignIn";
@@ -5254,7 +5255,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       return false;
     }
     // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
-    const environment = cloudEnvironment.forSend(start.environment);
+    // A failed start's environment is part of the preserved intent. The picker resets to Auto after
+    // the first send, so same-key Retry must use the card's target instead of silently provisioning Auto.
+    const retryEnvironment =
+      cloudStart?.state === "failed" && cloudStart.task === text ? cloudStart.environment : undefined;
+    const environment = cloudEnvironment.forSend(start.environment, retryEnvironment);
     const reservationKey = cloudReservation.handoff(environment);
     const team = cloudSwitchTeam.forSend();
     const request: CloudStart = {
@@ -5431,6 +5436,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         start.home,
         signingIn,
         setUpNeed,
+        start.environment,
       ),
     );
     void started.then((answer) => {
@@ -13798,6 +13804,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                   onDismiss={dismissCloudFailure}
                                   onSwitchTeam={switchTeamAndRetry}
                                   onOpenNewCloudChat={openNewCloudChatForStart}
+                                  onOpenEnvironment={({ environmentId, repository, section }) =>
+                                    openCloudEnvironment({ environmentId, repo: repository, section })
+                                  }
                                   {...cloudTooBigActions}
                                   onSetUp={setUpCloud}
                                   onSetUpDismiss={dismissCloudSetUp}
@@ -14355,6 +14364,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     onDismiss={dismissCloudFailure}
                     onSwitchTeam={switchTeamAndRetry}
                     onOpenNewCloudChat={openNewCloudChatForStart}
+                    onOpenEnvironment={({ environmentId, repository, section }) =>
+                      openCloudEnvironment({ environmentId, repo: repository, section })
+                    }
                     {...cloudTooBigActions}
                     onSetUp={setUpCloud}
                     onSetUpDismiss={dismissCloudSetUp}
