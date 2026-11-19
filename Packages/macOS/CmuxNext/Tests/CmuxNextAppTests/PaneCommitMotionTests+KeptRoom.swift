@@ -179,10 +179,67 @@ extension PaneCommitMotionTests {
         #expect(Self.keepsInOrder([first, second], on: screen), "the 2 panes that left are not under each pane of the layout, the first under the second")
     }
 
+    /// A hold of the close key, 3 keys: each key closes the pane that has the focus, in the move of the key before.
+    /// The 3 panes that left stay under each pane of the layout in the order of their closes. Each has its own
+    /// `zPosition`: lower than that of the pane that left after it, and the last one's is lower than that of each
+    /// pane of the layout. So the order does not come from the order of the screen's views.
+    @Test func afterAHoldOfTheCloseKeyThePanesThatLeftStayInTheOrderOfTheirCloses() throws {
+        let harness = Commit.Harness(Commit.screen(Self.tree(6)), focused: "p", holds: false) { $0.splitSizingOverride = .even }
+        defer { harness.window.closeAfterTest() }
+        Self.movePanes(harness)
+        Commit.rest(harness)
+        let screen = try #require(harness.screen)
+        let rest = Self.hosts(of: screen)
+        var left: [PaneHostView] = []
+        for key in 1...3 {
+            let pane = try #require(harness.model.focusedPane, "SETUP: no pane has the focus before key \(key)")
+            let host = try #require(rest[pane], "SETUP: the pane \(pane) of key \(key) did not show at rest")
+            _ = try #require(harness.model.showPaneClose(pane), "SETUP: the model does not show the close of \(pane) at key \(key)")
+            harness.root.syncWithModel()
+            _ = harness.root.advanceFrame(Self.dt)
+            left.append(host)
+        }
+        try #require(Set(left.map { ObjectIdentifier($0) }).count == 3 && left.allSatisfy { $0.isLeaving && !$0.isHidden },
+                     "SETUP: the move does not keep the 3 panes that left")
+        #expect(Self.keepsInOrder(left, on: screen), "the 3 panes that left are not under each pane of the layout in the order of their closes")
+        let heights = left.map { $0.layer?.zPosition ?? 0 }
+        let lowest = Self.hosts(of: screen).values.filter { !$0.isLeaving }.map { $0.layer?.zPosition ?? 0 }.min() ?? 0
+        #expect(heights[0] < heights[1] && heights[1] < heights[2] && heights[2] < lowest,
+                "the 3 panes that left have the `zPosition` values \(heights); the lowest pane of the layout has \(lowest)")
+    }
+
+    /// A divider's line can have a colour with alpha: it is no ground. At the end of a close's move the 2 panes that
+    /// came over the pane that left have the room of one divider between them. The pane that left shows in that
+    /// room only, in no more than the room's width along its own length, and through no pane. The motion's end
+    /// hides it.
+    @Test(arguments: ["3 rows", "3 side by side"])
+    func atTheEndOfACloseThePaneThatLeftShowsOnlyInTheRoomOfOneDivider(_ scene: String) throws {
+        let between = Self.between(scene)
+        let harness = Commit.Harness(between.screens, focused: between.closes, holds: false) { $0.splitSizingOverride = between.even ? .even : .halve }
+        defer { harness.window.closeAfterTest() }
+        Self.movePanes(harness)
+        Commit.rest(harness)
+        let screen = try #require(harness.screen)
+        let closed = try #require(Self.hosts(of: screen)[between.closes], "SETUP: the pane that closes does not show at rest")
+        let place = closed.frame, room = Self.margin(among: Array(Self.hosts(of: screen).values)) - 1
+
+        _ = try #require(harness.model.showPaneClose(between.closes), "SETUP: the model does not show the close of \(between.closes)")
+        harness.root.syncWithModel()
+        _ = harness.root.advanceFrame(Self.dt)
+        try #require(closed.isLeaving && !closed.isHidden, "SETUP: the move does not keep the pane that left")
+        let end: CGFloat = 1
+        let under = Self.kept(closed, on: screen, at: end)
+        let shown = under.area(in: under.shows), most = room * max(place.width, place.height) + 1
+        #expect(under.through < 1, "at the end of the close's move the pane \(closed.pane) that left shows in \(under.through) pt2 through a pane over it")
+        #expect(shown <= most, "at the end of the close's move the pane \(closed.pane) that left shows in \(shown) pt2; the room of one divider (\(room) pt) along it is \(most) pt2")
+        Commit.rest(harness)
+        #expect(closed.isHidden || closed.superview == nil, "at rest after the close the pane that left still shows")
+    }
+
     /// A change in the move takes a kept pane back into the layout: an unzoom in the zoom's move, and, in a close's
     /// move, the layout with the closed pane again (a close that was refused). In the frame that shows that
-    /// change the pane has no mask on its clip: it shows whole again. After the close the panes still move in that
-    /// frame: the motion did not end, so its end did not take the mask.
+    /// change the pane has no mask on its clip: it shows whole again. No move puts a mask on a pane's clip, so this
+    /// row is a guard: it is red if a change makes one and keeps it on a pane that came back.
     @Test(arguments: [true, false])
     func aPaneThatComesBackInTheMoveHasNoMask(zoomed: Bool) throws {
         let alone = try Self.alone(zoomed: zoomed)

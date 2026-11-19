@@ -56,14 +56,19 @@ extension PaneCommitMotionTests {
     }
 
     /// The pair with its lowest pane alone after a close, then that pane split again in the close's move, with the
-    /// frame that shows the split stepped. `colour`: the window gets this colour between the 2 acts.
-    static func closeThenSplit(colour: NSColor? = nil) throws -> (alone: Alone, left: PaneHostView, came: PaneHostView) {
+    /// frame that shows the split stepped. `colour`: the window gets this colour between the 2 acts. `seeThrough`:
+    /// between the 2 acts the window stops being opaque.
+    static func closeThenSplit(colour: NSColor? = nil, seeThrough: Bool = false) throws -> (alone: Alone, left: PaneHostView, came: PaneHostView) {
         let alone = try Self.alone(zoomed: false)
         var begun = false
         defer { if !begun { alone.harness.window.closeAfterTest() } }
         let left = try #require(alone.screen.subviews.compactMap { $0 as? PaneHostView }.first { $0 !== alone.host && !$0.isHidden },
                                 "SETUP: the pane that left does not show in the close's move")
         if let colour { alone.harness.window.backgroundColor = colour }
+        if seeThrough {
+            alone.harness.window.isOpaque = false
+            alone.harness.window.backgroundColor = NSColor.white.withAlphaComponent(0.01)
+        }
         let halves = SplitNode.split(SplitID("again"), axis: .horizontal, ratio: 0.5, a: .leaf(alone.host.pane), b: .leaf(Commit.added))
         alone.harness.model.apply(screens: Commit.screen(halves))
         alone.harness.root.syncWithModel()
@@ -75,19 +80,20 @@ extension PaneCommitMotionTests {
     }
 
     /// A close, then a split of the pane that grows, in the close's move: 2 panes with one edge between them, each
-    /// with the moves of its acts, where the pane that left was. The pass that shows the split hides the pane that
-    /// left; a move that keeps it shows it nowhere under those 2 panes, and through none of them.
+    /// with the moves of its acts, where the pane that left was. A split takes no pane out, so its pass hides none:
+    /// the close's move keeps the pane that left to its end. That pane shows nowhere under those 2 panes, and
+    /// through none of them.
     @Test func afterACloseThenASplitThePaneThatLeftShowsNowhereUnderThePanesOverIt() throws {
         let scene = try Self.closeThenSplit()
         defer { scene.alone.harness.window.closeAfterTest() }
         let screen = scene.alone.screen, acts = Self.acts(on: screen)
-        let kept = scene.left.isHidden ? [] : [scene.left]
+        try #require(!scene.left.isHidden && scene.left.isLeaving, "SETUP: the split's pass hid the pane that left, or took it back: the row has no kept pane to read")
+        let kept = [scene.left]
         let margin = Self.margin(among: [scene.alone.host, scene.came])
         for (early, late) in [(0.5, 0), (0.75, 0.25), (0.9, 0.5), (1, 0.75), (1, 1)] as [(CGFloat, CGFloat)] {
             Self.expectKept(kept, on: screen, margin: margin, "with the close at \(early) and the split at \(late)") { $0 == acts[1] ? late : early }
         }
         #expect(Self.keepsInOrder(kept, on: screen), "the pane that left is not under each pane of the layout")
-        #expect(scene.left.isHidden || scene.left.isLeaving, "the pane that left shows again as a pane of the layout")
     }
 
     /// The window's colour changes in a move (a theme change): the pass of the next act gives each pane that has the
