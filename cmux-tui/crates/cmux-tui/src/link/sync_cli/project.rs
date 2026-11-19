@@ -504,8 +504,15 @@ fn keep_base(folder: &Path, at: &str, listed: &Listed) -> anyhow::Result<()> {
         );
     }
     let git = local::GitDirs::of(folder)?.map(|_| super::git_back::base_of(folder)).transpose()?;
-    let base =
-        super::Manifest { version: 1, files, git, links: listed.links.clone(), projected: true };
+    let repos = super::git_back::nested_bases(folder, files.keys());
+    let base = super::Manifest {
+        version: 1,
+        files,
+        git,
+        links: listed.links.clone(),
+        projected: true,
+        repos,
+    };
     super::base::save(folder, at, &base)
 }
 

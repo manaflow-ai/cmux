@@ -204,7 +204,13 @@ type Skip = String;
 
 /// Makes the Mac's folder with `fill`, then projects it.
 fn trip(case: &str, fill: impl FnOnce(&Side, &Path)) -> Result<Trip, Skip> {
-    if !fuse_here() {
+    trip_as(case, true, fill)
+}
+
+/// Makes the Mac's folder with `fill`, then starts the chat from it: projected, or (`projected`
+/// false, with projection turned off) copied as before.
+fn trip_as(case: &str, projected: bool, fill: impl FnOnce(&Side, &Path)) -> Result<Trip, Skip> {
+    if projected && !fuse_here() {
         return Err("no FUSE here".into());
     }
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
@@ -226,6 +232,7 @@ fn trip(case: &str, fill: impl FnOnce(&Side, &Path)) -> Result<Trip, Skip> {
         .arg(&local)
         .arg("--work-root")
         .arg(machine.side.home.join("work"))
+        .env("CMUX_PROJECTED_FOLDERS", if projected { "1" } else { "0" })
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -238,6 +245,10 @@ fn trip(case: &str, fill: impl FnOnce(&Side, &Path)) -> Result<Trip, Skip> {
     assert_eq!(answer["ok"], true, "start-chat copy: {stdout}{stderr}");
     let folder = PathBuf::from(answer["folder"].as_str().unwrap());
     let trip = Trip { mac, machine, local, folder, root };
+    if !projected {
+        assert_ne!(answer["mode"], "projected", "{answer}");
+        return Ok(trip);
+    }
     if answer["mode"] != "projected" {
         if stderr.contains("mount failed") {
             return Err(format!("this host may not mount FUSE: {stderr}"));
@@ -605,25 +616,138 @@ fn a_second_bring_back_takes_the_later_edits() {
     assert_eq!(again["deleted"], 0, "{again}");
 }
 
+/// `~/Projects`' shape (hard case 12): `api` and `web`, two repositories, and `notes.md` beside
+/// them, in a folder that is not a repository itself.
+fn parent_of_repositories(side: &Side, at: &Path) {
+    for name in ["api", "web"] {
+        let repo_at = at.join(name);
+        fs::create_dir_all(&repo_at).unwrap();
+        repo(side, &repo_at);
+    }
+    write(&at.join("notes.md"), "notes\n");
+}
+
 /// `~/Projects`' shape (hard case 12): a folder of repositories, not one itself. An edit in one of
 /// them comes back, and that repository's `git status` reads the same on both sides.
 #[test]
-#[ignore = "follow-up: Bring Back fences nested repositories, so an edit inside one stays on the machine (copies too); needs a pull per repository"]
 fn an_edit_in_a_repository_of_a_parent_folder_comes_back() {
-    let t = trip_or_skip!("parent", |side, at| {
-        for name in ["api", "web"] {
-            let repo_at = at.join(name);
-            fs::create_dir_all(&repo_at).unwrap();
-            repo(side, &repo_at);
-        }
-        write(&at.join("notes.md"), "notes\n");
-    });
+    let t = trip_or_skip!("parent", parent_of_repositories);
     write(&t.at("api/src/a.txt"), "alpha, edited on the machine\n");
     write(&t.at("notes.md"), "notes, edited on the machine\n");
     let answer = t.brought_back();
     assert_eq!(read(&t.mac("notes.md")), "notes, edited on the machine\n", "{answer}");
     assert_eq!(read(&t.mac("api/src/a.txt")), "alpha, edited on the machine\n", "{answer}");
     assert_eq!(t.mac.status(&t.mac("api")), t.machine.side.status(&t.at("api")));
+}
+
+/// Edits in two repositories of a parent folder and in the parent's own files come back in one
+/// Bring Back, each repository's `git status` reading the same on both sides.
+#[test]
+fn edits_in_two_repositories_and_the_parent_come_back_together() {
+    let t = trip_or_skip!("parent-two", parent_of_repositories);
+    parent_edits_come_back(&t);
+}
+
+/// The same for a copied chat (projection off): its Bring Back is the same pull.
+#[test]
+fn edits_in_two_repositories_of_a_copied_parent_folder_come_back_together() {
+    let t = trip_as("parent-copy", false, parent_of_repositories).unwrap();
+    parent_edits_come_back(&t);
+}
+
+fn parent_edits_come_back(t: &Trip) {
+    write(&t.at("api/src/a.txt"), "alpha of api, edited on the machine\n");
+    write(&t.at("web/src/b.txt"), "bravo of web, edited on the machine\n");
+    write(&t.at("web/src/new.txt"), "new in web\n");
+    t.on_machine("rm api/src/deep/c.txt");
+    write(&t.at("notes.md"), "notes, edited on the machine\n");
+    let answer = t.brought_back();
+    assert_eq!(read(&t.mac("api/src/a.txt")), "alpha of api, edited on the machine\n", "{answer}");
+    assert_eq!(read(&t.mac("web/src/b.txt")), "bravo of web, edited on the machine\n", "{answer}");
+    assert_eq!(read(&t.mac("web/src/new.txt")), "new in web\n", "{answer}");
+    assert!(!t.mac("api/src/deep/c.txt").exists(), "{answer}");
+    assert_eq!(read(&t.mac("notes.md")), "notes, edited on the machine\n", "{answer}");
+    assert_eq!(answer["repositories"], serde_json::json!(["api", "web"]), "{answer}");
+    for name in ["api", "web"] {
+        assert_eq!(t.mac.status(&t.mac(name)), t.machine.side.status(&t.at(name)), "{name}");
+    }
+    assert_eq!(t.mac.status(&t.mac("api")), " M src/a.txt\n D src/deep/c.txt\n");
+    // Nothing new: nothing moves.
+    let again = t.brought_back();
+    assert_eq!(again["written"], 0, "{again}");
+    assert_eq!(again["deleted"], 0, "{again}");
+}
+
+/// A conflict in one repository of a parent folder: nothing of any repository or of the parent
+/// changes on the Mac, and the answer names the repository.
+#[test]
+fn a_conflict_in_one_repository_leaves_every_repository_unapplied() {
+    let t = trip_or_skip!("parent-conflict", parent_of_repositories);
+    write(&t.at("api/src/a.txt"), "alpha of api, edited on the machine\n");
+    write(&t.at("notes.md"), "notes, edited on the machine\n");
+    write(&t.at("web/src/a.txt"), "alpha of web, edited on the machine\n");
+    std::thread::sleep(Duration::from_millis(20));
+    write(&t.mac("web/src/a.txt"), "alpha of web, edited on the mac\n");
+    let answer = t.bring_back();
+    assert_eq!(answer["error_code"], "sync_conflict", "{answer}");
+    assert_eq!(answer["conflicts"], serde_json::json!(["web/src/a.txt"]), "{answer}");
+    assert!(answer["error"].as_str().unwrap().contains("web: this repository"), "{answer}");
+    assert_eq!(read(&t.mac("web/src/a.txt")), "alpha of web, edited on the mac\n");
+    assert_eq!(read(&t.mac("api/src/a.txt")), "alpha\n", "{answer}");
+    assert_eq!(read(&t.mac("notes.md")), "notes\n", "{answer}");
+    assert_eq!(t.mac.status(&t.mac("api")), "", "{answer}");
+}
+
+/// Both sides committed in one repository of a parent folder: its branch is the conflict
+/// (`web/.git/HEAD`), and the other repository's edit stays on the machine with it.
+#[test]
+fn a_branch_moved_on_both_sides_in_one_repository_leaves_every_repository_unapplied() {
+    let t = trip_or_skip!("parent-branch", parent_of_repositories);
+    write(&t.at("api/src/a.txt"), "alpha of api, edited on the machine\n");
+    write(&t.at("web/src/a.txt"), "alpha of web, committed on the machine\n");
+    t.machine.side.git(&t.at("web"), &["commit", "-qam", "on the machine"]);
+    write(&t.mac("web/src/b.txt"), "bravo of web, committed on the mac\n");
+    t.mac.git(&t.mac("web"), &["commit", "-qam", "on the mac"]);
+    let mac_head = t.mac.git(&t.mac("web"), &["rev-parse", "HEAD"]);
+    let answer = t.bring_back();
+    assert_eq!(answer["error_code"], "sync_conflict", "{answer}");
+    let conflicts = answer["conflicts"].to_string();
+    assert!(conflicts.contains("web/.git/HEAD"), "{answer}");
+    assert_eq!(t.mac.git(&t.mac("web"), &["rev-parse", "HEAD"]), mac_head);
+    assert_eq!(read(&t.mac("web/src/a.txt")), "alpha\n", "{answer}");
+    assert_eq!(read(&t.mac("api/src/a.txt")), "alpha\n", "{answer}");
+}
+
+/// A commit on the machine in one repository of a parent folder fast-forwards that repository's
+/// branch on the Mac; the other repository's stays.
+#[test]
+fn a_commit_in_a_repository_of_a_parent_folder_fast_forwards_it() {
+    let t = trip_or_skip!("parent-commit", parent_of_repositories);
+    nested_commit_fast_forwards(&t);
+}
+
+/// The same for a copied chat.
+#[test]
+fn a_commit_in_a_repository_of_a_copied_parent_folder_fast_forwards_it() {
+    let t = trip_as("parent-copy-commit", false, parent_of_repositories).unwrap();
+    nested_commit_fast_forwards(&t);
+}
+
+fn nested_commit_fast_forwards(t: &Trip) {
+    let web_head = t.mac.git(&t.mac("web"), &["rev-parse", "HEAD"]);
+    write(&t.at("api/src/a.txt"), "alpha of api, committed on the machine\n");
+    t.machine.side.git(&t.at("api"), &["commit", "-qam", "on the machine"]);
+    let answer = t.brought_back();
+    assert_eq!(answer["fast_forwarded"], true, "{answer}");
+    assert_eq!(answer["fast_forwarded_repositories"], serde_json::json!(["api"]), "{answer}");
+    assert_eq!(
+        t.mac.git(&t.mac("api"), &["rev-parse", "HEAD"]),
+        t.machine.side.git(&t.at("api"), &["rev-parse", "HEAD"])
+    );
+    assert_eq!(read(&t.mac("api/src/a.txt")), "alpha of api, committed on the machine\n");
+    assert_eq!(t.mac.status(&t.mac("api")), "", "{answer}");
+    assert_eq!(t.mac.status(&t.mac("api")), t.machine.side.status(&t.at("api")));
+    assert_eq!(t.mac.git(&t.mac("web"), &["rev-parse", "HEAD"]), web_head);
 }
 
 /// A seeded randomized round trip, after cmux#45882's (the same seeds and promises, adapted to

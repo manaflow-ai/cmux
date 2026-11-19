@@ -26,8 +26,17 @@
 //! names anything but plain names is refused; no path that reaches a
 //! repository folder under any spelling (`.GIT`, `git~1`, ...: see
 //! [`super::names`]) comes back, and no folder holding one (a nested
-//! repository) either. Files are read with their revision checked before
-//! and after, streamed to disk.
+//! repository) as part of the folder. Files are read with their revision
+//! checked before and after, streamed to disk.
+//!
+//! A repository inside the folder that both sides have as a `.git` folder
+//! (a folder of repositories such as `~/Projects`, RFD 0007 hard case 12)
+//! comes back by a pull of its own, under its ignore rules and through its
+//! own git leg against the base recorded for it (`Manifest::repos`). Every
+//! one is planned before anything here changes, so a conflict in any one,
+//! named under its folder, leaves all of them as they were; the files of
+//! all of them then move as one transaction, and the branches in order, a
+//! branch that can't move putting back the ones before it.
 //!
 //! On any conflict none of this Mac's files change: the answer is
 //! `{"ok":false,"error_code":"sync_conflict","conflicts":[paths],
@@ -184,16 +193,358 @@ fn pull_based(
     let staging = Staging::make(git.as_ref().map_or(&local, |dirs| &dirs.own))?;
     let root = Dir::open(&local)?;
 
-    let hooks = if git.is_some() { hook_folders(&local)? } else { Vec::new() };
-    let MachineFiles { found, mut skipped, mut fenced } =
-        machine_files(&mut remote, remote_root, &local, git.is_some(), &manifest, &hooks)?;
+    // The folder, then each repository inside it (RFD 0007 hard case 12: a folder of
+    // repositories such as `~/Projects`), each by its own rules and git leg. All of them are
+    // planned before anything here changes: a conflict in any one leaves every one as it was.
     let mut skips = Skips::new(&local);
+    let (mut skipped, mut unchanged) = (0u64, 0u64);
+    let mut conflicts: Vec<String> = Vec::new();
+    let mut reasons: Vec<String> = Vec::new();
+    // Text files both sides changed on the same lines: their merge.
+    let mut overlaps: Vec<(String, Vec<u8>)> = Vec::new();
+    // Projected files both sides changed: the machine's version, staged, to go beside this Mac's.
+    let mut beside: Vec<(String, PathBuf)> = Vec::new();
+    let mut planned: Vec<Planned> = Vec::new();
+    // Each repository's git leg, by its folder ("" for the top), in the order they move.
+    let mut git_plans: Vec<(String, PathBuf, GitPlan)> = Vec::new();
+    // The repositories inside, by folder: each one's conflicts are named under it.
+    let mut repositories: Vec<String> = Vec::new();
+    let mut scopes = std::collections::VecDeque::from([Scope {
+        prefix: String::new(),
+        local: local.clone(),
+        remote_root: remote_root.to_owned(),
+        manifest: manifest.clone(),
+        git,
+        plain_in_git,
+    }]);
+    while let Some(scope) = scopes.pop_front() {
+        let quarantine = if scope.prefix.is_empty() {
+            staging.0.clone()
+        } else {
+            let dir = staging.0.join(format!("repository-{}", repositories.len()));
+            std::fs::DirBuilder::new().mode(0o700).create(&dir)?;
+            dir
+        };
+        let plan =
+            plan_scope(&mut remote, &scope, &staging, &quarantine, keep_new, links_ok, &mut skips)?;
+        let prefix = scope.prefix.as_str();
+        let full = |relative: &String| format!("{prefix}{relative}");
+        let name = prefix.trim_end_matches('/').to_owned();
+        if !plan.conflicts.is_empty() && !name.is_empty() {
+            reasons.push(format!("{name}: this repository conflicts, so no repository changed"));
+        }
+        skipped += plan.skipped;
+        unchanged += plan.unchanged;
+        conflicts.extend(plan.conflicts.iter().map(full));
+        reasons.extend(plan.reasons.iter().map(full));
+        overlaps
+            .extend(plan.overlaps.into_iter().map(|(relative, bytes)| (full(&relative), bytes)));
+        beside.extend(plan.beside.into_iter().map(|(relative, staged)| (full(&relative), staged)));
+        planned.extend(
+            plan.planned.into_iter().map(|step| Planned { relative: full(&step.relative), ..step }),
+        );
+        if let Some(git_plan) = plan.git_plan {
+            git_plans.push((name.clone(), scope.local.clone(), git_plan));
+        }
+        if !name.is_empty() {
+            repositories.push(name);
+        }
+        for dir in plan.repositories {
+            let at = scope.local.join(&dir);
+            // Its own working copy's top, or it stays fenced off as before.
+            match GitDirs::of(&at) {
+                Ok(Some(dirs)) => scopes.push_back(Scope {
+                    prefix: format!("{prefix}{dir}/"),
+                    local: at,
+                    remote_root: format!("{}/{dir}", scope.remote_root),
+                    manifest: within(&scope.manifest, &dir),
+                    git: Some(dirs),
+                    plain_in_git: false,
+                }),
+                Ok(None) | Err(_) => skipped += 1,
+            }
+        }
+    }
+
+    if !conflicts.is_empty() {
+        conflicts.sort();
+        conflicts.dedup();
+        // Only now, with nothing of this Mac's changed: each overlapping
+        // merge goes beside its file.
+        let mut merge_files = Vec::new();
+        for (relative, bytes) in overlaps {
+            match merge::write_conflict(&root, &relative, &bytes) {
+                Ok(side) => {
+                    reasons.push(format!(
+                        "{relative}: both changed the same lines; the merge is in {side}"
+                    ));
+                    merge_files.push(side);
+                }
+                Err(error) => reasons.push(format!("{relative}: {error:#}")),
+            }
+        }
+        for (relative, staged) in beside {
+            let written = std::fs::read(&staged)
+                .map_err(anyhow::Error::from)
+                .and_then(|bytes| merge::write_conflict(&root, &relative, &bytes));
+            match written {
+                Ok(side) => {
+                    reasons.push(format!(
+                        "{relative}: changed on this Mac since it was projected, and the machine \
+                         changed it too; the machine's is in {side}"
+                    ));
+                    merge_files.push(side);
+                }
+                Err(error) => reasons.push(format!("{relative}: {error:#}")),
+            }
+        }
+        return Ok(Pulled::Conflict(conflicts, reasons, merge_files));
+    }
+    // This Mac's files are as planned, or nothing moves.
+    for step in &planned {
+        if local_side(&root, &step.relative)? != step.local {
+            return Ok(Pulled::Conflict(vec![step.relative.clone()], Vec::new(), Vec::new()));
+        }
+    }
+    // Only objects so far: the branches and indexes move last.
+    for (_, folder, plan) in &git_plans {
+        plan.fetch(folder)?;
+    }
+
+    // What this pull changes here, before and after, for the snapshots
+    // `cmux link sync undo` puts back ([`history`]). This Mac's files keep
+    // their blobs before they are replaced or deleted.
+    let changing: Vec<(String, Option<Held>, Option<Held>)> = planned
+        .iter()
+        .filter(|step| !matches!(step.step, Step::Settle(_) | Step::SettleLink(_)))
+        .map(|step| (step.relative.clone(), held(&step.local), held_after(&step.step)))
+        .collect();
+    let snapshots = !changing.is_empty() || !git_plans.is_empty();
+    let before = if snapshots {
+        for (relative, now, _) in &changing {
+            if let Some(Held::File { sha256, .. }) = now {
+                history::keep_blob(&root, relative, sha256);
+            }
+        }
+        let paths = history::on_top(
+            &local,
+            remote_root,
+            &manifest,
+            changing.iter().map(|(relative, now, _)| (relative.clone(), now.clone())),
+        );
+        Some((paths, history::git_now(&local)))
+    } else {
+        None
+    };
+
+    let mut next = manifest;
+    let mut transaction = Transaction::new(&local, &staging.0)?;
+    let applied = apply(&mut transaction, &staging, planned, &mut next);
+    let (written, deleted, bytes) = match applied {
+        Ok(counts) => counts,
+        Err(error) => return undone(transaction, &staging, error),
+    };
+    // Each repository's branch and index, in order; one that can't move puts back every one
+    // before it, then the files.
+    let mut fast_forwarded = Vec::new();
+    for (done, (name, folder, plan)) in git_plans.iter().enumerate() {
+        match plan.commit(folder) {
+            Ok(moved) => {
+                if moved {
+                    fast_forwarded.push(name.clone());
+                }
+            }
+            Err(error) => {
+                for (_, folder, plan) in git_plans.iter().take(done).rev() {
+                    let _ = plan.undo(folder);
+                }
+                let error = if name.is_empty() {
+                    error
+                } else {
+                    error.context(format!("in the repository {name}"))
+                };
+                return undone(transaction, &staging, error);
+            }
+        }
+    }
+    transaction.finish();
+    if let Some((paths, git_before)) = before {
+        let mut after = paths.clone();
+        for (relative, _, then) in &changing {
+            if !history::is_worktree_path(relative) {
+                continue;
+            }
+            match then {
+                Some(held) => {
+                    if let Held::File { sha256, .. } = held {
+                        history::keep_blob(&root, relative, sha256);
+                    }
+                    after.insert(relative.clone(), held.clone());
+                }
+                None => {
+                    after.remove(relative);
+                }
+            }
+        }
+        // A snapshot that could not be kept never undoes the pull.
+        let touched: BTreeSet<String> =
+            changing.iter().map(|(relative, _, _)| relative.clone()).collect();
+        let git_after = history::git_now(&local);
+        let _ = history::record(
+            &local,
+            remote_root,
+            "before_pull",
+            paths,
+            git_before,
+            None,
+            history::Changed::default(),
+        );
+        let _ = history::record(
+            &local,
+            remote_root,
+            "pull",
+            after,
+            git_after,
+            None,
+            history::Changed { paths: touched, git: !git_plans.is_empty() },
+        );
+    }
+    let (skipped_files, skipped_counts) = skips.json();
+    let mut head = None;
+    for (name, _, plan) in git_plans {
+        if name.is_empty() {
+            head = plan.settled.head.clone();
+            next.git = Some(plan.settled);
+        } else {
+            next.repos.insert(name, plan.settled);
+        }
+    }
+    // The next base, on the machine and here: a pull that ran again finds
+    // nothing new. This Mac's copy moves only once the machine's did, so
+    // the two stay equal when the machine's write fails.
+    let saved = keeps_record
+        && serde_json::to_vec(&next)
+            .ok()
+            .and_then(|manifest| remote.write(&manifest_path, &mut manifest.as_slice(), 0o600).ok())
+            .is_some()
+        && base::save(&local, remote_root, &next).is_ok();
+    Ok(Pulled::Done(json!({
+        "ok": true,
+        "written": written,
+        "deleted": deleted,
+        "unchanged": unchanged,
+        "skipped": skipped + skips.total(),
+        "skipped_files": skipped_files,
+        "skipped_counts": skipped_counts,
+        "bytes": bytes,
+        "fast_forwarded": !fast_forwarded.is_empty(),
+        "head": head,
+        "repositories": repositories,
+        "fast_forwarded_repositories": fast_forwarded,
+        "manifest_saved": saved,
+    })))
+}
+
+/// One working copy a pull brings back: the folder, or a repository inside it.
+struct Scope {
+    /// Its folder from the top, ending in `/` (empty for the top).
+    prefix: String,
+    local: PathBuf,
+    remote_root: String,
+    /// The part of the record under it, by paths from it ([`within`]).
+    manifest: Manifest,
+    git: Option<GitDirs>,
+    plain_in_git: bool,
+}
+
+/// What a pull would do in one [`Scope`], by paths from it.
+struct ScopePlan {
+    planned: Vec<Planned>,
+    conflicts: Vec<String>,
+    reasons: Vec<String>,
+    overlaps: Vec<(String, Vec<u8>)>,
+    beside: Vec<(String, PathBuf)>,
+    git_plan: Option<GitPlan>,
+    unchanged: u64,
+    skipped: u64,
+    /// The repositories inside it that come back each by its own pull ([`own_repository`]).
+    repositories: Vec<String>,
+}
+
+/// The part of `manifest` under the folder `dir`, by paths from it: its files, links, git state
+/// and the repositories inside it.
+fn within(manifest: &Manifest, dir: &str) -> Manifest {
+    let prefix = format!("{dir}/");
+    fn under<T: Clone>(map: &BTreeMap<String, T>, prefix: &str) -> BTreeMap<String, T> {
+        map.range(prefix.to_owned()..)
+            .take_while(|(path, _)| path.starts_with(prefix))
+            .filter_map(|(path, value)| {
+                path.strip_prefix(prefix).map(|path| (path.to_owned(), value.clone()))
+            })
+            .collect()
+    }
+    Manifest {
+        version: manifest.version,
+        files: under(&manifest.files, &prefix),
+        git: manifest.repos.get(dir).cloned(),
+        links: under(&manifest.links, &prefix),
+        projected: manifest.projected,
+        repos: under(&manifest.repos, &prefix),
+    }
+}
+
+/// Whether the fenced folder `dir` is a repository both sides have, which comes back by a pull of
+/// its own: a `.git` folder (not a link or a file) here and on the machine, under that very name
+/// on this Mac, no hooks folder, nothing of git's own above it.
+fn own_repository(
+    remote: &mut Remote,
+    local: &Path,
+    remote_root: &str,
+    dir: &str,
+    hooks: &[String],
+) -> anyhow::Result<bool> {
+    if dir.is_empty()
+        || !names::safe_relative(dir)
+        || hooks.iter().any(|folder| names::folded_within(folder, dir))
+    {
+        return Ok(false);
+    }
+    let (parent, name) = dir.rsplit_once('/').unwrap_or(("", dir));
+    if !local_names(local, parent).iter().any(|here| here == name) {
+        return Ok(false);
+    }
+    let at = local.join(dir);
+    let plain_dir = |path: &Path| std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir());
+    if !plain_dir(&at) || !plain_dir(&at.join(".git")) {
+        return Ok(false);
+    }
+    let machine = remote.stat(&format!("{remote_root}/{dir}/.git"))?;
+    Ok(machine.is_some_and(|stat| stat["kind"] == "dir"))
+}
+
+/// Plans the pull of one [`Scope`]: nothing here changes. New paths are named to `keep_new` and
+/// `skips` by their path from the top.
+fn plan_scope(
+    remote: &mut Remote,
+    scope: &Scope,
+    staging: &Staging,
+    quarantine: &Path,
+    keep_new: &dyn Fn(&str) -> bool,
+    links_ok: bool,
+    skips: &mut Skips,
+) -> anyhow::Result<ScopePlan> {
+    let Scope { prefix, local, remote_root, manifest, git, plain_in_git } = scope;
+    let (local, remote_root, plain_in_git) = (local.as_path(), remote_root.as_str(), *plain_in_git);
+    let root = Dir::open(local)?;
+    let hooks = if git.is_some() { hook_folders(local)? } else { Vec::new() };
+    let MachineFiles { found, mut skipped, mut fenced } =
+        machine_files(remote, remote_root, local, git.is_some(), manifest, &hooks)?;
     let mut symlinks_served = true;
     // A repository here in a folder the push sent, whether or not the
     // machine still lists it: nothing in it is deleted.
-    for dir in pushed_folders(&manifest) {
+    for dir in pushed_folders(manifest) {
         if !fenced.iter().any(|folder| names::folded_within(&dir, folder))
-            && local_names(&local, &dir)
+            && local_names(local, &dir)
                 .iter()
                 .any(|name| names::is_dotgit(name) || names::is_repository_marker(name))
         {
@@ -229,7 +580,7 @@ fn pull_based(
         for (relative, kind) in &found {
             if matches!(kind, Found::Link) {
                 let target = format!("{remote_root}/{relative}");
-                let text = machine_link(&mut remote, &target, &mut symlinks_served)?;
+                let text = machine_link(remote, &target, &mut symlinks_served)?;
                 machine_links.insert(relative.clone(), text);
             }
         }
@@ -267,7 +618,7 @@ fn pull_based(
                 None
             }
             (Some(pushed), _) if super::project::is_stand_in(&pushed.sha256) => {
-                Some(projected_base(&root, &local, relative, pushed)?)
+                Some(projected_base(&root, local, relative, pushed)?)
             }
             _ => None,
         };
@@ -299,7 +650,8 @@ fn pull_based(
                             .starts_with(&format!("{}/", names::folded_path(relative)))
                 }) =>
             {
-                skips.note(relative, super::skips::Why::SymlinkIntoRepository);
+                skips
+                    .note(&format!("{prefix}{relative}"), super::skips::Why::SymlinkIntoRepository);
                 continue;
             }
             Some(Found::Link) => match machine_links.get(relative).cloned().flatten() {
@@ -312,7 +664,7 @@ fn pull_based(
                     (Side::Link(text), None)
                 }
                 Some(text) => {
-                    skips.note(relative, links::refused(&text));
+                    skips.note(&format!("{prefix}{relative}"), links::refused(&text));
                     continue;
                 }
                 None => (Side::Other, None),
@@ -322,7 +674,7 @@ fn pull_based(
                     unchanged += 1;
                     continue;
                 }
-                let staged = staging.stage(&mut remote, &target)?;
+                let staged = staging.stage(remote, &target)?;
                 let side =
                     Side::File { sha256: staged.sha256.clone(), permissions: staged.permissions };
                 (side, Some(staged))
@@ -333,7 +685,10 @@ fn pull_based(
             continue;
         }
         let new = base.is_none() && pushed_link.is_none();
-        if new && (is_new_and_kept_out(relative, &machine) || !keep_new(relative)) {
+        if new
+            && (is_new_and_kept_out(relative, &machine)
+                || !keep_new(&format!("{prefix}{relative}")))
+        {
             skipped += 1;
             continue;
         }
@@ -426,8 +781,8 @@ fn pull_based(
 
     let mut git_plan: Option<GitPlan> = None;
     if let Some(dirs) = git.as_ref().filter(|_| !plain_in_git) {
-        let at = git_back::Where { folder: &local, common_dir: &dirs.common, staging: &staging.0 };
-        match git_back::plan(&mut remote, remote_root, &at, &manifest, &hooks)? {
+        let at = git_back::Where { folder: local, common_dir: &dirs.common, staging: quarantine };
+        match git_back::plan(remote, remote_root, &at, manifest, &hooks)? {
             Ok(plan) => git_plan = plan,
             Err(git_conflicts) => {
                 for (path, why) in git_conflicts {
@@ -437,157 +792,23 @@ fn pull_based(
             }
         }
     }
-    if !conflicts.is_empty() {
-        conflicts.sort();
-        conflicts.dedup();
-        // Only now, with nothing of this Mac's changed: each overlapping
-        // merge goes beside its file.
-        let mut merge_files = Vec::new();
-        for (relative, bytes) in overlaps {
-            match merge::write_conflict(&root, &relative, &bytes) {
-                Ok(side) => {
-                    reasons.push(format!(
-                        "{relative}: both changed the same lines; the merge is in {side}"
-                    ));
-                    merge_files.push(side);
-                }
-                Err(error) => reasons.push(format!("{relative}: {error:#}")),
-            }
-        }
-        for (relative, staged) in beside {
-            let written = std::fs::read(&staged)
-                .map_err(anyhow::Error::from)
-                .and_then(|bytes| merge::write_conflict(&root, &relative, &bytes));
-            match written {
-                Ok(side) => {
-                    reasons.push(format!(
-                        "{relative}: changed on this Mac since it was projected, and the machine \
-                         changed it too; the machine's is in {side}"
-                    ));
-                    merge_files.push(side);
-                }
-                Err(error) => reasons.push(format!("{relative}: {error:#}")),
-            }
-        }
-        return Ok(Pulled::Conflict(conflicts, reasons, merge_files));
-    }
-    // This Mac's files are as planned, or nothing moves.
-    for step in &planned {
-        if local_side(&root, &step.relative)? != step.local {
-            return Ok(Pulled::Conflict(vec![step.relative.clone()], Vec::new(), Vec::new()));
+    let mut repositories = Vec::new();
+    for dir in &fenced {
+        if own_repository(remote, local, remote_root, dir, &hooks)? {
+            repositories.push(dir.clone());
         }
     }
-    // Only objects so far: the branch and index move last.
-    if let Some(plan) = &git_plan {
-        plan.fetch(&local)?;
-    }
-
-    // What this pull changes here, before and after, for the snapshots
-    // `cmux link sync undo` puts back ([`history`]). This Mac's files keep
-    // their blobs before they are replaced or deleted.
-    let changing: Vec<(String, Option<Held>, Option<Held>)> = planned
-        .iter()
-        .filter(|step| !matches!(step.step, Step::Settle(_) | Step::SettleLink(_)))
-        .map(|step| (step.relative.clone(), held(&step.local), held_after(&step.step)))
-        .collect();
-    let snapshots = !changing.is_empty() || git_plan.is_some();
-    let before = if snapshots {
-        for (relative, now, _) in &changing {
-            if let Some(Held::File { sha256, .. }) = now {
-                history::keep_blob(&root, relative, sha256);
-            }
-        }
-        let paths = history::on_top(
-            &local,
-            remote_root,
-            &manifest,
-            changing.iter().map(|(relative, now, _)| (relative.clone(), now.clone())),
-        );
-        Some((paths, history::git_now(&local)))
-    } else {
-        None
-    };
-
-    let mut next = manifest;
-    let mut transaction = Transaction::new(&local, &staging.0)?;
-    let applied = apply(&mut transaction, &staging, planned, &mut next);
-    let (written, deleted, bytes) = match applied {
-        Ok(counts) => counts,
-        Err(error) => return undone(transaction, &staging, error),
-    };
-    let fast_forwarded = match git_plan.as_ref().map(|plan| plan.commit(&local)).transpose() {
-        Ok(moved) => moved.unwrap_or(false),
-        Err(error) => return undone(transaction, &staging, error),
-    };
-    transaction.finish();
-    if let Some((paths, git_before)) = before {
-        let mut after = paths.clone();
-        for (relative, _, then) in &changing {
-            if !history::is_worktree_path(relative) {
-                continue;
-            }
-            match then {
-                Some(held) => {
-                    if let Held::File { sha256, .. } = held {
-                        history::keep_blob(&root, relative, sha256);
-                    }
-                    after.insert(relative.clone(), held.clone());
-                }
-                None => {
-                    after.remove(relative);
-                }
-            }
-        }
-        // A snapshot that could not be kept never undoes the pull.
-        let touched: BTreeSet<String> =
-            changing.iter().map(|(relative, _, _)| relative.clone()).collect();
-        let git_after = history::git_now(&local);
-        let _ = history::record(
-            &local,
-            remote_root,
-            "before_pull",
-            paths,
-            git_before,
-            None,
-            history::Changed::default(),
-        );
-        let _ = history::record(
-            &local,
-            remote_root,
-            "pull",
-            after,
-            git_after,
-            None,
-            history::Changed { paths: touched, git: git_plan.is_some() },
-        );
-    }
-    let (skipped_files, skipped_counts) = skips.json();
-    let head = git_plan.as_ref().and_then(|plan| plan.settled.head.clone());
-    if let Some(plan) = git_plan {
-        next.git = Some(plan.settled);
-    }
-    // The next base, on the machine and here: a pull that ran again finds
-    // nothing new. This Mac's copy moves only once the machine's did, so
-    // the two stay equal when the machine's write fails.
-    let saved = keeps_record
-        && serde_json::to_vec(&next)
-            .ok()
-            .and_then(|manifest| remote.write(&manifest_path, &mut manifest.as_slice(), 0o600).ok())
-            .is_some()
-        && base::save(&local, remote_root, &next).is_ok();
-    Ok(Pulled::Done(json!({
-        "ok": true,
-        "written": written,
-        "deleted": deleted,
-        "unchanged": unchanged,
-        "skipped": skipped + skips.total(),
-        "skipped_files": skipped_files,
-        "skipped_counts": skipped_counts,
-        "bytes": bytes,
-        "fast_forwarded": fast_forwarded,
-        "head": head,
-        "manifest_saved": saved,
-    })))
+    Ok(ScopePlan {
+        planned,
+        conflicts,
+        reasons,
+        overlaps,
+        beside,
+        git_plan,
+        unchanged,
+        skipped,
+        repositories,
+    })
 }
 
 /// Puts back what `transaction` changed after `error`. A file that changed
