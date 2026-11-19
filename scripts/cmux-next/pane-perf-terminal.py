@@ -34,12 +34,44 @@ STRESS shape refused, a Chromium page that never ran) fails the run, --gate or n
 Per action: display frame intervals p50/p95/p99/max and missed frames (`debug.frames`), the layout's main-thread
 work per frame (`debug.motion` clock), each Core Animation commit (`debug.motion` work `ca.commit`: with Chromium
 pages it holds the resize wait of fork API 27), frames the springs moved (`moving_frames`: a pane or divider
-spring, or the strip camera: New Column moves only the camera), grids sent to the PTY owner
+spring, or the strip camera: New Column moves only the camera), frames a commit motion had a pane in flight
+(`commit_frames`: the `layout.commit` samples; 0 on a build without them), grids sent to the PTY owner
 (`debug.window_transition`) and hangs (`debug.hangs`). With --record, a second pass records each action with
-`debug.window_record` (frames/ in --out; the recording itself costs frames, so it never runs in the timed pass).
+`debug.window_record` (frames/ in --out; the recording itself costs frames, so it never runs in the timed pass),
+for --record-seconds each, with the pane trace through it (`debug.motion` trace: where each pane is at each display
+tick) as trace.json beside the frames, and a row that fails when the frames, their index or the trace are not there.
+With --record each pane's feed also ends with one line of text in a colour that no pixel of the window's backdrop
+can have (`marker_color`, from the app's own answer): a reader of the stills tells text from the backdrop by it.
 The window action also samples its size once per display frame (`debug.motion trace_*`), reports the active
 resize's p95/max interval, missed intervals and largest geometry step, and rejects a snap, a no-op or a failed restore even without
 --gate. Run this script from the candidate checkout against both the base and candidate app for an A/B.
+
+`missed` is the probe's count of long intervals (each interval above 1.5 refreshes counts one time, however long it
+is). Beside it each action keeps `missed_refreshes` (the refreshes those intervals skipped, summed), the probe's
+`missed_at_ms`, `missed_split` (main_late, commit_late, presented_late), `main_max_ms` and `missed_frames`: each
+long interval with its cause, the refreshes it skipped and `after_action_ms` (when its frame ticked, after the
+action was sent; below 0 is the action's own frame). See `late_frames`.
+
+With --pane-motion on,off each round runs its actions one time for each arm, in the same app and layout
+(`ui.paneAnimations`, set with `debug.motion` kind): the off arm's rows and summary are named <layout>-motion-off,
+and its row `still` passes when no spring and no commit motion moved. Without the option the app's own setting
+runs one time and each row keeps its name.
+
+With --window-look KEY=VALUE[,KEY=VALUE...] the window has another look than the launch's opaque one, for example a
+window with a picture background (`background=NAME,opacity=0.5,blur=none`, NAME a built-in picture). The option
+writes the keys that it names and no other key, and no key has a default: `background`, `opacity` and `blur` are
+`appearance.background`, `appearance.backgroundOpacity` and `appearance.backgroundBlur` of the app config;
+`terminal-opacity` and `terminal-blur` are `background-opacity` and `background-blur` (a radius) of the terminal
+config file, which the app also reads. The window is over the fixture's desktop, or with `behind=checker` (or
+`stripes`) over the app's own patterned panel (`debug.capture_backdrop`). The report's conditions hold the look
+(`window_look`) and in `resolved` what the running app itself says it shows: the background's kind and the
+picture's id, the opacity (the alpha of the backdrop's tint, `debug.themes`) and the blur (the app's settings
+answer: the debug read has no blur field). The row `the app shows the window's look` fails when that is not the
+named look; the measures still run then, under the look's name. The conditions also list each window of another
+app that is behind the window (`windows_behind`, from the screen's window list), and a run with a look has a row
+that passes when there is none. Each row and summary of such a run is named <layout>-look-<each named key and its
+value>, so it is never compared with an opaque window's rows. Without the option, or with `opaque`, the launch and
+each row's name stay as they were.
 
 With --browser-engine webkit the probe page and the --pages pages are WebKit pages instead (no `debug.cef` counters
 change then; Lawrence 2026-11-05: "resize webviews (both chrome and webkit) more often").
@@ -55,7 +87,8 @@ the fork geometry posts per moving frame (posts_per_frame). A layout whose page 
 Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--browser]
        [--browser-engine chromium|webkit]
        [--actions split,close,column,zoom,window,drag,keys,scroll,idle,page] [--rounds 3] [--scrollback 5000] [--stream]
-       [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N]
+       [--record [--record-seconds S] [--record-layouts NAMES]] [--json PATH] [--out DIR] [--gate] [--missed-budget N] [--pane-motion on,off]
+       [--window-look opaque|KEY=VALUE[,KEY=VALUE...]]
 """
 import argparse, glob, json, math, os, pathlib, signal, subprocess, sys, tempfile, time
 
@@ -71,6 +104,9 @@ parser.add_argument("--rounds", type=int, default=3)
 parser.add_argument("--scrollback", type=int, default=5000)
 parser.add_argument("--stream", action="store_true", help="keep output streaming in the first terminal")
 parser.add_argument("--record", action="store_true", help="record each action once (a separate, untimed pass)")
+parser.add_argument("--record-seconds", type=float, default=2.0,
+                    help="--record: the length of each recording (0.2 s of it is before the action; 12 at most)")
+parser.add_argument("--record-layouts", default="", help="--record: only these layouts (a list with commas; default: each)")
 parser.add_argument("--browser", action="store_true", help="the top-left pane shows a Chromium page (pump and tracker counters)")
 parser.add_argument("--browser-engine", default="chromium", choices=["chromium", "webkit"],
                     help="with --browser: the engine of the probe page and the --pages pages")
@@ -85,6 +121,14 @@ parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
 parser.add_argument("--missed-budget", type=int, default=0)
+parser.add_argument("--pane-motion", default=None,
+                    help="on, off or on,off: each round runs its actions one time for each arm, in the same app and layout "
+                         "(`debug.motion` kind paneAnimations); the off arm's rows are named <layout>-motion-off")
+parser.add_argument("--window-look", default=None,
+                    help="opaque (the default: the launch as it was) or KEY=VALUE[,KEY=VALUE...] with background=NAME, "
+                         "opacity=0..1, blur=frosted|glass|glass-clear|none (the app config), terminal-opacity=0..1, "
+                         "terminal-blur=RADIUS (the terminal config file) and behind=desktop|checker|stripes: only the "
+                         "named keys are written; its rows are named <layout>-look-<each named key and its value>")
 opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -244,8 +288,125 @@ def row(check, expected, observed, ok):
     print(f"{'PASS' if ok else 'FAIL'} | {check} | {expected} | {observed}", flush=True)
 
 
+def marker_color(backdrop):
+    """The colour of the one text line that --record puts in each pane: [r, g, b], each channel 0 or 255, the end
+    that is farther from what a pixel of the window's backdrop can show. `backdrop` is `debug.themes`'
+    `windows[0].backdrop`: under a tint `#RRGGBBAA` of alpha A (the tint, or the glass's, or an opaque window's sheet
+    with A = 1) a channel of the backdrop is between tint x A and tint x A + (1 - A) x 255, whatever is behind it. A
+    reader of the stills takes a pixel outside that range as text; this line is far outside it in each pane. None
+    when the backdrop has no such colour (it was not read)."""
+    if not isinstance(backdrop, dict):
+        return None
+    text = next((backdrop.get(name) for name in ("tint", "glassTint", "sheet") if backdrop.get(name)), None)
+    if not (isinstance(text, str) and len(text) in (7, 9) and text[0] == "#"):
+        return None
+    try:
+        tint = [int(text[at:at + 2], 16) for at in (1, 3, 5)]
+        alpha = int(text[7:9], 16) / 255 if len(text) == 9 else 1.0
+    except ValueError:
+        return None
+    color = []
+    for channel in tint:
+        low = channel * alpha
+        high = low + (1 - alpha) * 255
+        color.append(255 if 255 - high >= low else 0)
+    return color
+
+
+def marker_command(color):
+    """What a pane's feed goes on with to print the marker line in `color` (`marker_color`); nothing without one."""
+    if not color:
+        return ""
+    return f"; printf '\\033[38;2;{color[0]};{color[1]};{color[2]}m%s\\033[0m\\n' 'the pane text of the stills'"
+
+
+def stills_facts(trace, at_start, names):
+    """What one recording of --record left for a reader of its stills: `frames` (the frame files among `names`, the
+    recording folder's files), `index` (frames.json is there), `samples` and `samples_with_panes` of the pane trace
+    that ran through it (`trace`: the reply of `debug.motion` trace_stop), `samples_at_record_start` (the samples of
+    `at_start`, the trace read directly after the recorder's start: the first frame is the next sample or the one
+    after it; None when it was not read), `presentation_rects` (each pane row of the trace has 22 numbers or more: a
+    build with a sampler that says where a pane is in each sample, not only where it ends), `samples_in_a_move` (the
+    samples in which a pane is not where it ends by more than 0.5 pt: 0 = the trace followed no move, and a reader
+    has only where each pane ends) and `problem`: None, or what is missing (2 frames at the least, the index, a pane
+    in each sample)."""
+    frames = sum(1 for name in names if name.startswith("frame-") and name.endswith(".jpg"))
+    samples = trace.get("samples") if isinstance(trace, dict) and isinstance(trace.get("samples"), list) else []
+    rows = [row for sample in samples if isinstance(sample, dict) for row in sample.get("panes") or []]
+    with_panes = sum(1 for sample in samples if isinstance(sample, dict) and sample.get("panes"))
+    first = at_start.get("samples") if isinstance(at_start, dict) else None
+    missing = ([f"{frames} frames"] if frames < 2 else []) + ([] if "frames.json" in names else ["no frames.json"])
+    if not samples:
+        missing.append(f"no sample in the pane trace: {trace!r}"[:200])
+    elif with_panes != len(samples):
+        missing.append(f"{with_panes} of {len(samples)} samples have a pane")
+    def moves(row):  # the pane IS not where it ends: its last 4 numbers against its first rect
+        return isinstance(row, list) and len(row) >= 22 and any(abs(now - end) > 0.5 for now, end in zip(row[-4:], row[1:5]))
+    in_a_move = sum(1 for sample in samples if isinstance(sample, dict) and any(moves(row) for row in sample.get("panes") or []))
+    return {"frames": frames, "index": "frames.json" in names, "samples": len(samples), "samples_with_panes": with_panes,
+            "samples_at_record_start": len(first) if isinstance(first, list) else None,
+            "presentation_rects": bool(rows) and all(isinstance(row, list) and len(row) >= 22 for row in rows),
+            "samples_in_a_move": in_a_move, "problem": "; ".join(missing) or None}
+
+
+def stills_clock(index, trace):
+    """Where the first frame of one recording is on the pane trace's clock. `index`: the recorder's frames.json;
+    its `t0_s` is the first frame's host time, and a frame's host time is `t0_s` + its entry of `times`. `trace`:
+    the reply of trace_stop; its `t0_s` is its first sample's host time and each sample's `t` the ms after it. The
+    recorder starts after the trace and ends before it, so a `t0_s` on the trace's clock is from the trace's first
+    sample to its last one, and not farther from the trace's `t0_s` than the recording is long (the suite starts
+    the recorder 0.1 s after the trace). `clock_problem`: None, or why a reader cannot place the frames in the
+    trace by time."""
+    def number(value):
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    first = index.get("t0_s") if isinstance(index, dict) and number(index.get("t0_s")) else None
+    times = index.get("times") if isinstance(index, dict) else None
+    start = trace.get("t0_s") if isinstance(trace, dict) and number(trace.get("t0_s")) else None
+    samples = trace.get("samples") if isinstance(trace, dict) and isinstance(trace.get("samples"), list) else []
+    stamps = [sample.get("t") for sample in samples if isinstance(sample, dict) and number(sample.get("t"))]
+    inside, problem = None, None
+    if not isinstance(index, dict):
+        problem = "frames.json was not read"
+    elif first is None:
+        problem = "frames.json has no t0_s (the recorder does not say its first frame's host time)"
+    elif not (isinstance(times, list) and len(times) >= 2 and number(times[1]) and times[1] > 0):
+        problem = f"no second frame after the first (times {times!r})"[:120]
+    elif start is None:
+        problem = "the trace has no t0_s"
+    elif not stamps:
+        problem = "the trace has no sample"
+    else:
+        end = round(start + max(stamps) / 1000, 6)
+        inside = round((first - start) * 1000, 2)
+        length = max(value for value in times if number(value))
+        if not start <= first <= end:
+            problem = f"t0_s {first} is not inside the trace ({start} to {end}): not the trace's clock"
+        elif first - start > length:
+            problem = (f"t0_s {first} is {round(first - start, 3)} s after the trace's t0_s {start}, more than the "
+                       f"recording's length {round(length, 3)} s: 2 clocks")
+    return {"first_frame_t0_s": first, "trace_t0_s": start, "first_frame_in_trace_ms": inside, "clock_problem": problem}
+
+
+def stills_cost(recorded, rounds):
+    """The missed refreshes of one recorded act (the pane trace and the recorder run through it) beside those of
+    the timed rounds of the same act with the motion on (no trace, no recorder), each from the same probe over the
+    same 1.2 s after the act. A trace that makes the motion late shows here: `more_than_each_round` (None when
+    one side has no count). No time of a recorded act is a number of the suite."""
+    known = [value for value in rounds if isinstance(value, (int, float))]
+    counted = isinstance(recorded, (int, float))
+    more = recorded > max(known) if counted and known else None
+    text = (f"{recorded} missed refreshes with the trace and the recorder" if counted
+            else "the missed refreshes of the recorded act were not counted")
+    text += f"; the timed rounds of the same act: {known}" if known else "; no timed round of the same act with the motion on"
+    return {"missed_refreshes": recorded if counted else None, "rounds_missed_refreshes": known, "more_than_each_round": more,
+            "text": text + (" = MORE THAN EACH ROUND" if more else "")}
+
+
+MARKER = []  # --record: the marker line's colour, one time, after the app said what its window shows (main)
+
+
 def feed(stream=False):
-    text = f"seq 1 {opts.scrollback}\r" if opts.scrollback else ""
+    text = f"seq 1 {opts.scrollback}{marker_command(MARKER[0] if MARKER else None)}\r" if opts.scrollback else ""
     if stream:
         text += "while :; do echo \"$RANDOM $RANDOM $RANDOM streaming output line\"; sleep 0.004; done\r"
     if text:
@@ -438,6 +599,320 @@ def moving_frames(samples):
     return count
 
 
+def commit_frames(samples):
+    """Display frames in which a commit motion had a pane in flight: the `layout.commit` samples above 0 (one for each
+    tick of a move). A commit motion has no layout spring, so `moving_frames` reads 0 for it. A build without the
+    sample gives 0."""
+    samples = samples if isinstance(samples, list) else []
+    return sum(1 for sample in samples
+               if isinstance(sample, dict) and sample.get("name") == "layout.commit" and (sample.get("v") or 0) > 0)
+
+
+def commit_notes(notes):
+    """The app's own notes of a commit motion while recording (each note whose text starts with `layout.commit`): the
+    act that moves, or why a change showed in one frame. A build without such a note gives an empty list."""
+    notes = notes if isinstance(notes, list) else []
+    return [note["text"] for note in notes
+            if isinstance(note, dict) and isinstance(note.get("text"), str) and note["text"].startswith("layout.commit")]
+
+
+def commit_placements(samples, notes):
+    """Each `layout.commit` note with its time in its own tick: `after_tick_ms` = the note's `t_ms` less the `t_ms` of
+    the last `clock.dt_ms` sample at or before it. The clock writes that sample at the start of a tick, and the app
+    writes the note after the tick placed the panes, so this is the placement's main-thread time in the tick that
+    shows the act. None when no tick sample is before the note. A note with no time is left out."""
+    samples = samples if isinstance(samples, list) else []
+    ticks = sorted(sample["t_ms"] for sample in samples if isinstance(sample, dict)
+                   and sample.get("name") == "clock.dt_ms" and isinstance(sample.get("t_ms"), (int, float)))
+    placed = []
+    for note in notes if isinstance(notes, list) else []:
+        if not (isinstance(note, dict) and isinstance(note.get("text"), str) and note["text"].startswith("layout.commit")
+                and isinstance(note.get("t_ms"), (int, float))):
+            continue
+        before = [t for t in ticks if t <= note["t_ms"]]
+        placed.append({"text": note["text"], "t_ms": note["t_ms"],
+                       "after_tick_ms": round(note["t_ms"] - before[-1], 1) if before else None})
+    return placed
+
+
+def layout_spans(spans):
+    """The app's measured parts of a pane change while recording: each span whose name starts with `layout.` (the
+    placement, the show and the hide loops), as {name: count, sum_ms, max_ms, max_at_ms (when the longest one
+    started, ms from the record's start)}. The span `layout` (a whole motion, to its rest) is not one of them. A
+    build without such a span gives an empty dict."""
+    parts = {}
+    for span in spans if isinstance(spans, list) else []:
+        if not (isinstance(span, dict) and str(span.get("name") or "").startswith("layout.")
+                and isinstance(span.get("ms"), (int, float))):
+            continue
+        part = parts.setdefault(span["name"], {"count": 0, "sum_ms": 0.0, "max_ms": None, "max_at_ms": None})
+        part["count"] += 1
+        part["sum_ms"] = round(part["sum_ms"] + span["ms"], 2)
+        if part["max_ms"] is None or span["ms"] > part["max_ms"]:
+            part["max_ms"], part["max_at_ms"] = span["ms"], span.get("at_ms")
+    return parts
+
+
+def late_frames(frames, action_s=None):
+    """Where the long intervals of a `debug.frames` reply are (stopped with `raw`). The probe's `missed` counts each
+    interval above 1.5 refreshes one time, however long it is. `missed_refreshes` is the refreshes that those
+    intervals skipped, summed (an interval of 6 refreshes skipped 5): from every interval when the reply has them,
+    else from the kept stamps (`missed_frames`) when the probe kept each one, else None. Each kept stamp gets
+    `refreshes` and `after_action_ms`: when its frame ticked, in ms after the action was sent (below 0: the long
+    interval began before the send and holds it, the action's own frame). `action_at_ms` is the send, in ms after the
+    probe's first frame; `action_s` and the reply's `first_frame_s` are both the uptime clock, and a send that is not
+    in the 10 s after that frame is taken as another clock: no place then."""
+    frames = frames if isinstance(frames, dict) else {}
+    refresh = frames.get("refresh_ms")
+    known = isinstance(refresh, (int, float)) and refresh > 0
+
+    def skipped(interval):
+        return max(1, round(interval / refresh) - 1)
+    first = frames.get("first_frame_s")
+    at = (action_s - first) * 1000 if isinstance(first, (int, float)) and isinstance(action_s, (int, float)) else None
+    at = round(at, 1) if at is not None and -100 <= at <= 10000 else None
+    stamps = [dict(miss) for miss in frames.get("missed_frames") or [] if isinstance(miss, dict)]
+    for miss in stamps:
+        interval, tick = miss.get("interval_ms"), miss.get("at_ms")
+        miss["refreshes"] = skipped(interval) if known and isinstance(interval, (int, float)) else None
+        miss["after_action_ms"] = round(tick - at, 1) if at is not None and isinstance(tick, (int, float)) else None
+    intervals = frames.get("intervals_ms")
+    if known and isinstance(intervals, list):
+        total = sum(skipped(dt) for dt in intervals if isinstance(dt, (int, float)) and dt > refresh * 1.5)
+    elif known and len(stamps) == (frames.get("missed") or 0):
+        total = sum(miss["refreshes"] or 0 for miss in stamps)
+    else:
+        total = None
+    return {"missed_refreshes": total, "missed_at_ms": frames.get("missed_at_ms"), "missed_split": frames.get("missed_split"),
+            "missed_frames": stamps, "main_max_ms": frames.get("main_max_ms"), "action_at_ms": at}
+
+
+def motion_arms(value):
+    """`--pane-motion`: the arms to measure, each one time, in the option's order. No option is no arm: one pass with
+    the app's own setting, and the rows keep their names. Another word than on or off raises ValueError."""
+    if value is None:
+        return []
+    arms = [arm.strip() for arm in value.split(",")]
+    if not all(arm in ("on", "off") for arm in arms) or len(set(arms)) != len(arms):
+        raise ValueError(f"--pane-motion takes on, off or on,off, not {value!r}")
+    return arms
+
+
+def set_pane_motion(on):
+    """Sets `ui.paneAnimations` in the running app (`debug.motion` kind); returns an error string or None."""
+    reply = rpc("debug.motion", {"action": "kind", "name": "paneAnimations", "value": on})
+    seen = reply.get("pane_animations") if isinstance(reply, dict) else None
+    return None if seen is on else f"pane_animations is {seen!r} after the call, not {on!r}"
+
+
+def window_look(value):
+    """`--window-look`: None for `opaque` (and for no option: the launch, the config and each row's name stay as they
+    were), or the keys that the option names, as KEY=VALUE parts with a comma between them. No key has a default:
+    a key that is not named is not written. `background` (`appearance.background`: a built-in picture's name, `none`,
+    `daily` or `desktop`), `opacity` (`appearance.backgroundOpacity`, 0 to 1) and `blur` (`appearance.backgroundBlur`:
+    frosted, glass, glass-clear or none) go to the app config; `terminal-opacity` and `terminal-blur` go to the
+    terminal config file (`background-opacity`, and `background-blur`: a radius). `behind` is what the window is
+    over: `desktop` (what the screen shows there; the same as no `behind`), or the app's own `checker` or `stripes`
+    panel. Another word, a key two times, or no config key at all, raises ValueError."""
+    if value is None or value == "opaque":
+        return None
+    refused = ValueError("--window-look takes opaque or KEY=VALUE[,KEY=VALUE...] with background=NAME, opacity=0..1, "
+                         "blur=frosted|glass|glass-clear|none, terminal-opacity=0..1, terminal-blur=RADIUS and "
+                         f"behind=desktop|checker|stripes (one config key at least), not {value!r}")
+    look = {}
+    for part in value.split(","):
+        key, equals, text = (piece.strip() for piece in part.partition("="))
+        key = key.replace("-", "_")
+        if not equals or key in look:
+            raise refused
+        try:
+            if key == "background":
+                found = text if text and not text.strip("abcdefghijklmnopqrstuvwxyz0123456789-") else None
+            elif key == "blur":
+                found = text if text in ("frosted", "glass", "glass-clear", "none") else None
+            elif key == "behind":
+                found = text if text in ("desktop", "checker", "stripes") else None
+            elif key == "terminal_blur":
+                found = int(text) if int(text) >= 0 else None
+            elif key in ("opacity", "terminal_opacity"):
+                found = float(text) if 0 <= float(text) <= 1 else None
+            else:
+                found = None
+        except ValueError:
+            found = None
+        if found is None:
+            raise refused
+        look[key] = found
+    if not set(look) - {"behind"}:
+        raise refused
+    return look
+
+
+def look_tag(look):
+    """The part a look adds to each row's layout name: each named key and its value in the option's order, then
+    what the window is over when that is not the desktop. An opaque window adds nothing."""
+    if not look:
+        return ""
+    parts = [f"{key.replace('_', '-')}-{format(value, 'g') if isinstance(value, float) else value}"
+             for key, value in look.items() if key != "behind"]
+    over = "" if look.get("behind", "desktop") == "desktop" else f"-over-{look['behind']}"
+    return "look-" + "-".join(parts) + over
+
+
+def look_config(config, look):
+    """The app config with the look's named keys of `appearance`: `background`, `backgroundOpacity` and
+    `backgroundBlur` (a copy; the other keys stay, and a key that the look does not name is not written). An opaque
+    window gets `config` itself: the launch default."""
+    if not look:
+        return config
+    appearance = dict(config.get("appearance") or {})
+    for key, name in (("background", "background"), ("opacity", "backgroundOpacity"), ("blur", "backgroundBlur")):
+        if key in look:
+            appearance[name] = look[key]
+    return {**config, "appearance": appearance} if appearance else dict(config)
+
+
+def look_terminal_lines(look):
+    """The look's lines of the terminal config file: an opacity and a blur radius, each only when the look names it.
+    None for an opaque window."""
+    lines = []
+    if look and "terminal_opacity" in look:
+        lines.append(f"background-opacity = {look['terminal_opacity']:g}")
+    if look and "terminal_blur" in look:
+        lines.append(f"background-blur = {look['terminal_blur']}")
+    return lines
+
+
+def look_problem(look, env, read=None):
+    """Why the launched app did not get the look (None when it did, and for an opaque window): the app config of
+    the launch's own environment must hold each named key, and its terminal config file each named line (a look
+    with no terminal line does not read that file)."""
+    if not look:
+        return None
+    read = read or (lambda path: open(path).read())
+    try:
+        terminal = read(env["CMUX_NEXT_GHOSTTY_CONFIG"]).splitlines() if look_terminal_lines(look) else []
+        appearance = json.loads(read(env["CMUX_NEXT_CONFIG_FILE"])).get("appearance") or {}
+    except (KeyError, OSError, ValueError) as error:
+        return f"the launch's config files were not read: {error!r}"
+    missing = [line for line in look_terminal_lines(look) if line not in terminal]
+    wanted = look_config({}, look).get("appearance") or {}
+    missing += [f"appearance.{key}" for key, value in wanted.items() if appearance.get(key) != value]
+    return f"not in the launch's config: {missing}" if missing else None
+
+
+def look_resolved(look, backdrop, settings):
+    """What the running app says that its window shows, and why that is not the look: (resolved, problem), problem
+    None when it is the look, and for an opaque window (which is read and never fails). `backdrop` is `debug.themes`'
+    `windows[0].backdrop`: `picture` is the id of the picture that the window shows (empty with none); the alpha of
+    `tint` (`#RRGGBBAA`: the theme tint over the picture or the desktop) is the opacity the app resolved, Liquid
+    Glass carries that tint itself (`glassTint`), and an opaque window paints its `sheet` and shows no tint.
+    `settings` is the app's own answer (`settings.get`) for each `appearance` key. `resolved` holds the background's
+    kind (`picture` or `none`), the picture's id, the opacity, `glass`, and `blur`: the app's settings answer, for
+    the debug read has no field for the blur. The look fails when a named settings key has another value in the
+    app, when `background` names a picture that the window does not show, or when the shown opacity is not the
+    named `opacity` (to 1.5 steps of the alpha's 255)."""
+    backdrop = backdrop if isinstance(backdrop, dict) else {}
+    settings = settings if isinstance(settings, dict) else {}
+
+    def alpha(name):
+        text = backdrop.get(name) or ""
+        try:
+            return int(text[7:9], 16) / 255 if isinstance(text, str) and len(text) == 9 and text[0] == "#" else None
+        except ValueError:
+            return None
+
+    picture = backdrop.get("picture") or ""
+    tint, glass = alpha("tint"), alpha("glassTint")
+    opacity = tint if tint is not None else glass if glass is not None else 1.0 if backdrop.get("sheet") else None
+    resolved = {"background": "picture" if picture else "none", "picture": picture,
+                "opacity": None if opacity is None else round(opacity, 3), "glass": tint is None and glass is not None,
+                "blur": settings.get("backgroundBlur"), "settings": settings}
+    if not look:
+        return resolved, None
+
+    def same(seen, value):
+        number = isinstance(value, float) and isinstance(seen, (int, float)) and not isinstance(seen, bool)
+        return abs(seen - value) <= 1e-9 if number else seen == value
+
+    wanted = look_config({}, look).get("appearance") or {}
+    faults = [f"appearance.{key} is {settings.get(key)!r} in the app's settings, not {value!r}"
+              for key, value in wanted.items() if not same(settings.get(key), value)]
+    name = look.get("background")
+    if name == "none" and picture:
+        faults.append(f"the window shows the picture {picture!r}, not none")
+    elif name in ("daily", "desktop") and not picture:
+        faults.append(f"the window shows no picture, not the {name} one")
+    elif name not in (None, "none", "daily", "desktop") and picture != name:
+        faults.append(f"the window shows the picture {picture!r}, not {name!r}")
+    if "opacity" in look and (opacity is None or abs(opacity - look["opacity"]) > 1.5 / 255):
+        faults.append(f"the window's opacity is {resolved['opacity']!r}, not {look['opacity']!r}")
+    return resolved, "; ".join(faults) or None
+
+
+def screen_windows():
+    """Each on-screen window, front to back: layer, pid, owner and bounds {x, y, width, height} in top-left points
+    (CGWindowList without the desktop's own elements: bounds, layers and owner names need no grant)."""
+    import ctypes
+    cg = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+    cf = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    pointer = ctypes.c_void_p
+    cg.CGWindowListCopyWindowInfo.restype, cg.CGWindowListCopyWindowInfo.argtypes = pointer, [ctypes.c_uint32, ctypes.c_uint32]
+    cf.CFArrayGetCount.restype, cf.CFArrayGetCount.argtypes = ctypes.c_long, [pointer]
+    cf.CFArrayGetValueAtIndex.restype, cf.CFArrayGetValueAtIndex.argtypes = pointer, [pointer, ctypes.c_long]
+    cf.CFDictionaryGetValue.restype, cf.CFDictionaryGetValue.argtypes = pointer, [pointer, pointer]
+    cf.CFStringCreateWithCString.restype = pointer
+    cf.CFStringCreateWithCString.argtypes = [pointer, ctypes.c_char_p, ctypes.c_uint32]
+    cf.CFStringGetCString.restype = ctypes.c_bool
+    cf.CFStringGetCString.argtypes = [pointer, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32]
+    cf.CFNumberGetValue.restype, cf.CFNumberGetValue.argtypes = ctypes.c_bool, [pointer, ctypes.c_int, pointer]
+    cf.CFRelease.argtypes = [pointer]
+    keys = {}
+
+    def value(record, name):
+        if name not in keys:
+            keys[name] = cf.CFStringCreateWithCString(None, name.encode(), 0x08000100)  # UTF-8
+        return cf.CFDictionaryGetValue(record, keys[name]) if record else None
+
+    def number(record, name):
+        found, out = value(record, name), ctypes.c_double()
+        return out.value if found and cf.CFNumberGetValue(found, 13, ctypes.byref(out)) else 0.0  # a double
+
+    listed = cg.CGWindowListCopyWindowInfo(1 | 16, 0)  # on screen only, no desktop elements
+    windows = []
+    try:
+        for index in range(cf.CFArrayGetCount(listed) if listed else 0):
+            record = cf.CFArrayGetValueAtIndex(listed, index)
+            name, text = value(record, "kCGWindowOwnerName"), ctypes.create_string_buffer(256)
+            bounds = value(record, "kCGWindowBounds")
+            windows.append({"layer": int(number(record, "kCGWindowLayer")), "pid": int(number(record, "kCGWindowOwnerPID")),
+                            "owner": text.value.decode(errors="replace") if name and cf.CFStringGetCString(name, text, 256, 0x08000100) else None,
+                            "bounds": {key: number(bounds, key[0].upper() + key[1:]) for key in ("x", "y", "width", "height")}})
+    finally:
+        for made in [listed, *keys.values()]:
+            if made:
+                cf.CFRelease(made)
+    return windows
+
+
+def windows_behind(windows, pid):
+    """The windows of other apps that are behind the app's window: from `screen_windows` (front to back), each
+    window in the normal layer of another process that is below the app's largest normal window and under a part of
+    it. None when the list has no window of the app."""
+    mine = [window for window in windows if window["pid"] == pid and window["layer"] == 0]
+    if not mine:
+        return None
+    main = max(mine, key=lambda window: window["bounds"]["width"] * window["bounds"]["height"])
+    a = main["bounds"]
+
+    def under(b):
+        return (b["x"] < a["x"] + a["width"] and a["x"] < b["x"] + b["width"]
+                and b["y"] < a["y"] + a["height"] and a["y"] < b["y"] + b["height"])
+    below = windows[next(index for index, window in enumerate(windows) if window is main) + 1:]
+    return [{"owner": window["owner"], "bounds": window["bounds"]} for window in below
+            if window["pid"] != pid and window["layer"] == 0 and under(window["bounds"])]
+
+
 def not_applicable(step, columns):
     """Why `step` does not apply to a layout of `columns` columns (None when it does, and for STRESS: None
     columns). A drag presses the first vertical divider: a one-column layout (1x2) has none."""
@@ -498,10 +973,11 @@ def measure(label, name):
     rpc("debug.motion", {"action": "start"})
     rpc("debug.frames", {"action": "start"})
     rpc("debug.window_transition", {"action": "start"})
+    action_s = time.monotonic()  # the uptime clock, as the probe's `first_frame_s` (late_frames)
     error = perform(name)
     time.sleep(1.2)  # test harness: the springs land (rest is under 0.5 s) and the PTY owner answers
     trace = rpc("debug.window_transition", {"action": "stop"}) or {}
-    frames = rpc("debug.frames", {"action": "stop"}) or {}
+    frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
     motion = rpc("debug.motion", {"action": "stop"}) or {}
     background_cpu = bench_background.delta(background)
     window_trace = rpc("debug.motion", {"action": "trace_stop"}) if name in WINDOW_ACTIONS else None
@@ -511,12 +987,17 @@ def measure(label, name):
     # resize wait (fork API 27 resize sync) held the frame. None on builds without the probe.
     commit = (motion.get("work") or {}).get("ca.commit") if isinstance(motion, dict) else None
     moving = moving_frames(motion.get("samples")) if isinstance(motion, dict) else 0
+    committed = commit_frames(motion.get("samples")) if isinstance(motion, dict) else 0
+    late = late_frames(frames, action_s)
     hang_list = hangs.get("hangs") if isinstance(hangs, dict) else None
     result = {
         "label": label, "action": name, "error": error,
         "missed": frames.get("missed"), "frames_max_ms": frames.get("max_ms"), "frames_p99_ms": frames.get("p99_ms"),
         "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
-        "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving,
+        "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving, "commit_frames": committed, **late,
+        "commit_notes": commit_notes(motion.get("notes")) if isinstance(motion, dict) else [],
+        "commit_placements": commit_placements(motion.get("samples"), motion.get("notes")) if isinstance(motion, dict) else [],
+        "layout_spans": layout_spans(motion.get("spans")) if isinstance(motion, dict) else {},
         "background_cpu": background_cpu,
         "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
         "commit_p50_ms": (commit or {}).get("p50_ms"), "commit_p95_ms": (commit or {}).get("p95_ms"),
@@ -596,9 +1077,17 @@ def measure(label, name):
                  f"{result['trk_clip_builds']} builds {result['trk_clip_hits']} hits {result['trk_clip_ms']} ms  occl {result['trk_occl_reads']}  "
                  f"posts {result['trk_posts']} ({result['posts_per_frame']}/frame) skips {result['trk_skips']}  "
                  f"catchers {result['catcher_updates']} reorders {result['reorders']}  page rAF {result['page_frames']}")
-    print(f"  {label:<22} moved {moving:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
+    where = ", ".join(f"{miss.get('interval_ms')} ms {miss.get('cause')} at {miss.get('after_action_ms')} ms after the action"
+                      for miss in late["missed_frames"][:8])
+    if result["commit_placements"] or result["layout_spans"]:
+        placed = ", ".join(f"{place['after_tick_ms']} ms" for place in result["commit_placements"][:4])
+        parts = ", ".join(f"{part} {facts['count']}x sum {facts['sum_ms']} max {facts['max_ms']} ms"
+                          for part, facts in sorted(result["layout_spans"].items()))
+        extra += f"  commit note after its tick's start [{placed}]  parts [{parts}]"
+    print(f"  {label:<22} moved {moving:>3} commit {committed:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
-          f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
+          f"long intervals = {late['missed_refreshes']} refreshes [{where}] (refresh {result['refresh_ms']})  "
+          f"main max {late['main_max_ms']} ms  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
           f"commit p95 {result['commit_p95_ms']} max {result['commit_max_ms']} ms  "
           f"grids {result['grid_reports']}/{result['resizes_sent']}  hangs {result['hangs']}  "
           f"background {background_cpu['total_s']} s{' OVER LIMIT' if background_cpu['over_limit'] else ''}  err {error}{extra}", flush=True)
@@ -622,14 +1111,50 @@ def steps():
     return names
 
 
-def record(name, label):
+def record(name, label, rounds=()):
+    """One recording of `name` (an untimed pass): the window's frames (`debug.window_record`), and through them the
+    pane trace (`debug.motion` trace: where each pane is at each display tick), kept beside the frames as
+    trace.json. A reader compares the stills of the move with the stills at rest before and after it. The row fails
+    when the frames, their index or the trace are not there. A second row fails when the recorder's index does not
+    say its first frame's host time, or says one that is not inside the trace (`stills_clock`). `rounds`: the missed
+    refreshes of the timed rounds of the same act with the motion on; the recorded act's own count (the frame probe
+    over the same 1.2 s after the act) is printed beside them (`stills_cost`). Returns what trace.json keeps, less
+    the trace."""
     folder = os.path.join(opts.out, "frames", label.replace(" ", "-"))
-    reply = rpc("debug.window_record", {"dir": folder, "seconds": 2.0})
+    rpc("debug.motion", {"action": "trace_start", "targets": ["panes", "window"]})  # the window's size: a still's scale
+    time.sleep(0.1)  # test harness: the trace has samples at rest before the recorder starts
+    reply = rpc("debug.window_record", {"dir": folder, "seconds": opts.record_seconds})
+    at_start = rpc("debug.motion", {"action": "trace_read"})
     if isinstance(reply, dict) and reply.get("error"):
         print(f"  (no recording of {label}: {reply['error']})", flush=True)
     time.sleep(0.2)  # test harness: the recorder takes its first frame at rest
-    perform(name)
-    time.sleep(2.2)  # test harness: the recording stops by itself
+    rpc("debug.frames", {"action": "start"})
+    action_s = time.monotonic()  # the uptime clock, as in a timed round (measure)
+    error = perform(name)
+    time.sleep(1.2)  # test harness: the same time after the act as a timed round has (measure)
+    late = late_frames(rpc("debug.frames", {"action": "stop", "raw": True}) or {}, action_s)
+    time.sleep(max(0.0, opts.record_seconds - 1.2) + 0.2)  # test harness: the recording stops by itself
+    trace = rpc("debug.motion", {"action": "trace_stop"})
+    deadline = time.monotonic() + 10
+    while not os.path.exists(os.path.join(folder, "frames.json")) and time.monotonic() < deadline:
+        time.sleep(0.25)  # test harness: the recorder's own queue writes its index after its last frame
+    facts = stills_facts(trace, at_start, os.listdir(folder) if os.path.isdir(folder) else [])
+    try:
+        index = json.load(open(os.path.join(folder, "frames.json")))
+    except (OSError, ValueError):
+        index = None
+    clock = stills_clock(index, trace)
+    cost = stills_cost(late["missed_refreshes"], rounds)
+    kept = {"act": name, "label": label, "error": error, "seconds": opts.record_seconds, **facts, **clock, "cost": cost}
+    print(f"  {label}: recorded: {cost['text']}", flush=True)
+    if os.path.isdir(folder):
+        json.dump({**kept, "trace": trace}, open(os.path.join(folder, "trace.json"), "w"))
+    seen = ", ".join(f"{key.replace('_', ' ')} {value}" for key, value in facts.items() if key != "problem")
+    row(f"{label}: the recording has its frames, its index and a pane trace", "2 frames or more, frames.json, a pane in each sample",
+        f"{facts['problem'] or 'each is there'} ({seen})" + (f"; the act: {error}" if error else ""), not facts["problem"] and not error)
+    row(f"{label}: the recording's first frame has a host time inside the pane trace", "frames.json's t0_s from the trace's first sample to its last",
+        clock["clock_problem"] or f"{clock['first_frame_in_trace_ms']} ms after the trace's first sample", not clock["clock_problem"])
+    return kept
 
 
 def profile(name, label):
@@ -753,13 +1278,19 @@ def cleanup():
 
 def main():
     global app, SOCKET, BENCH, MEASURED
+    arms = motion_arms(opts.pane_motion)  # another word than on or off ends the run here, before the app starts
+    look = window_look(opts.window_look)  # so does another word for the window's look
     os.makedirs(opts.out, exist_ok=True)
     # The shared launch (bench_launch.py): its bench environment, a session check that fails at once with
     # no-gui-session, the state-folder socket, and a BENCH-LAUNCH report (crash, sample, log tail) on failure.
     # The app activates and its window becomes key (no CMUX_NEXT_NO_ACTIVATE), as for a person; without
     # no-activate the app reads no test window placement, so the window is placed through the socket below.
-    BENCH = BenchApp(APP, out=opts.out, config=CONFIG, env={"CMUX_NEXT_NO_ACTIVATE": None}, window=None, screen=None,
-                     log_name=f"app-{TAG}.log")
+    BENCH = BenchApp(APP, out=opts.out, config=look_config(CONFIG, look), env={"CMUX_NEXT_NO_ACTIVATE": None},
+                     window=None, screen=None, log_name=f"app-{TAG}.log")
+    if look_terminal_lines(look):
+        # A look's named terminal lines: the launch opens this file to append, so they stay in it.
+        with open(os.path.join(BENCH.scratch, "ghostty"), "w") as terminal_config:
+            terminal_config.write("\n".join(look_terminal_lines(look)) + "\n")
     try:
         BENCH.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
     except LaunchError as error:
@@ -774,6 +1305,18 @@ def main():
     placed, window_problem = STRESS_MODULE.place_window(rpc)
     row("the window is placed on the main screen", f"{list(WINDOW)} pt on its screen", window_problem or str(placed.get("frame") if isinstance(placed, dict) else placed),
         window_problem is None)
+    behind = None
+    if look:
+        # No row of a look from the launch's opaque window: the launch's own config files hold the look, or the run ends.
+        problem = look_problem(look, BENCH.launched_env or {})
+        if not problem and look.get("behind", "desktop") != "desktop":
+            behind = rpc("debug.capture_backdrop", {"pattern": look["behind"]})  # before the app takes the front
+            if not (isinstance(behind, dict) and behind.get("backdrop_number")):
+                problem = f"no {look['behind']} panel behind the window: {behind}"
+        row("the launch's config holds the window's look", look_tag(look), problem or "each named key and line", problem is None)
+        if problem:
+            UNMEASURED.append(f"window look: {problem}")
+            return
     front = activate(APP)
     print(f"activated: window key {front['window_key']}, frontmost {front['frontmost']}", flush=True)
     # The bench conditions: the environment the app was really started with (mocked agent chats, the
@@ -781,6 +1324,44 @@ def main():
     # was key when it started (`layouts`).
     conditions = {"env": BENCH.launched_env, "window": STRESS_MODULE.window_on_screen(placed) if isinstance(placed, dict) else None,
                   "layouts": {}}
+    # The window's look: its named keys, what the window is over, and what the app itself says it shows (`resolved`:
+    # `debug.themes`' backdrop and the app's own settings answer). A picture loads and a tint blends after the
+    # launch: a look waits for them (test harness: at most 10 s); an opaque window is read one time.
+    answer = rpc("settings.get", {"path": "appearance"})
+    settings = answer.get("value") if isinstance(answer, dict) and isinstance(answer.get("value"), dict) else {"not read": answer}
+    deadline = time.monotonic() + 10
+    while True:
+        themes = rpc("debug.themes")
+        shown = (themes.get("windows") or [{}])[0].get("backdrop") if isinstance(themes, dict) else None
+        resolved, look_fault = look_resolved(look, shown, settings)
+        blending = isinstance(shown, dict) and shown.get("blending") == "true"
+        if not look or not (look_fault or blending) or time.monotonic() > deadline:
+            break
+        time.sleep(0.5)  # test harness: the picture's load and the tint's blend
+    conditions["window_look"] = {"look": look_tag(look) or "opaque", **(look or {}),
+                                 "terminal_config": look_terminal_lines(look), "resolved": resolved, "backdrop_shown": shown,
+                                 "terminal_background": themes.get("ghostty_background") if isinstance(themes, dict) else None}
+    if look:
+        row("the app shows the window's look", look_tag(look),
+            look_fault or f"{resolved['background']} {resolved['picture']!r}, opacity {resolved['opacity']}, blur {resolved['blur']!r}",
+            look_fault is None)
+    try:
+        others = windows_behind(screen_windows(), app.pid)
+    except Exception as error:  # noqa: BLE001  a read for the record: no failure of it ends a measure
+        others = f"not read: {error!r}"
+    conditions["window_look"]["windows_behind"] = others
+    if look:
+        conditions["window_look"]["over"] = "the fixture's desktop" if behind is None else behind
+        row("no window of another app is behind the window with the look", "none", str(others)[:300], others == [])
+    if opts.record:
+        # Each pane's feed ends with one line in a colour that the window's backdrop cannot show (by the app's answer).
+        MARKER.append(marker_color(shown))
+        conditions["stills"] = {"marker_color": MARKER[0], "record_seconds": opts.record_seconds,
+                                # The layouts are built one time: the timed rounds of this run have the line too.
+                                "scene": "each pane that the suite feeds has 1 line more than in a run without --record "
+                                         "(the stills' marker line), in the timed rounds of this run too"}
+        print(f"STILLS SCENE: {conditions['stills']['scene']}", flush=True)
+        row("--record: the marker line has a colour", "a colour far from the backdrop's, by the app's answer", str(MARKER[0]), MARKER[0] is not None)
     print("CONDITIONS " + json.dumps(conditions), flush=True)
     report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback,
               "conditions": conditions, "runs": []}
@@ -805,12 +1386,22 @@ def main():
         if name == "stress":
             # A bottom Dock over the window's lower edge, and chats the session replaced (none in STRESS).
             state.update(dock_overlap_pt=STRESS.get("dock_overlap_pt"), chat_fallbacks=STRESS.get("chat_fallbacks"))
-        label = name if state["window_key"] else f"{name}-inactive"
-        conditions["layouts"][label] = state
-        print(f"  {name}: window key {state['window_key']}, frontmost {state['frontmost']} (rows named {label})", flush=True)
-        labels.append(label)
+        label = f"{name}-{look_tag(look)}" if look else name  # a look's rows say each of its named values
+        label = label if state["window_key"] else f"{label}-inactive"
+        # One pass for each arm in each round (--pane-motion): the off arm's rows are named <label>-motion-off.
+        tags = {arm: label if arm != "off" else f"{label}-motion-off" for arm in arms or [None]}
+        for tag in tags.values():
+            conditions["layouts"][tag] = state
+        print(f"  {name}: window key {state['window_key']}, frontmost {state['frontmost']} (rows named {', '.join(tags.values())})", flush=True)
+        labels += tags.values()
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
-        for index in range(opts.rounds):
+        for index, arm in [(index, arm) for index in range(opts.rounds) for arm in tags]:
+            label = tags[arm]
+            problem = set_pane_motion(arm == "on") if arm else None
+            if problem:
+                row(f"{label} #{index}: the pane motion is {arm}", "the app took the setting", problem, False)
+                UNMEASURED.append(f"{label} #{index}: {problem}")
+                continue
             for step in sequence:
                 skip = not_applicable(step, columns if name != "stress" else None)
                 if skip:
@@ -819,33 +1410,44 @@ def main():
                     continue
                 if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "window-unzoom", "page-close"):
                     focus_page()  # each pair starts on the Chromium pane
-                run = measure(f"{panes:>2}p {step} #{index}", step)
-                run.update(layout=label, panes=panes, round=index)
+                run = measure(f"{panes:>2}p {step} #{index}" + (f" {arm}" if arm else ""), step)
+                run.update(layout=label, panes=panes, round=index, pane_motion=arm)
                 report["runs"].append(run)
                 if step in WINDOW_ACTIONS and run["error"]:
                     UNMEASURED.append(f"{label} {step} #{index}: {run['error']}")
                 row(f"{label} {step} #{index}: ran", "no error", str(run["error"]), run["error"] is None)
-                if step not in STILL:
-                    row(f"{label} {step} #{index}: animated (layout springs or the strip camera moved)", "> 0 frames",
-                        str(run["moving_frames"]), (run["moving_frames"] or 0) > 0)
+                moved = f"{run['moving_frames']} spring frames, {run['commit_frames']} commit frames"
+                if step not in STILL and arm == "off":
+                    row(f"{label} {step} #{index}: still (the pane motion is off)", "0 frames", moved,
+                        not run["moving_frames"] and not run["commit_frames"])
+                elif step not in STILL:
+                    animated = (run["moving_frames"] or 0) > 0 or (run["commit_frames"] or 0) > 0
+                    row(f"{label} {step} #{index}: animated (layout springs, the strip camera or a commit motion moved)",
+                        "> 0 frames", moved + ("" if animated else f"; the app's notes: {run['commit_notes'][:4]}"), animated)
                 missed = run["missed"]
                 row(f"{label} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),
-                    f"<= {opts.missed_budget}", str(missed), missed is not None and missed <= opts.missed_budget or not opts.gate)
+                    f"<= {opts.missed_budget}", f"{missed} ({run['missed_refreshes']} refreshes)",
+                    missed is not None and missed <= opts.missed_budget or not opts.gate)
                 if opts.json:
                     json.dump(report, open(opts.json, "w"), indent=1)
                 time.sleep(0.4)  # test harness: idle between runs
+        if arms and set_pane_motion(True):
+            print(f"  {name}: the pane motion did not go back on", flush=True)
         for wanted in filter(None, opts.sample.split(",")):
             where, _, what = wanted.partition(":")
             if where == name and not not_applicable(what, columns if name != "stress" else None):
                 profile(what, f"{name}-{what}")
-        if opts.record:
+        if opts.record and (not opts.record_layouts or name in opts.record_layouts.split(",")):
+            moved = tags.get("on", tags.get(None))  # the rows of the rounds with the motion on (the record pass has it on)
             for step in sequence:
                 if not not_applicable(step, columns if name != "stress" else None):
-                    record(step, f"{name}-{step}")
+                    rounds = [run.get("missed_refreshes") for run in report["runs"] if run.get("layout") == moved and run.get("action") == step]
+                    conditions["stills"].setdefault("acts", {})[f"{name}-{step}"] = record(step, f"{name}-{step}", rounds)
     print("\n== summary (median over rounds)")
     browser_keys = BROWSER_KEYS if opts.browser else []
     wide = max([13] + [len(step) for step in sequence])  # sidepanel-close
-    print(f"  {'panes':<5} {'action':<{wide}} {'p50':>6} {'p95':>6} {'p99':>6} {'max':>6} {'missed':>6} {'moved':>5} "
+    print(f"  {'panes':<5} {'action':<{wide}} {'p50':>6} {'p95':>6} {'p99':>6} {'max':>6} {'missed':>6} "
+          f"{'refr':>5} {'moved':>5} {'commit':>6} "
           f"{'tick95':>6} {'tickmx':>6} {'grids':>7}" + "".join(f" {h:>6}" for h in BROWSER_HEADS[:len(browser_keys)]))
     for name in labels:
         for step in sequence:
@@ -857,7 +1459,8 @@ def main():
                 values = sorted(v for v in (r.get(key) for r in runs) if v is not None)
                 return values[len(values) // 2] if values else None
             summary = {key: med(key) for key in ["frames_p50_ms", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "missed",
-                                                 "moving_frames", "layout_p95_ms", "layout_max_ms", "grid_reports",
+                                                 "missed_refreshes", "main_max_ms", "commit_frames", "moving_frames",
+                                                 "layout_p95_ms", "layout_max_ms", "grid_reports",
                                                  "resizes_sent", "commit_p95_ms", "commit_max_ms", "refresh_ms",
                                                  "window_intermediate", "window_max_step", "window_frame_p95_ms", "window_frame_max_ms",
                                                  "window_frame_missed", "window_refresh_ms"] + browser_keys}
@@ -868,7 +1471,8 @@ def main():
             grids = f"{f(summary['grid_reports'])}/{f(summary['resizes_sent'])}"
             print(f"  {name:<5} {step:<{wide}} {f(summary['frames_p50_ms']):>6} {f(summary['frames_p95_ms']):>6} "
                   f"{f(summary['frames_p99_ms']):>6} {f(summary['frames_max_ms']):>6} {f(summary['missed']):>6} "
-                  f"{f(summary['moving_frames']):>5} {f(summary['layout_p95_ms']):>6} {f(summary['layout_max_ms']):>6} "
+                  f"{f(summary['missed_refreshes']):>5} {f(summary['moving_frames']):>5} {f(summary['commit_frames']):>6} "
+                  f"{f(summary['layout_p95_ms']):>6} {f(summary['layout_max_ms']):>6} "
                   + (f"{grids:>7}" + "".join(f" {f(summary[k]):>6}" for k in browser_keys) if browser_keys else grids),
                   flush=True)
     if opts.json:
