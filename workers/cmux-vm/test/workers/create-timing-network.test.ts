@@ -167,7 +167,8 @@ describe("a create that names the mesh to join", () => {
     const other = await h.addKey("team_bravo", ALL_SCOPES);
     expect((await create(other, { meshId })).status).toBe(404);
     const own = await h.addKey(TEAM, ALL_SCOPES);
-    expect((await create(own, { meshId: "mesh_not-an-id" })).status).toBe(404);
+    expect((await create(own, { meshId: "mesh_not-an-id" })).status).toBe(400);
+    expect((await create(own, { meshId: `mesh_${"0".repeat(26)}` })).status).toBe(404);
     expect(h.upstreamRequests.length).toBe(before);
     expect(h.resources.filter((row) => row.kind === "vm")).toHaveLength(0);
   });
@@ -220,15 +221,28 @@ describe("the vm_create and vm_start lines", () => {
 
   it("says a create needed no resize, and that a retry recovered the VM instead of creating it", async () => {
     const key = await h.addKey(TEAM, ["vm:write"]);
-    h.upstream.faults.lostCreateResponses = 1;
+    // The VM is made upstream but its ownership row is not written: the retry finds it by its exact slug.
+    h.recordFault.before = 1;
     const lines = await linesOf("vm_create", async () => {
-      expect([201, 503]).toContain((await create(key, {}, "create-timing-log-recovery")).status);
+      expect((await create(key, {}, "create-timing-log-recovery")).status).toBe(503);
       expect((await create(key, {}, "create-timing-log-recovery")).status).toBe(201);
     });
-    expect(lines.length).toBeGreaterThanOrEqual(1);
-    const last = lines.at(-1)!;
-    expect(last).toMatchObject({ ok: true, recovered: true, createMs: null, resizeMs: null, providerTotalMs: null, providerTimingsMs: null });
-    expect(typeof last["recoverMs"]).toBe("number");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({ ok: false, recovered: false, resizeMs: null });
+    expect(typeof lines[0]!["createMs"]).toBe("number");
+    expect(lines[1]).toMatchObject({ ok: true, recovered: true, createMs: null, recoverAfterMs: null, resizeMs: null, providerTotalMs: null, providerTimingsMs: null, vmId: lines[0]!["vmId"] });
+    expect(typeof lines[1]!["recoverMs"]).toBe("number");
+    expect(providerCreates()).toHaveLength(1);
+  });
+
+  it("says a create whose answer was lost recovered the VM by its slug afterwards", async () => {
+    const key = await h.addKey(TEAM, ["vm:write"]);
+    h.upstream.faults.lostCreateResponses = 1;
+    const lines = await linesOf("vm_create", async () => { expect((await create(key, {})).status).toBe(201); });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ ok: true, recovered: true });
+    expect(typeof lines[0]!["createMs"]).toBe("number");
+    expect(typeof lines[0]!["recoverAfterMs"]).toBe("number");
   });
 
   it("logs nothing for a create refused before it reached the provider", async () => {
