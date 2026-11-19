@@ -126,7 +126,7 @@ impl Surface {
             // (`shell_state`); set empty without one, like the credential.
             let shell_state = terminal_public_id
                 .as_ref()
-                .and_then(|terminal| mux.shell_state_dir()?.prefix(terminal))
+                .and_then(|terminal| mux.shell_state_prefix(terminal, &opts.extra_env))
                 .map(|prefix| prefix.to_string_lossy().into_owned())
                 .unwrap_or_default();
             set_env(&mut opts.extra_env, crate::shell_state::SHELL_STATE_ENV, &shell_state);

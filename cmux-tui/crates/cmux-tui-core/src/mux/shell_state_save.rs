@@ -21,6 +21,31 @@ impl Mux {
         self.output_store.directory().and_then(Path::parent).map(crate::shell_state::directory_in)
     }
 
+    /// The prefix terminal `terminal`'s shell gets in
+    /// [`crate::shell_state::SHELL_STATE_ENV`], given its launch
+    /// environment `env`; `None` gives it none (it saves nothing).
+    pub(crate) fn shell_state_prefix(
+        &self,
+        terminal: &TerminalPublicId,
+        env: &[(String, String)],
+    ) -> Option<std::path::PathBuf> {
+        let _ = env;
+        self.shell_state_dir()?.prefix(terminal)
+    }
+
+    /// A respawn of terminal `terminal`: a parked tab's restart (`parked`)
+    /// hands its last shell's saved state to the new shell, which reads it
+    /// after the startup files and deletes it; any other respawn starts a
+    /// fresh shell, with no older state left to read.
+    pub(crate) fn hand_shell_state_to_respawn(&self, terminal: &TerminalPublicId, parked: bool) {
+        let Some(dir) = self.shell_state_dir() else { return };
+        if parked {
+            dir.take_for_restore(terminal);
+        } else {
+            dir.discard(terminal);
+        }
+    }
+
     /// Asks the shells of `terminals` to save their state, all at once, and
     /// waits at most [`SAVE_TIMEOUT`] for every answer. A terminal with no
     /// live shell at its prompt (a program it started in front, no process)
