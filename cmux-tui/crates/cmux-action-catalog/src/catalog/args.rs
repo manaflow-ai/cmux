@@ -365,8 +365,10 @@ pub const HARNESS_2: Argument = Argument { name: "harness", title: t("ActionCata
 pub const MODEL: Argument = Argument { name: "model", title: t("ActionCatalog", "argument.agent.model", "Model"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const HOST: Argument = Argument { name: "host", title: t("Localizable", "argument.agent.host", "Session Host"), kind: ArgKind::Target("machine"), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// An acpmux session of this machine, by id; the palette lists them from acpmux `session/list`
+/// (newest first, by title), as `agent open` and `agent open-tab` take them.
 #[rustfmt::skip]
-pub const SESSION: Argument = Argument { name: "session", title: t("Localizable", "argument.agent.session", "Session"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const SESSION: Argument = Argument { name: "session", title: t("Localizable", "argument.agent.session", "Session"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "op:session/list", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const NAME_4: Argument = Argument { name: "name", title: t("Localizable", "argument.agent.workspaceName", "Workspace Name"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
@@ -732,3 +734,11 @@ pub const BACK_FORWARD_ENTRY: Argument = Argument { name: "entry", title: t("Act
 /// One download of the browser's downloads list, by id; the App lists them, newest first.
 #[rustfmt::skip]
 pub const DOWNLOAD: Argument = Argument { name: "download", title: t("BrowserToolbarActions", "argument.browser.download", "Download"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "browserDownloads", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// A browser toolbar button to pin or unpin (`browser.toolbarButtons`, a BrowserToolbarButton raw
+/// value); the App lists the pinnable buttons, the pinned ones marked.
+#[rustfmt::skip]
+pub const BROWSER_TOOLBAR_BUTTON: Argument = Argument { name: "button", title: t("ActionCatalog", "argument.toolbar.button", "Button"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "browserToolbarButtons", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// A tab bar button to pin or unpin (`tabs.toolbarButtons`, a catalog action id); the App lists the
+/// pinnable actions, the pinned ones marked.
+#[rustfmt::skip]
+pub const TAB_BAR_BUTTON: Argument = Argument { name: "button", title: t("ActionCatalog", "argument.toolbar.button", "Button"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "tabBarButtons", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
