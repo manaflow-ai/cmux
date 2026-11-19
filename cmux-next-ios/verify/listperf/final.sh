@@ -21,6 +21,12 @@ runs=(
   "diff-2400-pan   diff        LIST_COUNT=3 LIST_PAN=1 LIST_PASSES=4 LIST_SPEED=800"
   "artifacts-40    artifacts   LIST_COUNT=40"
   "feed-ref        feed        FEED_STRESS=320"
+  # A busy Mac (Aziz, 2026-11-18): 45 working agents of 200 workspaces through the real live path
+  # (LiveFloodRig: WorkspaceSync, AppStore, TerminalFeed, FeedStore), a new workspace every 3 s,
+  # a notification every 0.5 s, 500 title changes at once every 5 s.
+  "ws-heavy-live   workspaces  LIST_FLOOD=45 LIST_FLOOD_ROWS=200 LIST_FLOOD_ADD_SECONDS=3 LIST_FLOOD_BURST=500 LIST_PASSES=3 LIST_SPEED=2400"
+  "feed-live       feed        LIST_FLOOD=45 LIST_FLOOD_ROWS=200 LIST_FLOOD_ADD_SECONDS=3 FEED_STRESS=320 LIST_PASSES=3 LIST_SPEED=2400"
+  "ws-2000         workspaces  LIST_COUNT=2000"
 )
 for rep in $(seq 1 "$reps"); do
   for line in "${runs[@]}"; do

@@ -422,6 +422,9 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         pending = nil
         let animated = pendingAnimated && !UIAccessibility.isReduceMotionEnabled && collectionView?.window != nil
         pendingAnimated = false
+        #if DEBUG
+        ListApplyProbe.shared.applied("workspaces")
+        #endif
         let sections = ListSectionIDs.unique(next.sections)
         let plan = ListApplyPlan.make(old: shownSections, oldItems: items, new: sections, newItems: next.items)
         items = next.items

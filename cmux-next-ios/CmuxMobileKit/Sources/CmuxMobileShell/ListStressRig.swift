@@ -267,8 +267,10 @@ final class ListStressRig: NSObject {
     /// A busy Mac's events through the production live path (`LiveFloodRig`): bound before the
     /// screen opens, so the list starts with the Mac's `agents` workspaces and keeps changing.
     private func startFlood(_ agents: Int) async {
-        let rig = LiveFloodRig(store: shell.store, feedStore: .shared, macID: "mac-studio",
-                               load: LiveFloodRig.Load(workspaces: agents, titleHz: settings.floodTitleHz))
+        let load = LiveFloodRig.Load(workspaces: agents, rows: settings.floodRows, titleHz: settings.floodTitleHz,
+                                     addEvery: settings.floodAddSeconds, burst: settings.floodBurst)
+        let rig = LiveFloodRig(store: shell.store, feedStore: .shared, macID: "mac-studio", load: load,
+                               list: settings.screen == "feed" ? "feed" : "workspaces")
         flood = rig
         await rig.start()
     }

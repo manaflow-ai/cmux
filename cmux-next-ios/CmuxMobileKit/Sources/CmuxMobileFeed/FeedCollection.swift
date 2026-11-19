@@ -414,6 +414,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         defer { FeedCellTiming.log("commit n=\(next.count)", t0) }
         #endif
         guard let dataSource, let collectionView else { return }
+        #if DEBUG
+        ListApplyProbe.shared.applied("feed")
+        #endif
         var plan = FeedListPlan(oldOrder: shownOrder, shown: shownKeys, new: keys, unchanged: unchanged)
         if reconfigureAll { plan.reconfigure = keys.map(\.0).filter { shownKeys[$0] != nil } }
         for item in next where !unchanged.contains(item.id) { items[item.id] = item }

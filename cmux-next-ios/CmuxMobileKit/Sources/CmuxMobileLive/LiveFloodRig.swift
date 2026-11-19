@@ -1,5 +1,6 @@
 // DEBUG and Demo builds only: the list rig's live-transport flood (verify/listperf/).
 #if DEBUG
+import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileModel
 import CmuxMobileTransport
@@ -21,16 +22,26 @@ import OSLog
 @MainActor
 public final class LiveFloodRig {
     public struct Load: Sendable, Equatable {
+        /// Working agents (one workspace each): their titles churn and they report.
         public var workspaces: Int
+        /// Workspaces the Mac lists at the start (at least `workspaces`; the rest idle).
+        public var rows: Int
         public var titleHz: Double
         public var addEvery: Double
         public var notifyEvery: Double
+        /// Every `burstEvery` seconds, this many title changes at once (0: none).
+        public var burst: Int
+        public var burstEvery: Double
 
-        public init(workspaces: Int, titleHz: Double = 3, addEvery: Double = 2, notifyEvery: Double = 0.5) {
-            self.workspaces = workspaces
+        public init(workspaces: Int, rows: Int? = nil, titleHz: Double = 3, addEvery: Double = 2, notifyEvery: Double = 0.5,
+                    burst: Int = 0, burstEvery: Double = 5) {
+            self.workspaces = max(1, workspaces)
+            self.rows = max(self.workspaces, rows ?? workspaces)
             self.titleHz = titleHz
             self.addEvery = addEvery
             self.notifyEvery = notifyEvery
+            self.burst = burst
+            self.burstEvery = burstEvery
         }
     }
 
@@ -43,10 +54,21 @@ public final class LiveFloodRig {
     public private(set) var treePublications = 0
     public private(set) var rowPublications = 0
     private let log = Logger(subsystem: "dev.cmux.mobile", category: "frames")
+    /// The list measured (`ListApplyProbe` name: `workspaces` or `feed`).
+    private let list: String
+    /// The oldest store write the list has not applied yet (uptime seconds).
+    private var unappliedSince: TimeInterval?
+    private var applies = 0
+    private var writes = 0
+    private var latencies: [Double] = []
+    private var allLatencies: [Double] = []
+    private var secondApplies: [Int] = []
+    private var ticker: Task<Void, Never>?
 
-    public init(store: AppStore, feedStore: FeedStore, macID: String, load: Load) {
+    public init(store: AppStore, feedStore: FeedStore, macID: String, load: Load, list: String) {
         self.store = store
         self.macID = macID
+        self.list = list
         daemon = FloodDaemon(load: load)
         sync = WorkspaceSync(deviceID: "list-rig", deviceName: "iPhone")
         terminalFeed = TerminalFeed(store: feedStore)
@@ -64,13 +86,17 @@ public final class LiveFloodRig {
         sync.onTree = { [weak self] tree in
             guard let self else { return }
             treePublications += 1
+            let revision = self.store.workspacesRevision
             self.store.replaceWorkspaces(macID: self.macID, with: tree.workspaces)
+            if self.list == "workspaces", self.store.workspacesRevision != revision { self.noteWrite() }
             terminalFeed.treeChanged(tree, macID: self.macID, connection: sync.connectionSerial)
         }
         sync.onRows = { [weak self] tree, ids, agentChanged in
             guard let self else { return }
             rowPublications += 1
+            let revision = self.store.workspacesRevision
             self.store.updateWorkspaces(macID: self.macID, rows: tree.workspaces.filter { ids.contains($0.id) })
+            if self.list == "workspaces", self.store.workspacesRevision != revision { self.noteWrite() }
             if agentChanged {
                 terminalFeed.treeChanged(tree, macID: self.macID, connection: sync.connectionSerial, changedWorkspaceIDs: ids)
             } else {
@@ -78,7 +104,41 @@ public final class LiveFloodRig {
             }
         }
         sync.onNotification = { post in terminalFeed.notificationPosted(post) }
-        feedStore.onItemsChange = { items in terminalFeed.itemsChanged(items) }
+        feedStore.onItemsChange = { [weak self] items in
+            if self?.list == "feed" { self?.noteWrite() }
+            terminalFeed.itemsChanged(items)
+        }
+        ListApplyProbe.shared.onApply = { [weak self] applied in
+            guard let self, applied == self.list else { return }
+            applies += 1
+            if let since = unappliedSince {
+                let ms = (ProcessInfo.processInfo.systemUptime - since) * 1000
+                latencies.append(ms)
+                allLatencies.append(ms)
+                unappliedSince = nil
+            }
+        }
+    }
+
+    private func noteWrite() {
+        writes += 1
+        if unappliedSince == nil { unappliedSince = ProcessInfo.processInfo.systemUptime }
+    }
+
+    /// One line a second: the list's applies, the store writes it had to show, and how long a
+    /// write waited for its apply (p95, max).
+    private func logSecond() {
+        log.notice("FRAMELOG list-stress flood-second list=\(self.list, privacy: .public) applies=\(self.applies, privacy: .public) writes=\(self.writes, privacy: .public) write_to_apply_p95_ms=\(Self.p95(self.latencies), privacy: .public) write_to_apply_max_ms=\(self.latencies.max() ?? 0, privacy: .public)")
+        secondApplies.append(applies)
+        applies = 0
+        writes = 0
+        latencies = []
+    }
+
+    nonisolated static func p95(_ values: [Double]) -> Double {
+        guard !values.isEmpty else { return 0 }
+        let sorted = values.sorted()
+        return (sorted[min(sorted.count - 1, Int((Double(sorted.count) * 0.95).rounded(.up)) - 1)] * 10).rounded() / 10
     }
 
     /// Binds the fake Mac and waits for its first list, then starts the flood.
@@ -86,10 +146,19 @@ public final class LiveFloodRig {
         await sync.bind(daemon, macID: macID)
         log.notice("FRAMELOG list-stress flood bound workspaces=\(self.store.workspaces.count, privacy: .public)")
         await daemon.startFlood()
+        ticker = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                self?.logSecond()
+            }
+        }
     }
 
     /// What the flood cost the store: its publications, logged once at the end of the run.
     public func logSummary() {
+        ticker?.cancel()
+        let perSecond = secondApplies.isEmpty ? 0 : Double(secondApplies.reduce(0, +)) / Double(secondApplies.count)
+        log.notice("FRAMELOG list-stress flood-summary list=\(self.list, privacy: .public) applies_per_s=\((perSecond * 10).rounded() / 10, privacy: .public) applies_per_s_max=\(self.secondApplies.max() ?? 0, privacy: .public) write_to_apply_p95_ms=\(Self.p95(self.allLatencies), privacy: .public) write_to_apply_max_ms=\(self.allLatencies.max() ?? 0, privacy: .public) samples=\(self.allLatencies.count, privacy: .public)")
         log.notice("FRAMELOG list-stress flood tree_publications=\(self.treePublications, privacy: .public) row_publications=\(self.rowPublications, privacy: .public) workspaces=\(self.store.workspaces.count, privacy: .public) feed=\(self.terminalFeed.store.items.count, privacy: .public)")
     }
 }
@@ -116,7 +185,7 @@ actor FloodDaemon: LinkChannel {
 
     init(load: LiveFloodRig.Load) {
         self.load = load
-        count = load.workspaces
+        count = load.rows
     }
 
     func startFlood() {
@@ -130,23 +199,26 @@ actor FloodDaemon: LinkChannel {
         let titlesPerTick = max(1, Int((Double(load.workspaces) * load.titleHz / tickHz).rounded()))
         let addTicks = max(1, Int(load.addEvery * tickHz))
         let notifyTicks = max(1, Int(load.notifyEvery * tickHz))
+        let burstTicks = max(1, Int(load.burstEvery * tickHz))
         var tick = 0
         var cursor = 0
         while !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(50))
             guard !Task.isCancelled, !closed else { return }
             tick += 1
-            for _ in 0..<titlesPerTick {
-                cursor = cursor % count + 1
+            // The working agents' spinners (the idle rows stay still).
+            let changes = titlesPerTick + (load.burst > 0 && tick % burstTicks == 0 ? load.burst : 0)
+            for _ in 0..<changes {
+                cursor = cursor % load.workspaces + 1
                 titles[cursor, default: 0] += 1
                 push(["event": "title-changed", "surface": cursor, "title": title(cursor)])
             }
             // An agent report: a turn going on (its time moves), now and then one stopping to ask.
-            let agent = (tick * 7) % count + 1
+            let agent = (tick * 7) % load.workspaces + 1
             push(["event": "agent-changed", "surface": agent, "state": tick % 40 == 0 ? "blocked" : "working", "agent": "codex",
                   "updated_at_ms": Int(Date().timeIntervalSince1970 * 1000)])
             if tick % addTicks == 0 { addWorkspace() }
-            if tick % notifyTicks == 0 { notify((tick / notifyTicks * 13) % count + 1) }
+            if tick % notifyTicks == 0 { notify((tick / notifyTicks * 13) % load.workspaces + 1) }
         }
     }
 
@@ -202,7 +274,7 @@ actor FloodDaemon: LinkChannel {
                 }
             case "list-agents":
                 let now = Int(Date().timeIntervalSince1970 * 1000)
-                reply["data"] = ["agents": (1...count).map { ["surface": $0, "state": "working", "agent": "codex", "updated_at_ms": now] }]
+                reply["data"] = ["agents": (1...load.workspaces).map { ["surface": $0, "state": "working", "agent": "codex", "updated_at_ms": now] }]
             case "list-notifications":
                 let limit = request["limit"] as? Int ?? 100
                 reply["data"] = ["notifications": Array(ledger.suffix(limit))]
