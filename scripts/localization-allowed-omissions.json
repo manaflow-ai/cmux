@@ -321,10 +321,6 @@
     "class": "format",
     "source": "%@ (%@)"
   },
-  "browser.focusMode.shortcutHint": {
-    "class": "format",
-    "source": "Esc Esc"
-  },
   "browser.import.complete.browser": {
     "source": "Browser: %@",
     "identityLocales": {

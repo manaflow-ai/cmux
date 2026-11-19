@@ -74,7 +74,6 @@ public final class BrowserChromeTabState: Sendable {
     // MARK: Per-tab presentation
 
     public var showsFocusModeIndicator = false { didSet { chrome?.showsFocusModeIndicator = showsFocusModeIndicator } }
-    public var focusModeExitArmed = false { didSet { chrome?.focusModeExitArmed = focusModeExitArmed } }
     /// The bar under the toolbar (the bookmarks bar) and its height.
     public var accessory: (view: NSView, height: CGFloat)? {
         didSet { chrome?.setAccessoryView(accessory?.view, height: accessory?.height ?? 0) }

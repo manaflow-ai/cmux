@@ -103,6 +103,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.guidance.codex` | boolean | `true` |  | cmux Guidance for Codex. Tells new Codex chats how cmux shows plans, side sessions and recaps. |
 | `agents.guidance.otherAgents` | boolean | `true` |  | cmux Guidance for Other Agents. Gemini, OpenCode and agents you added get the same guidance. |
 | `agents.guidance.userSkills` | boolean | `true` |  | Your Skills in Every Chat. Skills in ~/.config/cmux/skills (a folder with a SKILL.md each) reach every new chat. |
+| `agents.mcpServers.enabled` | boolean | `true` |  | Saved Servers in Agent Chats. New chats can use the servers listed above. |
 | `agents.autoRetry.enabled` | boolean | `true` |  | Retry Automatically. Retries after rate limits, capacity errors or a dropped connection. |
 | `agents.autoRetry.intervalSeconds` | real | `0` | 0 to 3600 | Seconds Between Retries. 0 waits longer after each failed try. |
 | `agents.autoRetry.attempts` | real | `4` | 1 to 12 | Retries per Error. How many times the chat tries again before it stops and waits for you. |
@@ -572,8 +573,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.links.middleClick` | string | `"backgroundTab"` | `linkPlacement`, `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Middle-Click. Chromium tabs use the Command-Click setting. |
 | `browser.vimKeys` | boolean | `true` |  | Vim Keys in Pages. Outside text fields: f clicks a link, j and k scroll, gg and Shift-G jump to the ends. |
 | `browser.enabled` | boolean | `true` |  | Enable cmux Browser. Off: every link opens in your default browser. |
-| `browser.pageShortcuts` | string | `"ask"` | `ask`, `page`, `cmux` | Shortcuts in Web Pages. For shortcuts that a page and cmux both use, such as Cmd-K. App and window shortcuts always go to cmux. |
-| `browser.pageShortcutSites` | dictionary | `{}` |  | Shortcuts in Web Pages by Site. Sites with their own choice: a site, such as linear.app, and page or cmux. Other sites follow Shortcuts in Web Pages. |
 | `browser.openLinksInCmuxBrowser` | boolean | `true` |  | Open Links in cmux Browser. Off: links open in your default browser. Shift-Cmd-click opens the other one. |
 | `browser.openSignInPagesInCmux` | boolean | `true` |  | Open Sign-In Pages in cmux Browser. Sign-in pages open in cmux even when other links open in your default browser. |
 | `browser.openPullRequestsInGitHubPage` | boolean | `false` |  | Open Pull Requests in cmux GitHub Page. Pull request links in agent chats open cmux's GitHub page. Off: github.com in a tab. |

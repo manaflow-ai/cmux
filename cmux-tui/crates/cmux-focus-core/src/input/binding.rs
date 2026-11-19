@@ -26,10 +26,6 @@ const BROWSER_CHROME_ACTIONS: [&str; 7] = [
     "browser.findPrevious",
 ];
 
-/// The system actions browser focus mode keeps from the page (the app's
-/// `KeyRouter.focusModeKeptActions`).
-const FOCUS_MODE_KEPT_ACTIONS: [&str; 2] = ["toggleBrowserFocusMode", "quit"];
-
 /// A key's target as the binding rules read it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Class {
@@ -90,15 +86,13 @@ pub(super) fn goes_to_view(binding: &Binding, class: Class, copy_mode: bool) -> 
     binding.ghostty && ((class.terminal && !copy_mode) || binding.tier == Tier::Content)
 }
 
-/// Whether `binding`'s action may take a key aimed at `class`, with browser
-/// focus mode on or off (its tier rule).
-pub(super) fn allows(binding: &Binding, class: Class, focus_mode: bool) -> bool {
+/// Whether `binding`'s action may take a key aimed at `class` (its tier
+/// rule). A page's own shortcuts win by the page-first offer (`offer`), not
+/// by the tier.
+pub(super) fn allows(binding: &Binding, class: Class) -> bool {
     let action: &str = &binding.action;
-    if focus_mode && binding.tier == Tier::System {
-        return FOCUS_MODE_KEPT_ACTIONS.contains(&action);
-    }
     if binding.tier == Tier::Content {
-        if DEV_TOOLS_ACTIONS.contains(&action) && class.browser && !focus_mode {
+        if DEV_TOOLS_ACTIONS.contains(&action) && class.browser {
             return true;
         }
         if BROWSER_CHROME_ACTIONS.contains(&action) && class.chrome_field {
@@ -107,7 +101,7 @@ pub(super) fn allows(binding: &Binding, class: Class, focus_mode: bool) -> bool 
     }
     match binding.tier {
         Tier::System => true,
-        Tier::Navigation => !focus_mode,
-        Tier::Content => !focus_mode && !class.text_input && !class.dev_tools,
+        Tier::Navigation => true,
+        Tier::Content => !class.text_input && !class.dev_tools,
     }
 }

@@ -9,12 +9,14 @@ public import AppKit
 /// tab than the one the key was offered to runs nothing. Matched by identity, else by timestamp, key code and
 /// modifiers, because Chromium may hand back a copy of the event.
 public struct PageFirstKeyOffer<Held> {
-    private struct Signature: Equatable {
+    /// A key-down as a report matches it (timestamp, key code, modifiers): a value to hold across a wait, where the
+    /// event itself (not `Sendable`) cannot go.
+    public struct Signature: Equatable, Sendable {
         var timestamp: TimeInterval
         var keyCode: UInt16
         var modifiers: UInt
 
-        init(_ event: NSEvent) {
+        public init(_ event: NSEvent) {
             timestamp = event.timestamp
             keyCode = event.keyCode
             modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
@@ -56,6 +58,10 @@ public struct PageFirstKeyOffer<Held> {
         entries.removeFirst(index + 1)
         return entry.tab == tab ? entry.held : nil
     }
+
+    /// Whether the key `signature` names is still held: its page has not reported it unhandled (a page that keeps a key
+    /// reports nothing).
+    public func holds(_ signature: Signature) -> Bool { entries.contains { $0.signature == signature } }
 
     public mutating func clear() {
         entries.removeAll()

@@ -6,6 +6,7 @@ import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextTerminal
 import CmuxNextFocus
+import CmuxNextWakeups
 /// The one key dispatcher (plans/cmux-next/keybindings.md section 4,
 /// focus.md section 5). It decides every key-down of every cmux window in
 /// `CmuxApplication.sendEvent` (``interceptKeyDown(_:in:heldBefore:)``), before any
@@ -22,9 +23,10 @@ import CmuxNextFocus
 ///    wins), with the context keys of the window the key goes to; a winning
 ///    Ghostty keybind goes to a focused terminal, which runs it itself;
 /// 4. the action's tier decides whether it may take the key from this focus
-///    (system always, but in browser focus mode only its exit chord and
-///    Quit; navigation unless browser focus mode; content only when its
-///    content has the keyboard, never a text field): run it;
+///    (system and navigation always; content only when its content has
+///    the keyboard, never a text field): run it, or on a Chromium page
+///    offer it to the page first (``PageShortcutRoute``: the page's
+///    shortcut wins, and cmux mode gives the keys back to cmux);
 /// 5. else the focused surface gets the key (Ghostty keybinds, the page, the
 ///    field), after a Chrome extension shortcut of the focused Chromium tab;
 ///    a printable key on a screen with a primary input and no focused text
@@ -62,21 +64,16 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
     nonisolated static func allows(_ tier: ActionKeyTier, focus: FocusState) -> Bool {
         switch tier {
         case .system: true
-        case .navigation: !focus.isBrowserFocusModeActive
-        case .content: !focus.isBrowserFocusModeActive && !focus.resolved.isTextInput && !focus.resolved.isDevTools
+        case .navigation: true
+        case .content: !focus.resolved.isTextInput && !focus.resolved.isDevTools
         }
     }
 
     /// Like ``allows(_:focus:)`` for action `id`. The DevTools actions
     /// (Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C) are not editing chords: they run
     /// from the page, the address bar, the find bar and DevTools itself.
-    /// Browser focus mode still gives them to the page.
-    /// Browser focus mode gives the page every system action too (the command palette, Close
-    /// Tab), all but ``focusModeKeptActions``.
     nonisolated static func allows(_ tier: ActionKeyTier, id: ActionID, focus: FocusState) -> Bool {
-        if focus.isBrowserFocusModeActive, tier == .system { return focusModeKeptActions.contains(id) }
-        if tier == .content, devToolsActions.contains(id), BrowserChordTable.isBrowserContext(focus.resolved),
-           !focus.isBrowserFocusModeActive { return true }
+        if tier == .content, devToolsActions.contains(id), BrowserChordTable.isBrowserContext(focus.resolved) { return true }
         if tier == .content, browserChromeActions.contains(id), isBrowserChromeField(focus.resolved) { return true }
         return allows(tier, focus: focus)
     }
@@ -218,8 +215,6 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
             cancelChord()
             return true
         }
-        // Browser focus mode: Esc Esc leaves it (the first Escape still reaches the page).
-        if routesFocusModeEscape(event, in: window) { return true }
         let isChord = Self.isChord(event.modifierFlags)
         if isChord {
             parkedTyping.keyEndsQueue(event, text: typeAhead.text, for: typeAhead.surface) // before the drop: a New Tab key parks this text
@@ -263,7 +258,7 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
         trace?("dispatcher: \(decision)")
         switch decision {
         case .run(let candidate):
-            if asksPageShortcuts(event, candidate: candidate, context: context, focus: focus, facts: facts, controller: controller) { return true }
+            if givesPageFirst(event, candidate: candidate, context: context, focus: focus, facts: facts, controller: controller) { return true }
             // The key's own time starts a tab switch's input stage (debug.tab_switch).
             DebugTabSwitch.handling(input: event.timestamp) { run(candidate, context: context, window: controller.state.id) }
             // A refusal (no neighbor) is reported by the registry; the chord
@@ -352,8 +347,6 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
     let menuPickKeys = MenuPickKeyHold(tracking: MenuTracking()) { NSApp.sendEvent($0) }
     /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).
     lazy var creationInputCoordinator = CreationInputCoordinator(router: self, replay: heldKeyReplay)
-    /// Browser focus mode's double-Escape exit (``routesFocusModeEscape(_:in:)``).
-    var focusModeEscape = BrowserFocusModeEscapeExit()
 
     /// Set while the Keyboard Shortcuts page records keys: returns whether
     /// it took the key-down (only its own window's keys).
@@ -381,13 +374,15 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
 
     /// The key-down a page has first, with the action to run if it reports the key unhandled.
     var pageFirstOffer = PageFirstKeyOffer<HeldPageKey>()
-    /// Sites `browser.pageShortcuts` asked about this launch: a closed dialog asks again after a relaunch.
-    var askedPageShortcutSites: Set<String> = []
+    /// The one-time cmux mode notice showed this launch (Don't Show Again hides it for good).
+    var cmuxModeNoticeShown = false
+    /// Waits for a page's unhandled report before the notice reads a key as kept.
+    let cmuxModeNoticeTimer = DemandTimer(owner: "keyRouter.cmuxModeNotice")
 
     /// Whether a chord, the Cmd-J leader included, may arm in `focus`:
     /// where content shortcuts run (a terminal, a page, an agent chat, the
-    /// sidebar list), never in a text field, DevTools or browser focus mode,
-    /// whose own Cmd-J stays theirs, and never while an input method is
+    /// sidebar list), never in a text field or DevTools, whose own Cmd-J
+    /// stays theirs, and never while an input method is
     /// composing (marked text), so IME input is never cut short.
     nonisolated static func canArm(focus: FocusState, hasMarkedText: Bool) -> Bool { !hasMarkedText && allows(.content, focus: focus) }
 

@@ -72175,127 +72175,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Browser Focus Mode"
+            "value": "Toggle cmux Mode"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブラウザのフォーカスモードを切り替え"
+            "value": "cmux モードを切り替え"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبديل وضع التركيز في المتصفح"
+            "value": "تبديل وضع cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prebaci fokusni način preglednika"
+            "value": "Prebaci cmux način"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå browserens fokustilstand til/fra"
+            "value": "Slå cmux-tilstand til/fra"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Browser-Fokusmodus umschalten"
+            "value": "cmux-Modus umschalten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar modo de enfoque del navegador"
+            "value": "Alternar modo cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activer/désactiver le mode focus du navigateur"
+            "value": "Activer/désactiver le mode cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva/disattiva modalità focus del browser"
+            "value": "Attiva/disattiva modalità cmux"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ/បើករបៀបផ្ដោតកម្មវិធីរុករក"
+            "value": "បិទ/បើករបៀប cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "브라우저 집중 모드 전환"
+            "value": "cmux 모드 전환"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå nettleserens fokusmodus av/på"
+            "value": "Slå cmux-modus av/på"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przełącz tryb skupienia przeglądarki"
+            "value": "Przełącz tryb cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar Modo de Foco do Navegador"
+            "value": "Alternar Modo cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Режим фокусировки браузера"
+            "value": "Режим cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สลับโหมดโฟกัสเบราว์เซอร์"
+            "value": "สลับโหมด cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tarayıcı Odak Modunu Aç/Kapat"
+            "value": "cmux Modunu Aç/Kapat"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перемкнути режим фокусування браузера"
+            "value": "Перемкнути режим cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật/tắt chế độ tập trung trình duyệt"
+            "value": "Bật/tắt chế độ cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切换浏览器专注模式"
+            "value": "切换 cmux 模式"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切換瀏覽器專注模式"
+            "value": "切換 cmux 模式"
           }
         }
       }

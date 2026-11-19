@@ -120,30 +120,6 @@ extension BrowserSettingsSchema {
                 keywords: ["browser", "disable", "turn off", "default browser", "web"]
             ),
             SettingDescriptor(
-                BrowserPageShortcutsSetting.configPath,
-                section: .browser,
-                group: group,
-                title: SettingsText.keyed("settings.browser.pageShortcuts", "Shortcuts in Web Pages"),
-                help: SettingsText.keyed("settings.browser.pageShortcuts.help", "For shortcuts that a page and cmux both use, such as Cmd-K. App and window shortcuts always go to cmux."),
-                kind: .choice([
-                    SettingChoice(BrowserPageShortcuts.ask.rawValue, SettingsText.keyed("settings.choice.pageShortcutsAsk", "Ask")),
-                    SettingChoice(BrowserPageShortcuts.page.rawValue, SettingsText.keyed("settings.choice.pageShortcutsPage", "Web Page First")),
-                    SettingChoice(BrowserPageShortcuts.cmux.rawValue, SettingsText.keyed("settings.choice.pageShortcutsCmux", "cmux First")),
-                ]),
-                default: .string(BrowserPageShortcutsSetting.fallback.rawValue),
-                keywords: ["keyboard", "shortcut", "shortcuts", "conflict", "cmd-k", "focus mode", "page", "website"]
-            ),
-            SettingDescriptor(
-                BrowserPageShortcutSites.pageShortcutSitesPath,
-                section: .browser,
-                group: group,
-                title: SettingsText.keyed("settings.browser.pageShortcutSites", "Shortcuts in Web Pages by Site"),
-                help: SettingsText.keyed("settings.browser.pageShortcutSites.help", "Sites with their own choice: a site, such as linear.app, and page or cmux. Other sites follow Shortcuts in Web Pages."),
-                kind: .stringMap,
-                default: BrowserPageShortcutSites.pageShortcutSitesDefault,
-                keywords: ["keyboard", "shortcut", "shortcuts", "site", "website", "cmd-k"]
-            ),
-            SettingDescriptor(
                 LinkRouting.openPath,
                 section: .browser,
                 group: group,

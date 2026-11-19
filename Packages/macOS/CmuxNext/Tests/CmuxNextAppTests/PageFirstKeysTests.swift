@@ -4,10 +4,9 @@ import CmuxNextActions
 import CmuxNextFocus
 import Testing
 
-/// cmux shortcuts win over a web page unless browser focus mode is on (Lawrence 2026-11-11: "im in linear
-/// and cmd b goes to linear itself instead of toggling left sidebar ... we should only direct keyboard
-/// shortcuts into the website itself if focus mode for website is on, else all keyboard shortcuts should go
-/// to cmux itself"). Only Find and its neighbors stay page-first in a Chromium tab (Lawrence 2026-10-23,
+/// cmux mode (CMUX-641): cmux shortcuts win over a web page (Lawrence 2026-11-11: "im in linear and cmd b goes
+/// to linear itself instead of toggling left sidebar"; since 2026-11-19 a page gets them first outside cmux mode,
+/// ``PageShortcutsTests``). Only Find and its neighbors stay page-first in a Chromium tab (Lawrence 2026-10-23,
 /// Google Sheets' own Cmd-F): cmux runs Find only when Chromium reports that the page did not handle the
 /// key (no `preventDefault`). Every other cmux shortcut (Cmd-B, Cmd-I, Cmd-R, Cmd-T, Cmd-1...) runs first.
 @MainActor @Suite struct PageFirstKeysTests {
@@ -71,27 +70,38 @@ import Testing
         return focus
     }
 
+    /// The page in cmux mode (the browser focus mode flag): cmux shortcuts win again.
+    static var cmuxModeFocus: FocusState {
+        var focus = pageFocus
+        focus.browserFocusMode = ["tab_page"]
+        focus.isBrowserFocusModeActive = true
+        return focus
+    }
+
     /// A Chromium page: it reports the keys it did not handle.
     static let chromium = KeyRouter.Facts(pageReportsUnhandledKeys: true)
 
     /// Kept alive for the whole run: the router holds its registry unowned.
     static let sharedRegistry = registry()
 
-    static func decision(_ key: Key, facts: KeyRouter.Facts) throws -> KeyRouter.Decision {
-        KeyRouter(registry: sharedRegistry).decide(try event(key), focus: pageFocus, keyWindow: .content, facts: facts)
+    static func decision(_ key: Key, facts: KeyRouter.Facts, focus: FocusState = cmuxModeFocus) throws -> KeyRouter.Decision {
+        KeyRouter(registry: sharedRegistry).decide(try event(key), focus: focus, keyWindow: .content, facts: facts)
     }
 
-    /// Cmd-F in a Chromium page goes to the page first, with cmux's Find held for after it.
-    @Test(arguments: pageOwnedKeys) func chromiumPageGetsTheKeyFirst(_ key: Key) throws {
-        guard case .offerToPage(let candidate) = try Self.decision(key, facts: Self.chromium) else {
-            Issue.record("\(key) ran a cmux action before the page saw it")
-            return
+    /// Cmd-F in a Chromium page goes to the page first, with cmux's Find held for after it, in cmux mode too.
+    @Test(arguments: [false, true]) func chromiumPageGetsTheKeyFirst(_ cmuxMode: Bool) throws {
+        for key in Self.pageOwnedKeys {
+            let focus = cmuxMode ? Self.cmuxModeFocus : Self.pageFocus
+            guard case .offerToPage(let candidate) = try Self.decision(key, facts: Self.chromium, focus: focus) else {
+                Issue.record("\(key) ran a cmux action before the page saw it (cmux mode \(cmuxMode))")
+                continue
+            }
+            #expect(["find", "findNext", "findPrevious"].contains(candidate.id.rawValue))
         }
-        #expect(["find", "findNext", "findPrevious"].contains(candidate.id.rawValue))
     }
 
-    /// Cmd-B in a Chromium page toggles the cmux sidebar at once (Linear takes Cmd-B for itself with
-    /// `preventDefault`, so a page-first offer never ran Toggle Sidebar there); the other cmux chords too.
+    /// In cmux mode, Cmd-B in a Chromium page toggles the cmux sidebar at once (Linear takes Cmd-B for itself
+    /// with `preventDefault`, so a page-first offer never runs Toggle Sidebar there); the other cmux chords too.
     @Test(arguments: cmuxKeys) func cmuxShortcutsRunBeforeAChromiumPage(_ key: Key) throws {
         guard case .run = try Self.decision(key, facts: Self.chromium) else {
             Issue.record("\(key) went to the page before cmux ran its action")

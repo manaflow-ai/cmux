@@ -8,13 +8,3 @@ public nonisolated enum AgentMouseMotion: String, Sendable, Hashable, CaseIterab
     /// One jump to the target and an instant press, the fastest.
     case instant
 }
-
-/// Who gets a shortcut that cmux and a web page both use (CMUX-641, Austin 2026-11-16: Linear's Cmd-K opened cmux Search Chats). ask: cmux runs it, but the first app shortcut pressed in a page holds its key and asks which should get it (Austin 2026-11-18). page: the page gets it first; cmux runs it when the page leaves it unhandled. cmux: cmux runs it, the page never sees it (Lawrence 2026-11-11). App and window keys (Cmd-W, Cmd-Q, Cmd-Shift-P) stay with cmux in every mode; browser focus mode gives the page every key.
-public nonisolated enum BrowserPageShortcuts: String, Sendable, Hashable, CaseIterable {
-    /// cmux runs the shortcut; the first app shortcut pressed on a site with no entry in browser.pageShortcutSites asks which should get it there.
-    case ask
-    /// The page gets the key first; cmux runs it when the page leaves it unhandled.
-    case page
-    /// cmux runs the shortcut; the page never sees it.
-    case cmux
-}

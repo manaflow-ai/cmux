@@ -302,12 +302,9 @@ public final class AddressBarView: NSView {
     /// The badge shown now, for diagnostics (`debug.browser`).
     public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.themedToolTip }
 
-    /// Browser focus mode's badge: nil hides it, else "Focus Mode" or, once
-    /// the first Escape armed the exit, "Esc again to exit". It fades in and
-    /// out (at once with fades off in the motion settings; Reduce Motion keeps a short fade).
-    public func setFocusModeBadge(armed: Bool?) {
-        if let armed { focusModeBadgeView.show(armed: armed) }
-        let shown = armed != nil
+    /// cmux mode's "cmux Mode" badge. It fades in and out (at once with fades
+    /// off in the motion settings; Reduce Motion keeps a short fade).
+    public func setFocusModeBadge(shown: Bool) {
         guard focusModeBadgeWanted != shown else { return }
         focusModeBadgeWanted = shown
         // Fades off (the motion switches; Reduce Motion keeps a short fade): the badge appears and goes at once (no animator

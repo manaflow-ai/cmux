@@ -66,7 +66,7 @@ struct ChordTracker {
     /// Steps with `table` resolved in `context` (the key window's context
     /// keys; `KeyBindingTable.step(after:readings:in:isRunnable:)` holds the
     /// shared sequence rules). `canArm` says whether the focus lets a chord
-    /// start (not a text input, not browser focus mode, no marked text;
+    /// start (not a text input, no marked text;
     /// `KeyRouter.canArm`); asked only for a first key. `focus` is the
     /// window's focus, kept with an armed chord for ``focusDidChange(to:in:)``.
     mutating func step(_ event: NSEvent, window: ObjectIdentifier, focus: FocusState.Resolved? = nil, table: KeyBindingTable,

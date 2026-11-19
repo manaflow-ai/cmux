@@ -195,8 +195,7 @@ extension CEFRuntime {
            router.browserTab(tab, keyEquivalent: event) == .handledByHost {
             return true
         }
-        guard !event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
-              tab.keyRouter?.pageOwnsAllKeys(tab) != true else { return false }
+        guard !event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
         let store = extensionStores.readyStore(for: tab.profileID)
         guard let command = store.command(matching: event) else { return false }
         return store.run(command, in: tab)

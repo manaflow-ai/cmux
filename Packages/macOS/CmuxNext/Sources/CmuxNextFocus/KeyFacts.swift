@@ -63,11 +63,8 @@ public nonisolated struct KeyFacts: Equatable, Sendable {
     public var workspacesAsTabs = false
     /// The focused browser page reports the keys it did not handle (a Chromium tab, through
     /// `CefKeyboardHandler::OnKeyEvent`): Find and content shortcuts go to it first
-    /// (the key router's `offersToPage`, `PageShortcutRoute`).
+    /// (``KeyRouter/offersToPage(_:event:focus:facts:)``).
     public var pageReportsUnhandledKeys = false
-    /// `browser.pageShortcuts` is `page`: every cmux shortcut but the app and window keys goes to
-    /// such a page first, and runs only when the page leaves it unhandled (CMUX-641).
-    public var pageFirstShortcuts = false
 
     public init(hasMarkedText: Bool = false, terminalCopyMode: Bool = false,
                 terminalAlternateScreen: Bool = false, primaryInputReady: Bool = false,
@@ -79,7 +76,7 @@ public nonisolated struct KeyFacts: Equatable, Sendable {
                 topPage: String? = nil, pageKeySequencePending: Bool = false,
                 textBoxFocused: Bool = false, sidebarMultiSelection: Bool = false,
                 fileExplorerFocused: Bool = false, workspacesAsTabs: Bool = false,
-                pageReportsUnhandledKeys: Bool = false, pageFirstShortcuts: Bool = false) {
+                pageReportsUnhandledKeys: Bool = false) {
         self.hasMarkedText = hasMarkedText
         self.terminalCopyMode = terminalCopyMode
         self.terminalAlternateScreen = terminalAlternateScreen
@@ -101,6 +98,5 @@ public nonisolated struct KeyFacts: Equatable, Sendable {
         self.fileExplorerFocused = fileExplorerFocused
         self.workspacesAsTabs = workspacesAsTabs
         self.pageReportsUnhandledKeys = pageReportsUnhandledKeys
-        self.pageFirstShortcuts = pageFirstShortcuts
     }
 }

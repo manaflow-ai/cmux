@@ -79,7 +79,7 @@ enum BrowserToolbarHandlers {
             buttons.pins = { [weak services] in services?.settings.map(BrowserToolbarButtonsSetting.current)?.pinned ?? BrowserToolbarButtonsSetting.fallback }
         }
         entry.state.profileName = profileName(forTab: key, services: services)
-        // The omnibar's "Focus Mode" badge leaves focus mode (the action's one path).
+        // The omnibar's "cmux Mode" badge leaves cmux mode (the action's one path).
         entry.state.onFocusModeBadgePress = { [weak services, weak entry] in
             guard let services, let entry else { return }
             services.registry.perform("toggleBrowserFocusMode", invocation: ActionInvocation(target: tabTarget(entry), origin: .user))

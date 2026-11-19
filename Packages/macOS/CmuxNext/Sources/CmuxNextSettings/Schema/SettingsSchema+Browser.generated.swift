@@ -225,18 +225,6 @@ extension LinkRouting {
     public nonisolated static let rulesDefault: [String] = []
 }
 
-extension BrowserPageShortcutsSetting {
-    /// `browser.pageShortcuts`: Who gets a shortcut that cmux and a web page both use (CMUX-641, Austin 2026-11-16: Linear's Cmd-K opened cmux Search Chats). ask: cmux runs it, but the first app shortcut pressed in a page holds its key and asks which should get it (Austin 2026-11-18). page: the page gets it first; cmux runs it when the page leaves it unhandled. cmux: cmux runs it, the page never sees it (Lawrence 2026-11-11). App and window keys (Cmd-W, Cmd-Q, Cmd-Shift-P) stay with cmux in every mode; browser focus mode gives the page every key.
-    public nonisolated static let configPath = ["browser", "pageShortcuts"]
-    public nonisolated static let fallback: BrowserPageShortcuts = .ask
-}
-
-extension BrowserPageShortcutSites {
-    /// `browser.pageShortcutSites`: Site to its own answer to browser.pageShortcuts (CMUX-641, Lucas 2026-11-18: ask per web page): page or cmux. A site matches itself and its subdomains; a site with no entry follows browser.pageShortcuts. The page shortcuts dialog adds the site it asked about.
-    public nonisolated static let pageShortcutSitesPath = ["browser", "pageShortcutSites"]
-    public nonisolated static let pageShortcutSitesDefault: JSONValue = .object([:])
-}
-
 extension TextEditorSetting {
     /// `files.textEditor`.
     public nonisolated static let configPath = ["files", "textEditor"]
@@ -356,6 +344,44 @@ extension BrowserSettingsSchema {
                 kind: .toggle,
                 default: .bool(BookmarksBarSetting.fallback),
                 keywords: ["bookmarks", "favorites", "bar"]
+            ),
+        ]
+    }
+}
+
+extension BrowserSettingsSchema {
+    static var browserImport: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.import", "Import")
+        return [
+            SettingDescriptor(
+                BrowserImportSetting.configPath,
+                section: .browser,
+                group: group,
+                title: SettingsText.keyed("settings.browser.importEnabled", "Import from Other Browsers"),
+                help: SettingsText.keyed("settings.browser.importEnabled.help", "Offers to import bookmarks, history, passwords and sign-ins. Off hides the offers."),
+                kind: .toggle,
+                default: .bool(BrowserImportSetting.fallback),
+                keywords: ["import", "browser", "chrome", "safari", "arc", "firefox", "bookmarks", "history", "passwords", "cookies", "suggestions"]
+            ),
+            SettingDescriptor(
+                BrowserCookieBannerSetting.configPath,
+                section: .browser,
+                group: group,
+                title: SettingsText.keyed("settings.browser.importCookieBanner", "Offer to Import Cookies"),
+                help: SettingsText.keyed("settings.browser.importCookieBanner.help", "Browser tabs offer to import cookies from your other browsers."),
+                kind: .toggle,
+                default: .bool(BrowserCookieBannerSetting.fallback),
+                keywords: ["import", "cookies", "banner", "card", "sign in", "login", "chrome", "safari", "arc", "dismissed", "reset"]
+            ),
+            SettingDescriptor(
+                BrowserCookieSyncSetting.configPath,
+                section: .browser,
+                group: group,
+                title: SettingsText.keyed("settings.browser.importCookieSync", "Keep Imported Cookies in Sync"),
+                help: SettingsText.keyed("settings.browser.importCookieSync.help", "Brings over changed cookies from the browser you imported from. Stays on this Mac."),
+                kind: .toggle,
+                default: .bool(BrowserCookieSyncSetting.fallback),
+                keywords: ["import", "cookies", "sync", "keep", "chrome", "sign in", "login", "signed in"]
             ),
         ]
     }

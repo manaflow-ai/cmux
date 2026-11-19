@@ -35,7 +35,6 @@ struct BrowserChromeTabHooks {
         // toolbar next (`toolbarButtons.bind(_:modes:)`), which observes and renders them once.
         buttons.batchSources(rendering: false) { state.configureToolbar?(buttons) }
         chrome.showsFocusModeIndicator = state.showsFocusModeIndicator
-        chrome.focusModeExitArmed = state.focusModeExitArmed
         if chrome.accessoryView !== state.accessory?.view {
             chrome.setAccessoryView(state.accessory?.view, height: state.accessory?.height ?? 0)
         }

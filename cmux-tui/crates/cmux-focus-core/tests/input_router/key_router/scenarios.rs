@@ -235,7 +235,7 @@ fn inverse_key_a_new_terminal_from_a_page_takes_the_keys() {
     s.reaches(Some(content("b1")));
     s.press(cmux_focus_core::input::KeyRecord {
         modifiers: Modifiers { control: true, ..Modifiers::default() },
-        ..chord("w1", 50, "newTerminalTab", Tier::Navigation, Some(content("b1")))
+        ..chord("w1", 50, "newTab", Tier::Navigation, Some(content("b1")))
     });
     s.create("w1", "s9", terminal("T9"));
     let l = s.press(key("w1", A, Some(content("b1"))));
@@ -350,10 +350,10 @@ fn a_release_follows_its_press() {
     ));
     s.send(InputEvent::Ready { sink: content("b1") });
     assert_eq!(s.took(&content("b1")), vec![down, up]);
-    let run = s.press(chord("w1", D, "newSplit", Tier::Navigation, Some(content("b1"))));
+    let run = s.press(chord("w1", D, "splitRight", Tier::Navigation, Some(content("b1"))));
     let run_up = s.press(cmux_focus_core::input::KeyRecord {
         phase: KeyPhase::Up,
-        ..chord("w1", D, "newSplit", Tier::Navigation, Some(content("b1")))
+        ..chord("w1", D, "splitRight", Tier::Navigation, Some(content("b1")))
     });
     assert!(matches!(s.last(run), Some(InputEffect::Run { .. })));
     assert_eq!(
@@ -437,18 +437,22 @@ fn keys_for_a_field_the_focus_left_are_dropped_not_redirected() {
     assert!(s.took(&terminal("T1")).is_empty());
 }
 
-/// Browser focus mode keeps only its exit and Quit from the page.
+/// System keys stay with cmux on a page, in cmux mode (the browser focus mode
+/// flag) and out of it: Close Tab and Quit never go to the page (CMUX-641).
 #[test]
-fn browser_focus_mode_gives_the_page_every_system_key_but_its_exit_and_quit() {
+fn system_keys_stay_with_cmux_on_a_page_in_both_modes() {
     let mut s = Session::new();
     s.open("w1", topology("ws", vec![pane("p1", vec![browser_tab("b1")])]), "p1");
     s.send(InputEvent::Ready { sink: content("b1") });
-    s.focus("w1", FocusEvent::ToggleBrowserFocusMode { tab: None });
     s.reaches(Some(content("b1")));
-    let close = s.press(chord("w1", 13, "closeTab", Tier::System, Some(content("b1"))));
-    let quit = s.press(chord("w1", 12, "quit", Tier::System, Some(content("b1"))));
-    assert_eq!(s.took(&content("b1")), vec![close]);
-    assert!(matches!(s.last(quit), Some(InputEffect::Run { .. })));
+    for _ in 0..2 {
+        let close = s.press(chord("w1", 13, "closeTab", Tier::System, Some(content("b1"))));
+        let quit = s.press(chord("w1", 12, "quit", Tier::System, Some(content("b1"))));
+        assert!(matches!(s.last(close), Some(InputEffect::Run { .. })));
+        assert!(matches!(s.last(quit), Some(InputEffect::Run { .. })));
+        s.focus("w1", FocusEvent::ToggleBrowserFocusMode { tab: None });
+    }
+    assert!(s.took(&content("b1")).is_empty());
 }
 
 /// A focused terminal runs its own Ghostty keybinds; in copy mode the routed

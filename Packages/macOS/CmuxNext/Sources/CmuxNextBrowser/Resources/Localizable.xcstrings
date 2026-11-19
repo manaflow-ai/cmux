@@ -24760,530 +24760,6 @@
         }
       }
     },
-    "browser.focusMode.active": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Focus Mode"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "وضع التركيز"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Način fokusa"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fokustilstand"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fokusmodus"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modo de enfoque"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mode focus"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modalità focus"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォーカスモード"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "របៀបផ្ដោតអារម្មណ៍"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "집중 모드"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fokusmodus"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tryb skupienia"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modo de foco"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Режим фокусировки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "โหมดโฟกัส"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Odak modu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Режим фокусування"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chế độ tập trung"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "专注模式"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "專注模式"
-          }
-        }
-      }
-    },
-    "browser.focusMode.armed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc again to exit"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "اضغط Esc مرة أخرى للخروج"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc ponovo za izlaz"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc igen for at afslutte"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erneut Esc zum Beenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc otra vez para salir"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Échap à nouveau pour quitter"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc di nuovo per uscire"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "もう一度Escで終了"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ចុច Esc ម្ដងទៀតដើម្បីចេញ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "종료하려면 Esc 다시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc igjen for å avslutte"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc ponownie, aby wyjść"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc novamente para sair"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc ещё раз для выхода"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กด Esc อีกครั้งเพื่อออก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çıkmak için tekrar Esc"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc ще раз, щоб вийти"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nhấn Esc lần nữa để thoát"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再次按 Esc 退出"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再次按 Esc 退出"
-          }
-        }
-      }
-    },
-    "browser.focusMode.exit.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Exit browser focus mode (%@)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إنهاء وضع تركيز المتصفح (%@)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Izađi iz načina fokusa preglednika (%@)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afslut browser-fokustilstand (%@)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Browser-Fokusmodus beenden (%@)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Salir del modo de enfoque del navegador (%@)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quitter le mode focus du navigateur (%@)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esci dalla modalità focus del browser (%@)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブラウザフォーカスモードを終了 (%@)"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ចេញពីរបៀបផ្ដោតអារម្មណ៍កម្មវិធីរុករក (%@)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "브라우저 집중 모드 종료 (%@)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Avslutt nettleser-fokusmodus (%@)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wyłącz tryb skupienia przeglądarki (%@)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sair do modo de foco do navegador (%@)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Выйти из режима фокусировки браузера (%@)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ออกจากโหมดโฟกัสเบราว์เซอร์ (%@)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tarayıcı odak modundan çık (%@)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вийти з режиму фокусування браузера (%@)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thoát chế độ tập trung trình duyệt (%@)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "退出浏览器专注模式 (%@)"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "退出瀏覽器專注模式 (%@)"
-          }
-        }
-      }
-    },
-    "browser.focusMode.shortcutHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc Esc"
-          }
-        }
-      }
-    },
     "browser.protectedMedia.reopenedInWebKit": {
       "extractionState": "manual",
       "localizations": {
@@ -28166,919 +27642,395 @@
         }
       }
     },
-    "pageShortcuts.ask.titleHost": {
+    "browser.cmuxMode.active": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use %1$@ in %2$@ or in cmux?"
+            "value": "cmux Mode"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استخدام %1$@ في %2$@ أم في cmux؟"
+            "value": "وضع cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koristiti %1$@ u %2$@ ili u cmuxu?"
+            "value": "cmux način"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brug %1$@ i %2$@ eller i cmux?"
+            "value": "cmux-tilstand"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ in %2$@ oder in cmux verwenden?"
+            "value": "cmux-Modus"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Usar %1$@ en %2$@ o en cmux?"
+            "value": "Modo cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utiliser %1$@ dans %2$@ ou dans cmux ?"
+            "value": "Mode cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usare %1$@ in %2$@ o in cmux?"
+            "value": "Modalità cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ を %2$@ と cmux のどちらで使いますか？"
+            "value": "cmux モード"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ប្រើ %1$@ នៅក្នុង %2$@ ឬនៅក្នុង cmux?"
+            "value": "របៀប cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ 키를 %2$@에서 사용할까요, cmux에서 사용할까요?"
+            "value": "cmux 모드"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bruke %1$@ i %2$@ eller i cmux?"
+            "value": "cmux-modus"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Użyć %1$@ w %2$@ czy w cmux?"
+            "value": "Tryb cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usar %1$@ em %2$@ ou no cmux?"
+            "value": "Modo cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Использовать %1$@ в %2$@ или в cmux?"
+            "value": "Режим cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ใช้ %1$@ ใน %2$@ หรือใน cmux?"
+            "value": "โหมด cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ kısayolu %2$@ içinde mi, cmux’ta mı kullanılsın?"
+            "value": "cmux Modu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Використовувати %1$@ у %2$@ чи в cmux?"
+            "value": "Режим cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dùng %1$@ trong %2$@ hay trong cmux?"
+            "value": "Chế độ cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 %2$@ 中还是在 cmux 中使用 %1$@？"
+            "value": "cmux 模式"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 %2$@ 中還是在 cmux 中使用 %1$@？"
+            "value": "cmux 模式"
           }
         }
       }
     },
-    "pageShortcuts.button.useCmux": {
+    "browser.cmuxMode.exit.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use in cmux"
+            "value": "Leave cmux mode: web pages get their shortcuts first again"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استخدام في cmux"
+            "value": "إنهاء وضع cmux: تحصل صفحات الويب على اختصاراتها أولًا مجددًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koristi u cmuxu"
+            "value": "Napusti cmux način: web stranice ponovo prve dobijaju svoje prečice"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brug i cmux"
+            "value": "Forlad cmux-tilstand: websider får deres genveje først igen"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "In cmux verwenden"
+            "value": "cmux-Modus verlassen: Webseiten erhalten ihre Kurzbefehle wieder zuerst"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usar en cmux"
+            "value": "Salir del modo cmux: las páginas web vuelven a recibir primero sus atajos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utiliser dans cmux"
+            "value": "Quitter le mode cmux : les pages web reçoivent de nouveau leurs raccourcis en premier"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usa in cmux"
+            "value": "Esci dalla modalità cmux: le pagine web ricevono di nuovo per prime le loro scorciatoie"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux で使う"
+            "value": "cmux モードを終了：Web ページが再び自身のショートカットを先に受け取ります"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ប្រើក្នុង cmux"
+            "value": "ចាកចេញពីរបៀប cmux៖ ទំព័របណ្ដាញទទួលផ្លូវកាត់របស់ខ្លួនមុនម្ដងទៀត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux에서 사용"
+            "value": "cmux 모드 종료: 웹 페이지가 다시 자체 단축키를 먼저 받습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bruk i cmux"
+            "value": "Gå ut av cmux-modus: nettsider får snarveiene sine først igjen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Użyj w cmux"
+            "value": "Opuść tryb cmux: strony internetowe znów jako pierwsze otrzymują swoje skróty"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usar no cmux"
+            "value": "Sair do modo cmux: as páginas da web voltam a receber seus atalhos primeiro"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "В cmux"
+            "value": "Выйти из режима cmux: веб-страницы снова первыми получают свои сочетания клавиш"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ใช้ใน cmux"
+            "value": "ออกจากโหมด cmux: หน้าเว็บจะได้รับคีย์ลัดของตัวเองก่อนอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux’ta Kullan"
+            "value": "cmux Modundan çık: web sayfaları kısayollarını yeniden ilk alır"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "У cmux"
+            "value": "Вийти з режиму cmux: вебсторінки знову першими отримують свої сполучення клавіш"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dùng trong cmux"
+            "value": "Thoát chế độ cmux: trang web lại nhận phím tắt của chúng trước"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 cmux 中使用"
+            "value": "退出 cmux 模式：网页将再次优先获得其快捷键"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 cmux 中使用"
+            "value": "離開 cmux 模式：網頁將再次優先取得其快捷鍵"
           }
         }
       }
     },
-    "pageShortcuts.button.usePage": {
+    "browser.cmuxMode.notice": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use in Page"
+            "value": "%1$@ went to the web page. Press %2$@ for cmux mode, where cmux gets every shortcut."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استخدام في الصفحة"
+            "value": "ذهب %1$@ إلى صفحة الويب. اضغط %2$@ لوضع cmux، حيث يحصل cmux على كل الاختصارات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koristi na stranici"
+            "value": "%1$@ je otišlo web stranici. Pritisnite %2$@ za cmux način, u kojem cmux dobija sve prečice."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brug på siden"
+            "value": "%1$@ gik til websiden. Tryk på %2$@ for cmux-tilstand, hvor cmux får alle genveje."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Auf der Seite verwenden"
+            "value": "%1$@ ging an die Webseite. Drücke %2$@ für den cmux-Modus, in dem cmux jeden Kurzbefehl erhält."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usar en la página"
+            "value": "%1$@ fue a la página web. Pulsa %2$@ para el modo cmux, en el que cmux recibe todos los atajos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utiliser dans la page"
+            "value": "%1$@ est allé à la page web. Appuyez sur %2$@ pour le mode cmux, où cmux reçoit tous les raccourcis."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usa nella pagina"
+            "value": "%1$@ è andato alla pagina web. Premi %2$@ per la modalità cmux, in cui cmux riceve tutte le scorciatoie."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ページで使う"
+            "value": "%1$@ は Web ページに送られました。%2$@ を押すと cmux モードになり、すべてのショートカットが cmux に送られます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ប្រើក្នុងទំព័រ"
+            "value": "%1$@ បានទៅកាន់ទំព័របណ្ដាញ។ ចុច %2$@ សម្រាប់របៀប cmux ដែល cmux ទទួលបានផ្លូវកាត់ទាំងអស់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "페이지에서 사용"
+            "value": "%1$@이(가) 웹 페이지로 전달되었습니다. %2$@을(를) 누르면 cmux가 모든 단축키를 받는 cmux 모드가 됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bruk på siden"
+            "value": "%1$@ gikk til nettsiden. Trykk %2$@ for cmux-modus, der cmux får alle snarveier."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Użyj na stronie"
+            "value": "%1$@ trafił do strony internetowej. Naciśnij %2$@, aby włączyć tryb cmux, w którym cmux otrzymuje każdy skrót."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usar na página"
+            "value": "%1$@ foi para a página da web. Pressione %2$@ para o modo cmux, em que o cmux recebe todos os atalhos."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "На странице"
+            "value": "%1$@ получила веб-страница. Нажмите %2$@ для режима cmux, в котором cmux получает все сочетания клавиш."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ใช้ในหน้า"
+            "value": "%1$@ ถูกส่งไปยังหน้าเว็บ กด %2$@ เพื่อเข้าโหมด cmux ซึ่ง cmux จะได้รับคีย์ลัดทั้งหมด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sayfada Kullan"
+            "value": "%1$@ web sayfasına gitti. cmux'un tüm kısayolları aldığı cmux Modu için %2$@ tuşlarına basın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "На сторінці"
+            "value": "%1$@ отримала вебсторінка. Натисніть %2$@ для режиму cmux, у якому cmux отримує всі сполучення клавіш."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dùng trong trang"
+            "value": "%1$@ đã được gửi đến trang web. Nhấn %2$@ để vào chế độ cmux, nơi cmux nhận mọi phím tắt."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在页面中使用"
+            "value": "%1$@ 已发送到网页。按 %2$@ 进入 cmux 模式，cmux 将获得所有快捷键。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在頁面中使用"
-          }
-        }
-      }
-    },
-    "pageShortcuts.ask.tip": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tip: press %@ to give a page every key."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تلميح: اضغط %@ لمنح الصفحة كل المفاتيح."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Savjet: pritisnite %@ da stranica dobije sve tipke."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tip: tryk på %@ for at give en side alle taster."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tipp: Drücken Sie %@, um einer Seite alle Tasten zu geben."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Consejo: pulsa %@ para dar a una página todas las teclas."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Astuce : appuyez sur %@ pour donner toutes les touches à une page."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suggerimento: premi %@ per dare a una pagina tutti i tasti."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ヒント: %@ を押すと、ページがすべてのキーを受け取ります。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "គន្លឹះ៖ ចុច %@ ដើម្បីឲ្យទំព័រទទួលគ្រាប់ចុចទាំងអស់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "팁: %@ 키를 누르면 페이지가 모든 키를 받습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tips: trykk %@ for å gi en side alle taster."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wskazówka: naciśnij %@, aby strona dostawała wszystkie klawisze."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dica: pressione %@ para dar todas as teclas a uma página."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Совет: нажмите %@, чтобы странице доставались все клавиши."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เคล็ดลับ: กด %@ เพื่อให้หน้าเว็บได้รับทุกปุ่ม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "İpucu: Bir sayfaya tüm tuşları vermek için %@ tuşlarına basın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Порада: натисніть %@, щоб сторінка отримувала всі клавіші."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mẹo: nhấn %@ để trang nhận mọi phím."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "提示：按 %@ 可让页面接收所有按键。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "提示：按 %@ 可讓頁面接收所有按鍵。"
-          }
-        }
-      }
-    },
-    "pageShortcuts.ask.tipUnbound": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tip: focus mode in the View menu gives a page every key."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تلميح: يمنح وضع التركيز في قائمة العرض الصفحة كل المفاتيح."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Savjet: način fokusa u meniju Prikaz daje stranici sve tipke."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tip: Fokustilstand i menuen Vis giver en side alle taster."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tipp: Der Fokusmodus im Menü „Darstellung“ gibt einer Seite alle Tasten."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Consejo: el modo de enfoque del menú Visualización da a una página todas las teclas."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Astuce : le mode concentration du menu Présentation donne toutes les touches à une page."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suggerimento: la modalità focus nel menu Vista dà a una pagina tutti i tasti."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ヒント: 表示メニューのフォーカスモードで、ページがすべてのキーを受け取ります。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "គន្លឹះ៖ របៀបផ្ដោតក្នុងម៉ឺនុយ មើល ឲ្យទំព័រទទួលគ្រាប់ចុចទាំងអស់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "팁: 보기 메뉴의 집중 모드를 켜면 페이지가 모든 키를 받습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tips: Fokusmodus i Vis-menyen gir en side alle taster."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wskazówka: tryb skupienia w menu Widok daje stronie wszystkie klawisze."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dica: o modo de foco no menu Visualizar dá todas as teclas a uma página."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Совет: режим фокуса в меню «Вид» отдаёт странице все клавиши."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เคล็ดลับ: โหมดโฟกัสในเมนูมุมมองให้หน้าเว็บได้รับทุกปุ่ม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "İpucu: Görüntü menüsündeki odak modu bir sayfaya tüm tuşları verir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Порада: режим фокусу в меню «Вигляд» віддає сторінці всі клавіші."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mẹo: chế độ tập trung trong menu Xem cho trang nhận mọi phím."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "提示：“显示”菜单中的专注模式可让页面接收所有按键。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "提示：「顯示方式」選單中的專注模式可讓頁面接收所有按鍵。"
-          }
-        }
-      }
-    },
-    "pageShortcuts.ask.siteScope": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Applies to every shortcut %@ shares with cmux. Change it anytime in Settings > Browser."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ينطبق على كل اختصار يشترك فيه %@ مع cmux. غيّره في أي وقت من الإعدادات > المتصفح."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Važi za svaku prečicu koju %@ dijeli sa cmuxom. Promijenite je bilo kada u Postavke > Preglednik."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gælder alle genveje, som %@ deler med cmux. Skift det når som helst under Indstillinger > Browser."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gilt für jedes Tastaturkürzel, das %@ mit cmux teilt. Jederzeit änderbar unter Einstellungen > Browser."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se aplica a todos los atajos que %@ comparte con cmux. Cámbialo cuando quieras en Ajustes > Navegador."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "S’applique à chaque raccourci que %@ partage avec cmux. Modifiable à tout moment dans Réglages > Navigateur."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vale per ogni scorciatoia che %@ condivide con cmux. Puoi cambiarlo quando vuoi in Impostazioni > Browser."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ が cmux と共有するすべてのショートカットに適用されます。設定 > ブラウザでいつでも変更できます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "អនុវត្តចំពោះផ្លូវកាត់ទាំងអស់ដែល %@ ប្រើរួមជាមួយ cmux។ ប្ដូរវាពេលណាក៏បាននៅក្នុង ការកំណត់ > កម្មវិធីរុករក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@이(가) cmux와 함께 쓰는 모든 단축키에 적용됩니다. 설정 > 브라우저에서 언제든지 바꿀 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gjelder alle snarveier %@ deler med cmux. Endre det når som helst under Innstillinger > Nettleser."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dotyczy każdego skrótu, który %@ dzieli z cmux. Zmienisz to w każdej chwili w Ustawienia > Przeglądarka."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vale para todos os atalhos que %@ compartilha com o cmux. Mude quando quiser em Ajustes > Navegador."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Действует для всех сочетаний клавиш, общих у %@ и cmux. Изменить можно в любой момент в Настройки > Браузер."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "มีผลกับทุกทางลัดที่ %@ ใช้ร่วมกับ cmux เปลี่ยนได้ทุกเมื่อในการตั้งค่า > เบราว์เซอร์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ile cmux’un ortak kullandığı tüm kısayollar için geçerlidir. İstediğiniz zaman Ayarlar > Tarayıcı’dan değiştirin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Діє для всіх скорочень, спільних для %@ і cmux. Змінити можна будь-коли в Параметри > Браузер."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Áp dụng cho mọi phím tắt %@ dùng chung với cmux. Đổi bất cứ lúc nào trong Cài đặt > Trình duyệt."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "适用于 %@ 与 cmux 共用的所有快捷键。可随时在“设置 > 浏览器”中更改。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "適用於 %@ 與 cmux 共用的所有快速鍵。可隨時在「設定 > 瀏覽器」中更改。"
-          }
-        }
-      }
-    },
-    "pageShortcuts.ask.allPages": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Use my preference for all web pages"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "استخدام تفضيلي لكل صفحات الويب"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Koristi moj izbor za sve web stranice"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Brug min præference til alle websider"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Meine Einstellung für alle Webseiten verwenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usar mi preferencia en todas las páginas web"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utiliser ma préférence pour toutes les pages web"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usa la mia preferenza per tutte le pagine web"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべての Web ページでこの設定を使う"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ប្រើចំណូលចិត្តរបស់ខ្ញុំសម្រាប់ទំព័របណ្ដាញទាំងអស់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모든 웹 페이지에 내 설정 사용"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bruk valget mitt for alle nettsider"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Użyj mojego wyboru dla wszystkich stron internetowych"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usar minha preferência em todas as páginas da web"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Использовать мой выбор для всех веб-страниц"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ใช้ค่าที่ฉันเลือกกับทุกหน้าเว็บ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tercihimi tüm web sayfaları için kullan"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Використовувати мій вибір для всіх вебсторінок"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dùng lựa chọn của tôi cho mọi trang web"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "对所有网页使用我的偏好"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "對所有網頁使用我的偏好"
+            "value": "%1$@ 已傳送到網頁。按 %2$@ 進入 cmux 模式，cmux 將取得所有快捷鍵。"
           }
         }
       }

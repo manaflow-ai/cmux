@@ -136,8 +136,10 @@ fn a_key_that_is_no_hint_key_ends_link_hints_and_routes_as_usual() {
 fn a_hint_chord_inside_a_session_ends_it_once_and_its_new_session_runs() {
     let mut s = page_window();
     s.send(hints("b1"));
+    // A page that reports no unhandled keys: the chord runs now, not after a page-first offer.
     let again = s.press(KeyRecord {
         modifiers: Modifiers { command: true, shift: true, ..Modifiers::default() },
+        page_reports_unhandled: false,
         ..chord("w1", F, "linkHints.show", Tier::Navigation, Some(content("b1")))
     });
     assert!(matches!(s.last(again), Some(InputEffect::Run { .. })));
@@ -343,13 +345,47 @@ fn a_report_of_a_newer_key_means_the_older_offers_were_handled() {
     assert!(s.send(InputEvent::PageUnhandled { id: next }).is_empty());
 }
 
-/// Lawrence 2026-11-11 ("im in linear and cmd b goes to linear itself instead
-/// of toggling left sidebar"): a cmux shortcut on a chord pages also use
-/// (Cmd-B Bold) and the browser's own content shortcuts (Reload) run before
-/// the page; only Find and its neighbors wait for the page's report.
+/// CMUX-641 (Lawrence and Austin 2026-11-19, "copy UTM"): a page gets the
+/// shortcuts it shares with cmux first, Linear's Cmd-K and Cmd-B and the
+/// browser's Reload too; cmux runs one only when the page leaves it unhandled.
 #[test]
-fn cmux_shortcuts_run_before_the_page_outside_focus_mode() {
+fn cmux_shortcuts_go_to_the_page_first() {
     let mut s = page_window();
+    let chats =
+        s.press(chord("w1", 40, "agentPane.searchChats", Tier::Navigation, Some(content("b1"))));
+    assert!(matches!(s.last(chats), Some(InputEffect::Offer { .. })), "Cmd-K ran before the page");
+    let sidebar = s.press(chord("w1", B, "toggleSidebar", Tier::Navigation, Some(content("b1"))));
+    assert!(
+        matches!(s.last(sidebar), Some(InputEffect::Offer { .. })),
+        "Cmd-B ran before the page"
+    );
+    let reload = s.press(chord("w1", R, "browserReload", Tier::Content, Some(content("b1"))));
+    assert!(matches!(s.last(reload), Some(InputEffect::Offer { .. })), "Cmd-R ran before the page");
+}
+
+/// Cmd-L (always the omnibar), Chrome's reserved tab keys and the palettes
+/// never wait for the page.
+#[test]
+fn kept_keys_never_wait_for_the_page() {
+    let mut s = page_window();
+    for (code, action) in [(37, "focusBrowserAddressBar"), (17, "newTab"), (35, "goToWorkspace")] {
+        let id = s.press(chord("w1", code, action, Tier::Navigation, Some(content("b1"))));
+        assert!(
+            matches!(s.last(id), Some(InputEffect::Run { .. })),
+            "{action} waited for the page"
+        );
+    }
+}
+
+/// Lawrence 2026-11-11 ("im in linear and cmd b goes to linear itself instead
+/// of toggling left sidebar"): in cmux mode (the browser focus mode flag) a
+/// cmux shortcut on a chord pages also use (Cmd-B Bold) and the browser's own
+/// content shortcuts (Reload) run before the page; only Find and its
+/// neighbors wait for the page's report.
+#[test]
+fn cmux_shortcuts_run_before_the_page_in_cmux_mode() {
+    let mut s = page_window();
+    s.focus("w1", FocusEvent::ToggleBrowserFocusMode { tab: None });
     let sidebar = s.press(KeyRecord {
         page_editing_chord: true,
         ..chord("w1", B, "toggleSidebar", Tier::Navigation, Some(content("b1")))
@@ -377,6 +413,12 @@ fn page_first_offers_only_when_the_page_has_the_keys_and_may_own_the_action() {
     assert!(matches!(s.last(opens), Some(InputEffect::Run { .. })));
     let shell = s.press(chord("w1", F, "find", Tier::Navigation, None));
     assert!(matches!(s.last(shell), Some(InputEffect::Run { .. })));
+    s.focus("w1", FocusEvent::ToggleBrowserFocusMode { tab: None });
+    let find = s.press(chord("w1", F, "find", Tier::Navigation, Some(content("b1"))));
+    assert!(
+        matches!(s.last(find), Some(InputEffect::Offer { .. })),
+        "cmux mode took Find from the page"
+    );
     let no_report = s.send(InputEvent::PageUnhandled { id: InputId(shell.0) });
     assert!(no_report.is_empty());
 }

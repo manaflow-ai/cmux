@@ -102,8 +102,7 @@ extension KeyRouter {
     }
 
     /// A browser-only chord (page Back/Forward) outside a browser context
-    /// does nothing and reaches no view (browser focus mode is a browser
-    /// context, so it never gets here).
+    /// does nothing and reaches no view.
     func consumesBrowserOnlyChord(_ event: NSEvent, focus: FocusState) -> Bool {
         !BrowserChordTable.isBrowserContext(focus.resolved) && BrowserChordTable.isBrowserOnlyChord(event, registry: registry)
     }

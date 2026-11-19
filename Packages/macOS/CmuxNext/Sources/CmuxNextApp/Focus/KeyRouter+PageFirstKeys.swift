@@ -4,25 +4,30 @@ import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextFocus
 import CmuxNextFocusUI
-import CmuxNextSettings
-import os
+import CmuxNextWakeups
 
-// `browser.pageShortcuts` (``PageShortcutRoute``): who gets a shortcut that cmux and a Chromium page both use.
+// Page shortcuts (``PageShortcutRoute``, CMUX-641): a focused Chromium page gets a shortcut it shares with cmux first,
+// and cmux runs it only when the page leaves it unhandled. cmux mode (Cmd-Opt-Return) gives the keys back to cmux.
 extension KeyRouter {
     /// The cmux action held for a key a page has first (``PageFirstKeyOffer``), with its context and window.
     typealias HeldPageKey = (candidate: Candidate, context: KeyContext, window: String)
 
-    /// `candidate`'s route while a page has the keyboard in `focus` and focus mode is off; nil for a key that never goes
-    /// to a page first: not a registry shortcut, a DevTools key, or a native palette key (Cmd-Shift-P, Cmd-P).
+    /// The toast kind of the one-time cmux mode notice: Don't Show Again hides it for good.
+    static let cmuxModeNoticeID = "browser.cmuxModeNotice"
+
+    /// `candidate`'s route while a page has the keyboard in `focus`; nil for a key that never goes to a page first:
+    /// not a registry shortcut, a DevTools key, or a native palette key (Cmd-Shift-P, Cmd-P).
     nonisolated static func pageRoute(_ candidate: Candidate, focus: FocusState) -> PageShortcutRoute? {
-        guard case .browserPage = focus.resolved, !focus.isBrowserFocusModeActive, case .registry = candidate.source,
+        guard case .browserPage = focus.resolved, case .registry = candidate.source,
               !devToolsActions.contains(candidate.id), !nativePaletteActions.contains(candidate.id) else { return nil }
         return PageShortcutRoute(id: candidate.id, tier: candidate.tier)
     }
 
-    /// Whether `candidate` waits for the page instead of running first (``PageShortcutRoute/offersToPage(pageHasKeys:pageFirst:)``).
-    nonisolated static func offersToPage(_ candidate: Candidate, event: NSEvent, focus: FocusState, facts: Facts) -> Bool {
-        pageRoute(candidate, focus: focus)?.offersToPage(pageHasKeys: facts.pageReportsUnhandledKeys, pageFirst: facts.pageFirstShortcuts) ?? false
+    /// Whether `candidate` waits for the page instead of running first (``PageShortcutRoute/offersToPage(pageHasKeys:cmuxMode:)``).
+    /// `chromium` stands in for the page's report when the page window does not have the keyboard yet.
+    nonisolated static func offersToPage(_ candidate: Candidate, event: NSEvent, focus: FocusState, facts: Facts, chromium: Bool? = nil) -> Bool {
+        pageRoute(candidate, focus: focus)?.offersToPage(pageHasKeys: chromium ?? facts.pageReportsUnhandledKeys,
+                                                        cmuxMode: focus.isBrowserFocusModeActive) ?? false
     }
 
     /// The browser tab `controller`'s focused pane shows while a page has the keyboard.
@@ -32,10 +37,12 @@ extension KeyRouter {
         return entry.tab
     }
 
-    /// Holds `candidate` until the page of `tab` reports `event` unhandled.
+    /// Holds `candidate` until the page of `tab` reports `event` unhandled. An app shortcut the page keeps shows the
+    /// cmux mode notice once (``showsCmuxModeNotice(for:route:tab:in:)``).
     func offerToPage(_ event: NSEvent, candidate: Candidate, context: KeyContext, window: String, tab: ObjectIdentifier) {
         pageFirstOffer.offer(event, (candidate: candidate, context: context, window: window), tab: tab)
         trace?("dispatcher: the page gets the key first; \(candidate.id.rawValue) runs if it is left unhandled")
+        if PageShortcutRoute(id: candidate.id, tier: candidate.tier).isAppShortcut { noticeIfPageKeeps(event, window: window) }
     }
 
     /// The page of `tab` did not handle `event`: runs the action held for it. Returns whether one ran.
@@ -51,51 +58,41 @@ extension KeyRouter {
         return true
     }
 
-    /// Whether `ask` asks about `candidate` (``PageShortcutRoute/asks(pageHasKeys:)``). `chromium`: a Chromium page, its
-    /// window keyed or not yet (a relaunch, a tab bar click: the first Cmd-K ran Search Chats, Lucas 2026-11-18).
-    nonisolated static func asksAboutPageShortcut(_ candidate: Candidate, event: NSEvent, focus: FocusState, facts: Facts, chromium: Bool? = nil) -> Bool {
-        pageRoute(candidate, focus: focus)?.asks(pageHasKeys: chromium ?? facts.pageReportsUnhandledKeys) ?? false
-    }
-
-    /// The page's site answers `ask` (not asked this launch, not incognito: nothing of it is saved), a key it asks about:
-    /// holds `event` and asks; the answer is saved for the site, or every site. A site answering `page` whose page window
-    /// does not have the keyboard yet (a relaunch, a tab bar click) gets the key too. Returns whether it took the key.
-    func asksPageShortcuts(_ event: NSEvent, candidate: Candidate, context: KeyContext, focus: FocusState, facts: Facts,
-                           controller: WindowController) -> Bool {
-        guard let settings = services?.settings, let tab = focusedBrowserTab(in: controller), let window = controller.window,
-              case .browserPage(_, let tabID) = controller.focus.state.resolved, let host = tab.state.url?.host(), Self.asksAboutPageShortcut(candidate, event: event, focus: focus, facts: facts, chromium: tab is CEFTab)
-        else { return false }
-        let windowID = controller.state.id
-        switch settings.snapshot.pageShortcuts(forHost: host) {
-        case .page where !facts.pageReportsUnhandledKeys: givePage(event, candidate, context, window: windowID, tab: tab, in: window); return true
-        case .ask where !askedPageShortcutSites.contains(host) && services?.cache.browserTabs.isIncognitoTab(tabID) == false: break
-        default: return false
-        }
-        askedPageShortcutSites.insert(host)
-        let prompt = BrowserPageShortcutsPrompt(key: ShortcutRecorder.shortcut(for: event).displayString, host: host,
-                                                focusMode: registry.shortcutDisplay(for: "toggleBrowserFocusMode"))
-        CmuxDialogCenter.shared.present(prompt.spec, in: .window(window)) { [weak self] answer in
-            guard let self, let mode = prompt.mode(for: answer) else { return }
-            askedPageShortcutSites.remove(host)  // answered: a site rule removed later asks again
-            let sites = settings.snapshot.browserPageShortcutSites.setting(BrowserPageShortcuts(rawValue: mode) ?? .cmux, forHost: host)
-            let (path, value) = prompt.appliesToAllSites(answer) ? (BrowserPageShortcutsSetting.configPath, JSONValue.string(mode)) : (BrowserPageShortcutSites.pageShortcutSitesPath, sites)
-            // main-hop-allow: one settings write a dialog button started; setSetting hands it to the config owner, off main
-            Task { @MainActor in
-                do { try await settings.setSetting(at: path, to: value, by: .user) } catch {
-                    Logger(subsystem: "com.cmuxterm.app.next", category: "keys").error("browser.pageShortcuts write failed: \(String(describing: error), privacy: .public)")
-                }
-            }
-            guard mode == BrowserPageShortcutsPrompt.pageFirst else { return run(candidate, context: context, window: windowID) }
-            // The page went to another site while the dialog showed: the held key is not that site's.
-            if tab.state.url?.host() == host { givePage(event, candidate, context, window: windowID, tab: tab, in: window) }
+    /// A key `decide` runs now because the Chromium page window does not have the keyboard yet (a relaunch, a tab bar
+    /// click: the first Cmd-K ran Search Chats, Lucas 2026-11-18), though the page would get it first: sends it to the
+    /// page window, which reports it unhandled as usual. Returns whether it took the key.
+    func givesPageFirst(_ event: NSEvent, candidate: Candidate, context: KeyContext, focus: FocusState, facts: Facts,
+                        controller: WindowController) -> Bool {
+        guard !facts.pageReportsUnhandledKeys, let tab = focusedBrowserTab(in: controller) as? CEFTab, let page = tab.pageWindow,
+              Self.offersToPage(candidate, event: event, focus: focus, facts: facts, chromium: true) else { return false }
+        offerToPage(event, candidate: candidate, context: context, window: controller.state.id, tab: ObjectIdentifier(tab))
+        // main-hop-allow: the held key goes to its page window after the turn that held it
+        Task { @MainActor [weak self] in
+            // The person moved to another tab during the hop: the key is not that tab's.
+            guard let self, focusedBrowserTab(in: controller) === tab else { return }
+            FocusRoute(.person, "a page shortcut sent to its page window").makeKey(page)
+            page.sendEvent(event)
         }
         return true
     }
 
-    /// Sends `event` to `tab`'s page window as `page` does: `candidate` runs if the page leaves it unhandled.
-    private func givePage(_ event: NSEvent, _ candidate: Candidate, _ context: KeyContext, window: String, tab: any BrowserTab, in shell: NSWindow) {
-        offerToPage(event, candidate: candidate, context: context, window: window, tab: ObjectIdentifier(tab))
-        let page = (tab as? CEFTab)?.pageWindow ?? shell  // main-hop-allow: the held key goes to its page window after the turn that held it
-        Task { @MainActor in FocusRoute(.person, "the page shortcut the person chose for the page").makeKey(page); page.sendEvent(event) }
+    /// Shows the cmux mode notice when the page keeps `event`, an app shortcut: no unhandled report came back in
+    /// ``cmuxModeNoticeWait`` (Chromium reports only the keys a page leaves unhandled). Once a launch, until the person
+    /// picks Don't Show Again.
+    private func noticeIfPageKeeps(_ event: NSEvent, window: String) {
+        guard !cmuxModeNoticeShown, !undoToasts.neverShow.isHidden(Self.cmuxModeNoticeID),
+              let toggle = registry.shortcutDisplay(for: "toggleBrowserFocusMode") else { return }
+        let notice = BrowserCmuxModeNotice(key: ShortcutRecorder.shortcut(for: event).displayString, toggle: toggle)
+        let held = PageFirstKeyOffer<HeldPageKey>.Signature(event)
+        cmuxModeNoticeTimer.schedule(after: Self.cmuxModeNoticeWait) { @MainActor [weak self] in
+            guard let self, !cmuxModeNoticeShown, pageFirstOffer.holds(held),
+                  let shell = services?.windows.controllers.first(where: { $0.state.id == window })?.window else { return }
+            cmuxModeNoticeShown = true
+            undoToasts.show(CmuxToast(id: Self.cmuxModeNoticeID, message: notice.message), in: shell)
+        }
     }
+
+    /// How long a page has to report a key unhandled before the notice reads it as kept: Chromium answers in a
+    /// frame or two.
+    static var cmuxModeNoticeWait: Duration { .milliseconds(300) }
 }

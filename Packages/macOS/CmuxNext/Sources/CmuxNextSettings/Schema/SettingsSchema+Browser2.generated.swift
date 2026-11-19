@@ -2,44 +2,6 @@
 // schemas/settings/source/browser.json. Do not edit; edit the JSON and rerun.
 
 extension BrowserSettingsSchema {
-    static var browserImport: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.import", "Import")
-        return [
-            SettingDescriptor(
-                BrowserImportSetting.configPath,
-                section: .browser,
-                group: group,
-                title: SettingsText.keyed("settings.browser.importEnabled", "Import from Other Browsers"),
-                help: SettingsText.keyed("settings.browser.importEnabled.help", "Offers to import bookmarks, history, passwords and sign-ins. Off hides the offers."),
-                kind: .toggle,
-                default: .bool(BrowserImportSetting.fallback),
-                keywords: ["import", "browser", "chrome", "safari", "arc", "firefox", "bookmarks", "history", "passwords", "cookies", "suggestions"]
-            ),
-            SettingDescriptor(
-                BrowserCookieBannerSetting.configPath,
-                section: .browser,
-                group: group,
-                title: SettingsText.keyed("settings.browser.importCookieBanner", "Offer to Import Cookies"),
-                help: SettingsText.keyed("settings.browser.importCookieBanner.help", "Browser tabs offer to import cookies from your other browsers."),
-                kind: .toggle,
-                default: .bool(BrowserCookieBannerSetting.fallback),
-                keywords: ["import", "cookies", "banner", "card", "sign in", "login", "chrome", "safari", "arc", "dismissed", "reset"]
-            ),
-            SettingDescriptor(
-                BrowserCookieSyncSetting.configPath,
-                section: .browser,
-                group: group,
-                title: SettingsText.keyed("settings.browser.importCookieSync", "Keep Imported Cookies in Sync"),
-                help: SettingsText.keyed("settings.browser.importCookieSync.help", "Brings over changed cookies from the browser you imported from. Stays on this Mac."),
-                kind: .toggle,
-                default: .bool(BrowserCookieSyncSetting.fallback),
-                keywords: ["import", "cookies", "sync", "keep", "chrome", "sign in", "login", "signed in"]
-            ),
-        ]
-    }
-}
-
-extension BrowserSettingsSchema {
     static var agentInput: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.agentInput", "Agent Input")
         return [

@@ -36,33 +36,26 @@ public final class BrowserChromeView: NSView {
         case chrome
     }
 
-    /// Browser focus mode (the page gets every key but app-level ones):
-    /// a thin gray inset outline around the page and the omnibar's "Focus
-    /// Mode" badge (classic cmux parity).
+    /// cmux mode (every cmux shortcut wins over the page's, CMUX-641): a thin
+    /// gray inset outline around the page and the omnibar's "cmux Mode" badge
+    /// (classic cmux's focus mode chip).
     public var showsFocusModeIndicator = false {
         didSet {
             guard showsFocusModeIndicator != oldValue else { return }
-            if !showsFocusModeIndicator { focusModeExitArmed = false }
             contentContainer.layer?.borderWidth = Metrics.lineWidth(showsFocusModeIndicator ? 2 : 0)
             updateColors()
             updateFocusModeBadge()
         }
     }
 
-    /// The first Escape of focus mode's Esc Esc exit was pressed: the badge
-    /// reads "Esc again to exit".
-    public var focusModeExitArmed = false {
-        didSet { if focusModeExitArmed != oldValue { updateFocusModeBadge() } }
-    }
-
-    /// A click on the focus mode badge: the host leaves focus mode.
+    /// A click on the cmux mode badge: the host leaves cmux mode.
     public var onFocusModeBadgePress: (() -> Void)? {
         get { addressBar.focusModeBadgeView.onPress }
         set { addressBar.focusModeBadgeView.onPress = newValue }
     }
 
     private func updateFocusModeBadge() {
-        addressBar.setFocusModeBadge(armed: showsFocusModeIndicator ? focusModeExitArmed : nil)
+        addressBar.setFocusModeBadge(shown: showsFocusModeIndicator)
     }
 
     /// The arrow over the whole row (`OmnibarPointer`).

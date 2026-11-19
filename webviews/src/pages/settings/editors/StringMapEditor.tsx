@@ -8,14 +8,8 @@ import { t, text } from "../strings";
 import { Select } from "./Select";
 import type { EditorProps } from "./types";
 
-/**
- * The row whose choices a map's values take, less `omit`: `browser.siteEngines` maps a site to an engine,
- * `browser.pageShortcutSites` a site to `page` or `cmux` (only every site's default can be `ask`).
- */
-const VALUE_CHOICES: Readonly<Record<string, { row: string; omit?: readonly string[] }>> = {
-  "browser.siteEngines": { row: "browser.defaultEngine" },
-  "browser.pageShortcutSites": { row: "browser.pageShortcuts", omit: ["ask"] },
-};
+/** The row whose choices a map's values take: `browser.siteEngines` maps a site to an engine. */
+const VALUE_CHOICES: Readonly<Record<string, string>> = { "browser.siteEngines": "browser.defaultEngine" };
 
 /** A map key such as `spotify.com` or `amazon.com/gp/video`: not empty, no spaces. */
 function isMapKey(key: string): boolean {
@@ -23,11 +17,9 @@ function isMapKey(key: string): boolean {
 }
 
 /**
- * A `string_map` row (browser.siteEngines, browser.pageShortcutSites): one line per key, in key order,
- * with its value (a menu when the values are fixed choices, else a text field) and Remove; the last
- * line adds a key. A long map scrolls in a box of bounded height, so the add line and the rows under
- * it stay in place (the page shortcuts dialog adds a site per answer). Each change writes the whole
- * map, as cmux.json holds it.
+ * A `string_map` row (browser.siteEngines): one line per key, in key order, with its value (a menu
+ * when the values are fixed choices, else a text field) and Remove; the last line adds a key. Each
+ * change writes the whole map, as cmux.json holds it.
  */
 export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
@@ -35,10 +27,7 @@ export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) 
     typeof value === "object" && value !== null && !Array.isArray(value)
       ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, String(item)]))
       : {};
-  const valueSpec = VALUE_CHOICES[row.key];
-  const choices: Choice[] | undefined = rowsByKey
-    .get(valueSpec?.row ?? "")
-    ?.choices?.filter((choice) => !valueSpec?.omit?.includes(choice.value));
+  const choices: Choice[] | undefined = rowsByKey.get(VALUE_CHOICES[row.key] ?? "")?.choices;
   const [draftKey, setDraftKey] = useState("");
   const [draftValue, setDraftValue] = useState(choices?.[0]?.value ?? "");
   const [invalid, setInvalid] = useState(false);
@@ -73,28 +62,26 @@ export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) 
     );
   return (
     <span className="string-map" data-string-map="">
-      <span className="string-map-items" data-string-map-items="">
-        {Object.keys(map)
-          .sort()
-          .map((key) => (
-            <span key={key} className="string-map-item" data-map-key={key}>
-              <span className="string-map-key selectable">{key}</span>
-              {valueControl(map[key]!, (next) => write({ ...map, [key]: next }))}
-              <Button
-                type="button"
-                icon
-                size="sm"
-                variant="ghost"
-                className="icon-button"
-                aria-label={`${t("settingsPage.remove")} ${key}`}
-                disabled={disabled}
-                onClick={() => write(Object.fromEntries(Object.entries(map).filter(([item]) => item !== key)))}
-              >
-                <Icon name="xmark" />
-              </Button>
-            </span>
-          ))}
-      </span>
+      {Object.keys(map)
+        .sort()
+        .map((key) => (
+          <span key={key} className="string-map-item" data-map-key={key}>
+            <span className="string-map-key selectable">{key}</span>
+            {valueControl(map[key]!, (next) => write({ ...map, [key]: next }))}
+            <Button
+              type="button"
+              icon
+              size="sm"
+              variant="ghost"
+              className="icon-button"
+              aria-label={`${t("settingsPage.remove")} ${key}`}
+              disabled={disabled}
+              onClick={() => write(Object.fromEntries(Object.entries(map).filter(([item]) => item !== key)))}
+            >
+              <Icon name="xmark" />
+            </Button>
+          </span>
+        ))}
       {/* A form, so Return in the site field adds as the Add button does. */}
       <form
         className="string-map-item"

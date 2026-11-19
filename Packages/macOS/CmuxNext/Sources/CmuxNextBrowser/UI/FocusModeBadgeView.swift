@@ -2,14 +2,13 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// The badge at the trailing end of the omnibar while the page is in browser
-/// focus mode (classic cmux's toolbar mode chip): a keyboard glyph and "Focus
-/// Mode", or "Esc again to exit" once the first Escape armed the exit.
-/// Clicking it leaves focus mode.
+/// The badge at the trailing end of the omnibar while the page is in cmux
+/// mode (CMUX-641; classic cmux's toolbar mode chip): a keyboard glyph and
+/// "cmux Mode". Clicking it leaves cmux mode.
 final class FocusModeBadgeView: NSView {
     private let label = ChromeLabel(labelWithString: "")
     private let glyph = NSImageView()
-    /// Runs on click: the host leaves focus mode.
+    /// Runs on click: the host leaves cmux mode.
     var onPress: (() -> Void)?
     /// The text shown now (tests).
     var shownText: String { label.stringValue }
@@ -26,7 +25,7 @@ final class FocusModeBadgeView: NSView {
         label.font = Typography.caption
         label.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
         glyph.translatesAutoresizingMaskIntoConstraints = false
-        // chrome-icons: allow Chrome has no focus mode; classic cmux's chip used the keyboard glyph.
+        // chrome-icons: allow Chrome has no cmux mode; classic cmux's chip used the keyboard glyph.
         glyph.image = NSImage.icon(.keyboard, size: 12)
         glyph.image?.isTemplate = true
         addSubview(glyph)
@@ -42,7 +41,7 @@ final class FocusModeBadgeView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityIdentifier("cmux.browser.focusModeBadge")
-        show(armed: false)
+        show()
     }
 
     @available(*, unavailable)
@@ -55,9 +54,9 @@ final class FocusModeBadgeView: NSView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    func show(armed: Bool) {
-        label.stringValue = armed ? Strings.focusModeArmed : Strings.focusModeActive
-        let help = Strings.focusModeExitHelp(Strings.focusModeEscapeHint)
+    func show() {
+        label.stringValue = Strings.cmuxModeActive
+        let help = Strings.cmuxModeExitHelp
         themedToolTip = help
         setAccessibilityLabel(label.stringValue)
         setAccessibilityHelp(help)

@@ -1062,18 +1062,6 @@ Object.assign(variants, {
       wait(`${row("focusRing.color")} [role="alert"]`),
     ],
   }),
-  // A long browser.pageShortcutSites (the page shortcuts dialog adds a site per answer): its sites scroll in a box,
-  // the add line under it.
-  "page-shortcut-sites-long": variant("browser", {
-    focus: "browser.pageShortcutSites",
-    options: {
-      values: {
-        "browser.pageShortcutSites": Object.fromEntries(
-          Array.from({ length: 20 }, (_, index) => [`site-${index + 1}.example`, index % 3 === 0 ? "cmux" : "page"]),
-        ),
-      },
-    },
-  }),
   "invalid-host": variant("browser", {
     focus: "browser.hibernationExclusions",
     // Scoped to the row: the Browser page has other token fields above it (browser.siteEngines).
