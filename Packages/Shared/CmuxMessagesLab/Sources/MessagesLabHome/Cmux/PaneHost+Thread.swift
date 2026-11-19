@@ -5,7 +5,8 @@ import AppKit
 /// vendored), for the pane controller. The view itself (rows, ThreadBackdrop,
 /// fly in and out) is the vendored WindowView's, driven by `openThread`; the
 /// reply leaves through `ChatIntents.send` with the thread root.
-/// Offered only when the owner can take a reply (`ChatIntents.canReply`).
+/// Opening a thread from "N Replies" is offered only when the owner can take a reply (`ChatIntents.canReply`);
+/// closing one (an outside click, Esc) works in every chat, since a permalink opens threads in a read-only one too.
 final class PaneThread {
     /// The owning controller (it holds this object; weak, so no cycle).
     private weak var controller: ChatController?
@@ -60,7 +61,7 @@ final class PaneThread {
             if case let .dispatch(action) = control { controller.dispatch(action) }
             return true
         }
-        guard controller.intents?.canReply == true else { return false }
+        // Closing is not replying: an outside click closes a thread in a chat that takes no replies too.
         if openThread != nil {
             guard !demo.threadContentHit(p), !demo.compose.fieldRect.insetBy(dx: -60, dy: -8).contains(p) else { return false }
             // The opener again ("N Replies" or the preview, not the rest of its row): Messages keeps the thread
@@ -69,6 +70,7 @@ final class PaneThread {
             controller.dispatch(.closeThread)
             return true
         }
+        guard controller.intents?.canReply == true else { return false }
         guard let root = demo.repliesHit(p) else { return false }
         let opener = Self.openerBand(at: p, in: demo)
         focusTranscript()
