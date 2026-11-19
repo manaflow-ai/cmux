@@ -185,6 +185,9 @@ pub struct Pacer {
     strict_credit_bytes: u64,
     strict_remainder: u64,
     strict_last_us: Option<u64>,
+    /// Strict mode: bytes sent outside the queue ([`Pacer::charge`], a probe train) hold
+    /// budgeted datagrams back until this time, the wire time they took at the held rate.
+    strict_charged_until_us: u64,
 }
 
 impl Default for Pacer {
@@ -204,6 +207,7 @@ impl Default for Pacer {
             strict_credit_bytes: 0,
             strict_remainder: 0,
             strict_last_us: None,
+            strict_charged_until_us: 0,
         }
     }
 }
@@ -545,9 +549,34 @@ impl Pacer {
         out
     }
 
+    /// Strict only: `bytes` left outside the queue (an ultra probe train, sent back to
+    /// back so its dispersion measures the path) and still count against the one wire
+    /// budget. Credit already earned pays first; the rest holds budgeted datagrams back
+    /// for the time those bytes take at the held rate. Balanced pacing ignores it.
+    pub fn charge(&mut self, bytes: usize, now_us: u64) {
+        let PacerPolicy::Strict(config) = self.policy else { return };
+        if config.rate_bps == 0 || bytes == 0 {
+            return;
+        }
+        if let Some(last) = self.strict_last_us {
+            self.refill_strict(now_us, last);
+        }
+        let paid = self.strict_credit_bytes.min(bytes as u64);
+        self.strict_credit_bytes -= paid;
+        let owed = (bytes as u64 - paid) as u128;
+        if owed == 0 {
+            return;
+        }
+        let wait = owed.saturating_mul(MICROBITS_PER_BYTE_US).div_ceil(config.rate_bps as u128);
+        let wait = wait.min(u64::MAX as u128) as u64;
+        self.strict_charged_until_us =
+            self.strict_charged_until_us.max(now_us).saturating_add(wait);
+    }
+
     fn refill_strict(&mut self, now_us: u64, last_us: u64) {
         let PacerPolicy::Strict(config) = self.policy else { return };
-        let elapsed = now_us.saturating_sub(last_us) as u128;
+        // Nothing accrues while charged bytes (a probe train) still hold the wire.
+        let elapsed = now_us.saturating_sub(last_us.max(self.strict_charged_until_us)) as u128;
         if config.rate_bps == 0 || elapsed == 0 {
             return;
         }
@@ -579,6 +608,8 @@ impl Pacer {
             if config.rate_bps == 0 {
                 return None;
             }
+            // Credit starts accruing once charged bytes (a probe train) have had their time.
+            let last = last.max(self.strict_charged_until_us);
             let need = (head - self.strict_credit_bytes) as u128;
             let numerator = need
                 .saturating_mul(MICROBITS_PER_BYTE_US)
@@ -629,6 +660,7 @@ impl Pacer {
         self.strict_remainder = 0;
         self.last_us = None;
         self.strict_last_us = None;
+        self.strict_charged_until_us = 0;
     }
 
     /// The queued frame datagrams, in send order (to decide what an outage end drops,

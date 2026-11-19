@@ -104,3 +104,36 @@ fn strict_queue_limit_rejects_without_partial_accounting() {
     assert!(!pacer.enqueue_repair(vec![0; 1], 2, 0));
     assert_eq!(pacer.queued_bytes(), 100);
 }
+
+/// Ultra's one budget through the calls the host makes: a frame's datagrams (media and
+/// its FEC parity, `push_frame`), a NACK resend (`push_repair`) and a probe train the
+/// host sent back to back outside the queue (`charge`) all take wire time at the held
+/// rate, so the last byte leaves when the total would at that rate.
+#[test]
+fn strict_frame_repair_and_charged_probe_train_share_one_budget() {
+    // 8 Mbps is one byte per microsecond.
+    let mut pacer = Pacer::strict(StrictWireBudget::with_limits(8_000_000, 1_000, 1 << 20, 1_024));
+    // A 4,000-byte probe train left at t=0.
+    pacer.charge(4_000, 0);
+    // The target and frame interval are the balanced pacer's inputs; strict ignores them.
+    pacer.push_frame(frame(2), 999_000_000, 16_667, 0);
+    pacer.push_repair(vec![vec![9; 1_152]], 999_000_000, 0);
+    let sent = drain(&mut pacer, 0);
+    assert_eq!(sent.len(), 3);
+    assert_eq!(sent[0].1, vec![9; 1_152], "the repair leaves first");
+    // Nothing before the probe's 4 ms, then one 1,152-byte datagram per 1,152 us:
+    // 4,000 + 3 x 1,152 bytes at one byte per microsecond.
+    assert_eq!(sent.iter().map(|s| s.0).collect::<Vec<_>>(), vec![5_152, 6_304, 7_456]);
+}
+
+/// Balanced pacing (standard) ignores a charge.
+#[test]
+fn balanced_pacer_ignores_a_charge() {
+    let mut charged = Pacer::new();
+    charged.charge(1 << 20, 1_000);
+    charged.push_frame(frame(30), 30_000_000, 16_667, 1_000);
+    let mut plain = Pacer::new();
+    plain.push_frame(frame(30), 30_000_000, 16_667, 1_000);
+    let times = |p: &mut Pacer| drain(p, 1_000).into_iter().map(|s| s.0).collect::<Vec<_>>();
+    assert_eq!(times(&mut charged), times(&mut plain));
+}

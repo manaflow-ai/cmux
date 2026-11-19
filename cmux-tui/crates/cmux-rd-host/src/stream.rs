@@ -15,8 +15,9 @@ use crate::wire::Control;
 use crate::Res;
 use cmux_rd_core::cc::PathKind;
 use cmux_rd_core::flow::Rect;
-use cmux_rd_core::pacer::Pacer;
+use cmux_rd_core::pacer::{Pacer, StrictWireBudget};
 use cmux_rd_core::policy::Principal;
+use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
 use cmux_rd_proto::{DatagramHeader, DatagramKind};
@@ -107,6 +108,23 @@ fn pacing_enabled() -> bool {
 fn is_media_datagram(datagram: &[u8]) -> bool {
     DatagramHeader::decode(datagram)
         .is_ok_and(|(header, _)| matches!(header.kind, DatagramKind::Video | DatagramKind::Fec))
+}
+
+/// An ultra capacity probe: it leaves at once (the train's dispersion is the measurement),
+/// the engine is told when, and its bytes are charged to the pacer's budget.
+fn is_probe(datagram: &[u8]) -> bool {
+    DatagramHeader::decode(datagram).is_ok_and(|(header, _)| header.kind == DatagramKind::Probe)
+}
+
+/// Ultra charges every budgeted byte it sends (media, FEC, repairs, probes) to one strict
+/// wire budget at the engine's held rate (D10); standard keeps the balanced pacer, which
+/// paces at a multiple of the target.
+fn new_pacer(profile: EncodeProfile, wire_bps: u64) -> Pacer {
+    if profile.is_ultra() {
+        Pacer::strict(StrictWireBudget::new(wire_bps))
+    } else {
+        Pacer::new()
+    }
 }
 
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
@@ -273,6 +291,7 @@ impl MediaSession {
             now_us(),
         );
         engine.set_profile(cfg.encode_profile);
+        let pacer = pacing_enabled().then(|| new_pacer(cfg.encode_profile, engine.target_bps()));
         Ok(Self {
             desktop,
             encoder: EncodeThread::spawn(frames)?,
@@ -287,7 +306,7 @@ impl MediaSession {
             settle_ns: cfg.settle_us * 1000,
             timing: Timing::from_env(),
             cursor: wants_cursor(negotiated_caps).then(CursorChannel::new),
-            pacer: pacing_enabled().then(Pacer::new),
+            pacer,
             frame_interval_us: 1_000_000 / u64::from(cfg.max_fps.max(1)),
             paced_logs: VecDeque::new(),
         })
@@ -549,6 +568,9 @@ impl MediaSession {
     /// Sends the paced datagrams that are due, telling the engine when each left.
     fn send_paced(&mut self, carrier: &mut dyn Carrier) -> std::io::Result<()> {
         let Some(pacer) = self.pacer.as_mut() else { return Ok(()) };
+        // Ultra: the strict budget follows the engine's held rate (a probe result, a
+        // standing-queue cut). Balanced pacing ignores it.
+        pacer.set_rate_bps(self.engine.target_bps());
         let now = now_us();
         let due = pacer.due(now);
         // Repairs left first; only the frame datagrams count toward a frame's send time.
@@ -629,11 +651,16 @@ impl MediaSession {
 
     /// Sends an engine output's datagrams: resent frame shards (NACK answers, tail-loss
     /// probes) through the pacer, ahead of queued frames, so a recovery never leaves as an
-    /// unpaced burst; everything else at once.
+    /// unpaced burst; everything else at once. An ultra probe train leaves at once too (its
+    /// dispersion is the measurement): the engine's probe planner is told when each probe
+    /// left, and the strict pacer is charged its bytes.
     fn send_output(&mut self, carrier: &mut dyn Carrier, datagrams: Vec<Vec<u8>>) {
         let Some(pacer) = self.pacer.as_mut() else {
             for datagram in &datagrams {
                 let _ = carrier.send_datagram(datagram);
+                if is_probe(datagram) {
+                    self.engine.datagram_sent(datagram, now_us());
+                }
             }
             return;
         };
@@ -641,6 +668,12 @@ impl MediaSession {
             datagrams.into_iter().partition(|d| is_media_datagram(d));
         for datagram in &direct {
             let _ = carrier.send_datagram(datagram);
+            if is_probe(datagram) {
+                let now = now_us();
+                self.engine.datagram_sent(datagram, now);
+                pacer.set_rate_bps(self.engine.target_bps());
+                pacer.charge(datagram.len(), now);
+            }
         }
         if !repairs.is_empty() {
             pacer.push_repair(repairs, self.engine.target_bps(), now_us());
@@ -959,3 +992,9 @@ mod encode_off_loop_tests {
 #[cfg(test)]
 #[path = "stream_outage_tests.rs"]
 mod outage_drop_tests;
+
+/// D10 ultra on the host: the strict one-budget pacer at the engine's held rate, and a
+/// probe train that leaves at once, is timed for the planner and raises the held rate.
+#[cfg(test)]
+#[path = "stream_ultra_tests.rs"]
+mod ultra_tests;
