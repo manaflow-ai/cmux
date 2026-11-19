@@ -9,7 +9,7 @@
 //
 // Cost: the wallpaper's own blur is done once per still in two prefilter passes (PREFILTER_*), not
 // per pixel per frame, so every glass pixel reads ONE texel (three on the rim under a dispersion),
-// plus one coarse texel per pixel for the adaptive veil, where the lens's frost read nine (27 under
+// plus five coarse texels per pixel for the adaptive veil, where the lens's frost read nine (27 under
 // Spectrum). The margin copy reads one.
 //
 // The vertex layout is the lens's (lens.ts VERTEX); a_extra.w, unused by the lens, carries motion.
@@ -113,11 +113,20 @@ void main() {
   }
   color = mix(color, u_tint.rgb, u_tint.a);
   color = mix(color, u_surface.rgb, u_surface.a);
-  // Adaptive veil: the backdrop's average under this glass (one coarse texel) against the text
-  // color; where they are close, the theme's surface comes up under the text, else it stays clear.
+  // Adaptive veil: the backdrop under this glass against the text color; where they are close, the
+  // theme's surface comes up under the text, else it stays clear. The worst of five coarse texels
+  // (the middle and each quadrant's middle), not one average of the whole glass: the glass lab
+  // (2026-11-19, b8cadc3c) found a dark average leaving the veil at 4% over bright swirls that set
+  // the worst text pixel (selected rows 3.90:1 over a bright painting, 4.02:1 over a dark one).
   vec2 lodSpan = v_rect.zw * u_texSize / u_art.zw;
-  vec3 under = mix(tap(center, log2(max(max(lodSpan.x, lodSpan.y), 1.0)) - 1.0), u_tint.rgb, u_tint.a);
-  float gap = abs(luma(under) - luma(u_ink));
+  float quarterLod = log2(max(max(lodSpan.x, lodSpan.y) * 0.5, 1.0)) - 1.0;
+  float inkLuma = luma(u_ink);
+  float gap = abs(luma(mix(tap(center, quarterLod + 1.0), u_tint.rgb, u_tint.a)) - inkLuma);
+  vec2 quad = halfSize * 0.5;
+  gap = min(gap, abs(luma(mix(tap(center + vec2(-quad.x, -quad.y), quarterLod), u_tint.rgb, u_tint.a)) - inkLuma));
+  gap = min(gap, abs(luma(mix(tap(center + vec2(quad.x, -quad.y), quarterLod), u_tint.rgb, u_tint.a)) - inkLuma));
+  gap = min(gap, abs(luma(mix(tap(center + vec2(-quad.x, quad.y), quarterLod), u_tint.rgb, u_tint.a)) - inkLuma));
+  gap = min(gap, abs(luma(mix(tap(center + vec2(quad.x, quad.y), quarterLod), u_tint.rgb, u_tint.a)) - inkLuma));
   float veil = u_adapt * clamp((0.62 - gap) / 0.42, 0.0, 1.0);
   color = mix(color, u_veil, veil);
   // Light: a key light (above, a little left, swung toward the pointer when it is near this glass)

@@ -2,7 +2,7 @@
 // optics). lens.ts keeps everything about the page (which rects are glass, what clips them, when to
 // draw) and asks this module for three things it does not have:
 //   - the prefilter: the wallpaper still blurred ONCE by the art's own blur (two separable passes
-//     into a small mipmapped texture), so a frame reads one texel per glass pixel, not nine;
+//     into a small mipmapped texture), so a frame reads one texel per glass pixel (plus five coarse ones for the veil), not nine;
 //   - the pointer light: where the key light comes from, eased toward the pointer while it moves
 //     near glass, settled (no frames) once it stops;
 //   - the engine's per-frame uniforms (the ink, the veil, the index, the pointer).
