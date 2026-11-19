@@ -26,5 +26,17 @@ struct SidebarRowLabelOnDemandTests {
         #expect(label.contains("Ticker"), "\(label)")
         #expect(label.contains("95"), "the label does not say the last tick's progress: \(label)")
         #expect(view.spokenLabelBuilds == 1)
+        // An assistive app that reads again before the next tick gets the same words without a build.
+        for _ in 0..<10 { _ = view.accessibilityLabel() }
+        #expect(view.spokenLabelBuilds == 1, "10 reads between ticks built the label \(view.spokenLabelBuilds - 1) more times")
+        // The next tick drops it; the read after it says the new progress.
+        var content = SidebarLayoutOptions().rowContent(ws, machine: nil)
+        content.progress = SidebarProgress(value: 0.5)
+        view.configure(ws, row: SidebarRow(key: .workspace(ws.id), y: 0, height: 28, section: .pinned, group: nil, siblingIndex: 0,
+                                          parentIndex: nil, isLastInGroup: false, isCollapsed: false, childCount: 0, groupColor: nil,
+                                          content: content), badgeStyle: .corner)
+        let next = try #require(view.accessibilityLabel())
+        #expect(next.contains("50"), "the label after a new tick does not say its progress: \(next)")
+        #expect(view.spokenLabelBuilds == 2)
     }
 }
