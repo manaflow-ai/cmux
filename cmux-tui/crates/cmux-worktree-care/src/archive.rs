@@ -22,9 +22,15 @@ use crate::policy::Action;
 use crate::procs::{self, Open, Uses};
 use crate::store::{Manifest, Store, new_id};
 
-/// How long removing a folder (many files) may take before git is waited on
-/// anyway: removal is a write and is never killed midway.
-const BUNDLE: Duration = Duration::from_secs(600);
+/// How long writing an archive's bundle may take. Past it the bundle is
+/// dropped and the archive is its ref alone.
+const BUNDLE: Duration = Duration::from_secs(120);
+/// The most object bytes (as stored, `rev-list --disk-usage`) of what no
+/// remote has that an archive copies into a bundle. More stays in the
+/// repository under the archive ref only: streaming it into a bundle was a
+/// `pack-objects` of up to a gigabyte of memory and minutes of CPU per
+/// archive, to copy objects the ref already keeps.
+pub const MAX_BUNDLE_BYTES: u64 = 64 << 20;
 
 /// Removes a kept worktree's build output, each folder only while nothing
 /// `uses` lists works in it. Returns the bytes the disk gained.
@@ -114,21 +120,7 @@ pub fn reclaim(
         manifest.archive_ref = Some(reference.clone());
         manifest.archive_commit = Some(commit);
         if facts.has_remotes {
-            let bundle = store.bundle_path(&id);
-            let path = bundle.as_os_str();
-            let args: [&OsStr; 6] = [
-                "bundle".as_ref(),
-                "create".as_ref(),
-                path,
-                reference.as_ref(),
-                "--not".as_ref(),
-                "--remotes".as_ref(),
-            ];
-            if let Err(error) = git::write(&wt, None, &args, Bound::Deadline(BUNDLE)) {
-                discard(&wt, store, &manifest);
-                return Err(error);
-            }
-            manifest.bundle = Some(bundle);
+            manifest.bundle = bundle(&wt, &worktree.path, &repo.overrides, store, &id, &reference);
         }
         files = Some(tree);
     }
@@ -207,6 +199,54 @@ fn unchanged(
         Ok(Some(pid)) => Err(format!("process {pid} has it open")),
         Err(error) => Err(format!("could not check what has it open ({error})")),
     }
+}
+
+/// A second copy of the archive outside the repository: a bundle of what
+/// no remote has, for a restore whose ref was lost. Only a small one: the
+/// ref in the repository is the archive, and keeps its objects from `gc`.
+/// `None` (the ref alone) when what the remotes lack is more than
+/// [`MAX_BUNDLE_BYTES`] or cannot be sized, and when writing the bundle
+/// fails or takes longer than [`BUNDLE`]. Packed without a delta search
+/// (`pack.window=0`) on one thread: the objects are copied as stored, not
+/// recompressed against each other.
+fn bundle(
+    wt: &WriteGit<'_>,
+    root: &Path,
+    overrides: &[cmux_git::run::Override],
+    store: &Store,
+    id: &str,
+    reference: &str,
+) -> Option<PathBuf> {
+    let size = git::line(
+        root,
+        overrides,
+        &["rev-list", "--objects", "--disk-usage", reference, "--not", "--remotes"],
+    )
+    .ok()?;
+    if size.parse::<u64>().ok()? > MAX_BUNDLE_BYTES {
+        return None;
+    }
+    let path = store.bundle_path(id);
+    let args: [&OsStr; 10] = [
+        "-c".as_ref(),
+        "pack.window=0".as_ref(),
+        "-c".as_ref(),
+        "pack.threads=1".as_ref(),
+        "bundle".as_ref(),
+        "create".as_ref(),
+        path.as_os_str(),
+        reference.as_ref(),
+        "--not".as_ref(),
+        "--remotes".as_ref(),
+    ];
+    if git::write(wt, None, &args, Bound::Deadline(BUNDLE)).is_err() {
+        let _ = std::fs::remove_file(&path);
+        let mut lock = path.clone().into_os_string();
+        lock.push(".lock");
+        let _ = std::fs::remove_file(lock);
+        return None;
+    }
+    Some(path)
 }
 
 /// Drops an archive whose worktree stays: its ref, bundle and manifest.

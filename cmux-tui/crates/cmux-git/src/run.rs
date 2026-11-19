@@ -240,36 +240,55 @@ pub fn in_background() -> bool {
     BACKGROUND.with(Cell::get)
 }
 
-/// Lowers `pid` (a process this thread just started) to background priority
-/// when this thread holds a [`background`] guard. Best effort: a process
-/// that has already exited only makes it fail.
-pub fn lower_if_background(pid: u32) {
+/// Makes `command` start at background priority when this thread holds a
+/// [`background`] guard. The child lowers itself between fork and exec, so
+/// git runs lowered from its first instruction and every process it starts
+/// (`pack-objects` under `bundle create`, `index-pack`) inherits it: a
+/// renice of git's pid after the spawn raced git's own forks and left a
+/// `pack-objects` at full priority beside the person at the machine. Nice
+/// 19 everywhere (inherited across fork on every unix) and, on macOS,
+/// `PRIO_DARWIN_BG` too (lowest CPU tier, throttled disk I/O).
+pub fn lower_command_if_background(command: &mut Command) {
     if in_background() {
-        lower(pid);
+        lower_command(command);
     }
 }
 
-#[cfg(target_os = "macos")]
-fn lower(pid: u32) {
-    // <sys/resource.h>: PRIO_DARWIN_PROCESS and PRIO_DARWIN_BG.
-    const PRIO_DARWIN_PROCESS: libc::c_int = 4;
-    const PRIO_DARWIN_BG: libc::c_int = 0x1000;
-    // SAFETY: setpriority(2) on a child this process started.
+#[cfg(unix)]
+fn lower_command(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    // SAFETY: setpriority(2) on the child itself (pid 0) between fork and
+    // exec: a plain syscall, no allocation, no shared state. Failing to
+    // lower is not a reason to stop the run.
     unsafe {
-        libc::setpriority(PRIO_DARWIN_PROCESS, pid as libc::id_t, PRIO_DARWIN_BG);
-    }
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn lower(pid: u32) {
-    // SAFETY: setpriority(2) on a child this process started.
-    unsafe {
-        libc::setpriority(libc::PRIO_PROCESS as _, pid as libc::id_t, 19);
+        command.pre_exec(|| {
+            lower_self();
+            Ok(())
+        });
     }
 }
 
 #[cfg(not(unix))]
-fn lower(_pid: u32) {}
+fn lower_command(_command: &mut Command) {}
+
+/// Lowers the calling process. Async-signal-safe: only setpriority(2).
+#[cfg(unix)]
+fn lower_self() {
+    // SAFETY: setpriority(2) on this process; failure only leaves it as is.
+    unsafe {
+        libc::setpriority(libc::PRIO_PROCESS as _, 0, 19);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // <sys/resource.h>: PRIO_DARWIN_PROCESS and PRIO_DARWIN_BG.
+        const PRIO_DARWIN_PROCESS: libc::c_int = 4;
+        const PRIO_DARWIN_BG: libc::c_int = 0x1000;
+        // SAFETY: as above, on this process.
+        unsafe {
+            libc::setpriority(PRIO_DARWIN_PROCESS, 0, PRIO_DARWIN_BG);
+        }
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 fn run(
@@ -339,8 +358,8 @@ fn run(
             }
         }
     }
+    lower_command_if_background(&mut command);
     let mut child = command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
-    lower_if_background(child.id());
     // Both are piped above; a missing one is a spawn failure, not a panic.
     let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
         stop(&mut child);
@@ -635,6 +654,27 @@ mod background_tests {
         assert_eq!(alternate_entry(Path::new("/r/.git/objects")), "/r/.git/objects");
         assert_eq!(alternate_entry(Path::new("/r:copy/objects")), "\"/r:copy/objects\"");
         assert_eq!(alternate_entry(Path::new("/a\"b\\c\nd")), "\"/a\\\"b\\\\c\\012d\"");
+    }
+
+    /// The child starts lowered, and what it starts in turn (git's
+    /// `pack-objects` under `bundle create`) inherits it: no renice after
+    /// the spawn to race.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn background_lowers_the_child_and_its_children_from_the_start() {
+        let nice_of = |background: bool| {
+            let _guard = background.then(super::background);
+            let mut command = Command::new("sh");
+            command.args(["-c", "sh -c 'cut -d\" \" -f19 /proc/$$/stat'"]);
+            lower_command_if_background(&mut command);
+            let output = command.output().unwrap();
+            String::from_utf8(output.stdout).unwrap().trim().parse::<i32>().unwrap()
+        };
+        let base = nice_of(false);
+        assert_eq!(nice_of(true), 19, "the grandchild runs at nice 19");
+        // SAFETY: getpriority(2) on this process.
+        let own = unsafe { libc::getpriority(libc::PRIO_PROCESS as _, 0) };
+        assert_eq!(base, own, "outside the guard it is unchanged");
     }
 
     #[test]
