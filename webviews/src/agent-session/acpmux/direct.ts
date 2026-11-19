@@ -113,7 +113,7 @@ import {
 } from "./attachParams";
 export { SETTLED_ATTACH_CAPABILITY, attachedDetail, settledAttachFailed } from "./attachParams";
 import { ChatSource } from "./rows/chatSource";
-import { holdAttach, holdReads } from "./rows/holdKinds";
+import { HOLD_RECORDS_PER_KIND, holdAttach, holdReads } from "./rows/holdKinds";
 import {
   forgetTail,
   keptEvents,
@@ -7965,6 +7965,10 @@ export class AcpmuxDirectClient {
   /// keeps every one.
   private holdLive(event: EventRecord): void {
     this.events.push(event);
+    // A chat on the hold streams page state only, never a row and never a turn's end, so no shed ever
+    // runs for it: the newest few of each kind stay (`HOLD_RECORDS_PER_KIND`).
+    if (event.sessionId && this.replayThrough === undefined && this.chatRows.holds(event.sessionId))
+      return this.keepNewestOfKind(event.sessionId, event.kind);
     // A prompt or a turn's start or end ends the calls before it: one that never said it finished is
     // not tracked past it, and an id used again after it is another call.
     if (endsStreamedCalls(event)) this.streamedOutputs.clear();
@@ -7989,6 +7993,19 @@ export class AcpmuxDirectClient {
       call.last = event.seq;
     }
     if (update?.status === "completed" || update?.status === "failed") this.streamedOutputs.delete(callId);
+  }
+
+  /// Lets go of the held chat's oldest record of `kind` once more than `HOLD_RECORDS_PER_KIND` are held.
+  /// The record just held is the only one over, so one walk from the newest finds the one to drop; another
+  /// chat's records of the same kind are never counted or dropped.
+  private keepNewestOfKind(sessionId: string, kind: string): void {
+    let seen = 0;
+    for (let index = this.events.length - 1; index >= 0; index -= 1) {
+      const held = this.events[index]!;
+      if (held.sessionId !== sessionId || held.kind !== kind || ++seen <= HOLD_RECORDS_PER_KIND) continue;
+      this.events.splice(index, 1);
+      return;
+    }
   }
 
   private apply(event: EventRecord): void {
