@@ -29,7 +29,14 @@ nonisolated final class AcpmuxSocketWait: Sendable {
         } else {
             source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
         }
+        // Ends once the source has let go of the descriptor (its cancel handler ran).
+        let released = AcpmuxSocketWait()
+        // Both handlers are set before the source is activated (#46746). Changing a handler of an
+        // active source is not a plain store: libdispatch routes it through a barrier on the
+        // source, racing the event handler that a ready descriptor keeps firing and the cancel
+        // right after it. That race crashed this queue's drain on a listless source.
         source.setEventHandler { wait.finish(.success(())) }
+        source.setCancelHandler { released.finish(.success(())) }
         source.resume()
         let result: Result<Void, any Error>
         do {
@@ -43,10 +50,10 @@ nonisolated final class AcpmuxSocketWait: Sendable {
             result = .failure(error)
         }
         // The caller closes the descriptor after this returns: the source lets go of it first.
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            source.setCancelHandler { done.resume() }
-            source.cancel()
-        }
+        // Not cancellable: a cancelled caller still waits here, or it would close a descriptor the
+        // source still holds. `released` only ever ends with success.
+        source.cancel()
+        _ = try? await withCheckedThrowingContinuation { released.store($0) }
         try result.get()
     }
 
