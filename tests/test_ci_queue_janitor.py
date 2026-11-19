@@ -955,6 +955,20 @@ class SweepRunnerTests(unittest.TestCase):
                                               "_dead": {"blacksmith-32vcpu-ubuntu-2404": "2026-11-01T05:30:00Z"}})}
         self.assertEqual(self.runner(frozen), "blacksmith-16vcpu-ubuntu-2404")
 
+    def test_the_sweep_follows_a_size_the_probe_saw_start_while_the_pool_size_stalls(self):
+        # 2026-11-19: sweep 44420498704 queued on 4 vCPU from 23:32Z and held the concurrency group, so no sweep
+        # ran for 6 h. Without a fresh sweep snapshot a probe stall marks nothing dead (runner_pools.label_evidence()),
+        # so RUNNER_POOLS.linux stayed on 4 vCPU; runner_pools.py names a size that started as `_live_linux`.
+        stalled = {"linux": "blacksmith-4vcpu-ubuntu-2404", "_dead": {}}
+        live = dict(stalled, _live_linux="blacksmith-2vcpu-ubuntu-2404")
+        self.assertEqual(self.runner({"RUNNER_POOLS": json.dumps(live)}), "blacksmith-2vcpu-ubuntu-2404")
+        self.assertEqual(self.runner({"RUNNER_POOLS": json.dumps(stalled)}), "blacksmith-4vcpu-ubuntu-2404")
+        # Bounded: a value that is not a Blacksmith Linux size the sweep may use is ignored.
+        for value in ("glaeda-std-xcode-26.6", "self-hosted", "ubuntu-24.04", ""):
+            with self.subTest(value=value):
+                self.assertEqual(self.runner({"RUNNER_POOLS": json.dumps(dict(stalled, _live_linux=value))}),
+                                 "blacksmith-4vcpu-ubuntu-2404")
+
     def test_eight_vcpu_pool_member_wins_over_stale_linux_runner(self):
         frozen = {"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404",
                   "RUNNER_POOLS": json.dumps({"linux": "blacksmith-8vcpu-ubuntu-2404"})}
