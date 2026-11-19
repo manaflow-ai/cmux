@@ -28,6 +28,15 @@ import UIKit
         #expect(line.accessibilityValue == "Collapsed")
         #expect(line.accessibilityHint == "Shows details")
         #expect(line.accessibilityIdentifier == "agent-chat.worked-for")
+
+        // The app's accessibility tree walks the cell's content view, not the cell's own list: on
+        // the fleet simulator (step 6e3909152bd42115b3975c3c) the closed line read as a StaticText
+        // "Worked for 41s" and an Image "Forward", no button. The content view carries the tree.
+        let content = (cell.contentView.accessibilityElements ?? []).compactMap { $0 as? NSObject }
+        #expect(content.count == 1, "the content view exposes the line as one element: \(content)")
+        let reached = try #require(content.first as? UIAccessibilityElement)
+        #expect(reached === line, "the same element the cell lists")
+        #expect(reached.accessibilityContainer === cell.contentView, "its frame is in the content view's space")
     }
 }
 #endif
