@@ -55,6 +55,7 @@ fn meta_json(n: usize, sessions: usize) -> Value {
                    "name": format!("Option {o}"), "description": "A synthetic option description"}))
                    .collect::<Vec<_>>()})
     };
+    let config_options = ["model", "effort", "mode", "sandbox"].map(option);
     json!({
         "schema": META_SCHEMA, "id": format!("01a16d59-e46e-7240-8571-{n:012}"),
         "name": format!("chat-{n}"), "harness": "codex", "harnessArgv": ["codex-acp", "--flag"],
@@ -69,7 +70,7 @@ fn meta_json(n: usize, sessions: usize) -> Value {
         "modes": {"currentModeId": "default", "availableModes": (0..4).map(|m| json!({
             "id": format!("mode-{m}"), "name": format!("Mode {m}"),
             "description": "A synthetic mode description of a typical length"})).collect::<Vec<_>>()},
-        "configOptions": ["model", "effort", "mode", "sandbox"].map(option),
+        "configOptions": config_options,
         "models": {"currentModelId": "model-a", "availableModels": (0..6).map(|m| json!({
             "modelId": format!("model-{m}"), "name": format!("Model {m}"),
             "description": "A synthetic model description"})).collect::<Vec<_>>()},
