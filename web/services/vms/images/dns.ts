@@ -43,7 +43,14 @@ import { shellQuote } from "../drivers/cmuxTuiDaemon";
  *   drop-in that sorts later (`70-…`) still wins.
  *
  * Both names point to the same resolver, so steering and every TLS rule
- * behave the same. Only the address family changes.
+ * behave the same. Only the address family changes. A restricted network
+ * policy that grants DNS grants port 53 to both edge addresses too
+ * (drivers/freestyleNetworkPolicy.ts), so the listener chosen here is
+ * reachable on every machine.
+ *
+ * A drop-in change that resolved has not applied yet is marked pending under
+ * /run. A failed reload fails the oneshot, which systemd restarts, and every
+ * later run retries the reload until one succeeds.
  */
 
 /** The Freestyle TLS edge's IPv6 address: the forwarding resolver's second listener and the 443 grant's v6 leg. */
@@ -86,6 +93,9 @@ DIR="\${CMUX_RESOLVED_DROP_IN_DIR:-${DEVBOX_RESOLVED_DROP_IN_DIR}}"
 AGENT="$DIR/${FREESTYLE_TLS_RESOLVER_DROP_IN}"
 OURS="$DIR/${DEVBOX_RESOLVER_FALLBACK_DROP_IN}"
 RELOAD="\${CMUX_RESOLVED_RELOAD:-systemctl try-reload-or-restart systemd-resolved}"
+# Set while resolved has not yet applied a drop-in change; cleared only by a
+# successful reload, so a failed reload is retried on every later run.
+PENDING="\${CMUX_RESOLVED_RELOAD_PENDING:-/run/cmux-edge-resolver.reload-pending}"
 
 # glibc reads the agent's resolv.conf directly. Put the IPv6 listener first,
 # and give each try 2 s: the listener takes about 1.5 s per query, and at the
@@ -109,13 +119,18 @@ fi
 # resolved: the same resolver, IPv6 first, only while the agent's drop-in names it.
 if [ -f "$AGENT" ] && grep -qxF "DNS=$V4" "$AGENT"; then
   if ! printf '%s\\n' '# Written by cmux-edge-resolver (manaflow-ai/cmux#46670).' '[Resolve]' 'DNS=' "DNS=$V6 $V4" | cmp -s - "$OURS"; then
+    : > "$PENDING" || exit 1
     printf '%s\\n' '# Written by cmux-edge-resolver (manaflow-ai/cmux#46670).' '[Resolve]' 'DNS=' "DNS=$V6 $V4" > "$OURS.cmux-tmp" &&
       chmod 0644 "$OURS.cmux-tmp" && mv -f "$OURS.cmux-tmp" "$OURS" || exit 1
-    $RELOAD || true
   fi
 elif [ -e "$OURS" ]; then
+  : > "$PENDING" || exit 1
   rm -f "$OURS" || exit 1
-  $RELOAD || true
+fi
+
+if [ -e "$PENDING" ]; then
+  $RELOAD || { echo "cmux-edge-resolver: systemd-resolved reload failed; will retry" >&2; exit 1; }
+  rm -f "$PENDING"
 fi
 exit 0
 `;
@@ -132,6 +147,9 @@ export function devboxEdgeResolverServiceUnit(): string {
     "[Service]",
     "Type=oneshot",
     `ExecStart=${DEVBOX_EDGE_RESOLVER_SCRIPT}`,
+    // A failed resolved reload exits 1 and stays pending; retry it.
+    "Restart=on-failure",
+    "RestartSec=10",
     "",
     "[Install]",
     "WantedBy=multi-user.target",

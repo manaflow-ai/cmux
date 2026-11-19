@@ -60,7 +60,10 @@ export function egressDestinations(plan: NetworkRulePlan, env: NodeJS.ProcessEnv
     ...(range.protocol !== undefined ? { protocol: range.protocol } : {}),
   }));
   if (plan.dns) {
-    for (const cidr of freestyleGuestDnsResolvers(env)) {
+    // The edge's forwarding resolver is the guest's resolver once a TLS rule
+    // exists (the agent names it; cmux-edge-resolver adds its IPv6 listener,
+    // services/vms/images/dns.ts), so it needs port 53 like the public ones.
+    for (const cidr of [...freestyleGuestDnsResolvers(env), ...freestyleEdgeAddresses(env)]) {
       destinations.push({ cidr, port: 53, protocol: "udp" }, { cidr, port: 53, protocol: "tcp" });
     }
   }

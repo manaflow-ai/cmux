@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runChild } from "./helpers/run-child";
@@ -17,7 +17,7 @@ import {
   devboxEdgeResolverScript,
   devboxEdgeResolverServiceUnit,
 } from "../services/vms/images/dns";
-import { freestyleEdgeAddresses } from "../services/vms/drivers/freestyleNetworkPolicy";
+import { egressDestinations, freestyleEdgeAddresses } from "../services/vms/drivers/freestyleNetworkPolicy";
 
 // manaflow-ai/cmux#46670: with a TLS rule, the Freestyle agent points the
 // guest at the edge's forwarding resolver by its IPv4 address only, and IPv4
@@ -77,8 +77,8 @@ type Guest = {
   readonly root: string;
   readonly resolv: string;
   readonly dropIns: string;
-  /** Runs the fixer; returns how many times it asked resolved to reload. */
-  readonly run: () => Promise<number>;
+  /** Runs the fixer, expecting `expectStatus` (default 0); returns how many times it asked resolved to reload. */
+  readonly run: (expectStatus?: number) => Promise<number>;
   readonly reloads: () => number;
 };
 
@@ -91,7 +91,8 @@ async function withGuest(setup: (guest: Guest) => void, body: (guest: Guest) => 
   writeFileSync(script, devboxEdgeResolverScript(), { mode: 0o755 });
   writeFileSync(reloadLog, "");
   const reloadScript = path.join(root, "reload");
-  writeFileSync(reloadScript, `#!/bin/sh\necho reload >> '${reloadLog}'\n`, { mode: 0o755 });
+  // Logs every attempt; fails while the `reload-fails` file exists.
+  writeFileSync(reloadScript, `#!/bin/sh\necho reload >> '${reloadLog}'\n[ ! -e '${root}/reload-fails' ]\n`, { mode: 0o755 });
   mkdirSync(dropIns);
   const reloads = () => readFileSync(reloadLog, "utf8").split("\n").filter(Boolean).length;
   const guest: Guest = {
@@ -99,12 +100,19 @@ async function withGuest(setup: (guest: Guest) => void, body: (guest: Guest) => 
     resolv,
     dropIns,
     reloads,
-    run: async () => {
+    run: async (expectStatus = 0) => {
       const before = reloads();
       const result = await runChild("sh", [script], {
-        env: { ...process.env, CMUX_RESOLV_CONF: resolv, CMUX_RESOLVED_DROP_IN_DIR: dropIns, CMUX_RESOLVED_RELOAD: reloadScript },
+        env: {
+          ...process.env,
+          CMUX_RESOLV_CONF: resolv,
+          CMUX_RESOLVED_DROP_IN_DIR: dropIns,
+          CMUX_RESOLVED_RELOAD: reloadScript,
+          CMUX_RESOLVED_RELOAD_PENDING: path.join(root, "reload-pending"),
+        },
       });
-      expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: "" });
+      expect(result.status).toBe(expectStatus);
+      if (expectStatus === 0) expect(result.stderr).toBe("");
       expect(readdirSync(root).concat(readdirSync(dropIns)).filter((name) => name.endsWith(".cmux-tmp"))).toEqual([]);
       return reloads() - before;
     },
@@ -144,13 +152,43 @@ describe("cmux-edge-resolver (services/vms/images/dns.ts)", () => {
   test("a second run changes nothing and does not reload resolved (the path unit re-fires on its own write)", async () => {
     await withGuest(tlsMachine, async (guest) => {
       await guest.run();
-      const resolvMtime = statSync(guest.resolv).mtimeMs;
       const ours = path.join(guest.dropIns, DEVBOX_RESOLVER_FALLBACK_DROP_IN);
-      const oursMtime = statSync(ours).mtimeMs;
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      // A fixed past time: any rewrite would move it to now.
+      const past = new Date("2020-01-01T00:00:00Z");
+      utimesSync(guest.resolv, past, past);
+      utimesSync(ours, past, past);
       expect(await guest.run()).toBe(0);
-      expect(statSync(guest.resolv).mtimeMs).toBe(resolvMtime);
-      expect(statSync(ours).mtimeMs).toBe(oursMtime);
+      expect(statSync(guest.resolv).mtime).toEqual(past);
+      expect(statSync(ours).mtime).toEqual(past);
+    });
+  });
+
+  test("a failed reload fails the unit and is retried on later runs until it succeeds", async () => {
+    await withGuest(tlsMachine, async (guest) => {
+      const fails = path.join(guest.root, "reload-fails");
+      const pending = path.join(guest.root, "reload-pending");
+      writeFileSync(fails, "");
+      expect(await guest.run(1)).toBe(1);
+      expect(existsSync(pending)).toBe(true);
+      // The drop-in is already in place, yet the next run still reloads.
+      expect(await guest.run(1)).toBe(1);
+      rmSync(fails);
+      expect(await guest.run()).toBe(1);
+      expect(existsSync(pending)).toBe(false);
+      expect(await guest.run()).toBe(0);
+    });
+  });
+
+  test("removing the drop-in also keeps a failed reload pending", async () => {
+    await withGuest(tlsMachine, async (guest) => {
+      await guest.run();
+      rmSync(path.join(guest.dropIns, FREESTYLE_TLS_RESOLVER_DROP_IN));
+      writeFileSync(path.join(guest.root, "reload-fails"), "");
+      expect(await guest.run(1)).toBe(1);
+      expect(existsSync(path.join(guest.dropIns, DEVBOX_RESOLVER_FALLBACK_DROP_IN))).toBe(false);
+      rmSync(path.join(guest.root, "reload-fails"));
+      expect(await guest.run()).toBe(1);
+      expect(await guest.run()).toBe(0);
     });
   });
 
@@ -242,6 +280,7 @@ describe("cmux-edge-resolver (services/vms/images/dns.ts)", () => {
     expect(service).toContain("Type=oneshot\n");
     expect(service).toContain(`ExecStart=${DEVBOX_EDGE_RESOLVER_SCRIPT}\n`);
     expect(service).toContain("StartLimitIntervalSec=0\n");
+    expect(service).toContain("Restart=on-failure\n");
     expect(service).toContain("WantedBy=multi-user.target\n");
   });
 
@@ -291,6 +330,18 @@ describe("cmux-edge-resolver (services/vms/images/dns.ts)", () => {
 
   test("the firewall's edge grant and the guest's resolver name the same edge", () => {
     expect(freestyleEdgeAddresses({} as NodeJS.ProcessEnv)).toEqual([`${FREESTYLE_EDGE_IPV6}/128`, `${FREESTYLE_EDGE_IPV4}/32`]);
+  });
+
+  test("a restricted plan that grants DNS can reach both edge resolver listeners on UDP and TCP 53", () => {
+    const env = {} as NodeJS.ProcessEnv;
+    const withDns = egressDestinations({ publicEgress: false, ranges: [], domains: [], dns: true }, env);
+    for (const cidr of [`${FREESTYLE_EDGE_IPV6}/128`, `${FREESTYLE_EDGE_IPV4}/32`]) {
+      expect(withDns).toContainEqual({ cidr, port: 53, protocol: "udp" });
+      expect(withDns).toContainEqual({ cidr, port: 53, protocol: "tcp" });
+    }
+    // A plan with no DNS grants no port 53 anywhere, edge included.
+    const noDns = egressDestinations({ publicEgress: false, ranges: [], domains: [], dns: false }, env);
+    expect(noDns.some((destination) => destination.port === 53)).toBe(false);
   });
 
   test("the bake installs and checks it before the stamp; the verifier proves it on a booted clone", () => {
