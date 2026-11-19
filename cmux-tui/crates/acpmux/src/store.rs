@@ -2399,6 +2399,7 @@ impl Store for LocalStore {
     /// Through the copies of the kinds (`store/kind_index.rs`), past `after`: a scan of the log
     /// from the segment that holds `after + 1` parses that whole segment, for each fold of a
     /// load, and read more than the copies do (`a_restored_chats_log_load_reads_the_copies_not_its_log`).
+    /// Only the copies from the segment that holds `after + 1` on (`scan_kinds_past`).
     fn scan_kinds_after(
         &self,
         id: &str,
@@ -2406,7 +2407,7 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_kinds_in(id, kinds, false, &mut |rec| rec.seq <= after || visit(rec))
+        self.scan_kinds_past(id, after, kinds, false, visit)
     }
 
     fn scan_kinds_after_strict(
@@ -2416,7 +2417,7 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_kinds_in(id, kinds, true, &mut |rec| rec.seq <= after || visit(rec))
+        self.scan_kinds_past(id, after, kinds, true, visit)
     }
 
     fn scan_kinds_keyed(
