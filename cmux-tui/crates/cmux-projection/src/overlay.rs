@@ -9,7 +9,18 @@
 //! - `whiteouts`: lower paths the agent deleted or renamed away, one per line;
 //! - `cache/`: lower bytes fetched from the Mac, whole files as `cache/<entry>` and the chunks of a
 //!   big file as `cache/<entry>.<chunk>`, with `cache/manifest-id` naming the manifest they belong
-//!   to (a new manifest starts a fresh cache).
+//!   to (a new manifest starts a fresh cache), and `cache/restated` the files re-listed since
+//!   (below).
+//!
+//! A file that changed on the Mac after the manifest (RFD 0007, hard case 7): every fault asks the
+//! Mac, which checks the file against the manifest and, on a change, answers with its stat now and
+//! the bytes as they are now ([`Fetched::Restated`]). The overlay takes that stat as the file's
+//! from then on (`restated`), forgets the bytes it cached of the old version, queues the inode for
+//! the mount to tell the kernel ([`Overlay::take_restated`]), and answers the read at the new
+//! version, asking again when the answer did not carry all of it. Opening a file whose bytes are
+//! not on the machine yet is a fault too ([`Overlay::open_lower`]), so a reader that sizes the file
+//! by `fstat` right after `open` (git and its index) sees the new size. Bytes already on the
+//! machine stay the session's base: a later change reaches the machine with the next fault.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
@@ -21,7 +32,16 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::manifest::{Kind, Manifest, ROOT};
-use crate::{Fetch, FetchError};
+use crate::wire::Restat;
+use crate::{Fetch, FetchError, Fetched};
+
+/// Not an `errno`: the file was re-listed during the read, which starts over at its new version.
+const RETRY: i32 = -1;
+/// How many times a read starts over after the file changed under it, before it fails with EIO
+/// (a file rewritten all the time).
+const RETRIES: u32 = 2;
+/// The file in `cache/` that keeps the re-listed stats.
+const RESTATED_FILE: &str = "restated";
 
 /// The size of a chunk of a big file, and the largest file fetched whole.
 pub const CHUNK: u64 = 4 * 1024 * 1024;
@@ -107,7 +127,10 @@ impl CacheIndex {
         for entry in fs::read_dir(cache)? {
             let entry = entry?;
             let path = entry.path();
-            if path.file_name().and_then(|name| name.to_str()) == Some("manifest-id") {
+            if matches!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some("manifest-id" | RESTATED_FILE)
+            ) {
                 continue;
             }
             let metadata = fs::symlink_metadata(&path)?;
@@ -207,6 +230,14 @@ pub struct Overlay {
     remote_reads: AtomicU64,
     remote_bytes: AtomicU64,
     cache_hits: AtomicU64,
+    /// Files the Mac re-listed after a change: their stat now, and a generation that changes with
+    /// each re-listing (bytes fetched under an older one are not cached).
+    restated: Mutex<HashMap<u32, (Restat, u64)>>,
+    generation: AtomicU64,
+    /// Empty files a fault at open found unchanged (they have no bytes to cache).
+    checked_empty: Mutex<HashSet<u32>>,
+    /// Inodes re-listed since the mount last asked, for it to tell the kernel.
+    to_invalidate: Mutex<Vec<u64>>,
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -264,6 +295,24 @@ fn mtime_of(meta: &fs::Metadata) -> i64 {
     meta.mtime().saturating_mul(1_000_000_000).saturating_add(meta.mtime_nsec())
 }
 
+/// The re-listed stats `cache/restated` kept (`entry size mtime_ns mode` per line), each with a
+/// generation of its own; a line that does not parse is left out (its file is fetched again).
+fn load_restated(file: &Path) -> HashMap<u32, (Restat, u64)> {
+    let text = fs::read_to_string(file).unwrap_or_default();
+    text.lines()
+        .filter_map(|line| {
+            let mut words = line.split(' ');
+            let entry = words.next()?.parse().ok()?;
+            let size = words.next()?.parse().ok()?;
+            let mtime_ns = words.next()?.parse().ok()?;
+            let mode = words.next()?.parse().ok()?;
+            Some((entry, Restat { size, mtime_ns, mode }))
+        })
+        .zip(1u64..)
+        .map(|((entry, stat), generation)| (entry, (stat, generation)))
+        .collect()
+}
+
 impl Overlay {
     /// The overlay of `manifest` with its state in `state`, fetching bytes through `fetch`, every
     /// path owned by `owner` (uid, gid).
@@ -296,6 +345,8 @@ impl Overlay {
         let whiteouts = fs::read_to_string(&whiteouts_file)
             .map(|text| text.lines().filter(|line| !line.is_empty()).map(str::to_owned).collect())
             .unwrap_or_default();
+        let restated = load_restated(&cache.join(RESTATED_FILE));
+        let generation = AtomicU64::new(restated.len() as u64 + 1);
         let next = manifest.len() as u64 + 2;
         Ok(Self {
             manifest,
@@ -313,6 +364,10 @@ impl Overlay {
             remote_reads: AtomicU64::new(0),
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
+            restated: Mutex::new(restated),
+            generation,
+            checked_empty: Mutex::new(HashSet::new()),
+            to_invalidate: Mutex::new(Vec::new()),
         })
     }
 
@@ -431,14 +486,14 @@ impl Overlay {
                 }
             }
             Node::Lower(index) => {
-                let entry = self.manifest.entry(*index);
-                let kind = entry.map_or(Kind::Dir, |entry| entry.kind);
+                let kind = self.manifest.entry(*index).map_or(Kind::Dir, |entry| entry.kind);
+                let stat = self.stat_of(*index).map(|(stat, _)| stat);
                 Attr {
                     ino,
                     kind,
-                    size: entry.map_or(0, |entry| entry.size),
-                    mode: entry.map_or(0o755, |entry| entry.mode),
-                    mtime_ns: entry.map_or(0, |entry| entry.mtime_ns),
+                    size: stat.map_or(0, |stat| stat.size),
+                    mode: stat.map_or(0o755, |stat| stat.mode),
+                    mtime_ns: stat.map_or(0, |stat| stat.mtime_ns),
                     nlink: if kind == Kind::Dir { 2 } else { 1 },
                     uid,
                     gid,
@@ -577,28 +632,149 @@ impl Overlay {
             Kind::Link => return Err(EINVAL),
             Kind::File => {}
         }
-        let total = entry.size;
+        let mut retries = 0;
+        loop {
+            match self.read_version(index, offset, size) {
+                // Re-listed under the read: again at the new version.
+                Err(RETRY) if retries < RETRIES => retries += 1,
+                Err(RETRY) => return Err(EIO),
+                done => return done,
+            }
+        }
+    }
+
+    /// [`Overlay::read_lower`] at the file's version now; [`RETRY`] when it changed meanwhile.
+    fn read_version(&self, index: u32, offset: u64, size: u32) -> Result<Vec<u8>, i32> {
+        let (stat, _) = self.stat_of(index).ok_or(ENOENT)?;
+        let total = stat.size;
         let end = total.min(offset.saturating_add(u64::from(size)));
         if offset >= end {
             return Ok(Vec::new());
         }
         if total <= CHUNK {
+            // The whole file at the version it was fetched at: sliced by its own length.
             let whole = self.whole(index)?;
-            let from = usize::try_from(offset).unwrap_or(usize::MAX);
-            let to = usize::try_from(end).unwrap_or(usize::MAX);
+            let len = whole.len() as u64;
+            let from = usize::try_from(offset.min(len)).unwrap_or(usize::MAX);
+            let to = usize::try_from(offset.saturating_add(u64::from(size)).min(len))
+                .unwrap_or(usize::MAX);
             return Ok(whole.get(from..to).unwrap_or_default().to_vec());
         }
         let mut out = Vec::with_capacity((end - offset) as usize);
         let mut at = offset;
         while at < end {
             let chunk = u32::try_from(at / CHUNK).map_err(|_| EIO)?;
-            let bytes = self.chunk(index, chunk, total)?;
+            let bytes = self.chunk(index, chunk)?;
             let start = (at - u64::from(chunk) * CHUNK) as usize;
             let stop = ((end - u64::from(chunk) * CHUNK) as usize).min(bytes.len());
             out.extend_from_slice(bytes.get(start..stop).ok_or(EIO)?);
             at = u64::from(chunk + 1) * CHUNK;
         }
         Ok(out)
+    }
+
+    /// Lower entry `index`'s stat now (the manifest's, or the Mac's re-listing of it) and the
+    /// generation of that re-listing (0: the manifest's).
+    fn stat_of(&self, index: u32) -> Option<(Restat, u64)> {
+        let entry = self.manifest.entry(index)?;
+        let restated = self.restated.lock().unwrap_or_else(PoisonError::into_inner);
+        Some(restated.get(&index).copied().unwrap_or((
+            Restat { size: entry.size, mtime_ns: entry.mtime_ns, mode: entry.mode },
+            0,
+        )))
+    }
+
+    fn generation_of(&self, index: u32) -> u64 {
+        self.stat_of(index).map_or(0, |(_, generation)| generation)
+    }
+
+    /// Takes the Mac's re-listing of file `index` (hard case 7): its stat from now on, the bytes
+    /// cached of the version before forgotten, and its inode queued for the kernel. False when the
+    /// overlay had that stat already.
+    fn restat(&self, index: u32, stat: Restat) -> bool {
+        let old_size = {
+            let mut restated = self.restated.lock().unwrap_or_else(PoisonError::into_inner);
+            let Some(entry) = self.manifest.entry(index) else { return false };
+            let old = restated.get(&index).map_or(entry.size, |(old, _)| old.size);
+            if restated.get(&index).map(|(old, _)| *old) == Some(stat) {
+                return false;
+            }
+            let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
+            restated.insert(index, (stat, generation));
+            self.keep_restated(&restated);
+            old
+        };
+        self.checked_empty.lock().unwrap_or_else(PoisonError::into_inner).remove(&index);
+        let chunks = old_size.max(stat.size).div_ceil(CHUNK);
+        let keys = std::iter::once((index, WHOLE))
+            .chain((0..chunks).filter_map(|chunk| u32::try_from(chunk).ok().map(|c| (index, c))));
+        let mut admission = self.cache_admission.lock().unwrap_or_else(PoisonError::into_inner);
+        for key in keys {
+            let path = self.cache_path(key);
+            let _ = fs::remove_file(&path);
+            admission.remove(&path);
+        }
+        drop(admission);
+        let ino = self.ino_of(&self.manifest.path_of(index));
+        self.to_invalidate.lock().unwrap_or_else(PoisonError::into_inner).push(ino);
+        true
+    }
+
+    /// Writes the re-listed stats to `cache/restated`, so a daemon restart keeps them with the
+    /// bytes cached at their versions.
+    fn keep_restated(&self, restated: &HashMap<u32, (Restat, u64)>) {
+        let mut text = String::new();
+        for (entry, (stat, _)) in restated {
+            text.push_str(&format!("{entry} {} {} {}\n", stat.size, stat.mtime_ns, stat.mode));
+        }
+        let temp = self.scratch_path();
+        if fs::write(&temp, text).is_err()
+            || fs::rename(&temp, self.cache.join(RESTATED_FILE)).is_err()
+        {
+            let _ = fs::remove_file(&temp);
+        }
+    }
+
+    /// The inodes the Mac re-listed since the last call: the mount tells the kernel to drop their
+    /// cached attributes and pages.
+    pub fn take_restated(&self) -> Vec<u64> {
+        std::mem::take(&mut *self.to_invalidate.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+
+    /// The fault at `open` of lower file `ino` whose bytes are not on the machine yet: fetches its
+    /// first bytes (which a reader asks for next), so a file changed on the Mac is re-listed before
+    /// the opener can `fstat` it. True when it was re-listed. A file already on the machine is the
+    /// session's base and is not asked about.
+    pub fn open_lower(&self, ino: u64) -> bool {
+        if !self.fetch.cache() {
+            return false;
+        }
+        let Ok(path) = self.path_of(ino) else { return false };
+        let Some(Node::Lower(index)) = self.node(&path) else { return false };
+        if self.manifest.entry(index).map(|entry| entry.kind) != Some(Kind::File) {
+            return false;
+        }
+        let Some((stat, generation)) = self.stat_of(index) else { return false };
+        if stat.size == 0 {
+            // No bytes to cache: one ask, remembered, says whether it is still empty.
+            if self.checked_empty.lock().unwrap_or_else(PoisonError::into_inner).contains(&index) {
+                return false;
+            }
+            match self.fetch.read_fresh(index, 0, 0) {
+                Ok(Fetched::Restated(stat, _)) => return self.restat(index, stat),
+                Ok(Fetched::Same(_)) => {
+                    self.checked_empty.lock().unwrap_or_else(PoisonError::into_inner).insert(index);
+                }
+                Err(_) => {}
+            }
+            return false;
+        }
+        let key = if stat.size <= CHUNK { (index, WHOLE) } else { (index, 0) };
+        if self.cache_path(key).exists() {
+            return false;
+        }
+        let _ = self.read_lower(index, 0, 1);
+        self.generation_of(index) != generation
     }
 
     fn cache_path(&self, (index, part): Key) -> PathBuf {
@@ -609,16 +785,20 @@ impl Overlay {
         }
     }
 
-    fn cached(&self, key: Key) -> Option<Vec<u8>> {
+    /// `key`'s cached bytes when they are the `len` the file's version now has.
+    fn cached(&self, key: Key, len: u64) -> Option<Vec<u8>> {
         if !self.fetch.cache() {
             return None;
         }
-        let bytes = fs::read(self.cache_path(key)).ok()?;
+        let bytes =
+            fs::read(self.cache_path(key)).ok().filter(|bytes| bytes.len() as u64 == len)?;
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
         Some(bytes)
     }
 
-    fn store(&self, key: Key, bytes: &[u8]) {
+    /// Caches `bytes` as `key`, fetched at its file's `generation`: not when the file was
+    /// re-listed since (they are an older version's).
+    fn store(&self, key: Key, bytes: &[u8], generation: u64) {
         if !self.fetch.cache() {
             return;
         }
@@ -630,7 +810,10 @@ impl Overlay {
         if fs::write(&temp, bytes).is_ok() {
             let target = self.cache_path(key);
             let mut admission = self.cache_admission.lock().unwrap_or_else(PoisonError::into_inner);
-            if !admission.admit(size, &target, CACHE_BUDGET_BYTES) {
+            // Checked under the admission lock, which a re-listing takes to forget the old bytes.
+            if self.generation_of(key.0) != generation
+                || !admission.admit(size, &target, CACHE_BUDGET_BYTES)
+            {
                 let _ = fs::remove_file(&temp);
                 return;
             }
@@ -668,15 +851,22 @@ impl Overlay {
     /// files in one batch (directory readahead).
     fn whole(&self, index: u32) -> Result<Vec<u8>, i32> {
         let key = (index, WHOLE);
-        if let Some(bytes) = self.cached(key) {
+        let (stat, _) = self.stat_of(index).ok_or(ENOENT)?;
+        if let Some(bytes) = self.cached(key, stat.size) {
             return Ok(bytes);
         }
         let mut claim = self.claim(key);
-        if let Some(bytes) = self.cached(key) {
+        let (stat, generation) = self.stat_of(index).ok_or(ENOENT)?;
+        if let Some(bytes) = self.cached(key, stat.size) {
             return Ok(bytes);
         }
-        let mut batch = vec![index];
-        let mut bytes = self.manifest.entry(index).map_or(0, |entry| entry.size);
+        if stat.size > CHUNK {
+            // Re-listed bigger since the caller looked: read in chunks.
+            return Err(RETRY);
+        }
+        // Each file asked, with its size and generation when asked.
+        let mut batch = vec![(index, stat.size, generation)];
+        let mut bytes = stat.size;
         // A source with no cache answers one file at a time: read ahead would be thrown away.
         if let Some(entry) = self.manifest.entry(index).filter(|_| self.fetch.cache()) {
             let folder = self.manifest.path_of(entry.parent);
@@ -689,10 +879,12 @@ impl Overlay {
                 }
                 let Ok(at) = u32::try_from(at) else { break };
                 let other = first + at;
-                if other == index
-                    || sibling.kind != Kind::File
-                    || sibling.size > CHUNK
-                    || bytes + sibling.size > BATCH_BYTES
+                if other == index || sibling.kind != Kind::File {
+                    continue;
+                }
+                let Some((stat, generation)) = self.stat_of(other) else { continue };
+                if stat.size > CHUNK
+                    || bytes + stat.size > BATCH_BYTES
                     || inflight.contains(&(other, WHOLE))
                 {
                     continue;
@@ -706,22 +898,35 @@ impl Overlay {
                 }
                 inflight.insert((other, WHOLE));
                 claim.keys.push((other, WHOLE));
-                batch.push(other);
-                bytes += sibling.size;
+                batch.push((other, stat.size, generation));
+                bytes += stat.size;
             }
         }
-        let answers = self.fetch.batch(&batch);
+        let entries: Vec<u32> = batch.iter().map(|(other, _, _)| *other).collect();
+        let answers = self.fetch.batch_fresh(&entries);
         let mut mine = Err(EIO);
-        for (other, answer) in batch.iter().zip(answers) {
-            let expected = self.manifest.entry(*other).map_or(0, |entry| entry.size);
-            let answer = answer.map_err(FetchError::errno).and_then(|bytes| {
-                if bytes.len() as u64 == expected { Ok(bytes) } else { Err(EIO) }
-            });
-            if let Ok(bytes) = &answer {
-                self.count(bytes.len() as u64);
-                self.store((*other, WHOLE), bytes);
-            }
-            if *other == index {
+        for ((other, expected, generation), answer) in batch.into_iter().zip(answers) {
+            let answer = match answer {
+                Err(error) => Err(error.errno()),
+                Ok(Fetched::Same(bytes)) if bytes.len() as u64 == expected => {
+                    self.count(expected);
+                    self.store((other, WHOLE), &bytes, generation);
+                    Ok(bytes)
+                }
+                Ok(Fetched::Same(_)) => Err(EIO),
+                Ok(Fetched::Restated(stat, bytes)) => {
+                    self.restat(other, stat);
+                    if stat.size <= CHUNK && bytes.len() as u64 == stat.size {
+                        self.count(stat.size);
+                        self.store((other, WHOLE), &bytes, self.generation_of(other));
+                        Ok(bytes)
+                    } else {
+                        // Now a big file, or its bytes did not fit the answer: asked again.
+                        Err(RETRY)
+                    }
+                }
+            };
+            if other == index {
                 mine = answer;
             }
         }
@@ -729,28 +934,46 @@ impl Overlay {
         mine
     }
 
-    /// Chunk `chunk` of big file `index` (`total` bytes): from the cache, else fetched.
-    fn chunk(&self, index: u32, chunk: u32, total: u64) -> Result<Vec<u8>, i32> {
+    /// Chunk `chunk` of big file `index`: from the cache, else fetched. [`RETRY`] when the Mac
+    /// re-listed the file (its chunks are then those of its new size).
+    fn chunk(&self, index: u32, chunk: u32) -> Result<Vec<u8>, i32> {
         let key = (index, chunk);
-        if let Some(bytes) = self.cached(key) {
+        let start = u64::from(chunk) * CHUNK;
+        let (stat, _) = self.stat_of(index).ok_or(ENOENT)?;
+        if let Some(bytes) = self.cached(key, CHUNK.min(stat.size.saturating_sub(start))) {
             return Ok(bytes);
         }
         let _claim = self.claim(key);
-        if let Some(bytes) = self.cached(key) {
+        let (stat, generation) = self.stat_of(index).ok_or(ENOENT)?;
+        let len = CHUNK.min(stat.size.saturating_sub(start));
+        if let Some(bytes) = self.cached(key, len) {
             return Ok(bytes);
         }
-        let start = u64::from(chunk) * CHUNK;
-        let len = CHUNK.min(total.saturating_sub(start));
-        let bytes = self
+        match self
             .fetch
-            .read(index, start, u32::try_from(len).map_err(|_| EIO)?)
-            .map_err(FetchError::errno)?;
-        if bytes.len() as u64 != len {
-            return Err(EIO);
+            .read_fresh(index, start, u32::try_from(len).map_err(|_| EIO)?)
+            .map_err(FetchError::errno)?
+        {
+            Fetched::Same(bytes) if bytes.len() as u64 == len => {
+                self.count(len);
+                self.store(key, &bytes, generation);
+                Ok(bytes)
+            }
+            Fetched::Same(_) => Err(EIO),
+            Fetched::Restated(stat, bytes) => {
+                let new = self.restat(index, stat);
+                // This chunk at the new version, when the answer carried all of it.
+                let whole = stat.size > CHUNK
+                    && bytes.len() as u64 == CHUNK.min(stat.size.saturating_sub(start));
+                if whole {
+                    self.count(bytes.len() as u64);
+                    self.store(key, &bytes, self.generation_of(index));
+                }
+                // The version this read is at already (the Mac answers a changed file so for as
+                // long as it differs from the manifest): the chunk is the answer.
+                if whole && !new && len == bytes.len() as u64 { Ok(bytes) } else { Err(RETRY) }
+            }
         }
-        self.count(len);
-        self.store(key, &bytes);
-        Ok(bytes)
     }
 
     // MARK: Writes
@@ -806,24 +1029,53 @@ impl Overlay {
             }
             Kind::File => {}
         }
-        let temp = self.scratch_path();
-        let mut file = fs::File::create(&temp).map_err(|error| io_errno(&error))?;
-        if entry.size <= CHUNK {
-            file.write_all(&self.whole(index)?).map_err(|error| io_errno(&error))?;
+        let mut retries = 0;
+        loop {
+            let temp = self.scratch_path();
+            match self.copy_version(index, &temp) {
+                Ok(()) => {
+                    return fs::rename(&temp, self.up(path)).map_err(|error| io_errno(&error));
+                }
+                Err(errno) => {
+                    let _ = fs::remove_file(&temp);
+                    match errno {
+                        RETRY if retries < RETRIES => retries += 1,
+                        RETRY => return Err(EIO),
+                        errno => return Err(errno),
+                    }
+                }
+            }
+        }
+    }
+
+    /// Writes lower file `index` at its version now to `temp`, with that version's mode and
+    /// modification time; [`RETRY`] when the Mac re-listed it meanwhile.
+    fn copy_version(&self, index: u32, temp: &Path) -> Result<(), i32> {
+        let (stat, generation) = self.stat_of(index).ok_or(ENOENT)?;
+        let mut file = fs::File::create(temp).map_err(|error| io_errno(&error))?;
+        if stat.size <= CHUNK {
+            let bytes = self.whole(index)?;
+            if self.generation_of(index) != generation {
+                // Fetched at the new version: its stat goes with it.
+                return Err(RETRY);
+            }
+            file.write_all(&bytes).map_err(|error| io_errno(&error))?;
         } else {
-            let chunks = entry.size.div_ceil(CHUNK);
+            let chunks = stat.size.div_ceil(CHUNK);
             for chunk in 0..chunks {
                 let chunk = u32::try_from(chunk).map_err(|_| EIO)?;
-                let bytes = self.chunk(index, chunk, entry.size)?;
+                let bytes = self.chunk(index, chunk)?;
                 file.write_all(&bytes).map_err(|error| io_errno(&error))?;
             }
         }
-        let modified =
-            UNIX_EPOCH + Duration::from_nanos(u64::try_from(entry.mtime_ns).unwrap_or(0));
+        if self.generation_of(index) != generation {
+            return Err(RETRY);
+        }
+        let modified = UNIX_EPOCH + Duration::from_nanos(u64::try_from(stat.mtime_ns).unwrap_or(0));
         let _ = file.set_modified(modified);
         drop(file);
-        let _ = fs::set_permissions(&temp, fs::Permissions::from_mode(entry.mode));
-        fs::rename(&temp, self.up(path)).map_err(|error| io_errno(&error))
+        let _ = fs::set_permissions(temp, fs::Permissions::from_mode(stat.mode));
+        Ok(())
     }
 
     /// Brings `path` into the upper layer when it is only in the lower one.
@@ -1021,3 +1273,7 @@ impl Overlay {
 #[cfg(test)]
 #[path = "overlay_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "remanifest_tests.rs"]
+mod remanifest_tests;

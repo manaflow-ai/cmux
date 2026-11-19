@@ -9,13 +9,13 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use fuser::{
-    BackgroundSession, FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyCreate,
-    ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, Request,
-    TimeOrNow,
+    BackgroundSession, FileAttr, FileType, Filesystem, MountOption, Notifier, ReplyAttr,
+    ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs,
+    ReplyWrite, Request, TimeOrNow,
 };
 
 use crate::manifest::Kind;
@@ -52,14 +52,19 @@ impl Drop for Mounted {
 
 /// Mounts `overlay` at `at` (an existing, empty folder).
 pub fn mount(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
-    let session = fuser::spawn_mount2(filesystem(overlay)?, at, &options())?;
+    let (filesystem, notifier) = filesystem(overlay)?;
+    let session = fuser::spawn_mount2(filesystem, at, &options())?;
+    // Set before this returns, so before anything the caller starts can read through the mount.
+    let _ = notifier.set(session.notifier());
     Ok(Mounted { session: Some(session) })
 }
 
 /// Mounts `overlay` at `at` and serves it on this thread until it is unmounted from outside
 /// (`fusermount3 -u`). `mounted` runs once the mount is up, before the first request.
 pub fn serve(overlay: Arc<Overlay>, at: &Path, mounted: impl FnOnce()) -> anyhow::Result<()> {
-    let mut session = fuser::Session::new(filesystem(overlay)?, at, &options())?;
+    let (filesystem, notifier) = filesystem(overlay)?;
+    let mut session = fuser::Session::new(filesystem, at, &options())?;
+    let _ = notifier.set(session.notifier());
     mounted();
     session.run()?;
     Ok(())
@@ -75,7 +80,26 @@ fn options() -> [MountOption; 5] {
     ]
 }
 
-fn filesystem(overlay: Arc<Overlay>) -> anyhow::Result<Fs> {
+/// The kernel's notifier, set once the session exists (after the [`Fs`] that uses it is made).
+type SharedNotifier = Arc<OnceLock<Notifier>>;
+
+fn filesystem(overlay: Arc<Overlay>) -> anyhow::Result<(Fs, SharedNotifier)> {
+    let notifier: SharedNotifier = Arc::new(OnceLock::new());
+    // A file the Mac re-listed (RFD 0007, hard case 7): its cached attributes and pages go, on a
+    // thread of their own, after the read that found the change was answered (the kernel waits
+    // for a page a read still holds; a worker that waited there could hold up that read).
+    let (invalidate, invalidations) = channel::<u64>();
+    {
+        let notifier = notifier.clone();
+        std::thread::Builder::new().name("projection-invalidate".into()).spawn(move || {
+            while let Ok(ino) = invalidations.recv() {
+                if let Some(notifier) = notifier.get() {
+                    // ENOENT: the kernel holds nothing of it, which is fine.
+                    let _ = notifier.inval_inode(ino, 0, 0);
+                }
+            }
+        })?;
+    }
     let (sender, receiver) = channel::<Job>();
     let receiver = Arc::new(Mutex::new(receiver));
     for index in 0..WORKERS {
@@ -90,7 +114,15 @@ fn filesystem(overlay: Arc<Overlay>) -> anyhow::Result<Fs> {
             }
         })?;
     }
-    Ok(Fs { overlay, jobs: sender, listings: HashMap::new(), next_handle: AtomicU64::new(1) })
+    let fs = Fs {
+        overlay,
+        jobs: sender,
+        invalidate,
+        notifier: notifier.clone(),
+        listings: HashMap::new(),
+        next_handle: AtomicU64::new(1),
+    };
+    Ok((fs, notifier))
 }
 
 /// Lazily unmounts whatever is mounted at `at` (a dead mount a daemon restart left), ignoring
@@ -108,6 +140,9 @@ pub fn unmount_stale(at: &Path) {
 struct Fs {
     overlay: Arc<Overlay>,
     jobs: Sender<Job>,
+    /// Inodes whose cached attributes and pages the kernel is told to drop.
+    invalidate: Sender<u64>,
+    notifier: SharedNotifier,
     /// Folder listings by handle, taken at `opendir` so paging is stable and cheap.
     listings: HashMap<u64, Vec<(u64, FileType, String)>>,
     next_handle: AtomicU64,
@@ -162,9 +197,16 @@ fn ns_of(value: TimeOrNow) -> i64 {
 }
 
 impl Fs {
+    /// Runs `job` (which replies) on a worker, then queues what it re-listed for the kernel.
     fn run(&self, job: impl FnOnce(&Overlay) + Send + 'static) {
         let overlay = self.overlay.clone();
-        let _ = self.jobs.send(Box::new(move || job(&overlay)));
+        let invalidate = self.invalidate.clone();
+        let _ = self.jobs.send(Box::new(move || {
+            job(&overlay);
+            for ino in overlay.take_restated() {
+                let _ = invalidate.send(ino);
+            }
+        }));
     }
 }
 
@@ -285,8 +327,25 @@ impl Filesystem for Fs {
         });
     }
 
-    fn open(&mut self, _req: &Request<'_>, _ino: u64, _flags: i32, reply: ReplyOpen) {
-        reply.opened(0, 0);
+    fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
+        if flags & libc::O_ACCMODE == libc::O_WRONLY {
+            reply.opened(0, 0);
+            return;
+        }
+        // Opening a lower file not on the machine yet is a fault (hard case 7): a file the Mac
+        // changed is re-listed now, and the kernel forgets its old attributes before the opener's
+        // `fstat` (git sizes its index that way, then maps it). No page is held during an open, so
+        // the attributes go here, before the answer; the open drops the pages itself (no
+        // FOPEN_KEEP_CACHE).
+        let notifier = self.notifier.clone();
+        self.run(move |overlay| {
+            if overlay.open_lower(ino)
+                && let Some(notifier) = notifier.get()
+            {
+                let _ = notifier.inval_inode(ino, -1, 0);
+            }
+            reply.opened(0, 0);
+        });
     }
 
     fn read(

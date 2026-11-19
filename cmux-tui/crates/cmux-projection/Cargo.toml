@@ -25,7 +25,8 @@ sha2.workspace = true
 zstd.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-fuser = { version = "=0.14.0", default-features = false }
+# abi-7-12: the notifier, which tells the kernel to drop a re-listed file's attributes and pages.
+fuser = { version = "=0.14.0", default-features = false, features = ["abi-7-12"] }
 libc.workspace = true
 
 [dev-dependencies]
