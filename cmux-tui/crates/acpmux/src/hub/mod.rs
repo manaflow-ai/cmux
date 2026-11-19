@@ -3262,3 +3262,8 @@ impl Drop for LogsReady<'_> {
 #[cfg(test)]
 #[path = "update_cost_bench.rs"]
 mod update_cost_bench;
+
+// What appending a held tool output snapshot costs, small chat and god chat (manual, `--ignored`).
+#[cfg(test)]
+#[path = "held_append_bench.rs"]
+mod held_append_bench;
