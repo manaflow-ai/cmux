@@ -1,15 +1,17 @@
-//! Bench (`#[ignore]`): the acpmux reads the cmux NEXT app waits on at launch, at 5 and at 500
+//! Component benches (`#[ignore]`) for acpmux session reads, at 5 and at 500
 //! chats (a dogfood daemon held 524 on 2026-11-19), 90% of them closed, each with a session.json
 //! shaped like a real one (about 5 KB: agent info, capabilities, modes, config options, models,
 //! usage, last turn) and a small event log.
-//! - `store_list`: `LocalStore::list` on a new store (what a daemon start reads first).
-//! - `hub_load_deferred`: `Hub::new_deferred` on that store, which runs `load_from_store` (the
-//!   daemon's hub before its ready line; the logs load after it).
+//! - `store_list`: `LocalStore::list` on a new store.
+//! - `hub_load_deferred`: `Hub::new_deferred` on that store, which runs `load_from_store`.
 //! - `hub_load_with_logs`: `Hub::new`, `load_from_store` and `load_logs`.
 //! - `first_page`: the app's first page, `_acpmux/watch` with `limit: 200`
 //!   (`Hub::session_page_rows` plus `serialize_in_order`, as `server/list_reply.rs` `page`).
 //! - `v2_window`: the bounded v2 list window (`acpmux_core::hub::Hub::subscribe`, 100 rows), on
 //!   the index the tee fills from the hub.
+//! The daemon uses `new_loading_with_wireguard` and loads metadata asynchronously after readiness;
+//! these constructor timings describe component work, not its current pre-ready path or GUI launch.
+//! Returned values are dropped after timing, so construction excludes teardown.
 //!
 //! Prints one `TTI-BENCH <name> sessions=<n> n=<iterations> median_ms=<ms>` line for each.
 //!
@@ -32,8 +34,10 @@ fn time<T>(mut body: impl FnMut() -> T) -> f64 {
     let times = (0..ITERATIONS)
         .map(|_| {
             let started = Instant::now();
-            std::hint::black_box(body());
-            started.elapsed().as_secs_f64() * 1000.0
+            let value = std::hint::black_box(body());
+            let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+            drop(value);
+            elapsed
         })
         .collect();
     median_ms(times)
