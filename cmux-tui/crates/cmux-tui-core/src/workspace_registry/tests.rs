@@ -5881,6 +5881,9 @@ fn schema_eleven_receipts_gain_origin_scope_without_losing_replays() {
     assert_eq!(replay.sequence, first.sequence);
     assert!(!other_origin.replayed);
     assert!(other_origin.sequence > first.sequence);
+    // The new producer's journal row has its subject rows due, and the stored
+    // number says so until a stop's write.
+    migrated.write_journal_subject_tail().unwrap();
     assert_eq!(
         required_meta(&migrated.connection.get(), "schema_version").unwrap(),
         SCHEMA_VERSION.to_string()

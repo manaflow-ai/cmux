@@ -73,8 +73,8 @@ const FRAMES_FIXTURE_ROWS: u64 = 10_000;
 /// b-trees of the subject rows, as a percentage of the frames that the same
 /// run writes there with a write after each journal row. Both counts are of
 /// this run, so a change of the fixture or of a page's fill moves both. How
-/// it was found: a run of this fixture gave 397 frames against 1,341, which
-/// is 30 percent. A count at or above the bound means that a period's write
+/// it was found: a run of this fixture gave 397 frames against 1,289, which
+/// is 31 percent. A count at or above the bound means that a period's write
 /// no longer shares its pages: the subject rows are written row by row
 /// again, or a period got shorter.
 const MAX_SUBJECT_FRAMES_PERCENT: usize = 35;
