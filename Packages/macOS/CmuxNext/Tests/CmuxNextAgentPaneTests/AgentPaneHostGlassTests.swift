@@ -52,6 +52,24 @@ struct AgentPaneHostGlassTests {
         }
     }
 
+    /// A dialog asks for the native dialog card's neutral glass by role (`data-host-glass-role`); an
+    /// unknown role or one that is not a name is refused with the report.
+    @Test func aSurfaceMayAskForADialogsGlassByRole() {
+        var dialog = Self.box
+        dialog["role"] = "sheet"
+        #expect(Self.request([dialog]) == .hostGlass([
+            AgentPaneHostGlassSurface(id: "g1", level: .popover, role: .sheet, rect: CGRect(x: 40, y: 60, width: 200, height: 120),
+                                      radius: 12, opacity: 0.5),
+        ]))
+        var unknown = Self.box
+        unknown["role"] = "menu-bar"
+        var number = Self.box
+        number["role"] = 3
+        for bad in [unknown, number] {
+            #expect(Self.request([bad]) == .unsupported("pane.glass"))
+        }
+    }
+
     @Test func eachLevelDrawsItsOverlayRolesGlass() {
         #expect(AgentPaneView.hostGlassRole(.popover) == .popover)
         #expect(AgentPaneView.hostGlassRole(.menu) == .menu)
