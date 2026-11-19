@@ -219,6 +219,140 @@ fn a_read_while_the_mac_is_away_fails_with_ehostdown() {
     assert_eq!(overlay.read(path_ino(&overlay, "big.bin"), 0, 10), Err(112));
 }
 
+/// Reads every lower file of `overlay` whole, 128 KiB at a time.
+fn read_everything(overlay: &Overlay, manifest: &Manifest) {
+    for index in 0..manifest.len() as u32 {
+        let entry = manifest.entry(index).unwrap();
+        if entry.kind != Kind::File {
+            continue;
+        }
+        let mut at = 0;
+        while at < entry.size {
+            at += overlay.read(u64::from(index) + 1, at, 128 * 1024).unwrap().len() as u64;
+        }
+    }
+}
+
+/// `setup`'s files at a new version: `src/b.rs` changed on the Mac (new bytes and mtime), and a
+/// new file `AA.md` sorts first at the top, so every later entry has another number.
+fn setup_changed(old: &Fake) -> (Arc<Manifest>, Arc<Fake>) {
+    let (_, manifest, _) = setup(false);
+    let mut items = Vec::new();
+    let mut files = Vec::new();
+    for index in 0..manifest.len() as u32 {
+        let entry = manifest.entry(index).unwrap();
+        let path = manifest.path_of(index);
+        if entry.kind == Kind::Dir {
+            continue;
+        }
+        let mut item = Item {
+            path: path.clone(),
+            kind: entry.kind,
+            mode: entry.mode,
+            size: entry.size,
+            mtime_ns: entry.mtime_ns,
+            link: entry.link.clone(),
+        };
+        let mut bytes = old.bytes.get(&index).cloned();
+        if path == "src/b.rs" {
+            bytes = Some(b"fn b() { changed }".to_vec());
+            item.size = 18;
+            item.mtime_ns += 1;
+        }
+        items.push(item);
+        if let Some(bytes) = bytes {
+            files.push((path, bytes));
+        }
+    }
+    items.push(Item {
+        path: "AA.md".into(),
+        kind: Kind::File,
+        mode: 0o644,
+        size: 3,
+        mtime_ns: 5,
+        link: None,
+    });
+    files.push(("AA.md".into(), b"new".to_vec()));
+    let manifest = Arc::new(Manifest::build(1, items).unwrap());
+    let mut fake = Fake::default();
+    for (path, bytes) in files {
+        fake.bytes.insert(manifest.resolve(&path).unwrap(), bytes);
+    }
+    (manifest, Arc::new(fake))
+}
+
+#[test]
+fn a_remount_with_a_new_manifest_fetches_only_what_changed() {
+    let (state, manifest, fake) = setup(false);
+    read_everything(&open(state.path(), &manifest, &fake), &manifest);
+    let (changed, mac) = setup_changed(&fake);
+    assert_ne!(changed.resolve("big.bin"), manifest.resolve("big.bin"), "entry numbers moved");
+    let overlay = open(state.path(), &changed, &mac);
+    read_everything(&overlay, &changed);
+    // Only `src/b.rs` (changed) and `AA.md` (new) came from the Mac.
+    let batches = mac.batches.lock().unwrap().clone();
+    let fetched: Vec<String> = batches.concat().iter().map(|at| changed.path_of(*at)).collect();
+    assert_eq!(fetched, ["AA.md", "src/b.rs"]);
+    assert_eq!(overlay.stats().remote_bytes, 3 + 18);
+    let b = path_ino(&overlay, "src/b.rs");
+    assert_eq!(overlay.read(b, 0, 100).unwrap(), b"fn b() { changed }");
+    let big = path_ino(&overlay, "big.bin");
+    assert_eq!(overlay.read(big, BIG - 5, 100).unwrap(), big_bytes()[(BIG - 5) as usize..]);
+}
+
+#[test]
+fn the_cache_stays_within_its_bound_when_everything_is_read() {
+    let (state, manifest, fake) = setup(false);
+    // Room for two big chunks, not the whole 9 MiB file.
+    let bound = 2 * CHUNK + 1024;
+    let overlay =
+        Overlay::open_bounded(manifest.clone(), state.path(), fake.clone(), (1000, 1000), bound)
+            .unwrap();
+    for _ in 0..2 {
+        read_everything(&overlay, &manifest);
+        assert!(overlay.cache_usage().bytes <= bound);
+        let mut on_disk = 0;
+        for sub in fs::read_dir(state.path().join("chunks")).unwrap() {
+            for file in fs::read_dir(sub.unwrap().path()).unwrap() {
+                on_disk += file.unwrap().metadata().unwrap().len();
+            }
+        }
+        assert_eq!(on_disk, overlay.cache_usage().bytes);
+    }
+    // What the agent wrote is never evicted.
+    let readme = path_ino(&overlay, "README.md");
+    overlay.write(readme, 0, b"README").unwrap();
+    read_everything(&overlay, &manifest);
+    assert_eq!(fs::read(overlay.upper_dir().join("README.md")).unwrap(), b"README");
+}
+
+#[test]
+fn a_corrupt_chunk_is_fetched_again() {
+    let (state, manifest, fake) = setup(false);
+    read_everything(&open(state.path(), &manifest, &fake), &manifest);
+    let before = fake.calls.load(Ordering::Relaxed);
+    // Flip the last byte of every cached chunk.
+    for sub in fs::read_dir(state.path().join("chunks")).unwrap() {
+        for file in fs::read_dir(sub.unwrap().path()).unwrap() {
+            let path = file.unwrap().path();
+            let mut raw = fs::read(&path).unwrap();
+            *raw.last_mut().unwrap() ^= 0xff;
+            fs::write(&path, raw).unwrap();
+        }
+    }
+    let overlay = open(state.path(), &manifest, &fake);
+    let a = path_ino(&overlay, "src/a.rs");
+    assert_eq!(overlay.read(a, 0, 100).unwrap(), b"fn a() {}");
+    let big = path_ino(&overlay, "big.bin");
+    assert_eq!(overlay.read(big, BIG - 5, 100).unwrap(), big_bytes()[(BIG - 5) as usize..]);
+    assert!(fake.calls.load(Ordering::Relaxed) > before, "the bad chunks came from the Mac again");
+    // And the refetched bytes are cached again, sound.
+    let calls = fake.calls.load(Ordering::Relaxed);
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.read(path_ino(&overlay, "src/a.rs"), 0, 100).unwrap(), b"fn a() {}");
+    assert_eq!(fake.calls.load(Ordering::Relaxed), calls);
+}
+
 #[test]
 fn a_file_made_read_only_is_still_written_through_its_create() {
     // git makes each loose object 0444 and writes it through the descriptor create returned.

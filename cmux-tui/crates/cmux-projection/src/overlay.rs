@@ -7,9 +7,9 @@
 //! The state folder holds:
 //! - `upper/`: every file or folder the agent made or changed, at its relative path;
 //! - `whiteouts`: lower paths the agent deleted or renamed away, one per line;
-//! - `cache/`: lower bytes fetched from the Mac, whole files as `cache/<entry>` and the chunks of a
-//!   big file as `cache/<entry>.<chunk>`, with `cache/manifest-id` naming the manifest they belong
-//!   to (a new manifest starts a fresh cache).
+//! - `chunks/`: lower bytes fetched from the Mac ([`ChunkCache`]), keyed by each file's path, size
+//!   and modification time, so a new manifest keeps the bytes of every file that did not change;
+//!   bounded by bytes, least recently used first out. The upper folder is never evicted.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
@@ -20,11 +20,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, UNIX_EPOCH};
 
+pub use crate::cache::CHUNK;
+use crate::cache::{CacheUsage, ChunkCache, ChunkKey};
 use crate::manifest::{Kind, Manifest, ROOT};
 use crate::{Fetch, FetchError};
 
-/// The size of a chunk of a big file, and the largest file fetched whole.
-pub const CHUNK: u64 = 4 * 1024 * 1024;
 /// The most files one directory readahead batch asks for.
 const BATCH_FILES: usize = 256;
 /// The most bytes one directory readahead batch asks for.
@@ -90,7 +90,7 @@ pub struct Overlay {
     fetch: Arc<dyn Fetch>,
     owner: (u32, u32),
     upper: PathBuf,
-    cache: PathBuf,
+    cache: ChunkCache,
     scratch: PathBuf,
     whiteouts_file: PathBuf,
     inner: Mutex<Inner>,
@@ -127,13 +127,6 @@ fn join(parent: &str, name: &str) -> String {
     if parent.is_empty() { name.to_owned() } else { format!("{parent}/{name}") }
 }
 
-/// FNV-1a over `bytes`: the manifest's id in the cache (stable across builds).
-fn fnv(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-        (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
-    })
-}
-
 /// Opens an upper file for writing, its mode notwithstanding. The kernel already checked the
 /// caller's right at its own open (a file made read only, as git makes its objects, is written
 /// through the descriptor its create returned); each write here opens the file again, so a mode
@@ -159,27 +152,45 @@ fn mtime_of(meta: &fs::Metadata) -> i64 {
 
 impl Overlay {
     /// The overlay of `manifest` with its state in `state`, fetching bytes through `fetch`, every
-    /// path owned by `owner` (uid, gid).
+    /// path owned by `owner` (uid, gid). The cache holds the default bound
+    /// ([`ChunkCache::open`]).
     pub fn open(
         manifest: Arc<Manifest>,
         state: &Path,
         fetch: Arc<dyn Fetch>,
         owner: (u32, u32),
     ) -> anyhow::Result<Self> {
+        Self::open_with(manifest, state, fetch, owner, None)
+    }
+
+    /// [`Overlay::open`] with the cache bound to `max_bytes` on disk.
+    pub fn open_bounded(
+        manifest: Arc<Manifest>,
+        state: &Path,
+        fetch: Arc<dyn Fetch>,
+        owner: (u32, u32),
+        max_bytes: u64,
+    ) -> anyhow::Result<Self> {
+        Self::open_with(manifest, state, fetch, owner, Some(max_bytes))
+    }
+
+    fn open_with(
+        manifest: Arc<Manifest>,
+        state: &Path,
+        fetch: Arc<dyn Fetch>,
+        owner: (u32, u32),
+        max_bytes: Option<u64>,
+    ) -> anyhow::Result<Self> {
         let upper = state.join("upper");
-        let cache = state.join("cache");
         let scratch = state.join("scratch");
         let whiteouts_file = state.join("whiteouts");
         fs::create_dir_all(&upper)?;
-        let id = format!("{:016x}\n", fnv(&bincode::serialize(manifest.as_ref())?));
-        let id_file = cache.join("manifest-id");
-        if fs::read_to_string(&id_file).ok().as_deref() != Some(id.as_str()) {
-            if cache.exists() {
-                fs::remove_dir_all(&cache)?;
-            }
-            fs::create_dir_all(&cache)?;
-            fs::write(&id_file, &id)?;
+        // The cache before chunks were keyed by version, keyed by entry number: never read again.
+        let old_cache = state.join("cache");
+        if old_cache.exists() {
+            fs::remove_dir_all(&old_cache)?;
         }
+        let cache = ChunkCache::open(&state.join("chunks"), max_bytes)?;
         if scratch.exists() {
             fs::remove_dir_all(&scratch)?;
         }
@@ -226,6 +237,12 @@ impl Overlay {
             remote_bytes: self.remote_bytes.load(Ordering::Relaxed),
             cache_hits: self.cache_hits.load(Ordering::Relaxed),
         }
+    }
+
+    /// How full the cache of lower bytes is.
+    #[must_use]
+    pub fn cache_usage(&self) -> CacheUsage {
+        self.cache.usage()
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -491,24 +508,35 @@ impl Overlay {
         Ok(out)
     }
 
-    fn cache_path(&self, (index, part): Key) -> PathBuf {
-        if part == WHOLE {
-            self.cache.join(index.to_string())
-        } else {
-            self.cache.join(format!("{index}.{part}"))
-        }
+    /// The cache key of `key` (a whole file is chunk 0) and the chunk's length: the file's path,
+    /// size and modification time from the manifest, never its entry number, so a new manifest
+    /// finds the bytes of a file that did not change.
+    fn chunk_key(&self, (index, part): Key) -> Option<(ChunkKey, u64)> {
+        let entry = self.manifest.entry(index)?;
+        let chunk = if part == WHOLE { 0 } else { part };
+        let start = u64::from(chunk).checked_mul(CHUNK)?;
+        let len =
+            if part == WHOLE { entry.size } else { CHUNK.min(entry.size.saturating_sub(start)) };
+        let path = self.manifest.path_of(index);
+        Some((ChunkKey::new(&path, entry.size, entry.mtime_ns, chunk), len))
     }
 
+    /// The cached bytes of `key`; a missing, short or corrupt chunk is a miss.
     fn cached(&self, key: Key) -> Option<Vec<u8>> {
-        let bytes = fs::read(self.cache_path(key)).ok()?;
+        let (chunk, len) = self.chunk_key(key)?;
+        let bytes = self.cache.read(&chunk, len, 0, len)?;
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
         Some(bytes)
     }
 
+    fn is_cached(&self, key: Key) -> bool {
+        self.chunk_key(key).is_some_and(|(chunk, _)| self.cache.contains(&chunk))
+    }
+
+    /// Keeps `bytes` in the cache. A failed store only means the next read fetches again.
     fn store(&self, key: Key, bytes: &[u8]) {
-        let temp = self.scratch_path();
-        if fs::write(&temp, bytes).is_ok() && fs::rename(&temp, self.cache_path(key)).is_err() {
-            let _ = fs::remove_file(&temp);
+        if let Some((chunk, _)) = self.chunk_key(key) {
+            let _ = self.cache.put(&chunk, bytes);
         }
     }
 
@@ -566,7 +594,7 @@ impl Overlay {
                 let path = join(&folder, &sibling.name);
                 if inner.whiteouts.contains(&path)
                     || self.upper.join(&path).exists()
-                    || self.cache_path((other, WHOLE)).exists()
+                    || self.is_cached((other, WHOLE))
                 {
                     continue;
                 }
