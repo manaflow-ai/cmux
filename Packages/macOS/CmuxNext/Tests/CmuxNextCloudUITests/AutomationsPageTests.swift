@@ -185,6 +185,20 @@ import Testing
         AutomationsPage(local: { Self.list }, cloud: { Data() }, history: { Self.history }, cli: { words in try fake.run(words) })
     }
 
+    @Test func showByNameSelectsItAndOpensItsNewestLog() async throws {
+        let fake = FakeCLI()
+        let page = page(fake)
+        #expect(await page.show(named: "disk CHECK", now: Date(timeIntervalSince1970: Self.t0)))
+        #expect(page.selection == "auto_bbbbbbbbbbbbbbbbbbbb")
+        #expect(page.shownLog?.run == "run_ok" && page.shownLog?.text == "line 1\nline 2")
+        #expect(await page.show(named: "auto_aaaaaaaaaaaaaaaaaaaa"))
+        #expect(page.selection == "auto_aaaaaaaaaaaaaaaaaaaa" && page.shownLog?.run == "run_new")
+        #expect(await page.show(named: "auto_aaaaaaaaaaaaaaaaaaaa"), "a second show keeps the log open")
+        #expect(page.shownLog?.run == "run_new")
+        #expect(!(await page.show(named: "Nope")))
+        #expect(page.selection == "auto_aaaaaaaaaaaaaaaaaaaa")
+    }
+
     @Test func runsJoinTheirAutomationWithChatLogUnreadAndWords() async throws {
         let fake = FakeCLI()
         let page = page(fake)
