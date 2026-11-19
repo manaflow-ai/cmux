@@ -94,6 +94,33 @@ async fn only_a_probe_that_changed_the_list_announces_it() {
     assert!(changes.try_recv().is_ok());
 }
 
+/// The picker's Refresh models (`_acpmux/models {refresh: true}`) asks every harness again.
+/// It forgot every ACP list first, so while its probes ran (up to 60 s each) every other
+/// picker open, a start default or a model hint read no list at all: "default" only. The
+/// lists now stay served, stale, until each probe answers (stale-while-revalidate).
+#[tokio::test]
+async fn a_refresh_keeps_serving_the_lists_while_its_probes_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let hub = hub(&["acme-acp"]);
+    assert!(probed(&hub, dir.path(), &["m-one", "m-two"]).await);
+    // The probe never answers: it waits for a login environment that never comes.
+    hub.startup_ready.send_replace(false);
+    let refreshing = hub.clone();
+    let refresh = tokio::spawn(async move { refreshing.refresh_models().await });
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!refresh.is_finished(), "the refresh waits for its probe");
+    // A picker open meanwhile: its read answers at once, with the list.
+    let started = std::time::Instant::now();
+    let ids = model_ids(&hub).await;
+    let waited = started.elapsed();
+    assert_eq!(ids, vec!["m-one".to_owned(), "m-two".to_owned()]);
+    assert!(waited < std::time::Duration::from_secs(1), "the read waited {waited:?}");
+    assert_eq!(hub.reported_model_ids("acme"), vec!["m-one".to_owned(), "m-two".to_owned()]);
+    refresh.abort();
+}
+
 /// The first `_acpmux/models` of a starting daemon waits for the disk lists: answered
 /// before them, it named only "default", and the cached list arriving after it announced
 /// nothing, so a pane with no list of its own stayed empty (#39080 review).
