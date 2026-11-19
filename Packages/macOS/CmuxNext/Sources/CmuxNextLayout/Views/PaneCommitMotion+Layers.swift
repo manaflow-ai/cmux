@@ -20,12 +20,15 @@ extension PaneCommitMotion {
     /// of the host, or of the host's clip, which is at one place in the host. So it gets the inverse of the move of
     /// the host's origin, with the same spring in the same transaction. The two cancel at each time, and the copy
     /// stays where the window has the picture (`PaneCommitMotion+Sheet`). The host's size change moves its origin
-    /// by nothing: `move` puts the size's part of the anchor into the position.
+    /// by nothing: `move` puts the size's part of the anchor into the position. A clip whose own origin moves in
+    /// its host (``clipOrigin(of:)``) takes the copy in it along, so that copy gets the inverse of both moves.
     func move(_ change: Change, _ token: MotionSpring) {
         guard let layer = change.host.layer else { return }
         move(layer, token, origin: change.origin, size: change.size)
         guard let copy = sheets.first(where: { $0.host === change.host })?.picture else { return }
-        move(copy, token, origin: CGPoint(x: -change.origin.x, y: -change.origin.y), size: .zero)
+        let inCard: Bool = change.host.wholeCard && copy.superlayer === change.host.clipView.layer
+        let clip = inCard ? clipOrigin(of: change) : .zero
+        move(copy, token, origin: CGPoint(x: -change.origin.x - clip.x, y: -change.origin.y - clip.y), size: .zero)
     }
 
     /// The spring of `token` at this motion's speed: the app's setting, or ``speed``.
@@ -54,13 +57,21 @@ extension PaneCommitMotion {
     /// pane's edge is there, strips of the pane's own ground fill the room beside and below the content, inside the
     /// pane's moving clip, so no pixel of the window's backdrop and none of another pane shows there. A pane that
     /// comes has none (it has no room at its start), and a content that keeps its own old picture needs none.
+    /// In a style with a card for each pane the strips are in the pane's clip, with the clip's sizes: the card goes
+    /// with its pane (``moveClip(of:_:)``) and cuts them with its corners, and they cover nothing of the gaps.
     func showGround(beside change: Change) {
         let id = ObjectIdentifier(change.host)
-        guard !change.comes, holds[id] == nil, let layer = change.host.layer, let color = change.host.content.paneGroundColor else { return }
+        guard !change.comes, holds[id] == nil, let cell = change.host.layer, let color = change.host.content.paneGroundColor else { return }
+        let card = change.host.wholeCard ? change.host.clipView.layer : nil, clip = clipRects(of: change)
+        let layer = card ?? cell
+        let old = card == nil ? change.old.size : clip.was.size, new = card == nil ? change.new.size : clip.now.size
         // A second act while the strips show keeps the largest room that the pane showed in this motion.
-        let had = grounds[id]?.extent ?? .zero
-        let extent = CGSize(width: max(had.width, change.old.width), height: max(had.height, change.old.height))
-        let new = change.new.size
+        var had = CGSize.zero
+        if let before = grounds[id] {
+            // Strips on the pane's other layer (its style changed in the motion) go, and their room does not count.
+            if before.layer === layer { had = before.extent } else { Self.strips(of: before.layer).forEach { $0.removeFromSuperlayer() } }
+        }
+        let extent = CGSize(width: max(had.width, old.width), height: max(had.height, old.height))
         var rects: [CGRect] = []
         if extent.width > new.width {
             rects.append(CGRect(x: new.width, y: 0, width: extent.width - new.width, height: max(extent.height, new.height)))

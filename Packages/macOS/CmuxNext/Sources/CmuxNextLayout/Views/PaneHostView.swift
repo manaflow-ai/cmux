@@ -327,7 +327,7 @@ final class PaneHostView: NSView, RestingPlacement {
     private(set) var clipLayouts = 0
 
     /// The clip's frame in a host whose bounds are `cell`: the cell inset by the pane padding.
-    private func clipRect(forCell cell: CGRect) -> CGRect {
+    func clipRect(forCell cell: CGRect) -> CGRect {
         var style = LayoutStyle()
         style.panePadding = padding
         style.paneCornerRadius = cornerRadius

@@ -4,7 +4,8 @@ import CmuxNextDesign
 /// What an unzoom's move puts on its screen: the pane that had the screen closes to its place over the panes that
 /// come back, with its last frame under its moving clip.
 extension PaneCommitMotion {
-    /// The identifier of the view that shows an unzoom's last frame.
+    /// The identifier of the view that shows an unzoom's last frame, and the name of the layer that shows it in a
+    /// pane's card.
     static let lastFrameName = "pane.commit.lastFrame"
 
     /// A pane's last frame, taken before the pane's content heard a new size: the picture, and where it showed in
@@ -34,10 +35,27 @@ extension PaneCommitMotion {
         }
         layer.zPosition = 1
         if let last, last.host === change.host {
-            let view = PaneLastFrameView(last.frame, frame: last.rect)
-            change.host.addSubview(view)
-            view.layer?.zPosition = 1
-            lastFrame = view
+            if change.host.wholeCard, let card = change.host.clipView.layer {
+                // The pane's clip is its card: the last frame is in it, so the card cuts it with its corners in each
+                // frame. A layer, not a view: a view that leaves the clip ends a hold of the pane's content.
+                let shown = CALayer()
+                shown.name = Self.lastFrameName
+                shown.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]
+                // The gravity is of a layer whose space goes up, as the view's is; the card's space can go down.
+                shown.isGeometryFlipped = card.contentsAreFlipped()
+                shown.contentsGravity = last.frame.gravity
+                shown.contentsScale = last.frame.scale
+                shown.contents = last.frame.contents
+                shown.frame = change.host.clipView.convert(last.rect, from: change.host)
+                shown.zPosition = 1
+                card.addSublayer(shown)
+                lastFrameInCard = shown
+            } else {
+                let view = PaneLastFrameView(last.frame, frame: last.rect)
+                change.host.addSubview(view)
+                view.layer?.zPosition = 1
+                lastFrame = view
+            }
         }
         for host in others {
             guard let ring = host.chrome.layer, ring.opacity > 0 else { continue }
@@ -49,6 +67,8 @@ extension PaneCommitMotion {
     func dropLastFrame() {
         lastFrame?.removeFromSuperview()
         lastFrame = nil
+        lastFrameInCard?.removeFromSuperlayer()
+        lastFrameInCard = nil
     }
 
     /// The pane that an unzoom put above the others gets its `zPosition` back.

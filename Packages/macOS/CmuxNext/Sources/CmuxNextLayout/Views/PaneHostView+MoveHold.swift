@@ -53,11 +53,31 @@ extension PaneHostView: PaneCommitMotionContentHost {
 }
 
 extension PaneCommitMotion {
-    /// The inner clip of a pane whose content is held gets the change of size of the pane's move. Its frame is the
-    /// pane's less a constant inset, so its edge goes with the pane's edge.
+    /// Where the clip of the pane of `change` is in its host before the act and after it, by the host's own rule for
+    /// its clip (`PaneHostView.clipRect(forCell:)`): the cell less the padding, and less than the padding for a cell
+    /// that has no room for 2 paddings. The one source of the clip's move: ``moveClip(of:_:)`` reads it, and so do the
+    /// twin of a copy in the clip (`move(_:_:)`) and the ground strips in a card (`showGround(beside:)`).
+    func clipRects(of change: Change) -> (was: CGRect, now: CGRect) {
+        let host = change.host
+        return (was: host.clipRect(forCell: CGRect(origin: .zero, size: change.old.size)),
+                now: host.clipRect(forCell: CGRect(origin: .zero, size: change.new.size)))
+    }
+
+    /// How far the clip's origin is from its place in its host when the move starts: zero, but for a pane whose cell
+    /// has no room for 2 paddings at one end of the move (a pane that comes starts with no room).
+    func clipOrigin(of change: Change) -> CGPoint {
+        let rects = clipRects(of: change)
+        return CGPoint(x: rects.was.minX - rects.now.minX, y: rects.was.minY - rects.now.minY)
+    }
+
+    /// The inner clip of a pane gets the pane's move when its content is held, and in a style with a card for each
+    /// pane (`PaneHostView.wholeCard`): there the clip is the card, and the card goes with its pane in each frame,
+    /// with its inset and its corners. The 2 reasons give one move. Its frame is the pane's less a constant inset,
+    /// so its edge goes with the pane's edge.
     func moveClip(of change: Change, _ token: MotionSpring) {
-        guard holds[ObjectIdentifier(change.host)] != nil, let clip = change.host.clipView.layer else { return }
-        move(clip, token, origin: .zero, size: change.size)
+        guard holds[ObjectIdentifier(change.host)] != nil || change.host.wholeCard, let clip = change.host.clipView.layer else { return }
+        let rects = clipRects(of: change)
+        move(clip, token, origin: clipOrigin(of: change), size: CGSize(width: rects.was.width - rects.now.width, height: rects.was.height - rects.now.height))
     }
 
     /// The end of one hold. The holder hears it, and a page's view passes it to the host that it is in. That view

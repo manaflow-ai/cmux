@@ -30,10 +30,12 @@ import CmuxNextDesign
 /// of the clip's own (the user's colour for the docks) shows over it, as 1 layer of the ground. In each other style
 /// the window's sheet is under the pane's whole cell, and the ground is on the cell: on the layer of the pane's host.
 ///
-/// Limits. A plain colour is read at the pass of each act, not at each frame: a change of the window's colour, or of
-/// the clip's own colour, shows in a move at the next act or at the motion's end. With a card for each pane, a pane
-/// that a move keeps under the others shows in the gaps between the cards over it, under the shade, as with no
-/// motion's ground; and a pane that gets smaller has no ground in the room that it gives up, outside its card.
+/// Limits. A plain colour is read at the pass of each act, not at each frame: a change of the window's colour shows
+/// in a move at the next act or at the motion's end. The clip's own colour is written to the ground one time, so a
+/// change of it shows at the motion's end. With a card for each pane the shade of the gaps is below the panes, and
+/// its hole for a pane is the pane's card at the move's end from the move's first frame (`paneCardsInWindow`). Where
+/// no card shows in that hole yet, the window shows with no shade for the move's time, or a pane that the move keeps
+/// under the others shows there.
 extension PaneCommitMotion {
     /// The name of the layer that shows the window's picture under a pane that moves.
     static let pictureName = "pane.commit.picture"

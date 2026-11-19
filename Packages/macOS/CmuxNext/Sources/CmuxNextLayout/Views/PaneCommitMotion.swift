@@ -118,8 +118,9 @@ final class PaneCommitMotion {
     weak var pictured: ScreenContentView?
     /// The last frame of an unzoom's pane, from the turn that gives the sizes to the pass that shows the unzoom.
     var taken: Taken?
-    /// The view that shows an unzoom's last frame over its pane's content.
+    /// The view that shows an unzoom's last frame over its pane's content; in a pane's card, a layer of the card.
     var lastFrame: NSView?
+    var lastFrameInCard: CALayer?
     /// The host that an unzoom put above the other panes, with the `zPosition` that its layer had.
     var raised: (host: PaneHostView, z: CGFloat)?
     /// Hides the panes that a close took out (``keepsDeparted(on:)``); ``finish()`` runs it.
@@ -343,7 +344,7 @@ final class PaneCommitMotion {
         let held = Array(holds.values)
         holds = [:]
         for hold in held { endHold(hold.holder, of: hold.host) }
-        if !moved.isEmpty || !grounds.isEmpty || !under.isEmpty || !sheets.isEmpty || lastFrame != nil || raised != nil {
+        if !moved.isEmpty || !grounds.isEmpty || !under.isEmpty || !sheets.isEmpty || lastFrame != nil || lastFrameInCard != nil || raised != nil {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             for (layer, key) in moved { layer.removeAnimation(forKey: key) }
