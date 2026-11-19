@@ -150,7 +150,7 @@ public final class DesignSettings {
     /// each agent's dot glyph (acpmux `session/signature`). Off until the setting reaches it
     /// (``SettingsApplier``); off, no glyph draws and no request goes out. A change repaints, so open
     /// agent pages get it with the theme (`AgentPaneTheme`) and the sidebar rows redraw (`SidebarTunablesWatch`).
-    public var agentSignature = false {
+    public var agentSignature = true {
         didSet { if agentSignature != oldValue { ThemeScope.app.store.repaintAll() } }
     }
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default

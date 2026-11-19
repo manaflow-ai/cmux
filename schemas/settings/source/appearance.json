@@ -2603,7 +2603,7 @@
           },
           "kind": "toggle",
           "swift_owner": "AgentSignatureSetting",
-          "default": false,
+          "default": true,
           "keywords": [
             "agent",
             "signature",
