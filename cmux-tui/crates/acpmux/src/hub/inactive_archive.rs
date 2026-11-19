@@ -137,12 +137,12 @@ impl Hub {
             }
             Ok(())
         })?;
-        if self.at_work(session) { Err("working") } else { Ok(()) }
+        if self.archive_held(session) { Err("working") } else { Ok(()) }
     }
 
     /// Whether anything runs or waits in `session`, as the idle reaper reads it
     /// (`idle.rs` `idle_eligible`), whatever its status.
-    fn at_work(&self, session: &Session) -> bool {
+    fn archive_held(&self, session: &Session) -> bool {
         session.turn().is_some()
             || session.harness_turn.load(Ordering::SeqCst)
             || session.asks_in_flight.load(Ordering::SeqCst) > 0
