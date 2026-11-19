@@ -31,6 +31,8 @@ extension SettingsSchema {
         "shortcuts.showModifierHoldHints",
         // Which keys lists answer to and how shortcuts find their key: the person's keyboard habits, nothing private or destructive, and `cmux settings set app.keyStyle vim` is the documented way to set it.
         "app.keyStyle", "app.shortcutLayout",
+        // Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.
+        "customize.fromTheApp",
         // Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).
         "contextMenus.showCustomizeItem",
         "window.titlebarButtons", "tabs.plusButton", "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
