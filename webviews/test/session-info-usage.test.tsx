@@ -466,24 +466,33 @@ test("with session-usage-v1 the usage read is one _acpmux/usage; shown again it 
     for (const key of Object.keys(ask.params)) expect(policy.known_params["_acpmux/usage"]!.params).toContain(key);
 });
 
-test("an acpmux whose _acpmux/usage reply is not one falls back to the list's pages", async () => {
+test("a _acpmux/usage reply without stats (past a reply page) or a failed one reads the list's pages that time only", async () => {
   const asked: string[] = [];
+  const replies: Array<() => unknown> = [
+    () => ({ digest: "run-1" }),
+    () => {
+      throw new Error("timed out");
+    },
+    () => ({ digest: "run-1", usage: { "dep-land": stats({ costUsd24h: 2 }) } }),
+  ];
   const pager = new SessionPager(async (method) => {
     asked.push(method);
-    if (method === "_acpmux/usage") return {};
+    if (method === "_acpmux/usage") return replies.shift()!();
     return { sessions: [{ sessionId: "dep-fleet", usageStats: stats({ costUsd24h: 1 }) }], nextCursor: null };
   });
   pager.usageAlone = true;
   expect([...(await pager.usage()).keys()]).toEqual(["dep-fleet"]);
-  expect(asked).toEqual(["_acpmux/usage", "_acpmux/sessions"]);
-  expect(pager.usageAlone).toBe(false);
+  expect([...(await pager.usage()).keys()]).toEqual(["dep-fleet"]);
+  expect([...(await pager.usage()).keys()]).toEqual(["dep-land"]);
+  expect(asked).toEqual(["_acpmux/usage", "_acpmux/sessions", "_acpmux/usage", "_acpmux/sessions", "_acpmux/usage"]);
+  expect(pager.usageAlone).toBe(true);
 });
 
 test("a host that refuses _acpmux/usage (its pane policy predates it) gets the list's pages, now and after", async () => {
   const asked: string[] = [];
   const pager = new SessionPager(async (method) => {
     asked.push(method);
-    if (method === "_acpmux/usage") throw new Error("not allowed");
+    if (method === "_acpmux/usage") throw { code: -32601, message: "Refused by the cmux host" };
     return { sessions: [{ sessionId: "dep-fleet", usageStats: stats({ costUsd24h: 1 }) }], nextCursor: null };
   });
   pager.usageAlone = true;

@@ -202,7 +202,39 @@ async fn usage_open_at(total: usize) {
 
     // The kept answer is one, whatever the total: its size is the chats with usage.
     let kept = hub.usage_answers.last.lock().unwrap().clone().expect("an answer is kept");
-    assert_eq!(kept.usage.as_object().map(|m| m.len()), Some(2 * WITH_USAGE));
+    assert_eq!(
+        kept.usage.as_ref().and_then(Value::as_object).map(|m| m.len()),
+        Some(2 * WITH_USAGE)
+    );
+}
+
+/// Stats larger than a reply page are never sent or kept whole: the reply is the digest alone,
+/// which the pane reads as "use the list's pages" (`sessionPages.ts` `usageByDigest`), and a
+/// client holding that digest is not told `unchanged`.
+#[tokio::test]
+async fn stats_past_a_reply_page_send_the_client_to_the_pages() {
+    let (hub, peer) = seeded(2);
+    let pad = "x".repeat(600);
+    let rows = (0..3_000)
+        .map(|i| {
+            let mut row = peer_row(i, 7_000);
+            row["usageStats"] = json!({"tokens24h": i, "pad": pad});
+            row
+        })
+        .collect();
+    hub.apply_peer_notice(
+        "remote",
+        peer.generation,
+        crate::peer::PeerNotice::sessions_from_values(rows),
+    );
+    let (open, reply) = open_by_usage(&hub, None).await;
+    assert!(reply["digest"].is_string(), "{reply}");
+    assert!(reply.get("usage").is_none() && reply.get("unchanged").is_none(), "{reply}");
+    assert!(open.bytes < 256, "{}", open.bytes);
+    let (_, again) = open_by_usage(&hub, reply["digest"].as_str()).await;
+    assert!(again.get("unchanged").is_none(), "{again}");
+    let kept = hub.usage_answers.last.lock().unwrap().clone().expect("an answer is kept");
+    assert!(kept.usage.is_none(), "the kept answer holds no stats past a page");
 }
 
 #[tokio::test]

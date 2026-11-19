@@ -40,19 +40,25 @@ struct Built {
     epoch: String,
     head: u64,
     digest: String,
-    usage: Value,
+    /// `None` when the stats are larger than a reply page: the client reads the list's pages.
+    usage: Option<Value>,
 }
 
 impl Hub {
     /// `_acpmux/usage`'s reply: `{digest, usage}` with every listed chat's `usageStats` by its list
-    /// id, or `{digest, unchanged: true}` when `known` is the digest of what it would send.
+    /// id, or `{digest, unchanged: true}` when `known` is the digest of what it would send. Stats
+    /// larger than a reply page ([`crate::rpc::REPLY_PAGE_BYTES`]) are `{digest}` alone, and the
+    /// client reads them from the list's pages, which are bounded (`server/reply_size_tests.rs`).
     /// `own_only`: a peer's link, which reads only this daemon's chats.
     pub(crate) fn usage_answer(&self, known: Option<&str>, own_only: bool) -> Value {
         let built = self.usage_built(own_only);
+        let Some(usage) = built.usage.as_ref() else {
+            return json!({"digest": built.digest});
+        };
         if known == Some(built.digest.as_str()) {
             return json!({"digest": built.digest, "unchanged": true});
         }
-        json!({"digest": built.digest, "usage": built.usage})
+        json!({"digest": built.digest, "usage": usage})
     }
 
     fn usage_built(&self, own_only: bool) -> Arc<Built> {
@@ -68,15 +74,19 @@ impl Hub {
                 return last.clone();
             }
         }
-        let usage = self.usage_by_row(own_only);
+        let (usage, whole) = self.usage_by_row(own_only);
         #[cfg(test)]
         self.usage_answers.builds.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let text = serde_json::to_string(&usage).unwrap_or_default();
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         text.hash(&mut hasher);
         let digest = format!("{epoch}-{:016x}", hasher.finish());
-        let built = Arc::new(Built { epoch, head, digest, usage: json!(usage) });
-        if !own_only {
+        // The kept answer is at most a reply page, so its memory is bounded too.
+        let usage = (text.len() <= crate::rpc::REPLY_PAGE_BYTES).then(|| json!(usage));
+        let built = Arc::new(Built { epoch, head, digest, usage });
+        // An answer that read a chat's subagents while their lock was held is sent, not kept: the
+        // count it fell back to is fixed by the next ask, not only by the next change.
+        if !own_only && whole {
             let mut last = self.usage_answers.last.lock().unwrap_or_else(|e| e.into_inner());
             // A slower build at an older position never replaces a newer one.
             if last.as_ref().is_none_or(|b| b.epoch != built.epoch || b.head <= built.head) {
@@ -87,9 +97,12 @@ impl Hub {
     }
 
     /// Every chat's `usageStats` as its row lists it, by the id the row lists it under: this
-    /// daemon's chats a pass reads, and the peers' and hub machines' rows that carry stats.
-    fn usage_by_row(&self, own_only: bool) -> BTreeMap<String, Value> {
+    /// daemon's chats a pass reads, and the peers' and hub machines' rows that carry stats. The
+    /// flag is false when a chat's subagents were busy as it was read ([`Hub::usage_stats_of`]
+    /// reads them without waiting), so the answer is not kept.
+    fn usage_by_row(&self, own_only: bool) -> (BTreeMap<String, Value>, bool) {
         let mut usage = BTreeMap::new();
+        let mut whole = true;
         let now = crate::store::now_ms();
         let live = self.live_session_handles();
         let recent = self.own_rows_since(now.saturating_sub(crate::usage_stats::DAY_MS));
@@ -98,14 +111,17 @@ impl Hub {
                 continue;
             }
             let m = session.meta();
+            let free = || session.subagents.try_lock().is_ok();
+            let before = free();
             if let Some(stats) = self.usage_stats_of(&session, &m)
                 && let Ok(stats) = serde_json::to_value(stats)
             {
+                whole &= before && free();
                 usage.insert(session.id.clone(), stats);
             }
         }
         if own_only {
-            return usage;
+            return (usage, whole);
         }
         let mut mirrored = |row: &RemoteSession| {
             let (Some(id), Some(text)) = (row.summary.session_id(), row.summary.usage_stats_text())
@@ -122,7 +138,7 @@ impl Hub {
         for row in self.mesh_book_rows(|row| row.summary.usage_stats_text().is_some()) {
             mirrored(&row);
         }
-        usage
+        (usage, whole)
     }
 
     /// How many `_acpmux/usage` answers were built.

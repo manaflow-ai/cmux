@@ -413,6 +413,11 @@ export class SessionPager<S extends Summary> {
    */
   async usage(): Promise<Map<string, unknown>> {
     if (this.usageAlone) return this.usageByDigest();
+    return this.usagePages();
+  }
+
+  /** `usage` read from every page of the list. */
+  private async usagePages(): Promise<Map<string, unknown>> {
     const found = new Map<string, unknown>();
     const seen = new Set<string>();
     let cursor: string | undefined;
@@ -433,12 +438,17 @@ export class SessionPager<S extends Summary> {
    * `usage` from an acpmux with `USAGE_CAPABILITY`: one `_acpmux/usage`, its cost the chats that
    * report usage, not the list. It sends the digest of the answer held, and an `unchanged` reply
    * keeps that answer, so Session Info shown again reads no stats while none changed. A refusal (a
-   * host whose pane policy predates the method) or a reply that is neither reads the pages, now
-   * and from then on.
+   * host whose pane policy predates the method) reads the pages from then on; a failed request
+   * (a timeout, a dropped link) or a reply without stats (stats past a reply page) reads them this
+   * time only.
    */
   private async usageByDigest(): Promise<Map<string, unknown>> {
     const held = this.usageHeld;
-    const reply: any = await this.request("_acpmux/usage", held ? { known: held.digest } : {}).catch(() => undefined);
+    let refused = false;
+    const reply: any = await this.request("_acpmux/usage", held ? { known: held.digest } : {}).catch((error) => {
+      refused = methodRefused(error);
+      return undefined;
+    });
     const digest = typeof reply?.digest === "string" ? reply.digest : undefined;
     if (digest && reply.unchanged === true && held?.digest === digest) return held.usage;
     if (digest && reply.usage && typeof reply.usage === "object") {
@@ -447,8 +457,8 @@ export class SessionPager<S extends Summary> {
       return usage;
     }
     this.usageHeld = undefined;
-    this.usageAlone = false;
-    return this.usage();
+    if (refused) this.usageAlone = false;
+    return this.usagePages();
   }
 
   /** Ends the pages in flight. */
@@ -485,4 +495,11 @@ export function withUsage<S extends Summary>(list: S[], usage: ReadonlyMap<strin
     return { ...session, usageStats: stats };
   });
   return changed ? next : list;
+}
+
+/** A host or acpmux without the method: acpmux's unknown method, the host's allowlist, or a
+ *  remote chat's wire without the relay (as `cloudAgentLogin.ts` `methodMissing`). */
+function methodRefused(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === -32601 || code === "transport.method_refused" || code === "remote.unsupported";
 }
