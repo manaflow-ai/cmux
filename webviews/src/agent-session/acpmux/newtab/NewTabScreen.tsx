@@ -86,12 +86,12 @@ import {
   inlineCompletion,
   needsYouCards,
   profileRows,
-  recentChatCards,
   screenRows,
   searchWords,
   shellEntry,
   shortHost,
   type ScreenRow,
+  pageChatCards,
 } from "./screenModel";
 import { SuggestionGlyph } from "./RowGlyph";
 import { useNoEntryMotion } from "./noEntryMotion";
@@ -141,6 +141,7 @@ import { newTabIconColumnArm } from "./iconColumn.experiment";
 import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
+import { rememberNewChatPlace } from "../lastNewChatPlace";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 /// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
@@ -304,6 +305,9 @@ type Props = NewTabScreenActions & {
   /// Return that sends keeps its own gesture for the start.
   onProjectPicked?(cwd: string): void;
   onCloudMachinePicked?(machine: CloudMachine | undefined): void;
+  /// The machine acpmux lists that the person last picked for a new chat (lastNewChatPlace.ts,
+  /// cmux#46019): the page starts there, as if picked, until a place is picked here.
+  startMachine?: string;
   /// true until this page's daemon connection has listed the chats (`listedSessions`), while no
   /// chat is known: the recent project may still come, so the folder chip holds its place.
   chatsPending?: boolean;
@@ -430,6 +434,14 @@ export function NewTabScreen(props: Props) {
   // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
   // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
   const [machine, setMachine] = useState<{ peer: string; folder?: string }>();
+  /// A place was picked on this page (a machine, a folder, New project, a run mode): the last pick's
+  /// machine (`startMachine`) no longer replaces it, even when acpmux lists that machine only later.
+  const placePicked = useRef(false);
+  useEffect(() => {
+    if (!props.startMachine || placePicked.current) return;
+    placePicked.current = true;
+    setMachine({ peer: props.startMachine });
+  }, [props.startMachine]);
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
   const startsRecent = !picked && folderless && !props.startCwd;
   const candidate = useMemo(
@@ -685,6 +697,7 @@ export function NewTabScreen(props: Props) {
   const runMode = props.runMode && {
     ...props.runMode,
     onMode: (mode: RunMode) => {
+      placePicked.current = true;
       // Cloud and Sandboxed start no chat in a folder of this Mac: New project ends.
       if (mode !== "persistent") {
         // A folder still on its way, or made for a start that failed, is no longer this draft's.
@@ -1111,8 +1124,8 @@ export function NewTabScreen(props: Props) {
   const clock = useMinuteClock();
   const at = now ?? clock;
   const cards = useMemo(
-    () => recentChatCards(snapshot.sessions, at, t, device, sections.recent, sections.chats === "list"),
-    [snapshot.sessions, at, t, device, sections.recent, sections.chats],
+    () => pageChatCards(sections, snapshot.sessions, at, t, device),
+    [sections, snapshot.sessions, at, t, device],
   );
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
   // the cards keep only the chats that are running or need the user. Show All Chats off
@@ -1760,6 +1773,9 @@ export function NewTabScreen(props: Props) {
   }, []);
   const [browseError, setBrowseError] = useState<string>();
   const chooseNewProject = () => {
+    placePicked.current = true;
+    // A new folder is this Mac's: the next new chat starts on This Mac too (lastNewChatPlace.ts).
+    if (machine) rememberNewChatPlace({ kind: "local" });
     projectChoice.current += 1;
     setBrowseError(undefined);
     setNewProjectError(undefined);
@@ -1776,6 +1792,9 @@ export function NewTabScreen(props: Props) {
     requestAnimationFrame(() => field.current?.focus());
   };
   const pickProject = (cwd?: string) => {
+    placePicked.current = true;
+    // A folder here moves the chat off another machine onto This Mac, for the next new chat too.
+    if (machine) rememberNewChatPlace({ kind: "local" });
     projectChoice.current += 1;
     setBrowseError(undefined);
     setNewProject(undefined);
@@ -1801,6 +1820,9 @@ export function NewTabScreen(props: Props) {
   // A machine picked in the location row: the chat starts there, and the prompt takes the keyboard
   // back, as after a folder pick (the picker returns no focus itself).
   const pickMachine = (next?: { peer: string; folder?: string }) => {
+    placePicked.current = true;
+    // The next new chat, here or in a new workspace, starts on this machine too (cmux#46019).
+    rememberNewChatPlace(next ? { kind: "machine", peer: next.peer } : { kind: "local" });
     // A newer choice than any worktree still on its way (`projectChoice`).
     projectChoice.current += 1;
     setBrowseError(undefined);
