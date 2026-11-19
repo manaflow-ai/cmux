@@ -187,6 +187,9 @@ pub struct Conn {
     /// Per-session preparation cancellation; no capability or owner token is retained.
     preparation_cancels: StdMutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
     subs: StdMutex<HashMap<String, SubOpts>>,
+    /// Where each attached chat's live stream stands, so a lap of the event ring is read back
+    /// from the store (`stream_cursor.rs`).
+    stream_cursors: stream_cursor::StreamCursors,
     /// The chats a `session/load` replayed here: their message notices go once.
     message_notices: StdMutex<MessageNoticeBook>,
     /// Server-derived mailbox identities for this connection's local attachments.
@@ -1679,6 +1682,7 @@ async fn serve_connection_from(
         out,
         gate,
         subs: StdMutex::new(HashMap::new()),
+        stream_cursors: Default::default(),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         controls: Default::default(),
@@ -2391,6 +2395,7 @@ mod media_forward;
 mod mesh_control_send;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
+mod stream_cursor;
 #[cfg(test)]
 #[path = "stream_cursor_tests.rs"]
 mod stream_cursor_tests;
