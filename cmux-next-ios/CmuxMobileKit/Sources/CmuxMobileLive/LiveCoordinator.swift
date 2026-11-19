@@ -849,6 +849,8 @@ public final class LiveCoordinator {
     /// Macs keep theirs. Nothing changes for a Mac this phone may not dial.
     public func select(macID: String) {
         guard let team = store.activeTeam, canLink(macID: macID) else { return }
+        // The person chose another Mac: a held code no longer outranks that choice (``pickedMac``).
+        if let held = pairing?.invites.pending(), held.mac.lowercased() != macID.lowercased() { pairing?.invites.drop() }
         UserDefaults.standard.set(macID, forKey: "cmuxMobile.live.mac.\(team.id)")
         retarget()
     }

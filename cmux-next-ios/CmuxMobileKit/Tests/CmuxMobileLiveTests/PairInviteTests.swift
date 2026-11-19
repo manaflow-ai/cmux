@@ -357,6 +357,11 @@ import Testing
         live.retarget()
         #expect(UserDefaults.standard.string(forKey: pick) == "m1b")
         #expect(live.focusedMacID == "m1b")
+        // The person choosing another Mac while a code is held wins over the code.
+        #expect(live.accept(try #require(PairInvite(text: PairInviteTests.url(mac: "m1b", team: teamID, t: "BBECAwQFBgcICQoLDA0ODw")))))
+        live.select(macID: "m2")
+        #expect(live.pairing?.invites.pending() == nil)
+        #expect(live.focusedMacID == "m2")
     }
 }
 #endif
