@@ -152,7 +152,7 @@ Proposed v2 onboarding: “On your Mac, open cmux Settings and turn on Enable iO
 
 Proposed empty list: “No Macs found. Open cmux Settings on your Mac, enable iOS pairing, and select the same team on both devices.”
 
-[Pairing agent task](PAIRING-AGENT-TASK.md). The independent feature works with current main; team backend migration is outside its scope.
+The independent feature works with current main; team backend migration is outside its scope.
 
 ## Types, validation and versions
 
