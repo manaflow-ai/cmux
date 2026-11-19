@@ -73,6 +73,9 @@ blob Resources/theme-files/classic-desktop.json
 blob Resources/theme-files/claude-desktop.json
 blob Resources/theme-files/harbor.json
 blob Resources/theme-files/phosphor.json
+# cmux-config checks a theme file's `slots` against the shipped slots
+# (theme_file::slots, theme.slots.resolve).
+blob schemas/theme/slots.json
 blob schemas/chief-home/vectors.json
 blob schemas/agent-url-policy/vectors.json
 blob schemas/chief-cmux-target/vectors.json

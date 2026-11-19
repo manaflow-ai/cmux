@@ -50,6 +50,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
     /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
     public let decorations: [String: String]
+    /// The theme file's slot variants (``DesignSettings/themeSlots``, resolved by the daemon): the
+    /// page's `window.cmuxTheme.current.slots` (webviews/src/slots/registry.ts). Empty sends no `slots` key.
+    public let slots: [String: String]
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -211,6 +214,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         motion = Self.motionValue(Motion.web.policy)
         self.glass = (glass ?? .current).rawValue
         decorations = ThemeDecorations.current.payload
+        slots = DesignSettings.shared.themeSlots
         fontSmoothing = DesignSettings.shared.fontSmoothing.rawValue
     }
 
@@ -223,7 +227,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     }
 
     /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass, fontSmoothing}`,
-    /// and `decorations` while a personality slot is filled
+    /// `decorations` while a personality slot is filled, and `slots` while the theme file picks slot variants
     /// (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
     /// duration, curve and blend space as native): `{duration, easing, space}`.
@@ -234,6 +238,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
                                      "workingLook": workingLook, "motion": motion, "glass": glass, "fontSmoothing": fontSmoothing]
         if !decorations.isEmpty { object["decorations"] = decorations }
+        if !slots.isEmpty { object["slots"] = slots }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json

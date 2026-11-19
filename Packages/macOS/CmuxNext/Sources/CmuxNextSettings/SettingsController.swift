@@ -68,6 +68,11 @@ public final class SettingsController {
     @ObservationIgnored var rootUnderThemeFile: JSONValue = .object([:])
     /// The active theme file's last text that parsed, which a save that does not parse keeps applying.
     @ObservationIgnored fileprivate var lastGoodThemeFile: ThemeFileInput?
+    /// Resolves a theme file's `slots` (name, text) to slot id and variant id: the app asks the
+    /// daemon (`theme.slots.resolve`), which checks them. Nil leaves `DesignSettings.themeSlots` alone.
+    @ObservationIgnored public var resolveThemeSlots: (@MainActor @Sendable (_ name: String, _ text: String) async -> [String: String])?
+    /// The theme file text the slots were last asked for, and the ask in flight.
+    @ObservationIgnored fileprivate var themeSlotsAsked: (input: ThemeFileInput?, task: Task<Void, Never>?)?
 
     @ObservationIgnored let applier: SettingsApplier
     @ObservationIgnored private var diagnosticToasts: SettingsDiagnosticToasts?
@@ -116,6 +121,7 @@ public final class SettingsController {
     }
 
     /// `writer` takes every write of the file (the app: the home daemon's settings owner); nil refuses them.
+    /// `resolveThemeSlots` sets ``resolveThemeSlots``.
     public init(
         writer: (any SettingsFileWriter)? = nil,
         registry: ActionRegistry,
@@ -124,9 +130,11 @@ public final class SettingsController {
         managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
         managedWatchFiles: [URL] = ManagedPreferenceLocation.watchedFiles(),
         launch: LaunchRead? = nil,
-        buildDefaults: SettingsBuildDefaults? = nil
+        buildDefaults: SettingsBuildDefaults? = nil,
+        resolveThemeSlots: (@MainActor @Sendable (_ name: String, _ text: String) async -> [String: String])? = nil
     ) {
         self.file = CmuxConfigFile(url: fileURL, writer: writer)
+        self.resolveThemeSlots = resolveThemeSlots
         self.launchRead = launch
         self.appliesFontSmoothing = launch?.appliesFontSmoothing ?? false
         self.buildDefaults = buildDefaults ?? launch?.buildDefaults ?? .none
@@ -471,6 +479,7 @@ public final class SettingsController {
         loadHooks.forEach { $0() }
         if themeFileSources != loaded.themes.sources { themeFileSources = loaded.themes.sources }
         if let name = loaded.themes.overlay?.name, let good = loaded.themes.goodSource { lastGoodThemeFile = ThemeFileInput(name: name, source: good) }
+        passThemeSlots(loaded.themes.overlay.map { ThemeFileInput(name: $0.name, source: loaded.themes.goodSource) })
         if loaded.inputs != lastSource || loadCount == 0 {
             lastSource = loaded.inputs
             // A file change ends a preview: the loaded values apply.
@@ -605,5 +614,23 @@ extension SettingsController {
         }
         watchers.forEach { $0.start(reportInitialChange: false) }
         themeWatchers = (name, watchers)
+    }
+
+    /// Hands the active theme file's text (nil: none) to ``resolveThemeSlots`` and its answer to
+    /// `DesignSettings.themeSlots` as is; the daemon reads and checks the slots.
+    fileprivate func passThemeSlots(_ input: ThemeFileInput?) {
+        guard let resolve = resolveThemeSlots else { return }
+        if let asked = themeSlotsAsked, asked.input == input { return }
+        themeSlotsAsked?.task?.cancel()
+        let design = applier.design
+        guard let input, let text = input.source else {
+            themeSlotsAsked = (input, nil)
+            design.themeSlots = [:]
+            return
+        }
+        themeSlotsAsked = (input, Task { @MainActor in
+            let slots = await resolve(input.name, text)
+            if !Task.isCancelled { design.themeSlots = slots }
+        })
     }
 }

@@ -119,6 +119,7 @@ impl ResourceOperation {
                 | Self::ThemeSchemeConvert
                 | Self::ThemeSchemeExport
                 | Self::ThemeSchemeFromImage
+                | Self::ThemeSlotsResolve
                 | Self::StashList
                 | Self::ClassicImportPlan
                 | Self::ConductorImportPlan
