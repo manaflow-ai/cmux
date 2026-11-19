@@ -141,6 +141,11 @@ extension NewTabKeySessionWalkTests {
     /// so). The second key's page is the shown one: its view is made at a frame after the keys, before or after
     /// the kept rows got the change; it must show the changed row in both orders.
     ///
+    /// Before the select the row counts the shown New Tab page as used (`NewTabOpenFramesTests.useEachNewTabPage`):
+    /// a tab that the pane shows next takes the view of an untouched New Tab page that the pane leaves
+    /// (`AgentTabStore.idlePage`), and then no view is made after the change. That the view is a new one is a
+    /// condition of the setup.
+    ///
     /// Before the rows were kept, a page's lists came from a walk of the session in the key's call, so the
     /// page of a key after a change had the change (by a read; this file does not compile there).
     @Test func aPageWhoseViewIsMadeAfterAChangeShowsTheChangedRow() async throws {
@@ -182,14 +187,18 @@ extension NewTabKeySessionWalkTests {
             let shownRows = others.compactMap { tabs.views[$0.key] }.first?.model.newTab?.omnibar.tabs
             let shownHas = shownRows?.contains(where: { $0.title == "late row" })
 
-            // The test's own step: the first key's tab is selected, so its page view is made now.
+            // The test's own step: the first key's tab is selected, so its page view is made now. The shown page counts
+            // as used first: else the first key's tab takes that page's view (`AgentTabStore.idlePage`), and no view is made.
             let id = try #require(start.pane.orderedIDs.first(where: { $0.rawValue == first.key }),
                                   "setup: the strip does not list the first key's tab")
+            NewTabOpenFramesTests.useEachNewTabPage(services)
+            let viewsBefore = tabs.views.values.map { $0 }
             start.pane.select(id)
             await Self.frame(services)
             let byFrame = tabs.views[first]
             let made = byFrame ?? tabs.view(for: first.key, machine: first.machine)
             let view = try #require(made, "setup: the first key's tab gets no page view after its select")
+            try #require(!viewsBefore.contains { $0 === view }, "setup: the view of the first key's tab was there before its select, so it was not made after the change")
             let rows = view.model.newTab?.omnibar.tabs ?? []
             let has = rows.contains(where: { $0.title == "late row" })
             let shownText = shownHas.map { "\($0)" } ?? "it has no view"
@@ -208,7 +217,9 @@ extension NewTabKeySessionWalkTests {
     /// prewarmed page. After the kept rows got the change, the tab store has one prewarmed page to hand out: the
     /// test's own, made by the store's maker, given to the first tab that asks. Then the test selects the first key's
     /// tab, so its view is that prewarmed page, which takes the tab's page value of the key's turn. That the view is
-    /// the prewarmed page is a condition of the setup.
+    /// the prewarmed page is a condition of the setup. Before the select the row counts the shown New Tab page as
+    /// used (`NewTabOpenFramesTests.useEachNewTabPage`): a tab that the pane shows next takes the view of an untouched
+    /// New Tab page that the pane leaves before a prewarmed page (`AgentTabStore.idlePage`).
     @Test func aPageWhoseViewIsAPrewarmedPageTakenAfterAChangeShowsTheChangedRow() async throws {
         try await Self.withPane { start in
             let services = start.services
@@ -255,6 +266,8 @@ extension NewTabKeySessionWalkTests {
             tabs.takeSpare = { _ in tabs.views.entries.contains(where: { $0.value === spare }) ? nil : spare }
             let id = try #require(start.pane.orderedIDs.first(where: { $0.rawValue == first.key }),
                                   "setup: the strip does not list the first key's tab")
+            // The shown page counts as used: else the first key's tab takes that page's view before the prewarmed page (`AgentTabStore.idlePage`).
+            NewTabOpenFramesTests.useEachNewTabPage(services)
             start.pane.select(id)
             await Self.frame(services)
             let byFrame = tabs.views[first]
