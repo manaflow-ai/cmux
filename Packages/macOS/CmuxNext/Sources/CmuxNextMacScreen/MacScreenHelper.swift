@@ -68,6 +68,17 @@ nonisolated final class MacScreenHelper: Sendable {
         FileManager.checked.isExecutableFile(atPath: app.appending(path: "Contents/MacOS/\(executableName)").path)
     }
 
+    /// The helper did not start because its verified copy could not be made: the copy out of
+    /// the app failed, or the copy failed its code signature check (``SignedHelperLaunch/stage(_:)``,
+    /// the Computer Use helper's pinned Developer ID requirement, or the separate helper's
+    /// designated requirement). The viewer's card shows this text, so it names the cause.
+    struct NotStaged: LocalizedError {
+        var helper: String
+        var errorDescription: String? {
+            String(format: L.t("macScreen.helper.notStaged", "%@ could not be copied out of cmux, or its copy failed its code signature check"), helper)
+        }
+    }
+
     /// The executable of the verified copy to start; nil when it cannot be staged (then the
     /// helper does not run: never from inside this app, where macOS would check cmux instead).
     @concurrent func executable() async -> URL? {
