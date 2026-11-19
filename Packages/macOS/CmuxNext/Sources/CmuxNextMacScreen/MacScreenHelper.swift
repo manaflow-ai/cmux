@@ -5,28 +5,22 @@ import Darwin
 import Foundation
 import os
 
-/// The Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md): a signed app in
-/// `Contents/Library` whose `cmux-screen-sharing` executable is the cmux.rd/1 host
-/// (cmux-tui/crates/cmux-rd-host). In a release, NIGHTLY or RC build that app is the Computer
-/// Use helper, `cmux Computer Use.app` (com.cmuxterm.cua): screen sharing and computer use then
-/// ask for, and System Settings lists, one app (Lawrence, 2026-11-17: "ensure screen sharing +
-/// computer use uses same app for permissions"). A DEV build (its Computer Use helper is a fixed
-/// dev copy) and builds made before that carry the separate `<app> Screen Sharing.app` instead.
-/// The helper holds this Mac's Screen Recording and Accessibility grants for screen sharing, so
-/// macOS prompts for, lists and restarts the helper, never cmux: a grant never relaunches this
-/// app. Each use is a fresh helper process (the permission probe, a request, one session's
-/// `serve`), started from its verified copy outside the app with responsibility disclaimed
-/// (``SignedHelperLaunch``; the Computer Use helper's one copy is the one its daemon runs
-/// from); closing its stdin, or this app ending, ends it.
+/// The Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md): the signed app
+/// `<app> Screen Sharing.app` in `Contents/Library`, whose executable is the cmux.rd/1 host
+/// (`cmux-rd`, cmux-tui/crates/cmux-rd-host). It holds this Mac's Screen Recording and
+/// Accessibility grants for screen sharing, so macOS prompts for, lists and restarts the
+/// helper, never cmux: a grant never relaunches this app. Each use is a fresh helper process
+/// (the permission probe, a request, one session's `serve`), started from its verified copy
+/// outside the app with responsibility disclaimed (``SignedHelperLaunch``); closing its stdin,
+/// or this app ending, ends it.
 nonisolated final class MacScreenHelper: Sendable {
     /// The helper's executable inside its bundle.
     static let executableName = "cmux-screen-sharing"
-    /// Every channel's separate helper bundle ends with this (`cmux NIGHTLY Screen Sharing.app`).
+    /// Every channel's helper bundle ends with this (`cmux NIGHTLY Screen Sharing.app`).
     static let bundleSuffix = " Screen Sharing.app"
 
     /// The bundled helper app (`CMUX_NEXT_SCREEN_HELPER_APP` in development), its name without
-    /// `.app` (what System Settings lists: "cmux Computer Use", or the separate helper's
-    /// "cmux NIGHTLY Screen Sharing"), and the launch that stages and starts it.
+    /// `.app` (what System Settings lists), and the launch that stages and starts it.
     let app: URL
     let name: String
     private let launch: SignedHelperLaunch
@@ -45,27 +39,18 @@ nonisolated final class MacScreenHelper: Sendable {
     }
 
     /// This build's helper, or nil when it carries none (a build without the helper serves and
-    /// checks permissions in the app, as before the helper): the Computer Use helper when it
-    /// carries `cmux-screen-sharing` (staged in the Computer Use helper's own folder,
-    /// ``SignedHelperLaunch/computerUse(bundleID:)``), else the separate `* Screen Sharing.app`.
-    /// A disk lookup: call it off the main actor; ``MacScreenShareHost`` keeps the one it found.
+    /// checks permissions in the app, as before the helper). A disk lookup: call it off the main
+    /// actor; ``MacScreenShareHost`` keeps the one it found.
     static func bundled(_ bundle: Bundle = .main) -> MacScreenHelper? {
         if let path = ProcessInfo.processInfo.environment["CMUX_NEXT_SCREEN_HELPER_APP"], !path.isEmpty {
-            let app = URL(fileURLWithPath: path)
-            return MacScreenHelper(app: app, launch: app.lastPathComponent == SignedHelperLaunch.computerUseAppName ? .computerUse() : .screenSharing())
+            return MacScreenHelper(app: URL(fileURLWithPath: path))
         }
         let library = bundle.bundleURL.appending(path: "Contents/Library", directoryHint: .isDirectory)
-        let computerUse = library.appending(path: SignedHelperLaunch.computerUseAppName, directoryHint: .isDirectory)
-        if carriesExecutable(computerUse) { return MacScreenHelper(app: computerUse, launch: .computerUse()) }
         guard let names = try? FileManager.checked.contentsOfDirectory(atPath: library.path),
               let found = names.sorted().first(where: { $0.hasSuffix(bundleSuffix) }) else { return nil }
         let app = library.appending(path: found, directoryHint: .isDirectory)
-        guard carriesExecutable(app) else { return nil }
+        guard FileManager.checked.isExecutableFile(atPath: app.appending(path: "Contents/MacOS/\(executableName)").path) else { return nil }
         return MacScreenHelper(app: app)
-    }
-
-    private static func carriesExecutable(_ app: URL) -> Bool {
-        FileManager.checked.isExecutableFile(atPath: app.appending(path: "Contents/MacOS/\(executableName)").path)
     }
 
     /// The executable of the verified copy to start; nil when it cannot be staged (then the
@@ -82,7 +67,7 @@ nonisolated final class MacScreenHelper: Sendable {
     }
 
     /// Starts `arguments` (`serve`) with responsibility disclaimed, its stdio on these pipes.
-    func spawn(_ executable: URL, _ arguments: [String], stdin: Pipe, stdout: Pipe, stderr: Pipe) throws -> pid_t {
+    static func spawn(_ executable: URL, _ arguments: [String], stdin: Pipe, stdout: Pipe, stderr: Pipe) throws -> pid_t {
         let pid = try SignedHelperLaunch.spawn(executable: executable, arguments: arguments,
                                                stdin: stdin.fileHandleForReading.fileDescriptor,
                                                stdout: stdout.fileHandleForWriting.fileDescriptor,
