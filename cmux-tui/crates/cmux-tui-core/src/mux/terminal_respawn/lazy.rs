@@ -45,12 +45,8 @@ pub(crate) fn lazy_start_from_env() -> bool {
 }
 
 impl Mux {
-    /// Turn the restore parking on or off (tests; the daemon reads
-    /// [`LAZY_START_ENV`]).
-    pub(crate) fn set_lazy_start(&self, on: bool) {
-        self.terminal_respawns.lazy_start.store(on, Ordering::Release);
-    }
-
+    /// Whether the restore parking is on ([`LAZY_START_ENV`]).
+    #[cfg(any(unix, windows))]
     pub(crate) fn lazy_start(&self) -> bool {
         self.terminal_respawns.lazy_start.load(Ordering::Acquire)
     }
