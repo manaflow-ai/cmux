@@ -385,6 +385,36 @@ impl ProcessTable {
         (kept, older, cutoff)
     }
 
+    /// The next older page of a recent read (`_acpmux/process/list {recent, endedBefore}`): of the
+    /// processes that ended before `before` (a reply's `endedBefore`), the `recent` that ended last,
+    /// in the order they started; how many of those it left out; and the new split, as
+    /// [`Self::recent_snapshot`] gives them (ties kept together). Running processes are the first
+    /// page's, never an older one's. A client pages back through a god chat's tens of thousands
+    /// of shells one bounded reply at a time, only as far as a person scrolls.
+    fn older_snapshot(&self, recent: usize, before: u64) -> (Vec<Process>, usize, u64) {
+        let ended = |p: &&Process| p.state != ProcessState::Running && process_end(p) < before;
+        let mut ends: Vec<u64> = self.processes.iter().filter(ended).map(process_end).collect();
+        let cutoff = if ends.len() <= recent {
+            0
+        } else {
+            let at = ends.len() - recent;
+            *ends.select_nth_unstable(at).1
+        };
+        let mut older = 0_usize;
+        let kept = self
+            .processes
+            .iter()
+            .filter(ended)
+            .filter(|p| {
+                let keep = process_end(p) >= cutoff;
+                older += usize::from(!keep);
+                keep
+            })
+            .cloned()
+            .collect();
+        (kept, older, cutoff)
+    }
+
     /// The processes the tool calls `calls` started (`_acpmux/process/list {calls}`): one list per
     /// call, in the order given, each process with its slot (the order they started).
     fn call_snapshot(&self, calls: &[String]) -> Vec<Vec<(usize, Process)>> {
@@ -955,6 +985,15 @@ impl Hub {
     ) -> Value {
         let since = ended_within.map(|within| now_ms().saturating_sub(within));
         let (processes, older, cutoff) = self.process_table(session).recent_snapshot(recent, since);
+        recent_values(processes, older, cutoff, recent, PROCESS_PAGE_BUDGET, output_len)
+    }
+
+    /// `_acpmux/process/list {sessionId, recent, endedBefore}`: the next older page of a recent
+    /// read ([`ProcessTable::older_snapshot`]), as [`Self::list_recent_processes`] replies: `omitted`
+    /// how many ended before this page, `endedBefore` the end that splits them (absent once none
+    /// is left). Session Info's finished list reads it as it scrolls to its end.
+    pub(crate) fn list_older_processes(&self, session: &Session, recent: usize, before: u64) -> Value {
+        let (processes, older, cutoff) = self.process_table(session).older_snapshot(recent, before);
         recent_values(processes, older, cutoff, recent, PROCESS_PAGE_BUDGET, output_len)
     }
 
