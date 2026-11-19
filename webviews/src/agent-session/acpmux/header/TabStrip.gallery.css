@@ -1,0 +1,105 @@
+/* Gallery-only drawings of the native tab strip's experiments (experiments.tabBarStyle, experiments.tabOverflow):
+   TabBarStyles.gallery.tsx and TabOverflow.gallery.tsx. The strip itself is native (PaneContentView); these rules draw
+   its geometry so the arms can be compared side by side. Nothing here ships. */
+
+.ttb-window{--ttb-bar:color-mix(in srgb,var(--ds-color-fg) 5%,var(--ds-color-surface,Canvas));--ttb-sheet:var(--ds-color-surface,Canvas);--ttb-tab-h:28px;display:flex;flex-direction:column;width:100%;height:150px;box-sizing:border-box;border:1px solid var(--ds-color-separator);border-radius:10px;overflow:hidden;background:var(--ttb-bar);color:var(--ds-color-fg)}
+.ttb-strip{flex:none;display:flex;align-items:center;gap:6px;height:40px;padding:0 8px;box-sizing:border-box;min-width:0}
+.ttb-tabs{flex:1 1 auto;display:flex;align-items:center;min-width:0;height:100%}
+.ttb-tab{position:relative;flex:1 1 160px;max-width:180px;min-width:0;height:var(--ttb-tab-h);display:flex;align-items:center;gap:6px;padding:0 10px;box-sizing:border-box;border-radius:var(--ds-radius-md,6px);color:var(--ds-color-muted);white-space:nowrap;cursor:default}
+.ttb-tab[data-selected]{color:var(--ds-color-fg)}
+.ttb-icon{flex:none;width:12px;height:12px;border-radius:3px;background:currentColor;opacity:.55}
+.ttb-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ttb-plus{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:var(--ds-radius-md,6px);color:var(--ds-color-muted);font-size:17px;line-height:1}
+.ttb-content{flex:1 1 auto;padding:12px 14px;color:var(--ds-color-muted);background:var(--ttb-sheet);border-top:1px solid var(--ds-color-separator)}
+.ttb-content b{color:var(--ds-color-fg);font-weight:600}
+
+/* off: today's strip, a rounded selection fill and a plain + button. */
+.ttb-window[data-style=off] .ttb-tab:hover{background:var(--ds-color-hover)}
+.ttb-window[data-style=off] .ttb-tab[data-selected]{background:var(--ds-color-selection)}
+.ttb-window[data-style=off] .ttb-plus:hover{background:var(--ds-color-hover)}
+
+/* glass: the window over a picture so the glass reads; every tab inside one translucent capsule with a backdrop blur and
+   a hairline edge, the selected tab a lighter inner pill, the + a round glass button of its own beside the capsule. */
+.ttb-window[data-style=glass]{background:radial-gradient(120% 140% at 0% 0%,#ff8a3d 0%,transparent 55%),radial-gradient(120% 160% at 100% 0%,#6a5cff 0%,transparent 60%),radial-gradient(140% 140% at 50% 120%,#18c2a8 0%,transparent 60%),#e8508a;--ttb-sheet:color-mix(in srgb,var(--ds-color-surface,Canvas) 82%,transparent)}
+.ttb-window[data-style=glass] .ttb-strip{height:48px;gap:8px}
+.ttb-window[data-style=glass] .ttb-tabs{flex:0 1 auto;height:36px;padding:3px;gap:2px;box-sizing:border-box;border-radius:999px;background:color-mix(in srgb,var(--ds-color-surface,Canvas) 42%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.7);backdrop-filter:blur(18px) saturate(1.7);box-shadow:inset 0 0 0 .5px color-mix(in srgb,#fff 55%,transparent),0 0 0 .5px color-mix(in srgb,#000 18%,transparent),0 4px 14px color-mix(in srgb,#000 14%,transparent)}
+.ttb-window[data-style=glass] .ttb-tab{flex-basis:150px;height:30px;border-radius:999px;color:color-mix(in srgb,var(--ds-color-fg) 78%,transparent)}
+.ttb-window[data-style=glass] .ttb-tab:hover{background:color-mix(in srgb,var(--ds-color-surface,Canvas) 30%,transparent)}
+.ttb-window[data-style=glass] .ttb-tab[data-selected]{color:var(--ds-color-fg);background:color-mix(in srgb,var(--ds-color-surface,Canvas) 78%,transparent);box-shadow:inset 0 0 0 .5px color-mix(in srgb,#fff 70%,transparent),0 1px 3px color-mix(in srgb,#000 16%,transparent)}
+.ttb-window[data-style=glass] .ttb-plus{width:36px;height:36px;border-radius:50%;color:var(--ds-color-fg);background:color-mix(in srgb,var(--ds-color-surface,Canvas) 42%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.7);backdrop-filter:blur(18px) saturate(1.7);box-shadow:inset 0 0 0 .5px color-mix(in srgb,#fff 55%,transparent),0 0 0 .5px color-mix(in srgb,#000 18%,transparent),0 4px 14px color-mix(in srgb,#000 14%,transparent)}
+.ttb-window[data-style=glass] .ttb-content{margin:0 8px 8px;border:0;border-radius:10px;-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px)}
+
+/* fused: inactive tabs flat on a tinted bar with thin separators; the selected tab takes the content sheet's color with
+   rounded top corners and runs into the sheet below, its feet curving out into the bar. */
+.ttb-window[data-style=fused]{--ttb-bar:color-mix(in srgb,var(--ds-color-fg) 9%,var(--ds-color-surface,Canvas))}
+.ttb-window[data-style=fused] .ttb-strip{align-items:flex-end;height:38px;padding-bottom:0}
+.ttb-window[data-style=fused] .ttb-tabs{align-items:flex-end}
+.ttb-window[data-style=fused] .ttb-tab{height:32px;border-radius:8px 8px 0 0}
+.ttb-window[data-style=fused] .ttb-tab+.ttb-tab::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:1px;background:var(--ds-color-separator)}
+.ttb-window[data-style=fused] .ttb-tab[data-selected]::before,.ttb-window[data-style=fused] .ttb-tab[data-selected]+.ttb-tab::before{display:none}
+.ttb-window[data-style=fused] .ttb-tab:not([data-selected]):hover{background:color-mix(in srgb,var(--ds-color-fg) 5%,transparent);border-radius:8px}
+.ttb-window[data-style=fused] .ttb-tab[data-selected]{background:var(--ttb-sheet);z-index:1}
+.ttb-window[data-style=fused] .ttb-tab[data-selected]::after{content:"";position:absolute;left:-8px;right:-8px;bottom:0;height:8px;pointer-events:none;background:radial-gradient(circle at 0 0,transparent 7.5px,var(--ttb-sheet) 8px) left bottom/8px 8px no-repeat,radial-gradient(circle at 100% 0,transparent 7.5px,var(--ttb-sheet) 8px) right bottom/8px 8px no-repeat}
+.ttb-window[data-style=fused] .ttb-plus{align-self:center;margin-top:6px}
+.ttb-window[data-style=fused] .ttb-plus:hover{background:var(--ds-color-hover)}
+.ttb-window[data-style=fused] .ttb-content{border-top:0}
+
+/* underline: no fills; a 1px hairline under the strip; the selected label bold over a 2px accent rule. The bold face's
+   width is reserved in every label (a hidden bold copy in the same grid cell), so selecting a tab moves no text. */
+.ttb-window[data-style=underline]{--ttb-bar:var(--ds-color-surface,Canvas)}
+.ttb-window[data-style=underline] .ttb-strip{height:40px;gap:4px;border-bottom:1px solid var(--ds-color-separator)}
+.ttb-window[data-style=underline] .ttb-tabs{gap:4px}
+.ttb-window[data-style=underline] .ttb-tab{height:100%;border-radius:0}
+.ttb-window[data-style=underline] .ttb-tab:hover{color:var(--ds-color-fg)}
+.ttb-window[data-style=underline] .ttb-tab[data-selected]::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;border-radius:1px;background:var(--ds-color-accent)}
+.ttb-window[data-style=underline] .ttb-tab[data-selected] .ttb-label{font-weight:600}
+.ttb-window[data-style=underline] .ttb-content{border-top:0}
+.ttb-label-stack{flex:1 1 auto;min-width:0;display:grid}
+.ttb-label-stack>*{grid-area:1/1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ttb-label-stack>[aria-hidden]{visibility:hidden;font-weight:600}
+.ttb-window[data-style=underline] .ttb-plus{border-radius:var(--ds-radius-md,6px)}
+.ttb-window[data-style=underline] .ttb-plus:hover{color:var(--ds-color-fg)}
+
+/* The style sheet's frame: each arm with its caption. */
+.ttb-sheet-stage{display:grid;gap:10px;padding:12px;box-sizing:border-box;width:100%}
+.ttb-caption{font-size:11px;color:var(--ds-color-muted)}
+
+/* Overflow (TabOverflow.gallery.tsx): 20 tabs of one fixed width, the strip's width a CSS variable a resize animates. */
+.ttb-ovf-stage{padding:12px;box-sizing:border-box;width:100%;display:grid;gap:8px;align-content:start}
+.ttb-ovf{--ttb-tab-w:140px;--ttb-fade:44px;position:relative;width:var(--ttb-strip-width,100%);max-width:100%;height:40px;box-sizing:border-box;display:flex;align-items:center;border:1px solid var(--ds-color-separator);border-radius:8px;background:color-mix(in srgb,var(--ds-color-fg) 5%,var(--ds-color-surface,Canvas));color:var(--ds-color-fg)}
+.ttb-ovf[data-resize]{max-width:none;animation:ttb-ovf-resize 7s ease-in-out infinite}
+@keyframes ttb-ovf-resize{0%,8%{width:1200px}46%,54%{width:420px}92%,100%{width:1200px}}
+.ttb-ovf-scroller{flex:1 1 auto;min-width:0;height:100%;display:flex;align-items:center;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;padding:0 4px;box-sizing:border-box}
+.ttb-ovf-scroller::-webkit-scrollbar{display:none}
+.ttb-ovf .ttb-tab{flex:0 0 var(--ttb-tab-w);width:var(--ttb-tab-w);max-width:none;height:28px;padding:0 6px 0 10px}
+.ttb-ovf .ttb-tab:hover,.ttb-ovf .ttb-tab[data-hover]{background:var(--ds-color-hover)}
+.ttb-ovf .ttb-tab[data-selected]{background:var(--ds-color-selection)}
+.ttb-close{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;color:var(--ds-color-muted);font-size:14px;line-height:1;visibility:hidden}
+.ttb-close:hover{background:var(--ds-color-hover);color:var(--ds-color-fg)}
+.ttb-ovf .ttb-tab:hover .ttb-close,.ttb-ovf .ttb-tab[data-hover] .ttb-close,.ttb-ovf .ttb-tab[data-selected] .ttb-close{visibility:visible}
+.ttb-ovf-button{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:4px;height:26px;min-width:26px;padding:0 6px;box-sizing:border-box;border:0;border-radius:var(--ds-radius-md,6px);background:none;color:var(--ds-color-muted);font:inherit;white-space:nowrap}
+.ttb-ovf-button:hover{background:var(--ds-color-hover);color:var(--ds-color-fg)}
+
+/* chevrons: the hidden edges fade, and a chevron sits on each one; the fades and the chevrons follow the scroll through two
+   attributes the scroller's one listener writes (data-more-start, data-more-end), no React state. */
+.ttb-ovf[data-mode=chevrons] .ttb-ovf-scroller{--ttb-fade-l:0px;--ttb-fade-r:0px;-webkit-mask-image:linear-gradient(to right,transparent 0,#000 var(--ttb-fade-l),#000 calc(100% - var(--ttb-fade-r)),transparent 100%);mask-image:linear-gradient(to right,transparent 0,#000 var(--ttb-fade-l),#000 calc(100% - var(--ttb-fade-r)),transparent 100%);scroll-padding:0 36px}
+.ttb-ovf[data-mode=chevrons][data-more-start] .ttb-ovf-scroller{--ttb-fade-l:var(--ttb-fade)}
+.ttb-ovf[data-mode=chevrons][data-more-end] .ttb-ovf-scroller{--ttb-fade-r:var(--ttb-fade)}
+.ttb-ovf-chevron{position:absolute;top:6px;z-index:1;visibility:hidden}
+.ttb-ovf-chevron[data-edge=start]{left:4px}
+.ttb-ovf-chevron[data-edge=end]{right:4px}
+.ttb-ovf[data-more-start] .ttb-ovf-chevron[data-edge=start],.ttb-ovf[data-more-end] .ttb-ovf-chevron[data-edge=end]{visibility:visible}
+
+/* more-menu: the tabs that fit, then a More button; the rest in its menu. */
+.ttb-ovf[data-mode=more-menu] .ttb-ovf-scroller{overflow:hidden}
+.ttb-ovf[data-mode=more-menu] .ttb-ovf-button{margin-right:4px}
+.ttb-ovf[data-mode=more-menu] .ttb-ovf-button[data-open]{background:var(--ds-color-pressed,var(--ds-color-hover));color:var(--ds-color-fg)}
+.ttb-ovf-menu{position:absolute;top:calc(100% + 4px);right:0;z-index:2;min-width:200px;max-height:330px;overflow:auto;padding:4px;box-sizing:border-box;border-radius:var(--ds-radius-popup,10px);background:var(--ds-color-elevated,var(--ds-color-surface,Canvas));box-shadow:0 0 0 .5px var(--ds-color-separator),0 8px 24px color-mix(in srgb,#000 22%,transparent)}
+.ttb-ovf-menu-row{display:flex;align-items:center;gap:8px;height:24px;padding:0 8px;border-radius:5px;white-space:nowrap;color:var(--ds-color-fg)}
+.ttb-ovf-menu-row:hover{background:var(--ds-color-hover)}
+
+/* all-tabs: the strip scrolls under a pinned All tabs pill; a trailing fade runs under the pill. */
+.ttb-ovf[data-mode=all-tabs] .ttb-ovf-scroller{padding-right:calc(var(--ttb-pill-w,92px) + 8px);-webkit-mask-image:linear-gradient(to right,#000 calc(100% - var(--ttb-pill-w,92px) - 48px),transparent calc(100% - var(--ttb-pill-w,92px) - 4px));mask-image:linear-gradient(to right,#000 calc(100% - var(--ttb-pill-w,92px) - 48px),transparent calc(100% - var(--ttb-pill-w,92px) - 4px));scroll-padding:0 calc(var(--ttb-pill-w,92px) + 12px) 0 8px}
+.ttb-ovf-pill{position:absolute;right:6px;top:6px;z-index:1;width:var(--ttb-pill-w,92px);height:26px;border-radius:999px;background:color-mix(in srgb,var(--ds-color-fg) 10%,var(--ds-color-surface,Canvas));color:var(--ds-color-fg);box-shadow:0 0 0 .5px var(--ds-color-separator)}
+.ttb-ovf-pill:hover{background:color-mix(in srgb,var(--ds-color-fg) 15%,var(--ds-color-surface,Canvas))}
+.ttb-ovf-width{font-size:11px;color:var(--ds-color-muted);font-variant-numeric:tabular-nums}
