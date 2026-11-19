@@ -359,7 +359,10 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
     let previousSignature = "";
     let lastChange = { frame: 0, at: 0, clock: 0 };
     const screensAbove = (scroller: HTMLElement) => {
-      const origin = Number.parseFloat(scroller.style.getPropertyValue("--acpmux-scroll-origin")) || 0;
+      const origin =
+        Number.parseFloat(
+          scroller.querySelector<HTMLElement>(".acpmux-thread")?.style.getPropertyValue("margin-top") ?? "",
+        ) || 0;
       return scroller.clientHeight > 0 ? (scroller.scrollTop - origin) / scroller.clientHeight : null;
     };
     type Placed = { row: HTMLElement; rect: DOMRect };

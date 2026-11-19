@@ -16,10 +16,10 @@ import { sceneNumber, sceneRecord } from "./sceneStyle";
 /** A resolved motion: a spring sampled into a `linear()` easing, or a timed curve. Milliseconds. */
 export type SceneTiming = { duration: number; easing: string };
 
-/** `snappy` and `bouncy` (the one token that overshoots, for playful reveals): the contract's own springs. */
+/** `bouncy` (the one token that overshoots, for playful reveals): the contract's own spring. `smooth` and
+ * `snappy` are the motion scale's CSS steps (scene.css), not springs. */
 export const SCENE_SPRINGS = {
   ...MOTION_SPRINGS,
-  snappy: { response: 0.3, dampingFraction: 0.8 },
   bouncy: { response: 0.45, dampingFraction: 0.6 },
 } as const satisfies Record<string, SpringParameters>;
 
@@ -161,52 +161,3 @@ export function loopStyle(
   };
 }
 
-export const TRANSITIONS = ["fade", "scale", "slide", "pop"] as const;
-export type SceneTransition = (typeof TRANSITIONS)[number];
-export const sceneTransition = (value: unknown): SceneTransition | undefined =>
-  typeof value === "string" && (TRANSITIONS as readonly string[]).includes(value)
-    ? (value as SceneTransition)
-    : undefined;
-
-/** A transition's keyframes and timing on entry (`exit` false) or removal (`exit` true). The
- * keyframes animate `transform` and `opacity`, which compose with the node's own `scale`, `rotate`
- * and `translate`; `opacity` ends at the node's own value. */
-export function transitionAnimation(
-  transition: SceneTransition,
-  exit: boolean,
-  opacity: number,
-  env: SceneMotionEnv,
-  doc?: Document,
-): { keyframes: Keyframe[]; timing: SceneTiming } | null {
-  const fadeTiming = sceneTiming("fade", env, doc);
-  const timing = (motion: unknown) => sceneTiming(motion, env, doc);
-  let hidden: Keyframe;
-  let t: SceneTiming | null;
-  switch (transition) {
-    case "fade":
-      hidden = { opacity: 0 };
-      t = exit
-        ? env.mode === "full"
-          ? { duration: MOTION_FADES.fadeOut * env.speed, easing: MOTION_EASE_OUT }
-          : null
-        : fadeTiming;
-      break;
-    case "scale":
-      hidden = { transform: "scale(0)" };
-      t = timing(exit ? "disappear" : "appear");
-      break;
-    case "slide":
-      hidden = { transform: exit ? "translateX(100%)" : "translateX(-100%)" };
-      t = timing(exit ? "disappear" : "move");
-      break;
-    case "pop":
-      hidden = { transform: "scale(0.6)", opacity: 0 };
-      t = timing(exit ? "disappear" : "bouncy");
-      break;
-  }
-  if (!t) return null;
-  const shown: Keyframe = { transform: "none", opacity };
-  if (!("opacity" in hidden)) delete shown.opacity;
-  if (!("transform" in hidden)) delete shown.transform;
-  return { keyframes: exit ? [shown, hidden] : [hidden, shown], timing: t };
-}

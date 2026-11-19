@@ -48,8 +48,18 @@ export const {
   Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle, Particles
 } = g
 
+/** Gradient fills for `.background(...)` and a shape's `.fill(...)`: 2 to 8 stops (tones or
+ * `#RRGGBB[AA]`); the runtime's builders refuse a bad stop or angle. On a cmux older than them the
+ * value is built here and an older renderer draws no fill. */
+export const linearGradient: (colors: readonly string[], angle?: number) => CmuxGradient =
+  g.linearGradient ?? ((colors, angle) => ({ linear: angle === undefined ? { colors: [...colors] } : { colors: [...colors], angle } }))
+export const radialGradient: (colors: readonly string[]) => CmuxGradient =
+  g.radialGradient ?? ((colors) => ({ radial: { colors: [...colors] } }))
+
 export type View = CmuxView
 export type Signal<T> = CmuxSignal<T>
+export type Gradient = CmuxGradient
+export type Fill = CmuxFill
 
 /** Motion props (`.animation`, `.loop`, `.transition`, `Particles`, ...): declared in the scene, run by cmux's renderer at display rate. */
 export type Motion = CmuxMotion
@@ -58,7 +68,7 @@ export type LoopEffect = CmuxLoopEffect
 export type Transition = CmuxTransition
 export type Offset = CmuxOffset
 export type Glow = CmuxGlow
-export type Gradient = CmuxGradient
+export type LinearGradient = CmuxLinearGradient
 export type Trim = CmuxTrim
 export type ParticlePreset = CmuxParticlePreset
 export type ParticlesProps = CmuxParticlesProps
@@ -285,3 +295,8 @@ export function onChange<T>(live: Live<T>, fn: (value: T) => void, options: { in
     untrack(() => fn(value))
   })
 }
+
+// ---------------------------------------------------------------------------------------------
+// Widgets (`cmux.widget/1`): the place and its glanceable layout helpers (widget.ts).
+
+export * from "./widget.ts"

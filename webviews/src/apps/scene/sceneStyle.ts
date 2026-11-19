@@ -12,7 +12,8 @@ export const sceneRecord = (value: unknown): Record<string, unknown> =>
 
 const COLORS: Record<string, string> = {
   primary: "var(--agent-text)",
-  accent: "var(--agent-text)",
+  // The theme's accent: its text color by default (the no-blue rule), its own hue with appearance.accent.
+  accent: "var(--cmux-accent, var(--agent-text))",
   secondary: "var(--agent-muted)",
   tertiary: "color-mix(in srgb, var(--agent-text) 38%, transparent)",
   separator: "var(--agent-border)",
@@ -29,6 +30,28 @@ const COLORS: Record<string, string> = {
 export function sceneColor(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   return COLORS[value] ?? (/^#[\da-f]{6}([\da-f]{2})?$/i.test(value) ? value : undefined);
+}
+
+/** A gradient fill (`background`, a shape's `fill`) as a CSS image: `{linear: {colors, angle?}}` or
+ * `{radial: {colors}}`, 2 to 8 stops that are each a token or `#RRGGBB[AA]`, spaced evenly. `angle` is
+ * in degrees the CSS way (0 up, 90 right, 180 down, the default). Anything else is undefined, so a
+ * bad value draws no gradient rather than arbitrary CSS. */
+export function sceneGradient(value: unknown): string | undefined {
+  const record = sceneRecord(value);
+  const keys = Object.keys(record);
+  const kind = keys[0];
+  if (keys.length !== 1 || (kind !== "linear" && kind !== "radial")) return undefined;
+  const spec = sceneRecord(record[kind]);
+  const allowed = kind === "linear" ? ["colors", "angle"] : ["colors"];
+  if (Object.keys(spec).some((key) => !allowed.includes(key))) return undefined;
+  const stops: unknown = spec.colors;
+  if (!Array.isArray(stops) || stops.length < 2 || stops.length > 8) return undefined;
+  const colors = stops.map(sceneColor);
+  if (colors.some((color) => color === undefined)) return undefined;
+  if (kind === "radial") return `radial-gradient(closest-side, ${colors.join(", ")})`;
+  const angle = spec.angle === undefined ? 180 : sceneNumber(spec.angle);
+  if (angle === undefined) return undefined;
+  return `linear-gradient(${((angle % 360) + 360) % 360}deg, ${colors.join(", ")})`;
 }
 
 type SceneStyle = CSSProperties & { "--app-hover"?: string };
@@ -94,8 +117,10 @@ export function sceneStyle(props: SceneProps): SceneStyle {
   } else if (blur !== undefined || glow) {
     style.filter = [blur !== undefined ? `blur(${Math.max(0, blur)}px)` : "", glow ?? ""].filter(Boolean).join(" ");
   }
-  style.backgroundImage = gradientImage(props.gradient);
-  style.backgroundColor = sceneColor(props.background);
+  // A `gradient` (the motion modifier) draws over a color `background`; a gradient `background` replaces the color.
+  const backgroundGradient = sceneGradient(props.background);
+  style.backgroundImage = gradientImage(props.gradient) ?? backgroundGradient;
+  style.backgroundColor = backgroundGradient ? undefined : sceneColor(props.background);
   style.color = sceneColor(props.color);
   style.borderRadius = sceneNumber(props.cornerRadius);
   // `.clipped()`: the node's content (a child's slide or glow) stays inside its frame and corners.
@@ -120,6 +145,7 @@ export function textStyle(props: SceneProps): CSSProperties {
     fontSize: size === undefined ? FONTS[sceneText(props.font)] : Math.min(64, Math.max(6, size)),
     fontWeight: WEIGHTS[sceneText(props.weight)],
     fontStyle: props.italic === true ? "italic" : undefined,
+    textDecorationLine: props.strikethrough === true ? "line-through" : undefined,
     fontFamily: props.monospaced === true ? "var(--font-mono)" : undefined,
     ...(lines === undefined
       ? {}

@@ -1,329 +1,253 @@
 // l10n-allow-file: gallery fixture text, not shipped UI.
-// The app scene motion contract (cmux-app-host js/ABI.md "Motion") as the web renderer draws it:
-// every loop, the springs, the transitions, glow, gradient and trim, and every particle preset. The
-// fixture plays the app: a timer here changes props the way an app's signal would, and the
-// renderer animates each change on its own.
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
-import { SceneRenderer } from "./SceneRenderer";
-import { SceneStore, type SceneOp, type SceneProps } from "./store";
+import { SceneMount } from "./panels";
+import type { MountedPanel } from "./panelsClient";
+import { SceneStore, type SceneOp } from "./store";
 
-type Look = "loops" | "springs" | "transitions" | "shapes" | "particles";
+type Look = "reminders" | "checked" | "number" | "rolled" | "added" | "removed" | "layout";
 
-const LOOPS = ["pulse", "breathe", "spin", "float", "wiggle", "bounce", "shimmer"] as const;
-const PRESETS = ["confetti", "sparkles", "rain", "snow", "embers", "stars"] as const;
-const SPRINGS = ["move", "appear", "snappy", "bouncy", "fade"] as const;
-const TRANSITIONS = ["fade", "scale", "slide", "pop"] as const;
-const GOLD = "#FFC94D";
-const VIOLET = "#9B7BFF";
-const CYAN = "#3FD0E0";
+const TASKS = [
+  { id: "milk", title: "Buy milk", detail: "Today" },
+  { id: "pr", title: "Review the widgets PR", detail: "10:30" },
+  { id: "plants", title: "Water the plants", detail: "Evening" },
+];
 
-let ids = 0;
-const id = (prefix: string) => `${prefix}-${++ids}`;
-
-/** A labeled cell: `content` over a caption, in a fixed box so every cell lines up. */
-function cell(ops: SceneOp[], label: string, content: string): string {
-  const box = id("cell");
-  const caption = id("caption");
-  ops.push(
+/** A Reminders-style list (Apple's large Reminders widget): a circle, a title that strikes through when done. */
+function reminderOps(done: ReadonlySet<string>, ids: readonly string[]): SceneOp[] {
+  const ops: SceneOp[] = [
+    { op: "create", id: "root", type: "VStack", props: { spacing: 10, padding: 16, alignment: "leading" } },
     {
       op: "create",
-      id: box,
-      type: "VStack",
-      props: { spacing: 8, alignment: "center", frame: { width: 96, height: 92 } },
+      id: "heading",
+      type: "Text",
+      props: { text: "Reminders", font: 13, weight: "semibold", color: "accent" },
     },
-    { op: "create", id: caption, type: "Text", props: { text: label, font: "caption", color: "secondary" } },
-    { op: "children", id: box, children: [content, caption] },
-  );
-  return box;
-}
-
-function create(ops: SceneOp[], type: string, props: SceneProps, prefix = type.toLowerCase()): string {
-  const node = id(prefix);
-  ops.push({ op: "create", id: node, type, props });
-  return node;
-}
-
-function grid(ops: SceneOp[], cells: string[], perRow = 4): string {
-  const rows: string[] = [];
-  for (let index = 0; index < cells.length; index += perRow) {
-    const row = id("row");
+    { op: "create", id: "list", type: "VStack", props: { spacing: 8, alignment: "leading" } },
+  ];
+  for (const task of TASKS) {
+    const checked = done.has(task.id);
     ops.push(
-      { op: "create", id: row, type: "HStack", props: { spacing: 8 } },
-      { op: "children", id: row, children: cells.slice(index, index + perRow) },
+      { op: "create", id: `row-${task.id}`, type: "HStack", props: { spacing: 8, transition: "slide", onTap: true } },
+      {
+        op: "create",
+        id: `mark-${task.id}`,
+        type: "Icon",
+        props: {
+          symbol: checked ? "checkmark.circle.fill" : "circle",
+          size: 16,
+          color: checked ? "accent" : "secondary",
+        },
+      },
+      { op: "create", id: `col-${task.id}`, type: "VStack", props: { spacing: 1, alignment: "leading" } },
+      {
+        op: "create",
+        id: `title-${task.id}`,
+        type: "Text",
+        props: {
+          text: task.title,
+          font: 13,
+          weight: "semibold",
+          strikethrough: checked,
+          color: checked ? "secondary" : "primary",
+          animation: "smooth",
+        },
+      },
+      {
+        op: "create",
+        id: `detail-${task.id}`,
+        type: "Text",
+        props: { text: task.detail, font: 12, color: "secondary" },
+      },
+      { op: "children", id: `col-${task.id}`, children: [`title-${task.id}`, `detail-${task.id}`] },
+      { op: "children", id: `row-${task.id}`, children: [`mark-${task.id}`, `col-${task.id}`] },
     );
-    rows.push(row);
   }
-  const column = id("grid");
   ops.push(
-    { op: "create", id: column, type: "VStack", props: { spacing: 12, padding: 12 } },
-    { op: "children", id: column, children: rows },
-    { op: "root", id: column },
+    { op: "children", id: "list", children: ids.map((id) => `row-${id}`) },
+    { op: "children", id: "root", children: ["heading", "list"] },
+    { op: "root", id: "root" },
   );
-  return column;
+  return ops;
 }
 
-type Fixture = { ops: SceneOp[]; tick?: (store: SceneStore, step: number) => void; every?: number };
+/** A big glanceable number whose digits roll when it changes (Apple's numeric content transition). */
+const numberOps: SceneOp[] = [
+  { op: "create", id: "root", type: "VStack", props: { spacing: 2, padding: 16, alignment: "leading" } },
+  { op: "create", id: "label", type: "Text", props: { text: "Steps", font: 13, weight: "semibold", color: "accent" } },
+  {
+    op: "create",
+    id: "value",
+    type: "Text",
+    props: { text: "8,941", font: 34, weight: "semibold", contentTransition: "numericText" },
+  },
+  {
+    op: "create",
+    id: "bump",
+    type: "Button",
+    props: { title: "Add 12 steps" },
+  },
+  { op: "children", id: "root", children: ["label", "value", "bump"] },
+  { op: "root", id: "root" },
+];
 
-function loops(): Fixture {
-  const ops: SceneOp[] = [];
-  const cells = LOOPS.map((effect) => {
-    const shape =
-      effect === "shimmer"
-        ? create(ops, "RoundedRectangle", { size: 44, fill: VIOLET, cornerRadius: 12, loop: { effect } })
-        : effect === "breathe"
-          ? create(ops, "Circle", { size: 36, fill: CYAN, loop: { effect } })
-          : create(ops, "Icon", {
-              symbol: effect === "spin" ? "arrow.triangle.2.circlepath" : "star.fill",
-              size: 28,
-              color: GOLD,
-              loop: { effect },
-            });
-    return cell(ops, effect, shape);
-  });
-  grid(ops, cells);
-  return { ops };
-}
-
-function springs(): Fixture {
-  const ops: SceneOp[] = [];
-  const nodes: string[] = [];
-  const cells = SPRINGS.map((motion) => {
-    const dot = create(ops, "Circle", { size: 28, fill: GOLD, animation: motion, offset: { x: -24, y: 0 }, scale: 1 });
-    nodes.push(dot);
-    return cell(ops, motion, dot);
-  });
-  const glow = create(ops, "Circle", {
-    size: 28,
-    fill: VIOLET,
-    animation: "snappy",
-    glow: { color: VIOLET, radius: 2, opacity: 0.4 },
-  });
-  nodes.push(glow);
-  cells.push(cell(ops, "glow", glow));
-  const blur = create(ops, "Text", { text: "cmux", font: "title2", weight: "semibold", animation: "move", blur: 0 });
-  cells.push(cell(ops, "blur", blur));
-  const progress = create(ops, "ProgressView", { value: 0.1, animation: "snappy", frame: { width: 80 } });
-  cells.push(cell(ops, "value", progress));
-  grid(ops, cells);
-  return {
-    ops,
-    every: 1100,
-    tick: (store, step) => {
-      const on = step % 2 === 1;
+/** The layout fixes widgets found: HStack top and bottom alignment, a centered ZStack (a ring with
+ * its value inside), shapes sized by `frame` (bars), and the theme's accent tone. */
+const layoutOps: SceneOp[] = [
+  { op: "create", id: "root", type: "VStack", props: { spacing: 10, padding: 16, alignment: "leading" } },
+  { op: "create", id: "rows", type: "HStack", props: { spacing: 12 } },
+  ...(["top", "center", "bottom"] as const).flatMap((alignment): SceneOp[] => [
+    {
+      op: "create",
+      id: `h-${alignment}`,
+      type: "HStack",
+      props: { alignment, spacing: 4, frame: { height: 44 }, background: "hover", cornerRadius: 6, padding: 4 },
+    },
+    {
+      op: "create",
+      id: `tall-${alignment}`,
+      type: "RoundedRectangle",
+      props: { frame: { width: 6, height: 36 }, fill: "accent" },
+    },
+    { op: "create", id: `label-${alignment}`, type: "Text", props: { text: alignment, font: 12, color: "secondary" } },
+    { op: "children", id: `h-${alignment}`, children: [`tall-${alignment}`, `label-${alignment}`] },
+  ]),
+  { op: "children", id: "rows", children: ["h-top", "h-center", "h-bottom"] },
+  { op: "create", id: "ring", type: "ZStack", props: { frame: { width: 64, height: 64 } } },
+  { op: "create", id: "ring-shape", type: "Circle", props: { size: 64, stroke: "accent", strokeWidth: 5 } },
+  { op: "create", id: "ring-value", type: "Text", props: { text: "72%", font: 15, weight: "semibold" } },
+  { op: "children", id: "ring", children: ["ring-shape", "ring-value"] },
+  { op: "create", id: "bars", type: "VStack", props: { spacing: 4, alignment: "leading" } },
+  { op: "create", id: "bar-a", type: "Capsule", props: { frame: { width: 180, height: 6 }, fill: "accent" } },
+  { op: "create", id: "bar-b", type: "Capsule", props: { frame: { width: 110, height: 6 }, fill: "secondary" } },
+  { op: "children", id: "bars", children: ["bar-a", "bar-b"] },
+  { op: "children", id: "root", children: ["rows", "ring", "bars"] },
+  { op: "root", id: "root" },
+];
+function mounted(look: Look): { panel: MountedPanel; step?: () => void } {
+  const store = new SceneStore();
+  const done = new Set<string>(look === "checked" ? ["pr"] : []);
+  let ids = TASKS.map((task) => task.id);
+  let steps = 8941;
+  if (look === "layout") store.apply(layoutOps);
+  else if (look === "number" || look === "rolled") store.apply(numberOps);
+  else store.apply(reminderOps(done, look === "added" ? ids.slice(0, 2) : ids));
+  if (look === "added") ids = ids.slice(0, 2);
+  const draw = () => store.apply(reminderOps(done, ids), true);
+  const panel: MountedPanel = {
+    panel: { app: "local/gallery", section: "gallery", title: "Gallery" },
+    store,
+    dispatch: (node, event) => {
+      if (event !== "tap") return;
+      if (node === "bump") {
+        steps += 12;
+        store.apply([{ op: "update", id: "value", props: { text: steps.toLocaleString("en-US") } }]);
+        return;
+      }
+      const id = node.replace(/^row-/, "");
+      if (done.has(id)) done.delete(id);
+      else done.add(id);
+      const checked = done.has(id);
       store.apply([
-        ...nodes.slice(0, SPRINGS.length).map((node): SceneOp => ({
-          op: "update",
-          id: node,
-          props: { offset: { x: on ? 24 : -24, y: 0 }, scale: on ? 1.25 : 1 },
-        })),
         {
           op: "update",
-          id: glow,
-          props: { glow: { color: VIOLET, radius: on ? 14 : 2, opacity: on ? 1 : 0.4 }, scale: on ? 1.15 : 1 },
+          id: `title-${id}`,
+          props: { strikethrough: checked, color: checked ? "secondary" : "primary" },
         },
-        { op: "update", id: blur, props: { blur: on ? 6 : 0, opacity: on ? 0.4 : 1 } },
-        { op: "update", id: progress, props: { value: on ? 0.9 : 0.1 } },
+        {
+          op: "update",
+          id: `mark-${id}`,
+          props: { symbol: checked ? "checkmark.circle.fill" : "circle", color: checked ? "accent" : "secondary" },
+        },
       ]);
     },
+    reload: draw,
+    layout: () => undefined,
+    resolveAsset: () => undefined,
   };
+  // The gallery's own step: add the third row back, or remove the first.
+  const step =
+    look === "added" || look === "removed"
+      ? () => {
+          ids = look === "added" ? TASKS.map((task) => task.id) : ids.slice(1);
+          store.apply([{ op: "children", id: "list", children: ids.map((id) => `row-${id}`) }]);
+        }
+      : undefined;
+  return { panel, step };
 }
 
-function transitions(): Fixture {
-  const ops: SceneOp[] = [];
-  const slots = TRANSITIONS.map((transition) => {
-    const slot = create(ops, "ZStack", { frame: { width: 56, height: 44 }, clipped: true }, "slot");
-    return { transition, slot };
-  });
-  grid(
-    ops,
-    slots.map(({ transition, slot }) => cell(ops, transition, slot)),
-  );
-  return {
-    ops,
-    every: 900,
-    tick: (store, step) => {
-      const next: SceneOp[] = [];
-      for (const { transition, slot } of slots) {
-        const current = store.getNode(slot)?.children.filter((child) => !store.getNode(child)?.exiting) ?? [];
-        for (const child of current) next.push({ op: "remove", id: child });
-        if (step % 2 === 1) {
-          const chip = id("chip");
-          next.push(
-            { op: "create", id: chip, type: "Badge", props: { text: transition, tone: "warning", transition } },
-            { op: "children", id: slot, children: [chip] },
-          );
-        } else next.push({ op: "children", id: slot, children: [] });
-      }
-      store.apply(next);
-    },
-  };
-}
-
-function shapes(): Fixture {
-  const ops: SceneOp[] = [];
-  const ring = create(ops, "Circle", {
-    size: 48,
-    stroke: CYAN,
-    strokeWidth: 5,
-    trim: { to: 0.2 },
-    animation: "bouncy",
-  });
-  const track = create(ops, "Circle", { size: 48, stroke: "separator", strokeWidth: 5 });
-  const gauge = create(ops, "ZStack", {}, "gauge");
-  ops.push({ op: "children", id: gauge, children: [track, ring] });
-  const capsule = create(ops, "Capsule", {
-    size: 44,
-    stroke: GOLD,
-    strokeWidth: 3,
-    trim: { from: 0, to: 0.6 },
-    animation: "snappy",
-  });
-  const gradient = create(ops, "RoundedRectangle", {
-    size: 44,
-    cornerRadius: 12,
-    gradient: { colors: [VIOLET, CYAN], angle: 45 },
-    loop: { effect: "pulse" },
-  });
-  const panel = create(ops, "VStack", {
-    padding: 8,
-    cornerRadius: 8,
-    gradient: { colors: ["#2A1E5C", "#0E3A4A"] },
-    glow: { color: VIOLET, radius: 10, opacity: 0.8 },
-  });
-  const panelText = create(ops, "Text", { text: "Glow", color: "#FFFFFF", weight: "semibold" });
-  ops.push({ op: "children", id: panel, children: [panelText] });
-  const glowText = create(ops, "Icon", {
-    symbol: "star.fill",
-    size: 28,
-    color: GOLD,
-    glow: { color: GOLD, radius: 10 },
-    loop: { effect: "breathe" },
-  });
-  grid(ops, [
-    cell(ops, "trim ring", gauge),
-    cell(ops, "trim capsule", capsule),
-    cell(ops, "gradient", gradient),
-    cell(ops, "panel glow", panel),
-    cell(ops, "icon glow", glowText),
-  ]);
-  return {
-    ops,
-    every: 1400,
-    tick: (store, step) => {
-      const fraction = [0.2, 0.85, 0.5, 1][step % 4]!;
-      store.apply([
-        { op: "update", id: ring, props: { trim: { to: fraction } } },
-        { op: "update", id: capsule, props: { trim: { from: 0, to: 1 - fraction / 2 } } },
-      ]);
-    },
-  };
-}
-
-function particles(): Fixture {
-  const ops: SceneOp[] = [];
-  const fields: string[] = [];
-  const cells = PRESETS.map((preset) => {
-    const field = create(ops, "Particles", { preset, burst: 0, frame: { width: 150, height: 96 } });
-    fields.push(field);
-    const label = create(ops, "Text", { text: preset, font: "caption", weight: "semibold", color: "#FFFFFF" });
-    const stage = create(
-      ops,
-      "ZStack",
-      { frame: { width: 150, height: 96 }, cornerRadius: 8, background: "#141824" },
-      "stage",
-    );
-    ops.push({ op: "children", id: stage, children: [field, label] });
-    return stage;
-  });
-  grid(ops, cells, 3);
-  return {
-    ops,
-    every: 1500,
-    tick: (store, step) => {
-      // Confetti and sparkles fire on each increase of `burst`, the way `burst: () => pulls()` does.
-      store.apply([
-        { op: "update", id: fields[0]!, props: { burst: step } },
-        { op: "update", id: fields[1]!, props: { burst: step } },
-      ]);
-    },
-  };
-}
-
-const FIXTURES: Record<Look, () => Fixture> = { loops, springs, transitions, shapes, particles };
-
-function SceneMotion({ look = "loops" }: { look?: Look }) {
-  const [fixture] = useState(() => {
-    const built = FIXTURES[look]();
-    const store = new SceneStore();
-    store.apply(built.ops);
-    return { ...built, store };
-  });
-  useEffect(() => {
-    const { tick, every, store } = fixture;
-    if (!tick) return;
-    const counter = { step: 0 };
-    const next = () => {
-      counter.step += 1;
-      tick(store, counter.step);
-    };
-    next();
-    const timer = window.setInterval(next, every ?? 1000);
-    return () => window.clearInterval(timer);
-  }, [fixture]);
+function SceneMotion({ look = "reminders" }: { look?: Look }) {
+  const [{ panel, step }] = useState(() => mounted(look));
   return (
-    <div style={{ padding: 8 }}>
-      <SceneRenderer store={fixture.store} dispatch={() => {}} />
+    <div style={{ width: 300, padding: "12px 0" }}>
+      <SceneMount mounted={panel} />
+      {step ? (
+        <button type="button" className="ui-btn" data-gallery-step onClick={step}>
+          Step
+        </button>
+      ) : null}
     </div>
   );
 }
 
 const ready: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cmux-app-scene-root") !== null);
+  await ctx.waitFor(() => ctx.document.querySelector(".cmux-app-scene-mount") !== null);
 };
 
 export default componentEntry<{ look?: Look }>({
   id: "apps.scene-motion",
-  title: "App scene motion",
+  title: "App scene motion, strikethrough and layout",
   area: "Apps",
   pane: true,
-  height: 360,
-  widths: { narrow: 440, normal: 520 },
-  covers: [
-    "apps/scene/SceneRenderer.tsx",
-    "apps/scene/SceneParticles.tsx",
-    "apps/scene/motionProps.ts",
-    "apps/scene/particleField.ts",
-    "apps/scene/useSceneMotion.ts",
-    "apps/scene/scene.css",
-  ],
+  height: 260,
+  widths: { narrow: 300, normal: 340 },
+  covers: ["apps/scene/sceneMotion.tsx", "apps/scene/SceneRenderer.tsx", "apps/scene/sceneStyle.ts"],
   load: async () => SceneMotion,
   variants: {
-    loops: {
-      note: "Every loop (pulse, breathe, spin, float, wiggle, bounce, shimmer) run by CSS with no script per frame; Reduce Motion stops them.",
-      props: { look: "loops" },
+    reminders: {
+      note: "Apple's Reminders widget rows (ref ios17-standby-clock-alarm-activity, hig-reminders-large-checkbox-rows): click a row to check it; its title strikes through and dims with a smooth animation.",
+      props: { look: "reminders" },
       play: ready,
     },
-    springs: {
-      note: "The motion tokens (move, appear, snappy, bouncy, fade) retargeting offset and scale from the value on screen, plus glow, blur and a ProgressView value on springs.",
-      props: { look: "springs" },
+    checked: {
+      note: "A checked row: strikethrough plus the secondary tone, the done state Apple draws.",
+      props: { look: "checked" },
       play: ready,
     },
-    transitions: {
-      note: "Badges entering and leaving with fade, scale, slide and pop; a removed node stays until its exit ends.",
-      props: { look: "transitions" },
+    number: {
+      note: "A big number with contentTransition numericText, before a change.",
+      props: { look: "number" },
       play: ready,
     },
-    shapes: {
-      note: "Trim (a ring gauge from 12 o'clock and a capsule outline) on springs, a gradient fill, a glowing gradient panel and a glowing icon.",
-      props: { look: "shapes" },
+    rolled: {
+      note: "After Add 12 steps: only the changed digits roll up (a crossfade under Reduce Motion or calm motion).",
+      props: { look: "rolled" },
+      play: async (ctx) => {
+        await ready(ctx);
+        await ctx.click({ text: "Add 12 steps" });
+      },
+    },
+    added: {
+      note: "A row added after the first frame slides in from below (transition slide).",
+      props: { look: "added" },
+      play: async (ctx) => {
+        await ready(ctx);
+        await ctx.click({ text: "Step" });
+      },
+    },
+    layout: {
+      note: "HStack alignment top, center and bottom; a ZStack ring with its value centered; Capsule bars sized by frame; the accent tone is the theme's accent (text by default, the no-blue rule; the theme's hue with appearance.accent).",
+      props: { look: "layout" },
       play: ready,
     },
-    particles: {
-      note: "Every particle preset on one canvas each: confetti and sparkles fire on each burst, rain, snow, embers and stars run continuously.",
-      props: { look: "particles" },
-      play: ready,
+    removed: {
+      note: "A removed row slides out upward and is drawn from its last props until it has left.",
+      props: { look: "removed" },
+      play: async (ctx) => {
+        await ready(ctx);
+        await ctx.click({ text: "Step" });
+      },
     },
   },
 });

@@ -1,4 +1,4 @@
-// Records the app scene motion gallery entry (apps.scene-motion: loops, springs, transitions,
+// Records the app scene motion gallery entry (apps.scene-effects: loops, springs, transitions,
 // shapes, particles) as one video, in Chromium, about 3 s per variant.
 // Usage: bun capture-scene-motion.mjs OUT_DIR [SECONDS_PER_VARIANT]
 // Writes scene-motion.webm (and one PNG per variant) to OUT_DIR. On a fleet host:
@@ -41,7 +41,7 @@ try {
     });
     const page = await context.newPage();
     for (const variant of variants) {
-      const url = `${baseUrl}/frame.html?entry=apps.scene-motion&variant=${variant}&colorScheme=dark&width=normal&frame=component`;
+      const url = `${baseUrl}/frame.html?entry=apps.scene-effects&variant=${variant}&colorScheme=dark&width=normal&frame=component`;
       await page.goto(url, { waitUntil: "domcontentloaded" });
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
         timeout: 90_000,

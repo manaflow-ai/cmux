@@ -159,12 +159,12 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       trailing: ["mic"],
     },
     {
-      name: "new-tab-codex",
+      name: "new-tab-saved-codex",
       entry: "agent-pane.new-tab",
       variant: "minimal-default",
       width: 760,
       look: "codex",
-      // The tray, as home-codex; the quiet row stands on +'s column.
+      // A saved Codex chat look leaves New Tab in Claude's layout.
       expect: ["foot"],
       trailing: ["mic", "send"],
       actionsGap: 2, // New Tab ships the tight arm of new-tab-composer-trailing-gap (Leo's pick)

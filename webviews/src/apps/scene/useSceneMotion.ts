@@ -1,19 +1,11 @@
 // Runs a scene node's declared motion on its element (cmux-app-host js/ABI.md "Motion"): value
-// animations from the value on screen when an animatable prop changes, and the enter and exit of
-// its `transition`. Each is one Web Animation started in a layout effect after the commit that
-// changed the prop, so the browser (Core Animation in WebKit) runs every frame and React renders
-// once per change, never per frame.
+// animations from the value on screen when an animatable prop changes. Each is one Web Animation
+// started in a layout effect after the commit that changed the prop, so the browser (Core
+// Animation in WebKit) runs every frame and React renders once per change, never per frame.
 import { useLayoutEffect, useRef, type RefObject } from "react";
-import {
-  sceneMotionEnv,
-  sceneTiming,
-  sceneTransition,
-  transitionAnimation,
-  type SceneMotionEnv,
-  type SceneTiming,
-} from "./motionProps";
+import { parseMotion, sceneMotionEnv, sceneTiming, type SceneMotionEnv, type SceneTiming } from "./motionProps";
 import { sceneNumber, sceneRecord } from "./sceneStyle";
-import type { SceneNode, SceneProps, SceneStore } from "./store";
+import type { SceneNode, SceneProps } from "./store";
 
 /** The computed property read, and the keyframe property it animates (border colors read one side). */
 const KEYFRAME_NAME: Record<string, string> = {
@@ -156,27 +148,21 @@ export type MotionPart = { ref: RefObject<Element | null>; properties: readonly 
 type MotionState = {
   track: MotionTrack;
   partTrack: MotionTrack;
-  entered: boolean;
-  exiting: boolean;
-  transition: Animation | null;
   props: SceneProps | null;
 };
 
 const newMotionState = (): MotionState => ({
   track: new MotionTrack(),
   partTrack: new MotionTrack(),
-  entered: false,
-  exiting: false,
-  transition: null,
   props: null,
 });
 
-export function useSceneMotion(
-  ref: RefObject<HTMLElement | null>,
-  node: SceneNode | undefined,
-  store: SceneStore,
-  part?: MotionPart,
-): void {
+/**
+ * Runs the node's `animation` when it is a motion token other than the motion scale's CSS steps
+ * (`smooth`, `snappy`, `none`, which scene.css runs as transitions), a spring or a timed curve.
+ * Entering and leaving (`transition`) are sceneMotion.tsx's, in CSS.
+ */
+export function useSceneMotion(ref: RefObject<HTMLElement | null>, node: SceneNode | undefined, part?: MotionPart): void {
   // One mutable record per mounted node, made in its first effect (nothing reads or writes it in render).
   const state = useRef<MotionState | null>(null);
 
@@ -185,40 +171,8 @@ export function useSceneMotion(
     const s = state.current;
     const element = ref.current;
     if (!node || !element) return;
-    const doc = element.ownerDocument;
-    const env = currentMotionEnv(doc);
-    const transition = sceneTransition(node.props.transition);
-
-    if (node.exiting) {
-      if (s.exiting) return;
-      s.exiting = true;
-      s.track.cancel();
-      s.partTrack.cancel();
-      s.transition?.cancel();
-      const opacity = Number.parseFloat(doc.defaultView?.getComputedStyle(element).opacity ?? "1");
-      const exit =
-        transition && canAnimate(element)
-          ? transitionAnimation(transition, true, Number.isFinite(opacity) ? opacity : 1, env, doc)
-          : null;
-      const finish = () => store.finishExit(node.id);
-      if (!exit) {
-        queueMicrotask(finish);
-        return;
-      }
-      const animation = element.animate(exit.keyframes, {
-        duration: exit.timing.duration,
-        easing: exit.timing.easing,
-        fill: "forwards",
-      });
-      s.transition = animation;
-      animation.onfinish = finish;
-      animation.oncancel = finish;
-      return;
-    }
-
-    const animated = node.props.animation !== undefined && node.props.animation !== null;
-    if (animated) {
-      const timing = sceneTiming(node.props.animation, env, doc);
+    if (parseMotion(node.props.animation)) {
+      const timing = sceneTiming(node.props.animation, currentMotionEnv(element.ownerDocument), element.ownerDocument);
       // A prop the app just cleared (a glow set to null) animates back too.
       const properties = [...new Set([...animatedProperties(s.props ?? {}), ...animatedProperties(node.props)])];
       s.track.update(element, properties, timing, TRACKED);
@@ -228,21 +182,7 @@ export function useSceneMotion(
       s.partTrack.update(null, [], null);
     }
     s.props = node.props;
-
-    if (!s.entered) {
-      s.entered = true;
-      if (transition && canAnimate(element)) {
-        const opacity = Number.parseFloat(doc.defaultView?.getComputedStyle(element).opacity ?? "1");
-        const enter = transitionAnimation(transition, false, Number.isFinite(opacity) ? opacity : 1, env, doc);
-        if (enter) {
-          s.transition = element.animate(enter.keyframes, {
-            duration: enter.timing.duration,
-            easing: enter.timing.easing,
-          });
-        }
-      }
-    }
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- a node snapshot is immutable: a new one is the only change; the refs and store are fixed
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- a node snapshot is immutable: a new one is the only change; the refs are fixed
   }, [node]);
 
   useLayoutEffect(

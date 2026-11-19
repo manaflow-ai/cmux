@@ -1,5 +1,6 @@
 // The motion contract on the web renderer (cmux-app-host js/ABI.md "Motion"): timings, CSS values,
-// the store's exits, the renderer's Web Animations and loops, and the particle field.
+// the renderer's Web Animations, `pop` and loops, and the particle field. Entering and leaving are
+// sceneMotion.tsx's (SceneRenderer.test.tsx).
 import { afterEach, describe, expect, test } from "bun:test";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -7,17 +8,19 @@ import { JSDOM } from "jsdom";
 import { fileURLToPath } from "node:url";
 import { settleReact } from "../../../test/support/domTeardown";
 import { SceneRenderer } from "./SceneRenderer";
-import { loopStyle, parseMotion, sceneTiming, springLinear, transitionAnimation, trimRange } from "./motionProps";
+import { loopStyle, parseMotion, sceneTiming, springLinear, trimRange } from "./motionProps";
 import { MAX_PARTICLES, ParticleField } from "./particleField";
 import { glowFilter, gradientImage, offsetTranslate } from "./sceneStyle";
 import { SceneStore, type SceneOp } from "./store";
 import { MotionTrack, resetMotionEnvCache } from "./useSceneMotion";
 
 const FULL = { mode: "full", speed: 1 } as const;
+const QUICK = { spring: { response: 0.3, dampingFraction: 0.8 } };
 
 describe("timings", () => {
   test("tokens resolve to the contract's springs, fade and clamps", () => {
-    expect(parseMotion("snappy")).toEqual({ spring: { response: 0.3, dampingFraction: 0.8 } });
+    // The motion scale's steps are scene.css transitions, not springs.
+    for (const step of ["smooth", "snappy", "none"]) expect(parseMotion(step)).toBeNull();
     expect(parseMotion("bouncy")).toEqual({ spring: { response: 0.45, dampingFraction: 0.6 } });
     expect(parseMotion("move")).toEqual({ spring: { response: 0.15, dampingFraction: 1 } });
     expect(parseMotion("fade")).toEqual({ duration: 0.12, curve: "easeOut" });
@@ -59,7 +62,9 @@ describe("props as CSS", () => {
       "linear-gradient(90deg, #FF0000, #0000FF)",
     );
     expect(gradientImage({ colors: ["#FF0000", "#0000FF"] })).toBe("linear-gradient(180deg, #FF0000, #0000FF)");
-    expect(gradientImage({ colors: ["accent"] })).toBe("linear-gradient(180deg, var(--agent-text), var(--agent-text))");
+    expect(gradientImage({ colors: ["accent"] })).toBe(
+      "linear-gradient(180deg, var(--cmux-accent, var(--agent-text)), var(--cmux-accent, var(--agent-text)))",
+    );
     expect(gradientImage({ colors: ["url(x)"] })).toBeUndefined();
   });
 
@@ -89,66 +94,6 @@ describe("props as CSS", () => {
     expect(loopStyle({ effect: "teleport" })).toBeUndefined();
   });
 
-  test("pop enters from 0.6 with a fade on the bouncy spring and exits on disappear", () => {
-    const enter = transitionAnimation("pop", false, 1, FULL)!;
-    expect(enter.keyframes).toEqual([
-      { transform: "scale(0.6)", opacity: 0 },
-      { transform: "none", opacity: 1 },
-    ]);
-    expect(enter.timing.duration).toBeCloseTo(springLinear({ response: 0.45, dampingFraction: 0.6 }).end * 1000);
-    const exit = transitionAnimation("slide", true, 1, FULL)!;
-    expect(exit.keyframes).toEqual([{ transform: "none" }, { transform: "translateX(100%)" }]);
-    expect(transitionAnimation("fade", false, 1, { mode: "reduced", speed: 1 })).toBeNull();
-  });
-});
-
-describe("store exits", () => {
-  const scene: SceneOp[] = [
-    { op: "create", id: "root", type: "VStack" },
-    { op: "create", id: "a", type: "Text", props: { text: "a", transition: "fade" } },
-    { op: "create", id: "b", type: "Text", props: { text: "b" } },
-    { op: "children", id: "root", children: ["a", "b"] },
-    { op: "root", id: "root" },
-  ];
-
-  test("a removed node with a transition stays in place, exiting, until finishExit", () => {
-    const store = new SceneStore();
-    store.apply(scene);
-    store.apply([
-      { op: "remove", id: "a" },
-      { op: "create", id: "c", type: "Text", props: { text: "c" } },
-      { op: "children", id: "root", children: ["c", "b"] },
-    ]);
-    expect(store.getNode("a")?.exiting).toBe(true);
-    expect(store.getNode("root")?.children).toEqual(["a", "c", "b"]);
-    store.finishExit("a");
-    expect(store.getNode("a")).toBeUndefined();
-    expect(store.getNode("root")?.children).toEqual(["c", "b"]);
-  });
-
-  test("a node without a transition, and the root, leave at once", () => {
-    const store = new SceneStore();
-    store.apply(scene);
-    store.apply([{ op: "remove", id: "b" }]);
-    expect(store.getNode("b")).toBeUndefined();
-    expect(store.getNode("root")?.children).toEqual(["a"]);
-    const lone = new SceneStore();
-    lone.apply([
-      { op: "create", id: "r", type: "Text", props: { transition: "pop" } },
-      { op: "root", id: "r" },
-    ]);
-    lone.apply([{ op: "remove", id: "r" }]);
-    expect(lone.getNode("r")).toBeUndefined();
-  });
-
-  test("removing the parent of an exiting node frees both", () => {
-    const store = new SceneStore();
-    store.apply(scene);
-    store.apply([{ op: "remove", id: "a" }]);
-    store.apply([{ op: "remove", id: "root" }]);
-    expect(store.getNode("a")).toBeUndefined();
-    store.finishExit("a");
-  });
 });
 
 describe("particles", () => {
@@ -297,7 +242,7 @@ const stack = (child: SceneOp & { op: "create" }): SceneOp[] => [
 describe("renderer", () => {
   test("a changed prop animates from the value on screen on the node's motion", () => {
     const view = render(
-      stack({ op: "create", id: "t", type: "Text", props: { text: "x", opacity: 0.2, animation: "snappy" } }),
+      stack({ op: "create", id: "t", type: "Text", props: { text: "x", opacity: 0.2, animation: QUICK } }),
     );
     expect(view.animations).toHaveLength(0);
     view.apply([{ op: "update", id: "t", props: { opacity: 1 } }]);
@@ -312,7 +257,7 @@ describe("renderer", () => {
     const view = render(stack({ op: "create", id: "t", type: "Text", props: { text: "x", opacity: 0.2 } }));
     view.apply([{ op: "update", id: "t", props: { opacity: 1 } }]);
     expect(view.animations).toHaveLength(0);
-    view.apply([{ op: "update", id: "t", props: { animation: "snappy" } }]);
+    view.apply([{ op: "update", id: "t", props: { animation: QUICK } }]);
     document.documentElement.dataset.cmuxMotion = "off";
     resetMotionEnvCache();
     view.apply([{ op: "update", id: "t", props: { opacity: 0.5 } }]);
@@ -348,22 +293,37 @@ describe("renderer", () => {
     expect(view.node("ring")!.style.borderStyle).toBe("");
   });
 
-  test("a transition enters on create, and a removed node stays until its exit ends", () => {
-    const view = render(stack({ op: "create", id: "t", type: "Text", props: { text: "x", transition: "pop" } }));
+  test("smooth and snappy are scene.css transitions: no Web Animation; a spring is one", () => {
+    const view = render(
+      stack({ op: "create", id: "t", type: "Text", props: { text: "x", opacity: 0.2, animation: "smooth" } }),
+    );
+    expect(view.node("t")!.dataset.animation).toBe("smooth");
+    view.apply([{ op: "update", id: "t", props: { opacity: 1 } }]);
+    expect(view.animations).toHaveLength(0);
+    view.apply([{ op: "update", id: "t", props: { animation: QUICK } }]);
+    view.apply([{ op: "update", id: "t", props: { opacity: 0.4 } }]);
+    expect(view.node("t")!.dataset.animation).toBeUndefined();
     expect(view.animations).toHaveLength(1);
-    expect(view.animations[0]!.keyframes[0]).toEqual({ transform: "scale(0.6)", opacity: 0 });
+  });
+
+  test("pop enters after the first frame and leaves, kept by its parent, as scene.css's other transitions", () => {
+    const view = render(stack({ op: "create", id: "t", type: "Text", props: { text: "x", transition: "pop" } }));
+    // The first scene draws without entering.
+    expect(view.node("t")!.dataset.entering).toBeUndefined();
     view.apply([
-      { op: "remove", id: "t" },
-      { op: "children", id: "root", children: [] },
+      { op: "create", id: "u", type: "Text", props: { text: "y", transition: "pop" } },
+      { op: "children", id: "root", children: ["t", "u"] },
     ]);
-    const exiting = view.node("t")!;
-    expect(exiting.dataset.exiting).toBe("");
-    const exit = view.animations.at(-1)!;
-    expect(exit.options.fill).toBe("forwards");
-    expect(exit.keyframes.at(-1)).toEqual({ transform: "scale(0.6)", opacity: 0 });
-    act(() => exit.animation.onfinish?.());
-    expect(view.node("t")).toBeNull();
-    expect(view.store.getNode("t")).toBeUndefined();
+    expect(view.node("u")!.dataset.transition).toBe("pop");
+    expect(view.node("u")!.dataset.entering).toBe("");
+    view.apply([
+      { op: "remove", id: "u" },
+      { op: "children", id: "root", children: ["t"] },
+    ]);
+    expect(view.node("u")!.dataset.leaving).toBe("");
+    expect(view.node("u")!.getAttribute("aria-hidden")).toBe("true");
+    // No Web Animation: the enter and leave are CSS.
+    expect(view.animations).toHaveLength(0);
   });
 
   test("Particles draws one canvas that takes no input", () => {

@@ -4,16 +4,7 @@ export type SceneNode = Readonly<{
   type: string;
   props: SceneProps;
   children: readonly string[];
-  /** Removed by the app, kept on screen while its `transition` exit runs (ABI.md "Motion"): the
-   * renderer plays the exit and then calls `finishExit`. */
-  exiting?: boolean;
 }>;
-
-/** The transitions that keep a removed node on screen until its exit ends. */
-const EXIT_TRANSITIONS = new Set(["fade", "scale", "slide", "pop"]);
-/** The longest an exit may hold a removed node (the contract's longest motion, 10 s, plus slack):
- * a renderer that never plays it (a hidden mount) still frees it. */
-const EXIT_FALLBACK_MS = 12_000;
 export type SceneOp =
   | { op: "create"; id: string; type: string; props?: SceneProps | null }
   | { op: "update"; id: string; props?: SceneProps | null }
@@ -80,17 +71,43 @@ export class SceneStore {
   // Height frequencies let one changed child update its ancestors without scanning their siblings.
   private readonly childHeights = new Map<string, Map<number, number>>();
   private root: string | undefined;
+  // Counts resets: a reset scene is a new tree, so the renderer draws it fresh (no enter or leave
+  // animation carried over from the old one).
+  private generation = 0;
+  // The generation whose first frame has committed (`SceneAppeared`): nodes created after it enter.
+  private drawn = -1;
+  // Removed nodes that leave with a `transition` (and their subtrees), as they last were: the
+  // renderer draws them from here until they have left (sceneMotion.tsx).
+  private readonly departed = new Map<string, SceneNode>();
   private readonly listeners = new Map<string, Set<Listener>>();
   private readonly rootListeners = new Set<Listener>();
   private status: SceneStatus = SCENE_LOADING;
   private readonly statusListeners = new Set<Listener>();
-  /** Nodes removed by the app whose exit transition is still on screen, with their fallback timers. */
-  private readonly exits = new Map<string, ReturnType<typeof setTimeout>>();
 
   getNode(id: string): SceneNode | undefined {
     return this.nodes.get(id);
   }
   getRoot = (): string | undefined => this.root;
+  getGeneration = (): number => this.generation;
+  markDrawn(generation: number): void {
+    this.drawn = generation;
+  }
+  hasDrawn(): boolean {
+    return this.drawn === this.generation;
+  }
+  getDeparted(id: string): SceneNode | undefined {
+    return this.departed.get(id);
+  }
+  /** Drops a departed node and its departed subtree once it has left. */
+  forgetDeparted(id: string): void {
+    const stack = [id];
+    while (stack.length) {
+      const next = this.departed.get(stack.pop()!);
+      if (!next) continue;
+      this.departed.delete(next.id);
+      stack.push(...next.children);
+    }
+  }
 
   subscribeNode(id: string, listener: Listener): () => void {
     let listeners = this.listeners.get(id);
@@ -132,34 +149,24 @@ export class SceneStore {
     const previousRoot = this.root;
     const changed = new Set<string>();
     if (reset) {
-      for (const timer of this.exits.values()) clearTimeout(timer);
-      this.exits.clear();
       for (const id of this.nodes.keys()) changed.add(id);
       this.nodes.clear();
       this.parents.clear();
       this.heights.clear();
       this.childHeights.clear();
       this.root = undefined;
+      this.departed.clear();
+      this.generation += 1;
     }
     for (const op of ops) this.applyOne(op, changed);
     for (const id of changed) {
       for (const listener of this.listeners.get(id) ?? []) listener();
     }
-    if (previousRoot !== this.root) for (const listener of this.rootListeners) listener();
+    if (reset || previousRoot !== this.root) for (const listener of this.rootListeners) listener();
     // After the scene's own listeners, as the host model sets its status after applying the batch.
     // A reset and its first root publish once: a failed mount whose new scene draws goes straight to ready.
     const status = reset ? sceneStatusReducer(this.status, { type: "reset" }) : this.status;
     this.publishStatus(sceneStatusReducer(status, { type: "scene", hasRoot: this.root !== undefined }));
-  }
-
-  /** Ends a removed node's exit: the node and its subtree leave the scene now. */
-  finishExit(id: string): void {
-    if (!this.exits.has(id)) return;
-    const changed = new Set<string>();
-    this.removeNow(id, changed);
-    for (const node of changed) {
-      for (const listener of this.listeners.get(node) ?? []) listener();
-    }
   }
 
   private write(node: SceneNode, changed: Set<string>): void {
@@ -171,6 +178,7 @@ export class SceneStore {
     switch (op.op) {
       case "create": {
         if (!op.id || this.nodes.has(op.id) || this.nodes.size >= MAX_NODES) return;
+        this.departed.delete(op.id);
         const props = Object.fromEntries(Object.entries(op.props ?? {}).filter(([, value]) => value !== null));
         this.write({ id: op.id, type: op.type, props, children: [] }, changed);
         this.heights.set(op.id, 1);
@@ -204,10 +212,6 @@ export class SceneStore {
           seen.add(id);
           return true;
         });
-        // A child still playing its exit keeps its place among the new children until it ends.
-        node.children.forEach((id, index) => {
-          if (this.exits.has(id) && !seen.has(id)) children.splice(Math.min(index, children.length), 0, id);
-        });
         const depth = this.depth(op.id);
         if (children.some((id) => depth + (this.heights.get(id) ?? 1) > MAX_DEPTH)) return;
         if (children.length === node.children.length && children.every((id, index) => id === node.children[index]))
@@ -229,23 +233,23 @@ export class SceneStore {
         return;
       }
       case "remove": {
-        const node = this.nodes.get(op.id);
-        // A node with an exit transition under a parent stays, marked exiting, until its exit ends.
-        if (
-          node &&
-          !this.exits.has(op.id) &&
-          this.parents.has(op.id) &&
-          typeof node.props.transition === "string" &&
-          EXIT_TRANSITIONS.has(node.props.transition)
-        ) {
-          this.exits.set(
-            op.id,
-            setTimeout(() => this.finishExit(op.id), EXIT_FALLBACK_MS),
-          );
-          this.write({ ...node, exiting: true }, changed);
-          return;
+        const previous = this.parents.get(op.id);
+        if (previous) this.detach(op.id, previous, changed);
+        const leaves = typeof this.nodes.get(op.id)?.props.transition === "string";
+        const stack = [op.id];
+        while (stack.length) {
+          const id = stack.pop()!;
+          const node = this.nodes.get(id);
+          if (!node) continue;
+          stack.push(...node.children);
+          if (leaves) this.keepDeparted(node);
+          this.nodes.delete(id);
+          this.parents.delete(id);
+          this.heights.delete(id);
+          this.childHeights.delete(id);
+          changed.add(id);
+          if (this.root === id) this.root = undefined;
         }
-        this.removeNow(op.id, changed);
         return;
       }
       case "root":
@@ -253,26 +257,14 @@ export class SceneStore {
     }
   }
 
-  private removeNow(id: string, changed: Set<string>): void {
-    const previous = this.parents.get(id);
-    if (previous) this.detach(id, previous, changed);
-    const stack = [id];
-    while (stack.length) {
-      const next = stack.pop()!;
-      const node = this.nodes.get(next);
-      if (!node) continue;
-      stack.push(...node.children);
-      const timer = this.exits.get(next);
-      if (timer !== undefined) {
-        clearTimeout(timer);
-        this.exits.delete(next);
-      }
-      this.nodes.delete(next);
-      this.parents.delete(next);
-      this.heights.delete(next);
-      this.childHeights.delete(next);
-      changed.add(next);
-      if (this.root === next) this.root = undefined;
+  private keepDeparted(node: SceneNode): void {
+    this.departed.delete(node.id);
+    this.departed.set(node.id, node);
+    // Bounded: the oldest go first (a leave lasts a fraction of a second).
+    while (this.departed.size > MAX_NODES) {
+      const oldest = this.departed.keys().next().value;
+      if (oldest === undefined) break;
+      this.departed.delete(oldest);
     }
   }
 

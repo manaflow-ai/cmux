@@ -183,6 +183,8 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
             }
         }))
     });
+    // Per-service byte rates for `cmux device traffic` (traffic.rs).
+    let _traffic = AbortTask(tokio::spawn(crate::traffic::run_sampler()));
     // Phones keep their WireGuard sessions when the Mac changes networks.
     let _network_watch = AbortTask(tokio::spawn(crate::netwatch::run()));
     // Live tunnels can roam even while signaling is unreachable. Rehome resends
@@ -281,8 +283,11 @@ async fn connect_once(
     // Cancellation on wake/network change must close the old socket and stop
     // its auxiliary tasks; dropping a SignalingClient alone does neither.
     signaling_now.send_replace(Some(signaling.clone()));
-    let mut lifetime =
-        ConnectionLifetime { signaling: signaling.clone(), tasks: Vec::new(), published: signaling_now.clone() };
+    let mut lifetime = ConnectionLifetime {
+        signaling: signaling.clone(),
+        tasks: Vec::new(),
+        published: signaling_now.clone(),
+    };
     tracing::info!(device_id = config.device_id, "signaling connected");
     // Sessions of the previous socket (WireGuard tunnels outlive it) send
     // their `bye` on this one now.

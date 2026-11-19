@@ -16,19 +16,22 @@ export interface ListSpec<T> {
   spacing?: number
 }
 
-/** A motion token, a spring, or a timed curve. Times in seconds, clamped to [0.05, 10]; damping to [0.3, 1]. */
+/** A motion scale step (`smooth`, `snappy`, `none`), a motion token, a spring, or a timed curve. Times in
+ * seconds, clamped to [0.05, 10]; damping to [0.3, 1]. */
 export type Motion =
-  | "move" | "appear" | "disappear" | "fade" | "snappy" | "bouncy"
+  | "smooth" | "snappy" | "none"
+  | "move" | "appear" | "disappear" | "fade" | "bouncy"
   | { spring: { response: number; dampingFraction: number } }
   | { duration: number; curve?: "easeOut" | "easeInOut" | "linear" }
 export type Offset = { x?: number; y?: number }
 export type Glow = { color: string; radius: number; opacity?: number }
-export type Gradient = { colors: string[]; angle?: number }
+/** The `gradient` modifier (angle 0 = left to right, 90 = top to bottom); a gradient `fill` or `background` is `SceneGradient`. */
+export type LinearGradient = { colors: string[]; angle?: number }
 export type Trim = { from?: number; to: number }
 export type LoopEffect = "pulse" | "breathe" | "spin" | "float" | "wiggle" | "bounce" | "shimmer"
 /** `period` in seconds; `amount` scales the effect's default amplitude. */
 export type Loop = { effect: LoopEffect; period?: number; amount?: number }
-export type Transition = "fade" | "scale" | "slide" | "pop"
+export type Transition = "opacity" | "slide" | "scale" | "move" | "pop"
 export type ParticlePreset = "confetti" | "sparkles" | "rain" | "snow" | "embers" | "stars"
 /** `rate` multiplies a continuous preset's emission (default 1); each increase of `burst` fires one burst. */
 export type ParticlesProps = {
@@ -70,6 +73,8 @@ export class ViewNode {
   secondary() { return this.set("color", "secondary") }
   lineLimit(v: Bindable<number>) { return this.set("lineLimit", v) }
   truncation(v: Bindable<"head" | "middle" | "tail">) { return this.set("truncation", v) }
+  /** Draws a line through the text (a done reminder, a struck price). */
+  strikethrough(v: Bindable<boolean> = true) { return this.set("strikethrough", v) }
   marquee(delaySeconds = 0.5) { return this.set("marquee", delaySeconds) }
   fade(width: Bindable<number>) { return this.set("fade", width) }
   // Layout
@@ -80,20 +85,25 @@ export class ViewNode {
   layoutPriority(v: Bindable<number>) { return this.set("layoutPriority", v) }
   fixedSize(axis: "both" | "horizontal" | "vertical" = "both") { return this.set("fixedSize", axis) }
   // Surface
-  background(v: Bindable<string | null>) { return this.set("background", v) }
+  /** A color token, `#RRGGBB[AA]`, or a gradient (`linearGradient(...)`, `radialGradient(...)`). */
+  background(v: Bindable<SceneFill | null>) { return this.set("background", v) }
   hoverBackground(v: Bindable<string | null>) { return this.set("hoverBackground", v) }
   cornerRadius(v: Bindable<number>) { return this.set("cornerRadius", v) }
   borderColor(v: Bindable<string | null>) { return this.set("borderColor", v) }
   borderWidth(v: Bindable<number>) { return this.set("borderWidth", v) }
   opacity(v: Bindable<number>) { return this.set("opacity", v) }
-  fill(v: Bindable<string | null>) { return this.set("fill", v) }
+  /** A shape's fill: a color token, `#RRGGBB[AA]`, or a gradient. */
+  fill(v: Bindable<SceneFill | null>) { return this.set("fill", v) }
   stroke(v: Bindable<string | null>) { return this.set("stroke", v) }
   strokeWidth(v: Bindable<number>) { return this.set("strokeWidth", v) }
   size(v: Bindable<number>) { return this.set("size", v) }
   rotation(degrees: Bindable<number>) { return this.set("rotation", degrees) }
   // Motion (ABI.md "Motion"): declared here, run by the host renderer at display rate, never ticked from JS.
-  /** Animate this node's animatable props from the value on screen whenever they change; `null` stops. */
-  animation(v: Bindable<Motion | null>) { return this.set("animation", v) }
+  /** Animates this node's own prop changes from the value on screen: `smooth` (the motion scale's
+   * standard step, the default), `snappy` (its micro step) and `none` animate opacity, colors,
+   * rotation and strikethrough; a motion token, a spring or a timed curve animates every animatable
+   * prop (ABI.md "Motion"), retargeting mid-flight. `null` stops. */
+  animation(v: Bindable<Motion | null> = "smooth") { return this.set("animation", v) }
   /** Scale about the node's center (1 = identity). */
   scale(v: Bindable<number>) { return this.set("scale", v) }
   /** Move the drawing by points without changing layout. */
@@ -103,17 +113,25 @@ export class ViewNode {
   /** A colored, zero-offset shadow around the node's shape; `null` removes it. */
   glow(v: Bindable<Glow | null>) { return this.set("glow", v) }
   /** A linear gradient fill (shapes) or background (stacks, panels); angle 0 = left to right, 90 (default) = top to bottom. */
-  gradient(v: Bindable<Gradient | null>) { return this.set("gradient", v) }
+  gradient(v: Bindable<LinearGradient | null>) { return this.set("gradient", v) }
   /** Draw only this fraction of a stroked shape's outline (a circle starts at 12 o'clock, clockwise). */
   trim(v: Bindable<Trim | null>) { return this.set("trim", v) }
   /** A host-run effect that repeats forever; `null` stops it. */
   loop(v: Bindable<Loop | null>) { return this.set("loop", v) }
-  /** How the node enters when created and leaves when removed (kept on screen until its exit ends). */
+  /** How the node comes in and goes out when a render adds or removes it (kept on screen until its
+   * exit ends): `opacity` fades, `slide` comes up from below and leaves upward, `scale` grows from
+   * 90 %, `move` slides in from the leading edge and out to the trailing one, `pop` grows from 60 %
+   * past full size and back. A node the first scene draws does not animate in. */
   transition(v: Bindable<Transition | null>) { return this.set("transition", v) }
   /** Clip the node's content (children, a sliding transition, a glow) to its frame and corner radius. */
   clipped(v: Bindable<boolean> = true) { return this.set("clipped", v) }
   cursor(v: "pointer" | "default") { return this.set("cursor", v) }
   help(v: Bindable<string>) { return this.set("help", v) }
+  // Motion: the host animates these (the app never runs a timer for them). Reduce Motion and
+  // cmux's calm motion turn each movement into a crossfade; motion off draws the end state.
+  /** How a Text's new content replaces the old: `numericText` rolls the changed digits (up when
+   * the number grows, down when it shrinks), `opacity` crossfades. */
+  contentTransition(v: "numericText" | "opacity") { return this.set("contentTransition", v) }
   // Behavior
   fixed() { return this.set("fixed", true) }
   destructive() { return this.set("destructive", true) }
@@ -126,6 +144,52 @@ export class ViewNode {
     this.menu = items
     return this
   }
+  // Symbols
+  /** How an `Icon`'s layers take color, as SF Symbols draw them: `monochrome` (the default: all in
+   * `color`), `hierarchical` (the layers in `color` at falling opacity), `palette` (the layers in
+   * `colors`, 1 to 3 tokens or `#RRGGBB[AA]`, in order) or `multicolor` (the symbol's own colors,
+   * a sun yellow and rain blue, with `color` where it has none). */
+  symbolRendering(mode: SymbolRendering, colors?: readonly string[]) {
+    if (!SYMBOL_RENDERINGS.includes(mode)) throw new TypeError(`symbolRendering: unknown mode ${JSON.stringify(mode)}`)
+    this.set("symbolRendering", mode)
+    if (colors === undefined) return this
+    if (!Array.isArray(colors) || colors.length < 1 || colors.length > 3 || !colors.every(isSceneColor))
+      throw new TypeError(`symbolRendering: colors must be 1 to 3 color tokens or #RRGGBB[AA], got ${JSON.stringify(colors)}`)
+    return this.set("symbolColors", [...colors])
+  }
+}
+
+// Fills: a color, or a gradient value the renderers validate the same way the builders below do.
+
+const SCENE_COLOR_TOKENS: readonly string[] = ["primary", "secondary", "tertiary", "accent", "separator", "success", "warning", "danger", "hover", "selected", "badge", "clear"]
+const HEX_COLOR = /^#[\da-f]{6}([\da-f]{2})?$/i
+const isSceneColor = (value: unknown): value is string => typeof value === "string" && (SCENE_COLOR_TOKENS.includes(value) || HEX_COLOR.test(value))
+
+/** A gradient for `background` and a shape's `fill`. */
+export type SceneGradient = { linear: { colors: string[]; angle?: number } } | { radial: { colors: string[] } }
+/** A color token, `#RRGGBB[AA]`, or a gradient. */
+export type SceneFill = string | SceneGradient
+export type SymbolRendering = "monochrome" | "hierarchical" | "palette" | "multicolor"
+const SYMBOL_RENDERINGS: readonly string[] = ["monochrome", "hierarchical", "palette", "multicolor"]
+
+function gradientStops(name: string, colors: readonly string[]): string[] {
+  if (!Array.isArray(colors) || colors.length < 2 || colors.length > 8 || !colors.every(isSceneColor))
+    throw new TypeError(`${name}: colors must be 2 to 8 color tokens or #RRGGBB[AA], got ${JSON.stringify(colors)}`)
+  return [...colors]
+}
+
+/** A linear gradient for `.background(...)` or a shape's `.fill(...)`: 2 to 8 stops (tokens or
+ * `#RRGGBB[AA]`) spaced evenly along `angle` degrees, the CSS way (0 up, 90 right, 180 down, the default). */
+export function linearGradient(colors: readonly string[], angle?: number): SceneGradient {
+  const stops = gradientStops("linearGradient", colors)
+  if (angle === undefined) return { linear: { colors: stops } }
+  if (typeof angle !== "number" || !Number.isFinite(angle)) throw new TypeError("linearGradient: angle must be a finite number of degrees")
+  return { linear: { colors: stops, angle } }
+}
+
+/** A radial gradient, an ellipse from the center out to the box's edges: 2 to 8 stops (tokens or `#RRGGBB[AA]`). */
+export function radialGradient(colors: readonly string[]): SceneGradient {
+  return { radial: { colors: gradientStops("radialGradient", colors) } }
 }
 
 type Children = Array<ViewNode | (() => unknown) | null | undefined | false>

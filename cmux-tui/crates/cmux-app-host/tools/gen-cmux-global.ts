@@ -61,6 +61,8 @@ const CLOUD_API_CALLS = [
   "cloud.owner.acpmux_person_holds",
   "cloud.owner.fork_run",
   "cloud.owner.github_app",
+  "cloud.owner.github_connect",
+  "cloud.owner.github_repos",
   "cloud.owner.handoff_begin_turn",
   "cloud.owner.handoff_open",
   "cloud.owner.handoff_wait",
@@ -495,19 +497,24 @@ declare function effect(fn: () => void): () => void
 declare function onCleanup(fn: () => void): void
 declare function untrack<T>(fn: () => T): T
 type Bindable<T> = T | (() => T)
+/** A gradient fill: 2 to 8 stops, each a color token or #RRGGBB[AA], spaced evenly; angle in degrees, the CSS way (0 up, 180 down, the default). */
+type CmuxGradient = { linear: { colors: string[]; angle?: number } } | { radial: { colors: string[] } }
+/** A color token, #RRGGBB[AA], or a gradient. */
+type CmuxFill = string | CmuxGradient
 interface CmuxView {
   font(v: Bindable<string | number>): this; weight(v: Bindable<string>): this; bold(): this; italic(): this; monospaced(): this
   color(v: Bindable<string | null>): this; secondary(): this; lineLimit(v: Bindable<number>): this; truncation(v: Bindable<"head" | "middle" | "tail">): this
-  marquee(delaySeconds?: number): this; fade(width: Bindable<number>): this
+  strikethrough(v?: Bindable<boolean>): this; marquee(delaySeconds?: number): this; fade(width: Bindable<number>): this
+  contentTransition(v: "numericText" | "opacity"): this
   padding(v?: Bindable<number | Record<string, number>>): this; paddingHorizontal(v: Bindable<number>): this; paddingVertical(v: Bindable<number>): this
   frame(v: Bindable<Record<string, number | string>>): this; layoutPriority(v: Bindable<number>): this; fixedSize(axis?: "both" | "horizontal" | "vertical"): this
-  background(v: Bindable<string | null>): this; hoverBackground(v: Bindable<string | null>): this; cornerRadius(v: Bindable<number>): this
+  background(v: Bindable<CmuxFill | null>): this; hoverBackground(v: Bindable<string | null>): this; cornerRadius(v: Bindable<number>): this
   borderColor(v: Bindable<string | null>): this; borderWidth(v: Bindable<number>): this; opacity(v: Bindable<number>): this
-  fill(v: Bindable<string | null>): this; stroke(v: Bindable<string | null>): this; strokeWidth(v: Bindable<number>): this; size(v: Bindable<number>): this
+  fill(v: Bindable<CmuxFill | null>): this; stroke(v: Bindable<string | null>): this; strokeWidth(v: Bindable<number>): this; size(v: Bindable<number>): this
   rotation(degrees: Bindable<number>): this; cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
   fixed(): this; destructive(): this; disabled(v?: Bindable<boolean>): this; onTap(fn: () => unknown): this; contextMenu(items: CmuxView[] | (() => CmuxView[])): this
-  /** Animate this node's animatable props (opacity, rotation, scale, offset, blur, trim, frame size, colors, glow, ProgressView value) from the value on screen whenever they change. */
-  animation(v: Bindable<CmuxMotion | null>): this
+  /** Animate this node's own prop changes from the value on screen: \`smooth\` (the default), \`snappy\` and \`none\` (the motion scale's steps) its opacity, colors, rotation and strikethrough; a motion token, spring or timed curve every animatable prop (opacity, rotation, scale, offset, blur, trim, frame size, colors, glow, ProgressView value). */
+  animation(v?: Bindable<CmuxMotion | null>): this
   /** Scale about the node's center (1 = identity). */
   scale(v: Bindable<number>): this
   /** Move the drawing by points without changing layout. */
@@ -517,29 +524,33 @@ interface CmuxView {
   /** A colored, zero-offset shadow around the node's shape; \`null\` removes it. */
   glow(v: Bindable<CmuxGlow | null>): this
   /** A linear gradient fill (shapes) or background (stacks, panels): angle 0 = left to right, 90 (default) = top to bottom. */
-  gradient(v: Bindable<CmuxGradient | null>): this
+  gradient(v: Bindable<CmuxLinearGradient | null>): this
   /** Draw only this fraction of a stroked Circle, Capsule, Rectangle or RoundedRectangle outline (a circle starts at 12 o'clock, clockwise). */
   trim(v: Bindable<CmuxTrim | null>): this
   /** A host-run effect that repeats forever with no JS; \`null\` stops it. Stops under Reduce Motion. */
   loop(v: Bindable<CmuxLoop | null>): this
-  /** How the node enters when created and leaves when removed (kept on screen until its exit ends). */
+  /** How the node enters when a render adds it (not on the first scene) and leaves when one removes it (kept on screen until its exit ends): opacity, slide (up from below), scale (from 90 %), move (from the leading edge), pop (from 60 %, past full size). */
   transition(v: Bindable<CmuxTransition | null>): this
   /** Clip the node's content (children, a sliding transition, a glow) to its frame and corner radius. */
   clipped(v?: Bindable<boolean>): this
+  /** How an Icon's layers take color, as SF Symbols draw them: monochrome (the default), hierarchical, palette (1 to 3 colors, in layer order) or multicolor (the symbol's own colors, the tint where it has none). */
+  symbolRendering(mode: "monochrome" | "hierarchical" | "palette" | "multicolor", colors?: readonly string[]): this
 }
-/** \`move\`, \`appear\`, \`disappear\`, \`fade\`: the design-token springs and fade; \`snappy\` = spring 0.3 s / 0.8; \`bouncy\` = spring 0.45 s / 0.6. Times in seconds, clamped to [0.05, 10]; damping to [0.3, 1]. */
+/** \`smooth\`, \`snappy\`, \`none\`: the motion scale's standard and micro steps, or none; \`move\`, \`appear\`, \`disappear\`, \`fade\`: the design-token springs and fade; \`bouncy\` = spring 0.45 s / 0.6. Times in seconds, clamped to [0.05, 10]; damping to [0.3, 1]. */
 type CmuxMotion =
-  | "move" | "appear" | "disappear" | "fade" | "snappy" | "bouncy"
+  | "smooth" | "snappy" | "none"
+  | "move" | "appear" | "disappear" | "fade" | "bouncy"
   | { spring: { response: number; dampingFraction: number } }
   | { duration: number; curve?: "easeOut" | "easeInOut" | "linear" }
 type CmuxOffset = { x?: number; y?: number }
 type CmuxGlow = { color: string; radius: number; opacity?: number }
-type CmuxGradient = { colors: string[]; angle?: number }
+/** The \`gradient\` modifier: angle 0 = left to right, 90 (default) = top to bottom. */
+type CmuxLinearGradient = { colors: string[]; angle?: number }
 type CmuxTrim = { from?: number; to: number }
 type CmuxLoopEffect = "pulse" | "breathe" | "spin" | "float" | "wiggle" | "bounce" | "shimmer"
 /** \`period\` in seconds; \`amount\` scales the effect's default amplitude. */
 type CmuxLoop = { effect: CmuxLoopEffect; period?: number; amount?: number }
-type CmuxTransition = "fade" | "scale" | "slide" | "pop"
+type CmuxTransition = "opacity" | "slide" | "scale" | "move" | "pop"
 type CmuxParticlePreset = "confetti" | "sparkles" | "rain" | "snow" | "embers" | "stars"
 /** \`rate\` multiplies a continuous preset's emission (default 1); each increase of \`burst\` fires one burst. */
 type CmuxParticlesProps = { preset: Bindable<CmuxParticlePreset>; colors?: Bindable<string[] | null>; rate?: Bindable<number>; burst?: Bindable<number> }
@@ -576,6 +587,10 @@ declare function Badge(text: Bindable<string | number>, tone?: Bindable<string>)
 declare function EmptyState(props: { title: Bindable<string>; message?: Bindable<string>; symbol?: Bindable<string> }): CmuxView
 declare function ForEach<T>(spec: CmuxListSpec<T>, template: (item: CmuxSignal<T>, key: string) => CmuxView): CmuxView
 declare function Reorderable<T>(spec: CmuxListSpec<T>, template: (item: CmuxSignal<T>, key: string) => CmuxView): CmuxView
+/** A linear gradient for .background(...) or a shape's .fill(...): 2 to 8 stops along angle degrees (0 up, 90 right, 180 down, the default). Throws on a bad stop or angle. */
+declare function linearGradient(colors: readonly string[], angle?: number): CmuxGradient
+/** A radial gradient: an ellipse from the center out to the box's edges, 2 to 8 stops. Throws on a bad stop. */
+declare function radialGradient(colors: readonly string[]): CmuxGradient
 `
   const scopesJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.fromEntries(Object.entries(scopes).sort(([a], [b]) => a.localeCompare(b))), never: never.sort() }, null, 2) + "\n"
   const opsJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.keys(scopes).sort() }, null, 2) + "\n"

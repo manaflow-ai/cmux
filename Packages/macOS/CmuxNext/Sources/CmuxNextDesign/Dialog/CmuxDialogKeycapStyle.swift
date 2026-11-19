@@ -2,13 +2,14 @@ import AppKit
 import CmuxNextDesignTokens
 
 /// How a keyed dialog button draws the key that presses it (Lawrence 2026-11-16 on the quit dialog's "esc" and "↩"
-/// chips: "still looks bad, come up with more variations, think about how linear would do it"). ``plate`` is the look
-/// every dialog draws today; the others are the Keycap Playground's candidates (``CmuxKeycapPlaygroundWindow``) until
-/// one is picked.
+/// chips: "still looks bad, come up with more variations, think about how linear would do it"). ``linearKbd`` is the
+/// look every dialog draws (picked from the Keycap Playground, Lawrence 2026-11-16); the others stay in the playground
+/// (``CmuxKeycapPlaygroundWindow``) to compare.
 enum CmuxDialogKeycapStyle: String, CaseIterable, Sendable {
-    /// Today's look: a plate the button's height less a 3 pt inset, its fill the title's ink at 14%.
+    /// The look before the pick: a plate the button's height less a 3 pt inset, its fill the title's ink at 14%.
     case plate
-    /// Linear's shortcut hint: a small 16 pt plate, a faint fill, the glyph at 11 pt, centred at the trailing end.
+    /// Linear's shortcut hint, the look every dialog draws: a small 16 pt plate, a faint fill, the glyph at 11 pt,
+    /// centred at the trailing end.
     case linearKbd
     /// No plate: the glyph after the title in the key hint's quieter ink, as a menu draws its keys.
     case plainGlyph
@@ -26,8 +27,8 @@ enum CmuxDialogKeycapStyle: String, CaseIterable, Sendable {
     /// The playground's name for the style.
     var title: String {
         switch self {
-        case .plate: "1. Plate (today)"
-        case .linearKbd: "2. Linear kbd"
+        case .plate: "1. Plate (before)"
+        case .linearKbd: "2. Linear kbd (shipped)"
         case .plainGlyph: "3. Plain glyph"
         case .faintFill: "4. Faint fill"
         case .hairline: "5. Hairline"
@@ -90,11 +91,11 @@ enum CmuxDialogKeycapStyle: String, CaseIterable, Sendable {
         }
     }
 
-    /// The glyph's point size, before the person's text size.
+    /// The glyph's point size, at the person's text size.
     var glyphSize: CGFloat {
         switch self {
-        case .linearKbd: 11
-        case .quietSmall: 10
+        case .linearKbd: 11 * Typography.userScale
+        case .quietSmall: 10 * Typography.userScale
         default: TypeScale.caption
         }
     }
