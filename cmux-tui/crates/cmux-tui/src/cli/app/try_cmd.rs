@@ -428,8 +428,8 @@ fn plan_human(plan: &Plan, commit: &str, app: &Path, app_commit: Option<&str>) -
             .replace("{app}", &app.to_string_lossy())
             .replace("{app_commit}", app_commit.unwrap_or_default()),
         Plan::Full { build, from, nearest } => {
-            if *nearest { messages.plan_full_nearest } else { messages.plan_full }
-                .replace("{build}", build.get_str("build").unwrap_or_default())
+            let text = if *nearest { messages.plan_full_nearest } else { messages.plan_full };
+            text.replace("{build}", build.get_str("build").unwrap_or_default())
                 .replace("{built}", short(build.get_str("commit").unwrap_or_default()))
                 .replace("{commit}", short(commit))
                 .replace("{from}", from)
