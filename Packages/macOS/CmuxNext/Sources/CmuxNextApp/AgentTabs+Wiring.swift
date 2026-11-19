@@ -8,6 +8,7 @@ import CmuxNextDaemonService
 import CmuxNextFloating
 import CmuxNextHomeEngine
 import CmuxNextTabs
+import CmuxNextWindowRules
 import enum CmuxNextLayout.ChatColumnPlacement
 import struct CmuxNextLayout.MainPaneLayout
 import Foundation
@@ -396,6 +397,11 @@ extension AgentTabStore {
             return reply
         }
         tabs.cloudCredentials = services.cloud.agentCredentials; services.cloud.agentCredentials.setup = services.cloud.setup // a start no Cloud start chose for (the CLI's) takes Cloud first use's pick
+        // Session Info's View screen for a joined machine's chat: the hub's record of the screen id its daemon reported.
+        tabs.screenDevice = { [weak services] id in
+            guard let device = services?.macScreenPages.hub?.devices.first(where: { $0.id.lowercased() == id.lowercased() }) else { return nil }
+            return WindowRules.ScreenShareDevice(id: device.id, platform: device.platform?.rawValue, online: device.online)
+        }
         tabs.remoteHostScoped = { [weak services, weak tabs] key in
             guard let services, let tabs, let (tab, _) = services.locateTab(key.key, onMachine: key.machine), let record = tab.agentSession else { return nil }
             let started = record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)

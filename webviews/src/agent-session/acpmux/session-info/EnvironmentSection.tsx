@@ -137,7 +137,7 @@ export function EnvironmentSection({
 }) {
   const t = useT();
   const machine = chatMachine(summary, machineName, peerKinds, place);
-  const screenSharing = useScreenSharing(summary?.sessionId, screenSharingKind(machine));
+  const screenSharing = useScreenSharing(summary?.sessionId, screenSharingKind(machine, summary?.peer));
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);

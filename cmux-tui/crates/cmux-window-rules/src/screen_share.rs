@@ -93,8 +93,16 @@ pub fn plan(facts: &Facts) -> Plan {
             || chat.host_kind.as_deref() == Some("chief")
             || (facts.kind == MachineKind::Local
                 && (chat.host_kind.as_deref() != Some("local") || !chat.local_summary_current))
-            || (matches!(facts.kind, MachineKind::Cloud | MachineKind::Remote)
+            || (facts.kind == MachineKind::Cloud
                 && (!named(&chat.registry_host) || chat.registry_host != chat.host))
+            // A joined machine's own chat records its install (`install:<id>`), not the registry
+            // host a Cloud start writes: the daemon being another machine's (a registry host) with
+            // no peer named and a remote host kind is its provenance. Its screen is then still
+            // the authenticated device below, never a name.
+            || (facts.kind == MachineKind::Remote
+                && (!named(&chat.registry_host)
+                    || !named(&chat.host)
+                    || chat.host_kind.as_deref() != Some("remote")))
         {
             return Plan::Refuse { reason: Refusal::UnresolvedChatHost };
         }
@@ -273,6 +281,43 @@ mod tests {
         assert_eq!(plan(&facts), Plan::Refuse { reason: Refusal::UnresolvedChatHost });
         facts.chat.as_mut().unwrap().local_summary_current = true;
         assert_eq!(plan(&facts), Plan::ShareLocal);
+    }
+
+    #[test]
+    fn a_joined_machines_own_chat_views_its_authenticated_screen() {
+        let mut facts = remote();
+        facts.chat = Some(Chat {
+            expected_session_id: "chat-a".into(),
+            session_id: "chat-a".into(),
+            peer: None,
+            host: Some("install:studio".into()),
+            host_kind: Some("remote".into()),
+            registry_host: Some("registry:studio-daemon".into()),
+            local_summary_current: false,
+        });
+        for platform in ["macos", "linux"] {
+            facts.device.as_mut().unwrap().platform = Some(platform.into());
+            assert_eq!(plan(&facts), Plan::ViewDevice { device_id: DEVICE.into() }, "{platform}");
+        }
+        facts.device.as_mut().unwrap().online = false;
+        assert_eq!(plan(&facts), Plan::Refuse { reason: Refusal::Offline });
+        facts.device.as_mut().unwrap().online = true;
+        // Not another machine's daemon, a peer's chat, or a Chief's: no screen of anyone.
+        let chat = facts.chat.clone().unwrap();
+        for broken in [
+            Chat { registry_host: None, ..chat.clone() },
+            Chat { peer: Some("other".into()), ..chat.clone() },
+            Chat { host_kind: Some("chief".into()), ..chat.clone() },
+            Chat { host_kind: Some("local".into()), ..chat.clone() },
+            Chat { host: None, ..chat.clone() },
+        ] {
+            facts.chat = Some(broken);
+            assert_eq!(plan(&facts), Plan::Refuse { reason: Refusal::UnresolvedChatHost });
+        }
+        // A daemon with no authenticated screen id has no device to view.
+        facts.chat = Some(chat);
+        facts.authenticated_device_id = None;
+        assert_eq!(plan(&facts), Plan::Refuse { reason: Refusal::NoDevice });
     }
 
     #[test]

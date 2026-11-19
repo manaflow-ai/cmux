@@ -199,7 +199,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const { shown, summary, onShowUsage } = props;
   const screenSharing = useScreenSharing(
     summary?.sessionId,
-    screenSharingKind(chatMachine(summary, props.machineName, props.peerKinds, props.place)),
+    screenSharingKind(chatMachine(summary, props.machineName, props.peerKinds, props.place), summary?.peer),
   );
   const imessage = useIMessage(shown);
   const imessageStatus = imessage?.data.status;

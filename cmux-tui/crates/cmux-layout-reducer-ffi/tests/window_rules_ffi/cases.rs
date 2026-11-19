@@ -659,6 +659,13 @@ fn screen_share_routes_only_the_explicit_machine_and_current_chat() {
     facts["authenticatedDeviceId"] = json!("removed");
     let (_, body) = call_json(c"window_remote_screen_share", &facts);
     assert_eq!(body, json!({"decision": "refuse", "reason": "noDevice"}));
+    // Session Info on a joined Linux machine's own chat (its install host, the daemon's registry host).
+    facts["authenticatedDeviceId"] = json!(device);
+    facts["device"]["platform"] = json!("linux");
+    facts["chat"] = json!({"expectedSessionId": "a", "sessionId": "a", "host": "install:studio",
+                           "hostKind": "remote", "registryHost": "registry:studio"});
+    let (_, body) = call_json(c"window_remote_screen_share", &facts);
+    assert_eq!(body, json!({"decision": "viewDevice", "deviceId": device}));
     facts["kind"] = json!("local");
     facts["chat"] = json!({"expectedSessionId": "a", "sessionId": "a", "peer": "studio"});
     let (_, body) = call_json(c"window_remote_screen_share", &facts);
