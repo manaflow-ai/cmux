@@ -223,7 +223,16 @@ class MainTests(unittest.TestCase):
 class WorkflowTests(unittest.TestCase):
     def test_sweeps_are_serialized_and_never_cancelled_mid_reconcile(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-        self.assertEqual(workflow["concurrency"], {"group": "ci-queue-janitor", "cancel-in-progress": False})
+        # Real sweeps share one group and wait; only a dispatched dry run,
+        # which cancels nothing, gets a group of its own (run 44277127205).
+        self.assertEqual(
+            workflow["concurrency"],
+            {
+                "group": "ci-queue-janitor${{ github.event_name == 'workflow_dispatch' && inputs.dry_run"
+                " && format('-dry-run-{0}', github.run_id) || '' }}",
+                "cancel-in-progress": False,
+            },
+        )
 
     def test_the_alert_step_uses_the_bot_token_and_adds_no_permission(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))

@@ -55,7 +55,9 @@ while IFS= read -r name; do
 done < <(grep -oE 'scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh' "$WORKFLOW" | sed 's#.*/##' | sort -u)
 for script in "${step_scripts[@]}"; do
   # A step script that signs (it reads SPARKLE_PRIVATE_KEY) must take it from the helper.
-  case "$(grep -c 'SPARKLE_PRIVATE_KEY' "$script")" in
+  # Comments do not read it: appcast-with-nearest-deltas.sh only lists the key it
+  # inherits from the step, which already took it from the helper.
+  case "$(grep -v '^[[:space:]]*#' "$script" | grep -c 'SPARKLE_PRIVATE_KEY')" in
     0) ;;
     *)
       grep -Eq 'SPARKLE_PRIVATE_KEY="\$\((bash "\$TOOLS/|\./)scripts/ci/nightly-sparkle-key\.sh"?\)"' "$script" || {

@@ -240,15 +240,18 @@ for bash_bin in "${candidates[@]}"; do
     fail "bash $version: script failed with SPARKLE_TOOLS_DIR: $(tail -n 5 "$out_dir/run-tools.log")"
   fi
   grep -q 'sparkle:edSignature' "$out_dir/appcast-tools.xml" || fail "bash $version: SPARKLE_TOOLS_DIR appcast lacks sparkle:edSignature"
+  # Each pinned run gets its own empty tools cache: the script keeps a verified tarball in
+  # ~/Library/Caches/cmux-ci/sparkle, so a shared one made the bad-checksum run read the
+  # cache (an extra checksum call) and left the fixture tarball in the runner's home.
   pinned_calls="$out_dir/pinned-calls"
   : > "$pinned_calls"
-  if ! run_script "$bash_bin" "$out_dir/appcast-pinned.xml" env -u SPARKLE_TOOLS_DIR -u SPARKLE_PREVIOUS_ARCHIVES_DIR SPARKLE_VERSION=2.8.1 CMUX_TEST_PINNED_CALLS="$pinned_calls" PATH="$PINNED_BIN:$HDI_BIN:$PATH" >"$out_dir/run-pinned.log" 2>&1; then
+  if ! run_script "$bash_bin" "$out_dir/appcast-pinned.xml" env -u SPARKLE_TOOLS_DIR -u SPARKLE_PREVIOUS_ARCHIVES_DIR SPARKLE_VERSION=2.8.1 SPARKLE_TOOLS_CACHE_DIR="$out_dir/sparkle-cache-pinned" CMUX_TEST_PINNED_CALLS="$pinned_calls" PATH="$PINNED_BIN:$HDI_BIN:$PATH" >"$out_dir/run-pinned.log" 2>&1; then
     fail "bash $version: pinned download path failed: $(tail -n 5 "$out_dir/run-pinned.log")"
   fi
   [ "$(paste -sd, "$pinned_calls")" = download,checksum,extract ] || fail "pinned tools did not download, verify, then extract"
   grep -q 'sparkle:edSignature' "$out_dir/appcast-pinned.xml" || fail "pinned download path produced no signed appcast"
   : > "$pinned_calls"
-  if run_script "$bash_bin" "$out_dir/appcast-bad-checksum.xml" env -u SPARKLE_TOOLS_DIR -u SPARKLE_PREVIOUS_ARCHIVES_DIR SPARKLE_VERSION=2.8.1 CMUX_TEST_PINNED_SHA=bad CMUX_TEST_PINNED_CALLS="$pinned_calls" PATH="$PINNED_BIN:$HDI_BIN:$PATH" >"$out_dir/run-bad-checksum.log" 2>&1; then
+  if run_script "$bash_bin" "$out_dir/appcast-bad-checksum.xml" env -u SPARKLE_TOOLS_DIR -u SPARKLE_PREVIOUS_ARCHIVES_DIR SPARKLE_VERSION=2.8.1 SPARKLE_TOOLS_CACHE_DIR="$out_dir/sparkle-cache-bad" CMUX_TEST_PINNED_SHA=bad CMUX_TEST_PINNED_CALLS="$pinned_calls" PATH="$PINNED_BIN:$HDI_BIN:$PATH" >"$out_dir/run-bad-checksum.log" 2>&1; then
     fail "bash $version: mismatched pinned tarball checksum was accepted"
   fi
   [ "$(paste -sd, "$pinned_calls")" = download,checksum ] || fail "mismatched pinned tarball was extracted"

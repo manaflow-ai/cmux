@@ -461,8 +461,11 @@ def check_wiring():
     index = next(i for i, s in enumerate(steps) if s.get("id") == "current")
     # The re-check uses the workflow token directly; the routing App is reserved
     # for runner placement and must not spend its Actions quota here.
-    before = [s.get("id") or str(s.get("uses", "")).split("@")[0] for s in steps[:index]]
-    _check(before == ["actions/checkout"], "the daemon tests re-check immediately after checkout")
+    # The only step allowed between them is the reused self-hosted checkout repair
+    # (a git reset, no network), which every job on the owned GCP lanes runs first.
+    before = [s.get("id") or str(s.get("uses", "")).split("@")[0] or s.get("name") for s in steps[:index]]
+    _check(before in (["actions/checkout"], ["actions/checkout", "Repair a reused self-hosted checkout"]),
+           "the daemon tests re-check immediately after checkout")
     current = steps[index]
     _check(str(current.get("if")) == "github.event_name == 'push'", "only push runs re-check")
     for later in steps[index + 1:]:
