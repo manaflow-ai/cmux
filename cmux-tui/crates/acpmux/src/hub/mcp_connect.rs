@@ -418,10 +418,10 @@ impl McpConnects {
     }
 }
 
-/// Writes `bytes` to `path` through a temporary file and a rename, with `mode`.
+/// Writes `bytes` to `path` through a temporary file and a rename, with `mode`
+/// (the Unix file mode; see [`temp_file_options`] for Windows).
 fn write_file(path: &std::path::Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
     use std::io::Write as _;
-    use std::os::unix::fs::OpenOptionsExt as _;
     let dir = path.parent().ok_or_else(|| std::io::Error::other("no folder"))?;
     std::fs::create_dir_all(dir)?;
     let tmp = dir.join(format!(
@@ -429,23 +429,78 @@ fn write_file(path: &std::path::Path, bytes: &[u8], mode: u32) -> std::io::Resul
         path.file_name().and_then(|n| n.to_str()).unwrap_or("f"),
         std::process::id()
     ));
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(mode)
-        .open(&tmp)?;
+    let mut f = temp_file_options(mode).open(&tmp)?;
     f.write_all(bytes)?;
     f.sync_all()?;
     std::fs::rename(&tmp, path)
 }
 
+/// How [`write_file`] opens its temporary file: made, or cut to nothing, with `mode`.
+#[cfg(unix)]
+fn temp_file_options(mode: u32) -> std::fs::OpenOptions {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true).mode(mode);
+    options
+}
+/// Windows has no file mode: the file takes the access list of its folder
+/// ([`private_folder`] for a secret's).
+#[cfg(windows)]
+fn temp_file_options(_mode: u32) -> std::fs::OpenOptions {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    options
+}
+
 /// [`write_file`] at 0600 in a 0700 folder (a secret).
 fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        private_folder(dir)?;
     }
     write_file(path, bytes, 0o600)
+}
+
+/// Makes `dir` if it is missing and sets it to 0700.
+#[cfg(unix)]
+fn private_folder(dir: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::create_dir_all(dir)?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+}
+/// Windows: the folder gets the owner-only access list (`owner_only.rs`), which a file made in
+/// it takes. The file is not made with a list of its own.
+#[cfg(windows)]
+fn private_folder(dir: &std::path::Path) -> std::io::Result<()> {
+    crate::owner_only::create_dir_all(dir)?;
+    crate::owner_only::restrict(dir)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::{write_file, write_private};
+    use std::os::unix::fs::PermissionsExt as _;
+
+    fn mode(path: &std::path::Path) -> std::io::Result<u32> {
+        Ok(std::fs::metadata(path)?.permissions().mode() & 0o777)
+    }
+
+    #[test]
+    fn mcp_connect_a_secret_is_a_0600_file_in_a_0700_folder() -> std::io::Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let secrets = tmp.path().join("secrets");
+        let secret = secrets.join("a.json");
+        write_private(&secret, b"one")?;
+        // A second write replaces the file and leaves no temporary file beside it.
+        write_private(&secret, b"two")?;
+        assert_eq!(std::fs::read(&secret)?, b"two");
+        assert_eq!(mode(&secret)?, 0o600);
+        assert_eq!(mode(&secrets)?, 0o700);
+        assert_eq!(std::fs::read_dir(&secrets)?.count(), 1);
+        // A record is not a secret. The process's umask can take bits from 0644, never add any.
+        let record = tmp.path().join("servers").join("a.json");
+        write_file(&record, b"{}", 0o644)?;
+        assert_eq!(mode(&record)? & !0o644, 0);
+        assert_eq!(mode(&record)? & 0o600, 0o600);
+        Ok(())
+    }
 }

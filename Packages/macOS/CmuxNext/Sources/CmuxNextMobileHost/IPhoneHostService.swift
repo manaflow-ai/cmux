@@ -46,6 +46,14 @@ public final class IPhoneHostService {
         var stackProjectID: String
         /// Per-bundle state (device id, hostd log).
         var stateDirectory: URL
+        /// The name this Mac's identity key is kept under in the Keychain
+        /// (``MobileHostPairedStore/sealName(bundleID:storageNamespace:adHocCode:)`` without the code): the
+        /// bundle id, and a dev build's Cloud backend namespace with it. A re-signed build that may not read
+        /// it keeps its key in the state folder's file instead (``MobileHostMacIdentityStore``).
+        var keychainName: String?
+        /// The name the paired list is sealed under: ``keychainName``, and an ad hoc build's own code with
+        /// it, so each ad hoc build reads the seal it made (``MobileHostPairedStore/sealName(bundleID:storageNamespace:adHocCode:)``).
+        var pairingSealName: String?
         var accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
         /// The app's own cmux-tui daemon socket.
         var daemonSocket: @MainActor () async throws -> String
@@ -167,6 +175,8 @@ public final class IPhoneHostService {
     /// The pre-approval behind this Mac's pairing code (``pairInvite()``): a phone presenting the
     /// live one pairs without the prompt, once.
     @ObservationIgnored var pairTokens = MobileHostPairTokens()
+    /// Pair requests that came before the paired list was in, answered once it is (``MobileHostHeldPairRequests``).
+    @ObservationIgnored var heldPairRequests = MobileHostHeldPairRequests()
     /// This Mac's identity public key, as hostd proves it to phones (nil until hostd started).
     @ObservationIgnored private(set) var macPublicKey: Data?
     /// The open "Allow … to connect?" dialog: its dialog id and the request it shows.
@@ -237,6 +247,7 @@ public final class IPhoneHostService {
                 guard let self else { return }
                 paired = self.pairedStore.current
                 pushPaired()
+                answerHeldPairRequests()
             }
         }
         wakeObserver = MainActorObservation(NSWorkspace.didWakeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
@@ -623,7 +634,11 @@ public final class IPhoneHostService {
                 // The key phones pin for this Mac (Keychain; created on first use), read off the
                 // main actor: a Keychain call must never hold launch (a re-signed rig app's access
                 // prompt did, and the watchdog killed it).
-                let store = MobileHostMacIdentityStore(bundleID: dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
+                // Named for this build (keychainName), never for the folder above the state folder: with a
+                // backend namespace that folder is the namespace, one login item every dev build on that
+                // backend shared, readable only by the build that made it (-25293 for the others).
+                let store = MobileHostMacIdentityStore(bundleID: dependencies.keychainName
+                                                       ?? dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
                                                 stateDirectory: dependencies.stateDirectory, loginKeychain: loginKeychain)
                 // task-owner: one Keychain read per hostd start; awaited here
                 if self?.identityRefusalsKey != key { self?.identityRefusals = 0; self?.identityBackoff.reset() }
