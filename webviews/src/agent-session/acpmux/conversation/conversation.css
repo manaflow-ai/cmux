@@ -280,6 +280,21 @@
 /* The transcript look's plain prompt (userMessage.style plain, conversation/transcriptLook.ts): no
    glass, no corner, a 2px rule in the card ring at its leading edge, drawn inset so it takes no room;
    its padding, share and left alignment come in --cv-user-* like any look's. */
+/* A transcript look's prompt face and size (chatDisplay.ts `--cv-prompt-*`, `userMessage.font` and
+   `userMessage.fontSize`; Claude keeps your messages in the sans beside its serif replies): the chat's
+   font, size and line rebound inside the bubble. model.ts measures prompts with them (ChatMetrics
+   `prompt`). */
+:root[data-transcript-prompt-font] .cv-user__bubble {
+  --cv-font: var(--cv-prompt-font);
+  font-family: var(--cv-font);
+  letter-spacing: var(--cv-prompt-tracking, var(--cv-tracking, 0px));
+}
+:root[data-transcript-prompt-size] .cv-user__bubble {
+  --cv-font-size: var(--cv-prompt-font-size);
+  --cv-line-height: var(--cv-prompt-line-height);
+  font-size: var(--cv-font-size);
+  line-height: var(--cv-line-height);
+}
 :root[data-transcript-user="plain"] .cv-user__bubble {
   --glass-tint: transparent;
   /* glass-opaque-allow: plain has no fill under Reduce Transparency either */
@@ -1227,6 +1242,16 @@
 .cv-md.cv-reply {
   font-family: var(--cv-reply-font, var(--cv-font));
   letter-spacing: var(--cv-reply-tracking, var(--cv-tracking, 0px));
+}
+/* A transcript look's reply size (chatDisplay.ts `--cv-reply-font-size`, `reply.fontSize`; Claude's
+   replies read a size up from its chrome): the chat's size and line rebound inside the reply, so its
+   paragraphs, lists and headings follow; code keeps its own sizes. model.ts measures replies with
+   the same numbers (ChatMetrics `reply`). */
+:root[data-transcript-reply-size] .cv-md.cv-reply {
+  --cv-font-size: var(--cv-reply-font-size);
+  --cv-line-height: var(--cv-reply-line-height);
+  font-size: var(--cv-font-size);
+  line-height: var(--cv-line-height);
 }
 /* A code block's header (its language, its buttons) is chrome, not prose: the chat's font, as in a
    prompt, never the reply's serif. Without a pack the two are the same font. */

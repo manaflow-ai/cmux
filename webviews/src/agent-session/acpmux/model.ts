@@ -1642,12 +1642,23 @@ export type ConversationLayout = {
 /// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
-const metrics = () => currentChatMetrics();
-/// Whether the row being measured is the agent's reply, whose prose a font pack can set apart
-/// (chatDisplay.ts `replyMeasureFont`, conversation.css `.cv-reply`); layoutConversation sets it around each row.
-let measuringReply = false;
-/// The canvas font of the text being measured: the reply's while a reply is, else the chat's.
-const proseFont = () => (measuringReply ? metrics().replyMeasureFont : metrics().measureFont);
+/// While a reply or a prompt is measured, its own text (a transcript look's `reply.*` and
+/// `userMessage.font*`, chatDisplay.ts ChatMetrics `reply` and `prompt`; conversation.css rebinds the
+/// same font, size and line inside `.cv-reply` and `.cv-user__bubble`).
+const metrics = (): ChatMetrics => {
+  const base = currentChatMetrics();
+  if (measuringPart === null) return base;
+  // A reply's prose measures in `replyMeasureFont` (proseFont); its line is the reply's own.
+  if (measuringPart === "reply") return { ...base, lineHeight: base.reply.lineHeight };
+  return { ...base, measureFont: base.prompt.measureFont, lineHeight: base.prompt.lineHeight };
+};
+/// Which part's row is being measured: the agent's reply, whose prose a font pack or a look can set
+/// apart (chatDisplay.ts `replyMeasureFont`, conversation.css `.cv-reply`), or the person's prompt;
+/// layoutConversation sets it around each row.
+let measuringPart: "reply" | "prompt" | null = null;
+/// The canvas font of the text being measured: the reply's while a reply is, else the chat's (or
+/// the prompt's).
+const proseFont = () => (measuringPart === "reply" ? metrics().replyMeasureFont : metrics().measureFont);
 /// Codex's user bubble keeps 10px padding on each side, at the chat's density text scale (`.cv-user__bubble`:
 /// the grid's Interface Size scale times the bubble's own, which together are the text scale).
 /// A transcript look's padding (conversation/transcriptLook.ts userBubbleBox) replaces the 10 per side.
@@ -3557,7 +3568,7 @@ export function layoutConversation(
         remembered = true;
       } else {
         // A reply's text measures in the reply's face (`proseFont`).
-        measuringReply = row.kind === "assistant";
+        measuringPart = row.kind === "assistant" ? "reply" : row.kind === "user" ? "prompt" : null;
         try {
           height = custom
             ? customHeight
@@ -3574,7 +3585,7 @@ export function layoutConversation(
                   edge?.endsWith(ACTIONS_EDGE) === true,
                 );
         } finally {
-          measuringReply = false;
+          measuringPart = null;
         }
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
@@ -4031,6 +4042,7 @@ import {
   chatDensityTextScale,
   chatDisplay,
   currentChatMetrics,
+  type ChatMetrics,
   promptCoachEnabled,
   transcriptGapScale,
 } from "./chatDisplay";

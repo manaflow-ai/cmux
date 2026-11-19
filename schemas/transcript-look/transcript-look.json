@@ -14,6 +14,14 @@
      "description": "The text size. agentPane.display.font.size, when set, wins."},
     {"name": "lineHeight", "kind": "number", "min": 1.2, "max": 2.4, "unit": "fraction", "default": 1.625,
      "description": "The line height, times the text size. agentPane.display.font.lineHeight, when set, wins."},
+    {"name": "reply.font", "kind": "choice", "choices": ["system", "serif", "mono"], "default": "system",
+     "description": "The agent's reply prose face: the interface sans, a system serif or the code face. Code and the reply's chrome keep theirs. Unset, the reply draws in the chat's face. A font pack's prose family wins; agentPane.display.font.preset, when you set it, wins over a look's value."},
+    {"name": "reply.fontSize", "kind": "number", "min": 10, "max": 28, "unit": "points", "default": 14,
+     "description": "The agent's reply prose size, on lines of lineHeight times it. Unset, the chat's text size. agentPane.display.font.size, when you set it, wins over a look's value."},
+    {"name": "userMessage.font", "kind": "choice", "choices": ["system", "serif", "mono"], "default": "system",
+     "description": "Your messages' face. Unset, the chat's face. agentPane.display.font.preset, when you set it, wins over a look's value."},
+    {"name": "userMessage.fontSize", "kind": "number", "min": 10, "max": 28, "unit": "points", "default": 14,
+     "description": "Your messages' size, on lines of lineHeight times it. Unset, the chat's text size. agentPane.display.font.size, when you set it, wins over a look's value."},
     {"name": "userMessage.style", "kind": "choice", "choices": ["bubble", "plain"], "default": "bubble",
      "description": "Your messages: a filled bubble, or plain text with a rule at its leading edge."},
     {"name": "userMessage.align", "kind": "choice", "choices": ["right", "left"], "default": "right",
@@ -41,9 +49,10 @@
   ],
   "looks": [
     {"name": "cmux", "title": "cmux", "description": "The chat as cmux draws it: the default.", "tokens": {}},
-    {"name": "claude", "title": "Claude", "description": "Room to read: a narrower column, larger text, quiet tool lines with no icons, soft bubbles and rounded cards.",
+    {"name": "claude", "title": "Claude", "description": "Room to read: a narrower column, replies in a serif and your messages in the sans, larger text, quiet tool lines with no icons, soft bubbles and rounded cards.",
      "tokens": {
        "density": "comfortable", "messageWidth": 720, "font": "system", "fontSize": 15, "lineHeight": 1.4,
+       "reply.font": "serif", "reply.fontSize": 16, "userMessage.font": "system", "userMessage.fontSize": 15,
        "userMessage.style": "bubble", "userMessage.align": "right", "userMessage.maxWidth": 0.8,
        "userMessage.radius": 16, "userMessage.paddingBlock": 10, "userMessage.paddingInline": 16, "userMessage.fill": 0.04,
        "toolCards": "minimal", "toolCard.radius": 12, "toolCard.border": "hairline", "codeCard.radius": 12, "timestamps": "hover"

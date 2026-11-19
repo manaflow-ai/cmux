@@ -42,7 +42,10 @@ import {
   transcriptLookAttributes,
   transcriptLookDisplayFallbacks,
   transcriptLookVariables,
+  transcriptPartType,
+  transcriptPartTypeFromTokens,
   type ResolvedTranscriptLook,
+  type TranscriptPartType,
 } from "./conversation/transcriptLook";
 
 /// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
@@ -102,6 +105,13 @@ export interface ChatDisplay {
   /// The transcript's look (conversation/transcriptLook.ts: `agentPane.display.transcriptLook` and
   /// its token overrides). Part of the measured look: its bubble padding, share and gaps move rows.
   transcriptLook: ResolvedTranscriptLook;
+  /// The agent's reply prose apart from the chat's text (the look's `reply.font` and
+  /// `reply.fontSize`; Claude's replies are a serif): null for the chat's face or size.
+  replyFont: ChatFontPreset | null;
+  replyFontSize: number | null;
+  /// The person's prompts apart from the chat's text (`userMessage.font`, `userMessage.fontSize`).
+  promptFont: ChatFontPreset | null;
+  promptFontSize: number | null;
 }
 
 /// Settings > Agent Chat > Session Info (Swift AgentPaneDisplaySettingsSchema has the same row).
@@ -225,6 +235,10 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   minimal: false,
   environmentPlacement: "left",
   transcriptLook: DEFAULT_RESOLVED_TRANSCRIPT_LOOK,
+  replyFont: null,
+  replyFontSize: null,
+  promptFont: null,
+  promptFontSize: null,
 };
 
 /// The body font stacks, as the Markdown viewer's presets (pages/markdown/settings.ts).
@@ -281,6 +295,14 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
         ? (values[MARKDOWN_FOLLOWED.font] as ChatFontPreset)
         : "system";
   const codeFamily = family(values[CHAT_DISPLAY.codeFamily.key]) ?? family(values[MARKDOWN_FOLLOWED.codeFamily]);
+  // The reply's and the prompt's own face and size: the person's tokens, else the look's unless the
+  // person set the chat's font or size themselves (then their whole-chat choice wins over a look's).
+  const partType = transcriptPartType(transcriptLook);
+  const partFromTokens = transcriptPartTypeFromTokens(values);
+  const ownFont = isPreset(own) || own === "markdown";
+  const ownSize = number(values[CHAT_DISPLAY.fontSize.key], CHAT_DISPLAY.fontSize) !== null;
+  const part = <K extends keyof TranscriptPartType>(key: K, personSet: boolean) =>
+    (partFromTokens[key] || !personSet ? partType[key] : undefined) ?? null;
   return {
     harnessPlacement: harnessPlacement(values[HARNESS_PLACEMENT_KEY]),
     managedHarnessPlacement: harnessPlacement(values[`${HARNESS_PLACEMENT_KEY}.managed`]),
@@ -311,15 +333,30 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       ? values[ENVIRONMENT_PLACEMENT_KEY]
       : DEFAULT_CHAT_DISPLAY.environmentPlacement,
     transcriptLook,
+    replyFont: part("replyFont", ownFont),
+    replyFontSize: part("replyFontSize", ownSize),
+    promptFont: part("promptFont", ownFont),
+    promptFontSize: part("promptFontSize", ownSize),
   };
+}
+
+/// One part of the transcript's text as the estimator measures it.
+export interface PartMetrics {
+  measureFont: string;
+  lineHeight: number;
 }
 
 /// The sizes the conversation draws at, in px, for the estimator and the CSS.
 export interface ChatMetrics {
   /// The canvas font the estimator measures prose with.
   measureFont: string;
-  /// The canvas font of the agent's replies: `measureFont` unless a font pack's prose family is set.
+  /// The canvas font of the agent's replies: `measureFont` unless a font pack's prose family or the
+  /// look's reply face or size is set.
   replyMeasureFont: string;
+  /// The reply's and the prompt's text: their canvas font and line, the chat's unless the look sets
+  /// their own (`reply.*`, `userMessage.font*`). model.ts measures each row kind with its own.
+  reply: PartMetrics;
+  prompt: PartMetrics;
   lineHeight: number;
   inlineCodeSize: number;
   blockCodeSize: number;
@@ -345,7 +382,8 @@ let densityTextScale = readDensityTextScale();
 
 /// The chat's drawn font size: the person's, at the density's text scale, in quarter pixels.
 export const drawnFontSize = (display: ChatDisplay, scale: number = densityTextScale): number =>
-  Math.round(display.fontSize * scale * 4) / 4;
+  drawnSize(display.fontSize, scale);
+const drawnSize = (size: number, scale: number): number => Math.round(size * scale * 4) / 4;
 
 export function chatMetrics(display: ChatDisplay, density: number = densityTextScale): ChatMetrics {
   const fontSize = drawnFontSize(display, density);
@@ -358,9 +396,25 @@ export function chatMetrics(display: ChatDisplay, density: number = densityTextS
   // A reply in a pack's prose family falls back to the chat's font (`--cv-reply-font`); its family
   // counts once its face has loaded.
   const prose = display.proseFamily ? measurableStack(display.proseFamily) : "";
+  const faceStack = (face: ChatFontPreset | null) =>
+    face === null
+      ? stack
+      : face === "system"
+        ? chatUiMeasureStack(display.uiFont, display.uiFamily)
+        : MEASURE_STACKS[face];
+  const sized = (size: number | null) => (size === null ? fontSize : drawnSize(size, density));
+  const replySize = sized(display.replyFontSize);
+  const replyStack = faceStack(display.replyFont);
+  const replyMeasureFont = `${replySize}px ${prose ? `${prose}, ${replyStack}` : replyStack}`;
+  const promptSize = sized(display.promptFontSize);
   return {
     measureFont: `${fontSize}px ${stack}`,
-    replyMeasureFont: `${fontSize}px ${prose ? `${prose}, ${stack}` : stack}`,
+    replyMeasureFont,
+    reply: { measureFont: replyMeasureFont, lineHeight: round(replySize * display.lineHeight) },
+    prompt: {
+      measureFont: `${promptSize}px ${faceStack(display.promptFont)}`,
+      lineHeight: round(promptSize * display.lineHeight),
+    },
     lineHeight: round(fontSize * display.lineHeight),
     inlineCodeSize: round(inline),
     blockCodeSize: round(block),
@@ -382,10 +436,23 @@ export function chatDisplayVariables(
   return {
     ...chatUiFontVariables(display.uiFont, display.uiFamily),
     "--cv-font": isDefault("font") ? null : FONT_STACKS[display.font],
-    // The agent's reply prose (conversation.css `.cv-reply`), the chat's font unless a pack sets one.
-    "--cv-reply-font": display.proseFamily ? `${quoteFamilyStack(display.proseFamily)}, var(--cv-font)` : null,
+    // The agent's reply prose (conversation.css `.cv-reply`), the chat's font unless a pack or the
+    // look's `reply.font` sets one (a pack's family first, the look's face behind it).
+    "--cv-reply-font": display.proseFamily
+      ? `${quoteFamilyStack(display.proseFamily)}, ${display.replyFont ? FONT_STACKS[display.replyFont] : "var(--cv-font)"}`
+      : display.replyFont
+        ? FONT_STACKS[display.replyFont]
+        : null,
     // At its designed spacing, as a pack's interface family is, whatever the Interface Font tracks.
-    "--cv-reply-tracking": display.proseFamily ? "0px" : null,
+    "--cv-reply-tracking": display.proseFamily || (display.replyFont && display.replyFont !== "system") ? "0px" : null,
+    // The reply's own size and line (conversation.css `:root[data-transcript-reply-size] .cv-reply`).
+    "--cv-reply-font-size": display.replyFontSize === null ? null : `${drawnSize(display.replyFontSize, density)}px`,
+    "--cv-reply-line-height": display.replyFontSize === null ? null : `${metrics.reply.lineHeight}px`,
+    // Your prompts' own face, size and line (conversation.css `.cv-user__bubble`).
+    "--cv-prompt-font": display.promptFont ? FONT_STACKS[display.promptFont] : null,
+    "--cv-prompt-tracking": display.promptFont && display.promptFont !== "system" ? "0px" : null,
+    "--cv-prompt-font-size": display.promptFontSize === null ? null : `${drawnSize(display.promptFontSize, density)}px`,
+    "--cv-prompt-line-height": display.promptFontSize === null ? null : `${metrics.prompt.lineHeight}px`,
     // A pack's code face draws as typed (conversation.css `.cv-code`, `.cv-codeblock__body`).
     "--cv-code-ligatures": display.codeLigatures ? null : "none",
     "--cv-code-features": display.codeLigatures ? null : '"calt" 0, "liga" 0',
@@ -443,10 +510,24 @@ export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void 
   // The look's choices the stylesheet draws by selector (data-transcript-*); none for cmux. A
   // style-only root (a test's shim) has no attributes to set.
   if (typeof root.setAttribute !== "function") return;
-  for (const [name, value] of Object.entries(transcriptLookAttributes(display.transcriptLook))) {
+  for (const [name, value] of Object.entries({
+    ...transcriptLookAttributes(display.transcriptLook),
+    ...chatPartAttributes(display),
+  })) {
     if (value === null) root.removeAttribute(name);
     else root.setAttribute(name, value);
   }
+}
+
+/// The root attributes that rebind the chat's type inside the reply or the prompt
+/// (conversation.css `:root[data-transcript-reply-size] .cv-md.cv-reply`, `data-transcript-prompt-*`):
+/// each only while the look sets that part apart, so the cmux look sets none.
+export function chatPartAttributes(display: ChatDisplay): Record<string, string | null> {
+  return {
+    "data-transcript-reply-size": display.replyFontSize === null ? null : "",
+    "data-transcript-prompt-font": display.promptFont === null ? null : display.promptFont,
+    "data-transcript-prompt-size": display.promptFontSize === null ? null : "",
+  };
 }
 
 /// The host's `display` event: the page follows at once.

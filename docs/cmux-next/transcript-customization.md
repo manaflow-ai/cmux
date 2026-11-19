@@ -32,6 +32,12 @@ the look:
 | `fontSize` | `agentPane.display.font.size` |
 | `lineHeight` | `agentPane.display.font.lineHeight` |
 
+The part tokens follow the same rule: `reply.font` and `userMessage.font` give way to
+`agentPane.display.font.preset`, and `reply.fontSize` and `userMessage.fontSize` to
+`agentPane.display.font.size`, when a look sets them. When you set them yourself in
+`agentPane.display.transcriptTokens`, yours win over those settings too. A font pack's prose family
+stays in front of `reply.font`.
+
 ```sh
 cmux settings set agentPane.display.transcriptLook claude
 cmux settings set agentPane.display.transcriptTokens '{"userMessage.radius": 20, "timestamps": "always"}'
@@ -51,6 +57,10 @@ sidebar's looks use the same bare names.
 | `font` | `system`, `serif`, `mono` | `system` | The text face. |
 | `fontSize` | 10 to 28 points | 14 | The text size. |
 | `lineHeight` | 1.2 to 2.4 | 1.625 | Line height, as a multiple of the text size. |
+| `reply.font` | `system`, `serif`, `mono` | the chat's face | The agent's reply prose face. `serif` is the system serif stack macOS ships (`"New York", ui-serif, "Iowan Old Style", Georgia, serif`); no font is bundled. Code and the reply's chrome keep theirs. |
+| `reply.fontSize` | 10 to 28 points | the chat's size | The reply's text size, on lines of `lineHeight` times it. Headings scale with it; code keeps its size. |
+| `userMessage.font` | `system`, `serif`, `mono` | the chat's face | Your messages' face. |
+| `userMessage.fontSize` | 10 to 28 points | the chat's size | Your messages' size, on lines of `lineHeight` times it. |
 | `userMessage.style` | `bubble`, `plain` | `bubble` | Your messages: a filled bubble, or plain text with a rule at the leading edge. |
 | `userMessage.align` | `right`, `left` | `right` | The side of the column your messages sit on. |
 | `userMessage.maxWidth` | 0.4 to 1 | 0.7 | The widest your message gets, as a share of the column. |
@@ -64,8 +74,9 @@ sidebar's looks use the same bare names.
 | `codeCard.radius` | 0 to 20 points | 16 | The corner radius of code blocks. |
 | `timestamps` | `hover`, `always`, `off` | `hover` | When a message's time shows. |
 
-Only these tokens change where rows sit: `density`, `rowSpacing`, `messageWidth`, the font tokens,
-and the `userMessage` padding and width. Every other token changes only how rows are painted. The
+Only these tokens change where rows sit: `density`, `rowSpacing`, `messageWidth`, the font tokens
+(`reply.*` moves only replies, `userMessage.font*` only your messages), and the `userMessage`
+padding and width. Every other token changes only how rows are painted. The
 chat measures rows with the same values it draws with, so switching a look never makes the
 transcript jump.
 
@@ -74,7 +85,7 @@ transcript jump.
 | Look | Feel | Tokens it sets |
 |---|---|---|
 | `cmux` | The chat as cmux draws it. This is the default. | none |
-| `claude` | Room to read: a narrower column, larger text, quiet tool lines with no icons, soft bubbles and rounded cards, in the style of the Claude app | `density: comfortable`, `messageWidth: 720`, `fontSize: 15`, `lineHeight: 1.4`, `toolCards: minimal`, `userMessage.radius: 16`, `userMessage.maxWidth: 0.8`, `userMessage.fill: 0.04`, `toolCard.radius: 12` |
+| `claude` | Room to read: a narrower column, replies in a serif and your messages in the sans, larger text, quiet tool lines with no icons, soft bubbles and rounded cards, in the style of the Claude app | `density: comfortable`, `messageWidth: 720`, `fontSize: 15`, `lineHeight: 1.4`, `reply.font: serif`, `reply.fontSize: 16`, `userMessage.font: system`, `userMessage.fontSize: 15`, `toolCards: minimal`, `userMessage.radius: 16`, `userMessage.maxWidth: 0.8`, `userMessage.fill: 0.04`, `toolCard.radius: 12` |
 | `codex` | A narrow column, a rounded bubble for your messages, borderless cards and no times, in the style of the Codex app | `messageWidth: 640`, `fontSize: 13`, `lineHeight: 1.6`, `userMessage.radius: 10`, `userMessage.paddingBlock: 7`, `userMessage.paddingInline: 12`, `userMessage.fill: 0.05`, `toolCard.radius: 10`, `toolCard.border: none`, `toolCards: minimal`, `timestamps: off` |
 | `studio` | Dense work logs: tight rows, a rounded bubble, small radii | `density: compact`, `messageWidth: 736`, `userMessage.paddingBlock: 11`, `userMessage.paddingInline: 12`, `userMessage.fill: 0.05`, `toolCard.radius: 6`, `codeCard.radius: 6` |
 
