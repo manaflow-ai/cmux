@@ -100,9 +100,14 @@ public struct CloudMachineRoute: Sendable {
             }
             // The update gave the machine no route, but the chat's agent reaches a model anyway: the machine's own sign-in,
             // or the chat's own connection with its launch, to a daemon that takes one.
-            if Self.starts(refused.verdict, agent: refused.agent, carriesConnection: carriesConnection), await serves() {
-                logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model route; the chat's agent signs in by itself or carries its connection")
-                return
+            if Self.starts(refused.verdict, agent: refused.agent, carriesConnection: carriesConnection) {
+                if await serves() {
+                    logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model route; the chat's agent signs in by itself or carries its connection")
+                    return
+                }
+                // The chat's connection would reach a model, but the machine's software could not be brought to one that
+                // takes it (Codex's sign-in with ChatGPT needs a daemon from 2026-11-18): say that, not "not routed".
+                if carriesConnection { throw CloudMoveFailure(message: Self.tooOld, retry: machineID.map { .move(machineID: $0) }) }
             }
             if Self.needsConnection(refused.verdict, agent: refused.agent, carriesConnection: carriesConnection) { throw NeedsConnection() }
             throw CloudMoveFailure(message: refused.message, retry: machineID.map { .move(machineID: $0) })
