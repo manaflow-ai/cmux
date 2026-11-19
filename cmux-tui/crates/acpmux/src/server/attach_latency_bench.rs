@@ -10,9 +10,10 @@
 //! What it does, per size: a store of N small chats (a few turns each) and one long chat (about
 //! 25 MB in 64 KiB segments, ~400 of them) whose saved settled view is from its first turn, as an
 //! app left open for hours leaves it. Eight loops open the long chat with `settled` (the
-//! sampled hot path) and page its log forward from its start for its prompts, while the
+//! sampled hot path) and page its last records forward (a follower's tail read), while the
 //! measured loop connects anew, says hello, and opens a random small chat's newest page, 200
-//! times. The runtime has four workers, so a read that holds workers shows in the hello.
+//! times, then asks the sidebar's first page (`_acpmux/sessions`, 50 rows) and `_acpmux/status`.
+//! The runtime has four workers, so a read that holds workers shows in the hello.
 
 use crate::config::{Config, StoreMode};
 use crate::rpc::{Message, method};
@@ -207,6 +208,7 @@ async fn run(chats: usize) -> String {
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     let (mut hellos, mut attaches, mut long_opens) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut lists, mut statuses) = (Vec::new(), Vec::new());
     let mut rng = 0x9e37_79b9_7f4a_7c15u64;
     for _ in 0..200 {
         rng ^= rng << 13;
@@ -225,6 +227,13 @@ async fn run(chats: usize) -> String {
         let t = Instant::now();
         client.call(method::MUX_ATTACH, open_params(LONG, true)).await;
         long_opens.push(t.elapsed().as_secs_f64() * 1e3);
+        // The sidebar's first page and the daemon's status, as the app's first paint asks.
+        let t = Instant::now();
+        client.call(method::MUX_SESSIONS, json!({"limit": 50})).await;
+        lists.push(t.elapsed().as_secs_f64() * 1e3);
+        let t = Instant::now();
+        client.call(method::MUX_STATUS, json!({})).await;
+        statuses.push(t.elapsed().as_secs_f64() * 1e3);
     }
     stop.store(true, Ordering::Relaxed);
     for task in load {
@@ -233,13 +242,17 @@ async fn run(chats: usize) -> String {
     let segments = std::fs::read_dir(sessions.join(LONG).join("events")).map_or(0, |d| d.count());
     let _ = std::fs::remove_dir_all(&dir);
     format!(
-        "attach-bench chats={chats} long_segments={segments} hello_p50_ms={:.2} hello_p95_ms={:.2} attach_p50_ms={:.2} attach_p95_ms={:.2} long_attach_p50_ms={:.2} long_attach_p95_ms={:.2}",
+        "attach-bench chats={chats} long_segments={segments} hello_p50_ms={:.2} hello_p95_ms={:.2} attach_p50_ms={:.2} attach_p95_ms={:.2} long_attach_p50_ms={:.2} long_attach_p95_ms={:.2} list_p50_ms={:.2} list_p95_ms={:.2} status_p50_ms={:.2} status_p95_ms={:.2}",
         pct(&mut hellos, 0.5),
         pct(&mut hellos, 0.95),
         pct(&mut attaches, 0.5),
         pct(&mut attaches, 0.95),
         pct(&mut long_opens, 0.5),
         pct(&mut long_opens, 0.95),
+        pct(&mut lists, 0.5),
+        pct(&mut lists, 0.95),
+        pct(&mut statuses, 0.5),
+        pct(&mut statuses, 0.95),
     )
 }
 
