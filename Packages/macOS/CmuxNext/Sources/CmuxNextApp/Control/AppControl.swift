@@ -10,6 +10,7 @@ import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextMacScreen
 import CmuxNextNotifications
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -426,6 +427,11 @@ final class AppControl {
             },
             .mainActor("debug.page_popup") { _ in .value(DebugPagePopup.list()) },
             DebugWindowSnapshot.controlMethod(services: services),
+            .async("debug.glass_parity") { @MainActor [weak services, glassParity = GlassParityPlayground()] call in
+                guard let services else { return .null }
+                // Native and web glass side by side over one backdrop, diffed (CmuxNextPages GlassParity).
+                return await glassParity.handle(call.params) { await DebugWindowSnapshot.captureAsync($0, services: services) }
+            }.withDeadline(.fixed(.seconds(60))),
             .mainActor("debug.window.focus") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.focusWindow(call.params, services: services))
