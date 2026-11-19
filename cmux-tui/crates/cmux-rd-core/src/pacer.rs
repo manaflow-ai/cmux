@@ -143,11 +143,14 @@ struct QueuedDatagram {
     datagram: Vec<u8>,
     departure_id: DepartureId,
     class: DatagramClass,
+    /// Strict mode: the ordinal of the `push_frame` call that queued it (0 for anything
+    /// else), so a frame is dropped whole or not at all.
+    frame: u64,
 }
 
 impl QueuedDatagram {
     fn new(datagram: Vec<u8>, departure_id: DepartureId, class: DatagramClass) -> Self {
-        Self { datagram, departure_id, class }
+        Self { datagram, departure_id, class, frame: 0 }
     }
 
     fn into_public(self) -> PacedDatagram {
@@ -188,6 +191,14 @@ pub struct Pacer {
     /// Strict mode: bytes sent outside the queue ([`Pacer::charge`], a probe train) hold
     /// budgeted datagrams back until this time, the wire time they took at the held rate.
     strict_charged_until_us: u64,
+    /// Strict mode: the ordinal of the last frame pushed, and of the newest frame a
+    /// datagram of which has left (frames after it are unstarted).
+    last_frame: u64,
+    started_frame: u64,
+    /// Strict mode: whole frames dropped at the queue limit (D2), counted and kept
+    /// for [`Pacer::take_dropped`].
+    frames_dropped: u64,
+    dropped: Vec<Vec<u8>>,
 }
 
 impl Default for Pacer {
@@ -208,6 +219,10 @@ impl Default for Pacer {
             strict_remainder: 0,
             strict_last_us: None,
             strict_charged_until_us: 0,
+            last_frame: 0,
+            started_frame: 0,
+            frames_dropped: 0,
+            dropped: Vec::new(),
         }
     }
 }
@@ -249,6 +264,14 @@ impl Pacer {
     /// Frame datagrams produced by `Packetizer` carry their departure ID in the
     /// existing header; this method extracts that ID. Call the explicit
     /// `enqueue_*` methods when queueing a non-protocol test/datagram.
+    ///
+    /// Strict mode bounds its queue by the D2 rule, newest frame wins: when this
+    /// frame does not fit under `max_queue_bytes`, whole older frames none of whose
+    /// datagrams has left are dropped, oldest first, until it fits (or none is
+    /// left), and nothing is asked for. They are counted ([`Pacer::frames_dropped`])
+    /// and handed back by [`Pacer::take_dropped`] so the sender can retire them. A
+    /// frame never loses datagrams out of its middle; the newest frame is always
+    /// queued, even when a started frame and repairs leave it over the bound.
     pub fn push_frame(
         &mut self,
         datagrams: Vec<Vec<u8>>,
@@ -256,10 +279,23 @@ impl Pacer {
         frame_interval_us: u64,
         now_us: u64,
     ) {
-        if matches!(self.policy, PacerPolicy::Strict(_)) {
+        if let PacerPolicy::Strict(config) = self.policy {
+            let bytes = datagrams.iter().map(Vec::len).sum::<usize>();
+            self.make_room(bytes, config.max_queue_bytes);
+            if self.queue.is_empty() {
+                // A new busy period starts with no credit (as `enqueue_budgeted`).
+                self.strict_last_us = Some(now_us);
+                self.strict_credit_bytes = 0;
+                self.strict_remainder = 0;
+            }
+            self.last_frame += 1;
             for datagram in datagrams {
                 let departure_id = wire_departure_id(&datagram);
-                let _ = self.enqueue_media(datagram, departure_id, now_us);
+                self.queued_bytes = self.queued_bytes.saturating_add(datagram.len());
+                self.queue.push_back(QueuedDatagram {
+                    frame: self.last_frame,
+                    ..QueuedDatagram::new(datagram, departure_id, DatagramClass::Media)
+                });
             }
             return;
         }
@@ -315,6 +351,41 @@ impl Pacer {
             self.repairs_queued += 1;
         }
         self.set_rate(target_bps);
+    }
+
+    /// Strict mode, D2: drops whole unstarted frames, oldest first, until `incoming`
+    /// more bytes fit under `max_queue_bytes` or no unstarted frame is left. Repairs
+    /// and the rest of a frame that has started to leave stay.
+    fn make_room(&mut self, incoming: usize, max_queue_bytes: usize) {
+        while self.queued_bytes.saturating_add(incoming) > max_queue_bytes {
+            let started = self.started_frame;
+            let Some(oldest) = self.queue.iter().map(|d| d.frame).find(|&frame| frame > started)
+            else {
+                return;
+            };
+            let mut kept = VecDeque::with_capacity(self.queue.len());
+            for d in self.queue.drain(..) {
+                if d.frame == oldest {
+                    self.queued_bytes = self.queued_bytes.saturating_sub(d.datagram.len());
+                    self.dropped.push(d.datagram);
+                } else {
+                    kept.push_back(d);
+                }
+            }
+            self.queue = kept;
+            self.frames_dropped += 1;
+        }
+    }
+
+    /// Whole frames the strict queue dropped at its limit (D2), since the pacer began.
+    pub fn frames_dropped(&self) -> u64 {
+        self.frames_dropped
+    }
+
+    /// The datagrams of frames dropped at the strict queue limit since the last call,
+    /// never sent: the sender retires them so they are not read as loss.
+    pub fn take_dropped(&mut self) -> Vec<Vec<u8>> {
+        std::mem::take(&mut self.dropped)
     }
 
     /// Idle: what is pushed next starts at once.
@@ -537,6 +608,7 @@ impl Pacer {
             self.strict_credit_bytes -= len;
             self.queued_bytes = self.queued_bytes.saturating_sub(len as usize);
             self.count_departure(datagram.class);
+            self.started_frame = self.started_frame.max(datagram.frame);
             out.push(datagram.into_public());
         }
         if self.queue.is_empty() {

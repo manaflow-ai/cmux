@@ -562,6 +562,22 @@ impl MediaSession {
             self.paced_logs.push_back(PacedLog { frame, remaining: out.datagrams.len(), line });
         }
         pacer.push_frame(out.datagrams, self.engine.target_bps(), self.frame_interval_us, now_us());
+        // Ultra's strict queue keeps its bound by dropping whole older unstarted frames
+        // (D2, newest wins): retire them, so a datagram never sent is not read as loss.
+        let dropped = pacer.take_dropped();
+        if !dropped.is_empty() {
+            let frames: std::collections::BTreeSet<(u16, u32)> = dropped
+                .iter()
+                .filter_map(|d| DatagramHeader::decode(d).ok().map(|(h, _)| (h.stream, h.frame)))
+                .collect();
+            trace(&format!(
+                "strict queue full: dropped {} unstarted frames ({} in all)",
+                frames.len(),
+                pacer.frames_dropped()
+            ));
+            self.paced_logs.retain(|log| !frames.contains(&log.frame));
+            self.engine.forget_unsent(&dropped);
+        }
         Ok(self.send_paced(carrier)?)
     }
 

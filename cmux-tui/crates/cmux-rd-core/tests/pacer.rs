@@ -137,3 +137,38 @@ fn balanced_pacer_ignores_a_charge() {
     let times = |p: &mut Pacer| drain(p, 1_000).into_iter().map(|s| s.0).collect::<Vec<_>>();
     assert_eq!(times(&mut charged), times(&mut plain));
 }
+
+/// D2 at the strict queue limit: newest frame wins. A frame that does not fit drops
+/// whole older frames none of whose datagrams has left (oldest first), never datagrams
+/// out of a frame's middle, and never the newest frame; the drop is counted and the
+/// dropped datagrams are handed back to retire.
+#[test]
+fn strict_queue_limit_drops_whole_older_unstarted_frames() {
+    let frame_of = |tag: u8| vec![vec![tag; 1_000], vec![tag; 1_000]];
+    // One byte per microsecond, a 1,000-byte burst, room for three 1,000-byte datagrams.
+    let mut pacer = Pacer::strict(StrictWireBudget::with_limits(8_000_000, 1_000, 3_000, 100));
+    pacer.push_frame(frame_of(1), 0, 16_667, 0);
+    // Frame 1 starts to leave: its head goes, its tail stays queued.
+    assert_eq!(pacer.due(1_000), vec![vec![1; 1_000]]);
+    pacer.push_frame(frame_of(2), 0, 16_667, 1_000);
+    assert_eq!(pacer.queued_bytes(), 3_000, "frame 2 fits beside frame 1's tail");
+    assert!(pacer.take_dropped().is_empty());
+    assert_eq!(pacer.frames_dropped(), 0);
+
+    // Frame 3 does not fit: unstarted frame 2 goes whole; frame 1's tail stays.
+    pacer.push_frame(frame_of(3), 0, 16_667, 1_000);
+    assert_eq!(pacer.take_dropped(), frame_of(2));
+    assert_eq!(pacer.frames_dropped(), 1);
+    assert_eq!(pacer.queued_bytes(), 3_000);
+    let sent: Vec<Vec<u8>> = drain(&mut pacer, 1_000).into_iter().map(|s| s.1).collect();
+    assert_eq!(sent, vec![vec![1; 1_000], vec![3; 1_000], vec![3; 1_000]]);
+
+    // With nothing unstarted to drop, the newest frame is still queued whole.
+    let mut full = Pacer::strict(StrictWireBudget::with_limits(8_000_000, 1_000, 1_500, 100));
+    full.push_frame(frame_of(4), 0, 16_667, 0);
+    assert_eq!(full.take_dropped(), Vec::<Vec<u8>>::new());
+    full.push_frame(frame_of(5), 0, 16_667, 0);
+    assert_eq!(full.take_dropped(), frame_of(4), "the older frame goes, never part of one");
+    assert_eq!(full.queued_bytes(), 2_000);
+    assert_eq!(full.frames_dropped(), 1);
+}
