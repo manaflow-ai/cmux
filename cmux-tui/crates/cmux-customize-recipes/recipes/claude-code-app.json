@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "claude-code-app",
-  "description": "Looks and works like the Claude Code desktop app: a warm dark page, chats by project in the sidebar, the clay accent, tool rows with their file and line counts.",
+  "description": "Looks and works like the Claude Code desktop app: sessions by project with their branch and pull request, Command-N for a new Claude chat, the mode, model and effort menus on their keys, panes beside the chat.",
   "settings": {
     "appearance.themeFile": "claude-code-app",
     "sidebar.groupBy": "folder",
@@ -9,14 +9,23 @@
     "sidebar.density": "comfortable",
     "sidebar.showSpaces": false,
     "sidebar.cards.tips": false,
+    "sidebar.workspaceRow.branch": true,
+    "sidebar.workspaceRow.pullRequest": true,
     "tabs.hideLoneChatTab": true,
+    "tabs.toolbarButtons": ["openDiffViewer"],
+    "layout.newPanePlacement": "split",
     "agentPane.display.presentation": "transcript",
     "agentPane.display.transcriptView": "normal",
     "agentPane.display.font.preset": "system",
     "agentPane.display.font.size": 14,
     "agentPane.display.width": 800,
     "agentPane.display.minimap": "off",
+    "agentPane.display.sessionInfo.placement": "push",
     "agentPane.editedFiles.show": "always",
+    "agentPane.editedFiles.scope": "session",
     "agentPane.showContextUsage": true
+  },
+  "files": {
+    "keybindings.json": "// The Claude Code desktop app's keys (the claude-code-app recipe). Command-N was New Workspace,\n// Shift-Command-M Copy Mode and Shift-Command-B the bookmarks bar; each stays in the Command Palette.\n[\n  { \"key\": \"cmd+n\", \"command\": \"palette.newAgentChat\", \"args\": { \"harness\": \"claude\" } },\n  { \"key\": \"cmd+shift+m\", \"command\": \"agentPane.setMode\" },\n  { \"key\": \"cmd+shift+i\", \"command\": \"agentPane.switchModel\" },\n  { \"key\": \"cmd+shift+e\", \"command\": \"agentPane.setEffort\" },\n  { \"key\": \"cmd+shift+b\", \"command\": \"agentPane.togglePreview\" },\n  { \"key\": \"cmd+shift+leftbracket\", \"command\": \"prevSidebarTab\" },\n  { \"key\": \"cmd+shift+rightbracket\", \"command\": \"nextSidebarTab\" },\n  { \"key\": \"cmd+backslash\", \"command\": \"closePane\" },\n  { \"key\": \"cmd+slash\", \"command\": \"keybindings.open\" }\n]\n"
   }
 }
