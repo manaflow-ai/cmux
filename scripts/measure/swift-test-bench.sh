@@ -130,7 +130,7 @@ main() {
   # Steps run with a per-step HOME; Homebrew tools live outside it. They go after the step's own PATH, never
   # before it: a swift in /usr/local/bin or /opt/homebrew/bin (a swiftly or Homebrew toolchain) ignores
   # DEVELOPER_DIR, so ahead of /usr/bin it built the bench with another toolchain than the Xcode chosen below,
-  # and it shadowed the stand-ins of swift-test-bench-release.test.sh on a Mac runner.
+  # and on a CI runner with swift and git in /usr/local/bin it shadowed swift-test-bench-release.test.sh's stand-ins.
   export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 
   # The Xcode, chosen by the step's own (reviewed) tree before any switch.
