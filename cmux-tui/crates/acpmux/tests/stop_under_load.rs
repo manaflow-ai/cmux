@@ -10,7 +10,10 @@
 //! as many busy threads in this process as the machine has CPUs. `STOP-UNDER-LOAD` prints, for
 //! each home: the stops' p50, p95 and max in ms, how many of the requests in flight read an answer
 //! and not the close (a stop is not a client's cancel: the design gives them none, and never
-//! -32800, counted apart), and whether each home's first agent streamed before its stop.
+//! -32800, counted apart), and whether each home's first agent streamed before its stop. Each
+//! daemon runs with `ACPMUX_STOP_TIMELINE=1` and its stderr in a file of the scratch folder: its
+//! `STOP-TIMELINE` line (`daemon/stop_timeline.rs`) gives each phase's end in ms since the stop
+//! began, and `marksMs` their p50 and p95 for each home (`noTimeline`: runs without the line).
 //!
 //! Every stop must take under a second, and the god home's p95 at most 1.2 times the small one's
 //! plus [`FLOOR_MS`] (hq `docs/handbook/perf-regresses-on-degenerate-sessions.md`).
@@ -147,11 +150,14 @@ fn is_response(v: &Value, id: u64) -> bool {
 struct Daemon {
     child: Child,
     socket: PathBuf,
+    /// The file the daemon's stderr goes to.
+    stderr: PathBuf,
 }
 
 impl Daemon {
-    fn start(scratch: &Path, home: &Path, env: &[(&str, &str)]) -> Self {
+    fn start(scratch: &Path, home: &Path, env: &[(&str, &str)], stderr: PathBuf) -> Self {
         let socket = scratch.join("s.sock");
+        let log = std::fs::File::create(&stderr).expect("create the daemon's stderr file");
         let mut command = daemon_env::command(scratch, daemon_env::Agents::StandIn, &[]);
         command
             .args(["daemon", "run", "--log", "warn"])
@@ -159,21 +165,24 @@ impl Daemon {
             .env("ACPMUX_SOCKET", &socket)
             .env("ACPMUX_CATALOG_FETCH", "0")
             .env("ACPMUX_LOGIN_ENV", "0")
+            .env("ACPMUX_STOP_TIMELINE", "1")
             .envs(env.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::inherit());
+            .stderr(Stdio::from(log));
         let spawned = Instant::now();
         let mut child = command.spawn().unwrap();
         while UnixStream::connect(&socket).is_err() {
             if spawned.elapsed() >= STEP || child.try_wait().unwrap().is_some() {
                 let _ = child.kill();
                 let _ = child.wait();
+                let text = std::fs::read(&stderr).unwrap_or_default();
+                eprint!("{}", String::from_utf8_lossy(&text));
                 panic!("the daemon did not bind its socket");
             }
             std::thread::sleep(Duration::from_millis(1));
         }
-        Self { child, socket }
+        Self { child, socket, stderr }
     }
 
     /// SIGTERM, then the exit: how long it took in ms, and whether it exited with success.
@@ -262,9 +271,21 @@ fn spread(samples: &[f64]) -> (f64, f64, f64) {
     (at(0.5), at(0.95), sorted[sorted.len() - 1])
 }
 
+/// The marks of the `STOP-TIMELINE {...}` line in a daemon's stderr `text`, in its order: each
+/// phase's name and its end in ms since the stop began. None without the line.
+fn timeline(text: &str) -> Option<Vec<(String, f64)>> {
+    let line = text.lines().find_map(|line| line.strip_prefix("STOP-TIMELINE "))?;
+    let v: Value = serde_json::from_str(line).ok()?;
+    let marks = v["marks"].as_array()?;
+    Some(marks.iter().filter_map(|m| Some((m[0].as_str()?.to_string(), m[1].as_f64()?))).collect())
+}
+
 /// What one home's runs gave.
 struct Stops {
     ms: Vec<f64>,
+    /// Each run's stop timeline (`timeline`), and how many runs printed none.
+    marks: Vec<Vec<(String, f64)>>,
+    no_timeline: usize,
     /// Requests in flight that read an answer before the close, of every run's, and those of
     /// them answered as a client's cancel.
     answered: usize,
@@ -278,7 +299,8 @@ struct Stops {
 
 /// One run: the daemon started, loaded as the module says, stopped; added to `stops`.
 fn run(scratch: &Path, home: &Path, god: &str, stops: &mut Stops) {
-    let mut daemon = Daemon::start(scratch, home, &[]);
+    let stderr = scratch.join(format!("daemon-{}.stderr", stops.ms.len()));
+    let mut daemon = Daemon::start(scratch, home, &[], stderr);
     let mut turn = Rpc::connect(&daemon.socket);
     // The pane's attach, so this connection reads the chat's updates. The session index loads
     // after the socket binds, and the attach waits for it.
@@ -310,6 +332,15 @@ fn run(scratch: &Path, home: &Path, god: &str, stops: &mut Stops) {
         waiting.push(rpc);
     }
     let (ms, success) = daemon.stop();
+    let text = std::fs::read(&daemon.stderr).unwrap_or_default();
+    let text = String::from_utf8_lossy(&text);
+    if ms >= STOP_MS || !success {
+        eprint!("{text}");
+    }
+    match timeline(&text) {
+        Some(marks) => stops.marks.push(marks),
+        None => stops.no_timeline += 1,
+    }
     stops.ms.push(ms);
     stops.failed += usize::from(!success);
     stops.in_flight += 1 + CONNS * WAITS;
@@ -318,6 +349,30 @@ fn run(scratch: &Path, home: &Path, god: &str, stops: &mut Stops) {
         stops.answered += answers;
         stops.cancels += cancels;
     }
+}
+
+/// For each mark name, in first-seen order, the p50 and p95 of its ms across the runs: the
+/// object for `marksMs`, and the names by p50 for `markOrder`.
+fn marks_ms(runs: &[Vec<(String, f64)>]) -> (Value, Vec<String>) {
+    let mut names: Vec<String> = Vec::new();
+    for marks in runs {
+        for (name, _) in marks {
+            if !names.contains(name) {
+                names.push(name.clone());
+            }
+        }
+    }
+    let mut by_name = serde_json::Map::new();
+    let mut p50s = Vec::new();
+    for name in &names {
+        let samples: Vec<f64> =
+            runs.iter().flatten().filter(|(n, _)| n == name).map(|(_, ms)| *ms).collect();
+        let (p50, p95, _) = spread(&samples);
+        by_name.insert(name.clone(), json!({"p50": p50.round(), "p95": p95.round()}));
+        p50s.push((name.clone(), p50));
+    }
+    p50s.sort_by(|a, b| a.1.total_cmp(&b.1));
+    (Value::Object(by_name), p50s.into_iter().map(|(name, _)| name).collect())
 }
 
 /// `shape`'s home, stopped under load `runs` times.
@@ -329,8 +384,16 @@ fn stops(shape: &Shape, runs: usize) -> Stops {
     write_config(&home);
     // Dropped before the scratch folder: the hosts go before their files.
     let _hosts = Hosts(home.clone());
-    let mut stops =
-        Stops { ms: vec![], answered: 0, cancels: 0, in_flight: 0, streamed: 0, failed: 0 };
+    let mut stops = Stops {
+        ms: vec![],
+        marks: vec![],
+        no_timeline: 0,
+        answered: 0,
+        cancels: 0,
+        in_flight: 0,
+        streamed: 0,
+        failed: 0,
+    };
     for _ in 0..runs {
         run(&scratch, &home, &made.god, &mut stops);
     }
@@ -348,12 +411,14 @@ fn a_stop_under_load_takes_under_a_second_whatever_the_home() {
     for shape in shapes() {
         let stops = stops(&shape, runs);
         let (p50, p95, max) = spread(&stops.ms);
+        let (marks, order) = marks_ms(&stops.marks);
         let line = json!({
             "shape": shape.name, "chats": shape.chats, "godBytes": shape.god_bytes,
             "runs": runs, "stopMs": {"p50": p50.round(), "p95": p95.round(), "max": max.round()},
             "inFlight": stops.in_flight, "answered": stops.answered,
             "cancelAnswers": stops.cancels, "streamedRuns": stops.streamed,
             "failedExits": stops.failed,
+            "marksMs": marks, "markOrder": order, "noTimeline": stops.no_timeline,
         });
         eprintln!("STOP-UNDER-LOAD {line}");
         p95s.push(p95);
