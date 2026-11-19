@@ -1671,12 +1671,17 @@ mark {
   gap: var(--ds-space-1);
 }
 
+/* Labels on one line, whatever height each control has. */
 .youtube-add-options,
 .youtube-add-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--ds-space-2);
-  align-items: flex-end;
+  align-items: flex-start;
+}
+
+.youtube-add-actions {
+  align-items: center;
 }
 
 .youtube-add-time {
