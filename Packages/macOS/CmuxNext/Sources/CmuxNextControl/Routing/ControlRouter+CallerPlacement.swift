@@ -12,9 +12,12 @@ import Foundation
 ///   (a rename renames its own workspace). That includes the opens that name their own place (``opensSurface(_:)``:
 ///   New ▸ kind ▸ place, Split Right, Mac Screen, Reopen Closed Tab): they open in the caller's own pane, as asked.
 /// - An agent's run that closes or destroys (``closingActions``, the catalog's destructive actions) is refused
-///   until it names its target: for an agent, "this tab" may be its own home or the tab it opened last, and the
-///   wrong guess ends the agent or loses the person's work. A person's shell keeps its own tab, pane or workspace,
-///   which is what its focused run meant.
+///   until it names its target (``requireTargetOfAgentClosing``, before anything is aimed): for an agent, "this
+///   tab" may be its own home, the tab it opened last, or the nearest browser, and the wrong guess ends the
+///   agent or loses the person's work. That holds for every action that takes a target of any kind (a screen,
+///   a tab group, a machine, a bookmark too: with none they act on what the person has focused or selected). A
+///   person's shell keeps its own tab, pane, screen or workspace, which is what its focused run meant.
+/// - A browser from a terminal is aimed at the terminal's own tab; the app sends it where a Cmd-click's goes.
 /// - An agent whose chat no tab shows stands in the workspace its session runs in (`caller.workspace`): what it
 ///   opens is placed from there and a workspace run is that workspace; it has no tab or pane of its own, so any
 ///   other run is refused. An agent cmux cannot place at all is refused (`caller_unavailable`), never run on the
@@ -49,14 +52,45 @@ extension ControlRouter {
     }
 
     /// The target kinds a caller has of its own, in no order: an action lists its own first.
-    static let callerTargetKinds: Set<String> = ["tab", "pane", "workspace"]
+    static let callerTargetKinds: Set<String> = ["tab", "pane", "screen", "workspace"]
 
-    /// Actions that close or put away what they act on and that the catalog does not mark destructive.
+    /// Actions that close, end, archive, disconnect or put away what they act on and that the catalog does not
+    /// mark destructive. `AgentClosingActionsTests` walks the real catalog: an action whose name says it closes
+    /// something and that takes a target must be here, destructive, or listed there as judged safe.
     static let closingActions: Set<String> = [
-        "closeTab", "closeOtherTabsInPane", "closeTabsToLeft", "closeTabsToRight", "closePane", "pane.closeOthers",
-        "workspace.toggleArchive", "workspace.archiveOtherWorkspaces", "workspace.archiveOthersInGroup",
-        "workspace.archiveWorkspacesBelow", "workspace.archiveWorkspacesAbove", "agentPane.archiveChat",
+        // Tabs.
+        "closeTab", "closeOtherTabsInPane", "closeTabsToLeft", "closeTabsToRight", "disconnectRemoteTab", "hibernateTab",
+        "macScreen.stopViewing", "tab.restart", "tab.stash", "tab.stashOthers", "tab.stashToRight",
+        // Panes and what they show.
+        "closePane", "pane.closeOthers", "agentPane.archiveChat", "agentPane.stopTurn", "agentPane.permission.revoke",
+        "browser.pageInfo.resetPermissions", "palette.vscodeServeWebStop", "palette.vscodeServeWebRestart",
+        // Screens, workspaces and their groups.
+        "screen.close", "disconnectWorkspace", "cloud.team.archive", "workspace.hibernate", "workspace.toggleArchive",
+        "workspace.archiveOtherWorkspaces", "workspace.archiveOthersInGroup", "workspace.archiveWorkspacesBelow",
+        "workspace.archiveWorkspacesAbove", "workspaceGroup.toggleArchive",
+        // Sidebar rows, machines, bookmarks.
+        "sidebar.item.remove", "sidebar.item.removeEverywhere", "sidebar.item.toggleArchive", "remote.disconnect",
+        "remote.removeGroup", "cloudPortClose", "cloudPreviewRevoke", "machine.joined.revoke", "bookmark.remove",
     ]
+
+    /// Whether `action` closes or destroys the place it runs on: the catalog's destructive actions and
+    /// ``closingActions``, when the action takes a target (one with no target kind is global: settings, quit).
+    static func closesItsPlace(_ action: ControlActionInfo) -> Bool {
+        !action.targets.isEmpty && (action.isDestructive || closingActions.contains(action.id))
+    }
+
+    /// Refuses an agent's closing or destructive run that names no target, before the run is aimed anywhere
+    /// (the nearest browser, the caller's own place) and whatever kind of target the action takes. An agent is
+    /// an agent session, any caller of the cmux MCP server (`origin: mcp`), or a terminal an agent runs in. A
+    /// Chief turn acts for the person and is not refused; nor is a person's shell or a run with no caller.
+    static func requireTargetOfAgentClosing(_ request: ControlActionRequest, action: ControlActionInfo, topology: ControlTopology) throws {
+        guard request.target == nil, closesItsPlace(action), let caller = request.caller, !caller.homeChat else { return }
+        let location = ControlCallerLocation.resolve(caller, in: topology)
+        guard caller.agentSession != nil || caller.viaMCP || location.map({ ControlCallerPlacement($0).isBeside }) == true else { return }
+        // Its own ids to choose from, when a tab shows it; else there is nothing of its own to name.
+        guard let location, location.isOwnTab else { throw Self.callerNotLocated(caller, action: action) }
+        throw Self.targetRequired(action, location: location)
+    }
 
     /// Actions that make a workspace and take a workspace target only as the place of its sidebar row: an agent
     /// with no chat or terminal of its own (a session no tab shows) still runs them.
@@ -95,16 +129,19 @@ extension ControlRouter {
         }
         let placement = ControlCallerPlacement(location)
         request.besideAgentHomes = placement.agentHomes
-        if beside, placement.isBeside {
+        // A browser from a terminal a window shows, an agent's or a person's, goes where a Cmd-click's would
+        // (TabLifecycle, Lawrence 2026-11-15): the run is aimed at the terminal's own tab, and the app picks the
+        // pane on its right, else a new pane beside it, never one of another agent (`besideAgentHomes`).
+        let fromShownTerminal = opensBrowser(action.id) && location.isOwnTab && caller.terminalID != nil
+            && location.tab.kind == "terminal" && location.isShown(in: topology)
+        if beside, placement.isBeside, !fromShownTerminal {
             return placeBeside(&request, action: action, placement: placement, topology: topology)
         }
-        // An agent that stands in its session's workspace has no tab or pane of its own to run anything else on.
+        // An agent that stands in its session's workspace has no tab, pane or screen of its own to run anything else on.
         if !location.isOwnTab, !opens, kind != "workspace" { throw Self.callerNotLocated(caller, action: action) }
-        if placement.isBeside, action.isDestructive || closingActions.contains(action.id) {
-            throw Self.targetRequired(action, location: location)
-        }
         switch kind {
         case "tab"?: request.target = ControlTargetRef(kind: "tab", id: location.tab.id)
+        case "screen"?: request.target = ControlTargetRef(kind: "screen", id: location.screen.id)
         case "workspace"?: request.target = ControlTargetRef(kind: "workspace", id: location.workspace.id)
         default: request.target = ControlTargetRef(kind: "pane", id: location.pane.id)
         }

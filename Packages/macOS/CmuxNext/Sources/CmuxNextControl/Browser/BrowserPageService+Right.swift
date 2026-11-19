@@ -91,7 +91,9 @@ extension BrowserPageService {
             // (their extensions) would refuse every page call, so a new one opens instead.
             let owned = column.ownedTabs
             let usable = Set(owned.filter { Self.isAgentProfile($0.browserProfileID) }.map(\.id))
-            if let own = await leases.openedTab(of: agent, among: usable) {
+            // Whose tab it is: a workspace agent's session or terminal, so agents with one name keep one tab each.
+            let scope = column.caller.map { $0.location.caller.agentSession ?? $0.location.caller.terminalID ?? "" } ?? ""
+            if let own = await leases.openedTab(of: agent, scope: scope, among: usable) {
                 if let holder = await leases.acquire(own, for: agent) { throw held(holder, own) }
                 return answer(own, created: false, navigated: false)
             }
@@ -119,7 +121,7 @@ extension BrowserPageService {
             } else {
                 throw ControlError(code: "not_found", message: ControlStrings.text("control.error.rightNoHome", "No Home workspace"))
             }
-            if let holder = await leases.acquire(opened, for: agent, opened: true) { throw held(holder, opened) }
+            if let holder = await leases.acquire(opened, for: agent, opened: true, scope: scope) { throw held(holder, opened) }
             return answer(opened, in: router.snapshots.current.topology, created: true, navigated: url != nil)
         }.claimingProgress().withLimit { _, _ in Self.rightOpenLimit }
     }

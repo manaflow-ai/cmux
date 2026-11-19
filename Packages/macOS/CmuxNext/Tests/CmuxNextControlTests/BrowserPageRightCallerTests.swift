@@ -119,6 +119,24 @@ import Testing
         #expect(executor.count == 2)
     }
 
+    /// Two agents with one name in ONE workspace: the tab each opened is remembered by its caller (its session),
+    /// so the second does not get the first's tab back as its own.
+    @Test func twoAgentsWithOneNameInOneWorkspaceKeepOneTabEach() async throws {
+        var second = ControlTabInfo(id: "tab_work2", surface: "76", kind: "conversation", title: "Worker 2")
+        second.agentSessionID = "agent-2"
+        let suite = BrowserPageRightTests()
+        let (router, executor) = suite.install(Self.snapshot(right: [ControlPaneInfo(id: "pane_work2", handle: "77", selectedTabID: "tab_work2", tabs: [second])]))
+        let other: JSONValue = ["agent_session": "agent-2"]
+        let first = try await suite.right(router, ["agent": "Claude", "url": "https://example.com/", "caller": Self.worker]).get()
+        let next = try await suite.right(router, ["agent": "Claude", "url": "https://cmux.com/", "caller": other]).get()
+        #expect(next["created"] == true, "the second agent took the first one's tab: \(next)")
+        #expect(next["tab"] != first["tab"])
+        #expect(executor.count == 2)
+        #expect(try await suite.right(router, ["agent": "Claude", "url": "https://example.com/a", "caller": Self.worker]).get()["tab"] == first["tab"])
+        #expect(try await suite.right(router, ["agent": "Claude", "url": "https://cmux.com/a", "caller": other]).get()["tab"] == next["tab"])
+        #expect(executor.count == 2)
+    }
+
     @Test func anAgentTheTopologyDoesNotShowGetsNoColumn() async throws {
         let suite = BrowserPageRightTests()
         let (router, executor) = suite.install(Self.snapshot())

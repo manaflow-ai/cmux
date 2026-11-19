@@ -130,7 +130,9 @@ extension ControlRouter {
     /// current context, and confirmed when destructive. Runs off the main actor.
     func prepared(_ action: ControlActionInfo, _ given: ControlActionRequest, call: ControlCall) async throws -> ControlActionRequest {
         var placed = given
-        // A run that names its caller and no target: the browser nearest the caller, else the caller's own place.
+        // A run that names its caller and no target: an agent's closing run is refused; else the browser nearest
+        // the caller, else the caller's own place.
+        try Self.requireTargetOfAgentClosing(placed, action: action, topology: call.snapshot.topology)
         try Self.aimBrowserActionAtCaller(&placed, action: action, topology: call.snapshot.topology)
         try Self.placeAtCaller(&placed, action: action, topology: call.snapshot.topology)
         let request = try await resolvedTargets(placed, snapshot: call.snapshot, deadline: call.deadline)

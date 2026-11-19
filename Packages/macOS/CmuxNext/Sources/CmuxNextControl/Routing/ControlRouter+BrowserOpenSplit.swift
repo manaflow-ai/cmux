@@ -15,10 +15,10 @@ import Foundation
 ///   screen's default pane. Naming a background workspace never switches the
 ///   view unless `focus` is true.
 /// - `terminal_id`: the caller's terminal (`CMUX_TUI_TERMINAL_ID`), the same as
-///   `caller.terminal_id`. With no workspace named, a terminal an agent runs in
-///   gets the tab beside it; a terminal with no agent (a person's shell) gets it
-///   in its own pane. An unknown terminal (another session's) falls through to
-///   the focused pane.
+///   `caller.terminal_id`. With no workspace named, the tab opens right of that
+///   terminal, an agent's or a person's: in the pane on its right, else in a new
+///   pane beside it, as `cmux browser open` and a Cmd-click do. An unknown
+///   terminal (another session's) falls through to the focused pane.
 /// - `caller`: `{agent_session, workspace}`, `{terminal_id}` or `{home_chat}` of
 ///   who asks (`CMUX_AGENT_SESSION`, `CMUX_WORKSPACE_ID`): with no workspace
 ///   named, the tab opens beside the caller (ControlCallerPlacement), ahead of
@@ -66,8 +66,9 @@ struct BrowserOpenSplitRun {
         ]
         if let origin = request.origin { params["origin"] = .string(origin) }
         if let tab = placement.targetTab { params["target"] = .string("tab:" + tab) }
-        // action.run aims it beside the caller, or at a new column there.
-        if placement.kind.isBesideCaller, let caller = request.caller { params["caller"] = caller.json }
+        // action.run aims it beside the caller, or at a new column there; a terminal's own tab goes with its
+        // caller too, so the app sends the browser where a Cmd-click's from that terminal goes (TabLifecycle).
+        if placement.kind.isBesideCaller || placement.kind == .callerTerminal, let caller = request.caller { params["caller"] = caller.json }
         if let key = request.idempotencyKey { params["idempotency_key"] = .string(key) }
         let opened = try await router.runAction(forwarding(call, method: "action.run", params))
         let topology = router.snapshots.current.topology
@@ -193,7 +194,8 @@ struct BrowserOpenSplitPlacement: Sendable, Equatable {
     enum Kind: String, Sendable {
         /// The workspace `workspace_id` names.
         case workspace
-        /// The pane of the caller's terminal (no agent runs in it).
+        /// From the caller's terminal, one no agent runs in: aimed at its own tab. A browser then opens in the
+        /// pane on its right, else in a new pane beside it (its own pane when no window shows it); a file in its pane.
         case callerTerminal = "caller_terminal"
         /// The focused pane of the front window.
         case focusedPane = "focused_pane"

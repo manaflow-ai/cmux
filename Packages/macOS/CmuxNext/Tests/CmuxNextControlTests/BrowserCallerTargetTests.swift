@@ -353,7 +353,8 @@ import Testing
     }
 
     /// `cmux browser page new-tab URL` with no browser near the caller opens its first one, not a
-    /// refusal: a terminal's in its own pane behind the terminal, an agent's beside its chat
+    /// refusal: a terminal's aimed at its own tab with its caller, so it opens right of the terminal as
+    /// `cmux browser open` does (TabLifecycle, Lawrence 2026-11-15), an agent's beside its chat
     /// (`openBrowser` with the caller, placed by `placeAtCaller`).
     @Test func aNewTabWithNoBrowserNearOpensOneForTheCaller() async throws {
         var snapshot = Self.snapshot(ownBrowser: false, neighbors: false)
@@ -372,7 +373,9 @@ import Testing
         _ = try await router.handle(ControlRequest(method: "browser.page.new_tab", params: ["caller": Self.agent, "wait": false])).get()
         #expect(executor.last?.actionID == "openBrowser")
         #expect(executor.last?.target == ControlTargetRef(kind: "tab", id: "tab-agent"))
-        #expect(executor.last?.background == true)
+        #expect(executor.last?.callerTerminal == "term-agent")
+        #expect(executor.last?.background == false)
+        #expect(executor.last?.besideAgentHomes == ["pane-chat"], "the chat on its right is another agent's")
 
         _ = try await router.handle(ControlRequest(method: "browser.page.new_tab",
                                                    params: ["caller": ["agent_session": "agent-1"], "wait": false])).get()
