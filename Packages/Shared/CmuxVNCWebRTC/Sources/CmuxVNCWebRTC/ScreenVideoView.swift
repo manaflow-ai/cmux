@@ -69,7 +69,6 @@ public final class ScreenVideoView: UIView {
     deinit {
         track?.track.remove(sink)
         track?.track.remove(tap)
-        promotion.stop()
     }
 }
 
@@ -81,7 +80,8 @@ public final class ScreenVideoView: UIView {
 /// in the app's Info.plist lets an iPhone go above 60 at all.
 @MainActor
 final class ProMotionRate {
-    private var link: CADisplayLink?
+    // concurrency-allow: written only on the main actor; deinit reads it once no one else holds `self` (the view, on main).
+    nonisolated(unsafe) private var link: CADisplayLink?
     private(set) var requested: Int?
 
     func update(frameRate: Int, inWindow: Bool) {
@@ -103,8 +103,12 @@ final class ProMotionRate {
         requested = nil
     }
 
+    /// The view leaves its window (`update(inWindow: false)`) before it goes away; this
+    /// covers one freed while still in a window, so the run loop does not keep the link.
+    deinit { link?.invalidate() }
+
     /// The display link's target: holds no view, so the link never keeps one alive.
-    private final class Tick: NSObject {
+    private final class Tick: NSObject, Sendable {
         static let shared = Tick()
         @objc func tick(_ link: CADisplayLink) {}
     }
