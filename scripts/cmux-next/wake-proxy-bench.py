@@ -147,7 +147,8 @@ class Terminal:
     def echo_start(self) -> tuple[subprocess.Popen, str]:
         """Types `echo wake-$((A+B))`; only the shell's output line holds wake-<sum>, never the typed text."""
         a, b = random.randrange(1 << 20), random.randrange(1 << 20)
-        proc = subprocess.Popen(self.argv("terminal", self.surface, "write", "--text", f"echo wake-$(({a}+{b}))\n"),
+        # `\r` is Return to the shell, as evicted-terminal-frame-live and bench_workspace_hibernation type it.
+        proc = subprocess.Popen(self.argv("terminal", self.surface, "write", "--text", f"echo wake-$(({a}+{b}))\r"),
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
                                 env=self.env)
         return proc, f"wake-{a + b}"
@@ -176,8 +177,9 @@ def app_answer_ms(app: bm.App, since: float) -> float | None:
     return None
 
 
-def run_round(bundle: str, app_pid: int, app: bm.App, term: Terminal, sleep_s: float) -> dict:
-    awake = term.echo()
+def run_round(bundle: str, app_pid: int, app: bm.App, term: Terminal | None, sleep_s: float) -> dict:
+    """One freeze. With no working terminal (`term` None) only the app's answer is timed."""
+    awake = term.echo() if term else None
     pids = freeze_set(bundle, app_pid)
     stopped = []
     try:
@@ -188,6 +190,9 @@ def run_round(bundle: str, app_pid: int, app: bm.App, term: Terminal, sleep_s: f
     finally:
         signal_all(list(reversed(stopped)), signal.SIGCONT)  # the app last: everything it talks to runs again first
     resumed = time.monotonic()
+    if term is None:
+        return {"sleep_s": sleep_s, "frozen": len(stopped), "awake_echo_ms": None,
+                "app_answer_ms": app_answer_ms(app, resumed), "terminal_echo_ms": None}
     proc, expect = term.echo_start()  # the key press right at the wake
     answer = app_answer_ms(app, resumed)
     echo = term.wait_text(expect, resumed)
@@ -211,9 +216,16 @@ def main(argv: list[str] | None = None) -> int:
         app_pid, sock, scratch = bm.launch(args.app, {})
         app = bm.App(args.app, sock)
         term = Terminal(app)
-        term.open()
-        if term.echo() is None:
-            raise SystemExit(f"wake-proxy: the terminal never echoed before any freeze; panes {term.pane_summary()}")
+        try:
+            term.open()
+            if term.echo() is None:
+                raise SystemExit(f"the terminal never echoed before any freeze; panes {term.pane_summary()}")
+        except (SystemExit, subprocess.SubprocessError, OSError) as error:
+            # The app's answer still says how long a wake holds it; the echo rows stay empty (missed_rounds counts
+            # them) and the report says why, instead of the part measuring nothing.
+            report["terminal_error"] = str(error)[:800]
+            print(f"wake-proxy: no terminal echo, timing the app only: {report['terminal_error']}", flush=True)
+            term = None
         for index in range(args.rounds):
             time.sleep(args.settle)  # test script: an idle app between rounds
             entry = run_round(args.app, app_pid, app, term, args.sleep)

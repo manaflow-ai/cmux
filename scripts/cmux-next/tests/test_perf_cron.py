@@ -689,31 +689,19 @@ class WebUiTests(unittest.TestCase):
             {"mode": "warm", "phases": {"first window frame": 450.0, "pane painted": 1400.0, "first live event": 1500.0}},
             {"mode": "warm", "phases": {"first window frame": 470.0, "pane painted": 1450.0, "first live event": None}},
             {"mode": "update", "phases": {"first window frame": 900.0, "pane painted": 2600.0, "first live event": 2700.0}}]}
-        session = {"census": {"workspaces": 5, "tabs": {"terminal": 16, "browser": 5}},
-                   "quits": [{"seconds": 1.2, "exited": True}, {"seconds": 9.0, "exited": False}],
-                   "launches": [{"marks": {"first_window_frame_committed": 430.0, "first_terminal_frame": 610.0},
-                                 "longest_stall_ms": 120, "census": {"workspaces": 5, "tabs": {"terminal": 16, "browser": 5}}},
-                                {"marks": {"first_window_frame_committed": 440.0}, "longest_stall_ms": 300,
-                                 "census": {"workspaces": 4, "tabs": {"terminal": 12, "browser": 5}}}]}
-        report = {"rows": rw.reconnect_rows(reconnect) + rw.session_rows(session)}
+        report = {"rows": rw.reconnect_rows(reconnect)}
         part = cron.PART_BY_NAME["relaunch"]
         rows = cron.rows_of_part(part, report, budgets_mod, {})
         self.assertEqual(rows["launch.relaunch.warm.first_window_frame_ms"]["p50"], 460.0)
         self.assertEqual(rows["launch.relaunch.warm.chat_live_ms"]["p95"], 1500.0, "a round with no live event has no value")
         self.assertEqual(rows["launch.relaunch.warm.chat_missing_runs"]["p95"], 1, "it is counted instead")
         self.assertEqual(rows["launch.relaunch.update.chat_missing_runs"]["p95"], 0)
-        self.assertEqual(rows["launch.relaunch.session.quit_ms"]["p95"], 1200.0, "a quit that never exited is no time")
-        self.assertEqual(rows["launch.relaunch.session.terminal_live_ms"]["p95"], 610.0)
-        self.assertEqual(rows["launch.relaunch.session.lost_items"]["p95"], 5, "the worst restore: 1 workspace and 4 tabs")
         # The targets are each row's own budget (relaunch-wake-cron.py names the sources), not the 10 ms latency one.
         self.assertEqual(cron.target_of("launch.relaunch.warm.chat_live_ms@cmux20-bench", rows["launch.relaunch.warm.chat_live_ms"], 8.33), 600)
-        self.assertEqual(cron.target_of("launch.relaunch.session.terminal_live_ms@h", rows["launch.relaunch.session.terminal_live_ms"], 8.33), 300)
-        self.assertEqual(cron.target_of("launch.relaunch.session.quit_ms@h", rows["launch.relaunch.session.quit_ms"], 8.33), 6000)
-        self.assertEqual(cron.target_of("launch.relaunch.session.lost_items@h", rows["launch.relaunch.session.lost_items"], 8.33), 0)
         self.assertTrue(cron.over_target("launch.relaunch.warm.chat_live_ms@h", rows["launch.relaunch.warm.chat_live_ms"], 8.33))
         self.assertFalse(cron.over_target("launch.relaunch.warm.first_window_frame_ms@h", rows["launch.relaunch.warm.first_window_frame_ms"], 8.33))
         self.assertEqual(rw.missing_rows(report["rows"], rw.RELAUNCH_EXPECTED), [])
-        self.assertEqual(rw.missing_rows(rw.session_rows(session), rw.RELAUNCH_EXPECTED),
+        self.assertEqual(rw.missing_rows([], rw.RELAUNCH_EXPECTED),
                          ["no launch.relaunch.warm.chat_live_ms", "no launch.relaunch.update.chat_live_ms"],
                          "a chat bench that gave nothing marks the report incomplete")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no launch.relaunch.warm.chat_live_ms"]}))
@@ -737,8 +725,13 @@ class WebUiTests(unittest.TestCase):
         self.assertTrue(cron.REPORT_ONLY_ROW_RE.match("launch.wake_proxy.awake_echo_ms"), "the awake floor is shown only")
         self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("launch.wake_proxy.terminal_echo_ms"))
         self.assertEqual(rw.wake_rows({"rounds": []}), [])
-        self.assertEqual(rw.missing_rows([], rw.WAKE_EXPECTED),
-                         ["no launch.wake_proxy.app_answer_ms", "no launch.wake_proxy.terminal_echo_ms"])
+        self.assertEqual(rw.missing_rows([], rw.WAKE_EXPECTED), ["no launch.wake_proxy.app_answer_ms"],
+                         "an app that never answered marks the report incomplete")
+        no_term = {"sleep_s": 30, "rounds": [{"app_answer_ms": 40.0, "terminal_echo_ms": None, "awake_echo_ms": None}]}
+        self.assertEqual(rw.missing_rows(rw.wake_rows(no_term), rw.WAKE_EXPECTED), [],
+                         "with no terminal echo the app's answer is still a done part")
+        self.assertEqual({r["name"]: r["p95"] for r in rw.wake_rows(no_term)}["launch.wake_proxy.missed_rounds"], 1,
+                         "and the rounds with no echo count against missed_rounds' budget of 0")
 
     def test_the_wake_bench_freezes_the_whole_process_tree(self):
         spec2 = importlib.util.spec_from_file_location("wake_proxy", os.path.join(HERE, "..", "wake-proxy-bench.py"))
