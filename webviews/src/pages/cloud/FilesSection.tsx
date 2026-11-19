@@ -272,6 +272,7 @@ function FileRows({
   // coming, going or moving above a row moves its place, and that draws none of the rows. `places`
   // is the current listing's, read by the rows' ref as they mount.
   const places = useRef({ indexOf, count: entries.length });
+  // react-doctor-disable-next-line react-doctor/no-ref-current-in-render -- the rows' ref callback reads it in this commit, before this component's layout effects: an effect would place new rows by the last listing.
   places.current = { indexOf, count: entries.length };
   const measure = useCallback(
     (node: HTMLElement | null) => {
