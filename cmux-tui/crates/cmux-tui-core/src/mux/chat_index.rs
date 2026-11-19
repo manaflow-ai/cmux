@@ -139,7 +139,61 @@ pub(crate) fn row(summary: &Value) -> Option<Value> {
         "updated_ms": ms(summary.get("updatedAt")),
         "created_ms": ms(summary.get("createdAt")),
         "pull_requests": pull_requests,
+        "family": text(summary.get("family")),
+        "usage": usage(summary.get("usageStats")),
+        "limits": limits(summary.get("usageLimits")),
     }))
+}
+
+/// A chat's spend as its harness recorded it (acpmux `usageStats`): tokens, list-price dollars and
+/// model calls of the last 24 hours (subagents included), and the context it holds; null until
+/// acpmux found the harness's records. A count acpmux could not read whole stays null, never 0.
+fn usage(stats: Option<&Value>) -> Value {
+    let Some(stats) = stats.filter(|stats| stats.is_object()) else { return Value::Null };
+    let count =
+        |name: &str| stats.get(name).and_then(Value::as_u64).map_or(Value::Null, Value::from);
+    let number = |name: &str| {
+        stats
+            .get(name)
+            .and_then(Value::as_f64)
+            .filter(|n| n.is_finite())
+            .map_or(Value::Null, Value::from)
+    };
+    json!({
+        "tokens_24h": count("tokens24h"),
+        "cost_usd_24h": number("costUsd24h"),
+        "calls_24h": count("calls24h"),
+        "context_tokens": count("contextTokens"),
+        "context_window": count("contextWindow"),
+    })
+}
+
+/// The plan limits of the account a chat runs on, as its harness last reported them (acpmux
+/// `usageLimits`: Claude Code's `rate_limit_event`, Codex's rate limits): each window's id
+/// (`session` is the 5-hour one, `weekly` the week), the percent used and when it resets (unix
+/// seconds); null before the harness reported any.
+fn limits(limits: Option<&Value>) -> Value {
+    let Some(windows) = limits.and_then(|l| l.get("windows")).and_then(Value::as_array) else {
+        return Value::Null;
+    };
+    let windows = windows
+        .iter()
+        .filter_map(|w| {
+            let id = w.get("id").and_then(Value::as_str).filter(|id| !id.is_empty())?;
+            let used = w.get("usedPercent").and_then(Value::as_f64).filter(|u| u.is_finite())?;
+            let resets = w.get("resetsAt").and_then(Value::as_i64).filter(|at| *at > 0);
+            Some(json!({ "id": id, "used_percent": used.clamp(0.0, 100.0), "resets_at": resets }))
+        })
+        .collect::<Vec<_>>();
+    if windows.is_empty() {
+        return Value::Null;
+    }
+    let plan = limits
+        .and_then(|l| l.get("plan"))
+        .and_then(Value::as_str)
+        .filter(|plan| !plan.is_empty())
+        .map_or(Value::Null, |plan| Value::String(plan.to_owned()));
+    json!({ "windows": windows, "plan": plan })
 }
 
 /// Whether two rows differ in anything but `updated_ms`.
