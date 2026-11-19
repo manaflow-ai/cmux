@@ -20,12 +20,13 @@ class App:
         self.windows = {"w1": ["ws_1"]}
         self.workspaces = ["ws_1"]
         self.active = "w1"
+        self.homes = {"w1"}
         self.home = False
         self.quit = False
 
     def topology(self):
         return {"loaded": True, "windows": [{"id": w, "workspaces": list(ids)} for w, ids in self.windows.items()],
-                "workspaces": [{"id": w} for w in self.workspaces] + [{"id": "ws_home"}],
+                "workspaces": [{"id": w} for w in self.workspaces] + [{"id": f"home_{w}"} for w in self.homes],
                 "focus": {"window": self.active, "workspace": self.windows[self.active][-1], "tab": "tab_1"}}
 
     def create(self):
@@ -55,6 +56,7 @@ class App:
             self.windows[target].append(workspace)
         elif action == "home.show":
             self.home = True
+            self.homes.add(self.active)
         elif action == "quitKeepSessions":
             self.quit = True
         else:
@@ -78,7 +80,7 @@ class SeedTests(unittest.TestCase):
                                           "--front-out", str(front))
                 self.assertEqual(code, 0, row)
                 self.assertEqual(len(app.topology()["workspaces"]), count)
-                self.assertEqual(sum(map(len, app.windows.values())), count - 1)
+                self.assertEqual(sum(map(len, app.windows.values())), count - len(app.homes))
                 self.assertEqual(row["all_workspaces"], count)
                 self.assertEqual(len(app.windows), windows)
                 self.assertLessEqual(max(map(len, app.windows.values())) - min(map(len, app.windows.values())), 1)
@@ -103,6 +105,15 @@ class SeedTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("error", row)
             self.assertTrue(app.quit)
+
+    def test_excess_initial_workspaces_are_preserved(self):
+        app = App()
+        before = list(app.workspaces)
+        code, row = self.run_seed(app, "--windows", "1", "--total-workspaces", "1")
+        self.assertEqual(code, 1)
+        self.assertIn("error", row)
+        self.assertEqual(app.workspaces, before)
+        self.assertTrue(app.quit)
 
 
 if __name__ == "__main__":

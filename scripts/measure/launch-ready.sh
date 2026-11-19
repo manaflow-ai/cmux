@@ -18,8 +18,10 @@
 #                launch after the priming one, in which launch-ready-seed.py opens 3 windows, makes 60 workspaces across
 #                them (a terminal each), shows Home in the front window and quits with Keep Sessions (LR-SEED). The
 #                default, session=small, measures the priming launch's session (one window on Home).
-#   workspaces=N with session=stress3: the seed makes N workspaces (1 to 200, default 60) instead of 60, so one harness
-#                times the same 3-window session at 5 and at 120 workspaces (constant cost at scale)
+#   workspaces=N with session=stress3: exactly N workspaces reported by snapshot.get, including Home and the initial
+#                windows' workspaces (1 to 200; at least the initial fixture's total). Without it, add 60 as before.
+#   windows=N   with session=stress3: use 1 to 3 windows (default 3). windows=1 workspaces=5 and workspaces=120
+#                compare workspace count with one window in both fixtures. LR-SEED reports the actual total.
 #   profile=1    also record the first measured launch of each side with Instruments' Time Profiler (all processes)
 #                and print its main thread from process start to the window on screen (launch-ready-profile.py); its
 #                SIDE-run1.samples.json.gz in report.tgz names a nightly's stripped frames offline with --dsym
@@ -92,7 +94,7 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small workspaces=60 prerun=0 copy=same machines=0 late=0 engines="" config=release arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small workspaces="" windows=3 prerun=0 copy=same machines=0 late=0 engines="" config=release arg rc=0 i side
 
   local preflight=1 preflight_cpu=30
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
@@ -122,6 +124,7 @@ main() {
       late=*) late="${arg#late=}" ;;
       machines=*) machines="${arg#machines=}" ;;
       workspaces=*) workspaces="${arg#workspaces=}" ;;
+      windows=*) windows="${arg#windows=}" ;;
       engines=*) engines="${arg#engines=}" ;;
       preflight=0|preflight=1) preflight="${arg#preflight=}" ;;
       preflight_cpu=*) preflight_cpu="${arg#preflight_cpu=}" ;;
@@ -133,9 +136,11 @@ main() {
   [[ "$LR_LAYOUT" == 0 || "$dmg" == build ]] || { echo "layout=1 takes dmg=build (the sidebar edge needs a bench build)" >&2; exit 2; }
   [[ "$LR_LAYOUT" == 1 ]] && config=bench
   [[ "$machines" =~ ^[0-9]+$ && "$machines" -le 200 ]] || { echo "machines= takes 0 to 200" >&2; exit 2; }
-  [[ "$workspaces" =~ ^[1-9][0-9]*$ && "$workspaces" -le 200 ]] || { echo "workspaces= takes 1 to 200" >&2; exit 2; }
-  [[ "$workspaces" == 60 || "$session" == stress3 ]] || { echo "workspaces= sizes the stress3 seed: it takes session=stress3" >&2; exit 2; }
+  [[ -z "$workspaces" || ( "$workspaces" =~ ^[1-9][0-9]*$ && "$workspaces" -le 200 ) ]] || { echo "workspaces= takes 1 to 200" >&2; exit 2; }
+  [[ "$windows" =~ ^[1-3]$ ]] || { echo "windows= takes 1 to 3" >&2; exit 2; }
+  [[ "$session" == stress3 || ( -z "$workspaces" && "$windows" == 3 ) ]] || { echo "workspaces= and windows= size session=stress3" >&2; exit 2; }
   LR_WORKSPACES="$workspaces"
+  LR_WINDOWS="$windows"
   [[ "$preflight_cpu" =~ ^[1-9][0-9]*$ ]] || { echo "preflight_cpu= takes a whole percent >= 1" >&2; exit 2; }
   [[ "$LR_STATE" == kept || ( "$session" == small && "$machines" == 0 ) ]] \
     || { echo "state=bare empties the home before each launch: it takes no session=$session or machines=$machines" >&2; exit 2; }
@@ -165,7 +170,7 @@ main() {
   cp scripts/measure/launch-ready-summary.py "$out/summary.py"
   cp scripts/ci/fresh_home_launch_smoke.py "$out/fresh_home_launch_smoke.py"
   cp scripts/measure/launch-ready-cef.py "$out/cef.py"
-  echo "LR session $session workspaces $workspaces prerun $prerun copy $copy machines $machines engines ${engines:-none}"
+  echo "LR session $session workspaces ${workspaces:-add60} windows $windows prerun $prerun copy $copy machines $machines engines ${engines:-none}"
   local sides=(head)
   if [[ -n "$engines" ]]; then
     IFS=, read -r -a sides <<<"$engines"
@@ -372,11 +377,13 @@ probe() {
 # session and quits with Keep Sessions. The probe ends when the app does; its 600 s settle is only a backstop.
 seed() {
   local out="$1" side="$2" launch status probed
+  local seed_args=(--windows "${LR_WINDOWS:-3}")
+  if [[ -n "${LR_WORKSPACES:-}" ]]; then seed_args+=(--total-workspaces "$LR_WORKSPACES"); fi
   rm -f "$LR_SOCKETS/$side.sock" # the priming launch's: the seed waits for this launch's own socket
   probe "$out" "$side" seed 600 0 >"$out/seed-$side.probe" &
   launch=$!
   GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/seed.py" "$LR_SOCKETS/$side.sock" \
-    --workspaces "${LR_WORKSPACES:-60}" --front-out "$out/seed-$side.front.json" 2>>"$out/seed.log" | sed "s/^LR-SEED /LR-SEED $side /"
+    "${seed_args[@]}" --front-out "$out/seed-$side.front.json" 2>>"$out/seed.log" | sed "s/^LR-SEED /LR-SEED $side /"
   status=${PIPESTATUS[0]}
   wait "$launch"; probed=$?
   cat "$out/seed-$side.probe"
