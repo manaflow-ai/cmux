@@ -475,6 +475,10 @@ fn an_app_that_places_terminals_decides_where_a_terminals_new_tab_goes() {
         run(server, &Who::terminal(terminal).with_app(&app), &["tab", "create", "terminal"]);
     assert_eq!(created_pane(&plain), pane, "{plain}");
     assert_eq!(app.identify_callers(), vec![json!({"terminal_id": terminal})]);
+    // A person's `cmux` never says it is the MCP server: the app would take
+    // the shell for an agent and open its terminal in a new column.
+    let asked = app.received.lock().unwrap().clone();
+    assert!(asked.iter().all(|request| request["params"]["origin"] != "mcp"), "{asked:?}");
     drop(app);
 
     // A terminal that runs an agent: the column right of it.

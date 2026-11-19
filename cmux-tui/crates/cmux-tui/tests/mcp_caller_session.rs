@@ -100,6 +100,40 @@ fn guard_an_agents_browser_tab_with_no_place_carries_the_agent_and_no_target() {
     assert!(run.other_daemon.is_empty(), "another session was asked: {:?}", run.other_daemon);
 }
 
+/// An agent in a cmux terminal has no agent session. Its link with no
+/// workspace named no terminal either, so the app opened it in the pane the
+/// person had focused; and its requests did not say they came from the MCP
+/// server, so the app took the terminal for a person's shell.
+#[test]
+fn an_mcp_link_with_no_workspace_names_the_callers_terminal_and_the_mcp_origin() {
+    let run = serve_call(None, "workspace_open_url", json!({"url": URL}));
+    assert_eq!(run.result["isError"], false, "{}", run.result);
+    let open = run.method("browser.open_split");
+    assert_eq!(open["params"]["url"], URL, "{open}");
+    assert_eq!(open["params"]["terminal_id"], PERSON_TERMINAL, "{open}");
+    assert_eq!(open["params"]["origin"], "mcp", "{open}");
+    // The placement question says who asks, and that the MCP server asks.
+    let identify = run.method("system.identify");
+    assert_eq!(identify["params"]["origin"], "mcp", "{identify}");
+    assert_eq!(identify["params"]["caller"], json!({"terminal_id": PERSON_TERMINAL}), "{identify}");
+
+    // An agent chat is named by its session; the terminal goes along.
+    let run = serve_call(Some(AGENT_SESSION), "workspace_open_url", json!({"url": URL}));
+    assert_eq!(run.result["isError"], false, "{}", run.result);
+    let open = run.method("browser.open_split");
+    assert_eq!(open["params"]["caller"], json!({"agent_session": AGENT_SESSION}), "{open}");
+    assert_eq!(open["params"]["origin"], "mcp", "{open}");
+}
+
+/// Every app run the MCP server sends says `origin: mcp`: the browser tab
+/// it opens through the app too, which said `script`.
+#[test]
+fn an_mcp_browser_tab_says_the_mcp_origin() {
+    let run = serve_call(None, "tab_create_browser", json!({"url": URL}));
+    assert_eq!(run.result["isError"], false, "{}", run.result);
+    assert_eq!(run.open_browser()["params"]["origin"], "mcp", "{:?}", run.app);
+}
+
 struct Finished {
     result: Value,
     own_daemon: Vec<Value>,
@@ -110,6 +144,14 @@ struct Finished {
 impl Finished {
     fn open_browser(&self) -> &Value {
         self.action("openBrowser")
+    }
+
+    /// The first `method` request the app got.
+    fn method(&self, method: &str) -> &Value {
+        self.app
+            .iter()
+            .find(|call| call["method"] == method)
+            .unwrap_or_else(|| panic!("no {method}: {:?}", self.app))
     }
 
     /// The one `action.run` of `action` the app got.
@@ -292,6 +334,17 @@ fn fake_app(socket: &Path, done: Arc<AtomicBool>) -> JoinHandle<Vec<Value>> {
                 "cli": true, "targets": ["pane"],
                 "arguments": [{"name": "path", "kind": "string", "required": false}],
                 "surfaces": {"cli": "offered", "mcp": "offered"}}]}});
+        }
+        // The caller is in the session's workspace, with no column on its right.
+        if request["method"] == "system.identify" {
+            return json!({"id": request["id"], "ok": true, "result": {"caller_placement": 2,
+                "caller": {"is_caller": true, "workspace": WORKSPACE, "screen": SCREEN,
+                    "pane": PANE},
+                "beside": {"pane": null, "placement": "new_column"}}});
+        }
+        if request["method"] == "browser.open_split" {
+            return json!({"id": request["id"], "ok": true, "result": {"tab_id": NEW_TAB,
+                "created": [NEW_TAB], "placement": "beside_caller_new_column"}});
         }
         if request["method"] != "action.run" {
             return json!({"id": request["id"], "ok": false, "error": {"code": "unavailable",
