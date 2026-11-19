@@ -13,6 +13,11 @@
 #     [--arg=youtube=aqz-KE-bpKQ] [--arg=youtube_qualities=default,720] [--arg=holds=orbits,video-4k60] \
 #     [--arg=hold_phases=idle,occluded,covered,minimized,low-power] [--arg=idle_pause=20] [--arg=settle=10] \
 #     --artifact .build/wallpaper-cost/rows.json
+# The controller runs an unlisted scripts/measure script only at a commit on feat-cmux-next or main. Before this one
+# is there (or listed), the same driver runs through the listed split-spring step:
+#   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \
+#     --arg=--suite=wallpaper-cost --arg=--measure=30 --arg=--ids=orbits --arg=--videos=1080p30,4k60 \
+#     [--arg=--youtube=ID --arg=--youtube-qualities=default,720] --artifact artifacts/split-spring/report.json
 # Output: WALLPAPER-COST lines (scripts/bench/benches/wallpaper_cost.py reads them) and a Markdown table between
 # WALLPAPER-COST-TABLE-BEGIN and -END; JSON in .build/wallpaper-cost/rows.json.
 set -euo pipefail
