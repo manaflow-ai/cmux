@@ -16,7 +16,7 @@ import CmuxNextOnboarding
 /// classic's last saved session.
 enum OnboardingHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let services = context.services
+        let services = context.services; registry.bindEffect("home.showSetup") { _ in services.onboarding.setup.reopen(); _ = AppActions.showHome(services); return .done }
         registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
         BrowserImportGate(host: services).install(into: registry) { BrowserImportOfferStrings.turnedOff }
         registry.bind("browserProfile.removeImportedData", run: { invocation in

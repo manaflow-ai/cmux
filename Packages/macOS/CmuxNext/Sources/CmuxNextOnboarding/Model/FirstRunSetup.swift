@@ -79,4 +79,13 @@ public final class FirstRunSetup {
         defaults.set("ended", forKey: Self.stateKey)
         shows = false
     }
+
+    /// Shows the card again from a release action, preserving rows that were already answered.
+    /// This is intentionally separate from ``begin``: returning to setup never changes first-run
+    /// markers or reopens the first-run windows.
+    public func reopen() {
+        guard !skipsOnboarding else { return }
+        defaults.set("pending", forKey: Self.stateKey)
+        shows = true
+    }
 }

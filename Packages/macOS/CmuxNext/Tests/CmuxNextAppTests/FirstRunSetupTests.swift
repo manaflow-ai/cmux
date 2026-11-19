@@ -60,6 +60,20 @@ import Testing
         #expect(!setup.shows)
     }
 
+    @Test func theSetUpActionReopensAnEndedCardWithItsAnsweredRows() throws {
+        let defaults = try defaults()
+        let setup = FirstRunSetup(defaults: defaults)
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        setup.end()
+        #expect(!setup.shows)
+        #expect(setup.historyDone)
+
+        setup.reopen()
+        #expect(setup.shows)
+        #expect(defaults.string(forKey: FirstRunSetup.stateKey) == "pending")
+        #expect(setup.historyDone, "reopening keeps the completed history row done")
+    }
+
     /// Chats found on this Mac: the card's chat history row opens Bring your history on a click, and its once flag
     /// is set only once that page showed or the row was dismissed. None found: no row.
     @Test func theChatHistoryRowOpensBringYourHistory() async throws {
