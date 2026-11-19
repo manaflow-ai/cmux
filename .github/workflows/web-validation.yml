@@ -30,7 +30,7 @@ jobs:
   portable-placement:
     name: portable light placement
     if: ${{ github.event_name != 'merge_group' && vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ (github.repository_owner != 'manaflow-ai' || github.head_ref == 'app-ffi-repin') && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 4
     permissions:
       contents: read
@@ -66,7 +66,7 @@ jobs:
 
   changes:
     if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ (github.repository_owner != 'manaflow-ai' || github.head_ref == 'app-ffi-repin') && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     outputs:
       required: ${{ steps.route.outputs.required }}
@@ -93,7 +93,7 @@ jobs:
     name: web-build
     needs: changes
     if: needs.changes.outputs.required == 'true' && github.event_name != 'pull_request' && github.event_name != 'merge_group'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ (github.repository_owner != 'manaflow-ai' || github.head_ref == 'app-ffi-repin') && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 15
     defaults:
       run:
@@ -123,7 +123,7 @@ jobs:
     name: web-tests
     needs: changes
     if: needs.changes.outputs.required == 'true' && github.event_name != 'pull_request' && github.event_name != 'merge_group'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ (github.repository_owner != 'manaflow-ai' || github.head_ref == 'app-ffi-repin') && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 20
     defaults:
       run:
@@ -151,7 +151,7 @@ jobs:
     name: web-database-tests
     needs: changes
     if: needs.changes.outputs.required == 'true' && github.event_name != 'pull_request' && github.event_name != 'merge_group'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ (github.repository_owner != 'manaflow-ai' || github.head_ref == 'app-ffi-repin') && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 15
     defaults:
       run:
