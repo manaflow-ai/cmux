@@ -94,6 +94,7 @@ impl SurfaceEncoder for VideoToolbox {
         out: &mut Vec<u8>,
     ) -> Res<bool> {
         out.clear();
+        self.idr_cause = None;
         if frame.io_surface.is_null() {
             return Err("encode_surface: NULL IOSurface".into());
         }

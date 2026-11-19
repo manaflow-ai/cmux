@@ -617,6 +617,8 @@ fn keyframe_codes_with_skip_off(opts: &OpenH264Options, fresh: bool) -> bool {
 impl H264Encoder for OpenH264 {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
         out.clear();
+        // A skipped or failed frame keeps no earlier frame's cause.
+        self.idr_cause = None;
         self.pick_usage(pic);
         let vt = self.vtbl();
         let force = vt.ForceIntraFrame.ok_or("no ForceIntraFrame")?;

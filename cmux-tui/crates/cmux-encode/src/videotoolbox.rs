@@ -548,6 +548,7 @@ impl VideoToolbox {
 
 impl H264Encoder for VideoToolbox {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
+        self.idr_cause = None;
         // A surface of another size may have resized the session.
         let resized = self.ensure_session(self.width, self.height)?;
         self.fill(pic)?;

@@ -756,7 +756,7 @@ mod tests {
 
     #[test]
     fn an_idr_names_the_engines_ask_then_the_encoders_cause() {
-        let req = |reason| EncodeRequest {
+        let req = |reason: Option<IdrReason>| EncodeRequest {
             stream: 0,
             frame: 9,
             damage: Rect { x: 0, y: 0, width: 16, height: 16 },
