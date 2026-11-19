@@ -56,6 +56,12 @@ public final class AppStore {
     public var macData: [String: MacDataMachine] = [:]
     /// Live mode: this phone's connection to each Mac it dials.
     public var macConnection: [String: MacConnection] = [:]
+    /// Live mode: the build picked per team (the Mac the person chose, or the one a held pairing
+    /// code names), by team id. A computer running several cmux builds lists this one while it is
+    /// online (``MacRoster``). Empty in mock mode.
+    public var pickedMacs: [String: String] = [:]
+    /// Every team's picked build (``pickedMacs``), as ``MacRoster`` takes them.
+    public var pickedMacIDs: Set<String> { Set(pickedMacs.values) }
     /// What each Mac's host said it does (`version` service `capabilities`), for
     /// Macs this phone has linked to. Absent: unknown (older host, or never linked).
     public var macCapabilities: [String: Set<String>] = [:]

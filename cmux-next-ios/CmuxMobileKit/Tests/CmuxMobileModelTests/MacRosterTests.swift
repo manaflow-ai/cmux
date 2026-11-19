@@ -89,6 +89,34 @@ import Testing
         #expect(MacRoster([current, other]).visible.map(\.id) == ["b"])
     }
 
+    /// Two tagged dev builds of one account online on one computer (the 2026-11-18 report: "cu-all"
+    /// `0ae8…` and "ios-infinite-scroll-v3" `e767…`): the phone's picked build (its pairing code's
+    /// Mac) is listed, not the one whose id sorts first.
+    @Test func thePickedOnlineBuildIsListed() {
+        let cuAll = MacDevice(id: "0ae8a0d4", name: "Aziz's MacBook Pro", isOnline: true, ownerUserID: "me", machineID: machine)
+        let v3 = MacDevice(id: "e7673bc3", name: "Aziz's MacBook Pro", isOnline: true, ownerUserID: "me", machineID: machine)
+        #expect(MacRoster([cuAll, v3]).visible.map(\.id) == ["0ae8a0d4"])
+        let roster = MacRoster([cuAll, v3], picked: ["e7673bc3"])
+        #expect(roster.visible.map(\.id) == ["e7673bc3"])
+        #expect(roster.otherBuilds == ["e7673bc3": [cuAll]])
+        #expect(MacRoster.accountMacs([Team(id: "t", name: "T", macs: [cuAll, v3])], picked: ["e7673bc3"]).map(\.id) == ["e7673bc3"])
+        #expect(SettingsDeviceRows.otherBuilds([
+            SettingsDevice(ids: ["0ae8a0d4"], kind: .mac, name: "Aziz's MacBook Pro", online: true, lastSeenAt: nil,
+                           isThisDevice: false, receivesNotifications: false, machineID: machine, teamID: "t"),
+            SettingsDevice(ids: ["e7673bc3"], kind: .mac, name: "Aziz's MacBook Pro", online: true, lastSeenAt: nil,
+                           isThisDevice: false, receivesNotifications: false, machineID: machine, teamID: "t"),
+        ], picked: ["e7673bc3"]) == ["0ae8a0d4"])
+    }
+
+    /// A picked build that went offline yields to an online build of its computer (online first).
+    @Test func anOfflinePickYieldsToAnOnlineBuild() {
+        let picked = MacDevice(id: "b", name: "Mini", isOnline: false, lastSeenAt: now, machineID: machine)
+        let online = MacDevice(id: "a", name: "Mini", isOnline: true, machineID: machine)
+        #expect(MacRoster([picked, online], picked: ["b"]).visible.map(\.id) == ["a"])
+        let older = MacDevice(id: "c", name: "Mini", isOnline: false, lastSeenAt: now - 3600, machineID: machine)
+        #expect(MacRoster([picked, older], picked: ["c"]).visible.map(\.id) == ["c"])
+    }
+
     /// The same record listed twice (two teams' lists) stays one row and no other build.
     @Test func aRepeatedRecordIsNotItsOwnOtherBuild() {
         let mac = MacDevice(id: "a", name: "Mini", isOnline: true, machineID: machine)

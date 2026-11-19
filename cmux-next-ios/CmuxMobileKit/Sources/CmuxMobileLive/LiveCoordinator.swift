@@ -264,6 +264,7 @@ public final class LiveCoordinator {
         store.tracksMacData = true
         store.macData = [:]
         store.macConnection = [:]
+        store.pickedMacs = [:]
         store.teamDataState = .loading
         AgentSessionDirectory.shared.makeSource = { [weak self] summary in
             guard let self else { return UnboundAgentSource(summary: summary, macName: nil) }
@@ -687,8 +688,9 @@ public final class LiveCoordinator {
     /// one, and holds a link to each Mac `linkPolicy` keeps.
     func retarget() {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
-        let remembered = UserDefaults.standard.string(forKey: "cmuxMobile.live.mac.\(team.id)")
-            ?? (snapshot?.teamID == team.id ? snapshot?.linkedMacID : nil)
+        let remembered = pickedMac(team)
+        // The pick is listed for its computer (MacRoster), here and on every screen.
+        if store.pickedMacs[team.id] != remembered { store.pickedMacs[team.id] = remembered }
         let next = LinkMachine.target(in: listedMacs(team), remembered: remembered, current: focusedMacID)
         // The focused Mac's session exists before the focus moves to it.
         if let next { _ = session(for: next) }
@@ -696,10 +698,21 @@ public final class LiveCoordinator {
         applyLinks()
     }
 
+    /// The team's picked build: the Mac a held pairing code names, else the
+    /// person's choice, else the launch snapshot's. A code's Mac wins even when
+    /// it is another build of a listed computer (several tagged dev builds of one
+    /// account on one Mac): the phone focuses and stays on the Mac whose code it
+    /// was launched or opened with, not the build that sorts first.
+    private func pickedMac(_ team: Team) -> String? {
+        if let invite = pairing?.invites.pending(), invite.team == team.id { return invite.mac }
+        return UserDefaults.standard.string(forKey: "cmuxMobile.live.mac.\(team.id)")
+            ?? (snapshot?.teamID == team.id ? snapshot?.linkedMacID : nil)
+    }
+
     /// The Macs the phone focuses and the screens list: the owner's own, one
-    /// build per computer (``MacRoster``).
+    /// build per computer, the picked one where it is online (``MacRoster``).
     private func listedMacs(_ team: Team) -> [MacDevice] {
-        MacRoster(team.macs.filter { !othersMacs.contains($0.id) }).visible
+        MacRoster(team.macs.filter { !othersMacs.contains($0.id) }, picked: store.pickedMacIDs).visible
     }
 
     /// The Macs this phone may link: the listed ones, and another build on a
@@ -709,7 +722,7 @@ public final class LiveCoordinator {
     /// A Mac whose pairing code is held is one too, while the code is.
     private func dialableMacs(_ team: Team) -> [MacDevice] {
         let own = team.macs.filter { !othersMacs.contains($0.id) }
-        let listed = Set(MacRoster(own).visible.map(\.id))
+        let listed = Set(MacRoster(own, picked: store.pickedMacIDs).visible.map(\.id))
         let invited = pairing?.invites.pending()?.mac
         return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil || $0.id == invited }
     }
@@ -839,6 +852,8 @@ public final class LiveCoordinator {
     /// Macs keep theirs. Nothing changes for a Mac this phone may not dial.
     public func select(macID: String) {
         guard let team = store.activeTeam, canLink(macID: macID) else { return }
+        // The person chose another Mac: a held code no longer outranks that choice (``pickedMac``).
+        if let held = pairing?.invites.pending(), held.mac.lowercased() != macID.lowercased() { pairing?.invites.drop() }
         UserDefaults.standard.set(macID, forKey: "cmuxMobile.live.mac.\(team.id)")
         retarget()
     }

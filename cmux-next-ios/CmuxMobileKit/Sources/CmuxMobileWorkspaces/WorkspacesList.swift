@@ -111,7 +111,7 @@ public struct WorkspacesList: View {
     }
 
     /// The listed Macs: one per computer, whatever builds run on it (`MacRoster`).
-    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? []).visible }
+    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? [], picked: store.pickedMacIDs).visible }
     /// A remembered Mac that is no longer listed reads as All Macs.
     var scope: MacScope { MacFilter.resolve(filter.scope(in: store.activeTeam), macs: macs) }
     private var scopedMac: MacDevice? { scope.macID.flatMap { id in macs.first { $0.id == id } } }
@@ -123,7 +123,7 @@ public struct WorkspacesList: View {
 
     /// Every Mac on the account (all teams): the scope of the same-name tags,
     /// as in Settings → Devices.
-    private var accountMacs: [MacDevice] { MacRoster.accountMacs(store.teams) }
+    private var accountMacs: [MacDevice] { MacRoster.accountMacs(store.teams, picked: store.pickedMacIDs) }
 
     /// Tags for the account's Macs that share a name, so every place that
     /// names a Mac says which one ("Aziz's MacBook Pro 3F2A").

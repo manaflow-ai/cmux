@@ -71,12 +71,13 @@ public enum SettingsDeviceRows {
     /// recently active build Workspaces lists (``MacRoster``, per team, as
     /// each team's Workspaces groups them): Settings still lists them, so each
     /// can be removed, and says what they are. Every row is the caller's own.
-    public static func otherBuilds(_ macs: [SettingsDevice]) -> Set<String> {
+    /// `picked`: the phone's picked builds (``AppStore/pickedMacIDs``), listed while online.
+    public static func otherBuilds(_ macs: [SettingsDevice], picked: Set<String> = []) -> Set<String> {
         Dictionary(grouping: macs, by: { $0.teamID ?? "" }).values.reduce(into: Set<String>()) { hidden, team in
             let devices = team.map {
                 MacDevice(id: $0.id, name: $0.name, isOnline: $0.online == true, lastSeenAt: $0.lastSeenAt, machineID: $0.machineID)
             }
-            hidden.formUnion(MacRoster(devices).hiddenIDs)
+            hidden.formUnion(MacRoster(devices, picked: picked).hiddenIDs)
         }
     }
 

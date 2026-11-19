@@ -11,6 +11,12 @@ import Foundation
 /// listed once by its most recently active build. The others are that Mac's
 /// other builds (`otherBuilds`), still listed in Settings → Devices.
 ///
+/// The build the phone picked on a computer (`picked`: the Mac the person
+/// chose, or the one a pairing code named) is listed while it is online, ahead
+/// of that computer's other online builds: a tagged dev phone paired by its
+/// same-tag Mac's code keeps that Mac, not whichever build of the computer
+/// sorts first. An offline pick still yields to an online build.
+///
 /// A name is never an identity: several Macs can share one (they stay apart,
 /// with the `MacNameDisambiguation` tag), and a Mac that sent no machine id is
 /// never folded into another.
@@ -21,7 +27,8 @@ public struct MacRoster: Equatable, Sendable {
     /// most recently active first.
     public let otherBuilds: [String: [MacDevice]]
 
-    public init(_ macs: [MacDevice]) {
+    /// - Parameter picked: the picked builds (``AppStore/pickedMacIDs``).
+    public init(_ macs: [MacDevice], picked: Set<String> = []) {
         var groups: [String: [MacDevice]] = [:]
         var order: [String] = []
         for mac in macs {
@@ -32,7 +39,7 @@ public struct MacRoster: Equatable, Sendable {
         var listed = Set<String>()
         var others: [String: [MacDevice]] = [:]
         for key in order {
-            let ranked = (groups[key] ?? []).sorted(by: Self.moreActive)
+            let ranked = (groups[key] ?? []).sorted { Self.moreActive($0, $1, picked: picked) }
             guard let first = ranked.first else { continue }
             listed.insert(first.id)
             var seen: Set<String> = [first.id]
@@ -48,10 +55,10 @@ public struct MacRoster: Equatable, Sendable {
 
     /// The account's listed Macs (the same-name tags' scope): each team's
     /// listed Macs, as that team's screens list them.
-    public static func accountMacs(_ teams: [Team]) -> [MacDevice] {
+    public static func accountMacs(_ teams: [Team], picked: Set<String> = []) -> [MacDevice] {
         MacNameDisambiguation.scope(teams.map { team in
             var listed = team
-            listed.macs = MacRoster(team.macs).visible
+            listed.macs = MacRoster(team.macs, picked: picked).visible
             return listed
         })
     }
@@ -63,10 +70,12 @@ public struct MacRoster: Equatable, Sendable {
         return "machine\u{0}\(mac.ownerUserID ?? "")\u{0}\(machine)"
     }
 
-    /// Online first; then the one seen last; then the id, so two online builds
-    /// keep one order however their sockets reconnect.
-    static func moreActive(_ a: MacDevice, _ b: MacDevice) -> Bool {
+    /// Online first; then the picked build; then the one seen last; then the id,
+    /// so two online builds keep one order however their sockets reconnect.
+    static func moreActive(_ a: MacDevice, _ b: MacDevice, picked: Set<String> = []) -> Bool {
         if a.isOnline != b.isOnline { return a.isOnline }
+        let pickedA = picked.contains(a.id), pickedB = picked.contains(b.id)
+        if pickedA != pickedB { return pickedA }
         if !a.isOnline {
             let seenA = a.lastSeenAt ?? .distantPast
             let seenB = b.lastSeenAt ?? .distantPast
