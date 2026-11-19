@@ -299,7 +299,7 @@ def check(args) -> int:
                 pass
 
     smoke.AFTER_RENDER = journey
-    smoke.PREPARE_HOME = ui.login_keychain
+    smoke.PREPARE_HOME = smoke.login_keychain  # this smoke's own CannotRun, which its main reports (ui loads its own copy)
     argv = ["--seconds", "1", *(["--dmg", args.dmg] if args.dmg else ["--app", args.app]), "--out", str(out)]
     status = smoke.main(argv)
     passed = status == 0 and len(result["steps"]) == 5 and all(s["ok"] for s in result["steps"].values())

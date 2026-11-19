@@ -4,21 +4,10 @@ import CmuxNextActions
 import CmuxNextSettings
 import Testing
 
-/// What the pane's "…" offered, now that it is gone (user 2026-11-13): the tab bar's right-click holds it. Its own
-/// rows and More give what opens in the pane, the splits and zoom; ``PaneToolbar/tabBarMenuRows()`` adds the pins a
-/// narrow pane hid, Search Tabs and Show in Tab Bar.
 @MainActor
 struct PaneToolbarMenuTrimTests {
-    /// The tab bar's right-click as the pane builds it, every row of its submenus flattened in.
-    static func tabBarMenu(_ registry: ActionRegistry, _ toolbar: PaneToolbar) -> (menu: NSMenu, ids: [ActionID]) {
-        let menu = registry.makeTabStripMenu(target: ActionTargetRef(kind: .pane, id: "p1"))
-        PaneController.insert(toolbar.tabBarMenuRows(), into: menu)
-        func all(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(all) }
-        return (menu, all(menu).compactMap { ActionRegistry.menuRun(of: $0)?.id })
-    }
-
-    @Test(arguments: [CGFloat(12), 240])
-    func collapsedPinnedToolsStayInTheTabBarMenu(width: CGFloat) throws {
+    @Test(arguments: [CGFloat(32), 240])
+    func collapsedPinnedToolsReturnToOverflow(width: CGFloat) throws {
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
         registry.context = ActionContext(rawValue: .max)
@@ -29,31 +18,36 @@ struct PaneToolbarMenuTrimTests {
         toolbar.view.frame = NSRect(x: 0, y: 0, width: width, height: 32)
         toolbar.view.layoutSubtreeIfNeeded()
 
-        let narrow = width == 12 // no room for one button: they all give way
+        let narrow = width == 32
         #expect(toolbar.view.buttons.count == tools.count)
         #expect(toolbar.view.buttons.allSatisfy { $0.isHidden == narrow })
-        let ids = toolbar.tabBarMenuRows().joined().compactMap { ActionRegistry.menuRun(of: $0)?.id }
+        let menu = try #require(toolbar.view.moreMenu?())
+        let ids = menu.items.compactMap { ActionRegistry.menuRun(of: $0)?.id }
         for id in tools {
-            #expect(ids.contains(id) == narrow, "A width-hidden pin stays available in the tab bar's right-click: \(id.rawValue)")
+            #expect(ids.contains(id) == narrow, "A width-hidden pin stays available in overflow: \(id.rawValue)")
         }
     }
 
-    @Test func theTabBarMenuKeepsCreationSplitsZoomAndSearch() throws {
+    @Test func overflowKeepsCreationSplitsZoomAndSearch() throws {
         let registry = ActionRegistry.standard()
         registry.context = ActionContext(rawValue: .max)
-        for id: ActionID in ["splitRight", "splitDown", "toggleSplitZoom"] { registry.bind(id, invoke: { _ in }) }
-        let toolbar = PaneToolbar(registry: { registry })
-        toolbar.update(target: "t1", kind: .terminal)
-        let (menu, ids) = Self.tabBarMenu(registry, toolbar)
-        for id: ActionID in ["newSurface", "palette.newAgentChat", "splitRight", "splitDown", "toggleSplitZoom", "tab.search"] {
-            #expect(ids.contains(id), "the tab bar's right-click lost \(id.rawValue): \(ids.map(\.rawValue))")
+        for id: ActionID in ["splitRight", "splitDown", "toggleSplitZoom", "openDiffViewer", "file.open", "agentPane.searchChats"] {
+            registry.bind(id, invoke: { _ in })
         }
-        #expect(menu.items.contains { $0.title == PaneToolbarStrings.showInTabBar && $0.submenu != nil })
-        #expect(menu.items.last?.submenu != nil, "More stays the last row")
+        let toolbar = PaneToolbar(registry: { registry }, paneTarget: ActionTargetRef(kind: .pane, id: "p1"))
+        toolbar.update(target: "t1", kind: .newTab)
+        let menu = try #require(toolbar.view.moreMenu?())
+        let ids = menu.items.compactMap { ActionRegistry.menuRun(of: $0)?.id }
+        #expect(ids == ["newSurface", "openBrowser.chromium", "palette.newAgentChat", "macScreen.open",
+                        "splitRight", "splitDown", "toggleSplitZoom", "tab.search"])
+        #expect(menu.items.allSatisfy { $0.view == nil }, "standard native menu rows")
         for (first, second) in zip(menu.items, menu.items.dropFirst()) {
             #expect(!(first.isSeparatorItem && second.isSeparatorItem))
         }
-        #expect(menu.items.first?.isSeparatorItem != true)
+        // The plus's menu still offers the profile and New Tab Page commands.
+        let plus = registry.makeContextMenu(for: .newTab)
+        let plusIDs = plus.items.compactMap { ActionRegistry.menuRun(of: $0)?.id }
+        #expect(plusIDs.contains("browserProfile.newTab") && plusIDs.contains("newTab.page"))
     }
 
     @Test(arguments: [PaneToolbar.Kind.newTab, .terminal, .browser, .other])
@@ -61,7 +55,8 @@ struct PaneToolbarMenuTrimTests {
         let registry = ActionRegistry.standard()
         let toolbar = PaneToolbar(registry: { registry })
         toolbar.update(target: "t1", kind: kind)
-        let pins = try #require(toolbar.tabBarMenuRows().last?.first?.submenu)
+        let menu = try #require(toolbar.view.moreMenu?())
+        let pins = try #require(menu.items.last?.submenu)
         let expected: [ActionID] = switch kind {
         case .newTab: ["splitRight", "splitDown", "openDiffViewer", "file.open", "agentPane.searchChats", "toggleSplitZoom"]
         case .terminal: ["splitRight", "splitDown", "openDiffViewer", "file.open", "toggleSplitZoom"]
@@ -77,8 +72,8 @@ struct PaneToolbarMenuTrimTests {
         toolbar.writePinned = { written = $0 }
         toolbar.update(target: "browser", kind: .browser, pinned: ["file.open"])
         #expect(toolbar.shownPins().isEmpty)
-        let pins = try #require(toolbar.tabBarMenuRows().last?.first?.submenu)
-        let row = try #require(pins.items.first { $0.title == registry.descriptor(for: "file.open")?.title })
+        let menu = try #require(toolbar.view.moreMenu?())
+        let row = try #require(menu.items.last?.submenu?.items.first { $0.title == registry.descriptor(for: "file.open")?.title })
         #expect(row.state == .on)
         _ = row.target?.perform(row.action, with: row)
         #expect(written?.pinned == [])

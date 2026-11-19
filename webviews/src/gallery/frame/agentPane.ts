@@ -12,6 +12,7 @@ import { resetSummaryCards } from "../../agent-session/acpmux/summary/cardState"
 import { setChatDisplay } from "../../agent-session/acpmux/chatDisplay";
 import { prepareMockTransport } from "../../agent-session/acpmux/mockTransport";
 import { savedComposerLook, setComposerLook } from "../../agent-session/acpmux/composerLook";
+import { lookDisplay, schemeOf } from "../golden/look";
 
 type Message = { id?: string; method?: string; params?: Record<string, unknown> };
 
@@ -19,13 +20,39 @@ type Message = { id?: string; method?: string; params?: Record<string, unknown> 
 export function agentPaneFontCSS(font: string, size: number): string {
   const rules: string[] = [];
   if (font) rules.push(`--cv-font: ${font};`, `--agent-host-font-family: ${font};`);
-  if (size) rules.push(`--cv-font-size: ${size}px;`, `--cv-line-height: ${Math.round(size * 1.625 * 100) / 100}px;`);
+  if (size) {
+    const lineHeight = Math.round(size * 1.625 * 100) / 100;
+    rules.push(
+      `--cv-font-size: ${size}px;`,
+      `--cv-line-height: ${lineHeight}px;`,
+      `--cv-base-font-size: ${size}px;`,
+      `--cv-base-line-height: ${lineHeight}px;`,
+    );
+  }
   return rules.length ? `:root { ${rules.join(" ")} }` : "";
 }
 
 const UPLOAD_STEPS = new Set(["chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel"]);
 
-export async function mountAgentPane(state: AgentPaneVariant, context: StageContext): Promise<void> {
+/** A variant under a whole look (golden/look.ts) as the app would push it: the setup's `agentPane.*`
+ * settings under the variant's display, its agent-pane/theme.css after the font's stylesheet, its
+ * composer look, and the theme file's agent pane surface as the pane's page. */
+function withLook(state: AgentPaneVariant, context: StageContext): AgentPaneVariant & { userCSS: string } {
+  const fontCSS = agentPaneFontCSS(context.env.fontFamily, context.env.fontSize);
+  const look = state.look;
+  if (!look) return { ...state, userCSS: fontCSS };
+  const page = look.schemes[schemeOf(context.env.colorScheme)].surfaces?.agentPane;
+  return {
+    ...state,
+    composerLook: state.composerLook ?? look.composerLook,
+    display: { ...lookDisplay(look), ...state.display },
+    theme: { ...(page && { pageBackground: page, surfaceBackground: page }), ...state.theme },
+    userCSS: [fontCSS, look.themeCSS ?? ""].filter(Boolean).join("\n"),
+  };
+}
+
+export async function mountAgentPane(variant: AgentPaneVariant, context: StageContext): Promise<void> {
+  const state = withLook(variant, context);
   const strings = (await import("../../agent-session/acpmux/generated/strings.json")).default as unknown as Record<
     string,
     Record<string, string>
@@ -117,7 +144,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     const bridge = window.cmuxAcpmuxBridge;
     if (!bridge) return;
     bridge.applyTheme({ ...context.agentTheme, ...state.theme });
-    bridge.applyCustomization({ themeCSS: agentPaneFontCSS(context.env.fontFamily, context.env.fontSize) });
+    bridge.applyCustomization({ themeCSS: state.userCSS });
     bridge.applySessionStatus?.(state.sessionStatus === true);
     // The chat's look as the app's `display` push sends it (none: the default look).
     setChatDisplay(state.display ?? {});
@@ -220,7 +247,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     const { applyPaneTheme, applyPaneThemeCSS } = await import("../../agent-session/acpmux/paneTheme");
     const { setSessionStatus } = await import("../../agent-session/acpmux/sessionStatus");
     applyPaneTheme({ ...context.agentTheme, ...state.theme });
-    applyPaneThemeCSS(agentPaneFontCSS(context.env.fontFamily, context.env.fontSize));
+    applyPaneThemeCSS(state.userCSS);
     setSessionStatus(state.sessionStatus === true);
     setChatDisplay(state.display ?? {});
   }

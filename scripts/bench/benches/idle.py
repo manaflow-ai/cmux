@@ -19,7 +19,7 @@ Rows (better = lower):
 The app is built at the commit under test (--build SHA, or a NIGHTLY's source commit), a tagged build of the
 same source rather than the signed NIGHTLY binary; the NIGHTLY's own idle numbers come from xbench's cmux-budget
 rows. Default args: counts=1,10 measure=60 (about 25 minutes with the build). Harness args pass through:
---arg counts=1,10,50 --arg agents=10 --arg attribute=1 --arg measure=150 --arg config=bench ...
+--arg counts=1,10,50 --arg agents=10 --arg attribute=1 --arg measure=150 --arg config=bench --arg vmmap=tui-daemon ...
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from benchlib.bench import Bench, BenchError, Context
 
 HARNESS = "scripts/measure/perf-10x-idle.sh"
 PASS_THROUGH = ("counts", "measure", "agents", "purge", "release", "attribute", "infinite", "days",
-                "chat_renderer_crash")
+                "chat_renderer_crash", "vmmap", "axes", "items", "visible_items", "settled")
 DEFAULTS = {"counts": "1,10", "measure": "60"}
 FIELD = re.compile(r"(\w+)=(\S+)")
 APP_LINE = re.compile(r"^PERF-IDLE (app|app-agents) (\S+) (.*)$")
@@ -106,7 +106,8 @@ class Idle(Bench):
                 tot = totals.setdefault((scope, m.group(2), count), {})
                 for metric, key, unit in (("cpu", "cpu_pct", "%"), ("wakeups", "wakeups_per_s", "per_s"),
                                           ("footprint", "footprint_mb", "MB"), ("rss", "rss_mb", "MB"),
-                                          ("processes", "n", "count")):
+                                          ("processes", "n", "count"), ("disk_write", "disk_write_mb_per_h", "MB_per_h"),
+                                          ("disk_read", "disk_read_mb_per_h", "MB_per_h")):
                     v = _num(f, key)
                     if v is None:
                         continue
@@ -126,7 +127,8 @@ class Idle(Bench):
                 found += 1
         if not found:
             raise BenchError(f"{path}: no PERF-IDLE line (not a perf-10x-idle.sh log?)")
-        units = {"cpu": "%", "wakeups": "per_s", "footprint": "MB", "rss": "MB", "processes": "count"}
+        units = {"cpu": "%", "wakeups": "per_s", "footprint": "MB", "rss": "MB", "processes": "count",
+                 "disk_write": "MB_per_h", "disk_read": "MB_per_h"}
         for (scope, sample, count), tot in totals.items():
             for metric, v in tot.items():
                 ctx.row(metric, v, units[metric], labels={"scope": scope, "sample": sample, "count": count, "kind": "total"})

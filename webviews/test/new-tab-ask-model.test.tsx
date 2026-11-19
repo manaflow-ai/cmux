@@ -309,9 +309,10 @@ test("Return during a sign-in check that never answers asks at once", async () =
 });
 
 test("an Ask row click and New chat during the sign-in check ask at once", async () => {
-  for (const selector of ['.nt-row[data-type="ask"]', '[data-create="chat"]']) {
+  for (const selector of ['.nt-row[data-type="ask"]', '.nt-row[data-type="create"]']) {
     const page = await newTabPage();
     try {
+      if (selector.includes("create")) await page.type("new chat");
       const target = window.document.querySelector(selector);
       expect(target).not.toBeNull();
       await act(async () => {
@@ -319,7 +320,10 @@ test("an Ask row click and New chat during the sign-in check ask at once", async
         target!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
       });
       expect(page.asks).toHaveLength(1);
-      expect(page.asks[0]?.slice(0, 2)).toEqual(["codex", "fix the flaky upload test"]);
+      expect(page.asks[0]?.slice(0, 2)).toEqual([
+        "codex",
+        selector.includes("create") ? "" : "fix the flaky upload test",
+      ]);
     } finally {
       await act(async () => page.root.unmount());
     }
