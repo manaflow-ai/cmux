@@ -1158,6 +1158,17 @@ impl Mux {
     /// local terminals are reaped after the creator closes the insert race.
     fn reap_if_dead(self: &Arc<Self>, surface: &Arc<Surface>) {
         if surface.is_dead() {
+            // A never-started lazy tab is parked, not reaped
+            // (mux/terminal_respawn/lazy.rs). Its park waits for the end of
+            // its creating request: a park inside the creation is overwritten
+            // when the creation commits the tab and its terminal.
+            #[cfg(unix)]
+            if surface
+                .terminal_host_identity()
+                .is_some_and(|host| self.lazy_never_started(&host.terminal_id))
+            {
+                return;
+            }
             if self.resource_creation_active.load(Ordering::Acquire) {
                 // The reader's exit callback is fenced by the creation
                 // execution lock. It will reap this surface after the public
