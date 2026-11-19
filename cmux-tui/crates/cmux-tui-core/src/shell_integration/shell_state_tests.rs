@@ -430,7 +430,7 @@ fn a_shell_without_the_trap_does_not_answer_and_keeps_running() {
         return;
     };
     let fixture = Fixture::new("bash-no-trap", Shell::Bash);
-    let mut command = cmux_pty::PtyCommand::new(&exe);
+    let mut command = cmux_pty::PtyCommand::new(exe.to_string_lossy().into_owned());
     command.args(["--norc", "--noprofile", "-i"].map(String::from));
     command.env("PS1", "@> ");
     command.env("TERM", "xterm-256color");
