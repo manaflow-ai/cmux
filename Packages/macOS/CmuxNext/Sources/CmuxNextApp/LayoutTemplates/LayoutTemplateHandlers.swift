@@ -20,12 +20,10 @@ enum LayoutTemplateHandlers {
             return services?.layoutTemplates.templates.map { ActionEnumCase(value: $0.name, title: $0.name) } ?? []
         }
         registry.bind("saveLayoutTemplate", run: { try save(context, $0) })
-        registry.bind("palette.layout.open", run: { open(context, $0) })
+        let noTemplates: @MainActor () -> String? = { [weak services] in services?.layoutTemplates.templates.isEmpty == false ? nil : LayoutTemplateStrings.noTemplates }
+        registry.bind("palette.layout.open", unavailable: noTemplates, run: { open(context, $0) })
         services.palette.sources.actionPages["manageLayouts"] = { [weak services] in services.map(managePage) }
-        registry.bind("manageLayouts", run: { _ in
-            guard !services.layoutTemplates.templates.isEmpty else { throw ActionFailure.invalidTarget(LayoutTemplateStrings.noTemplates) }
-            services.palette.show(page: managePage(services), relativeTo: context.activeWindow?.window)
-        })
+        registry.bind("manageLayouts", unavailable: noTemplates, run: { _ in services.palette.show(page: managePage(services), relativeTo: context.activeWindow?.window) })
     }
 
     /// Saves the target workspace's layout (as the store mirrors it now) under the `name` argument.

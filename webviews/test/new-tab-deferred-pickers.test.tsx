@@ -468,7 +468,7 @@ test("a New Tab combo for another harness carries its effort and Fast into that 
   });
   await pickCombo("astra high fast", "Astra");
   await send("hello");
-  expect(wire).toEqual(["new codex", "model gpt-6-astra", "reasoning_effort=high", "fast_mode=true", "prompt hello"]);
+  expect(wire).toEqual(["new codex", "model gpt-6.2-astra", "reasoning_effort=high", "fast_mode=true", "prompt hello"]);
 });
 
 // Codex review of #24509 at 348093f4: a tiered Fast option (standard, fast, ultrafast) lists no
@@ -479,7 +479,7 @@ test("a combo's Fast reaches a tiered Fast option as its fast tier, never ultraf
   });
   await pickCombo("astra high fast", "Astra");
   await send("hello");
-  expect(wire).toEqual(["new codex", "model gpt-6-astra", "reasoning_effort=high", "fast_mode=fast", "prompt hello"]);
+  expect(wire).toEqual(["new codex", "model gpt-6.2-astra", "reasoning_effort=high", "fast_mode=fast", "prompt hello"]);
 });
 
 test("a generic Fast on or off takes the option's own spelling, and on never becomes a higher tier", async () => {
@@ -510,7 +510,7 @@ test("a combo's Fast held on catalog tiers reaches a session that names them sta
   });
   await pickCombo("astra high fast", "Astra");
   await send("hello");
-  expect(wire).toEqual(["new codex", "model gpt-6-astra", "reasoning_effort=high", "fast_mode=fast", "prompt hello"]);
+  expect(wire).toEqual(["new codex", "model gpt-6.2-astra", "reasoning_effort=high", "fast_mode=fast", "prompt hello"]);
 });
 
 // Same review: the composer's after-open fallback sent the option's second value (ultrafast) where
@@ -521,7 +521,7 @@ test("a session whose Fast tiers are standard and ultrafast gets no Fast at all 
   });
   await pickCombo("astra high fast", "Astra");
   await send("hello");
-  expect(wire).toEqual(["new codex", "model gpt-6-astra", "reasoning_effort=high", "prompt hello"]);
+  expect(wire).toEqual(["new codex", "model gpt-6.2-astra", "reasoning_effort=high", "prompt hello"]);
 });
 
 // Same review: a combo back to the harness of the chat still on screen (a turn streaming) had the
@@ -585,7 +585,7 @@ test("a New Tab replaces held Sonnet High with Medium after switching to Codex a
   expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("High");
 
   await pickCombo("astra", "Astra");
-  expect(held()?.model).toBe("gpt-6-astra");
+  expect(held()?.model).toBe("gpt-6.2-astra");
   await clickChip();
   const claude = dom.window.document.querySelector<HTMLElement>('.acpmux-cols-tab[role="tab"][aria-label^="Claude"]');
   expect(claude).not.toBeNull();

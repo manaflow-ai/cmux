@@ -75,7 +75,7 @@ extension AppsClient {
     }
 
     /// Runs `operation` after every earlier mount, unmount and user event.
-    private func enqueue(_ operation: @escaping @MainActor (any AppsTransport) async -> Void) {
+    func enqueue(_ operation: @escaping @MainActor (any AppsTransport) async -> Void) {
         let previous = tail
         // task-owner: one transport call chained after the previous one (mount, unmount and event order)
         tail = Task { [transport] in
@@ -147,6 +147,8 @@ extension AppsClient {
             return
         }
         if !keepingScene || mount.model.status != .ready { mount.model.reset() }
+        // A new mount starts with no failures (a restarted supervisor never says `stale: false`).
+        mount.model.staleReason = nil
         enqueue { [weak self] transport in
             do throws(AppsTransportError) {
                 try await transport.mount(app: mount.appID, interface: mount.implementation.interface, mountID: mount.id, context: mount.context)

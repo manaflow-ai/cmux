@@ -216,20 +216,24 @@ import Testing
     }
 
     /// The dim around a zoom hears the change of the tiled layout only. The zoom of the only tiled pane of a screen
-    /// with a floating pane changes no tiled structure: it brings no dim, and the floating pane that goes with the
-    /// zoom is no cause for one. The same fixture brings a dim for the zoom of one of 2 tiled panes, so the row can
-    /// see a dim that comes.
+    /// with a floating pane changes no tiled structure: no pane moves, so it brings no dim, and the floating pane that
+    /// goes with the zoom is no cause for one. The fixture asks for the panes' move, with which a zoom's dim comes.
+    /// The control shows that a dim can show in this fixture: the unzoom of one of 2 tiled panes brings one.
     @Test func theZoomOfTheOnlyTiledPaneOfAScreenWithAFloatingPaneBringsNoDim() throws {
-        let control = Screen(.splits(Self.two), floating: [Self.floating("f")])
+        let control = Screen(.splits(Self.two), floating: [])
         defer { control.window.closeAfterTest() }
         try #require(control.screen.zoomDim.fade(on: control.screen) > 0, "SETUP: the dim has no fade in this fixture")
         control.show(.splits(.leaf("p1")), zoomed: true, floating: [])
-        try #require(control.screen.zoomDim.phase == .coming && Self.dim(of: control) != nil,
-                     "SETUP: the zoom of one of 2 tiled panes brings no dim in this fixture")
+        control.settle()
+        control.show(.splits(Self.two), floating: [])
+        control.step()
+        try #require(control.screen.zoomDim.phase == .going && Self.dim(of: control) != nil,
+                     "SETUP: the unzoom of one of 2 tiled panes brings no dim in this fixture")
         control.settle()
 
         let fixture = Screen(.splits(.leaf("p1")), floating: [Self.floating("f")])
         defer { fixture.window.closeAfterTest() }
+        fixture.root.context.commitMotionOverride = true
         let screen = fixture.screen
         try #require(screen.floatState.cards["f"] != nil, "SETUP: the floating pane has no card")
         fixture.show(.splits(.leaf("p1")), zoomed: true, floating: [])
@@ -242,29 +246,32 @@ import Testing
         #expect(screen.floatState.cards["f"] == nil, "a zoomed screen has no card")
     }
 
-    /// While the dim of a zoom comes, the floating pane and its card stay as they show, as the tiled pane that the
-    /// zoom covers does. They go together with that pane, in the frame that shows the zoom: no frame has the card
-    /// without its pane, and no frame has the floating pane over the zoomed pane.
-    @Test func aFloatingPaneAndItsCardStayWhileTheDimOfAZoomComesAndGoInTheFrameThatShowsTheZoom() throws {
+    /// In the turn of a zoom key the floating pane and its card stay as they show, as the tiled pane that the zoom
+    /// covers does. They go together with that pane, in the frame that shows the zoom: no frame has the card without
+    /// its pane, and no frame has the floating pane over the zoomed pane. A zoom that takes a floating pane with it
+    /// shows in one frame, with no dim and no move of a pane, also when the fixture asks for the panes' move.
+    @Test func aFloatingPaneAndItsCardStayInTheTurnOfAZoomKeyAndGoInTheFrameThatShowsTheZoom() throws {
         let fixture = Screen(.splits(Self.two), floating: [Self.floating("f")])
         defer { fixture.window.closeAfterTest() }
+        fixture.root.context.commitMotionOverride = true
         let screen = fixture.screen
         // The views, read before the zoom: the zoom takes the panes that it covers out of the layout's hosts.
         let card = try #require(screen.floatState.cards["f"], "SETUP: the floating pane has no card")
         let pane = try #require(fixture.root.context.hosts["f"], "SETUP: the floating pane has no host")
         let covered = try #require(fixture.root.context.hosts["p2"], "SETUP: the pane that the zoom covers has no host")
-        try #require(screen.zoomDim.fade(on: screen) > 0, "SETUP: the dim has no fade in this fixture")
 
         fixture.show(.splits(.leaf("p1")), zoomed: true, floating: [])
-        try #require(screen.zoomDim.phase == .coming, "SETUP: the zoom brings no dim in this fixture")
         // The turn of the key: nothing went.
         #expect(card.superview === screen && !card.isHidden, "the card went in the turn of the zoom key")
         #expect(pane.superview === screen && !pane.isHidden, "the floating pane went in the turn of the zoom key")
         #expect(!covered.isHidden, "the tiled pane that the zoom covers went in the turn of the zoom key")
+        #expect(Self.dim(of: fixture) == nil, "a dim is in the overlay plane in the turn of the zoom key")
 
         var shownAt: Int?
-        for tick in 1...240 {
+        for tick in 1...8 {
             fixture.step()
+            #expect(Self.dim(of: fixture) == nil, "tick \(tick): a dim shows at a zoom that takes a floating pane with it")
+            #expect(!PaneCommitMotionTests.inFlight(screen), "tick \(tick): a pane has a move on its layer at a zoom that takes a floating pane with it")
             if covered.isHidden {
                 // The frame that shows the zoom: the floating pane and its card go with the covered pane.
                 #expect(pane.isHidden, "tick \(tick) shows the zoom with the floating pane over it")
@@ -275,8 +282,7 @@ import Testing
             #expect(card.superview === screen && !card.isHidden, "tick \(tick): the card went before the zoom showed")
             #expect(pane.superview === screen && !pane.isHidden, "tick \(tick): the floating pane went before the zoom showed")
         }
-        let at = try #require(shownAt, "the zoom never showed")
-        #expect(at > 1, "the zoom showed in the first frame, with no frame for its dim")
+        _ = try #require(shownAt, "the zoom did not show in 8 frames")
     }
 
     /// Two strip columns, a docked column on the right and 2 floating panes that lie over each other.
