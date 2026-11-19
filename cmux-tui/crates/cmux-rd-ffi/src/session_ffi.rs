@@ -36,9 +36,14 @@ fn session_code(error: &SessionError) -> i32 {
     }
 }
 
-fn with_session(ptr: *mut CmuxRdSession, f: impl FnOnce(&mut CmuxRdSession) -> i32) -> i32 {
-    // SAFETY: the caller passes NULL or a live pointer from cmux_rd_session_new
-    // and does not call into the same session concurrently.
+/// Runs `f` on a live session; maps NULL, a poisoned session and panics to codes.
+///
+/// # Safety
+/// `ptr` is NULL or came from [`cmux_rd_session_new`] and has not been freed, so a
+/// non-NULL `ptr` is aligned and points to a live session. Nothing else reads or
+/// writes that session until this returns: `f` gets it as `&mut`.
+unsafe fn with_session(ptr: *mut CmuxRdSession, f: impl FnOnce(&mut CmuxRdSession) -> i32) -> i32 {
+    // SAFETY: NULL or live, aligned and unaliased, by this function's contract.
     let Some(handle) = (unsafe { ptr.as_mut() }) else { return CMUX_RD_ERR_NULL };
     if handle.poisoned {
         return CMUX_RD_ERR_PANIC;
@@ -114,7 +119,10 @@ pub unsafe extern "C" fn cmux_rd_session_open_stream(
     session: *mut CmuxRdSession,
     stream: u16,
 ) -> i32 {
-    with_session(session, |h| unit(h.inner.open_stream(stream)))
+    let run = |h: &mut CmuxRdSession| unit(h.inner.open_stream(stream));
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    unsafe { with_session(session, run) }
 }
 
 /// Drops `stream` and its frames; `CMUX_RD_ERR_STREAM` when it is not open.
@@ -126,10 +134,13 @@ pub unsafe extern "C" fn cmux_rd_session_close_stream(
     session: *mut CmuxRdSession,
     stream: u16,
 ) -> i32 {
-    with_session(session, |h| {
+    let run = |h: &mut CmuxRdSession| {
         h.current_frame = None;
         unit(h.inner.close_stream(stream))
-    })
+    };
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    unsafe { with_session(session, run) }
 }
 
 /// Adds one datagram (datagram carrier). Returns the frames ready in all
@@ -146,10 +157,13 @@ pub unsafe extern "C" fn cmux_rd_session_push_datagram(
 ) -> i32 {
     // SAFETY: guaranteed by the caller.
     let Some(bytes) = (unsafe { bytes_in(bytes, len) }) else { return CMUX_RD_ERR_NULL };
-    with_session(session, |h| match h.inner.push_datagram(bytes, now_us) {
+    let run = |h: &mut CmuxRdSession| match h.inner.push_datagram(bytes, now_us) {
         Ok(()) => ready(h),
         Err(e) => session_code(&e),
-    })
+    };
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    unsafe { with_session(session, run) }
 }
 
 /// Adds received stream bytes (stream carrier). Returns the frames ready.
@@ -165,10 +179,13 @@ pub unsafe extern "C" fn cmux_rd_session_push_stream(
 ) -> i32 {
     // SAFETY: guaranteed by the caller.
     let Some(bytes) = (unsafe { bytes_in(bytes, len) }) else { return CMUX_RD_ERR_NULL };
-    with_session(session, |h| match h.inner.push_stream(bytes, now_us) {
+    let run = |h: &mut CmuxRdSession| match h.inner.push_stream(bytes, now_us) {
         Ok(()) => ready(h),
         Err(e) => session_code(&e),
-    })
+    };
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    unsafe { with_session(session, run) }
 }
 
 /// Drops frames past their deadline. Returns the frames ready.
@@ -177,10 +194,13 @@ pub unsafe extern "C" fn cmux_rd_session_push_stream(
 /// `session` is valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_session_tick(session: *mut CmuxRdSession, now_us: u64) -> i32 {
-    with_session(session, |h| {
+    let run = |h: &mut CmuxRdSession| {
         h.inner.tick(now_us);
         ready(h)
-    })
+    };
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    unsafe { with_session(session, run) }
 }
 
 /// Hands out the oldest ready frame of any stream: 1 when `out` and
@@ -198,7 +218,7 @@ pub unsafe extern "C" fn cmux_rd_session_pop_frame(
     if out.is_null() || out_stream.is_null() {
         return CMUX_RD_ERR_NULL;
     }
-    with_session(session, |h| {
+    let run = |h: &mut CmuxRdSession| {
         let Some((stream, frame)) = h.inner.pop_frame() else {
             h.current_frame = None;
             return 0;
@@ -218,7 +238,10 @@ pub unsafe extern "C" fn cmux_rd_session_pop_frame(
             out_stream.write(stream);
         }
         1
-    })
+    };
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    unsafe { with_session(session, run) }
 }
 
 /// Hands out the oldest queued message (control JSON, or a datagram that is
@@ -234,7 +257,7 @@ pub unsafe extern "C" fn cmux_rd_session_pop_message(
     if out.is_null() {
         return CMUX_RD_ERR_NULL;
     }
-    with_session(session, |h| {
+    let run = |h: &mut CmuxRdSession| {
         h.current_message = h.inner.pop_message();
         let Some(message) = h.current_message.as_ref() else { return 0 };
         let value = CmuxRdMessage {
@@ -245,7 +268,10 @@ pub unsafe extern "C" fn cmux_rd_session_pop_message(
         // SAFETY: checked non-NULL; writable by contract.
         unsafe { out.write(value) };
         1
-    })
+    };
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    unsafe { with_session(session, run) }
 }
 
 /// Records one decode time of `stream`.
@@ -258,7 +284,10 @@ pub unsafe extern "C" fn cmux_rd_session_note_decode(
     stream: u16,
     decode_us: u32,
 ) -> i32 {
-    with_session(session, |h| unit(h.inner.note_decode(stream, decode_us)))
+    let run = |h: &mut CmuxRdSession| unit(h.inner.note_decode(stream, decode_us));
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    unsafe { with_session(session, run) }
 }
 
 /// Asks the host for a keyframe on `stream` until one is released there.
@@ -270,7 +299,10 @@ pub unsafe extern "C" fn cmux_rd_session_request_keyframe(
     session: *mut CmuxRdSession,
     stream: u16,
 ) -> i32 {
-    with_session(session, |h| unit(h.inner.request_keyframe(stream)))
+    let run = |h: &mut CmuxRdSession| unit(h.inner.request_keyframe(stream));
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    unsafe { with_session(session, run) }
 }
 
 /// Writes the next due feedback datagram of any stream: 1 when written, 0
@@ -293,7 +325,7 @@ pub unsafe extern "C" fn cmux_rd_session_feedback(
     }
     // SAFETY: checked non-NULL; writable by contract.
     unsafe { *out_len = 0 };
-    with_session(session, |h| {
+    let run = |h: &mut CmuxRdSession| {
         let Some(datagram) = h.stashed_feedback.take().or_else(|| h.inner.feedback(now_us)) else {
             return 0;
         };
@@ -305,7 +337,10 @@ pub unsafe extern "C" fn cmux_rd_session_feedback(
                 code
             }
         }
-    })
+    };
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    unsafe { with_session(session, run) }
 }
 
 /// The time at which tick and feedback must run next (0 = now); `u64::MAX`
@@ -339,7 +374,7 @@ pub unsafe extern "C" fn cmux_rd_session_stats(
     if out.is_null() {
         return CMUX_RD_ERR_NULL;
     }
-    with_session(session.cast_mut(), |h| match h.inner.stats(stream) {
+    let run = |h: &mut CmuxRdSession| match h.inner.stats(stream) {
         Ok(s) => {
             let value = CmuxRdStats {
                 frames_released: s.frames_released,
@@ -352,7 +387,11 @@ pub unsafe extern "C" fn cmux_rd_session_stats(
             CMUX_RD_OK
         }
         Err(e) => session_code(&e),
-    })
+    };
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    // The C type is `*const`, but the pointer came from `_new` as `*mut`.
+    unsafe { with_session(session.cast_mut(), run) }
 }
 
 /// Starts session clock probes (rd change C8). Call only when welcome lists
@@ -363,10 +402,13 @@ pub unsafe extern "C" fn cmux_rd_session_stats(
 /// `session` is valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_session_enable_clock(session: *mut CmuxRdSession) -> i32 {
-    with_session(session, |h| {
+    let run = |h: &mut CmuxRdSession| {
         h.inner.enable_clock();
         CMUX_RD_OK
-    })
+    };
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    unsafe { with_session(session, run) }
 }
 
 /// Writes the host clock's offset from this viewer's (host = viewer +
@@ -384,7 +426,7 @@ pub unsafe extern "C" fn cmux_rd_session_clock(
     if offset_us.is_null() || rtt_us.is_null() {
         return CMUX_RD_ERR_NULL;
     }
-    with_session(session.cast_mut(), |h| {
+    let run = |h: &mut CmuxRdSession| {
         let Some(estimate) = h.inner.clock() else { return 0 };
         // SAFETY: checked non-NULL; writable by contract.
         unsafe {
@@ -392,5 +434,9 @@ pub unsafe extern "C" fn cmux_rd_session_clock(
             rtt_us.write(estimate.rtt_us);
         }
         1
-    })
+    };
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    // The C type is `*const`, but the pointer came from `_new` as `*mut`.
+    unsafe { with_session(session.cast_mut(), run) }
 }

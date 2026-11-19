@@ -967,6 +967,138 @@ class GlaedaKeptLog(unittest.TestCase):
                                                       "affected_tests_replay.py"})
 
 
+FAKE_GLAEDA_CACHE = """#!/usr/bin/env python3
+import json, os, sys, time
+args = sys.argv[1:]
+with open(os.environ["FAKE_GLAEDA_CALLS"], "a") as calls:
+    calls.write(" ".join(args) + "\\n")
+held = json.loads(open(os.environ["FAKE_GLAEDA_HELD"]).read())
+if args == ["read"]:
+    keys = [item["key"] for item in json.load(sys.stdin)["keys"]]
+    at = time.time() - held.get("age", 0)
+    print(json.dumps({"entries": {key: {"data": held["runs"][key], "fetchedAt": at, "dataAt": at, "error": None}
+                                  if key in held["runs"] else None for key in keys}}))
+    sys.exit(0)
+if args[:2] == ["log", "job"] and args[3] in held["logs"]:
+    sys.stdout.write(held["logs"][args[3]])
+    sys.exit(0)
+sys.stderr.write("glaeda-gh: not kept\\n")
+sys.exit(7)
+"""
+
+
+class SettledEvidenceGitHub(excuse.GitHub):
+    """The real client (its settled reads included) over FakeGitHub's data; every `gh` call it makes is a live REST
+    read, counted in LIVE. Each run is a full REST record: completed, attempt 1, with its workflow."""
+
+    UPDATED = "2026-11-17T08:21:03Z"
+
+    def __init__(self):
+        self.data = FakeGitHub()
+        for run in self.data.base_runs:
+            run.update(workflow_id=7, run_attempt=1, updated_at=self.UPDATED, path=".github/workflows/next.yml")
+        self.records = {10: {"id": 10, "workflow_id": 7, "path": ".github/workflows/next.yml", "event": "pull_request",
+                             "head_sha": HEAD, "status": "completed", "conclusion": "failure", "run_attempt": 1,
+                             "updated_at": self.UPDATED}}
+        self.live: list[str] = []
+
+    def run(self, args):
+        assert args[0] == "api", args
+        route = args[1]
+        self.live.append(route)
+        path, _, query = route.partition("?")
+        params = dict(part.split("=", 1) for part in query.split("&") if part)
+        if path.endswith("/jobs"):
+            if params.get("page", "1") != "1":
+                return json.dumps({"total_count": 0, "jobs": []})
+            jobs = self.data.json(f"{path}?filter={params['filter']}&per_page=100", paginate=True)[0]["jobs"]
+            return json.dumps({"total_count": len(jobs), "jobs": jobs})
+        if re.fullmatch(rf"repos/{REPO}/actions/runs/\d+", route) and int(path.rsplit("/", 1)[1]) in self.records:
+            return json.dumps(self.records[int(path.rsplit("/", 1)[1])])
+        return json.dumps(self.data.json(route))
+
+
+class SettledEvidence(unittest.TestCase):
+    """A base red judged again (a merge check retried after a quota refusal) reads what this host already holds: a
+    finished run's record and job lists, and a finished job, are read live once, then served from the settled store
+    while the run is the same completed attempt GitHub serves now (this judgement's live reads, or glaeda-gh's fresh
+    copy); logs come from glaeda-gh. cmux#45097 at 6aa5d9938d5f was refused five times "[quota: not judged, retry]"
+    re-reading them over the shared login's REST."""
+
+    BASE_LIST = f"repos/{REPO}/actions/workflows/7/runs?branch=feat-cmux-next&per_page={excuse.BASE_RUNS_PAGE}"
+    HEAD_JOBS = f"repos/{REPO}/actions/runs/10/jobs?filter=all&per_page=30&page=1"
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        glaeda = Path(self.dir.name) / "glaeda-gh"
+        glaeda.write_text(FAKE_GLAEDA_CACHE)
+        glaeda.chmod(0o755)
+        self.calls, self.held = Path(self.dir.name) / "glaeda-calls", Path(self.dir.name) / "held.json"
+        self.calls.write_text("")
+        data = FakeGitHub()
+        self.state = {"status": "completed", "conclusion": "failure", "run_attempt": 1,
+                      "updated_at": SettledEvidenceGitHub.UPDATED}
+        self.glaeda = {"age": 0,
+                       "runs": {f"run:{REPO}/10": dict(self.state, id=10), f"run:{REPO}/20": dict(self.state, id=20)},
+                       "logs": {str(job_id): frame_legacy(job, data.logs[job_id]) for job_id, job in data.jobs.items()}}
+        self.hold()
+        patch = unittest.mock.patch.dict(os.environ, {
+            "CMUX_GLAEDA_GH": str(glaeda), "FAKE_GLAEDA_CALLS": str(self.calls), "FAKE_GLAEDA_HELD": str(self.held),
+            excuse.JOBS_CACHE_ENV: str(Path(self.dir.name) / "kept")})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def hold(self):
+        self.held.write_text(json.dumps(self.glaeda))
+
+    def judge(self):
+        gh = SettledEvidenceGitHub()
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh)
+        self.assertRegex("\n".join(lines), r"excused 'cmux-next swift test': .*feat-cmux-next run 20")
+        return gh.live
+
+    def test_a_retried_judgement_reads_no_finished_run_again(self):
+        first = self.judge()
+        self.assertIn(self.HEAD_JOBS, first)
+        self.assertNotIn(f"repos/{REPO}/actions/runs/20", first)  # the base list read just now names it whole
+        self.assertNotIn("logs", "\n".join(first))  # glaeda-gh keeps both logs
+        # Judged again: the head run, its jobs, the base run's jobs and both logs come from what the host holds. Only
+        # the base's window of runs, an answer about now, is read live.
+        self.assertEqual(self.judge(), [self.BASE_LIST])
+
+    def test_a_run_re_run_since_is_read_live_again(self):
+        self.judge()
+        self.glaeda["runs"][f"run:{REPO}/10"].update(run_attempt=2, updated_at="2026-11-17T09:00:00Z")
+        self.hold()
+        again = self.judge()
+        self.assertIn(self.HEAD_JOBS, again)
+        self.assertIn(f"repos/{REPO}/actions/runs/10", again)
+
+    def test_a_run_in_progress_or_a_stale_glaeda_copy_is_read_live(self):
+        self.judge()
+        for change in ({"status": "in_progress"}, None):
+            with self.subTest(change=change):
+                self.glaeda["runs"][f"run:{REPO}/10"] = dict(self.state, id=10, **(change or {}))
+                self.glaeda["age"] = 0 if change else excuse.GLAEDA_RUN_FRESH_SECONDS + 60
+                self.hold()
+                again = self.judge()
+                self.assertIn(self.HEAD_JOBS, again)
+                self.assertIn(f"repos/{REPO}/actions/runs/10", again)
+
+    def test_nothing_is_kept_with_the_store_off(self):
+        with unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: "off"}):
+            first = self.judge()
+            self.assertEqual(self.judge(), first)
+
+    def test_an_unfinished_job_is_never_served_from_the_store(self):
+        route = f"repos/{REPO}/actions/jobs/5"
+        excuse.settled_put(route, {"id": 5, "status": "in_progress"})
+        self.assertIs(excuse.settled_answer(route), excuse.NOT_KEPT)
+        excuse.settled_put(route, {"id": 5, "status": "completed", "conclusion": "failure"})
+        self.assertEqual(excuse.settled_answer(route)["conclusion"], "failure")
+
+
 class PortableGhLog(unittest.TestCase):
 
     def setUp(self):
@@ -1025,67 +1157,6 @@ class PortableGhLog(unittest.TestCase):
         text = self.read("big")
         self.assertGreater(len(text), 40 * 1024 * 1024)
         self.assertTrue(text.endswith("tail\n"))
-
-
-class AgentApiUnavailable(unittest.TestCase):
-    """The iOS App Review gate's agent pass (cmux-next-ios/scripts/app_review_agent_pass.py) ends red with one
-    `agent.api-unavailable {json}` marker when the CLI's result showed the API never served it. That red is the shared
-    account's, not the PR's, but only for the marker with zero recorded API usage, on the agent pass step alone. Gate
-    run 43637095919 (job 132576237860): the weekly limit, duration_api_ms 0, no tokens, on every PR."""
-
-    NAME, STEP = "Reviewer path (appstore, ipad)", "Agent reviewer pass"
-    EVIDENCE = {"message": "agent pass: API unavailable (rate limited)", "duration_api_ms": 0, "input_tokens": 0,
-                "api_error_status": 429, "api_error_type": "rate_limit_error", "api_error": "usage_limit_reached",
-                "limit": "weekly", "resets": "Nov 18 at 3am (UTC)", "attempts": 1}
-
-    def setUp(self):
-        self.gh = FakeGitHub()
-        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
-        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=self.NAME, step=self.STEP)
-        self.gh.logs[2] = log(self.NAME, self.STEP, "##[error]agent reviewer pass: the agent wrote a verdict without "
-                              "one screenshot of the app", "##[error]Process completed with exit code 1.")
-
-    def head(self, *errors):
-        self.gh.logs[1] = log(self.NAME, self.STEP, "agent pass: retrying", *errors,
-                              "##[error]Process completed with exit code 1.")
-
-    def marker(self, **changes):
-        return "##[error]agent.api-unavailable " + json.dumps(dict(self.EVIDENCE, **changes), separators=(",", ":"))
-
-    def judged(self) -> str:
-        try:
-            return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh))
-        except excuse.Refused as why:
-            return f"refused: {why}"
-
-    def test_a_zero_usage_marker_is_not_this_prs_red(self):
-        self.head(self.marker())
-        text = self.judged()
-        self.assertIn(f"excused '{self.NAME}': not this PR (agent API unavailable)", text)
-        self.assertIn("duration_api_ms=0", text)
-        self.assertIn("resets Nov 18 at 3am (UTC)", text)
-
-    def test_a_marker_with_api_usage_stays_the_prs(self):
-        for changes in ({"input_tokens": 5200}, {"duration_api_ms": 41000}, {"input_tokens": None},
-                        {"duration_api_ms": False}):
-            self.head(self.marker(**changes))
-            self.assertNotIn("agent API unavailable", self.judged(), changes)
-
-    def test_failure_text_without_the_marker_stays_the_prs(self):
-        for line in ("##[error]agent reviewer pass: You've hit your weekly limit · resets Nov 18 at 3am (UTC)",
-                     "##[error]agent reviewer pass: agent pass: API unavailable (rate limited): duration_api_ms=0",
-                     "##[error]rate limit: agent.api-unavailable " + json.dumps(self.EVIDENCE)):
-            self.head(line)
-            self.assertNotIn("agent API unavailable", self.judged(), line)
-
-    def test_the_marker_beside_another_red_stays_the_prs(self):
-        self.head(self.marker(), "##[error]agent reviewer pass: the agent wrote a verdict without one screenshot")
-        self.assertNotIn("agent API unavailable", self.judged())
-        # Or another step of the job failed too: the walk itself is judged, not set aside.
-        self.gh.jobs[1]["steps"].insert(2, {"name": "Walk the reviewer path on ipad", "status": "completed",
-                                            "conclusion": "failure"})
-        self.head(self.marker())
-        self.assertNotIn("agent API unavailable", self.judged())
 
 
 class Excusing(unittest.TestCase):
@@ -7608,6 +7679,68 @@ class WsCheckPerTest(unittest.TestCase):
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
 
 
+class WsCheckFleetRoute(unittest.TestCase):
+    """2026-11-18: merge_hold refused teamleaderleo/leo-workspace#5992 twice, "'ws-check' has no result: job 'checks'
+    in run 44407040407 is completed/cancelled: no result to read". The broker had cancelled that run and the build
+    fleet ran it; the verdict is in the fleet log the broker keeps beside the run's record (fleet_kept_log)."""
+    RED = WsCheckPerTest.DEPLOY
+
+    def setUp(self):
+        self.gh = WsCheckGitHub()
+        red = {self.RED: WsCheckPerTest.ws_deploy(None, "test_a")}
+        self.gh.verdict(HEAD, 1, red)
+        self.gh.verdict(self.gh.TIP, 2, red)
+        # HEAD's run 1 as the broker leaves it: its one check job cancelled, its log only on the fleet.
+        log = self.gh.logs.pop(11)
+        self.fleet_lines = [line.split(" ", 1)[1] for line in log.splitlines()]
+        for job in self.gh.jobs[1]:
+            job["conclusion"] = "cancelled"
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        self.folder = Path(folder)
+        env = unittest.mock.patch.dict(os.environ, {excuse.FLEET_RECORDS_ENV: folder})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def keep(self, *, run=1, receipt_run=1, conclusion="failure", state="done", ran_on="build-fleet"):
+        record = {"id": "j1", "repo": self.gh.REPO, "dispatch": self.gh.HOST, "run_id": run, "conclusion": conclusion,
+                  "fleet": {"from_run": run, "state": state, "steps": [{"where": "linux-pool", "job_id": "f1"}]}}
+        (self.folder / "j1.json").write_text(json.dumps(record))
+        receipt = {"source_sha": HEAD, "run_id": str(receipt_run), "ran_on": ran_on, "exit_code": 1}
+        (self.folder / "j1.fleet-log").write_text(
+            "\n".join(self.fleet_lines + ["FAST_CHECKS_RECEIPT=" + json.dumps(receipt)]) + "\n")
+
+    def judge(self):
+        return excuse.judge(self.gh.REPO, "main", HEAD, [], self.gh)
+
+    def test_a_fleet_run_with_no_kept_log_has_no_result(self):
+        with self.assertRaisesRegex(excuse.Refused, r"'ws-check' has no result on .*completed/cancelled: no result "
+                                                    r"to read \(and this host keeps no build-fleet log"):
+            self.judge()
+
+    def test_a_fleet_runs_kept_log_is_read_and_its_base_red_excused(self):
+        self.keep()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+
+    def test_a_fleet_runs_own_red_is_still_refused(self):
+        self.fleet_lines = [line.replace("test_a", "test_b") for line in self.fleet_lines]
+        self.keep()
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_b"):
+            self.judge()
+
+    def test_a_kept_log_not_held_to_this_run_and_verdict_is_not_read(self):
+        for kwargs in ({"run": 7}, {"conclusion": "success"}, {"state": "running"}):
+            with self.subTest(**kwargs):
+                self.keep(**kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "has no result on"):
+                    self.judge()
+        for kwargs in ({"receipt_run": 7}, {"ran_on": "actions"}):
+            with self.subTest(**kwargs):
+                self.keep(**kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "has no FAST_CHECKS_RECEIPT naming that run"):
+                    self.judge()
+
+
 class WsCheckFailureText(unittest.TestCase):
     """2026-11-17: teamleaderleo/leo-workspace#5683 at 16b96c09 merged through merge_hold with its ws-check red excused
     as a base red, since main d240eaab failed the same test_text_io_encoding.py test. The head's failure listed a new
@@ -10999,8 +11132,6 @@ RAW_LOG_READERS = {
     "summary_red": "a gate: only refuses",
     "summary_no_verdict": "a gate: only refuses",
     "generated_no_verdict": "a gate: only refuses",
-    "agent_api_unavailable": "a gate: the agent pass's one marker line, read for its zero-usage evidence; compares "
-                             "nothing",
     "tree_handoff_quota_only": "a gate: parses the published-tree hand-off's one quota annotation; only refuses",
     "guard_red_steps": "a parser of the guard group's own verdict lines (guard_group: the head's from its failed_view)",
     "gallery_replay_crash": "the gallery health gate; the verdict compares gallery artifacts (gallery_classify)",
@@ -14609,7 +14740,6 @@ SCANNERS = {
     "base_red_excuse.summary_red": lambda f: excuse.summary_red(f.log),
     "base_red_excuse.summary_no_verdict": lambda f: excuse.summary_no_verdict(f.log),
     "base_red_excuse.generated_no_verdict": lambda f: excuse.generated_no_verdict(f.log),
-    "base_red_excuse.agent_api_unavailable": lambda f: excuse.agent_api_unavailable(f.job, f.log),
     "base_red_excuse.ratchet_red": lambda f: excuse.ratchet_red(f.view),
     "base_red_excuse.crash_signals": lambda f: excuse.crash_signals(f.view),
     "base_red_excuse.refused_at_setup": lambda f: excuse.refused_at_setup(f.job, f.log),
@@ -15254,12 +15384,15 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
     NOT_GUARD_WORKFLOWS = {
         "product builds and tests (Swift, Rust, web, backend, cloud, iOS), whose reds read product code": (
             "app-platform.yml", "auth-refresh-tests.yml", "automation-bench.yml", "backend-migrations.yml",
+            # The Billing lane (cmux#42867): billing web, DB and iOS package tests.
+            "billing.yml",
             "backend.yml", "ci.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloud-vm-image-lock.yml",
             "cloudflare-relay.yml", "device-hub.yml", "cmux-cloud-cli.yml", "cmux-next-crash-class.yml", "cmux-next-cua-helper-identity.yml",
             "cmux-next-media.yml", "cmux-next-hot-verify.yml", "cmux-next-motion-golden.yml", "cmux-next-remote-daemon.yml",
             "cmux-next-shell-integration.yml", "cmux-next-shim-cpp.yml", "cmux-tui-sdks.yml", "cmux-tui-spec.yml",
             "cmux-tui-windows-check.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vm.yml", "cmux-vnc.yml",
-            "coderouter-ci.yml", "fleet-test-compile.yml", "gallery-advisory.yml", "gallery-health.yml",
+            "coderouter-ci.yml", "fleet-test-compile.yml", "fleet-rd-host-macos.yml", "gallery-advisory.yml",
+            "gallery-health.yml",
             "indexnow-tests.yml", "ios-e2e.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
             "nightly-next-canary.yml", "nightly-next-cua-signed-host.yml", "nightly-next-launch-smoke.yml",
             "r2-upload-tests.yml", "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
@@ -15276,7 +15409,9 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
             "thunderdome-label.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
             "cmux-next-pr-closed-cancel.yml", "language-boundaries.yml", "required-checks-drift.yml",
-            "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml"),
+            "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml",
+            # Dispatch-only secrets seal; on a pull request that edits it every job is skipped.
+            "cmux-vm-secrets-seal.yml"),
         "guard checks of their own whose reds are judged as any job's: no guard test declares its reads yet": (
             "ci-artifact-transport.yml", "classic-api-guard.yml", "cmux-next-batch.yml", "cmux-next-car-guards.yml",
             "cmux-next-fast-gates.yml", "fleet-artifact-cdn.yml", "pr-checks.yml",

@@ -131,7 +131,7 @@ final class AgentPageChats {
         view.model.onCloudSignIn = cloudSignIn
         view.model.onCloudSignedIn = cloudSignedIn
         view.model.onCloudSetUp = cloudSetUp
-        view.model.gitHub = gitHub
+        view.useGitHub(gitHub)
         if let run = cloudRepick {
             view.model.onCloudRepickChat = { @MainActor [weak view] (repick: AgentPaneCloudRepick) async -> [String: Any] in
                 await run(view, repick)
