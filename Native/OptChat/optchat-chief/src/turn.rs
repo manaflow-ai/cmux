@@ -35,13 +35,15 @@ pub struct Interrupt {
     /// The owner stopped the turn: cancel at once, even while a tool call
     /// waits (`request_hard`), never only at the next tool boundary.
     hard: AtomicBool,
+    /// The stop leaves the session at a point the next turn can go on
+    /// from: the Chief ended its own turn (`stop`, `sleep`), or a person's
+    /// newer message cut it. Such a cancelled turn's session is kept
+    /// (`TurnStart::keep`), so the next turn reads its cache and its work so
+    /// far instead of starting a new Claude Code with the whole view uncached.
+    keeps_session: AtomicBool,
     /// The turn carries another person's text: the native engine refuses
     /// its local effects (README "Remote-origin messages").
     gate: AtomicBool,
-    /// The Chief ended the turn with its own `stop` or `sleep`
-    /// (`request_own`): its last step is done, so the session may serve the
-    /// next turn (`Settings::keep_turn_session`).
-    own: AtomicBool,
     /// The running acpmux turn's signals, woken on a request.
     wake: Mutex<Option<Sender<TurnSignal>>>,
     /// Wakes [`Interrupt::wait`] on a request.
@@ -73,23 +75,34 @@ impl Interrupt {
         }
     }
 
-    /// `request` from the Chief's own `stop` or `sleep`: a clean end.
-    pub fn request_own(&self) {
-        self.own.store(true, Ordering::SeqCst);
-        self.request();
-    }
-
-    /// The Chief ended the turn with its own tool, and nothing else asked.
-    pub fn is_own(&self) -> bool {
-        self.own.load(Ordering::SeqCst) && !self.is_hard()
-    }
-
     /// `request`, and the runner does not wait for a running tool call:
     /// the owner's stop. A call that waits for an approval never ran; one
     /// that runs is cut, as the owner asked.
     pub fn request_hard(&self) {
         self.hard.store(true, Ordering::SeqCst);
         self.request();
+    }
+
+    /// `request` from the Chief's own `stop` or `sleep`: a clean end, so
+    /// the session may serve the next turn (`Settings::keep_turn_session`).
+    pub fn request_own(&self) {
+        self.keeps_session.store(true, Ordering::SeqCst);
+        self.request();
+    }
+
+    /// `request_hard`, and the session may serve the next turn: a person's
+    /// newer message that cannot reach the turn. The next turn prompts the
+    /// same session with that message, as a person who interrupts an agent
+    /// and writes again does.
+    pub fn request_hard_resumable(&self) {
+        self.keeps_session.store(true, Ordering::SeqCst);
+        self.request_hard();
+    }
+
+    /// Whether a cancel this interrupt caused leaves a session the next turn
+    /// may take.
+    pub fn keeps_session(&self) -> bool {
+        self.keeps_session.load(Ordering::SeqCst)
     }
 
     pub fn is_hard(&self) -> bool {
@@ -137,7 +150,7 @@ impl Interrupt {
     pub fn clear(&self) {
         self.wanted.store(false, Ordering::SeqCst);
         self.hard.store(false, Ordering::SeqCst);
-        self.own.store(false, Ordering::SeqCst);
+        self.keeps_session.store(false, Ordering::SeqCst);
     }
 
     fn wake_with(&self, tx: Option<Sender<TurnSignal>>) {
@@ -989,18 +1002,21 @@ pub fn run_with_drafts(
     };
     let error = fold.ended().and_then(|e| e.error.clone());
     let cancelled = is_cancelled(error.as_deref());
-    // Only a clean end keeps the session: a failed, stopped or moved one may
-    // hold a half-done step, and the next turn starts from the view again.
-    // The Chief's own `stop` or `sleep` is a clean end: its tool answered and
-    // the turn has nothing left to do (Nov 15-18: 98% of turns end so, and
-    // none was kept; tests/kept_turn_session.rs).
-    let own_end = cancelled && interrupt.is_own();
+    // A clean end keeps the session, and so does a cancel at a point the
+    // next turn goes on from (the Chief's own stop or sleep, a person's newer
+    // message: `Interrupt::keeps_session`). A failed or moved one, or one the
+    // owner stopped, may hold a half-done step, and the next turn starts from
+    // the view again. Before 2026-11-19 every cancel ended the session, and
+    // as nearly every Chief turn ends with its own `stop` or `sleep`, almost
+    // no session was kept (8 of ~1,400 turns, Nov 12-19): each turn started
+    // a new Claude Code and wrote its whole input to the cache again.
+    let resumable = cancelled && interrupt.keeps_session();
     let kept = (start.keep
         && orphan.is_none()
         && moved.is_none()
-        && (error.is_none() || own_end)
+        && (error.is_none() || resumable)
         && !answer_failed
-        && (!cancelled || own_end)
+        && (!cancelled || resumable)
         && fold.ended().is_some())
     .then(|| Kept {
         session: session.clone(),
