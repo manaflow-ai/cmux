@@ -149,6 +149,138 @@ extension AppearanceSettingsSchema {
                 keywords: ["sidebar", "workspace", "row", "height", "thinner", "sidebarRowHeight"]
             ),
             SettingDescriptor(
+                LayoutMetricSetting.sidebarRowInsetPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.sidebarRowInset", "Workspace Row Inset"),
+                help: SettingsText.keyed("settings.appearance.sidebarRowInset.help", "The gap between a sidebar row's fill and the sidebar's left and right edges. Unset is the density's."),
+                kind: .number(SettingNumber(LayoutMetricSetting.sidebarRowInsetRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.sidebarRowInsetPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["sidebar", "workspace", "row", "padding", "inset", "sidebarRowInset"]
+            ),
+            SettingDescriptor(
+                LayoutMetricSetting.sidebarRowPaddingPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.sidebarRowPadding", "Workspace Row Padding"),
+                help: SettingsText.keyed("settings.appearance.sidebarRowPadding.help", "Where a sidebar row's first glyph or title starts inside its fill, and its last trailing mark ends. Unset is the density's."),
+                kind: .number(SettingNumber(LayoutMetricSetting.sidebarRowPaddingRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.sidebarRowPaddingPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["sidebar", "workspace", "row", "padding", "content", "sidebarRowPadding"]
+            ),
+            SettingDescriptor(
+                LayoutMetricSetting.sidebarRowGapPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.sidebarRowGap", "Workspace Row Gap"),
+                help: SettingsText.keyed("settings.appearance.sidebarRowGap.help", "The gap between two sidebar rows. Unset is the density's."),
+                kind: .number(SettingNumber(LayoutMetricSetting.sidebarRowGapRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.sidebarRowGapPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["sidebar", "workspace", "row", "gap", "spacing", "sidebarRowGap"]
+            ),
+            SettingDescriptor(
+                LayoutMetricSetting.sidebarRowHeightWithSubtitlePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.sidebarRowHeightWithSubtitle", "Two-Line Row Height"),
+                help: SettingsText.keyed("settings.appearance.sidebarRowHeightWithSubtitle.help", "A sidebar row with a detail line under its title, such as a two-line card. Unset is the row height plus one line."),
+                kind: .number(SettingNumber(LayoutMetricSetting.sidebarRowHeightWithSubtitleRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.sidebarRowHeightWithSubtitlePlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["sidebar", "workspace", "row", "two line", "card", "subtitle", "height", "sidebarRowHeightWithSubtitle"]
+            ),
+            SettingDescriptor(
+                LayoutMetricSetting.toolbarButtonSizePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.toolbarButtonSize", "Toolbar Button Size"),
+                help: SettingsText.keyed("settings.appearance.toolbarButtonSize.help", "The side of the chrome's icon buttons: the title bar's sidebar toggle, Back and Forward, the pane's tools and the sidebar's +. Unset is the density's."),
+                kind: .number(SettingNumber(LayoutMetricSetting.toolbarButtonSizeRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.toolbarButtonSizePlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["toolbar", "header", "titlebar", "button", "icon", "size", "toolbarButtonSize"]
+            ),
+            SettingDescriptor(
+                LayoutMetricSetting.toolbarButtonGapPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.toolbarButtonGap", "Toolbar Button Gap"),
+                help: SettingsText.keyed("settings.appearance.toolbarButtonGap.help", "The space between neighboring icon buttons in the title bar. Unset is three tenths of a button."),
+                kind: .number(SettingNumber(LayoutMetricSetting.toolbarButtonGapRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.toolbarButtonGapPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["toolbar", "header", "titlebar", "button", "gap", "spacing", "toolbarButtonGap"]
+            ),
+            SettingDescriptor(
+                LayoutMetricSetting.toolbarButtonCornerRadiusPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.toolbarButtonCornerRadius", "Toolbar Button Corner"),
+                help: SettingsText.keyed("settings.appearance.toolbarButtonCornerRadius.help", "The corner of an icon button's hover, pressed and active fill: 0 is square, half the button is round. Unset rounds as a tab does."),
+                kind: .number(SettingNumber(LayoutMetricSetting.toolbarButtonCornerRadiusRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.toolbarButtonCornerRadiusPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["toolbar", "header", "titlebar", "button", "corner", "radius", "rounded", "square", "toolbarButtonCornerRadius"]
+            ),
+            SettingDescriptor(
+                LayoutMetricSetting.toolbarButtonActiveFillPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.toolbarButtonActiveFill", "Active Button Fill"),
+                help: SettingsText.keyed("settings.appearance.toolbarButtonActiveFill.help", "How strong the fill under a toolbar button that is on draws, as a share of the text color. Unset is the hover fill."),
+                kind: .number(SettingNumber(LayoutMetricSetting.toolbarButtonActiveFillRange, step: 0.01, unit: .fraction, placeholder: LayoutMetricSetting.toolbarButtonActiveFillPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["toolbar", "header", "button", "active", "on", "fill", "toolbarButtonActiveFill"]
+            ),
+            SettingDescriptor(
+                LayoutMetricSetting.headerDividerPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.headerDivider", "Header Divider"),
+                help: SettingsText.keyed("settings.appearance.headerDivider.help", "How strong the hairline under the title bar and tab row draws: 0 is none, 1 a full separator. Unset is today's."),
+                kind: .number(SettingNumber(LayoutMetricSetting.headerDividerRange, step: 0.05, unit: .fraction, placeholder: LayoutMetricSetting.headerDividerPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["header", "titlebar", "title bar", "tab row", "divider", "hairline", "line", "headerDivider"]
+            ),
+            SettingDescriptor(
+                LayoutMetricSetting.spacingScalePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.spacingScale", "Spacing"),
+                help: SettingsText.keyed("settings.appearance.spacingScale.help", "One multiplier for the chrome's padding and gaps (the spacing grid). Unset is the density's."),
+                kind: .number(SettingNumber(LayoutMetricSetting.spacingScaleRange, step: 0.05, unit: .fraction, placeholder: LayoutMetricSetting.spacingScalePlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["spacing", "padding", "gap", "airy", "tight", "spacingScale"]
+            ),
+            SettingDescriptor(
+                LayoutMetricSetting.composerPaddingPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.composerPadding", "Composer Padding"),
+                help: SettingsText.keyed("settings.appearance.composerPadding.help", "The room from the chat prompt box's sides to its text and controls. Unset is the density's."),
+                kind: .number(SettingNumber(LayoutMetricSetting.composerPaddingRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.composerPaddingPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["composer", "prompt", "input", "padding", "inset", "composerPadding"]
+            ),
+            SettingDescriptor(
+                LayoutMetricSetting.composerMinHeightPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.composerMinHeight", "Composer Height"),
+                help: SettingsText.keyed("settings.appearance.composerMinHeight.help", "The height of the chat's one-line prompt box; it still grows with a longer prompt. Unset is the density's."),
+                kind: .number(SettingNumber(LayoutMetricSetting.composerMinHeightRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.composerMinHeightPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["composer", "prompt", "input", "height", "composerMinHeight"]
+            ),
+            SettingDescriptor(
                 BordersSetting.configPath,
                 section: .appearance,
                 group: group,
@@ -248,133 +380,6 @@ extension AppearanceSettingsSchema {
                 kind: .number(SettingNumber(TitleAreaContrastSetting.range, step: 0.05, unit: .fraction, placeholder: TitleAreaContrastSetting.placeholder)),
                 default: .number(TitleAreaContrastSetting.fallback),
                 keywords: ["contrast", "title", "titlebar", "tab bar", "tabs", "chrome", "shade", "intensity", "darker", "softer", "frame"]
-            ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var lookMotion: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.densityMotion", "Density and Motion")
-        return [
-            SettingDescriptor(
-                PaneAnimationsSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.ui.paneAnimations", "Animate Panes"),
-                help: SettingsText.keyed("settings.ui.paneAnimations.help", "Splits, closes, moves, zooms and column scrolls slide into place."),
-                kind: .toggle,
-                default: .bool(PaneAnimationsSetting.fallback),
-                keywords: ["motion", "animation", "pane", "split", "zoom", "slide", "spring"]
-            ),
-            SettingDescriptor(
-                AnimationKindsSetting.newTabPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.ui.animations.newTab", "Animate New Tabs"),
-                help: SettingsText.keyed("settings.ui.animations.newTab.help", "A new tab grows into its place in the tab bar. Off shows it there at once."),
-                kind: .toggle,
-                default: .bool(AnimationKindsSetting.newTabDefault),
-                keywords: ["motion", "animation", "tab"]
-            ),
-            SettingDescriptor(
-                AnimationKindsSetting.newWorkspacePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.ui.animations.newWorkspace", "Animate New Workspaces"),
-                help: SettingsText.keyed("settings.ui.animations.newWorkspace.help", "A new workspace row opens in the sidebar. Off shows it there at once."),
-                kind: .toggle,
-                default: .bool(AnimationKindsSetting.newWorkspaceDefault),
-                keywords: ["motion", "animation", "workspace", "sidebar"]
-            ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var panes: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.panes", "Panes")
-        return [
-            SettingDescriptor(
-                PaneChromeConfigParser.paneSeparationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneSeparation", "Separation"),
-                help: SettingsText.keyed("settings.layout.paneSeparation.help", "How panes are told apart."),
-                summary: SettingsText.keyed("settings.layout.paneSeparation.summary", "How panes are told apart"),
-                kind: .choice([
-                    SettingChoice(PaneSeparation.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                    SettingChoice(PaneSeparation.dividers.rawValue, SettingsText.keyed("settings.choice.dividers", "Dividers")),
-                    SettingChoice(PaneSeparation.borders.rawValue, SettingsText.keyed("settings.choice.borders", "Borders")),
-                    SettingChoice(PaneSeparation.cards.rawValue, SettingsText.keyed("settings.choice.cards", "Cards")),
-                ]),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.choice.default", "Default"),
-                keywords: ["border", "divider", "separator", "gap", "cards", "lines", "seamless", "pane"]
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.panePaddingPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.panePadding", "Padding"),
-                kind: .number(SettingNumber(PaneChromeConfigParser.panePaddingRange, step: 1, unit: .points, placeholder: PaneChromeConfigParser.panePaddingPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: []
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneCornerRadiusPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneCornerRadius", "Corner Radius"),
-                help: SettingsText.keyed("settings.layout.paneCornerRadius.help", "One radius for panes, tabs, panels, popovers and cards."),
-                kind: .number(SettingNumber(PaneChromeConfigParser.paneCornerRadiusRange, step: 1, unit: .points, placeholder: PaneChromeConfigParser.paneCornerRadiusPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["rounded", "radius", "tabs", "concentric", "corners"]
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.cornerPaddingPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.cornerPadding", "Corner Padding"),
-                help: SettingsText.keyed("settings.layout.cornerPadding.help", "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this."),
-                kind: .number(SettingNumber(PaneChromeConfigParser.cornerPaddingRange, step: 1, unit: .points, placeholder: PaneChromeConfigParser.cornerPaddingPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["inset", "gap", "tabs", "concentric", "corners", "radius"]
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneBorderPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneBorder", "Border"),
-                kind: .choice([
-                    SettingChoice(PaneBorderStyle.subtle.rawValue, SettingsText.keyed("settings.choice.subtle", "Subtle")),
-                    SettingChoice(PaneBorderStyle.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                ]),
-                default: .string(PaneChromeConfigParser.paneBorderDefault.rawValue),
-                keywords: []
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneBorderColorPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneBorderColor", "Border Color"),
-                kind: .color,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.theme", "Theme"),
-                keywords: []
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneBorderWidthPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneBorderWidth", "Border Width"),
-                kind: .number(SettingNumber(PaneChromeConfigParser.paneBorderWidthRange, step: 0.5, unit: .points)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.onePixel", "One pixel"),
-                keywords: []
             ),
         ]
     }

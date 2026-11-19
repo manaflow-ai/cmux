@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-19 (lane/look-proportions): Sidebar-Look: no visual change. Leo, 2026-11-19: "the layout and proportions as
+  well". A look (theme file) may set the rows' fill-to-edge inset, fill-to-content padding and gap
+  (`appearance.metrics.sidebarRowInset`, `sidebarRowPadding`, `sidebarRowGap`); `SidebarRowTuning.outerInset`,
+  `contentInset` and `rowGap` read them ahead of the density's tokens, so unset they derive exactly what they did.
+  Regression: `AALookProportionsGalleryTests.noKeyDrawsTodaysLayout`, `aLookAppliesAndComesOffLive`.
+
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset
