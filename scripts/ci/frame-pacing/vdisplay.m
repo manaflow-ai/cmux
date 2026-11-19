@@ -144,9 +144,33 @@ int main(int argc, char **argv) {
     if (!display) { printf("error: CGVirtualDisplay unavailable\n"); return 1; }
     CGVirtualDisplaySettings *settings = [CGVirtualDisplaySettings new];
     settings.hiDPI = hidpi ? 1 : 0;
-    settings.modes = @[[[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]];
+    // HiDPI: the mode list holds the pixel size too, and the display is switched to the mode of WIDTHxHEIGHT points
+    // at twice the pixels (macOS starts it at its 1x mode of the largest size).
+    settings.modes = hidpi
+      ? @[[[CGVirtualDisplayMode alloc] initWithWidth:width * 2 height:height * 2 refreshRate:hz],
+          [[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]]
+      : @[[[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]];
     if (![display applySettings:settings]) { printf("error: applySettings failed\n"); return 1; }
     waitForScreens(display.displayID, NO, 5.0);
+    if (hidpi) {
+      NSDictionary *options = @{(__bridge NSString *)kCGDisplayShowDuplicateLowResolutionModes: @YES};
+      CFArrayRef modes = CGDisplayCopyAllDisplayModes(display.displayID, (__bridge CFDictionaryRef)options);
+      CGDisplayModeRef picked = NULL;
+      for (CFIndex i = 0; modes && i < CFArrayGetCount(modes); i++) {
+        CGDisplayModeRef mode = (CGDisplayModeRef)CFArrayGetValueAtIndex(modes, i);
+        if (CGDisplayModeGetWidth(mode) == width && CGDisplayModeGetHeight(mode) == height
+            && CGDisplayModeGetPixelWidth(mode) == width * 2) { picked = mode; break; }
+      }
+      CGDisplayConfigRef config;
+      if (!picked) fprintf(stderr, "vdisplay: no %ux%u mode at 2x pixels\n", width, height);
+      else if (CGBeginDisplayConfiguration(&config) == kCGErrorSuccess) {
+        CGConfigureDisplayWithDisplayMode(config, display.displayID, picked, NULL);
+        CGError error = CGCompleteDisplayConfiguration(config, kCGConfigureForAppOnly);
+        if (error != kCGErrorSuccess) fprintf(stderr, "vdisplay: could not switch to the 2x mode (CGError %d)\n", error);
+      }
+      if (modes) CFRelease(modes);
+      waitForScreens(display.displayID, NO, 5.0);
+    }
     if (wantMain && CGMainDisplayID() != display.displayID) {
       CGError error = makeMain(display.displayID);
       if (error != kCGErrorSuccess) fprintf(stderr, "vdisplay: could not make display %u main (CGError %d)\n", display.displayID, error);
