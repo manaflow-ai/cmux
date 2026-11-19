@@ -30,7 +30,10 @@ jobs:
     # blacksmith-32vcpu-ubuntu-2404 and this job (124762739841) waited 50 minutes unassigned; on
     # 2026-11-04 the pool's blacksmith-4vcpu-ubuntu-2404 held it (126357110799) 10 minutes before the
     # pool reconciler marked that size dead. Either way every webview shard and the verdict waited.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # Push, schedule and dispatch runs take the owned Mac fleet's Linux VMs first (pool linux_owned_small: arm64,
+    # one job per fresh VM, Blacksmith overflow); the job is arch-agnostic. Pull requests keep the linux pool
+    # until the VMs' runner group admits pull request refs; then add "pull_request" to the list.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event_name) && fromJSON(vars.RUNNER_POOLS).linux_owned_small || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     # actions: read: a pull request's handoff below reads the base's webview test history (an artifact of its newest push).
     permissions:
@@ -1701,7 +1704,10 @@ jobs:
     # Keep the web verdict after a failed dependency, but skip it after run
     # cancellation so a superseded push does not start another runner.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # Push, schedule and dispatch runs take the owned Mac fleet's Linux VMs first (pool linux_owned_small: arm64,
+    # one job per fresh VM, Blacksmith overflow); the job is arch-agnostic. Pull requests keep the linux pool
+    # until the VMs' runner group admits pull request refs; then add "pull_request" to the list.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event_name) && fromJSON(vars.RUNNER_POOLS).linux_owned_small || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Check routed web jobs

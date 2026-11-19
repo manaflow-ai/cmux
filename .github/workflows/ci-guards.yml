@@ -35,7 +35,10 @@ env:
 jobs:
   workflow-guard-submodule-forward-only:
     name: workflow-guard-submodule-forward-only
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # Push, schedule and dispatch runs take the owned Mac fleet's Linux VMs first (pool linux_owned_small: arm64,
+    # one job per fresh VM, Blacksmith overflow); the job is arch-agnostic. Pull requests keep the linux pool
+    # until the VMs' runner group admits pull request refs; then add "pull_request" to the list.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event_name) && fromJSON(vars.RUNNER_POOLS).linux_owned_small || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -2437,7 +2440,10 @@ jobs:
     # after GitHub has cancelled the run.
     if: ${{ always() && !cancelled() }}
     # Refresh portable capacity after the guard jobs finish, immediately before the rollup.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' guard-status ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' guard-status ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    # Push, schedule and dispatch runs take the owned Mac fleet's Linux VMs first (pool linux_owned_small: arm64,
+    # one job per fresh VM, Blacksmith overflow); the job is arch-agnostic. Pull requests keep the linux pool
+    # until the VMs' runner group admits pull request refs; then add "pull_request" to the list.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' guard-status ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' guard-status ') && needs.portable-placement.outputs.mini_runner || contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event_name) && fromJSON(vars.RUNNER_POOLS).linux_owned_small || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Check routed guard jobs
