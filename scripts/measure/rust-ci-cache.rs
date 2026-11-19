@@ -1,6 +1,6 @@
 //! Run on Linux CI, never a developer's active target directory.
 //! rustc --edition 2024 scripts/measure/rust-ci-cache.rs -o /tmp/rust-ci-cache
-//! /tmp/rust-ci-cache OUTPUT_DIRECTORY
+//! /tmp/rust-ci-cache OUTPUT_DIRECTORY [WORKSPACE PACKAGE LIB_SOURCE]
 //!
 //! Small real-workspace experiment, not a full application build estimate. Each
 //! mode gets fresh targets; network priming is separate from offline timings.
@@ -94,7 +94,26 @@ fn measure(
 }
 
 fn main() -> Result<()> {
-    let out = PathBuf::from(env::args_os().nth(1).ok_or("expected output directory")?);
+    let args: Vec<String> = env::args().skip(1).collect();
+    if args.len() != 1 && args.len() != 4 {
+        return Err("expected OUTPUT_DIRECTORY [WORKSPACE PACKAGE LIB_SOURCE]".into());
+    }
+    let out = PathBuf::from(&args[0]);
+    let workspace = args.get(1).map_or("cmux-screen", String::as_str);
+    let package = args.get(2).map_or("cmux-screen-proto", String::as_str);
+    let lib_source = args
+        .get(3)
+        .map_or("crates/cmux-screen-proto/src/lib.rs", String::as_str);
+    for path in [workspace, lib_source] {
+        if Path::new(path)
+            .components()
+            .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        {
+            return Err(
+                "workspace and source must be relative paths without parent components".into(),
+            );
+        }
+    }
     fs::create_dir_all(&out)?;
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let path = env::temp_dir().join(format!("rust-ci-cache-{}-{nonce}", std::process::id()));
@@ -103,7 +122,7 @@ fn main() -> Result<()> {
     let archive = scratch.0.join("source.tar");
     checked(
         Command::new("git")
-            .args(["archive", "--format=tar", "HEAD", "cmux-screen"])
+            .args(["archive", "--format=tar", "HEAD", "--", workspace])
             .stdout(Stdio::from(File::create(&archive)?)),
     )?;
     checked(
@@ -113,8 +132,8 @@ fn main() -> Result<()> {
             .arg("-C")
             .arg(&scratch.0),
     )?;
-    let root = scratch.0.join("cmux-screen");
-    let source = root.join("crates/cmux-screen-proto/src/lib.rs");
+    let root = scratch.0.join(workspace);
+    let source = root.join(lib_source);
     let original = fs::read_to_string(&source)?;
     let head = checked(Command::new("git").args(["rev-parse", "HEAD"]))?;
     let rustc = checked(Command::new("rustc").arg("-Vv"))?;
@@ -123,7 +142,7 @@ fn main() -> Result<()> {
     fs::write(
         out.join("environment.txt"),
         format!(
-            "head={}{}{}jobs=4\nrunner={}\ncpu={}\n",
+            "head={}{}{}jobs=4\nworkspace={workspace}\npackage={package}\nrunner={}\ncpu={}\n",
             String::from_utf8_lossy(&head.stdout),
             String::from_utf8_lossy(&rustc.stdout),
             String::from_utf8_lossy(&cargo_version.stdout),
@@ -135,12 +154,10 @@ fn main() -> Result<()> {
     )?;
     // Prime only selected package dependencies. cargo fetch would also fetch
     // the host workspace member's native WebRTC dependencies, which we don't use.
-    let prime = checked(cargo(&root, &scratch.0.join("prime"), "0", "2").args([
-        "build",
-        "--locked",
-        "-p",
-        "cmux-screen-proto",
-    ]))?;
+    let prime = checked(
+        cargo(&root, &scratch.0.join("prime"), "0", "2")
+            .args(["test", "--locked", "-p", package, "--lib", "--no-run"]),
+    )?;
     fs::write(out.join("prime.stderr"), prime.stderr)?;
     let mut rows = File::create(out.join("results.tsv"))?;
     writeln!(rows, "round\tmode\tcase\tseconds\tcompiled\texit")?;
@@ -168,13 +185,14 @@ fn main() -> Result<()> {
                         "--offline",
                         "--locked",
                         "-p",
-                        "cmux-screen-proto",
+                        package,
+                        "--lib",
                     ]),
                 )
             };
             run("cold-target")?;
             run("warm-unchanged")?;
-            refresh_sources(&root.join("crates/cmux-screen-proto/src"))?;
+            refresh_sources(source.parent().ok_or("source has no parent")?)?;
             run("fresh-source-mtimes")?;
             fs::write(
                 &source,
@@ -192,7 +210,7 @@ fn main() -> Result<()> {
                 "clean",
                 "--offline",
                 "-p",
-                "cmux-screen-proto",
+                package,
             ]))?;
             run("workspace-evicted")?;
             let test_source = format!(
@@ -211,7 +229,7 @@ fn main() -> Result<()> {
                     "--offline",
                     "--locked",
                     "-p",
-                    "cmux-screen-proto",
+                    package,
                     "--lib",
                 ]),
             )?;
