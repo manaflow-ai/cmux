@@ -656,6 +656,10 @@ pub struct Settings {
     /// The codex turn preset (`optchat-chief-codex-<home id>`), when a codex
     /// harness exists: a turn on codex starts with it.
     pub codex_preset: Option<String>,
+    /// The open-source brains (Hermes, OpenClaw; brain_home.rs): each brain harness's turn
+    /// preset and whether it can run a turn. A turn engine.json puts on one that cannot runs on
+    /// `harness` with a visible note.
+    pub brains: crate::brain_home::BrainTurns,
     /// The per-Chief settings file (`chief_settings`), read at start.
     pub settings_file: PathBuf,
     /// The monitoring trace's directory, where approvals are recorded
