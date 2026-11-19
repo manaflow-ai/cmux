@@ -10671,28 +10671,45 @@ class UnplacedSignature(unittest.TestCase):
                 # Head and base serve the same unplaced log: compared whole and excused on identity (UnplacedSignature).
                 self.assertIn("compared whole", "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)))
 
+    # hq#13746's red, word for word: one of the 4 subtests both its head and main failed.
+    RED_13746 = ("FAIL: test_open_pr_query_fails_closed (test_submodule_worktrees.SubmoduleWorktreeRemovalTests."
+                 "test_open_pr_query_fails_closed) [bad json]")
+
+    def unplaced_base(self, head_red, base_red, columns=False):
+        def lines(red, placed=False):
+            found = self.lines(red, placed=placed)
+            if red.startswith("FAIL: "):  # a unittest run's summary, as the job printed it
+                at = found.index(("Unit tests", 21, red)) + 1
+                found[at:at] = [("Unit tests", 21, "Ran 4 tests in 0.120s"), ("Unit tests", 21, "FAILED (failures=1)")]
+            return found
+        github = FakeGitHub()
+        github.jobs = {1: self.job(), 2: dict(self.job(), id=2, run_id=20, head_sha=BASE_SHA)}
+        github.logs = {1: framed_log(lines(head_red, placed=True), SWIFT, columns=columns),
+                       2: framed_log(lines(base_red), SWIFT, columns=columns)}
+        return github
+
     def test_13746_a_placed_head_is_compared_whole_with_an_unplaced_base(self):
         # hq#13746 at bcaa0c93: its 'Fleet tests' red was placed and failed test_open_pr_query_fails_closed's 4
         # subtests; main's red verdict of the job failed the same 4, but its log (a git fetch's own `##[error]` lines)
         # was not placed, and base_evidence refused before any line was compared: read as the PR's own red. A base log
-        # not placed is compared whole with the head, never refused as the head's.
+        # not placed is compared whole with the head by its failing tests, never refused as the head's.
         for columns in (False, True):
             with self.subTest(columns=columns):
-                github = FakeGitHub()
-                github.jobs = {1: self.job(), 2: dict(self.job(), id=2, run_id=20, head_sha=BASE_SHA)}
-                github.logs = {1: framed_log(self.lines(NEW_RED, placed=True), SWIFT, columns=columns),
-                               2: framed_log(self.lines(NEW_RED), SWIFT, columns=columns)}
-                said = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+                said = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10],
+                                              self.unplaced_base(self.RED_13746, self.RED_13746, columns)))
                 self.assertIn("its base verdict's log does not map onto its steps, so it was compared whole", said)
 
-    def test_13746_a_different_red_beside_an_unplaced_base_is_unread_not_own(self):
-        github = FakeGitHub()
-        github.jobs = {1: self.job(), 2: dict(self.job(), id=2, run_id=20, head_sha=BASE_SHA)}
-        github.logs = {1: framed_log(self.lines(NEW_RED, placed=True), SWIFT),
-                       2: framed_log(self.lines(OLD_RED), SWIFT)}
+    def test_13746_a_different_test_beside_an_unplaced_base_is_unread_not_own(self):
+        other = self.RED_13746.replace("[bad json]", "[gh exits non-zero]").replace("fails_closed", "fails_open")
         with self.assertRaisesRegex(excuse.Refused, r"log does not map one to one onto its steps.*compared whole: "
                                                     r".*not this PR's own red: retry once"):
-            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.unplaced_base(self.RED_13746, other))
+
+    def test_13746_an_error_line_alone_is_never_matched_in_a_whole_base_log(self):
+        # The composite passes on the base and prints NEW_RED: a whole base log would match the head's NEW_RED there
+        # (#40542's fourth Codex BLOCK, F2). Only failing tests by name are compared with an unplaced base.
+        with self.assertRaisesRegex(excuse.Refused, "names no failing test.*not this PR's own red"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.unplaced_base(NEW_RED, NEW_RED))
 
 
 class StepNamesAreRequired(unittest.TestCase):
@@ -11164,7 +11181,7 @@ RAW_LOG_READERS = {
 }
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
-LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "compile_base_evidence", "shared_generated_host", "shared_catalog_host", "pr_only_step_verdict", "other_pr_setup_verdict", "passed_on_base_verdict", "guard_routes_view", "guard_group_report",
+LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "unplaced_head_evidence", "compile_base_evidence", "shared_generated_host", "shared_catalog_host", "pr_only_step_verdict", "other_pr_setup_verdict", "passed_on_base_verdict", "guard_routes_view", "guard_group_report",
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.

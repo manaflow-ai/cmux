@@ -2232,6 +2232,11 @@ def unplaced_base_evidence(repo: str, base_job: dict, github) -> UnplacedSignatu
     return unplaced_signature(base_job, github.log(repo, base_job))
 
 
+def unplaced_head_evidence(repo: str, job: dict, github) -> UnplacedSignature:
+    """unplaced_signature of placed red head JOB's whole log, compared with a red base verdict not placed (hq#13746)."""
+    return unplaced_signature(job, github.log(repo, job))
+
+
 def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, found: UnplacedSignature,
                      base_run: dict, *, why: str | None = None) -> str:
     """The audit line for an unplaced red job NAME whose whole-log signature HEAD is FOUND's, the newest red base
@@ -8407,11 +8412,16 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         except BaseUnplaced as unplaced:
             # The newest red base verdict's log is not placed (hq#13746): this head is compared whole with it, as an
             # unplaced head is (unplaced_verdict, only within it), then per step; never refused as the head's own.
-            mine = unplaced_signature(job, github.log(repo, job))
+            mine = unplaced_head_evidence(repo, job, github)
             theirs = unplaced_base_evidence(repo, base_job, github)
             if aside is not None:
                 mine, theirs = unplaced_without_ffi_pin(mine), unplaced_without_ffi_pin(theirs)
             try:
+                # Only by failing tests named: a passing base step can print the head's error line (an expected-failure
+                # check), which a whole base log cannot tell from a failure (#40542's fourth Codex BLOCK, F2).
+                if not mine.tests:
+                    raise Refused(f"'{name}': {BASE_UNPLACED_WHY}, and this head names no failing test, so its error "
+                                  "lines are not compared with a whole base log")
                 audit.append(unplaced_verdict(repo, name, base, mine, theirs, base_run, why=BASE_UNPLACED_WHY)
                              + (f"; {aside}" if aside is not None else ""))
                 continue
