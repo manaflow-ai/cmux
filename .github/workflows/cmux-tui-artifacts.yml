@@ -1668,14 +1668,48 @@ jobs:
       legacy_key: ${{ steps.key.outputs.legacy_key }}
       superseded: ${{ steps.current.outputs.stale }}
     steps:
+      # A projected checkout (RFD 0007, scripts/ci/projected-checkout.sh): on a persistent Linux runner whose host
+      # keeps a git mirror and has FUSE, `cmux-projection git-mount` serves this commit at the workspace in about
+      # half a second instead of writing ~53,000 files, and keeps mtimes and target/ across jobs at the same path.
+      # Anything missing (no FUSE, no mirror, no binary for this commit's cmux-projection, a mount that does not
+      # come up) answers mode=checkout and the normal checkout below runs, as before. The script comes from the
+      # mirror at this commit, since the checkout it would come from is what it makes. A dead mount left by an
+      # earlier job on this path would break the normal checkout too, so it is taken off first either way.
+      - name: Mount the commit from the host's git mirror
+        id: projected
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: bash
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          cd /
+          mirror="${CMUX_CI_GIT_MIRROR:-$HOME/.cache/cmux-ci/git/cmux.git}"
+          if awk -v p="$GITHUB_WORKSPACE" '$2 == p && $3 ~ /^fuse/ { f = 1 } END { exit !f }' /proc/self/mounts; then
+            fusermount3 -u -z "$GITHUB_WORKSPACE" || true
+          fi
+          script="$RUNNER_TEMP/projected-checkout.sh"
+          if [ -d "$mirror" ] \
+            && { git --git-dir "$mirror" cat-file -e "$SHA^{commit}" 2>/dev/null \
+                 || timeout 180 git --git-dir "$mirror" fetch -q --no-tags --depth 1 origin "$SHA"; } \
+            && git --git-dir "$mirror" show "$SHA:scripts/ci/projected-checkout.sh" > "$script" 2>/dev/null; then
+            bash "$script" mount "$SHA" "$GITHUB_WORKSPACE"
+          else
+            echo "mode=checkout" >> "$GITHUB_OUTPUT"
+            echo "projected checkout: no mirror with $SHA at $mirror; normal checkout"
+          fi
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.projected.outputs.mode != 'projected'
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
 
       # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
       - name: Repair a reused self-hosted checkout
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.projected.outputs.mode != 'projected'
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
@@ -1891,6 +1925,27 @@ jobs:
           acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
           [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
           rm -rf "$home"
+
+      # A projected checkout ends with its job: the next job on this runner gets the plain workspace path.
+      - name: Unmount the projected checkout
+        if: always() && steps.projected.outputs.mode == 'projected'
+        continue-on-error: true
+        timeout-minutes: 2
+        working-directory: /
+        run: bash "$RUNNER_TEMP/projected-checkout.sh" unmount "$GITHUB_WORKSPACE"
+
+      # A host opts in to projected checkouts with the file ~/.config/cmux-ci/projected-checkout (fleet
+      # provisioning writes it on persistent hosts with FUSE). After a normal checkout there, this makes the
+      # mirror and builds this commit's cmux-projection once per crate change, so the next job mounts. Bounded,
+      # and never the job's red. An ephemeral runner never has the file, so it spends nothing here.
+      - name: Prepare the next projected checkout
+        if: always() && runner.os == 'Linux' && steps.projected.outputs.mode == 'checkout'
+        continue-on-error: true
+        timeout-minutes: 16
+        shell: bash
+        run: |
+          [ -f "$HOME/.config/cmux-ci/projected-checkout" ] || { echo "host has not opted in; nothing to prepare"; exit 0; }
+          bash scripts/ci/projected-checkout.sh seed "$GITHUB_SHA" "$GITHUB_WORKSPACE"
 
   # Failed feat-cmux-next and cmux-tui-pin-* push runs are retried by main's
   # cmux-tui-artifacts-retry.yml after they complete (workflow_run fires only
