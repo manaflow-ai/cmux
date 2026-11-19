@@ -6,7 +6,9 @@
 //!
 //! The state folder holds:
 //! - `upper/`: every file or folder the agent made or changed, at its relative path;
-//! - `whiteouts`: lower paths the agent deleted or renamed away, one per line;
+//! - `whiteouts`: lower paths the agent deleted or renamed away, one per line (a new one is
+//!   appended; the file is rewritten only when one goes away, so deleting a big lower tree is
+//!   linear in its size, not quadratic);
 //! - `cache/`: lower bytes fetched from the Mac, whole files as `cache/<entry>` and the chunks of a
 //!   big file as `cache/<entry>.<chunk>`, with `cache/manifest-id` naming the manifest they belong
 //!   to (a new manifest starts a fresh cache).
@@ -14,7 +16,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::Write as _;
-use std::os::unix::fs::{FileExt as _, MetadataExt as _, PermissionsExt as _};
+use std::os::unix::fs::{FileExt as _, MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
@@ -59,6 +61,20 @@ pub struct Attr {
     pub nlink: u32,
     pub uid: u32,
     pub gid: u32,
+    /// Whether the path is in the upper folder (the machine's disk), not only in the manifest.
+    pub upper: bool,
+}
+
+/// What a file's bytes are at one moment. A lower file is its manifest entry (fixed for the life
+/// of an [`Overlay`]: a new manifest is a new mount); an upper file is its inode on the machine's
+/// disk with its size and times, which every write moves (with multigrain timestamps a write after
+/// a `stat` always gets a new `ctime`). Equal versions mean the same bytes, so the mount lets the
+/// kernel keep the pages it cached since the earlier open (`FOPEN_KEEP_CACHE`) and drops them on
+/// any other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Version {
+    Lower { entry: u32, size: u64, mtime_ns: i64 },
+    Upper { dev: u64, ino: u64, size: u64, mtime_ns: i64, ctime_ns: i64 },
 }
 
 /// How many reads went to the Mac, how many bytes came back, and how many reads the cache served.
@@ -157,6 +173,35 @@ fn mtime_of(meta: &fs::Metadata) -> i64 {
     meta.mtime().saturating_mul(1_000_000_000).saturating_add(meta.mtime_nsec())
 }
 
+fn upper_version(meta: &fs::Metadata) -> Version {
+    Version::Upper {
+        dev: meta.dev(),
+        ino: meta.ino(),
+        size: meta.len(),
+        mtime_ns: mtime_of(meta),
+        ctime_ns: meta.ctime().saturating_mul(1_000_000_000).saturating_add(meta.ctime_nsec()),
+    }
+}
+
+/// `len` bytes of `file` at `offset`, or `None` when it has fewer (a damaged cache file).
+fn read_range(file: &fs::File, offset: u64, len: usize) -> Option<Vec<u8>> {
+    let mut bytes = vec![0u8; len];
+    let mut filled = 0;
+    while filled < len {
+        match file.read_at(bytes.get_mut(filled..)?, offset + filled as u64) {
+            Ok(0) => return None,
+            Ok(read) => filled += read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return None,
+        }
+    }
+    Some(bytes)
+}
+
+fn is_errno(error: &std::io::Error, errno: i32) -> bool {
+    error.raw_os_error() == Some(errno)
+}
+
 impl Overlay {
     /// The overlay of `manifest` with its state in `state`, fetching bytes through `fetch`, every
     /// path owned by `owner` (uid, gid).
@@ -185,7 +230,14 @@ impl Overlay {
         }
         fs::create_dir_all(&scratch)?;
         let whiteouts = fs::read_to_string(&whiteouts_file)
-            .map(|text| text.lines().filter(|line| !line.is_empty()).map(str::to_owned).collect())
+            .map(|text| {
+                // Only whole lines: a crash inside an append leaves a last one without its `\n`.
+                text.split_inclusive('\n')
+                    .filter_map(|line| line.strip_suffix('\n'))
+                    .filter(|line| !line.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
             .unwrap_or_default();
         let next = manifest.len() as u64 + 2;
         Ok(Self {
@@ -318,6 +370,7 @@ impl Overlay {
                     nlink: if kind == Kind::Dir { 2 } else { 1 },
                     uid,
                     gid,
+                    upper: true,
                 }
             }
             Node::Lower(index) => {
@@ -332,9 +385,24 @@ impl Overlay {
                     nlink: if kind == Kind::Dir { 2 } else { 1 },
                     uid,
                     gid,
+                    upper: false,
                 }
             }
         }
+    }
+
+    /// The version of file `ino`'s bytes now ([`Version`]); `None` for a folder or a link.
+    pub fn version(&self, ino: u64) -> Result<Option<Version>, i32> {
+        let path = self.path_of(ino)?;
+        Ok(match self.node(&path).ok_or(ENOENT)? {
+            Node::Upper(meta) if meta.is_file() => Some(upper_version(&meta)),
+            Node::Upper(_) => None,
+            Node::Lower(index) => {
+                self.manifest.entry(index).filter(|entry| entry.kind == Kind::File).map(|entry| {
+                    Version::Lower { entry: index, size: entry.size, mtime_ns: entry.mtime_ns }
+                })
+            }
+        })
     }
 
     fn kind(node: &Node, manifest: &Manifest) -> Kind {
@@ -365,6 +433,19 @@ impl Overlay {
             if on { inner.whiteouts.insert(path.to_owned()) } else { inner.whiteouts.remove(path) };
         if !changed {
             return Ok(());
+        }
+        if on {
+            // A new whiteout is one appended line (one write: a crash leaves the line whole or
+            // not there), not a rewrite of every whiteout so far.
+            let line = format!("{path}\n");
+            let appended = fs::OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(&self.whiteouts_file)
+                .and_then(|mut file| file.write_all(line.as_bytes()));
+            if appended.is_ok() {
+                return Ok(());
+            }
         }
         let mut text = String::new();
         for path in &inner.whiteouts {
@@ -472,21 +553,32 @@ impl Overlay {
         if offset >= end {
             return Ok(Vec::new());
         }
+        let len = (end - offset) as usize;
         if total <= CHUNK {
+            // Only the asked range off the disk, not the whole cached file per request.
+            if let Some(bytes) = self.cached_range((index, WHOLE), offset, len) {
+                return Ok(bytes);
+            }
             let whole = self.whole(index)?;
             let from = usize::try_from(offset).unwrap_or(usize::MAX);
             let to = usize::try_from(end).unwrap_or(usize::MAX);
             return Ok(whole.get(from..to).unwrap_or_default().to_vec());
         }
-        let mut out = Vec::with_capacity((end - offset) as usize);
+        let mut out = Vec::with_capacity(len);
         let mut at = offset;
         while at < end {
             let chunk = u32::try_from(at / CHUNK).map_err(|_| EIO)?;
-            let bytes = self.chunk(index, chunk, total)?;
-            let start = (at - u64::from(chunk) * CHUNK) as usize;
-            let stop = ((end - u64::from(chunk) * CHUNK) as usize).min(bytes.len());
-            out.extend_from_slice(bytes.get(start..stop).ok_or(EIO)?);
-            at = u64::from(chunk + 1) * CHUNK;
+            let base = u64::from(chunk) * CHUNK;
+            let (start, stop) = (at - base, (end - base).min(CHUNK));
+            // A cached chunk gives only the asked range, not its 4 MiB per 128 KiB request.
+            if let Some(bytes) = self.cached_range((index, chunk), start, (stop - start) as usize) {
+                out.extend_from_slice(&bytes);
+            } else {
+                let bytes = self.chunk(index, chunk, total)?;
+                let stop = (stop as usize).min(bytes.len());
+                out.extend_from_slice(bytes.get(start as usize..stop).ok_or(EIO)?);
+            }
+            at = base + CHUNK;
         }
         Ok(out)
     }
@@ -501,6 +593,14 @@ impl Overlay {
 
     fn cached(&self, key: Key) -> Option<Vec<u8>> {
         let bytes = fs::read(self.cache_path(key)).ok()?;
+        self.cache_hits.fetch_add(1, Ordering::Relaxed);
+        Some(bytes)
+    }
+
+    /// `len` bytes at `offset` of cached `key`, read off the disk without the rest of it.
+    fn cached_range(&self, key: Key, offset: u64, len: usize) -> Option<Vec<u8>> {
+        let file = fs::File::open(self.cache_path(key)).ok()?;
+        let bytes = read_range(&file, offset, len)?;
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
         Some(bytes)
     }
@@ -701,9 +801,19 @@ impl Overlay {
     }
 
     pub fn write(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
+        Self::write_to(&self.writer(ino)?, offset, data)
+    }
+
+    /// File `ino` opened for writing in the upper layer (copied up first when only lower): what
+    /// the mount keeps per open handle, so the writes after the first open nothing.
+    pub fn writer(&self, ino: u64) -> Result<fs::File, i32> {
         let path = self.path_of(ino)?;
         self.ensure_upper(&path)?;
-        let file = open_for_write(&self.up(&path))?;
+        open_for_write(&self.up(&path))
+    }
+
+    /// Writes `data` at `offset` of an upper file the caller holds open.
+    pub fn write_to(file: &fs::File, offset: u64, data: &[u8]) -> Result<u32, i32> {
         file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
         u32::try_from(data.len()).map_err(|_| EINVAL)
     }
@@ -718,15 +828,43 @@ impl Overlay {
     }
 
     pub fn create(&self, parent: u64, name: &str, mode: u32) -> Result<Attr, i32> {
+        self.create_open(parent, name, mode).map(|(attr, _)| attr)
+    }
+
+    /// Creates file `name` in `parent` and returns it open for writing, so the mount's writes to
+    /// it open nothing. The upper folder is made only when the first try finds it missing (one
+    /// `stat` per folder level saved on every create after the first in a folder).
+    pub fn create_open(&self, parent: u64, name: &str, mode: u32) -> Result<(Attr, fs::File), i32> {
         let (parent, child) = self.child(parent, name)?;
-        self.make_room(&parent, &child)?;
-        fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(self.up(&child))
-            .map_err(|error| io_errno(&error))?;
-        let _ = fs::set_permissions(self.up(&child), fs::Permissions::from_mode(mode & 0o7777));
-        self.lookup_path(&child)
+        if self.lower(&child).is_some() {
+            return Err(EEXIST);
+        }
+        let open = || {
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(mode & 0o7777)
+                .open(self.up(&child))
+        };
+        let file = match open() {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.upper_folder(&parent)?;
+                open()
+            }
+            opened => opened,
+        }
+        .map_err(|error| io_errno(&error))?;
+        // The process umask may have taken bits off; the asked mode is the file's.
+        let meta = file.metadata().map_err(|error| io_errno(&error))?;
+        let meta = if meta.mode() & 0o7777 == mode & 0o7777 {
+            meta
+        } else {
+            file.set_permissions(fs::Permissions::from_mode(mode & 0o7777))
+                .map_err(|error| io_errno(&error))?;
+            file.metadata().map_err(|error| io_errno(&error))?
+        };
+        self.set_whiteout(&child, false)?;
+        Ok((self.attr(&child, &Node::Upper(meta)), file))
     }
 
     pub fn mkdir(&self, parent: u64, name: &str, mode: u32) -> Result<Attr, i32> {
@@ -756,18 +894,28 @@ impl Overlay {
 
     pub fn unlink(&self, parent: u64, name: &str) -> Result<(), i32> {
         let (_, child) = self.child(parent, name)?;
-        let node = self.node(&child).ok_or(ENOENT)?;
-        if Self::kind(&node, &self.manifest) == Kind::Dir {
-            return Err(EISDIR);
+        // The upper file goes first, without a `stat` before it: the disk says what was there.
+        match fs::remove_file(self.up(&child)) {
+            Ok(()) => self.hide_lower(&child),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let index = self.lower(&child).ok_or(ENOENT)?;
+                if self.manifest.entry(index).is_some_and(|entry| entry.kind == Kind::Dir) {
+                    return Err(EISDIR);
+                }
+                self.set_whiteout(&child, true)
+            }
+            // Linux answers EISDIR for a folder; some file systems EPERM.
+            Err(error) if is_errno(&error, EISDIR) || is_errno(&error, 1) => Err(EISDIR),
+            Err(error) => Err(io_errno(&error)),
         }
-        if let Node::Upper(_) = node {
-            fs::remove_file(self.up(&child)).map_err(|error| io_errno(&error))?;
-        }
-        self.hide_lower(&child)
     }
 
     pub fn rmdir(&self, parent: u64, name: &str) -> Result<(), i32> {
         let (_, child) = self.child(parent, name)?;
+        if self.lower(&child).is_none() {
+            // Only in the upper layer: the disk checks that it is a folder and empty.
+            return fs::remove_dir(self.up(&child)).map_err(|error| io_errno(&error));
+        }
         let node = self.node(&child).ok_or(ENOENT)?;
         if Self::kind(&node, &self.manifest) != Kind::Dir {
             return Err(ENOTDIR);

@@ -17,7 +17,9 @@ serde.workspace = true
 zstd.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-fuser = { version = "=0.14.0", default-features = false }
+# abi-7-12: big writes (128 KiB a request, not 4 KiB) and the notifier that drops what the kernel
+# cached of a file that changed outside the mount.
+fuser = { version = "=0.14.0", default-features = false, features = ["abi-7-12"] }
 libc.workspace = true
 
 [dev-dependencies]
