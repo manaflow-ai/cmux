@@ -546,7 +546,7 @@ def finish(results):
     results["refresh_ms"] = refresh
     results["verdicts"] = {cell: {name: ssm.verdict(s, refresh) for name, s in per.items()} for cell, per in cells.items()}
     results["flatness"] = ssm.flatness(cells)
-    results["worst"] = ssm.headline(cells, results["flatness"])
+    results["worst"] = ssm.headline(cells, results["flatness"], unsettled_ms=opts.strip_ms)
     pairs = [v for per in results["verdicts"].values() for v in per.values()]
     results["measured"] = len(pairs)
     results["passing"] = sum(1 for v in pairs if v["pass"])
