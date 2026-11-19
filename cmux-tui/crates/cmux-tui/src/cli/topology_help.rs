@@ -226,10 +226,13 @@ USAGE
   cmux tab group saved <saved> delete
 
 create with no --workspace, --screen or --pane opens the tab in the caller's
-own workspace: beside an agent's chat or terminal (the column right of it,
-made when missing) and in the pane of a plain terminal. A shell outside
-cmux, and --socket, --machine or --session for another session, get the
-session's active pane. Name a place only when the person names one.
+own workspace. A terminal tab: beside an agent's chat or terminal (the column
+right of it, made when missing), and in the own pane of a plain terminal. A
+browser tab: the column right of an agent's chat, or the pane right of the
+caller's terminal (an agent's or a plain shell), else a new pane there. A
+shell outside cmux, and --socket, --machine or --session for another
+session, get the session's active pane. An agent cmux cannot place is refused
+(caller_unavailable). Name a place only when the person names one.
 
 Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
 and leave their group. A group or saved group is named by its id or exact

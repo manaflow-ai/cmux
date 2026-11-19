@@ -17,8 +17,8 @@ use serde_json::{Map, Value, json};
 
 use super::{
     Caller, Earlier, Kind, Placement, app_placement, browser_placement, correlated,
-    correlation_key, creation_lookup_params, earlier_creation, names_no_place, rename_params,
-    split_below_params, split_params,
+    correlation_key, creation_lookup_params, earlier_creation, names_no_place, neighbor_pane,
+    rename_params, right_neighbor_params, split_below_params, split_params,
 };
 use crate::cli::GlobalArgs;
 use crate::cli::command::{RequestPlan, WireOperation};
@@ -101,8 +101,11 @@ fn apply(
         return Outcome::Unchanged;
     }
     let Some(kind) = kind else {
-        // A browser tab the app renders: only an existing column is named
-        // here; with none, the app run places the tab by its caller.
+        // A browser tab the app renders: only an existing column right of
+        // the caller is named here. With none (and for a plain terminal,
+        // `own_pane`), the app run places the tab: right of the terminal
+        // whose own tab the run targets, or beside the chat it names
+        // (frontend_browser.rs).
         let placed = route.identity().and_then(browser_placement);
         let (Some(Placement::Pane { workspace, pane }), Some(params)) =
             (placed, plan.params.as_object_mut())
@@ -145,6 +148,26 @@ fn apply(
         (None, Some(Placement::SplitBelow { workspace, pane })) => {
             let split = split_below_params(params, &workspace, &pane);
             split_for(&mut sender, plan, kind, correlated(split, correlation.as_deref()))
+        }
+        (None, Some(Placement::RightOf { workspace, pane })) => {
+            let lookup = right_neighbor_params(params, &pane);
+            let right = resolve::read(sender.reader, ResourceOperation::PaneNeighborGet, lookup)
+                .ok()
+                .and_then(|answer| neighbor_pane(&answer));
+            match right {
+                Some(right) => {
+                    let Some(params) = plan.params.as_object_mut() else {
+                        return Outcome::Unchanged;
+                    };
+                    params.insert("workspace".into(), json!(workspace));
+                    params.insert("pane".into(), json!(right));
+                    return Outcome::Placed;
+                }
+                None => {
+                    let split = split_params(params, &workspace, &pane);
+                    split_for(&mut sender, plan, kind, correlated(split, correlation.as_deref()))
+                }
+            }
         }
         (None, None) => return Outcome::Unchanged,
     };

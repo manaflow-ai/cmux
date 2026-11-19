@@ -29,17 +29,19 @@ USAGE
 
 browser open adds a browser tab, like
 `cmux tab create browser --url <url> [--workspace <selector>]`: in the named
-workspace, screen or pane. With none it opens in the caller's own workspace:
-beside an agent's chat or terminal (the column right of it), in the pane of
-a plain terminal, and in the focused pane only for a shell outside cmux.
---url <url> is the same as the positional URL.
+workspace, screen or pane. With none it opens in the caller's own workspace,
+to its right: the column right of an agent's chat (made when missing), or,
+from a cmux terminal (an agent's or a plain shell), the pane on its right,
+else a new pane right of it; never a tab over that terminal. Only a shell
+outside cmux gets the focused pane. --url <url> is the same as the
+positional URL.
 
 browser profile list shows each profile's id, name, color, icon and index,
 never its cookies, history or site data. browser profile open opens a tab in
 the profile, in the named pane; with no --pane it is placed like browser
-open, in the caller's own workspace. --background true keeps the pane's
-selected tab. The URL must be http or https. Without --engine the tab uses
-the browser.defaultEngine setting.
+open, to the right of the caller in its own workspace. --background true
+keeps the pane's selected tab. The URL must be http or https. Without
+--engine the tab uses the browser.defaultEngine setting.
 ";
 
 pub(super) const NOTIFICATION_HELP: &str = "\

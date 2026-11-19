@@ -194,8 +194,10 @@ usage: cmux open <path|url>... [--workspace <ws_…>] [--focus [true|false]] [--
        cmux open - [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
        cmux open --link [--caller <names>] [--target <target>] (<url>... | -)
 URLs and files open in the caller's own workspace (or the --workspace pane):
-beside an agent's chat, in the pane of the caller's terminal, and in the
-focused pane only for a shell outside cmux. Folders open in a new workspace.
+beside an agent's chat or the terminal an agent runs in, in the own pane of
+a plain terminal, and in the focused pane only for a shell outside cmux. An
+agent whose chat no tab shows opens them in the workspace its session runs
+in, else is refused (caller_unavailable). Folders open in a new workspace.
 `open -` reads one http(s) URL
 per stdin line, so a URL with a token never appears in argv; it checks every
 line first and stops at the first URL the app refuses.

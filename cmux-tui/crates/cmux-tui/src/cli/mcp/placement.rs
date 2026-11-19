@@ -148,6 +148,23 @@ impl<B: Backend> Server<B> {
                     let split = beside::correlated(split, correlation.as_deref());
                     return Err(self.split_for(tool, &unplaced, &workspace, split));
                 }
+                // A plain terminal's browser: the pane on its right, else a
+                // new pane beside it.
+                Some(Placement::RightOf { workspace, pane }) => {
+                    let mut with_place = Map::clone(&unplaced);
+                    with_place.insert("workspace".into(), json!(workspace));
+                    match self.right_neighbor(&pane) {
+                        Some(right) => {
+                            with_place.insert("pane".into(), json!(right));
+                            return Ok(Cow::Owned(with_place));
+                        }
+                        None => {
+                            let split = beside::split_params(&unplaced, &workspace, &pane);
+                            let split = beside::correlated(split, correlation.as_deref());
+                            return Err(self.split_for(tool, &unplaced, &workspace, split));
+                        }
+                    }
+                }
                 None => {}
             }
         }
@@ -524,22 +541,20 @@ impl<B: Backend> Server<B> {
     fn daemon_identity(&self) -> Option<Value> {
         let caller = self.daemon_caller()?;
         let pane = caller.get("pane")?.as_str()?;
-        let tool = v2_tools::find("pane_neighbor_get")?;
-        let mut arguments = Map::new();
-        arguments.insert("pane".into(), json!(pane));
-        arguments.insert("direction".into(), json!("right"));
-        let call = tool.plan(&arguments).ok()?;
-        let answer = self.backend.resource(None, call.plan, &call.prefixes).ok()?;
-        let right = answer
-            .get("value")
-            .unwrap_or(&answer)
-            .pointer("/pane/id")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
+        let right = self.right_neighbor(pane);
         Some(match right {
             Some(right) => json!({"caller": caller, "beside": {"pane": right}}),
             None => json!({"caller": caller}),
         })
+    }
+
+    /// The pane right of `pane` in this server's session, if any.
+    fn right_neighbor(&self, pane: &str) -> Option<String> {
+        let tool = v2_tools::find("pane_neighbor_get")?;
+        let arguments = crate::cli::beside::right_neighbor_params(&Map::new(), pane);
+        let call = tool.plan(&arguments).ok()?;
+        let answer = self.backend.resource(None, call.plan, &call.prefixes).ok()?;
+        crate::cli::beside::neighbor_pane(&answer)
     }
 
     /// The caller's place from the session daemon alone: the terminal in

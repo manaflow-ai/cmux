@@ -54,12 +54,16 @@ pub(super) const RECIPES: &[Recipe] = &[
     Recipe {
         ask: "Open a page / a file / a diff beside you.",
         commands: &["cmux --json browser open https://example.com", "cmux open README.md"],
-        read: "With no place flag they open in your own workspace: beside an agent's chat \
-               or terminal (the column right of it, made when missing), and in the pane of a \
-               plain terminal. The same holds for `cmux tab create terminal`, `cmux pane \
-               create`, `cmux screen create` and `cmux browser profile open URL --profile \
-               NAME` (sign-in links), and for a diff (`cmux browser open-diff-viewer`, an \
-               app action). Name another place only when the person names one: `--pane \
+        read: "With no place flag they open in your own workspace. A page (`browser open`, \
+               `browser profile open URL --profile NAME` for sign-in links) opens to your \
+               right: the column right of your chat, or the pane right of your terminal (a \
+               new pane when there is none), never over your terminal. A file, a diff \
+               (`cmux browser open-diff-viewer`, an app action) and a new terminal (`cmux \
+               tab create terminal`) open beside an agent (the column right of its chat or \
+               terminal, made when missing), and as a tab in the own pane of a plain shell. \
+               `cmux pane create` and `cmux screen create` act in your own screen and \
+               workspace. An agent cmux cannot place gets `caller_unavailable`: name a \
+               workspace or pane by id. Name another place only when the person names one: `--pane \
                <pane>`, `--workspace <ws>`. `focused` (`--pane focused`) is the pane the \
                person looks at: use it only when they say \"here\" or \"where I am \
                looking\". browser open prints `value.tab_id` and `value.pane_id`; the \

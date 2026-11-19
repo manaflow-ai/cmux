@@ -265,7 +265,8 @@ one the person has focused. This holds for the CLI and for the MCP server:
 
 | Command (no `--workspace`, `--screen`, `--pane`) | Agent chat or Chief turn | cmux terminal |
 | --- | --- | --- |
-| `tab create terminal`, `browser open`, `tab create browser`, `browser profile open`, `open <url>`, `open <file>` | Beside the chat: the column right of it, made when missing. | Beside the terminal when it runs an agent; else a tab in the terminal's own pane. A browser tab goes to the column right of the terminal when there is one. |
+| `browser open`, `tab create browser`, `browser profile open` | Beside the chat: the column right of it, made when missing. | Right of the terminal, an agent's or a plain shell's: a tab in the pane on its right, else a new pane right of it. Never a tab over the terminal. |
+| `tab create terminal`, `open <file>`, `open <url>` | Beside the chat: the column right of it, made when missing. | A terminal an agent runs in: beside it (the column right of it, made when missing). A plain shell: a tab in its own pane. |
 | `pane create` | The chat's screen (a Chief turn: the daemon's default). | The terminal's screen. |
 | `screen create`, `workspace open-url` | The chat's workspace (a Chief turn: the daemon's default). | The terminal's workspace. |
 | `agent start`, `agent resume`, `terminal <t> resume` (no `--pane`, no `--split`) | Beside the chat. | A split right of the terminal's pane. |
@@ -275,17 +276,29 @@ Rules:
 
 - Only the app that owns the request's daemon places a caller. A Cloud Chief
   turn that reaches the Mac app over a relay keeps its machine's own default.
-- A terminal caller is placed beside its terminal only by an app whose
-  `system.identify` reports `caller_placement` 2 or more. With an older app, or
-  with no app (a plain cmux-tui session, a Cloud machine), the tab opens in the
-  terminal's own pane.
+- The app decides whether a terminal runs an agent, and only an app whose
+  `system.identify` reports `caller_placement` 2 or more says so. With an
+  older app, a new terminal from a terminal caller is a tab in its own pane.
+  With no app (a plain cmux-tui session, a Cloud machine), a new terminal and
+  a browser from a terminal caller are tabs in its own pane.
+- A browser from a terminal opens right of it for every app version: the CLI
+  names the pane of a column the app reports on the right, else the run
+  targets the terminal's own tab and the app opens the browser where a
+  Cmd-click in that terminal opens a link. `browser profile open` is a daemon
+  request, so the CLI applies the same rule itself: the pane the daemon
+  reports on the right, else a new pane right of the terminal.
 - An agent whose chat no tab shows is placed in the workspace its session
   runs in (`CMUX_WORKSPACE_ID`, which its caller names). An agent the app
   cannot place at all (no chat tab, and that workspace is not open) is refused
   with `caller_unavailable`: its `current` and its creations never go to the
-  focused workspace or Home. An agent that runs in a cmux terminal is placed by
-  that terminal. In a session no app owns, an agent with no terminal whose key
-  names no workspace of the session keeps the daemon's default.
+  focused workspace or Home. For the typed creations and `current`
+  (`tab create`, `pane create`, `screen create`, `agent start`), an agent that
+  runs in a cmux terminal is then placed by that terminal. `cmux open
+  <file|url>` and `browser open` name the agent session to the app: they open
+  beside the chat, else in the session's workspace, else are refused; the
+  terminal does not stand in. In a session no app owns, an agent with no
+  terminal whose key names no workspace of the session keeps the daemon's
+  default.
 - With no caller (a shell outside cmux), a caller terminal the daemon no longer
   shows, or a request to another session or machine (`--socket`, `--machine`,
   `--session` naming another session), the daemon's default applies: its active

@@ -181,7 +181,7 @@ pub(super) fn resource(
         global,
         &plan,
         &mut reader,
-        &route,
+        &socket,
         key.as_deref(),
     ) {
         return opened.map_err(|failure| app_open_failure(failure, key.as_deref()));

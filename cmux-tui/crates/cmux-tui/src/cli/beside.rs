@@ -19,7 +19,9 @@
 //!   person's terminal, is a tab in the column right of the caller when there
 //!   is one (the pane holding a browser, else the lowest), never a split
 //!   below it and never over an agent's terminal (Lawrence 2026-11-15).
-//! - A cmux terminal (`CMUX_TUI_TERMINAL_ID`): an app that places terminal
+//!   A plain terminal's browser opens right of it too: in the pane on its
+//!   right, else a new pane beside it, where a Cmd-click there opens a link.
+//! - A cmux terminal (`CMUX_TUI_TERMINAL_ID`), for a new terminal: an app that places terminal
 //!   callers ([`app_places_terminals`]) answers the same `beside` for it (the
 //!   column right of a terminal that runs an agent, the terminal's own pane
 //!   for a plain one). With an older app, or none, the terminal's own pane,
@@ -65,6 +67,11 @@ pub(super) enum Placement {
     SplitBelow { workspace: String, pane: String },
     /// No column yet: split right of the chat's pane as a new column.
     NewColumn { workspace: String, chat_pane: String },
+    /// A browser from a plain terminal, whose columns the app does not
+    /// report (`own_pane`): a tab in the pane right of `pane`, else a new
+    /// pane right of it, where a Cmd-click in that terminal opens a link.
+    /// The transport asks the daemon for that neighbor.
+    RightOf { workspace: String, pane: String },
 }
 
 /// Whether a creation names no place, so it goes to the caller's own.
@@ -143,6 +150,11 @@ pub(super) fn browser_placement(identity: &Value) -> Option<Placement> {
     }
     let workspace = caller.get("workspace").and_then(Value::as_str)?.to_owned();
     let beside = identity.get("beside")?;
+    // `own_pane` names the caller's own pane, not a column right of it: a
+    // browser never opens over the terminal that asked for it.
+    if own_pane(identity).is_some() {
+        return None;
+    }
     let pane = beside.get("pane").and_then(Value::as_str)?;
     let column: Vec<(&str, bool)> = beside
         .get("panes")
@@ -170,6 +182,23 @@ pub(super) fn browser_placement(identity: &Value) -> Option<Placement> {
     Some(Placement::Pane { workspace, pane: chosen.to_owned() })
 }
 
+/// The caller's own pane when the app answers `own_pane`: the caller is a
+/// terminal no agent runs in (a person's shell, a script), and `beside.pane`
+/// is that terminal's pane. A new terminal opens there as a tab.
+fn own_pane(identity: &Value) -> Option<&str> {
+    let beside = identity.get("beside")?;
+    (beside.get("placement").and_then(Value::as_str) == Some("own_pane"))
+        .then(|| beside.get("pane").and_then(Value::as_str))
+        .flatten()
+}
+
+/// [`Placement::RightOf`] the caller's own pane, for an `own_pane` answer.
+fn right_of_own_pane(identity: &Value) -> Option<Placement> {
+    let pane = own_pane(identity)?.to_owned();
+    let workspace = identity.pointer("/caller/workspace").and_then(Value::as_str)?.to_owned();
+    Some(Placement::RightOf { workspace, pane })
+}
+
 /// A new column right of the caller's pane, for a caller the app places
 /// and that has no column there yet.
 fn new_column(identity: &Value) -> Option<Placement> {
@@ -184,11 +213,16 @@ fn new_column(identity: &Value) -> Option<Placement> {
 
 /// The placement `identity` gives a new tab of `kind` whose pane this CLI
 /// makes itself when there is none (a terminal, a profile browser tab): the
-/// kind's rule for the column right of the caller, else a new column.
+/// kind's rule for the column right of the caller, else a new column. A
+/// browser from a plain terminal goes right of the terminal too
+/// ([`Placement::RightOf`]), as `cmux browser open` does there through the
+/// app; a terminal from a plain terminal is a tab in its own pane.
 pub(super) fn placement_of(identity: &Value, kind: Kind) -> Option<Placement> {
     match kind {
         Kind::Terminal => placement(identity),
-        Kind::Browser => browser_placement(identity).or_else(|| new_column(identity)),
+        Kind::Browser => browser_placement(identity)
+            .or_else(|| right_of_own_pane(identity))
+            .or_else(|| new_column(identity)),
     }
 }
 
@@ -261,17 +295,42 @@ pub(super) fn app_places_terminals(identity: &Value) -> bool {
 }
 
 /// Where the owning app puts a new tab of `kind` that `caller` creates with
-/// no place. A chat is always placed by the app; a terminal only by an app
-/// that places terminals, except that a browser tab goes to the column right
-/// of any caller that has one ([`browser_placement`]). `None`: the caller's
+/// no place. A new terminal: a chat is always placed by the app; a terminal
+/// caller only by an app that places terminals (an older app answers
+/// `new_column` for a person's shell too). A browser goes right of any
+/// caller the app finds, whatever the app's version. `None`: the caller's
 /// own pane, found from the daemon ([`fill_place`]).
 pub(super) fn app_placement(identity: &Value, caller: &Caller, kind: Kind) -> Option<Placement> {
-    let placed_by_app = caller.is_chat() || app_places_terminals(identity);
     match kind {
-        Kind::Terminal => placed_by_app.then(|| placement(identity)).flatten(),
-        Kind::Browser => browser_placement(identity)
-            .or_else(|| placed_by_app.then(|| new_column(identity)).flatten()),
+        Kind::Terminal => (caller.is_chat() || app_places_terminals(identity))
+            .then(|| placement(identity))
+            .flatten(),
+        Kind::Browser => placement_of(identity, Kind::Browser),
     }
+}
+
+/// The `pane.neighbor.get` params that ask the session of `create` for the
+/// pane right of `pane` ([`Placement::RightOf`]).
+pub(super) fn right_neighbor_params(create: &Map<String, Value>, pane: &str) -> Map<String, Value> {
+    let mut lookup = Map::new();
+    for route in ["machine", "session"] {
+        if let Some(value) = create.get(route) {
+            lookup.insert(route.into(), value.clone());
+        }
+    }
+    lookup.insert("pane".into(), json!(pane));
+    lookup.insert("direction".into(), json!("right"));
+    lookup
+}
+
+/// The id of the pane a `pane.neighbor.get` answer names, if any.
+pub(super) fn neighbor_pane(answer: &Value) -> Option<String> {
+    answer
+        .get("value")
+        .unwrap_or(answer)
+        .pointer("/pane/id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
 }
 
 /// The caller's own workspace, screen, pane, tab and terminal from the app's

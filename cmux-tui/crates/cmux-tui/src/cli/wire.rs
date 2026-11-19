@@ -198,7 +198,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         &plan,
         &request,
         &mut reader,
-        &route,
+        &socket,
         caller_route,
         &key_report,
     ) {

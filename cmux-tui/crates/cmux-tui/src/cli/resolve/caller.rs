@@ -87,17 +87,17 @@ pub(super) fn caller_path(
     if let Some(terminal) = &caller.terminal {
         return registered_caller_path(reader, route, terminal, socket).map(Some);
     }
+    // The key first: a shell outside cmux names none, and must not pay an
+    // app round trip to learn that it has no place.
+    let Some(key) = caller.fallback_workspace_key() else { return Ok(None) };
     #[cfg(unix)]
     let owned = socket.has_owner();
     #[cfg(not(unix))]
     let owned = false;
-    if !owned
-        && let Some(key) = caller.fallback_workspace_key()
-        && let Some(path) = workspace_key_path(reader, route, key)
-    {
-        return Ok(Some(path));
+    if owned {
+        return Ok(None);
     }
-    Ok(None)
+    Ok(workspace_key_path(reader, route, key))
 }
 
 /// The place of the workspace whose key is `key` in the request's session:
