@@ -42,6 +42,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_SCALE_IDLE_SECS",
     "ACPMUX_SCALE_PROBES",
     "ACPMUX_GOD_DAEMON_BIN",
+    "ACPMUX_SCALE_DHAT_DIR",
 ]);
 
 use acpmux::config::{Config, StoreMode};
@@ -255,7 +256,7 @@ struct Daemon {
 }
 
 impl Daemon {
-    fn start(scratch: &Path, home: &Path) -> Self {
+    fn start(scratch: &Path, home: &Path, tag: &str) -> Self {
         let socket = scratch.join("s.sock");
         let mut command = match std::env::var_os("ACPMUX_GOD_DAEMON_BIN") {
             Some(bin) => {
@@ -269,7 +270,11 @@ impl Daemon {
             .env("ACPMUX_SOCKET", &socket)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::inherit());
+            .stderr(Stdio::inherit())
+            // A `dhat-heap` build writes its heap profile here when it stops (`heap_profile.rs`).
+            .envs(std::env::var_os("ACPMUX_SCALE_DHAT_DIR").map(|dir| {
+                ("ACPMUX_DHAT_OUT", PathBuf::from(dir).join(format!("dhat-{tag}.json")))
+            }));
         let spawned = Instant::now();
         let mut child = command.spawn().unwrap();
         while UnixStream::connect(&socket).is_err() {
@@ -316,8 +321,18 @@ impl Daemon {
 }
 
 impl Drop for Daemon {
+    /// SIGTERM, so a `dhat-heap` build writes its profile on the way out; killed past a minute.
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        // SAFETY: the pid is this test's own child, not yet reaped.
+        unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
+        let at = Instant::now();
+        while self.child.try_wait().ok().flatten().is_none() {
+            if at.elapsed() > Duration::from_secs(60) {
+                let _ = self.child.kill();
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
         let _ = self.child.wait();
     }
 }
@@ -368,7 +383,7 @@ async fn run(n: usize) -> Value {
     let peers = Arc::new(peers);
     let peer_count = counts.len();
 
-    let daemon = Daemon::start(&scratch, &home);
+    let daemon = Daemon::start(&scratch, &home, &format!("{n}-{peer_count}peers"));
     let watched = Arc::new(Watched::default());
     let (watcher, first_list_bytes) = watch(&daemon.socket, watched.clone());
     let socket = daemon.socket.clone();
