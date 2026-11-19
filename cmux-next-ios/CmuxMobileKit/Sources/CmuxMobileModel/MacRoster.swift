@@ -14,6 +14,10 @@ import Foundation
 /// A name is never an identity: several Macs can share one (they stay apart,
 /// with the `MacNameDisambiguation` tag), and a Mac that sent no machine id is
 /// never folded into another.
+///
+/// A tagged dev build lists the build its pairing code named
+/// (``DevHandoffMac``) for that build's computer, online or not, so the phone
+/// never moves to another tag's build there. Other builds list as above.
 public struct MacRoster: Equatable, Sendable {
     /// Listed: one build per computer, in the given order.
     public let visible: [MacDevice]
@@ -21,7 +25,9 @@ public struct MacRoster: Equatable, Sendable {
     /// most recently active first.
     public let otherBuilds: [String: [MacDevice]]
 
-    public init(_ macs: [MacDevice]) {
+    /// `preferred`: the build listed for its computer whatever the others' activity
+    /// (``DevHandoffMac``; nil outside tagged DEBUG builds).
+    public init(_ macs: [MacDevice], preferring preferred: String? = DevHandoffMac.current.macID) {
         var groups: [String: [MacDevice]] = [:]
         var order: [String] = []
         for mac in macs {
@@ -32,7 +38,8 @@ public struct MacRoster: Equatable, Sendable {
         var listed = Set<String>()
         var others: [String: [MacDevice]] = [:]
         for key in order {
-            let ranked = (groups[key] ?? []).sorted(by: Self.moreActive)
+            var ranked = (groups[key] ?? []).sorted(by: Self.moreActive)
+            _ = preferred  // red: not used yet
             guard let first = ranked.first else { continue }
             listed.insert(first.id)
             var seen: Set<String> = [first.id]

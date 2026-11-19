@@ -64,6 +64,9 @@ public final class LiveCoordinator {
     @ObservationIgnored let idleSession: MacSession
     /// Which Macs keep a link (lazy, idle teardown, at most `maxLinks`).
     @ObservationIgnored public var linkPolicy = MacLinkPolicy()
+    /// The build a tagged dev build's pairing code named, listed for its computer
+    /// (``DevHandoffMac``; off outside tagged DEBUG builds).
+    @ObservationIgnored public var devHandoff = DevHandoffMac.current
     /// The Macs whose data is on screen (nil: every Mac). Until the shell
     /// says, none: only the focused Mac dials at launch (lazy links).
     @ObservationIgnored var showingMacs: Set<String>? = []
@@ -694,9 +697,9 @@ public final class LiveCoordinator {
     }
 
     /// The Macs the phone focuses and the screens list: the owner's own, one
-    /// build per computer (``MacRoster``).
+    /// build per computer (``MacRoster``), a tagged dev build's own Mac first (``DevHandoffMac``).
     private func listedMacs(_ team: Team) -> [MacDevice] {
-        MacRoster(team.macs.filter { !othersMacs.contains($0.id) }).visible
+        MacRoster(team.macs.filter { !othersMacs.contains($0.id) }, preferring: devHandoff.macID).visible
     }
 
     /// The Macs this phone may link: the listed ones, and another build on a
@@ -706,7 +709,7 @@ public final class LiveCoordinator {
     /// A Mac whose pairing code is held is one too, while the code is.
     private func dialableMacs(_ team: Team) -> [MacDevice] {
         let own = team.macs.filter { !othersMacs.contains($0.id) }
-        let listed = Set(MacRoster(own).visible.map(\.id))
+        let listed = Set(MacRoster(own, preferring: devHandoff.macID).visible.map(\.id))
         let invited = pairing?.invites.pending()?.mac
         return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil || $0.id == invited }
     }

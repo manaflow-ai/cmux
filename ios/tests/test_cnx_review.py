@@ -490,6 +490,18 @@ class ReceiptCheckTests(unittest.TestCase):
         self.assertEqual(self.check({**self.base, 'paired_macs': []}, '--session', 'restored', '--mac-id', 'm1').returncode, 1)
         self.assertEqual(self.check(self.base, '--session', 'restored', '--mac-id', 'm1').returncode, 3)
 
+    def test_a_phone_on_another_tags_mac_says_which(self):
+        # Aziz's 2026-11-18 ios-infinite-scroll-v3 and ios-onboard receipts: the phone linked the cu-all
+        # dev build, not its tag's Mac. Never accepted; the reason names the other Mac and the tagged one.
+        cu_all, v3 = '0ae8a0d4-d8d9-4872-b541-a48f3dc6cc50', 'e7673bc3-6fc4-4184-ba29-d80ad6743844'
+        for linked, state in ((True, 'linked with another Mac'), (False, 'on another Mac')):
+            with self.subTest(linked=linked):
+                receipt = {**self.base, 'paired_macs': [{'id': cu_all, 'name': 'Aziz’s MacBook Pro', 'linked': linked}]}
+                r = self.check({**receipt, 'session_source': 'auto_login'}, '--session', 'auto_login', '--mac-id', v3)
+                self.assertEqual(r.returncode, 1, r.stdout)
+                self.assertIn(f"{state}, not this tag's: Aziz’s MacBook Pro ({cu_all}), not the tagged Mac {v3}",
+                              r.stdout)
+
     def test_env_value_reads_without_sourcing(self):
         with tempfile.TemporaryDirectory() as temp:
             f = Path(temp) / 'a.env'
