@@ -48,12 +48,25 @@ public struct TerminalFloodBenchRoot: View {
         NavigationStack {
             TerminalScreen(model: bench.model)
         }
+        .overlay(alignment: .top) {
+            // Only once the bench is done: the UI test (TerminalTypingWhileStreamingUITests) waits for it.
+            if !bench.result.isEmpty {
+                Text(bench.result)
+                    .lineLimit(2)
+                    .accessibilityIdentifier("flood-bench.result")
+                    .accessibilityLabel(bench.result)
+                    .opacity(0.01)
+                    .allowsHitTesting(false)
+            }
+        }
         .task { await bench.run() }
     }
 }
 
-@MainActor
+@MainActor @Observable
 final class TerminalFloodBench {
+    /// The summary as one line of JSON, once the run is done (the result label's text).
+    private(set) var result = 
     let model: TerminalModel
     private let daemon: FloodDaemon
     private let probe = TerminalBenchProbe()
@@ -212,6 +225,7 @@ final class TerminalFloodBench {
             ] as [String: Any]
         }
         summary["pendingEchoesAtEnd"] = probe.take().pendingEchoes
+        if let frames = Self.streamingFrameStats() { summary["streamingFrames"] = frames }
         _ = flood
         log("summary \(summary)")
         let report: [String: Any] = ["summary": summary, "seconds": rows]
@@ -219,7 +233,39 @@ final class TerminalFloodBench {
            let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: documents.appendingPathComponent("flood-bench.json"))
         }
+        result = (try? JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "{\"error\":\"summary\"}"
         log("done")
+    }
+
+    /// The terminal's frame log (`-CmuxMobileFrameLog`, `Documents/frame-log.ndjson`) over the
+    /// frames output streamed in: display-link intervals, hitches (over 1.5 frames) and the
+    /// screen's main-thread work per frame, with each signpost's share. Nil without a log.
+    private static func streamingFrameStats() -> [String: Any]? {
+        guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
+              let text = try? String(contentsOf: documents.appendingPathComponent("frame-log.ndjson"), encoding: .utf8) else { return nil }
+        var intervals: [Double] = []
+        var work: [Double] = []
+        var targets: [Double] = []
+        var parts: [String: [Double]] = [:]
+        for line in text.split(separator: "\n") {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  object["streaming"] as? Bool == true, let dt = object["dt_ms"] as? Double else { continue }
+            intervals.append(dt)
+            work.append(object["work_ms"] as? Double ?? 0)
+            targets.append(object["target_ms"] as? Double ?? 0)
+            for (name, ms) in object["parts"] as? [String: Double] ?? [:] { parts[name, default: []].append(ms) }
+        }
+        guard !intervals.isEmpty else { return nil }
+        let frame = targets.percentile(0.5) > 0 ? targets.percentile(0.5) : 1000.0 / 120
+        return [
+            "frames": intervals.count,
+            "intervalP50ms": intervals.percentile(0.5), "intervalP95ms": intervals.percentile(0.95), "intervalMaxms": intervals.max() ?? 0,
+            "hitches": intervals.filter { $0 > frame * 1.5 }.count,
+            "workP50ms": work.percentile(0.5), "workP95ms": work.percentile(0.95), "workMaxms": work.max() ?? 0,
+            "parts": parts.mapValues { ["frames": $0.count, "totalMs": ($0.reduce(0, +) * 10).rounded() / 10, "p95ms": $0.percentile(0.95),
+                                        "maxMs": (($0.max() ?? 0) * 10).rounded() / 10] as [String: Any] },
+        ]
     }
 }
 
