@@ -251,6 +251,24 @@ fn a_refused_start_deletes_the_machine_it_just_created_in_an_environment() {
 }
 
 #[test]
+fn cleanup_crossing_the_deadline_keeps_the_refusal_and_deletion_receipt() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        agent_refused("agent_session.bad_request"),
+        listed_stuck("vm-failed"),
+        ok(json!({"deleted": true})),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--timeout", "15"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "unavailable");
+    assert_eq!(error["details"]["cleanup"]["deleted"], true);
+    assert_eq!(fake.ran[3], kill("vm-failed"));
+    assert!(error["details"]["again"].is_null(), "no pending retry on a deleted machine");
+}
+
+#[test]
 fn a_refused_start_reports_failed_cleanup_and_keeps_the_original_refusal() {
     let mut fake = Fake::new(vec![
         signed_in(),
