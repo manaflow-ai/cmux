@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesignTokens
 import CmuxNextPagesTestSupport
 import CmuxNextTestSupport
 import Testing
@@ -26,6 +27,11 @@ struct AgentPaneUnderAPageWindowTests {
     private final class Incoming: NSView, PaneFirstPaintGated {
         var awaitsFirstPaint: Bool { true }
         func whenFirstPainted(_ body: @escaping () -> Void) {}
+    }
+
+    /// A model of a pane's host in a layout: it says whether its pane left the layout, as the layout's host view does.
+    private final class PaneHost: NSView, PaneLeaving {
+        var isLeaving = false
     }
 
     /// 2 agent pane views with a page in Chromium, a window, and a child window over the window's content.
@@ -172,5 +178,41 @@ struct AgentPaneUnderAPageWindowTests {
         #expect(toldFirst == false && toldSecond == false, "in the hold the app told Chromium that a page of the place shows: \(told)")
         #expect(inTheHold == "no view", "in the paint hold of a cold page the lookup answered \(inTheHold), want no view: no page of the place shows")
         #expect(after == "the second view", "after the paint hold's end the lookup answered \(after), want the view that shows now")
+    }
+
+    /// A pane close that moves its panes: the pane that the close took out of the layout stays in the window, shown, to
+    /// the end of the move, and the pane that takes its room grows over it. So 2 panes are at one place, and the app
+    /// told Chromium for each that its page shows. The page window is the one of the pane that stays: the closed pane
+    /// has no keyboard. Want: the lookup answers the view of the pane that stays, whichever host is the later subview.
+    /// Then the host says that its pane leaves no more (a pane that a zoom covered comes back): the lookup finds its
+    /// view again.
+    ///
+    /// Each host is a model (`PaneHost`): the first view is in the pane that stays, the second in the pane that leaves.
+    /// The row sets the leaving state by hand; no close and no move run here.
+    @Test(arguments: [true, false]) func aPaneThatLeftTheLayoutIsNotTheAnswer(theLeavingHostIsLater: Bool) async throws {
+        let place = try await twoViewsAtOnePlace()
+        defer { place.close() }
+        let stays = PaneHost(frame: place.host.bounds), leaves = PaneHost(frame: place.host.bounds)
+        for (host, pane) in [(stays, place.first), (leaves, place.second)] {
+            host.autoresizingMask = [.width, .height]
+            pane.frame = host.bounds
+            host.addSubview(pane)
+        }
+        for host in theLeavingHostIsLater ? [stays, leaves] : [leaves, stays] { place.host.addSubview(host) }
+        place.host.layoutSubtreeIfNeeded()
+        try #require(place.isUnderThePageWindow(place.first) && place.isUnderThePageWindow(place.second),
+                     "setup: the Chromium content view of each of the 2 panes is not under the page window's centre")
+        try #require(place.firstPage.visibility.last == true && place.secondPage.visibility.last == true,
+                     "setup: the app did not tell Chromium that each of the 2 pages shows: \(place.told)")
+        leaves.isLeaving = true
+        let inTheMove = place.answer()
+        leaves.isLeaving = false
+        let back = place.answer(), wantBack = theLeavingHostIsLater ? "the second view" : "the first view"
+        let which = theLeavingHostIsLater ? "later" : "earlier"
+        print("AgentPaneUnderAPageWindowTests: row 4, the host of the pane that leaves is the \(which) subview: while it leaves the lookup "
+            + "answered \(inTheMove), want the first view; the app told Chromium then: \(place.told); with the host back in the layout "
+            + "the lookup answered \(back), want \(wantBack)")
+        #expect(inTheMove == "the first view", "with the \(which) host leaving the lookup answered \(inTheMove), want the view of the pane that stays")
+        #expect(back == wantBack, "with the \(which) host back in the layout the lookup answered \(back), want \(wantBack)")
     }
 }

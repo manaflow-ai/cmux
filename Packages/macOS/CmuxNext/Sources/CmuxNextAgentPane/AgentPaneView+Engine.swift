@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 public import CmuxNextPages
 import WebKit
 
@@ -34,17 +35,17 @@ extension AgentPaneView {
     /// Whether `point` (screen coordinates) in `eventWindow` is on the Chromium page of this pane: a
     /// Chromium page draws in a child window of the pane's window, over its view.
     func chromiumPageContains(_ point: CGPoint, eventWindow: NSWindow?) -> Bool {
-        guard let chromiumPage = page?.chromiumPage, let eventWindow, let window, eventWindow.parent === window,
+        guard let chromiumPage = page?.chromiumPage, let eventWindow, let window, eventWindow.parent === window, !isInALeavingPane,
               let frame = Self.screenFrame(of: chromiumPage.contentView) else { return false }
         return frame.contains(point)
     }
 
-    /// The agent pane in `window` whose Chromium page shows in `page` (its child window): one whose page the app told Chromium to show (``PageWebView/chromiumShows``). A pane has more agent pages at the same place: hidden views, and in a paint hold a new view at alpha 0 above the one that still shows.
+    /// The agent pane in `window` whose Chromium page shows in `page` (its child window): one whose page the app told Chromium to show (``PageWebView/chromiumShows``) and whose pane did not leave its layout (`isInALeavingPane`: a closed pane shows to the end of the close's move, with the pane that stays over it). A pane has more agent pages at the same place: hidden views, and in a paint hold a new view at alpha 0 above the one that still shows.
     public static func chromiumAgentPane(under page: NSWindow, in window: NSWindow) -> AgentPaneView? {
         let center = CGPoint(x: page.frame.midX, y: page.frame.midY)
         var stack: [NSView] = window.contentView.map { [$0] } ?? []
         while let view = stack.popLast() {
-            if let pane = view as? AgentPaneView, pane.page?.chromiumShows == true, let content = pane.chromiumPage?.contentView, let host = content.window,
+            if let pane = view as? AgentPaneView, pane.page?.chromiumShows == true, !pane.isInALeavingPane, let content = pane.chromiumPage?.contentView, let host = content.window,
                host.convertToScreen(content.convert(content.bounds, to: nil)).contains(center) { return pane }
             stack.append(contentsOf: view.subviews)
         }

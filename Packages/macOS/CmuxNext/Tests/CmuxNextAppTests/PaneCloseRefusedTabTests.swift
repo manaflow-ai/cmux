@@ -87,11 +87,45 @@ import Testing
             app.committed.run()
             #expect(app.root.context.hosts[close.pane.layoutPaneID] === close.host, "frame \(frame): the pane does not have the host it had before the close")
             #expect(!close.host.isLeaving, "frame \(frame): the pane's host still says that its pane leaves")
+            #expect(!close.strip.isInALeavingPane, "frame \(frame): a view in the pane that came back says that its pane leaves")
             #expect(close.host.superview != nil && !close.host.isHiddenOrHasHiddenAncestor, "frame \(frame): the pane does not show")
             #expect(close.strip.cells[close.tab] != nil, "frame \(frame): the pane shows with an empty tab bar after the refusal")
             #expect(Set(close.strip.cells.keys) == Set(close.pane.stripModel.tabs.map(\.id)),
                     "frame \(frame): the tab bar's cells are not its model's tabs")
         }
+    }
+
+    /// What a view in a closed pane says of its pane (`NSView.isInALeavingPane`), with the layout's true host. From
+    /// the key's turn to the frame that hides the pane, the pane shows at its place and each view in it says that its
+    /// pane leaves; a view in a pane that stays does not. After the frame that hides the pane, no view says it.
+    /// A walk that looks for the pane at a place reads this (the lookup of the agent pane under a page window).
+    @Test(.timeLimit(.minutes(1)))
+    func aViewInAClosedPaneSaysThatItsPaneLeavesUntilTheFrameThatHidesIt() async throws {
+        let app = try await Fixture()
+        defer { app.close() }
+        let close = try Self.closeLastTab(in: app)
+        let stays = try app.pane(1)
+        await Self.runQueuedJobs()
+        try #require(close.host.superview != nil && !close.host.isHidden, "SETUP: the closed pane does not show before the first frame tick")
+        #expect(close.host.isLeaving, "the closed pane shows, and its host does not say that its pane leaves")
+        #expect(close.strip.isInALeavingPane && close.pane.view.isInALeavingPane,
+                "the closed pane shows, and a view in it does not say that its pane leaves: its tab bar \(close.strip.isInALeavingPane), its content \(close.pane.view.isInALeavingPane)")
+        #expect(!stays.view.isInALeavingPane && !stays.view.stripView.isInALeavingPane, "a view in a pane that stays says that its pane leaves")
+
+        var hidden: Int?
+        for frame in 1...Self.frames {
+            _ = app.root.advanceFrame(Self.dt)
+            if close.host.isHidden || close.host.superview == nil {
+                hidden = frame
+                break
+            }
+            #expect(close.strip.isInALeavingPane, "frame \(frame): the closed pane shows, and a view in it does not say that its pane leaves")
+        }
+        let frame = try #require(hidden, "SETUP: no frame of \(Self.frames) hid the closing pane")
+        print("PaneCloseRefusedTabTests: a view in a closed pane: frame \(frame) hid the pane; after it the host says that its pane leaves: "
+            + "\(close.host.isLeaving), a view in it: \(close.strip.isInALeavingPane), want false for both")
+        #expect(!close.host.isLeaving && !close.strip.isInALeavingPane, "after the frame that hid the closed pane, its host or a view in it says that the pane leaves")
+        #expect(!stays.view.isInALeavingPane, "after the close's frame a view in the pane that stays says that its pane leaves")
     }
 
     /// A refusal after the frame that hid the pane: each frame that shows the pane again shows its tab.
