@@ -211,14 +211,36 @@ fn only_change_background_is_taken_and_help_is_left_to_the_help() {
 }
 
 #[test]
-fn help_names_the_forms_with_a_youtube_example() {
-    for needle in
-        ["youtube:<video id>", "youtu.be/", "file:<absolute path>", "--start", "--quality"]
-    {
+fn help_names_the_forms_local_video_first_with_no_youtube_example() {
+    for needle in ["youtube:<video id>", "file:<absolute path>", "--start", "--quality"] {
         assert!(USAGE.contains(needle), "{needle}");
     }
-    assert!(USAGE.contains("change-background 'https://www.youtube.com/watch?v="));
+    let files = USAGE.find("video file of this Mac").expect("files are listed");
+    let youtube = USAGE.find("a YouTube video address").expect("YouTube is listed");
+    assert!(files < youtube, "local video comes first");
+    let examples = &USAGE[USAGE.find("Examples:").expect("examples")..];
+    assert!(!examples.to_lowercase().contains("youtu"), "{examples}");
+    assert!(examples.contains("rain.mov"));
     let help =
         super::super::extra_help::text(&strings(&["settings", "change-background", "--help"]));
     assert_eq!(help.as_deref(), Some(format!("{USAGE}\n").as_str()));
+}
+
+#[test]
+fn a_youtube_background_says_it_is_not_turned_on_yet() {
+    let fixture = Fixture::new("note");
+    for words in [
+        vec!["https://youtu.be/dQw4w9WgXcQ"],
+        vec!["youtube:dQw4w9WgXcQ", "--dark"],
+        vec!["dQw4w9WgXcQ", "--workspace"],
+    ] {
+        assert!(planned(&fixture, &words).expect("plans").sets_youtube(), "{words:?}");
+    }
+    for words in [vec!["~/Movies/rain.mov"], vec!["none", "--workspace"], vec![]] {
+        assert!(!planned(&fixture, &words).expect("plans").sets_youtube(), "{words:?}");
+    }
+    assert_eq!(
+        YOUTUBE_OFF_NOTE,
+        "YouTube backgrounds are not turned on in this build yet; it will show once they are."
+    );
 }

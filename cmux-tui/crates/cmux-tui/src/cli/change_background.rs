@@ -33,11 +33,10 @@ cmux settings change-background [VALUE] [options]
   With no VALUE, opens the background picker (Settings > Personalization).
   With a VALUE, sets the background to it, as a pick in the picker does.
 VALUE:
-  a YouTube video address (watch?v=, youtu.be/, shorts/, embed/, live/, music., m.,
-    youtube-nocookie.com; its t= or start= is where the loop starts) or youtube:<video id>
   a picture or video file of this Mac (stored as file:<absolute path>)
   none, desktop, daily, a painting id, a folder to shuffle, a macOS wallpaper name,
     or any background id (system:, file:, folder:, youtube:)
+  a YouTube video address or youtube:<video id> (its t= or start= is where the loop starts)
 Options:
   --start T        where a YouTube loop starts: 90, 90s, 1m30s, 1h2m3s or 1:30
   --end T          where it ends and starts over (default: the end of the video)
@@ -47,8 +46,8 @@ Options:
   --workspace [ID] set the workspace's own background (default: the shown workspace)
   --no-wait        with no VALUE or with --workspace: return once the app has the request
 Examples:
-  cmux settings change-background 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1m30s' --end 2m --quality 720
-  cmux settings change-background ~/Movies/rain.mov --dark
+  cmux settings change-background ~/Movies/rain.mov
+  cmux settings change-background ~/Movies/night.mov --dark
   cmux settings change-background none --workspace";
 
 /// What the words ask for, before VALUE is read into an id.
@@ -89,7 +88,8 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return None;
     }
     let plan = read_words(rest).and_then(|words| plan(&words, &Env::current()));
-    Some(match plan {
+    let youtube = plan.as_ref().is_ok_and(Plan::sets_youtube);
+    let code = match plan {
         Ok(Plan::Settings(request)) => {
             let prefix: Vec<String> = args
                 .iter()
@@ -104,7 +104,35 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             Err(error) => super::app::failure("usage.invalid", &error.0, global.output, 2),
         },
         Err(error) => super::app::failure("usage.invalid", &error.0, global.output, 2),
-    })
+    };
+    if code == 0 && youtube {
+        eprintln!("{YOUTUBE_OFF_NOTE}");
+    }
+    Some(code)
+}
+
+/// Said after a YouTube background is set: the app does not offer YouTube
+/// playback yet (Swift `BackdropYouTube.isOffered`), so the id is stored and
+/// shows once it does.
+pub(super) const YOUTUBE_OFF_NOTE: &str =
+    "YouTube backgrounds are not turned on in this build yet; it will show once they are.";
+
+impl Plan {
+    /// Whether the plan sets a `youtube:` background.
+    fn sets_youtube(&self) -> bool {
+        let youtube =
+            |id: &Option<String>| id.as_deref().is_some_and(|id| id.starts_with(youtube::PREFIX));
+        match self {
+            Plan::Settings(Request::Set { background }) => background.starts_with(youtube::PREFIX),
+            Plan::Settings(Request::FollowAppearance { light, dark }) => {
+                youtube(light) || youtube(dark)
+            }
+            Plan::Settings(_) => false,
+            Plan::App { flags, .. } => {
+                flags.iter().any(|flag| flag.starts_with(&format!("--value={}", youtube::PREFIX)))
+            }
+        }
+    }
 }
 
 /// A misuse of the words: the message and the usage.

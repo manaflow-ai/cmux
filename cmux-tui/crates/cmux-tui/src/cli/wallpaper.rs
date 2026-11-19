@@ -49,8 +49,7 @@ Examples:
   cmux wallpaper follow-appearance --light ~/Pictures/day.jpg --dark ~/Pictures/night.jpg
   cmux wallpaper schedule 07:00=~/Pictures/day.jpg sunset=~/Pictures/night.jpg
   cmux wallpaper use-macos-dynamic catalina
-  cmux wallpaper rotate ~/Pictures/Walls --every 30m
-  cmux wallpaper set 'https://youtu.be/dQw4w9WgXcQ?t=90'";
+  cmux wallpaper rotate ~/Pictures/Walls --every 30m";
 
 pub(super) const BACKGROUND: &str = "appearance.background";
 pub(super) const LIGHT: &str = "appearance.backgroundLight";
