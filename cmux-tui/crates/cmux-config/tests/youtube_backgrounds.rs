@@ -52,8 +52,12 @@ fn every_background_row_accepts_a_canonical_youtube_id() {
             "youtube:tooShort",
             PASTED,
         ] {
-            let refusal = accepts(row, &json!(bad), &domains).expect_err(bad);
-            assert!(refusal.to_string().contains("youtube:<video id>"), "{key}: {refusal}");
+            let Err(Refusal::InvalidValue { accepted, .. }) = accepts(row, &json!(bad), &domains)
+            else {
+                panic!("{key} refuses {bad}");
+            };
+            let accepted = accepted.to_json().to_string();
+            assert!(accepted.contains("youtube:<video id>"), "{key}: {accepted}");
         }
     }
     let schedule = schema.row("appearance.backgroundSchedule").expect("schedule");
