@@ -10,6 +10,7 @@ import { JSDOM } from "jsdom";
 import {
   HOST_GLASS_DEADLINE_MS,
   HOST_GLASS_DRAWN_ATTRIBUTE,
+  HOST_GLASS_ENGINES_ATTRIBUTE,
   HOST_GLASS_HOLD_FRAMES,
   HOST_GLASS_MAX,
   HOST_GLASS_ROOT_ATTRIBUTE,
@@ -197,6 +198,23 @@ test("only a see-through Chromium page gets the App's glass", () => {
   const live = page();
   live.documentElement.setAttribute("data-live-background", "");
   expect(hostGlassApplies(live)).toBe(false);
+});
+
+test("a page that asks for the App's glass in either engine gets it in WebKit too, never past its other gates", () => {
+  const webkit = page({ chromium: false });
+  webkit.documentElement.setAttribute(HOST_GLASS_ENGINES_ATTRIBUTE, "all");
+  expect(hostGlassApplies(webkit)).toBe(true);
+  const opaque = page({ chromium: false, seeThrough: false });
+  opaque.documentElement.setAttribute(HOST_GLASS_ENGINES_ATTRIBUTE, "all");
+  expect(hostGlassApplies(opaque)).toBe(false);
+  const reduced = page({ chromium: false });
+  reduced.documentElement.setAttribute(HOST_GLASS_ENGINES_ATTRIBUTE, "all");
+  reduced.documentElement.setAttribute("data-reduce-transparency", "");
+  expect(hostGlassApplies(reduced)).toBe(false);
+  const lens = page({ chromium: false });
+  lens.documentElement.setAttribute(HOST_GLASS_ENGINES_ATTRIBUTE, "all");
+  lens.documentElement.setAttribute("data-glass-lens", "");
+  expect(hostGlassApplies(lens)).toBe(false);
 });
 
 test("an opaque page reports nothing and its surfaces keep the page's glass", async () => {
