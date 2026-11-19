@@ -107,18 +107,47 @@ extension CloudStartChat {
             invocation.arguments["machine"] = .string(created.machineID)
         }
         let id = invocation.arguments["machine"]?.stringValue, text = CloudStartCore().accountText(account)
+        let hedge: CloudMove.ConnectionHedge? = {
+            let milliseconds = CloudMoveCore.deadlines.startHedgeAfterMs
+            guard plan.madeForStart, milliseconds > 0 else { return nil }
+            return CloudMove.ConnectionHedge(
+                after: .milliseconds(milliseconds),
+                create: { @MainActor in
+                    try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
+                    let key = "\(plan.createKey)-hedge-\(UUID().uuidString)"
+                    let request = CloudMachineRequest(startChatKey: key, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil), size: start.size, diskMb: start.grownDiskMb)
+                    return try await cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user,
+                                                         request: request) {
+                        try Self.checkAccount(account, now: cloud.account, listCurrent: true)
+                    }
+                },
+                delete: { @MainActor machineID in
+                    guard account == cloud.account else { return }
+                    try? await cloud.deleteMachine(machineID)
+                },
+                lookup: { @MainActor machineID in machines.session(machineID) }
+            )
+        }()
         return try await cli.releasing(made: plan.madeForStart ? id : nil, key: start.key, account: text, sameAccount: { account == cloud.account }, delete: { try await cloud.deleteMachine($0) }) { // a failed pin, attach or route deletes a machine made for this start
             // The pin (unpinned, a retry could open the chat elsewhere) is this Mac's own record: it runs beside the link's connect, which
             // runs nothing on the machine, and both end before anything does (cmux#45953). A failed pin still ends the start here.
             let pinMachine = plan.machine == nil ? id : nil, key = start.key
             async let pinned: Void = { @MainActor in if let pinMachine { _ = try Self.checked(await cli.startChatPin(key: key, account: text, machine: pinMachine, workspace: workspace)) } }()
             let session: CloudMachineSession
-            do { session = try await CloudMove(services: services).machine(invocation, pick: pick) } catch { _ = try? await pinned; throw error }
-            try await pinned
+            do { session = try await CloudMove(services: services).machine(invocation, pick: pick, hedge: hedge) } catch { _ = try? await pinned; throw error }
+            do { try await pinned } catch {
+                if let hedge { await hedge.delete(session.machineID) }
+                throw error
+            }
             timeline?.mark("machine.connect")
             let machineID = session.machineID
             // The chat's agent reaches a model: the machine's edge, its own sign-in there (a `claude setup-token` token), or the chat's own connection with its launch.
-            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: start.harness)) }, carriesConnection: connection != nil, family: CloudSetup.family(of: start.harness)) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
+            do {
+                try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: start.harness)) }, carriesConnection: connection != nil, family: CloudSetup.family(of: start.harness)) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
+            } catch {
+                if let hedge { await hedge.delete(machineID) }
+                throw error
+            }
             timeline?.mark("machine.route")
             return (session, plan)
         }

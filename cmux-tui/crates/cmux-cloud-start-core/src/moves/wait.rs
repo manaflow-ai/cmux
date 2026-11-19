@@ -16,6 +16,8 @@ pub struct Deadlines {
     /// within seconds.
     pub start_redial_initial_ms: u64,
     pub start_redial_maximum_ms: u64,
+    /// How long a fresh machine's first link gets before a second machine is created and raced.
+    pub start_hedge_after_ms: u64,
     /// How long, after a machine update restarts its daemon, a start or a copy waits for the new
     /// link (its handshake key to change).
     pub relink_ms: u64,
@@ -30,6 +32,7 @@ pub struct Deadlines {
 pub const DEADLINES: Deadlines = Deadlines {
     start_redial_initial_ms: 1_000,
     start_redial_maximum_ms: 10_000,
+    start_hedge_after_ms: 30_000,
     relink_ms: 90_000,
     workspace_tree_ms: 10_000,
     run_kept_ms: 600_000,
@@ -101,7 +104,11 @@ pub enum Redial {
 /// carrier cut (#37210) deleted the redial #32469 had added.
 pub fn start_redial(look: RedialLook) -> Redial {
     if look.paused {
-        return if look.resumed { Redial::Nothing } else { Redial::Resume };
+        return if look.resumed {
+            Redial::Nothing
+        } else {
+            Redial::Resume
+        };
     }
     if look.ended && look.running && look.redials < START_REDIALS {
         return Redial::Connect;
@@ -168,12 +175,17 @@ pub struct KeptRun {
 
 /// The kept runs to drop: the expired ones, then the oldest beyond `keeping`.
 pub fn runs_to_drop(kept: &[KeptRun], keeping: usize) -> Vec<u64> {
-    let (expired, mut live): (Vec<&KeptRun>, Vec<&KeptRun>) =
-        kept.iter().partition(|run| run.age_ms >= DEADLINES.run_kept_ms);
+    let (expired, mut live): (Vec<&KeptRun>, Vec<&KeptRun>) = kept
+        .iter()
+        .partition(|run| run.age_ms >= DEADLINES.run_kept_ms);
     // Oldest first: the largest age.
     live.sort_by(|a, b| b.age_ms.cmp(&a.age_ms).then(a.id.cmp(&b.id)));
     let over = live.len().saturating_sub(keeping);
-    expired.iter().chain(live.iter().take(over)).map(|run| run.id).collect()
+    expired
+        .iter()
+        .chain(live.iter().take(over))
+        .map(|run| run.id)
+        .collect()
 }
 
 /// Whether a loaded Cloud machine list still answers for `account`: loaded for it, less than
@@ -237,10 +249,16 @@ pub struct PlanFacts {
 pub fn plan_request(facts: &PlanFacts) -> String {
     let mut request = Map::new();
     request.insert("key".into(), Value::String(facts.key.clone()));
-    request.insert("account".into(), Value::String(crate::start::account_text(&facts.account)));
+    request.insert(
+        "account".into(),
+        Value::String(crate::start::account_text(&facts.account)),
+    );
     request.insert("loaded".into(), Value::Bool(true));
     request.insert("machines".into(), Value::Array(facts.machines.clone()));
-    request.insert("stored".into(), facts.stored.iter().cloned().map(Value::String).collect());
+    request.insert(
+        "stored".into(),
+        facts.stored.iter().cloned().map(Value::String).collect(),
+    );
     request.insert("credential_on_stdin".into(), Value::Bool(facts.access));
     for (name, value) in [
         ("user", &facts.user),

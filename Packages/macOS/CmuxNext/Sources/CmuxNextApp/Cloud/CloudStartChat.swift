@@ -147,7 +147,7 @@ struct CloudStartChat {
             // The account may have changed while the machine connected: copy nothing then.
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             let size = AgentPaneCloudStart.sizeText(machine.machine.size) // Remote approvals run beside the copy, awaited before the chat opens.
-            let copy: Copied = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {
+            let copy: Copied = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, plan.madeForStart ? .daemonSaidSafe : .checkStatus) { account == services.cloud.account } }) {
                 report(.init(name: "folder", folder: folderName, machine: name, size: size))
                 guard await CloudMoveFolder.isFolder(folder.root) else { throw CloudMoveFolder.Gone() } // removed while the machine came up
                 // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
@@ -292,9 +292,10 @@ struct CloudStartChat {
         let (machine, plan) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, connection: origin.connection, cli: cli, invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) } }
         return try await plan.releasing(sameAccount: { account == services.cloud.account }, delete: { try await cli.strandThenDelete(key: start.key, account: CloudStartCore().accountText(account), machine: machine.machineID) { try await services.cloud.deleteMachine($0) } }) { // a start that can't go on deletes its machine
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-            // No harness login: remote approvals alone are prepared before the first prompt.
-            try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {}
-            let cwd = try await start.cloneRepository(on: .init(api: services.cloud.machineAPI, machineID: machine.machineID), machineName: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size), report: report)
+            // No harness login: remote approvals are prepared beside the repository clone.
+            let cwd = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, plan.madeForStart ? .daemonSaidSafe : .checkStatus) { account == services.cloud.account } }) {
+                try await start.cloneRepository(on: .init(api: services.cloud.machineAPI, machineID: machine.machineID), machineName: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size), report: report)
+            }
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
                          start: .init(environmentId: plan.environmentId, setup: plan.setup)))

@@ -15,7 +15,7 @@ public nonisolated struct CloudMoveCore: Sendable {
     /// The waits' deadlines (`moves::wait::DEADLINES`). An FFI that does not answer waits for
     /// nothing: a wait ends at once rather than hold a start forever.
     public struct Deadlines: Sendable, Decodable {
-        public var startRedialInitialMs = 0, startRedialMaximumMs = 0, relinkMs = 0, workspaceTreeMs = 0, runKeptMs = 0, runsKept = 0
+        public var startRedialInitialMs = 0, startRedialMaximumMs = 0, startHedgeAfterMs = 0, relinkMs = 0, workspaceTreeMs = 0, runKeptMs = 0, runsKept = 0
         public init() {}
     }
 

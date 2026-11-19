@@ -38,6 +38,15 @@ struct CloudMove {
     static let action: ActionID = "cloudMove"
     let services: AppServices
 
+    /// A fresh start may make a second machine when its first link has not become usable. Both
+    /// candidates belong to this send; the loser is deleted only by the caller's account-checked closure.
+    struct ConnectionHedge {
+        let after: Duration
+        let create: @MainActor @Sendable () async throws -> CloudMachineSession
+        let delete: @MainActor @Sendable (String) async -> Void
+        let lookup: @MainActor @Sendable (String) -> CloudMachineSession?
+    }
+
     /// Why a move stopped, as the toast and the CLI say it.
     typealias Failure = CloudMoveFailure
 
@@ -313,14 +322,14 @@ struct CloudMove {
     }
 
     /// The machine the chat moves to, connected, never `except` (the one it leaves); a new one is sized for the chat (`pick`).
-    func machine(_ invocation: ActionInvocation, except: String? = nil, pick: () async -> CloudWorkPick?) async throws -> CloudMachineSession {
+    func machine(_ invocation: ActionInvocation, except: String? = nil, pick: () async -> CloudWorkPick?, hedge: ConnectionHedge? = nil) async throws -> CloudMachineSession {
         let machines = services.machines, others = machines.cloud.filter { $0.machineID != except }
         let named = invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue
         // The machine a chat leaves is never its target (an update of it names it as the machine to rerun on).
         if let named, (named.hasPrefix("machine:") ? String(named.dropFirst("machine:".count)) : named) != except {
             let id = named.hasPrefix("machine:") ? String(named.dropFirst("machine:".count)) : named
             guard let session = machines.session(id) else { throw Failure(message: CloudMoveStrings.noSuchMachine(id), retry: .move(machineID: id)) }
-            return try await Self.connected(session, invocation)
+            return try await Self.connected(session, invocation, hedge: hedge)
         }
         if let live = others.first(where: { $0.daemon.connection != nil }) ?? others.first {
             return try await Self.connected(live, invocation)
@@ -336,7 +345,12 @@ struct CloudMove {
         (await session.appLink.ownerLink == nil ? "none" : "owner", nil)
     }
 
-    static func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws -> CloudMachineSession {
+    static func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation, hedge: ConnectionHedge? = nil) async throws -> CloudMachineSession {
+        guard let hedge else { return try await connectedOnce(session, invocation) }
+        return try await connectedHedged(session, invocation, hedge: hedge)
+    }
+
+    private static func connectedOnce(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws -> CloudMachineSession {
         // A paused machine (idle auto-pause) resumes on this attach; a live one connects. A
         // record that may be stale (paused behind the app) is read again first.
         try CloudHandlers.requireAttachableState(session)
@@ -354,6 +368,68 @@ struct CloudMove {
         }
         return session
     }
+
+    /// Starts the first connection immediately and, after the shared 30-second deadline, creates
+    /// and connects one more machine. The first usable link wins; every candidate is drained before
+    /// the losing machine is deleted so a cancellation cannot leave a paid VM behind.
+    private static func connectedHedged(_ first: CloudMachineSession, _ invocation: ActionInvocation,
+                                        hedge: ConnectionHedge) async throws -> CloudMachineSession {
+        struct Attempt: Sendable {
+            let candidateID: String
+            let connectedID: String?
+            let error: String?
+        }
+        let firstID = first.machineID
+        let result: (winner: String?, candidates: [String], error: String?) = await withTaskGroup(of: Attempt.self) { group in
+            group.addTask { @MainActor in
+                do {
+                    _ = try await connectedOnce(first, invocation)
+                    return Attempt(candidateID: firstID, connectedID: firstID, error: nil)
+                } catch {
+                    return Attempt(candidateID: firstID, connectedID: nil, error: (error as? Failure)?.message)
+                }
+            }
+            group.addTask { @MainActor in
+                do {
+                    try await Task.sleep(for: hedge.after)
+                    try Task.checkCancellation()
+                    let second = try await hedge.create()
+                    let id = second.machineID
+                    do {
+                        _ = try await connectedOnce(second, invocation)
+                        return Attempt(candidateID: id, connectedID: id, error: nil)
+                    } catch {
+                        return Attempt(candidateID: id, connectedID: nil, error: (error as? Failure)?.message)
+                    }
+                } catch {
+                    return Attempt(candidateID: "", connectedID: nil, error: (error as? Failure)?.message)
+                }
+            }
+            var candidates: [String] = []
+            var lastError: String?
+            while let attempt = await group.next() {
+                if !attempt.candidateID.isEmpty { candidates.append(attempt.candidateID) }
+                lastError = attempt.error ?? lastError
+                if let winner = attempt.connectedID {
+                    group.cancelAll()
+                    while let rest = await group.next() {
+                        if !rest.candidateID.isEmpty { candidates.append(rest.candidateID) }
+                    }
+                    return (winner, candidates, lastError)
+                }
+            }
+            return (nil, candidates, lastError)
+        }
+        if let winner = result.winner {
+            for loser in Set(result.candidates.filter { !$0.isEmpty }).subtracting([winner]) { await hedge.delete(loser) }
+            guard let session = hedge.lookup(winner) else {
+                throw Failure(message: "Cloud machine \(winner) disappeared while starting")
+            }
+            return session
+        }
+        throw Failure(message: result.error ?? CloudMoveStrings.notConnected(first.machine.title, because: first.linkEnded == nil ? nil : first.linkRefusal.reason), retry: .move(machineID: first.machineID))
+    }
+
 
     /// Opens a moved chat (Move to Cloud's, Bring Back Local's) on `daemon`, bound to `shown.session` through `host`: a workspace placed
     /// like Cmd-N whose only tab is the chat's (made once: `mutation` + `shown.key`), selected. No terminal first: as the first tab it took
