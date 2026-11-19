@@ -131,6 +131,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// age such as `3d`) on the name's line. Off by default (Lawrence 2026-10-19: "By default in the
     /// sidebar, we should never show timestamps"); the hover card keeps its times either way.
     public var showTimestamps = false
+    /// `sidebar.settleFinished`: an agent chat whose last turn finished and that the person has read folds into a
+    /// "Settled (N)" row at the end of its list until its next turn, question or failure (the rule is Rust's,
+    /// `cmux-layout-reducer` `settle`). Off by default; the Studio look turns it on.
+    public var settleFinished = false
     /// `sidebar.showColors`: the sidebar draws workspace and group colors. Off draws none (a
     /// workspace's swatch goes, its symbol or emoji stays; a group draws as one with no color)
     /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all

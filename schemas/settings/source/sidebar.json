@@ -915,6 +915,37 @@
           }
         },
         {
+          "key": "sidebar.settleFinished",
+          "note": "Seen, finished agent chats fold behind a Settled (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer settle). Off by default; the Studio look turns it on.",
+          "title": {
+            "key": "settings.sidebar.settleFinished",
+            "text": "Settle Finished Chats"
+          },
+          "help": {
+            "key": "settings.sidebar.settleFinished.help",
+            "text": "A chat whose answer you have read folds into Settled at the end of its list until its next turn."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "settle",
+            "settled",
+            "finished",
+            "done",
+            "read",
+            "seen",
+            "fold",
+            "chats",
+            "threads",
+            "tidy"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showColors",
           "title": {
             "key": "settings.sidebar.showColors",

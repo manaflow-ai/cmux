@@ -299,6 +299,16 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "timestamps", "time", "times", "age", "ago", "elapsed", "duration", "last activity", "clock", "rows"]
             ),
             SettingDescriptor(
+                SidebarSectionsSetting.settleFinishedPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.settleFinished", "Settle Finished Chats"),
+                help: SettingsText.keyed("settings.sidebar.settleFinished.help", "A chat whose answer you have read folds into Settled at the end of its list until its next turn."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.settleFinishedDefault),
+                keywords: ["sidebar", "settle", "settled", "finished", "done", "read", "seen", "fold", "chats", "threads", "tidy"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.showColorsPath,
                 section: .appearance,
                 group: group,
@@ -365,24 +375,6 @@ extension SidebarSettingsSchema {
                 ]),
                 default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
                 keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupPalettePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
-                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where group colors come from. A color you pick for a group stays."),
-                kind: .choice([
-                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
-                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
-                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
-                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
-                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
-                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
-                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
             ),
         ]
     }

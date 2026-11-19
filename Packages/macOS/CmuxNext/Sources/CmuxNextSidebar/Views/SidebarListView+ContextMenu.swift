@@ -23,6 +23,8 @@ extension SidebarListViewComponents {
             target = .section(id)
         case let .doneFold(fold)? where fold.kind == .archive:
             target = .background // the Archive row belongs to no list
+        case let .doneFold(fold)? where fold.kind == .settled:
+            target = .background // the sidebar's menu, with Archive Settled Chats
         case let .showMore(fold)? where fold.kind == .projects:
             target = .background // Projects' row spans every computer's groups
         case let .doneFold(fold)?, let .showMore(fold)?:
