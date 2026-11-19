@@ -254,8 +254,8 @@ export type HostLists = {
    * its localized title. `video: true` marks a moving wallpaper; a macOS still (`apple`) says
    * whether macOS has downloaded the full picture.
    */
-  /** Whether the picker offers Add YouTube Video… (an Experimental setting may turn it off);
-   * absent: offered. YouTube choices already in use show either way. */
+  /** Whether the picker offers Add YouTube Video…: only when true (absent or false: hidden).
+   * YouTube choices already in use show either way. */
   youtube_wallpapers?: boolean;
   backdrops?: Array<{
     id: string;

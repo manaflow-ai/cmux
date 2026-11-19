@@ -50,9 +50,10 @@ export function youtubeDraft(
   return { id: youtubeId({ video: parsed.video, start: from, end: to, quality }), video: parsed.video, problem: null };
 }
 
-/** Whether the picker offers Add YouTube Video…: the one place a gate (`youtube_wallpapers`) is read. */
+/** Whether the picker offers Add YouTube Video…: the one place its gate (`youtube_wallpapers`) is
+ * read. Off unless the host turns it on (YouTube ships off until Leo decides). */
 export function youtubeAddOffered(host: Pick<HostLists, "youtube_wallpapers"> | null | undefined): boolean {
-  return host?.youtube_wallpapers !== false;
+  return host?.youtube_wallpapers === true;
 }
 
 /** The Add YouTube Video… tile, last in Moving wallpapers; it opens the form under the group. */

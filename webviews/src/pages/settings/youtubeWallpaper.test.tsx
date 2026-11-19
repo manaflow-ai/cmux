@@ -127,6 +127,12 @@ async function typeInto(field: HTMLInputElement, text: string) {
   });
 }
 
+/** Turns YouTube wallpapers on in the host lists (they ship off). */
+async function offerYouTube(page: Awaited<ReturnType<typeof renderPage>>) {
+  await act(async () => page.provider.setHost({ ...page.provider.host, youtube_wallpapers: true }));
+  await settle();
+}
+
 async function openAdd(picker: HTMLElement) {
   const tile = picker.querySelector<HTMLButtonElement>("[data-youtube-add]")!;
   // The tile sits in Moving wallpapers, after the moving wallpapers the host lists.
@@ -145,7 +151,7 @@ test("Add YouTube Video… previews the link's thumbnail and writes the canonica
     path: "/settings/personalization",
     mock: { values: { "appearance.background": "starryNight" } },
   });
-  await settle();
+  await offerYouTube(page);
   const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
   const form = await openAdd(picker);
   const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
@@ -237,7 +243,7 @@ test("on This Workspace, Add YouTube Video… chooses that workspace's own backg
       workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
     },
   });
-  await settle();
+  await offerYouTube(page);
   const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
   await act(async () => picker.querySelector<HTMLInputElement>('[aria-label="This Workspace (Research)"]')!.click());
   await settle();
@@ -253,16 +259,43 @@ test("on This Workspace, Add YouTube Video… chooses that workspace's own backg
   page.unmount();
 });
 
-test("with YouTube wallpapers turned off by the host, no Add tile shows, but a video in use keeps its tile", async () => {
+test("YouTube wallpapers ship off: no Add tile unless the host turns them on, but a video in use keeps its tile", async () => {
   const page = await renderPage({
     path: "/settings/personalization",
     mock: { values: { "appearance.background": `youtube:${VIDEO}` } },
   });
+  await settle();
+  const picker = () => page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const tile = () =>
+    picker().querySelector<HTMLButtonElement>('[data-collection="video"] [aria-label="YouTube Video"]');
+  // Absent: off.
+  expect(page.provider.host.youtube_wallpapers).toBeUndefined();
+  expect(picker().querySelector("[data-youtube-add]")).toBeNull();
+  expect(tile()!.getAttribute("aria-pressed")).toBe("true");
+  // False: off.
   await act(async () => page.provider.setHost({ ...page.provider.host, youtube_wallpapers: false }));
   await settle();
+  expect(picker().querySelector("[data-youtube-add]")).toBeNull();
+  expect(tile()!.getAttribute("aria-pressed")).toBe("true");
+  // True: offered.
+  await offerYouTube(page);
+  expect(picker().querySelector("[data-youtube-add]")).not.toBeNull();
+  page.unmount();
+});
+
+test("off, with no moving wallpaper and no YouTube video in use, the picker draws no Moving wallpapers group of its own", async () => {
+  const page = await renderPage({
+    path: "/settings/personalization",
+    mock: { values: { "appearance.background": "starryNight" } },
+  });
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      backdrops: (page.provider.host.backdrops ?? []).filter((choice) => choice.collection !== "video"),
+    }),
+  );
+  await settle();
   const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
-  expect(picker.querySelector("[data-youtube-add]")).toBeNull();
-  const tile = picker.querySelector<HTMLButtonElement>('[data-collection="video"] [aria-label="YouTube Video"]')!;
-  expect(tile.getAttribute("aria-pressed")).toBe("true");
+  expect(picker.querySelector('[data-collection="video"]')).toBeNull();
   page.unmount();
 });

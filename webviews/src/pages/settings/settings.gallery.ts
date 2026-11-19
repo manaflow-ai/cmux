@@ -753,7 +753,7 @@ Object.assign(variants, {
   "backdrops-youtube-add": variant("personalization", {
     focus: "personalization.background",
     options: { values: { "appearance.background": "starryNight" } },
-    host: { ...host, backdrops: youtubeBackdrops(false) },
+    host: { ...host, youtube_wallpapers: true, backdrops: youtubeBackdrops(false) },
     backdropImages: youtubeImages,
     steps: [
       wait('[data-card="backdrop"]'),
@@ -773,7 +773,7 @@ Object.assign(variants, {
         "appearance.backgroundOpacity": 0.6,
       },
     },
-    host: { ...host, backdrops: youtubeBackdrops(true) },
+    host: { ...host, youtube_wallpapers: true, backdrops: youtubeBackdrops(true) },
     backdropImages: youtubeImages,
     steps: [wait('[data-card="backdrop"] [data-collection="video"] .backdrop-tile[aria-pressed="true"]')],
     note: "A YouTube video as the wallpaper: chosen in Moving wallpapers beside the Add tile; Opacity and Material still tint and blur it.",

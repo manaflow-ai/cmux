@@ -312,7 +312,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     else groups.push({ key, title: choice.collection_title ?? null, choices: [choice] });
   }
   // Add YouTube Video… lives in Moving wallpapers, drawn even before the host lists a moving one.
-  // Its one gate: the host may turn it off (an Experimental setting); videos in use still show.
+  // Its one gate: off unless the host turns it on; a YouTube video in use still shows.
   const youtubeAdd = youtubeAddOffered(host);
   let moving = groups.find((group) => group.key === MOVING);
   if (!moving && (youtubeAdd || unlistedYouTube.length > 0)) {
