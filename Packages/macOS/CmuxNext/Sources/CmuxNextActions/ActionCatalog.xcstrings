@@ -1,6 +1,930 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "customize.element.titlebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط العنوان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naslovna traka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titellinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titelleiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title Bar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de título"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre de titre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra del titolo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារចំណងជើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tittellinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek tytułu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de título"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заголовок окна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบชื่อเรื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlık Çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смуга заголовка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh tiêu đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标题栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標題列"
+          }
+        }
+      }
+    },
+    "customize.element.tabBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka kartica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanelinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tableiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Bar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre d’onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra delle schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanelinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель вкладок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme Çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель вкладок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標籤列"
+          }
+        }
+      }
+    },
+    "customize.element.chatComposer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محرر الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uređivač chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatindtastning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat-Eingabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Composer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redactor del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zone de rédaction du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editor della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのコンポーザー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីសរសេរជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 작성기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatinntasting"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edytor czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editor do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поле ввода чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวเขียนแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet Düzenleyicisi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поле введення чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ô soạn trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天编写器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天編寫器"
+          }
+        }
+      }
+    },
+    "customize.element.widget": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أداة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidžet"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィジェット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វិដជិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위젯"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widżet"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виджет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิดเจ็ต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Віджет"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiện ích"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小组件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小工具"
+          }
+        }
+      }
+    },
+    "argument.customize.element": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العنصر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elemento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Élément"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elemento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要素"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធាតុ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elemento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Элемент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "องค์ประกอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öğe"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Елемент"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thành phần"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元素"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元素"
+          }
+        }
+      }
+    },
+    "argument.customize.draft": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المسودة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nacrt"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kladde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwurf"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draft"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brouillon"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bozza"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下書き"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេចក្ដីព្រាង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "초안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utkast"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szkic"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rascunho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Черновик"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ฉบับร่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taslak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чернетка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản nháp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "草稿"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "草稿"
+          }
+        }
+      }
+    },
+    "action.customize.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة العنصر إلى الإعدادات الافتراضية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrati element na zadano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nulstil element til standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element auf Standard zurücksetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Element to Defaults"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restablecer elemento a los valores predeterminados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réinitialiser l’élément aux valeurs par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina l’elemento ai valori predefiniti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要素をデフォルトに戻す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណត់ធាតុទៅលំនាំដើមឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요소를 기본값으로 재설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilbakestill element til standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywróć domyślne ustawienia elementu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redefinir elemento para o padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбросить элемент по умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รีเซ็ตองค์ประกอบเป็นค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öğeyi Varsayılanlara Sıfırla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скинути елемент до стандартних"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đặt lại thành phần về mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将元素重置为默认值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將元素重置為預設值"
+          }
+        }
+      }
+    },
+    "action.tabs.toolbar.togglePin": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تثبيت زر شريط علامات التبويب أو إلغاء تثبيته…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikači ili otkači dugme trake kartica…"}},"da":{"stringUnit":{"state":"needs_review","value":"Fastgør eller frigør knap på fanelinjen…"}},"de":{"stringUnit":{"state":"needs_review","value":"Schaltfläche der Tableiste anheften oder lösen…"}},"en":{"stringUnit":{"state":"translated","value":"Pin or Unpin Tab Bar Button…"}},"es":{"stringUnit":{"state":"needs_review","value":"Fijar o desfijar botón de la barra de pestañas…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Épingler ou détacher un bouton de la barre d'onglets…"}},"it":{"stringUnit":{"state":"needs_review","value":"Fissa o sblocca pulsante della barra delle schede…"}},"ja":{"stringUnit":{"state":"translated","value":"タブバーのボタンを固定/固定解除…"}},"km":{"stringUnit":{"state":"needs_review","value":"ខ្ទាស់ ឬដោះខ្ទាស់ប៊ូតុងរបារផ្ទាំង…"}},"ko":{"stringUnit":{"state":"needs_review","value":"탭 막대 버튼 고정 또는 고정 해제…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Fest eller løsne knapp på fanelinjen…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przypnij lub odepnij przycisk paska kart…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Fixar ou desafixar botão da barra de abas…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Закрепить или открепить кнопку панели вкладок…"}},"th":{"stringUnit":{"state":"needs_review","value":"ปักหมุดหรือเลิกปักหมุดปุ่มแถบแท็บ…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sekme Çubuğu Düğmesini Sabitle veya Kaldır…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Закріпити або відкріпити кнопку панелі вкладок…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ghim hoặc bỏ ghim nút thanh tab…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"固定或取消固定标签栏按钮…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"釘選或取消釘選分頁列按鈕…"}}}},
+    "action.tips.muteDay": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"كتم النصائح ليوم واحد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Utišaj savjete na 1 dan"}},"da":{"stringUnit":{"state":"needs_review","value":"Slå tips fra i 1 dag"}},"de":{"stringUnit":{"state":"needs_review","value":"Tipps für 1 Tag stummschalten"}},"en":{"stringUnit":{"state":"translated","value":"Mute Tips for 1 Day"}},"es":{"stringUnit":{"state":"needs_review","value":"Silenciar consejos durante 1 día"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer les astuces pendant 1 jour"}},"it":{"stringUnit":{"state":"needs_review","value":"Silenzia i suggerimenti per 1 giorno"}},"ja":{"stringUnit":{"state":"translated","value":"ヒントを1日ミュート"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទគន្លឹះរយៈពេល 1 ថ្ងៃ"}},"ko":{"stringUnit":{"state":"needs_review","value":"1일 동안 팁 끄기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Demp tips i 1 dag"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wycisz wskazówki na 1 dzień"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Silenciar Dicas por 1 Dia"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отключить советы на 1 день"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิดเคล็ดลับ 1 วัน"}},"tr":{"stringUnit":{"state":"needs_review","value":"İpuçlarını 1 Gün Sessize Al"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вимкнути поради на 1 день"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tắt mẹo trong 1 ngày"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"静音提示 1 天"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"靜音提示 1 天"}}}},
+    "action.tips.muteWeek": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"كتم النصائح لأسبوع واحد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Utišaj savjete na 1 sedmicu"}},"da":{"stringUnit":{"state":"needs_review","value":"Slå tips fra i 1 uge"}},"de":{"stringUnit":{"state":"needs_review","value":"Tipps für 1 Woche stummschalten"}},"en":{"stringUnit":{"state":"translated","value":"Mute Tips for 1 Week"}},"es":{"stringUnit":{"state":"needs_review","value":"Silenciar consejos durante 1 semana"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer les astuces pendant 1 semaine"}},"it":{"stringUnit":{"state":"needs_review","value":"Silenzia i suggerimenti per 1 settimana"}},"ja":{"stringUnit":{"state":"translated","value":"ヒントを1週間ミュート"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទគន្លឹះរយៈពេល 1 សប្តាហ៍"}},"ko":{"stringUnit":{"state":"needs_review","value":"1주 동안 팁 끄기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Demp tips i 1 uke"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wycisz wskazówki na 1 tydzień"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Silenciar Dicas por 1 Semana"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отключить советы на 1 неделю"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิดเคล็ดลับ 1 สัปดาห์"}},"tr":{"stringUnit":{"state":"needs_review","value":"İpuçlarını 1 Hafta Sessize Al"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вимкнути поради на 1 тиждень"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tắt mẹo trong 1 tuần"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"静音提示 1 周"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"靜音提示 1 週"}}}},
+    "action.updates.cancelDownload": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إلغاء تنزيل التحديث"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otkaži preuzimanje ažuriranja"}},"da":{"stringUnit":{"state":"needs_review","value":"Annuller download af opdatering"}},"de":{"stringUnit":{"state":"needs_review","value":"Update-Download abbrechen"}},"en":{"stringUnit":{"state":"translated","value":"Cancel Update Download"}},"es":{"stringUnit":{"state":"needs_review","value":"Cancelar descarga de la actualización"}},"fr":{"stringUnit":{"state":"needs_review","value":"Annuler le téléchargement de la mise à jour"}},"it":{"stringUnit":{"state":"needs_review","value":"Annulla download dell'aggiornamento"}},"ja":{"stringUnit":{"state":"translated","value":"アップデートのダウンロードをキャンセル"}},"km":{"stringUnit":{"state":"needs_review","value":"បោះបង់ការទាញយកបច្ចុប្បន្នភាព"}},"ko":{"stringUnit":{"state":"needs_review","value":"업데이트 다운로드 취소"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avbryt nedlasting av oppdatering"}},"pl":{"stringUnit":{"state":"needs_review","value":"Anuluj pobieranie aktualizacji"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Cancelar download da atualização"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отменить загрузку обновления"}},"th":{"stringUnit":{"state":"needs_review","value":"ยกเลิกการดาวน์โหลดอัปเดต"}},"tr":{"stringUnit":{"state":"needs_review","value":"Güncelleme İndirmesini İptal Et"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скасувати завантаження оновлення"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hủy tải xuống bản cập nhật"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"取消下载更新"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"取消下載更新"}}}},
+    "action.updates.releaseNotes": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"فتح ملاحظات إصدار التحديث"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvori bilješke o izdanju ažuriranja"}},"da":{"stringUnit":{"state":"needs_review","value":"Åbn udgivelsesnoter for opdatering"}},"de":{"stringUnit":{"state":"needs_review","value":"Versionshinweise des Updates öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Open Update Release Notes"}},"es":{"stringUnit":{"state":"needs_review","value":"Abrir notas de la versión de la actualización"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvrir les notes de version de la mise à jour"}},"it":{"stringUnit":{"state":"needs_review","value":"Apri note di rilascio dell'aggiornamento"}},"ja":{"stringUnit":{"state":"translated","value":"アップデートのリリースノートを開く"}},"km":{"stringUnit":{"state":"needs_review","value":"បើកកំណត់ចំណាំការចេញផ្សាយនៃបច្ចុប្បន្នភាព"}},"ko":{"stringUnit":{"state":"needs_review","value":"업데이트 릴리스 노트 열기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpne versjonsmerknader for oppdatering"}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwórz informacje o wydaniu aktualizacji"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abrir notas da versão da atualização"}},"ru":{"stringUnit":{"state":"needs_review","value":"Открыть примечания к выпуску обновления"}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดบันทึกประจำรุ่นของอัปเดต"}},"tr":{"stringUnit":{"state":"needs_review","value":"Güncelleme Sürüm Notlarını Aç"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкрити примітки до випуску оновлення"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở ghi chú phát hành bản cập nhật"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"打开更新的发行说明"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"開啟更新的版本說明"}}}},
+    "action.updates.showDetails": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"عرض تفاصيل التحديث"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži detalje ažuriranja"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis opdateringsdetaljer"}},"de":{"stringUnit":{"state":"needs_review","value":"Update-Details anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show Update Details"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar detalles de la actualización"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher les détails de la mise à jour"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra dettagli dell'aggiornamento"}},"ja":{"stringUnit":{"state":"translated","value":"アップデートの詳細を表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញព័ត៌មានលម្អិតនៃបច្ចុប្បន្នភាព"}},"ko":{"stringUnit":{"state":"needs_review","value":"업데이트 세부 정보 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis oppdateringsdetaljer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż szczegóły aktualizacji"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar detalhes da atualização"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать сведения об обновлении"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงรายละเอียดอัปเดต"}},"tr":{"stringUnit":{"state":"needs_review","value":"Güncelleme Ayrıntılarını Göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати відомості про оновлення"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện chi tiết bản cập nhật"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示更新详情"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示更新詳細資料"}}}},
+    "argument.toolbar.button": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الزر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Dugme"}},"da":{"stringUnit":{"state":"needs_review","value":"Knap"}},"de":{"stringUnit":{"state":"needs_review","value":"Schaltfläche"}},"en":{"stringUnit":{"state":"translated","value":"Button"}},"es":{"stringUnit":{"state":"needs_review","value":"Botón"}},"fr":{"stringUnit":{"state":"needs_review","value":"Bouton"}},"it":{"stringUnit":{"state":"needs_review","value":"Pulsante"}},"ja":{"stringUnit":{"state":"translated","value":"ボタン"}},"km":{"stringUnit":{"state":"needs_review","value":"ប៊ូតុង"}},"ko":{"stringUnit":{"state":"needs_review","value":"버튼"}},"nb":{"stringUnit":{"state":"needs_review","value":"Knapp"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przycisk"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Botão"}},"ru":{"stringUnit":{"state":"needs_review","value":"Кнопка"}},"th":{"stringUnit":{"state":"needs_review","value":"ปุ่ม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Düğme"}},"uk":{"stringUnit":{"state":"needs_review","value":"Кнопка"}},"vi":{"stringUnit":{"state":"needs_review","value":"Nút"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"按钮"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"按鈕"}}}},
     "action.updates.snooze": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تأجيل بطاقة التحديث…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odgodi karticu ažuriranja…"}},"da":{"stringUnit":{"state":"needs_review","value":"Udsæt opdateringskort…"}},"de":{"stringUnit":{"state":"needs_review","value":"Update-Karte zurückstellen…"}},"en":{"stringUnit":{"state":"translated","value":"Snooze Update Card…"}},"es":{"stringUnit":{"state":"needs_review","value":"Posponer tarjeta de actualización…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Reporter la carte de mise à jour…"}},"it":{"stringUnit":{"state":"needs_review","value":"Posticipa la scheda di aggiornamento…"}},"ja":{"stringUnit":{"state":"translated","value":"アップデートカードをスヌーズ…"}},"km":{"stringUnit":{"state":"needs_review","value":"ពន្យារកាតបច្ចុប្បន្នភាព…"}},"ko":{"stringUnit":{"state":"needs_review","value":"업데이트 카드 다시 알림…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Utsett oppdateringskortet…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odłóż kartę aktualizacji…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Adiar cartão de atualização…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отложить карточку обновления…"}},"th":{"stringUnit":{"state":"needs_review","value":"เลื่อนการ์ดอัปเดต…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Güncelleme Kartını Ertele…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкласти картку оновлення…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tạm ẩn thẻ cập nhật…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"推迟更新卡片…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"延後更新卡片…"}}}},
     "argument.updates.snooze": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تأجيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odgodi"}},"da":{"stringUnit":{"state":"needs_review","value":"Udsæt"}},"de":{"stringUnit":{"state":"needs_review","value":"Zurückstellen"}},"en":{"stringUnit":{"state":"translated","value":"Snooze"}},"es":{"stringUnit":{"state":"needs_review","value":"Posponer"}},"fr":{"stringUnit":{"state":"needs_review","value":"Reporter"}},"it":{"stringUnit":{"state":"needs_review","value":"Posticipa"}},"ja":{"stringUnit":{"state":"translated","value":"スヌーズ"}},"km":{"stringUnit":{"state":"needs_review","value":"ពន្យារ"}},"ko":{"stringUnit":{"state":"needs_review","value":"다시 알림"}},"nb":{"stringUnit":{"state":"needs_review","value":"Utsett"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odłóż"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Adiar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отложить"}},"th":{"stringUnit":{"state":"needs_review","value":"เลื่อน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ertele"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкласти"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tạm hoãn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"推迟"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"延後"}}}},
     "argument.value.updates.snooze.hideVersion": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إخفاء حتى يتوفر إصدار أحدث"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sakrij do novije verzije"}},"da":{"stringUnit":{"state":"needs_review","value":"Skjul indtil en nyere version"}},"de":{"stringUnit":{"state":"needs_review","value":"Bis zu einer neueren Version ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Hide Until a Newer Version"}},"es":{"stringUnit":{"state":"needs_review","value":"Ocultar hasta una versión más reciente"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer jusqu’à une version plus récente"}},"it":{"stringUnit":{"state":"needs_review","value":"Nascondi fino a una versione più recente"}},"ja":{"stringUnit":{"state":"translated","value":"新しいバージョンまで非表示"}},"km":{"stringUnit":{"state":"needs_review","value":"លាក់រហូតដល់មានកំណែថ្មីជាងនេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"새 버전이 나올 때까지 숨기기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Skjul til en nyere versjon"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ukryj do nowszej wersji"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ocultar até uma Versão Mais Nova"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скрыть до более новой версии"}},"th":{"stringUnit":{"state":"needs_review","value":"ซ่อนจนกว่าจะมีเวอร์ชันใหม่กว่า"}},"tr":{"stringUnit":{"state":"needs_review","value":"Daha Yeni Bir Sürüme Kadar Gizle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Приховати до новішої версії"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn cho đến khi có phiên bản mới hơn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"隐藏，直到有更新的版本"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"隱藏，直到有更新的版本"}}}},
@@ -36655,6 +37579,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "前往主頁"
+          }
+        }
+      }
+    },
+    "action.home.showSetup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Up cmux…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعداد cmux…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi cmux…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konfigurer cmux…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux einrichten…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configurar cmux…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configurer cmux…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configura cmux…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux を設定…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រៀបចំ cmux…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 설정…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sett opp cmux…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skonfiguruj cmux…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configurar o cmux…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настроить cmux…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งค่า cmux…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'ı Kur…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштувати cmux…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thiết lập cmux…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "设置 cmux…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定 cmux…"
           }
         }
       }
@@ -113728,6 +114783,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux Remote：結束螢幕共享工作階段"
+          }
+        }
+      }
+    },
+    "action.toggleFloatingPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Float Pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعويم اللوحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Učini panel plutajućim"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lad panel svæve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereich schweben lassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hacer flotar el panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rendre le panneau flottant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rendi flottante il pannello"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ペインをフロート"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធ្វើឱ្យផ្ទាំងអណ្ដែត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "패널 띄우기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La panel flyte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uczyń panel pływającym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tornar Painel Flutuante"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сделать панель плавающей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทำให้บานหน้าต่างลอย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölmeyi Yüzdür"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зробити панель плаваючою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Làm nổi khung"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "浮动窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "浮動窗格"
+          }
+        }
+      }
+    },
+    "action.newFloatingPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Floating Pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لوحة عائمة جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi plutajući panel"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nyt svævende panel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neuer schwebender Bereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuevo panel flotante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouveau panneau flottant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuovo pannello flottante"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新規フローティングペイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងអណ្ដែតថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 플로팅 패널"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nytt flytende panel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowy pływający panel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novo Painel Flutuante"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новая плавающая панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บานหน้าต่างลอยใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni Yüzen Bölme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нова плаваюча панель"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khung nổi mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新建浮动窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新增浮動窗格"
+          }
+        }
+      }
+    },
+    "action.toggleQuickTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Quick Terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبديل الطرفية السريعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prebaci brzi terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå hurtig terminal til/fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schnellterminal ein-/ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alternar terminal rápido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher/masquer le terminal rapide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attiva/Disattiva terminale rapido"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "クイックターミナルを切り替え"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ/បើក Terminal រហ័ស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "빠른 터미널 전환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå hurtigterminal av/på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przełącz szybki terminal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alternar Terminal Rápido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переключить быстрый терминал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สลับเทอร์มินัลด่วน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hızlı Terminali Aç/Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемкнути швидкий термінал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bật/tắt terminal nhanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "切换快速终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "切換快速終端機"
           }
         }
       }
