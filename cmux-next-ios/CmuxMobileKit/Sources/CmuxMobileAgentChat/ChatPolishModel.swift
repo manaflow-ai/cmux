@@ -117,10 +117,6 @@ public struct AgentInspectorEvent: Identifiable, Hashable, Sendable {
 }
 
 /// The newest raw records of one chat, kept while its source lives (bounded).
-///
-/// Records arrive one by one from the Mac, hundreds a second in a burst. Each is kept at once
-/// (Copy and a detail page read the newest), but observers hear of them once per display frame
-/// (``nextFrame``), and dropping the oldest costs the rows dropped, not the rows kept.
 @MainActor
 @Observable
 public final class AgentEventJournal {
@@ -132,23 +128,15 @@ public final class AgentEventJournal {
     public nonisolated static let maxBytes = 4 << 20
     /// The most bytes one record keeps: a larger one keeps its kind and seq, not its body.
     public nonisolated static let maxRecordBytes = 256 << 10
-    /// What a dropped row's slot holds until the emptied front is reclaimed (its record's memory goes at once).
-    nonisolated static let emptied = AgentInspectorEvent(id: -1, record: .null)
     @ObservationIgnored private var bytes = 0
 
-    /// The kept rows, oldest first, from `start`; the slots before it are emptied.
-    @ObservationIgnored private var storage: [AgentInspectorEvent] = []
-    @ObservationIgnored private var start = 0
-    /// The id of `storage[0]` (ids count up by one per record).
-    @ObservationIgnored private var baseID = 0
-    @ObservationIgnored private var droppedCount = 0
+    public private(set) var events: [AgentInspectorEvent] = []
+    /// Rows dropped for the limit since the last Clear.
+    public private(set) var dropped = 0
     @ObservationIgnored private var next = 0
-    /// What observers read: bumped once per display frame that had records, and by Clear.
-    private var revision = 0
-    @ObservationIgnored private var publishing: Task<Void, Never>?
     /// Waits for the next display frame (records are published together there). nil publishes
     /// each record at once.
-    @ObservationIgnored var nextFrame: (@MainActor () async -> Void)? = AgentEventJournal.defaultNextFrame
+    @ObservationIgnored var nextFrame: (@MainActor () async -> Void)?
     /// Changes published to observers (tests: one per frame, not one per record).
     @ObservationIgnored private(set) var changes = 0
     /// Kept rows moved to drop older ones (tests: dropping costs the rows dropped, not the rows kept).
@@ -158,33 +146,17 @@ public final class AgentEventJournal {
 
     public init() {}
 
-    /// The kept rows, oldest first (a copy).
-    public var events: [AgentInspectorEvent] { Array(rows) }
-    /// The kept rows, oldest first, not copied.
-    var rows: ArraySlice<AgentInspectorEvent> {
-        _ = revision
-        return storage[start...]
-    }
-    /// How many rows are kept.
-    public var count: Int {
-        _ = revision
-        return storage.count - start
-    }
-    /// Rows dropped for the limit since the last Clear.
-    public var dropped: Int {
-        _ = revision
-        return droppedCount
-    }
-    /// The id the next record gets.
+    /// The id the next record gets (ids count up by one per record).
     var nextID: Int { next }
     /// The oldest kept row's id.
-    var firstID: Int { baseID + start }
+    var firstID: Int { events.first?.id ?? next }
     /// The bytes the kept records take.
     var keptBytes: Int { bytes }
 
     /// The kept rows with an id from `id` on, oldest first.
     func events(from id: Int) -> ArraySlice<AgentInspectorEvent> {
-        storage[min(max(id - baseID, start), storage.count)...]
+        let index = events.firstIndex { $0.id >= id } ?? events.endIndex
+        return events[index...]
     }
 
     public func record(_ record: JSONValue) {
@@ -195,49 +167,30 @@ public final class AgentEventJournal {
             for key in ["seq", "at", "dir", "kind", "sessionId"] { if let value = record[key] { kept[key] = value } }
             event = AgentInspectorEvent(id: next, record: .object(kept))
         }
-        storage.append(event)
+        events.append(event)
+        changes += 1
         bytes += event.line.utf8.count
         next += 1
         // The oldest go first, past the row limit or the byte budget (the newest always stays).
-        while storage.count - start > 1, storage.count - start > Self.limit || bytes > Self.maxBytes {
-            bytes -= storage[start].line.utf8.count
-            storage[start] = Self.emptied
-            start += 1
-            droppedCount += 1
+        var over = 0
+        var kept = bytes
+        while over < events.count - 1, events.count - over > Self.limit || kept > Self.maxBytes {
+            kept -= events[over].line.utf8.count
+            over += 1
         }
-        // The emptied front is reclaimed in bulk: a kept row moves once per as many drops.
-        if start >= 64, start * 2 >= storage.count {
-            moved += storage.count - start
-            storage.removeFirst(start)
-            baseID += start
-            start = 0
+        if over > 0 {
+            bytes = kept
+            moved += events.count - over
+            events.removeFirst(over)
+            dropped += over
         }
-        changed()
     }
 
     public func clear() {
-        storage = []
-        start = 0
-        baseID = next
-        droppedCount = 0
+        events = []
+        dropped = 0
         bytes = 0
         generation += 1
-        publish()
-    }
-
-    /// One published change per frame for every record in it.
-    private func changed() {
-        guard let nextFrame else { return publish() }
-        guard publishing == nil else { return }
-        publishing = Task { [weak self] in
-            await nextFrame()
-            self?.publishing = nil
-            self?.publish()
-        }
-    }
-
-    private func publish() {
-        revision &+= 1
         changes += 1
     }
 
@@ -247,27 +200,13 @@ public final class AgentEventJournal {
     }
 }
 
-/// The Event Inspector's rows for its filter, oldest first (the screen draws them newest first),
-/// kept as the journal changes: a record costs one `matches` (none with no filter), a dropped
-/// one costs itself, and only a new query looks at every record, once, off the main thread
-/// when the records are large. A query's result lands only while it is the newest query.
+/// The Event Inspector's rows for its filter, oldest first (the screen draws them newest first).
 @MainActor
 @Observable
 final class EventInspectorRows {
     /// Journals whose kept records take more bytes than this are filtered off the main thread.
     @ObservationIgnored let offMainAbove: Int
     private(set) var query = ""
-    /// Bumped when an off-main filter's result lands (the screen redraws).
-    private var landed = 0
-    @ObservationIgnored private var matched: [AgentInspectorEvent] = []
-    /// The first shown row of `matched` (those before it were dropped).
-    @ObservationIgnored private var head = 0
-    /// The first journal id not looked at yet.
-    @ObservationIgnored private var nextID = 0
-    /// The journal's generation these rows are of (-1: none yet).
-    @ObservationIgnored private var generation = -1
-    @ObservationIgnored private var filtering: Task<Void, Never>?
-    @ObservationIgnored private var token = 0
     /// `matches` calls made (tests: the work a record or a query costs).
     @ObservationIgnored private(set) var matchCalls = 0
     /// Whole-journal filters run (one per query).
@@ -280,124 +219,32 @@ final class EventInspectorRows {
     }
 
     func setQuery(_ text: String, journal: AgentEventJournal) {
-        let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard query != self.query || generation == -1 else { return }
-        // Up to date with the last query first: records from here on are matched against the new one.
-        sync(journal)
-        self.query = query
-        token &+= 1
-        filtering?.cancel()
-        filtering = nil
-        let all = journal.rows
-        if query.isEmpty || journal.keptBytes <= offMainAbove {
-            builds += 1
-            if query.isEmpty {
-                matched = Array(all)
-            } else {
-                matchCalls += all.count
-                matched = all.filter { $0.matches(query) }
-            }
-            head = 0
-            nextID = journal.nextID
-            shownQueries.append(query)
-            return
-        }
-        // Off the main thread: the records can be megabytes. Until it lands, the rows shown are
-        // the last query's, with newer records matched against this one as they come.
-        let snapshot = Array(all)
-        let through = journal.nextID
-        let token = token
-        let generation = generation
-        filtering = Task { [weak self] in
-            // A newer query cancels this one, and the scan stops with it.
-            let scan = Task.detached(priority: .userInitiated) { () -> [AgentInspectorEvent] in
-                var out: [AgentInspectorEvent] = []
-                for event in snapshot {
-                    if Task.isCancelled { return [] }
-                    if event.matches(query) { out.append(event) }
-                }
-                return out
-            }
-            let result = await withTaskCancellationHandler { await scan.value } onCancel: { scan.cancel() }
-            guard let self, self.token == token, !Task.isCancelled else { return }
-            self.land(result, through: through, generation: generation, looked: snapshot.count)
-        }
-    }
-
-    private func land(_ result: [AgentInspectorEvent], through: Int, generation: Int, looked: Int) {
-        filtering = nil
-        builds += 1
-        matchCalls += looked
-        if generation == self.generation {
-            // Records from `through` on were matched against this query as they came.
-            matched = result + matched[head...].filter { $0.id >= through }
-            head = 0
-            nextID = max(nextID, through)
-        }
+        query = text.trimmingCharacters(in: .whitespacesAndNewlines)
         shownQueries.append(query)
-        landed &+= 1
     }
 
-    /// The rows matching the query, brought up to the journal (what changed since the last read).
+    /// The rows matching the query.
     func rows(_ journal: AgentEventJournal) -> ArraySlice<AgentInspectorEvent> {
-        // A new query (set after this read, from the screen's onChange) and a landed filter redraw.
-        _ = (query, landed)
-        sync(journal)
-        return matched[head...]
+        builds += 1
+        return ArraySlice(journal.events.filter { event in
+            matchCalls += 1
+            return event.matches(query)
+        })
     }
 
     /// Returns once no filter is running.
-    func settled() async {
-        while let filtering { await filtering.value }
-    }
-
-    private func sync(_ journal: AgentEventJournal) {
-        let count = journal.count
-        if generation != journal.generation {
-            generation = journal.generation
-            matched = []
-            head = 0
-            nextID = journal.firstID
-        }
-        // Dropped from the journal: their slots empty at once, reclaimed in bulk.
-        let first = journal.firstID
-        while head < matched.count, matched[head].id < first {
-            matched[head] = AgentEventJournal.emptied
-            head += 1
-        }
-        if head >= 64, head * 2 >= matched.count {
-            matched.removeFirst(head)
-            head = 0
-        }
-        guard nextID < journal.nextID, count > 0 else {
-            nextID = max(nextID, journal.nextID)
-            return
-        }
-        for event in journal.events(from: nextID) {
-            if query.isEmpty {
-                matched.append(event)
-            } else {
-                matchCalls += 1
-                if event.matches(query) { matched.append(event) }
-            }
-        }
-        nextID = journal.nextID
-    }
+    func settled() async {}
 }
 
-/// A record's pretty JSON for its detail page, encoded once.
+/// A record's pretty JSON for its detail page.
 @MainActor
 final class EventJSONMemo {
-    private var cached: (id: Int, json: (text: String, total: Int?))?
     /// Records encoded (tests: once per record shown, not once per redraw).
     private(set) var encodes = 0
 
     func json(for event: AgentInspectorEvent) -> (text: String, total: Int?) {
-        if let cached, cached.id == event.id { return cached.json }
         encodes += 1
-        let json = event.json
-        cached = (event.id, json)
-        return json
+        return event.json
     }
 }
 
