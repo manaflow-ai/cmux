@@ -67,6 +67,9 @@ final class PaletteTableRowView: NSTableRowView {
         didSet { if isPaletteSelected != oldValue { needsDisplay = true } }
     }
 
+    /// The accessibility identifier of the row that shows the item `id`: `palette.row.<id>`.
+    static func accessibilityID(_ id: String) -> String { "palette.row.\(id)" }
+
     /// The table's selection only tells VoiceOver which row is selected (`syncTableSelection`);
     /// the row's text keeps its own colors.
     override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }

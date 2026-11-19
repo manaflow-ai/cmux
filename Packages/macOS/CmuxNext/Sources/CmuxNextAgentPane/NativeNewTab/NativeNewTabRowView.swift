@@ -9,6 +9,9 @@ final class NativeNewTabRowView: NSView {
     /// The row's height.
     static let height: CGFloat = 30
 
+    /// The accessibility identifier of the row for `id` (``NativeNewTabRow/id``).
+    static func accessibilityID(_ id: String) -> String { "cmux.nativeNewTab.row.\(id)" }
+
     private let symbol = NSImageView()
     private let title = NSTextField(labelWithString: "")
     private let detail = NSTextField(labelWithString: "")

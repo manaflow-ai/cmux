@@ -193,9 +193,13 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
         if case .item(let item) = rows[row] {
             view.isPaletteSelected = item.id == selectedID
             view.isHovered = item.id == hoveredID
+            // An AX client (VoiceOver, an agent driving the app) finds the row by its item's id;
+            // `identifier` above stays the reuse id.
+            view.setAccessibilityIdentifier(PaletteTableRowView.accessibilityID(item.id))
         } else {
             view.isPaletteSelected = false
             view.isHovered = false
+            view.setAccessibilityIdentifier(nil)
         }
         return view
     }

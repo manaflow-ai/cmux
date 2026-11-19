@@ -143,12 +143,15 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
                 view.isHidden = true
                 view.activate = {}
                 view.frame = .zero
+                view.setAccessibilityIdentifier(nil)
                 continue
             }
             let row = rows[index]
             view.isHidden = false
             view.show(NativeNewTabRowContent(row, strings: strings, home: model.page.home), selected: index == selected)
             view.activate = { [weak model] in model?.activate(row) }
+            // An AX client (VoiceOver, an agent driving the app) finds the row by its stable id.
+            view.setAccessibilityIdentifier(NativeNewTabRowView.accessibilityID(row.id))
         }
         divider.isHidden = rows.isEmpty
         if rows != shownRows {
