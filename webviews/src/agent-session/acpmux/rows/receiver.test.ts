@@ -5,7 +5,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { createLanes, type Lanes, type LanesEnv } from "../schedule";
 import { ChatRowsHost } from "./host";
-import { addChatRowsHost, receiveChatRows, resetChatRowsReceiver } from "./receiver";
+import { addChatRowsHost, chatRowsTakenRetry, receiveChatRows, resetChatRowsReceiver } from "./receiver";
 import type { ChatChange, ChatRow } from "./wire";
 
 function fakeEngine() {
@@ -115,10 +115,12 @@ function setup() {
 }
 
 let made: Lanes[] = [];
+const schedule = chatRowsTakenRetry.schedule;
 afterEach(() => {
   for (const lanes of made) lanes.dispose();
   made = [];
   resetChatRowsReceiver();
+  chatRowsTakenRetry.schedule = schedule;
 });
 
 test("taken is not answered in the receiving task, but at the frame's commit, after the subscribers were told", async () => {
@@ -280,9 +282,14 @@ test("a taken whose post failed is posted again", async () => {
   const host = new ChatRowsHost(post, undefined, () => SID);
   addChatRowsHost(host, post);
   host.store.open(SID);
+  const later: { run: () => void; ms: number }[] = [];
+  chatRowsTakenRetry.schedule = (run, ms) => later.push({ run, ms });
   receiveChatRows({ batch: 5, changes: [rowChange(1)] }, lanes);
   await engine.frame();
-  // fixed-wait: the base has no retry seam to drive; the fix commit replaces this with its injected schedule.
-  for (let i = 0; i < 20 && tries.length < 2; i++) await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  expect(tries).toEqual([5]);
+  expect(later.map((retry) => retry.ms)).toEqual([chatRowsTakenRetry.delays[0]!]);
+  later.shift()!.run();
+  await engine.tasks();
   expect(tries).toEqual([5, 5]);
+  expect(later).toEqual([]);
 });

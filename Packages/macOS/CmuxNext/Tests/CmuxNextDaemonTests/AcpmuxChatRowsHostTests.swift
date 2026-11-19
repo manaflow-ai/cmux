@@ -186,6 +186,8 @@ struct AcpmuxChatRowsHostTests {
         let again = fed.receiver.batches.filter { $0.batch == lost.batch }
         #expect(again.count == 2 && again.allSatisfy { $0.changes == lost.changes })
         #expect(fed.receiver.rowIds.filter { $0 == 11 }.count == 2, "the page saw row 11 twice; it applies a batch number once")
+        let counters = await fed.host.snapshotForTesting().counters
+        #expect(counters.resends == 1 && counters.bridgeCalls == fed.receiver.batches.count - 1)
     }
 
     @Test("names, sids this page opened, and at most 16 subs a pane")
