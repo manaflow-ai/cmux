@@ -19,7 +19,8 @@ import {
 } from "./defaultChoice";
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
-import type { SpeedSection } from "./EffortPicker";
+import { EffortPicker, type SpeedSection } from "./EffortPicker";
+import { useComposerLook } from "./composerLook";
 import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
@@ -220,6 +221,7 @@ export function ComposerPickers({
   // Account and, when the model advertises a free inline toggle, Fast mode. Paid or otherwise
   // non-toggleable Fast remains in the model menu.
   const { showContextUsage, harnessSwitch, reasoningSlider, reasoningSliderStyle } = useComposerSettings();
+  const studio = useComposerLook() === "studio";
   const chatAccounts = useChatAccounts();
   // With no Claude connection that serves Cloud, the Claude section's Connect row and its dialog.
   const claudeConnect = useClaudeConnectFlow();
@@ -1170,8 +1172,13 @@ export function ComposerPickers({
   };
   // The button names the effort after the model ("Opus 5.5  Medium"), and its short name for a
   // narrow row ("Med"). Before the session reports, it names the held pick.
-  const quickDetail = effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined);
-  const quickShort = effortLabel ? effortShort : awaiting ? heldShort : undefined;
+  // Studio's look (composerLook.ts) draws the effort as its own chip after the model's, as the
+  // reference composer does, so the model chip names only the model there.
+  const studioEffort = studio && !held ? quickEffort : undefined;
+  const quickDetail = studioEffort
+    ? undefined
+    : (effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined));
+  const quickShort = studioEffort ? undefined : effortLabel ? effortShort : awaiting ? heldShort : undefined;
   const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const usageNote =
     showContextUsage && usage && usage.size > 0
@@ -1294,6 +1301,18 @@ export function ComposerPickers({
             </button>
           </span>
         )
+      )}
+      {studioEffort && (
+        <EffortPicker
+          label={t(PICKER_LABELS.effort)}
+          efforts={studioEffort.levels}
+          {...(studioEffort.current ? { current: studioEffort.current } : {})}
+          onPick={studioEffort.onPick}
+          defaulted={effortDefaulted}
+          chevron={<ChevronIcon />}
+          {...(effortShort ? { short: effortShort } : {})}
+          {...(studioEffort.slider ? { slider: true, sliderStyle: reasoningSliderStyle } : {})}
+        />
       )}
       {/* With no harness installed (the Add harness chip above) there is nothing to set a mode for:
           the start mode, its highest-level fallback and the inert "Mode" placeholder are the chips'

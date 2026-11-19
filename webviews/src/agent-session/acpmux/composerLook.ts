@@ -15,12 +15,25 @@
 // Settings' `agentPane.composerLook` (composerSettings.ts) set to `codex` or `claude` draws that look
 // over the stored choice, so a cmuxProfile can carry it; `auto` (the default) keeps the stored one.
 // While a look is set, a dot asks the host to write the setting (`pane.setComposerLook {look}`).
+// `studio` is a third look only Settings picks (a setup's `agentPane.composerLook`, the Studio
+// look): Codex's in-box row laid out as the Studio reference composer draws it, the model, effort
+// and access chips on the row's left, the attach paperclip and a round accent Send on its right
+// (composerLook.css `data-composer-variant="studio"`). It has no dot of its own: the dots offer it
+// only while it is the look, so a pick of Claude or Codex can leave it.
 import { useContext, useSyncExternalStore } from "react";
 import { composerSettingsSnapshot, setComposerSettings, subscribeComposerSettings } from "./composerSettings";
 import { OnNewTab } from "./newTabComposer";
 
+/// The looks the chat's dots offer, in their order.
 export const COMPOSER_LOOKS = ["claude", "codex"] as const;
-export type ComposerLook = (typeof COMPOSER_LOOKS)[number];
+/// Every look: the dots' and Settings' own (`studio`).
+export const ALL_COMPOSER_LOOKS = ["claude", "codex", "studio"] as const;
+export type ComposerLook = (typeof ALL_COMPOSER_LOOKS)[number];
+
+/// Whether `look` draws the mode, model and effort row inside the box (Codex's and Studio's).
+export function lookRowInBox(look: ComposerLook): boolean {
+  return look !== "claude";
+}
 
 /// A dot's name, over it while pointed at.
 export const COMPOSER_LOOK_NAMES: Readonly<Record<ComposerLook, string>> = {
@@ -28,6 +41,8 @@ export const COMPOSER_LOOK_NAMES: Readonly<Record<ComposerLook, string>> = {
   claude: "Claude",
   // l10n-allow: product names (Claude, Codex), never translated.
   codex: "Codex",
+  // l10n-allow: a look's name, as Settings' Composer Look choice names it.
+  studio: "Studio",
 };
 
 /// New viewers use Codex's look across agent families; explicit choices remain saved.
@@ -35,7 +50,7 @@ export const DEFAULT_COMPOSER_LOOK: ComposerLook = "codex";
 const KEY = "cmux.composer.look";
 
 function parse(value: unknown): ComposerLook {
-  return value === "claude" || value === "codex" ? value : DEFAULT_COMPOSER_LOOK;
+  return value === "claude" || value === "codex" || value === "studio" ? value : DEFAULT_COMPOSER_LOOK;
 }
 
 /// The page's copy, for a page with no storage; storage's when there is one.

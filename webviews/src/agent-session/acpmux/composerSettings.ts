@@ -38,7 +38,7 @@
 // read: the chord the host sends, empty for the app's own. Anything else reads as "cmux".
 // `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "local" by default): "cloud" makes a
 // new chat's run location Cloud unless its composer picks another (runLocationDefault.ts).
-// `composerLook` is `agentPane.composerLook` ("auto" by default): "codex" or "claude" draws that look
+// `composerLook` is `agentPane.composerLook` ("auto" by default): "codex", "claude" or "studio" draws that look
 // in every chat over the look dots' stored choice (composerLook.ts); "auto" keeps the dots' choice,
 // else Codex's. Picking a dot while a look is set asks the host to write it (`pane.setComposerLook
 // {look}`). The New Tab page always draws Claude's look. Anything else reads as "auto".
@@ -60,7 +60,7 @@ export type ReasoningSliderStyle = "accent" | "minimal";
 export type AttachmentView = "inline" | "strip" | "both";
 export type NewChatPlace = "local" | "cloud";
 export type ComposerRing = "context" | "planUsage";
-export type ComposerLookSetting = "auto" | "codex" | "claude";
+export type ComposerLookSetting = "auto" | "codex" | "claude" | "studio";
 export type EmptyChatComposerPosition = "bottom" | "center";
 export const DICTATION_SOURCES = ["cmux", "macos", "chatgpt", "claude", "gemini", "wisprFlow", "superwhisper"] as const;
 export type DictationSource = (typeof DICTATION_SOURCES)[number];
@@ -145,7 +145,10 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
     newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
     composerRing: raw.composerRing === "planUsage" ? "planUsage" : "context",
-    composerLook: raw.composerLook === "codex" || raw.composerLook === "claude" ? raw.composerLook : "auto",
+    composerLook:
+      raw.composerLook === "codex" || raw.composerLook === "claude" || raw.composerLook === "studio"
+        ? raw.composerLook
+        : "auto",
     emptyChatComposerPosition: raw.emptyChatComposerPosition === "center" ? "center" : "bottom",
     cloudEnvironments: flag("cloudEnvironments"),
   };

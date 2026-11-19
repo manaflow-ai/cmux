@@ -7,7 +7,7 @@ import { backspacedAttachment, type MadeFile, type PendingAttachment } from "./c
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
-import { useComposerLook } from "./composerLook";
+import { lookRowInBox, useComposerLook } from "./composerLook";
 import { useRowFit } from "./composerRowFit";
 import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from "./MarkdownField";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
@@ -159,7 +159,7 @@ export function ComposerBox({
   // an agent chat doesn't do anything right now"). The row moves on a look switch while the prompt
   // stays mounted, so the draft and caret stay.
   const { plainFooter, attachmentView } = useComposerSettings();
-  const rowInBox = useComposerLook() === "codex";
+  const rowInBox = lookRowInBox(useComposerLook());
   // The footer look and the row's place can change while this component stays mounted: the fit key
   // has both, so the live row is measured again before the new form paints.
   const bar = useRef<HTMLDivElement>(null);

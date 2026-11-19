@@ -384,7 +384,7 @@
         },
         {
           "key": "agentPane.composerLook",
-          "note": "Which of the composer's two looks every chat draws (agentPane.composerLook; composerLook.ts): auto keeps the look the chat's dots picked, stored in the page (cmux.composer.look), else Codex's; claude or codex pins that look over the dots' choice. The New Tab page always draws Claude's look. Leo, 2026-10-22: \"first dot claude, second dot codex. since it's just all looks anyways\".",
+          "note": "Which of the composer's looks every chat draws (agentPane.composerLook; composerLook.ts): auto keeps the look the chat's dots picked, stored in the page (cmux.composer.look), else Codex's; claude or codex pins that look over the dots' choice. The New Tab page always draws Claude's look. Leo, 2026-10-22: \"first dot claude, second dot codex. since it's just all looks anyways\".",
           "title": {
             "key": "settings.agentPane.composerLook",
             "text": "Composer Look"
@@ -418,6 +418,14 @@
                 "text": "Claude"
               },
               "note": "The mode, model and effort in a quiet row under the box."
+            },
+            {
+              "value": "studio",
+              "title": {
+                "key": null,
+                "text": "Studio"
+              },
+              "note": "Codex's in-box row laid out as the Studio add-on look's reference composer: the model, effort and access chips on the left, the attach paperclip and a round accent Send on the right. The name of a look, not translated. No dot of its own; only Settings (a setup) picks it."
             }
           ],
           "default": "auto",

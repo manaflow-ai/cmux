@@ -8,7 +8,13 @@
 // they are not drawn: there they stand aside (`data-crowded`, hidden) until the middle clears, as
 // Codex's look hid them in a row too narrow for them (#28901).
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { COMPOSER_LOOK_NAMES, COMPOSER_LOOKS, setComposerLook, useComposerLook } from "./composerLook";
+import {
+  COMPOSER_LOOK_NAMES,
+  COMPOSER_LOOKS,
+  setComposerLook,
+  useComposerLook,
+  type ComposerLook,
+} from "./composerLook";
 import { useT } from "./i18n";
 import { DotSwitch } from "./newtab/StyleSwitch";
 
@@ -17,10 +23,12 @@ export function LookSwitch({ onDone }: { onDone(): void }) {
   const look = useComposerLook();
   const slot = useRef<HTMLSpanElement>(null);
   const crowded = useCrowded(slot, look);
+  // Settings' Studio look has no dot of its own: it joins the dots while it is the look.
+  const options: readonly ComposerLook[] = look === "studio" ? [...COMPOSER_LOOKS, "studio"] : COMPOSER_LOOKS;
   return (
     <span ref={slot} className="acpmux-look-slot" data-crowded={crowded ? "" : undefined}>
       <DotSwitch
-        options={COMPOSER_LOOKS}
+        options={options}
         current={look}
         label={t("composer.look.label")}
         name={(option) => COMPOSER_LOOK_NAMES[option]}

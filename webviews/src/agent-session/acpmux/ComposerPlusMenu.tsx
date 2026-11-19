@@ -6,7 +6,7 @@
 // listed whole here (Leo, 2026-11-01: "our + button results are still really bad"): at most a few
 // recent ones, then one "Commands and skills…" row that opens the slash list, which searches them
 // all (composerPlusRegistry.ts, recentCommands.ts).
-import { Picker, PlusIcon, type Section } from "./ComposerPickers";
+import { PaperclipIcon, Picker, PlusIcon, type Section } from "./ComposerPickers";
 import { runComposerPlusAction, type ComposerPlusEntry } from "./composerPlusRegistry";
 import type { SlashCommand } from "./slashCommands";
 import { useT } from "./i18n";
@@ -23,6 +23,8 @@ export type ComposerPlusMenuProps = {
   entries: readonly ComposerPlusEntry[];
   /** The trigger's extra classes (New Tab's `acpmux-newtab-plus`). */
   className?: string;
+  /** The trigger's glyph: + (the default), or Studio's attach paperclip at the row's right end, its menu opening leftward. */
+  glyph?: "plus" | "paperclip";
   /** Plan is on: its row draws the Build glyph, as its title says Build. */
   planning?: boolean;
   /** A composer action (`composer.attachFiles`, `composer.planMode`, ...). */
@@ -46,6 +48,7 @@ export function ComposerPlusMenu(props: ComposerPlusMenuProps) {
 const MemoPlusMenu = memo(function PlusMenu({
   entries,
   className,
+  glyph = "plus",
   planning = false,
   onCommand,
   onExtension,
@@ -76,8 +79,8 @@ const MemoPlusMenu = memo(function PlusMenu({
       // Codex's short tooltip (Leo, 2026-10-21): "Add files and more", not the menu's list.
       tooltip={t("composer.addTooltip")}
       className={className ? `acpmux-composer-plus ${className}` : "acpmux-composer-plus"}
-      button={<PlusIcon />}
-      align="start"
+      button={glyph === "paperclip" ? <PaperclipIcon /> : <PlusIcon />}
+      align={glyph === "paperclip" ? "end" : "start"}
       sections={sections}
       {...(onOpen ? { onOpen } : {})}
     />
