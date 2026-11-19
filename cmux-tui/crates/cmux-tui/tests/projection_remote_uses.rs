@@ -6,9 +6,9 @@
 //!   back by Bring Back Local's own verb (`cmux link seed pull --or-copy`), in both directions,
 //!   with a conflict, and back and forth many times;
 //! - Move to Cloud and a New Workspace on Cloud (`cmux link seed push`, then the frozen chat's
-//!   `--since-last` and Bring Back Local), timed beside the projection of the same folder;
-//! - Move to another Cloud machine of a projected chat (`cmux link sync relay` from the first
-//!   machine's mount to the second), then Bring Back Local from the second.
+//!   `--since-last` and Bring Back Local), timed beside the projection of the same folder.
+//!
+//! Move to Another Machine of a projected chat runs the real chat move: `projection_move_journey.rs`.
 //!
 //! Each case prints one `CELL {json}` line on stderr (correctness and timings) and appends it to
 //! `CMUX_PROJECTION_CELLS` when set.
@@ -505,44 +505,4 @@ fn move_to_cloud_round_trips_and_is_timed_beside_the_projection() {
         "since_last_ms": delta_ms, "bring_back_ms": back_ms,
         "note": format!("push {pushed} delta {delta} back {back}")}));
     assert!(correct, "push {pushed}\ndelta {delta}\nback {back}");
-}
-
-/// Move to another Cloud machine of a projected chat: the relay copies the first machine's
-/// mount (with the agent's edits) to the second, and Bring Back Local from the second brings the
-/// edits home.
-#[test]
-fn a_projected_chat_moved_to_another_machine_comes_back_from_there() {
-    let Some(mut w) = world("relay", 400) else { return };
-    let Some((folder, _)) = w.start_projected() else { return };
-    write(&folder.join("notes.txt"), "notes, from machine a\n");
-    let b = Machine::start(&w.root.join("vm-b"), "b");
-    let target = b.work().join("app-relayed");
-    let started = Instant::now();
-    let relayed = answer_of(
-        &w.mac
-            .cmux()
-            .args(["link", "sync", "relay", "--from-socket"])
-            .arg(&w.machine.socket)
-            .arg("--socket")
-            .arg(&b.socket)
-            .arg(&folder)
-            .arg(&target)
-            .output()
-            .unwrap(),
-    );
-    let relay_ms = ms(started);
-    let arrived = relayed["ok"] == true
-        && read(&target.join("notes.txt")) == "notes, from machine a\n"
-        && read(&target.join("src/00/f0.txt")) == read(&w.mac("src/00/f0.txt"));
-    write(&target.join("mac.txt"), "mac, edited on machine b\n");
-    let (back, back_ms) = w.bring_back_local(&b, &target);
-    let correct = arrived
-        && back["ok"] == true
-        && read(&w.mac("notes.txt")) == "notes, from machine a\n"
-        && read(&w.mac("mac.txt")) == "mac, edited on machine b\n";
-    cell(json!({"use": "move-to-another-machine", "repo": "git",
-        "direction": "remote->remote->local", "fault": "none", "correct": correct,
-        "relay_ms": relay_ms, "bring_back_ms": back_ms,
-        "note": format!("relay {relayed} back {back}")}));
-    assert!(correct, "relay {relayed}\nback {back}");
 }
