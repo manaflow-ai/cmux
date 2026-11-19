@@ -24,8 +24,6 @@ public nonisolated struct ColumnStrip: Hashable, Sendable {
     public var viewportWidth: CGFloat
     public var contentWidth: CGFloat
     public var gap: CGFloat
-    /// The presentation axis before transposition; row cameras animate without horizontal carry compensation.
-    public var axis: SplitAxis = .horizontal
     /// How much of the viewport's leading and trailing ends a floating side
     /// dock covers (layout-model.md F6). Reveal, visibility and snapping
     /// measure against the uncovered window between them; 0 without one.

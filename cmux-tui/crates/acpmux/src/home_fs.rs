@@ -295,6 +295,25 @@ pub(crate) fn read_dir(path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
     }
 }
 
+/// The names of at most `limit` entries of the folder `path` (no `.` or `..`, nothing stat'ed),
+/// read in the held home when `path` is below it, as [`read_dir`]: a bounded look at one folder.
+pub(crate) fn read_dir_names(
+    path: impl AsRef<Path>,
+    limit: usize,
+) -> io::Result<Vec<std::ffi::OsString>> {
+    let path = path.as_ref();
+    #[cfg(unix)]
+    {
+        unix::read_dir_names(path, limit)
+    }
+    #[cfg(not(unix))]
+    {
+        held_read(path, || {
+            std::fs::read_dir(path)?.take(limit).map(|entry| Ok(entry?.file_name())).collect()
+        })
+    }
+}
+
 /// `config::private_state_file(path)` (an existing regular file of this user, its final
 /// symlink never followed, opened to read), opened in the held home when `path` is below it:
 /// what a removal decides by is read from the folder it removes from (#41462 review F1).
@@ -554,14 +573,13 @@ pub(crate) fn create_dir(dir: impl AsRef<Path>, mode: u32) -> io::Result<()> {
     }
 }
 
-/// A new name beside `path` for a temporary copy of it: `.<name>.tmp-<pid>-<n>`.
+/// The name beside `path` for this process's temporary copy of it: `.<name>.tmp-<pid>`, the same
+/// on every write (`dead_temps`: each new name is one more path fseventsd keeps).
 fn aside(path: &Path) -> io::Result<std::path::PathBuf> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT: AtomicU64 = AtomicU64::new(0);
     let name = path.file_name().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     let mut tmp = std::ffi::OsString::from(".");
     tmp.push(name);
-    tmp.push(format!(".tmp-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+    tmp.push(format!(".tmp-{}", std::process::id()));
     Ok(path.with_file_name(tmp))
 }
 
@@ -613,13 +631,24 @@ fn replace_with<T>(
     fill: impl FnOnce(&mut File, &Path) -> io::Result<T>,
 ) -> io::Result<T> {
     let tmp = aside(to)?;
-    let mut file = create_private(&tmp, mode)?;
-    let done = fill(&mut file, &tmp).and_then(|value| {
-        drop(file);
-        rename(&tmp, to).map(|()| value)
-    });
-    if done.is_err() {
+    let done = {
+        // This process's writers of the name take turns (`dead_temps::hold`). One a failed
+        // removal left is this process's own: start anew.
+        let _turn = crate::dead_temps::hold(&tmp);
         let _ = remove_file(&tmp);
+        let done = create_private(&tmp, mode).and_then(|mut file| {
+            fill(&mut file, &tmp).and_then(|value| {
+                drop(file);
+                rename(&tmp, to).map(|()| value)
+            })
+        });
+        if done.is_err() {
+            let _ = remove_file(&tmp);
+        }
+        done
+    };
+    if let (Some(dir), Some(name)) = (to.parent(), to.file_name()) {
+        crate::dead_temps::remove(dir, &format!(".{}.tmp-", name.to_string_lossy()));
     }
     done
 }
@@ -789,6 +818,9 @@ pub(crate) fn write_json_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let dir = path.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
     private_dir(dir)?;
     let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    // This process's writers of the name take turns, as `config::write_atomic`'s, which names
+    // its copy the same (`dead_temps::hold`).
+    let turn = crate::dead_temps::hold(&tmp);
     // A file a crashed process left under a reused pid keeps its mode: start anew.
     let _ = remove_file(&tmp);
     let written = (|| {
@@ -801,8 +833,10 @@ pub(crate) fn write_json_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     })();
     if written.is_err() {
         let _ = remove_file(&tmp);
-        return written;
     }
+    drop(turn);
+    crate::dead_temps::remove_beside(path);
+    written?;
     let _ = sync_dir(dir);
     Ok(())
 }
@@ -1091,17 +1125,31 @@ mod unix {
                 })
                 .collect();
         }
+        read_dir_fd(&open_folder(path)?, path)
+    }
+
+    pub(super) fn read_dir_names(path: &Path, limit: usize) -> io::Result<Vec<std::ffi::OsString>> {
+        if crate::config::held_home_dir(path).is_none() {
+            return std::fs::read_dir(path)?
+                .take(limit)
+                .map(|entry| Ok(entry?.file_name()))
+                .collect();
+        }
+        list_up_to(&open_folder(path)?, limit)
+    }
+
+    /// The folder at `path`, opened in the held home when it is below it.
+    fn open_folder(path: &Path) -> io::Result<OwnedFd> {
         let at = at(path, None)?;
         // SAFETY: a valid descriptor and a NUL-terminated name. A final symlink is followed, as
         // `std::fs::read_dir` follows it.
-        let folder = owned(unsafe {
+        owned(unsafe {
             libc::openat(
                 at.dirfd(),
                 at.name.as_ptr(),
                 libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
             )
-        })?;
-        read_dir_fd(&folder, path)
+        })
     }
 
     pub(super) fn read_dir_fd(folder: &OwnedFd, path: &Path) -> io::Result<Vec<super::DirEntry>> {
@@ -1217,6 +1265,11 @@ mod unix {
 
     /// The names in `dir`, without `.` and `..`.
     pub(super) fn list(dir: &OwnedFd) -> io::Result<Vec<std::ffi::OsString>> {
+        list_up_to(dir, usize::MAX)
+    }
+
+    /// [`list`], stopping once `limit` names are read.
+    pub(super) fn list_up_to(dir: &OwnedFd, limit: usize) -> io::Result<Vec<std::ffi::OsString>> {
         // fdopendir takes the descriptor it is given; it gets its own copy.
         let copy = dir.as_fd().try_clone_to_owned()?;
         // SAFETY: a valid descriptor whose ownership passes to the stream.
@@ -1228,6 +1281,9 @@ mod unix {
         let mut names = Vec::new();
         let errno = directory_errno();
         let done = loop {
+            if names.len() >= limit {
+                break Ok(names);
+            }
             if let Some(errno) = errno {
                 // SAFETY: this thread's errno slot. Zero distinguishes EOF from a read error.
                 unsafe { *errno = 0 };

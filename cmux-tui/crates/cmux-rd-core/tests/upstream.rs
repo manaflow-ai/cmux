@@ -167,7 +167,9 @@ fn a_growing_queue_lowers_the_target_and_a_flat_path_raises_it() {
     let start = 8_000_000;
     let flat = run(0);
     let queued = run(5_000);
-    assert!(flat > start, "flat delay grows the target: {flat}");
+    // 200 B every 20 ms is far under the target: the target holds (it grows only while the
+    // stream uses a good share of it) and never falls on a flat path.
+    assert!(flat >= start, "flat delay keeps the target: {flat}");
     assert!(queued < start, "a building queue lowers the target: {queued}");
 }
 

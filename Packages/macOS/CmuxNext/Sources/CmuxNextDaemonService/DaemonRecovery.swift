@@ -104,7 +104,7 @@ public final class DaemonRecovery {
     func attach(_ launcher: DaemonLauncher, wake: RetryWake) {
         self.launcher = launcher
         self.wake = wake
-        // The button's restart without its confirm: the terminal hosts are separate processes,
+        // The button's restart: the terminal hosts are separate processes,
         // so they outlive the stuck owner and the next owner adopts them.
         watch?.stop()
         let watch = UnresponsiveOwnerWatch(policy: unresponsivePolicy, isEnabled: { [weak self] in
@@ -219,8 +219,8 @@ public final class DaemonRecovery {
     }
 
     /// The watch's restart: on the main actor, only while no Restart runs and the watch still
-    /// claims it (the toggle on, the same owner still stuck), then the button's restart with no
-    /// confirm. No suspension between the claim and `restart` setting ``isRestarting``.
+    /// claims it (the toggle on, the same owner still stuck), then the button's restart.
+    /// No suspension between the claim and `restart` setting ``isRestarting``.
     private func restartUnresponsive(_ claim: @Sendable () -> Bool) async -> Bool {
         guard launcher != nil, !isRestarting else { return false }
         // Before the claim, which spends the watch's allowance for this owner.

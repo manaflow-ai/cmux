@@ -77,7 +77,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var homeFeedInChief = HomeFeedRowsSetting.fallback
     /// `home.chiefDock.edge`: the window edge the Chief docks to (``ChiefDockSetting``); `left` when unset.
     public var chiefDockEdge = ChiefDockSetting.edgeDefault
-    /// `home.chiefDock.openBeside`: a link clicked in the Chief opens its workspace with the Chief floating over it; on when unset.
+    /// `home.chiefDock.openBeside`: a link clicked in the Chief opens its workspace with the Chief floating over it; off when unset (cmux#45889).
     public var chiefDockOpenBeside = ChiefDockSetting.openBesideDefault
     /// `home.chiefPanel.style`: how the floating Chief looks (``ChiefDockSetting``); `composeBar` when unset.
     public var chiefPanelStyle = ChiefDockSetting.styleDefault
@@ -213,6 +213,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
+    /// `appearance.fontSmoothing`; `antialiased` when unset or invalid. Applied once per launch
+    /// (``ProcessFontSmoothing/apply(_:to:)``), so a change shows after a restart.
+    public var fontSmoothing: FontSmoothing = FontSmoothingSetting.fallback
     /// `appearance.focusIndicator`; "tabs" when unset or invalid.
     public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorDefault
     /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
@@ -418,6 +421,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
         snapshot.take(ReducedBackgroundsSetting.parse(root), \.reducedBackgrounds)
+        snapshot.take(FontSmoothingSetting.parse(root), \.fontSmoothing)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)

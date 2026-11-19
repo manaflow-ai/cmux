@@ -11,6 +11,11 @@ extension DaemonService {
         return true
     }
 
+    /// Returns once ``isLive`` holds (at once when it does), driven by observation, never by polling.
+    public func untilLive() async {
+        for await live in ObservationStream({ self.isLive }) where live { return }
+    }
+
     /// Waits for a live snapshot and a connection that can actually accept requests. The observed
     /// lifecycle can trail the connection actor, so arm its changes before checking the actor.
     public func waitForReadySnapshot() async throws {

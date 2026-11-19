@@ -42,7 +42,8 @@ extension AgentPaneModel {
     /// (``AgentPaneActionRun/refused(_:)``); one that ran and then stopped reports itself in the app
     /// (its own toast).
     func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil) -> [String: Any] {
-        let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
+        let screenShare = id == "session.screenShare"
+        let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id) || screenShare
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }
@@ -52,6 +53,7 @@ extension AgentPaneModel {
         }
         if gated, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
         var arguments = Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]
+        if screenShare, let session { arguments["session"] = session }
         if let environment { arguments["environment"] = environment }
         if let handoff { arguments["handoff"] = handoff }
         switch onRunAction(id, arguments) {

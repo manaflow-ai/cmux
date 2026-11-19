@@ -8,6 +8,11 @@
   "keep": [
     {
       "surface": "menu",
+      "name": "remoteBrowserPage",
+      "reason": "keep: Debug builds only; its rows are a remote page's own right-click menu and <select> options, sent by that page and answered back to it (RemoteBrowserNativeUI, RT5), which the palette cannot name"
+    },
+    {
+      "surface": "menu",
       "name": "terminalPaste",
       "reason": "keep: every row runs a palette-offered action: terminalCopy, terminalPaste, terminal.selectAll"
     },
@@ -65,6 +70,16 @@
       "surface": "action",
       "name": "import.suggest",
       "reason": "keep: an agent asks to show a site's cookie import card (`cmux import suggest`); a person imports with the palette's Import from Browser (importFromBrowser)"
+    },
+    {
+      "surface": "menu",
+      "name": "notificationRow",
+      "reason": "keep: every row runs a palette-offered action: notificationOpen, notificationCopy, notificationToggleRead, notificationDismiss; Customize Menu… is settings.customizeMenus"
+    },
+    {
+      "surface": "menu",
+      "name": "agentPaneMessage",
+      "reason": "keep: rows act on the message, image, code/path/link part or selection under the pointer (or that message's More button), which the palette cannot name; Point at Element is agentPane.togglePointerInspector and empty space shows the registry's agentChat rows"
     }
   ],
   "cli_source": "cmux-tui 70e5c08f8b72156ad732bf96c593a067fc010b39",
@@ -122,7 +137,8 @@
       "reason": "keep: acpmux's own agent-session CLI for scripts and other agents (dispatch, briefs, stdio, peers); a person starts and finds chats with the palette's New Agent Chat and Search Agent Chats"
     },
     {
-      "verb": "acp desktop"
+      "verb": "acp desktop",
+      "reason": "keep: acpmux's agent-session CLI: an agent wires the cmux MCP server into the Claude desktop app, Claude Code and Codex, the setup `cmux setup mcp` runs"
     },
     {
       "verb": "acp dispatch",
@@ -189,7 +205,8 @@
       "reason": "keep: acpmux's own agent-session CLI for scripts and other agents (dispatch, briefs, stdio, peers); a person starts and finds chats with the palette's New Agent Chat and Search Agent Chats"
     },
     {
-      "verb": "acp race"
+      "verb": "acp race",
+      "reason": "keep: acpmux's agent-session CLI: an agent starts a race from its own authenticated session and reads the reviewer's result"
     },
     {
       "verb": "acp register",
@@ -308,27 +325,32 @@
       "reason": "keep: agent-to-agent messaging that agents and scripts send; a person writes in the chat pane"
     },
     {
-      "verb": "agent plugin install"
+      "verb": "agent plugin install",
+      "reason": "keep: a plugin author's install, build and switch of the daemon's agent screen-detection plugin from a git URL, run in a terminal; nothing in it for a person to pick in the palette"
     },
     {
       "verb": "agent plugin list",
       "reason": "keep: a read for scripts and agents (installed agent plugins); the app shows the same state on screen"
     },
     {
-      "verb": "agent plugin remove"
+      "verb": "agent plugin remove",
+      "reason": "keep: a plugin author's install, build and switch of the daemon's agent screen-detection plugin from a git URL, run in a terminal; nothing in it for a person to pick in the palette"
     },
     {
-      "verb": "agent plugin update"
+      "verb": "agent plugin update",
+      "reason": "keep: a plugin author's install, build and switch of the daemon's agent screen-detection plugin from a git URL, run in a terminal; nothing in it for a person to pick in the palette"
     },
     {
-      "verb": "agent plugin use"
+      "verb": "agent plugin use",
+      "reason": "keep: a plugin author's install, build and switch of the daemon's agent screen-detection plugin from a git URL, run in a terminal; nothing in it for a person to pick in the palette"
     },
     {
       "verb": "agent report",
       "reason": "keep: harness hook wiring: harnesses call emit and report, and install/uninstall write a harness's hook config for setup scripts"
     },
     {
-      "verb": "agent resume"
+      "verb": "agent resume",
+      "palette": "history.resumeAgentSession"
     },
     {
       "verb": "agent start",
@@ -427,6 +449,10 @@
       "palette": "device.add"
     },
     {
+      "verb": "app mac-screens",
+      "reason": "keep: a read for scripts and agents (Mac Screen viewer speed: first frame, fps, round trip); the tab's stats line shows the same"
+    },
+    {
       "verb": "app machines",
       "reason": "keep: a read for scripts and agents (the Machines section's link state); the app shows the same state on screen"
     },
@@ -447,10 +473,12 @@
       "reason": "keep: a read (what `app try` has live)"
     },
     {
-      "verb": "app try"
+      "verb": "app try",
+      "reason": "keep: a developer tool: runs a pull request's or commit's cmux build in this app to test a change to cmux itself"
     },
     {
-      "verb": "app undo"
+      "verb": "app undo",
+      "reason": "keep: a developer tool: puts back what `app try` replaced"
     },
     {
       "verb": "attach",
@@ -623,13 +651,16 @@
       "verb": "chief adopt"
     },
     {
-      "verb": "chief delete"
+      "verb": "chief delete",
+      "palette": "home.deleteChief"
     },
     {
-      "verb": "chief edit"
+      "verb": "chief edit",
+      "palette": "openSettings"
     },
     {
-      "verb": "chief engine"
+      "verb": "chief engine",
+      "palette": "home.toggleChiefSettings"
     },
     {
       "verb": "chief list",
@@ -648,7 +679,8 @@
       "palette": "home.newChief"
     },
     {
-      "verb": "chief primary"
+      "verb": "chief primary",
+      "palette": "home.setPrimaryChief"
     },
     {
       "verb": "chief shutdown",
@@ -691,10 +723,12 @@
       "reason": "keep: attached-client plumbing (sizing, cell pixels, labels, detach) the TUI and the app's renderer drive"
     },
     {
-      "verb": "closed clear"
+      "verb": "closed clear",
+      "palette": "closed.clear"
     },
     {
-      "verb": "closed delete"
+      "verb": "closed delete",
+      "palette": "closed.delete"
     },
     {
       "verb": "closed list",
@@ -757,10 +791,12 @@
       "reason": "keep: prints a shell completion script to stdout for a shell's setup"
     },
     {
-      "verb": "customize"
+      "verb": "customize",
+      "palette": "customize.open"
     },
     {
-      "verb": "customize apply"
+      "verb": "customize apply",
+      "reason": "keep: a person runs it as `/customize apply` in the chat Customize… (customize.open) opens"
     },
     {
       "verb": "customize brief",
@@ -775,21 +811,24 @@
       "reason": "keep: a read (the preview as text)"
     },
     {
-      "verb": "customize discard"
+      "verb": "customize discard",
+      "reason": "keep: a person runs it as `/customize discard` in the chat Customize… (customize.open) opens"
     },
     {
       "verb": "customize generations",
       "reason": "keep: a read (every generation, newest first)"
     },
     {
-      "verb": "customize keep"
+      "verb": "customize keep",
+      "reason": "keep: a person runs it as `/customize keep` in the chat Customize… (customize.open) opens"
     },
     {
       "verb": "customize library",
       "reason": "keep: a read (the customization library's entries)"
     },
     {
-      "verb": "customize library off"
+      "verb": "customize library off",
+      "palette": "openSettings"
     },
     {
       "verb": "customize library reset"
@@ -803,13 +842,16 @@
       "reason": "keep: a read (the saved profiles)"
     },
     {
-      "verb": "customize revert"
+      "verb": "customize revert",
+      "reason": "keep: a person runs it as `/customize revert` in the chat Customize… (customize.open) opens"
     },
     {
-      "verb": "customize rollback"
+      "verb": "customize rollback",
+      "reason": "keep: a person runs it as `/customize rollback` in the chat Customize… (customize.open) opens"
     },
     {
-      "verb": "customize save"
+      "verb": "customize save",
+      "reason": "keep: a person runs it as `/customize save` in the chat Customize… (customize.open) opens"
     },
     {
       "verb": "customize schema",
@@ -820,10 +862,12 @@
       "reason": "keep: a read (what one generation changed)"
     },
     {
-      "verb": "customize try"
+      "verb": "customize try",
+      "reason": "keep: a person runs it as `/customize try` in the chat Customize… (customize.open) opens"
     },
     {
-      "verb": "customize use"
+      "verb": "customize use",
+      "reason": "keep: a person runs it as `/customize use` in the chat Customize… (customize.open) opens"
     },
     {
       "verb": "daemon ensure",
@@ -878,10 +922,12 @@
       "palette": "remote.forget"
     },
     {
-      "verb": "device revoke"
+      "verb": "device revoke",
+      "palette": "machine.joined.revoke"
     },
     {
-      "verb": "device rotate"
+      "verb": "device rotate",
+      "palette": "machine.joined.rotate"
     },
     {
       "verb": "device show",
@@ -896,7 +942,8 @@
       "reason": "keep: a read for scripts and agents (the app's error journal); the app shows the same state on screen"
     },
     {
-      "verb": "errors clear"
+      "verb": "errors clear",
+      "palette": "errors.clear"
     },
     {
       "verb": "events",
@@ -911,7 +958,8 @@
       "reason": "keep: a read for scripts and agents (branches); the app shows the same state on screen"
     },
     {
-      "verb": "git checkpoint create"
+      "verb": "git checkpoint create",
+      "palette": "git.checkpoint.create"
     },
     {
       "verb": "git checkpoint diff",
@@ -998,16 +1046,20 @@
       "reason": "keep: a `git diff --scope` value in the help's scope table, not a verb"
     },
     {
-      "verb": "git worktree apply"
+      "verb": "git worktree apply",
+      "palette": "git.worktree.apply"
     },
     {
-      "verb": "git worktree create"
+      "verb": "git worktree create",
+      "palette": "git.worktree.create"
     },
     {
-      "verb": "git worktree remove"
+      "verb": "git worktree remove",
+      "palette": "git.worktree.remove"
     },
     {
-      "verb": "git worktree setup"
+      "verb": "git worktree setup",
+      "reason": "keep: a read for scripts and agents (a new worktree's setup state and log)"
     },
     {
       "verb": "github credential erase",
@@ -1045,14 +1097,16 @@
       "palette": "agent.harness.doctor"
     },
     {
-      "verb": "harness enable"
+      "verb": "harness enable",
+      "palette": "agentPane.switchModel"
     },
     {
       "verb": "harness guide",
       "reason": "keep: prints the harness integration guide for an agent; the palette's Integrate a Harness with an Agent… (palette.addHarness) is the person's row"
     },
     {
-      "verb": "harness icon"
+      "verb": "harness icon",
+      "palette": "agent.harness.setIcon"
     },
     {
       "verb": "harness install",
@@ -1087,7 +1141,8 @@
       "palette": "palette.quickAgentChat"
     },
     {
-      "verb": "harness secret"
+      "verb": "harness secret",
+      "reason": "keep: stores a secret value for a harness env key, read from a hidden prompt or stdin and never from a command line; the palette has no hidden text field, so the value never goes into it"
     },
     {
       "verb": "history clear-range",
@@ -1102,7 +1157,8 @@
       "reason": "keep: removes entries by the ids `history list` prints; a person removes entries in Show History (history.show)"
     },
     {
-      "verb": "history remove-site"
+      "verb": "history remove-site",
+      "palette": "history.removeSite"
     },
     {
       "verb": "history restore",
@@ -1253,10 +1309,12 @@
       "reason": "keep: a read for scripts and agents (the machine catalog); the app shows the same state on screen"
     },
     {
-      "verb": "machine revoke"
+      "verb": "machine revoke",
+      "palette": "machine.joined.revoke"
     },
     {
-      "verb": "machine rotate"
+      "verb": "machine rotate",
+      "palette": "machine.joined.rotate"
     },
     {
       "verb": "machine show",
@@ -1454,7 +1512,8 @@
       "palette": "workspace.moveToSpace"
     },
     {
-      "verb": "room unpin"
+      "verb": "room unpin",
+      "palette": "workspace.unpinFromSpace"
     },
     {
       "verb": "room update",
@@ -1769,7 +1828,8 @@
       "palette": "machine.add"
     },
     {
-      "verb": "setup mcp"
+      "verb": "setup mcp",
+      "reason": "keep: setup an agent runs for the person (`cmux setup`, from an agent): gives Claude Code and Codex outside cmux the cmux MCP server"
     },
     {
       "verb": "setup notifications",
@@ -1780,10 +1840,12 @@
       "reason": "keep: a read for scripts and agents (setup checks); the app shows the same state on screen"
     },
     {
-      "verb": "setup tailnet"
+      "verb": "setup tailnet",
+      "reason": "keep: setup an agent runs for the person (`cmux setup`, from an agent): serves this machine to the person's other machines (`cmux host enable`)"
     },
     {
-      "verb": "setup trust"
+      "verb": "setup trust",
+      "reason": "keep: setup an agent runs for the person (`cmux setup`, from an agent): records the person's trust for a folder"
     },
     {
       "verb": "skill show",
@@ -2011,7 +2073,8 @@
       "verb": "terminal project"
     },
     {
-      "verb": "terminal resume"
+      "verb": "terminal resume",
+      "palette": "history.resumeAgentSession"
     },
     {
       "verb": "terminal run",
@@ -2058,7 +2121,8 @@
       "reason": "keep: short-lived VM API access tokens for a process, no app; nothing for a person to pick"
     },
     {
-      "verb": "vm archive-machine"
+      "verb": "vm archive-machine",
+      "palette": "palette.openCloudPane"
     },
     {
       "verb": "vm client-session create",
@@ -2085,7 +2149,8 @@
       "palette": "palette.cloud.fork"
     },
     {
-      "verb": "vm keep-machine"
+      "verb": "vm keep-machine",
+      "palette": "palette.openCloudPane"
     },
     {
       "verb": "vm key",
@@ -2131,7 +2196,8 @@
       "verb": "vm secret rm"
     },
     {
-      "verb": "vm secret set"
+      "verb": "vm secret set",
+      "reason": "keep: stores a secret value, read from a hidden prompt or stdin and never from a command line; the palette has no hidden text field, so the value never goes into it"
     },
     {
       "verb": "vm show",
