@@ -171,6 +171,47 @@ import Testing
         await bound.value
     }
 
+    /// A Cloud machine's chats (CLOUD-4): a chat the phone was asked to open that is not in the
+    /// first page is not reported unavailable while the older pages are read; it opens when its
+    /// page lands. Only a chat missing from the whole list is unavailable.
+    @Test func aPreferredOlderChatIsNotUnavailableUntilTheWholeListIsRead() async throws {
+        let mac = Self.mac()
+        defer { mac.release() }
+        let hub = AcpmuxHub()
+        let events = Events(hub)
+        let bound = Task { await hub.bind(mac) }
+        #expect(await hub.waitUntilReady(timeout: Self.readyWait, clock: ContinuousClock()))
+        #expect(hub.sessions["s200"] == nil && !hub.listWhole)
+        #expect(!CloudChatList.preferredUnavailable("s200", sessions: hub.sessions, listWhole: hub.listWhole, opened: false))
+        #expect(!CloudChatList.preferredUnavailable("gone", sessions: hub.sessions, listWhole: hub.listWhole, opened: false))
+
+        mac.release()
+        #expect(await events.loaded(atLeast: 250) == 250)
+        #expect(hub.listWhole)
+        #expect(hub.sessions["s200"] != nil)
+        #expect(!CloudChatList.preferredUnavailable("s200", sessions: hub.sessions, listWhole: hub.listWhole, opened: false))
+        #expect(CloudChatList.preferredUnavailable("gone", sessions: hub.sessions, listWhole: hub.listWhole, opened: false))
+        await bound.value
+    }
+
+    /// A read of older chats that stopped short never reports the asked-for chat unavailable: it
+    /// may be on a page not read; the list's end offers Try Again instead.
+    @Test func aStoppedReadNeverReportsThePreferredChatUnavailable() async throws {
+        let mac = HeldPagesChannel(watch: #"{"sessions":[\#(Self.rows(0..<100))],"nextCursor":"c1"}"#, pages: ["c1": "{}"])
+        mac.release()
+        let hub = AcpmuxHub()
+        let events = Events(hub)
+        let bound = Task { await hub.bind(mac) }
+        #expect(await hub.waitUntilReady(timeout: Self.readyWait, clock: ContinuousClock()))
+        await events.loads(2)
+        #expect(hub.listRestStopped && !hub.listWhole)
+        #expect(!CloudChatList.preferredUnavailable("s200", sessions: hub.sessions, listWhole: hub.listWhole, opened: false))
+        #expect(CloudChatList.edge(hasOlder: false, listWhole: hub.listWhole, restStopped: hub.listRestStopped)
+                == .failed(String(localized: "Couldn't load older chats.")))
+        await bound.value
+        await hub.bind(nil)
+    }
+
     /// A chat a notice told while the rest was read keeps the notice's newer state, and one
     /// purged then does not come back with its page.
     @Test func noticesDuringTheRestWinOverItsPages() async throws {

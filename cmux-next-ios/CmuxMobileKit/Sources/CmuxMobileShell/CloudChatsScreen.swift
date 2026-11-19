@@ -227,8 +227,8 @@ private struct CloudMachineChatsScreen: View {
             if relay?.isRetired == true {
                 ContentUnavailableView("Chat unavailable", systemImage: "bubble.left")
             } else if let relay, relay.hub.isReady {
-                // Until the whole list is read (it comes in pages, CMUX-563) an older chat may still be on its way.
-                if let preferredSession, !openedPreferred, relay.hub.listWhole, relay.hub.sessions[preferredSession] == nil {
+                if CloudChatList.preferredUnavailable(preferredSession, sessions: relay.hub.sessions,
+                                                      listWhole: relay.hub.listWhole, opened: openedPreferred) {
                     ContentUnavailableView("Chat unavailable", systemImage: "bubble.left",
                                            description: Text("This chat is no longer listed on this Cloud machine."))
                 } else {
@@ -379,7 +379,7 @@ struct CloudChatsListState: Equatable {
     init(newestFirst chats: [CloudChatsListItem], listWhole: Bool, restStopped: Bool, shown: Int) {
         rows = Array(chats.prefix(shown))
         hasOlder = chats.count > shown
-        edge = Self.edge(hasOlder: hasOlder, listWhole: listWhole, restStopped: restStopped)
+        edge = CloudChatList.edge(hasOlder: hasOlder, listWhole: listWhole, restStopped: restStopped)
     }
 
     /// The machine's own chats in the hub, newest first (``CloudChatList``).
@@ -388,15 +388,7 @@ struct CloudChatsListState: Equatable {
         let listed = CloudChatList.newest(hub.sessions.values, shown: shown)
         rows = listed.rows.map(CloudChatsListItem.init)
         hasOlder = listed.hasOlder
-        edge = Self.edge(hasOlder: hasOlder, listWhole: hub.listWhole, restStopped: hub.listRestStopped)
-    }
-
-    /// More chats held than shown: `.more`. All shown: the end once the hub read the whole list,
-    /// Try Again if its read stopped short, else a spinner while it reads.
-    static func edge(hasOlder: Bool, listWhole: Bool, restStopped: Bool) -> PagedListEdge {
-        if hasOlder { return .more }
-        if listWhole { return .end }
-        return restStopped ? .failed(String(localized: "Couldn't load older chats.")) : .loading
+        edge = CloudChatList.edge(hasOlder: hasOlder, listWhole: hub.listWhole, restStopped: hub.listRestStopped)
     }
 }
 
