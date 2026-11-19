@@ -502,7 +502,11 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux' && (contains(inputs.promote_nightly_next_sha, 'tick:') || github.triggering_actor != 'github-actions[bot]')
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
     environment: nightly-next-promote
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    # The nightly's own trusted signing Mac, never Blacksmith: on 2026-11-18/19 this job waited 2 h and more for
+    # blacksmith-2vcpu-ubuntu-2404 under Blacksmith's vCPU cap (runs 44383413358, 44464446030), and no nightly
+    # moved. glaeda admits it there as a signing job (main's nightly.yml dispatch, the exclusive class), so no
+    # PR job runs beside the release App key; the claim step below refuses the key without that.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_SIGN_RUNNER || 'glaeda-trusted-next-signing' }}
     # One header-directed quota-reset wait (at most 65m), then the guard/move.
     timeout-minutes: 75
     permissions:
@@ -527,8 +531,13 @@ jobs:
           sparse-checkout: |
             scripts/ci/promote-nightly-next.mjs
             scripts/ci/nightly_next_train.py
+            scripts/ci/signing-runner-claim.sh
             .github/release-surface.txt
           sparse-checkout-cone-mode: false
+
+      # Before any App key: on an owned Mac the job must hold the whole mini (glaeda's exclusive class).
+      - name: Claim the whole Mac for the release App key
+        run: bash scripts/ci/signing-runner-claim.sh
 
       # Reads in the promotion decision use the quota-isolated route App when
       # available. The release App below still owns the protected branch move;
