@@ -105,6 +105,18 @@
         "blacksmith-16vcpu-ubuntu-2404"
       ]
     },
+    "canary_fleet_linux": {
+      "why": "Five-minute runner-start canary for the owned Linux fleet",
+      "members": ["cmux-fleet-linux-x64"]
+    },
+    "canary_freestyle_linux": {
+      "why": "Five-minute runner-start canary for Freestyle Linux",
+      "members": ["cmux-freestyle-linux-x64"]
+    },
+    "canary_lane_build_linux": {
+      "why": "Five-minute runner-start canary for GCP lane-build Linux",
+      "members": ["cmux-gcp-lane-build-x64"]
+    },
     "linux_2": {
       "why": "One-minute control and comment jobs measured at 2 vCPU. A job that used to end in a literal 2 vCPU label reads this pool, so a stalled 2 vCPU size moves it to 4 vCPU by declaration, not by a YAML edit (Leo, 2026-10-28: \"Where the f***ing are the generalized solution to all these problems that these incessant pins?\")",
       "members": [
