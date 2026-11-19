@@ -42,4 +42,11 @@ public final class ObservationWork: Sendable {
         guard let current else { return }
         current.visits.withLock { $0["\(step)", default: 0] += count }
     }
+
+    /// `items` as they are, after `step` visited each of them (``visited(_:_:)`` with their count): for a map
+    /// that makes one part for each item of a list, so a test reads how many parts one change made.
+    package static func counted<Item>(_ items: [Item], _ step: StaticString) -> [Item] {
+        visited(items.count, step)
+        return items
+    }
 }

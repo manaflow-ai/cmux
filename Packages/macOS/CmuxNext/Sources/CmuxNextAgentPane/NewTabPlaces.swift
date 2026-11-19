@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextDaemon
 
 /// The places a New Tab page's bar suggests: the open tabs and other workspaces a jump lands
@@ -115,7 +116,7 @@ public struct NewTabPlaces {
     public func rows(_ workspace: Source, machine: String? = nil) -> Rows {
         var folders: [String] = []
         for folder in workspace.tabs.compactMap(\.cwd) where folder != home && !folders.contains(folder) { folders.append(folder) }
-        let tabs = workspace.tabs.compactMap { tab in
+        let tabs = ObservationWork.counted(workspace.tabs, "NewTabPlaces.tabParts").compactMap { tab in
             place(tab).map { place in
                 AgentPaneOmnibar.Tab(id: tab.id, kind: place.kind, title: place.title, detail: place.detail, workspace: workspace.name)
             }

@@ -16,7 +16,7 @@ struct HomeAgentGlances {
     /// terminals whose agent reported through a hook while the terminal lives. A chat still on its New Tab page is not
     /// an agent yet. Title and status come from `TabItemMapping`, the strip's own mapping, so Home says what it shows.
     func glances(in workspace: WorkspaceModel) -> [HomeAgentGlance] {
-        workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab -> HomeAgentGlance? in
+        ObservationWork.counted(workspace.screens.flatMap(\.panes).flatMap(\.tabs), "HomeAgentGlances.tabParts").compactMap { tab -> HomeAgentGlance? in
             let isChat = tab.agentSession != nil
             guard isChat ? !RestoredNewTabPages.shows(tab, in: services.agentTabs) : tab.agent != nil && !tab.dead else { return nil }
             let glance = TabItemMapping.shared.glance(tab, fallbackTitle: isChat ? AgentChatTabTitle.untitled(tab.agentSession, workspaceName: AgentChatTabTitle.workspaceName(workspace)) : Strings.untitledTerminal)
