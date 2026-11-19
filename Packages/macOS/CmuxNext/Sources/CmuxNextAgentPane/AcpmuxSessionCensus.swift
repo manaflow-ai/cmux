@@ -17,6 +17,9 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
     /// Sessions whose composer holds unsent text (acpmux's `hasDraft`), the Chief's included: Update
     /// When Idle waits for them.
     public var drafts = 0
+    /// Sessions with no turn open whose background work runs (acpmux's `workingBelow`): a background subagent,
+    /// a harness background process or a sub-session at work. Update When Idle counts them as working.
+    public var workingBelow = 0
 
     /// The tag key on every Home Chief turn and compactor session (value:
     /// the home id), agreed with the chief lane. Untagged Chief sessions are
@@ -41,6 +44,8 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
             let live = ["ready", "running", "waiting"].contains(status)
             let working = status == "running" || status == "waiting"
             if summary["hasDraft"] as? Bool == true { census.drafts += 1 }
+            // Background subagents, background processes or sub-sessions at work with no turn open.
+            if summary["workingBelow"] as? Bool == true, !working { census.workingBelow += 1 }
             if isChief(summary) {
                 if working { census.chiefInTurn = true }
                 continue

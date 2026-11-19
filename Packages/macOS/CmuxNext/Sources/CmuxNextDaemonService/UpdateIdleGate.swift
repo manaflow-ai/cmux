@@ -31,8 +31,10 @@ public final class UpdateIdleGate {
         guard let daemon else { return .unknown }
         let blockers = activity.applying(to: daemon.currentRelaunchBlockers(quietInput: nil))
         if let census = activity.census, !blockers.daemonStateUnavailable, let newChats = newChatDrafts() {
-            // The app's chats (the tab mirror) and every turn of this Mac's acpmux, the Chief's included.
-            facts.runningTurns = max(blockers.busyAgentCount, census.inTurn + (census.chiefInTurn ? 1 : 0))
+            // The app's chats (the tab mirror) and every turn of this Mac's acpmux, the Chief's included, and every
+            // session whose background subagents or sub-sessions still work with no turn open: the relaunch's daemon
+            // handover restarts such an agent (`stale_host_respawn.rs`), which would end that work.
+            facts.runningTurns = max(blockers.busyAgentCount, census.inTurn + (census.chiefInTurn ? 1 : 0) + census.workingBelow)
             facts.unsentDrafts = census.drafts + newChats
         }
         return rules.updateIdleHold(facts)

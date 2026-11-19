@@ -72,6 +72,19 @@ impl Hub {
     /// A turn or permission an adopted host's recovery rebuilt (`hosts.rs` `recover_work`) counts
     /// like a live one: it sets `session.turn` (and holds `turn_lock` until the answer), registers
     /// the permission as pending, and moves the status off ready.
+    /// Work runs below `session` that its harness's exit would end, with or without a turn open
+    /// (the summary's `workingBelow`, which an app update that installs when idle waits for).
+    pub(super) fn holds_work_below(&self, session: &Session) -> bool {
+        // A harness's own background process (a dev server, a watcher) ends with the harness:
+        // never reap it for idleness. A task the daemon owns (`bg_tasks.rs`) is not in this
+        // table and outlives the harness.
+        self.any_process_running(session)
+            // A background subagent, which the harness's exit would end too.
+            || session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
+            // A sub-session or background subagent at work (`work_below.rs`).
+            || session.work_below_since.lock().map_or(false, |v| *v != 0)
+    }
+
     pub(super) fn idle_eligible(&self, session: &Session) -> bool {
         !self.stopping.load(Ordering::SeqCst)
             && matches!(session.status(), SessionStatus::Ready | SessionStatus::Idle)
@@ -81,18 +94,11 @@ impl Hub {
             && !self.secrets.waiting_in(&session.id)
             && session.queued() == 0
             && session.pending_permissions().is_empty()
-            // A harness's own background process (a dev server, a watcher) ends with the
-            // harness: never reap it for idleness. A task the daemon owns (`bg_tasks.rs`) is not
-            // in this table and outlives the harness.
-            && !self.any_process_running(session)
-            // Nor a background subagent, which the harness's exit would end too.
-            && session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() == 0
+            && !self.holds_work_below(session)
             // Nor one whose agent waits on a request of its own (a permission not shown yet).
             && session.agent_requests.load(Ordering::SeqCst) == 0
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
             && !self.continuation_pending(session)
-            // Nor one with a sub-session or background subagent at work (`work_below.rs`).
-            && session.work_below_since.lock().map_or(true, |v| *v == 0)
             // A Claude chat with turns but none stored would wake as a fresh conversation with
             // its transcript restored into the prompt (`claude_resume_refusal`): kept awake.
             && !(session.meta().claude_unstored && session.meta().turn_count > 0)
