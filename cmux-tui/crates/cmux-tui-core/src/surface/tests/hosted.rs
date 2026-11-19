@@ -1496,6 +1496,13 @@ fn a_settled_viewer_size_skips_the_duplicate_barrier() {
     let pty = surface.as_pty().expect("a terminal");
     surface.resize(80, 24).expect("the initial viewer size was sent");
     host.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let initial = crate::terminal_host_protocol::read_frame(
+        &mut host,
+        crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+    )
+    .expect("read the initial viewer size")
+    .expect("the hosted connection remains open");
+    assert_eq!(initial.kind, MessageKind::ViewerSize);
     let started = Instant::now();
     assert!(surface.settle_hosted_viewer_size(Instant::now() + Duration::from_millis(200)));
     assert!(
