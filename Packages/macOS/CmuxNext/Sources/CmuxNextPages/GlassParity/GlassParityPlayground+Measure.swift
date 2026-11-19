@@ -44,7 +44,10 @@ extension GlassParityPlayground {
             solo(column)
             await settle()
             let png = directory.appending(path: "window-\(stem)-\(column.rawValue).png", directoryHint: .notDirectory)
-            snapshots[column.rawValue] = await capture(["window": .string(String(window.windowNumber)), "path": .string(png.path)])
+            // `chromium_pages: false`: the window server's composite already holds the Chromium page (its child window);
+            // painting Chromium's own image over it again drew its text and row fills twice, a pixel apart.
+            snapshots[column.rawValue] = await capture(["window": .string(String(window.windowNumber)), "path": .string(png.path),
+                                                        "chromium_pages": .bool(false)])
             shots[column.rawValue] = png
         }
         solo(nil)
@@ -83,10 +86,19 @@ extension GlassParityPlayground {
         const pick = (s) => ({ bg: s.backgroundColor, image: s.backgroundImage.slice(0, 160),
           backdrop: s.backdropFilter || s.webkitBackdropFilter || '', filter: s.filter, shadow: s.boxShadow.slice(0, 160),
           border: s.borderTopWidth + ' ' + s.borderTopStyle + ' ' + s.borderTopColor, opacity: s.opacity, radius: s.borderTopLeftRadius });
-        return JSON.stringify({ root: Object.assign({}, document.documentElement.dataset),
+        const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map((v) => Math.round(v * 100) / 100); };
+        const text = (e) => e && (({ color, fontFamily, fontSize, fontWeight, lineHeight, webkitFontSmoothing }) =>
+          ({ color, fontFamily: fontFamily.slice(0, 80), fontSize, fontWeight, lineHeight, smoothing: webkitFontSmoothing, box: box(e) }))(getComputedStyle(e));
+        const vars = getComputedStyle(document.documentElement);
+        return JSON.stringify({ root: Object.assign({}, document.documentElement.dataset), dpr: devicePixelRatio,
+          vars: Object.fromEntries(['--cmux-text', '--cmux-text-secondary', '--cmux-hover', '--cmux-pressed', '--cmux-row-focus']
+            .map((name) => [name, vars.getPropertyValue(name).trim()])),
           cells: [...document.querySelectorAll('.glass-parity-surface')].map((e) => ({ kind: e.dataset.parityKind,
-            drawn: e.getAttribute('data-host-glass-drawn'), self: pick(getComputedStyle(e)),
-            before: pick(getComputedStyle(e, '::before')), after: pick(getComputedStyle(e, '::after')) })) });
+            drawn: e.getAttribute('data-host-glass-drawn'), self: pick(getComputedStyle(e)), box: box(e),
+            before: pick(getComputedStyle(e, '::before')), after: pick(getComputedStyle(e, '::after')),
+            title: text(e.querySelector('.glass-parity-title')), detail: text(e.querySelector('.glass-parity-detail')),
+            row: e.querySelector('.glass-parity-row') && { ...pick(getComputedStyle(e.querySelector('.glass-parity-row'))),
+              box: box(e.querySelector('.glass-parity-row')), uiRow: getComputedStyle(e.querySelector('.glass-parity-row')).getPropertyValue('--ui-row').trim() } })) });
         """
         guard let text = await page.callPageFunction(script) as? String, let value = try? JSONValue.parse(Data(text.utf8)) else {
             return .null
