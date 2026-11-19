@@ -258,7 +258,7 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         const gone = new Set((d.value.repos_removed ?? []).map((r) => r.toLowerCase()))
         const repos = c.resources?.repos
         // A recorded list loses the repositories that left the installation and gains the ones the linking user is
-        // proven to reach (connection-do.ts githubReposAdded), up to the cap; `null` (the whole installation) stays.
+        // proven to reach (integrations/github-handoffs.ts githubReposAdded), up to the cap; `null` (the whole installation) stays.
         const byName = new Map<string, string>()
         for (const r of [...(repos ?? []), ...(d.value.repos_added ?? [])]) if (!gone.has(r.toLowerCase()) && !byName.has(r.toLowerCase())) byName.set(r.toLowerCase(), r)
         const kept = Array.isArray(repos) ? [...byName.values()].sort().slice(0, MAX_LINKED_REPOS) : repos
@@ -309,6 +309,10 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         const linked = state.connections[d.value.request]
         if (!r) return linked ? { ok: true, state, value: linked, changed: false } : reject("selector.not_found", "request not found")
         if (linked || !state.owner) return reject("validation.invalid", "request id in use")
+        const { [r.id]: _done, ...rest } = state.github_requests ?? {}
+        // The team already has this installation (the person connected it meanwhile): the request is served by it.
+        const existing = Object.values(state.connections).find((x) => x.account?.key === d.value.account.key && x.status !== "revoked" && x.status !== "expired")
+        if (existing) return { ok: true, state: { ...state, github_requests: rest }, value: existing }
         if (!providerAllowed(policyOf(state), "github")) return reject("policy.denied", "the team policy does not allow github")
         if (Object.values(state.connections).filter((x) => x.status !== "revoked" && x.status !== "expired").length >= MAX_CONNECTIONS) return reject("integration.limit", `at most ${MAX_CONNECTIONS} connections per team`)
         const c: Connection = {
@@ -325,7 +329,6 @@ export const connectionsDomain: Domain<ConnectionsState> = {
           created_at: ctx.now,
           updated_at: ctx.now
         }
-        const { [r.id]: _done, ...rest } = state.github_requests ?? {}
         return { ok: true, state: { ...state, connections: { ...state.connections, [c.id]: c }, github_requests: rest }, value: c, outbox: [outbox(c)] }
       }
 

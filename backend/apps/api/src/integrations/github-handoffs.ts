@@ -167,6 +167,16 @@ export const githubRequestApproved = async (h: HandoffHost, request: string, eve
   if (!r?.github_user || userIdOf(p.requester) !== r.github_user.id || typeof installation !== "number" || !Number.isSafeInteger(installation) || installation <= 0 || typeof login !== "string" || login.length === 0) return "dropped"
   const policy = policyOf(h.state())
   const seen = (reason: string) => (h.submit("connection.github.request_seen", { request, account: login.slice(0, 100), reason }, `gh-request-seen:${request}:${event.delivery_id}`), "seen" as const)
+  const url = p.installation?.account?.html_url
+  const account = { key: `github:installation:${installation}`, name: login, ...(typeof url === "string" ? { url } : {}) }
+  const perms = p.installation?.permissions
+  const scopes_granted = perms && typeof perms === "object" ? githubScopesOf(perms as Record<string, unknown>) : []
+  // The team connected this installation meanwhile: that connection serves the request (no second credential or route).
+  if (Object.values(h.state().connections).some((x) => x.account?.key === account.key && x.status !== "revoked" && x.status !== "expired")) {
+    const served = h.submit("connection.github.approved", { request, account, scopes_granted, resources: { repos: [] } }, `gh-approved:${request}`)
+    if (served.rejected === undefined) await dropRequesterLink(h, r)
+    return served.rejected === undefined ? "linked" : "dropped"
+  }
   if (!providerAllowed(policy, "github") || !github.configured(h.env) || !h.env.INTEGRATIONS_KEK) return seen("GitHub is not available to this team")
   if (policy.github.require_org_admin) return seen(`the team policy requires a ${login} organization admin to link GitHub`)
   let repos: Array<string> | null = null
@@ -176,8 +186,7 @@ export const githubRequestApproved = async (h: HandoffHost, request: string, eve
     repos = (await reachableBy(h.env, h.http, installation, r.github_user.id, listed)).reachable
     if (repos.length === 0) return seen(`the installation on ${login} includes no repository you can reach`)
   }
-  const url = p.installation?.account?.html_url
-  const account = { key: `github:installation:${installation}`, name: login, ...(typeof url === "string" ? { url } : {}) }
+  const params = { request, account, scopes_granted, resources: { repos } }
   const now = Date.now()
   const shape: Connection = { id: request, owner: h.team, created_by: r.requested_by, provider: "github", account, scopes_requested: [...r.scopes_requested], scopes_granted: [], status: "pending", sharing: r.sharing, created_at: now, updated_at: now }
   // As ConnectionDO.complete: route webhooks, seal, then commit; a refused commit undoes both.
@@ -188,8 +197,7 @@ export const githubRequestApproved = async (h: HandoffHost, request: string, eve
     await h.index(account.key).remove(h.team, request).catch(() => undefined)
     throw e
   }
-  const perms = p.installation?.permissions
-  const res = h.submit("connection.github.approved", { request, account, scopes_granted: perms && typeof perms === "object" ? githubScopesOf(perms as Record<string, unknown>) : [], resources: { repos } }, `gh-approved:${request}`)
+  const res = h.submit("connection.github.approved", params, `gh-approved:${request}`)
   if (res.rejected !== undefined) {
     h.dropCredential(request)
     await h.index(account.key).remove(h.team, request).catch(() => undefined)

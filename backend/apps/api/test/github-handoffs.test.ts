@@ -130,6 +130,17 @@ describe("GitHub handoffs", { timeout: 60_000 }, () => {
     expect((await testEnv.ACCOUNT_INDEX_DO.get(testEnv.ACCOUNT_INDEX_DO.idFromName(requesterKey(7))).list()).filter((l: { team: string }) => l.team === a.team)).toEqual([])
   })
 
+  it("an approval for an installation the team connected meanwhile is served by that connection, not a second one", async () => {
+    const a = await signedInWithInstall("gh-handoff-approval-served", "cli")
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => void (instance.http = approvingGitHub().http))
+    await requestInstall(a.session)
+    await linkGitHub(a.session, a.team)
+    const served = created({ id: 7, login: "linker" }, { installation: { id: 99, account: { login: "acme" }, permissions: { contents: "write" }, repository_selection: "selected" }, repositories: [{ full_name: "acme/web" }] })
+    expect((await hook("installation", served)).approved).toBe(1)
+    expect((await githubRows(a.session)).filter((c) => c.status === "active").map((c) => c.account.name)).toEqual(["acme"])
+    expect((await status(a.installToken, a.team)).pending_approval).toBeNull()
+  })
+
   it("an approval the team policy will not link by itself, or a request GitHub sent without a code, leaves Connect GitHub to the person", async () => {
     const a = await signedInWithInstall("gh-handoff-approval-admin", "cli")
     const gh = approvingGitHub()
