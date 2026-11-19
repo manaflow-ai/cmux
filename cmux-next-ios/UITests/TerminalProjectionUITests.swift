@@ -74,6 +74,191 @@ final class TerminalProjectionUITests: XCTestCase {
         run(macGrid: "39x26", name: "39x26")
     }
 
+    /// Leo, 2026-11-17: "Surely we can just calculate a f***ing terminal and
+    /// resize whatever needs exceptions when it comes / Fall back if need be".
+    ///
+    /// The demo's `altproj` phase: htop already running in a Mac pane of
+    /// 120x40 that answers a claim 60 ms later. The phone attaches into it,
+    /// is rotated, pinched and double tapped, and shows and hides the
+    /// keyboard: none of it may resize the Mac (the phone shows the Mac's
+    /// grid, zoomed). Then `abc` is typed into htop: exactly one claim (the
+    /// phone fits htop), `q` releases it, and htop started again fits at once,
+    /// with no frame of it at a grid other than its final one.
+    @MainActor
+    func testAlternateScreenIsZoomedNotResizedAndTypingFitsOnce() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
+                                "-CmuxMobileTerminalDemoPhases", "altproj"]
+        if let chrome = ProcessInfo.processInfo.environment["CMUX_ZOOM_CHROME"] {
+            app.launchArguments += ["-CmuxMobileTerminalZoomChrome", chrome]
+        }
+        app.launch()
+        let probe = app.staticTexts["debug.terminal-demo"]
+        XCTAssertTrue(probe.waitForExistence(timeout: 30), "the terminal demo's step label\n\(app.debugDescription)")
+
+        struct Alt: CustomStringConvertible {
+            var mac = 0, claims = 0, replayBytes = 0, settleMs = -1, unsettled = 0, gestures = 0, zoom = 100, columns = -1
+            var description: String {
+                "mac PTY resizes \(mac), claims+releases \(claims), replay bytes \(replayBytes), settle \(settleMs) ms, "
+                    + "frames at a grid not final \(unsettled), zoom gestures \(gestures), zoom \(zoom)%, columns \(columns)"
+            }
+            func since(_ b: Alt) -> Alt {
+                Alt(mac: mac - b.mac, claims: claims - b.claims, replayBytes: replayBytes - b.replayBytes, settleMs: settleMs,
+                    unsettled: unsettled - b.unsettled, gestures: gestures - b.gestures, zoom: zoom, columns: columns)
+            }
+        }
+        func parse(_ label: String) -> (stage: String, Alt)? {
+            let parts = label.split(separator: ".")
+            guard parts.count >= 9, parts[0] == "a" else { return nil }
+            var out = Alt()
+            for part in parts.dropFirst(2) {
+                func int(_ prefix: String) -> Int? { part.hasPrefix(prefix) ? Int(part.dropFirst(prefix.count)) : nil }
+                if let n = int("mac") { out.mac = n }
+                if let n = int("cl") { out.claims = n }
+                if let n = int("rb") { out.replayBytes = n }
+                if let n = int("st") { out.settleMs = n }
+                if let n = int("uf") { out.unsettled = n }
+                if let n = int("zg") { out.gestures = n }
+                if let n = int("zs") { out.zoom = n }
+                if let n = int("cols") { out.columns = n }
+            }
+            return (String(parts[1]), out)
+        }
+        func wait(for stage: String, timeout: TimeInterval = 90) -> Alt? {
+            let deadline = Date().addingTimeInterval(timeout)
+            while Date() < deadline {
+                if let (now, counts) = parse(probe.label), now == stage { return counts }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            }
+            return nil
+        }
+        func now() -> Alt? {
+            RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+            return parse(probe.label)?.1
+        }
+        func shot(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "altproj-\(name)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        var rows: [(String, Alt)] = []
+        guard let attached = wait(for: "attach") else { return XCTFail("htop never settled: \(probe.label)") }
+        rows.append(("attach into htop", attached))
+        shot("attach-fit-width")
+        var last = attached
+        func step(_ name: String) {
+            guard let counts = now() else { return }
+            rows.append((name, counts.since(last)))
+            last = counts
+        }
+        guard wait(for: "gestures", timeout: 20) != nil else { return XCTFail("no gestures stage: \(probe.label)") }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        step("rotate to landscape")
+        shot("landscape")
+        XCUIDevice.shared.orientation = .portrait
+        step("rotate back")
+        let terminal = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+        terminal.doubleTap()
+        step("double tap (readable)")
+        shot("readable")
+        app.pinch(withScale: 1.8, velocity: 1.5)
+        step("pinch out (zoomed)")
+        shot("zoomed")
+        // One finger pans the zoomed grid; it never reaches htop.
+        terminal.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)))
+        step("one-finger pan")
+        shot("zoomed-panned")
+        // On the app's own area: a pinch in on the whole window starts its
+        // fingers outside the terminal (status bar, key bar), where the zoom
+        // never sees them.
+        let tuiArea = app.otherElements["terminal.tuiClip"].firstMatch
+        let pinchTarget: XCUIElement = tuiArea.exists ? tuiArea : app
+        print("projection ui: altproj: pinch in on \(tuiArea.exists ? "the terminal area" : "the window")")
+        pinchTarget.pinch(withScale: 0.5, velocity: -1)
+        pinchTarget.pinch(withScale: 0.5, velocity: -1)
+        step("pinch in (fit width)")
+        shot("fit-width-again")
+        guard let gestured = wait(for: "gestured") else { return XCTFail("the demo never left the gestures stage: \(probe.label)") }
+        rows.append(("(stage end)", gestured.since(last)))
+        last = gestured
+        guard let keyboard = wait(for: "kb") else { return XCTFail("the keyboard toggles never ended: \(probe.label)") }
+        rows.append(("keyboard show and hide", keyboard.since(last)))
+        last = keyboard
+        guard let typed = wait(for: "typed") else { return XCTFail("typing never settled: \(probe.label)") }
+        rows.append(("type abc into htop", typed.since(last)))
+        last = typed
+        shot("typed-fitted")
+        guard let quit = wait(for: "quit") else { return XCTFail("q never landed: \(probe.label)") }
+        rows.append(("q (htop exits)", quit.since(last)))
+        last = quit
+        guard let again = wait(for: "again") else { return XCTFail("htop never started again: \(probe.label)") }
+        rows.append(("htop again (remembered)", again.since(last)))
+        shot("again-remembered")
+
+        for (name, counts) in rows {
+            print("projection ui: altproj: \(name): \(counts)")
+            XCTContext.runActivity(named: "altproj \(name): \(counts)") { _ in }
+        }
+        let attachment = XCTAttachment(string: rows.map { "projection ui: altproj: \($0.0): \($0.1)" }.joined(separator: "\n"))
+        attachment.name = "projection-ui altproj " + rows.map {
+            "\($0.0)=mac\($0.1.mac).cl\($0.1.claims).rb\($0.1.replayBytes).st\($0.1.settleMs).uf\($0.1.unsettled).zg\($0.1.gestures).zs\($0.1.zoom).cols\($0.1.columns)"
+        }.joined(separator: " | ")
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        let named = Dictionary(rows.map { ($0.0, $0.1) }, uniquingKeysWith: { a, _ in a })
+        XCTAssertEqual(attached.mac, 0, "attaching into htop resized the Mac (\(attached))")
+        XCTAssertEqual(attached.columns, 120, "htop is shown at the Mac's grid (\(attached))")
+        for name in ["rotate to landscape", "rotate back", "double tap (readable)", "pinch out (zoomed)", "one-finger pan",
+                     "pinch in (fit width)", "(stage end)", "keyboard show and hide"] {
+            guard let counts = named[name] else { continue }
+            XCTAssertEqual(counts.mac, 0, "\(name) resized the Mac (\(counts))")
+        }
+        XCTAssertGreaterThanOrEqual(gestured.gestures, 3, "pinch and double tap zoomed (\(gestured))")
+        XCTAssertEqual(named["type abc into htop"]?.mac, 1, "typing into htop fits it with exactly one resize")
+        XCTAssertLessThan(named["type abc into htop"]?.columns ?? 120, 120, "fitted: htop at the phone's columns")
+        XCTAssertEqual(named["q (htop exits)"]?.mac, 1, "htop exiting releases the phone's grid")
+        XCTAssertEqual(named["htop again (remembered)"]?.mac, 1, "htop again fits at once (remembered)")
+        XCTAssertEqual(named["htop again (remembered)"]?.unsettled, 0, "no frame of htop at the Mac's grid before it fits")
+        XCTAssertLessThan(again.columns, 120, "htop again is at the phone's columns")
+    }
+
+    /// The zoom chrome's gallery: htop on the Mac's 120x40 grid zoomed past
+    /// fit width with each variant (none, a column ruler, a minimap strip),
+    /// its chrome kept up for the screenshot. Leo (rulebook): "3+ gallery variants".
+    @MainActor
+    func testZoomChromeGallery() throws {
+        for chrome in ["none", "ruler", "minimap"] {
+            XCUIDevice.shared.orientation = .portrait
+            let app = XCUIApplication()
+            app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+            app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
+                                    "-CmuxMobileTerminalDemoPhases", "altproj", "-CmuxMobileTerminalZoomChrome", chrome,
+                                    "-CmuxMobileTerminalZoomChromePinned", "YES"]
+            app.launch()
+            let probe = app.staticTexts["debug.terminal-demo"]
+            XCTAssertTrue(probe.waitForExistence(timeout: 30))
+            let deadline = Date().addingTimeInterval(60)
+            while Date() < deadline, !probe.label.hasPrefix("a.gestures.") {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            }
+            let terminal = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+            terminal.doubleTap()
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            terminal.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.25)))
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "altproj-gallery-\(chrome)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            app.terminate()
+        }
+    }
+
     @MainActor
     private func run(macGrid: String?, name pane: String) {
         XCUIDevice.shared.orientation = .portrait

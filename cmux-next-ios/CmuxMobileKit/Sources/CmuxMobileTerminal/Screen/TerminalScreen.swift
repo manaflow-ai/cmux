@@ -89,6 +89,13 @@ public struct TerminalScreen: View {
             Section {
                 Button("Scroll to bottom", systemImage: "arrow.down.to.line") { model.scrollToBottom() }
             }
+            if let fits = model.session.fitsToPhone {
+                Section {
+                    Button(fits ? "Keep the Mac's Size" : "Fit to Phone", systemImage: fits ? "macbook" : "iphone") {
+                        model.session.toggleFitToPhone()
+                    }
+                }
+            }
         } label: {
             Image(systemName: "ellipsis")
         }
