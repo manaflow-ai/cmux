@@ -1688,7 +1688,7 @@ class ControllerRouteTests(unittest.TestCase):
         self.assertEqual(d["part"], "build")
         self.assertEqual(d["mac_parts"], ["build", "motion", "switch", "launch"], "the requested part first, no Linux part")
         wait = cron.host_wait_hours(state["current"])
-        self.assertAlmostEqual(wait, cron.HOST_WAIT_HOURS + (1200 + 3 * 900) / 3600, places=2)
+        self.assertAlmostEqual(wait, cron.HOST_WAIT_HOURS + (1200 + 3 * 900) / 3600 + cron.BATCH_SLACK_HOURS, places=2)
         plain = cron.empty_state(T0)
         self.assertEqual(cron.decide(plain, T0, self.SHA, None, lambda sha: parts, None)["mac_parts"], [],
                          "the gateway route runs one part per tick")

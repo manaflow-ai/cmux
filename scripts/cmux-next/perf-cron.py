@@ -1182,11 +1182,16 @@ def commit_failed(cur):
                for p in (cur.get("parts") or {}).values())
 
 
+BATCH_SLACK_HOURS = 2  # hq perf_cron.go perfCronBatchSlack (1 h), and a result run's lag behind a tick
+
+
 def batch_wait_hours(parts):
     """How long the cron waits for a host to answer a request of these Mac parts run back to back (pure):
-    HOST_WAIT_HOURS for the host to come free, plus every part's run cap (the controller answers once, after the
-    last part)."""
-    return round(HOST_WAIT_HOURS + sum(PART_BY_NAME[p].get("run_seconds", PART_RUN_SECONDS) for p in parts) / 3600, 3)
+    HOST_WAIT_HOURS for the host to come free, plus every part's run cap, plus BATCH_SLACK_HOURS. The controller
+    answers once, after the last part, and queues no part that would run past its parts' caps plus 1 h from the
+    first part (hq perf_cron_batch.go perfCronBatchDeadline), so its answer comes within this wait."""
+    caps = sum(PART_BY_NAME[p].get("run_seconds", PART_RUN_SECONDS) for p in parts) / 3600
+    return round(HOST_WAIT_HOURS + caps + BATCH_SLACK_HOURS, 3)
 
 
 def host_wait_hours(cur):
