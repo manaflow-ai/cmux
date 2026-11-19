@@ -78,9 +78,10 @@ extension SettingsSchema {
         // The color of each machine's marks (looks only)
         "appearance.machineColors",
         "appearance.backdropArt", "appearance.backgroundOpacity", "appearance.backgroundBlur",
-        "appearance.inactiveWindowDim", "appearance.wallpaperTint", "appearance.background",
-        "appearance.backgroundRotation", "appearance.backgroundLight", "appearance.backgroundDark",
-        "appearance.backgroundSchedule", "appearance.backgroundDynamic", "appearance.backgroundLocation",
+        "appearance.inactiveWindowDim", "appearance.wallpaperTint", "appearance.liveWallpaperFrameRate",
+        "appearance.background", "appearance.backgroundRotation", "appearance.backgroundLight",
+        "appearance.backgroundDark", "appearance.backgroundSchedule", "appearance.backgroundDynamic",
+        "appearance.backgroundLocation",
         // Per-display background and cadence (looks only)
         "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
         "appearance.paneBackgrounds", "ui.reducedBackgrounds", "appearance.experimentalControls", "app.uiScale",
@@ -276,8 +277,6 @@ extension SettingsSchema {
         "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
         "browser.openPullRequestsInGitHubPage",
-        // Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.
-        "models.spreadUsage",
     ]
 
     /// True when an agent may change `descriptor`, false when it may not, nil

@@ -381,18 +381,27 @@ final class HoverCardPanel: NSPanel {
         // What is drawn now, read before a morph in flight lays its card out at rest (as `present` does).
         let previous = animated ? presentedCardFrame : nil
         finishMorph()
-        place()
-        // The same morph a retarget to another size runs: the mask grows or folds about the fixed corner.
-        if let previous { _ = morph(from: previous) }
+        // An animated refit leaves the window where it is: the morph sets the one frame its first frame shows. A
+        // window set to the rest frame first laid the card and its glass out at a size never shown, then the morph
+        // set it back (the press of Show or Hide details was a late frame, Lawrence 2026-11-18).
+        place(appliesFrame: previous == nil)
+        // The same morph a retarget to another size runs: the card grows or folds about the fixed corner.
+        if let previous, !morph(from: previous, folds: true) { applyRestFrame() }
     }
 
     /// Lays the card out for its anchor and size. `appliesFrame` false: the rest frame is worked out
     /// (`restCardFrame`) and the window stays where it is, for a morph that sets it next.
     func place(appliesFrame: Bool = true) {
-        glass.layoutSubtreeIfNeeded()
+        // A morph lays the card out once, at the size its first frame shows (`morph`): a layout here would be at the
+        // size the window has now, never shown. The measure updates the content's constraints itself.
+        if appliesFrame { glass.layoutSubtreeIfNeeded() }
         let scale = max(parentWindowRef?.backingScaleFactor ?? 2, 1)
-        // Whole device pixels, so the edge `origin(for:)` puts on the target stays there.
-        let fitting = glass.fittingSize
+        // Whole device pixels, so the edge `origin(for:)` puts on the target stays there. The content's own size: the
+        // glass adds nothing around it, and its panel's views in the measure's temporary layout engine cost a fresh
+        // solve of their constraints on every refit (a Show details press, Lawrence 2026-11-18).
+        // The body's own size when it reports one and is the content's only view (a glide's leaving view sizes it too).
+        let reported = leavingBody == nil ? (body as? HoverCardSizeReporting)?.reportedFittingSize : nil
+        let fitting = reported ?? measuredContentSize()
         let size = CGSize(width: (fitting.width * scale).rounded(.up) / scale, height: (fitting.height * scale).rounded(.up) / scale)
         let screen = parentWindowRef?.screen ?? NSScreen.main
         let rest = Self.rest(for: placement, anchor: anchor, size: size, screen: screen?.frame,
@@ -411,7 +420,18 @@ final class HoverCardPanel: NSPanel {
         // R131: the window moves in the same frame (a window-frame slide restarted on every tab
         // trailed the pointer); a retarget's slide runs inside it (`slide(from:)`).
         restCardFrame = CGRect(origin: origin, size: size)
-        if appliesFrame { applyRestFrame() }
+        if appliesFrame {
+            applyRestFrame()
+            bodyRests()
+        }
+    }
+
+    /// Content measures the panel ran (`fittingSize`, a temporary layout engine each): tests count them.
+    private(set) var contentMeasures = 0
+
+    private func measuredContentSize() -> CGSize {
+        contentMeasures += 1
+        return glass.contentView.fittingSize
     }
 
     /// The window at the card's rest frame plus its clear band.

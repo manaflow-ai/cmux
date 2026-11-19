@@ -204,8 +204,6 @@ pub(crate) fn harness_command(
             cmd.env_remove(&k);
         }
     }
-    // Helper tokens reach the cmux-cua MCP server through its own env only.
-    crate::cua_socket::scrub_agent_env(&mut cmd);
     // A nested launch must not be taken for its parent's thread.
     cmd.env_remove("CODEX_THREAD_ID").env_remove("OMPCODE");
     // The daemon's own terminal (it may have started in a cmux terminal) is
@@ -278,7 +276,9 @@ pub(crate) fn harness_command(
                 let blank = |key: &str| env.get(key).is_some_and(|v| v.is_empty());
                 // SAFETY: getuid has no preconditions.
                 let uid = unsafe { libc::getuid() };
-                cmd.envs(session_tmp::env_for(&dir, agent, blank, cfg!(target_os = "macos"), uid));
+                let runtime = session_tmp::user_runtime_dir(uid);
+                let mac = cfg!(target_os = "macos");
+                cmd.envs(session_tmp::env_for(&dir, agent, blank, mac, runtime.as_deref(), uid));
             }
         }
     }
@@ -674,6 +674,69 @@ mod tests {
         );
     }
 
+    /// An agent acpmux starts reads the settings file the app runs on: the app
+    /// hands `CMUX_NEXT_CONFIG_FILE` to the daemon (CmuxNext
+    /// `LaunchIdentity.terminalEnvironment`), and a local agent's resolved
+    /// environment has it, so the agent's `claude` or `codex` and the
+    /// `cmux mcp serve` it starts read that file. The daemon's environment is
+    /// this process's, set before it starts: the check runs in a child of this
+    /// test binary started with the variable
+    /// ([`a_local_agent_keeps_the_apps_settings_file_child`]).
+    #[test]
+    fn a_local_agent_keeps_the_apps_settings_file() {
+        let key = crate::user_settings::CONFIG_OVERRIDE;
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "agent::command::tests::a_local_agent_keeps_the_apps_settings_file_child",
+            ])
+            .args(["--nocapture", "--test-threads", "1"])
+            .env(key, "/Users/someone/.config/cmux/cmux-next-cu-fresh.json")
+            .env("ACPMUX_TEST_SETTINGS_FILE_CHILD", "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("1 passed"),
+            "{stdout}{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// [`a_local_agent_keeps_the_apps_settings_file`]'s check, in a process
+    /// started with the variable; outside one it has nothing to check. The
+    /// agent is a real process (`/usr/bin/env`) started from the launch acpmux
+    /// builds, and its own printed environment is read.
+    #[test]
+    fn a_local_agent_keeps_the_apps_settings_file_child() {
+        if std::env::var_os("ACPMUX_TEST_SETTINGS_FILE_CHILD").is_none() {
+            return;
+        }
+        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/env"]
+        }))
+        .unwrap();
+        let mut command =
+            harness_command("local", &profile, &std::env::temp_dir(), None, None).unwrap();
+        command.stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+        let output = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            // Spawned inside the runtime: tokio registers the pipes with its reactor.
+            .block_on(async move { command.output().await })
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let key = crate::user_settings::CONFIG_OVERRIDE;
+        let printed = String::from_utf8_lossy(&output.stdout);
+        let value = printed.lines().find_map(|line| line.strip_prefix(&format!("{key}=")));
+        assert_eq!(
+            value,
+            Some("/Users/someone/.config/cmux/cmux-next-cu-fresh.json"),
+            "the agent's environment lacks the app's settings file: {printed}"
+        );
+    }
+
     /// The env `harness_command` gives a session `id` of `profile_env`, with
     /// the per-user directory in `base`.
     #[cfg(unix)]
@@ -728,9 +791,12 @@ mod tests {
         assert_eq!(var(&env, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
         // Without a runtime dir (when this test process has none): a Mac gives
         // the session its folder as TMPDIR and pins the socket base the agent
-        // resolved before (the TMPDIR it has without a session); elsewhere
-        // TMPDIR stays.
+        // resolved before (the TMPDIR it has without a session); Linux gives it
+        // its folder and the user's systemd runtime dir when there is one, else
+        // TMPDIR stays and Claude Code's own folder is the session's.
         if std::env::var_os("XDG_RUNTIME_DIR").is_none_or(|v| v.is_empty()) {
+            // SAFETY: getuid has no preconditions.
+            let runtime = super::super::session_tmp::user_runtime_dir(unsafe { libc::getuid() });
             let plain: HarnessProfile =
                 serde_json::from_value(serde_json::json!({"argv": ["/usr/bin/true"]})).unwrap();
             let unsessioned =
@@ -738,15 +804,24 @@ mod tests {
             let before = var(&command_env(&unsessioned), "TMPDIR").filter(|v| !v.is_empty());
             let env = session_env(&base, a, serde_json::json!({}));
             assert_eq!(var(&env, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
-            match before.filter(|_| cfg!(target_os = "macos")) {
-                Some(before) => {
+            match (before.filter(|_| cfg!(target_os = "macos")), &runtime) {
+                (Some(before), _) => {
                     assert_eq!(var(&env, "TMPDIR"), Some(dir_a.clone()));
                     assert_eq!(var(&env, "XDG_RUNTIME_DIR"), Some(before));
                 }
-                None => assert_eq!(
-                    var(&env, "TMPDIR").filter(|v| !v.is_empty()),
-                    var(&command_env(&unsessioned), "TMPDIR").filter(|v| !v.is_empty())
-                ),
+                (None, Some(runtime)) => {
+                    assert_eq!(var(&env, "TMPDIR"), Some(dir_a.clone()));
+                    assert_eq!(var(&env, "XDG_RUNTIME_DIR"), Some(runtime.display().to_string()));
+                }
+                (None, None) => {
+                    assert_eq!(
+                        var(&env, "TMPDIR").filter(|v| !v.is_empty()),
+                        var(&command_env(&unsessioned), "TMPDIR").filter(|v| !v.is_empty())
+                    );
+                    if !cfg!(target_os = "macos") {
+                        assert_eq!(var(&env, "CLAUDE_CODE_TMPDIR"), Some(dir_a.clone()));
+                    }
+                }
             }
             // A profile's TMPDIR still wins there too; the pinned base is that TMPDIR, the
             // base the agent resolves its sockets under.

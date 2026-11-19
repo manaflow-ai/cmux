@@ -120,6 +120,13 @@ extension WallpaperTintSetting {
     public nonisolated static let fallback = true
 }
 
+extension LiveWallpaperFrameRateSetting {
+    /// `appearance.liveWallpaperFrameRate`.
+    public nonisolated static let configPath = ["appearance", "liveWallpaperFrameRate"]
+    public nonisolated static let fallback = "30"
+    public nonisolated static let values = ["15", "30", "60"]
+}
+
 extension AppearanceTuningSetting {
     /// `appearance.glassTransparency`.
     public nonisolated static let glassTransparencyPath = ["appearance", "glassTransparency"]
@@ -170,7 +177,7 @@ extension InterfaceSizeSetting {
 }
 
 extension FontSmoothingSetting {
-    /// `appearance.fontSmoothing`: How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Chrome text cmux draws itself (ChromeLabel, ChromeTextLayer: the sidebar, tabs) follows live too (ProcessFontSmoothing.chrome). Ghostty's font-thicken is not affected.
+    /// `appearance.fontSmoothing`: How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Ghostty's font-thicken is not affected.
     public nonisolated static let configPath = ["appearance", "fontSmoothing"]
     public nonisolated static let fallback: FontSmoothing = .auto
 }
