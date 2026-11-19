@@ -43,11 +43,44 @@ free_kb() {
   df -Pk "$1" | awk 'NR == 2 { print $4; exit }'
 }
 
+# KiB of the largest cmux-tui registry. cmux-tui runs a full VACUUM when it
+# migrates a legacy registry, and SQLite needs about the database's size free
+# beside it to rewrite it. Without that room the VACUUM fails with "database or
+# disk is full" and the daemon's journal writer stops for good, even with
+# hundreds of MiB free.
+largest_registry_kb() {
+  largest=0
+  for db in "$state"/sessions/*/workspace-registry.sqlite3; do
+    # A symlinked registry must not size root-owned growth.
+    [ -f "$db" ] && [ ! -L "$db" ] || continue
+    bytes=$(wc -c < "$db" | tr -d ' ')
+    case "$bytes" in ""|*[!0-9]*) continue ;; esac
+    kb=$(((bytes + 1023) / 1024))
+    [ "$kb" -gt "$largest" ] && largest=$kb
+  done
+  echo "$largest"
+}
+
 grow_if_needed() {
   state_free_kb=$(free_kb "$state")
   [ -n "$state_free_kb" ] || { echo "cmux-tui-state-mount: cannot read state filesystem free space" >&2; return 1; }
-  [ "$state_free_kb" -ge "$STATE_MIN_FREE_KB" ] && return 0
+  if [ "$state_free_kb" -ge "$STATE_MIN_FREE_KB" ]; then
+    # Room for a VACUUM of the largest registry is best effort: a cap or a
+    # full root disk leaves the daemon on the space it has rather than
+    # deferring it.
+    vacuum_free_kb=$((STATE_MIN_FREE_KB + $(largest_registry_kb)))
+    [ "$state_free_kb" -ge "$vacuum_free_kb" ] && return 0
+    grow_state_image "$vacuum_free_kb" || echo "cmux-tui-state-mount: no room to grow for a registry VACUUM (free=${state_free_kb}KiB wanted=${vacuum_free_kb}KiB)" >&2
+    return 0
+  fi
+  grow_state_image "$STATE_MIN_FREE_KB"
+}
 
+# Grows the state image one doubling step unless WANTED_KB is already free.
+# Each step checks its own result, because the VACUUM caller runs it where
+# `set -e` does not apply.
+grow_state_image() {
+  wanted_kb=$1
   command -v findmnt >/dev/null 2>&1 || { echo "cmux-tui-state-mount: findmnt is required for state growth" >&2; return 1; }
   command -v losetup >/dev/null 2>&1 || { echo "cmux-tui-state-mount: losetup is required for state growth" >&2; return 1; }
   command -v resize2fs >/dev/null 2>&1 || { echo "cmux-tui-state-mount: resize2fs is required for state growth" >&2; return 1; }
@@ -55,18 +88,18 @@ grow_if_needed() {
   # A previous grow may have allocated the larger backing file and then
   # failed before resize2fs completed. Finish that resize before allocating
   # another step, so retries never double-count unused backing blocks.
-  loop_device=$(findmnt -n -o SOURCE --target "$state")
+  loop_device=$(findmnt -n -o SOURCE --target "$state") || return 1
   case "$loop_device" in
     /dev/loop*) ;;
     *) echo "cmux-tui-state-mount: state mount is not backed by a loop device" >&2; return 1 ;;
   esac
-  losetup -c "$loop_device"
-  resize2fs "$loop_device" >/dev/null
+  losetup -c "$loop_device" || return 1
+  resize2fs "$loop_device" >/dev/null || return 1
   state_free_kb=$(free_kb "$state")
   [ -n "$state_free_kb" ] || { echo "cmux-tui-state-mount: cannot reread state filesystem free space" >&2; return 1; }
-  [ "$state_free_kb" -ge "$STATE_MIN_FREE_KB" ] && return 0
+  [ "$state_free_kb" -ge "$wanted_kb" ] && return 0
 
-  current_bytes=$(stat -c %s "$STATE_IMAGE")
+  current_bytes=$(stat -c %s "$STATE_IMAGE") || return 1
   [ "$current_bytes" -lt "$STATE_MAX_BYTES" ] || {
     echo "cmux-tui-state-mount: state filesystem reached its ${STATE_MAX_BYTES}-byte cap" >&2
     return 1
@@ -84,9 +117,9 @@ grow_if_needed() {
   command -v fallocate >/dev/null 2>&1 || { echo "cmux-tui-state-mount: fallocate is required for state growth" >&2; return 1; }
 
   echo "cmux-tui-state-mount: growing state image from ${current_bytes} to ${next_bytes} bytes" >&2
-  (umask 077; fallocate -l "$next_bytes" "$STATE_IMAGE")
-  losetup -c "$loop_device"
-  resize2fs "$loop_device" >/dev/null
+  (umask 077; fallocate -l "$next_bytes" "$STATE_IMAGE") || return 1
+  losetup -c "$loop_device" || return 1
+  resize2fs "$loop_device" >/dev/null || return 1
 }
 
 ensure_locked() {

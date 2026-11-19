@@ -1,0 +1,101 @@
+name: CI hosted backlog rescue
+
+# Pull request runs bound to GitHub-hosted Ubuntu that never got a runner, at any age up to GitHub's 24 h queue limit.
+# GitHub never re-routes a queued job, so the jobs queued while LINUX_RUNNER and the x64 pools pointed at hosted
+# Ubuntu (2026-11-17 21:34Z to 2026-11-18 02:34Z, cmux#45710) stayed there for hours after the routes came back.
+# The minute pass (ci-owned-pool-rescue.yml) only covers declared light jobs under 90 minutes old; this pass covers
+# the rest: a run at its pull request's head is cancelled and re-run on today's routes, a superseded one only
+# cancelled (scripts/ci/hosted_light_rescue.py --backlog). A pass never waits for a cancel to settle: it ends its log
+# with a journal of the current-head runs it cancelled, and the next pass reads that log and re-runs them. Each pass
+# makes at most 150 GitHub calls and none when cmux-bot's budget is below that plus 500. Off: set
+# CI_HOSTED_LIGHT_RESCUE_DISABLED to 1.
+on:
+  schedule:
+    - cron: "3-59/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report what would be cancelled and re-run, and change nothing"
+        required: true
+        default: true
+        type: boolean
+      actions:
+        description: "At most this many cancels in the pass (1-100)"
+        required: false
+        default: "20"
+        type: string
+      run_ids:
+        description: "Act on exactly these runs (comma-separated ids) under the pass's rules, instead of listing the queue"
+        required: false
+        default: ""
+        type: string
+      recover_since:
+        description: "Re-run what every pass since this UTC time left cancelled (e.g. 2026-11-18T08:50:00Z), not just the newest journal's"
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: ci-hosted-backlog-rescue
+  cancel-in-progress: false
+
+jobs:
+  backlog:
+    if: github.repository == 'manaflow-ai/cmux' && vars.CI_HOSTED_LIGHT_RESCUE_DISABLED != '1'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: Actions write stays on a fresh runner; never an owned label, never the hosted queue it drains
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out trusted rescue code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The reviewed implementation on the default branch, never a dispatching branch's.
+          ref: main
+          persist-credentials: false
+
+      # The declared light workflows the minute pass owns (feat-cmux-next's runners.json), so the two passes never
+      # act on one run. Best effort: unread, the backlog pass leaves every run under 90 minutes to the minute pass.
+      - name: Check out the declared light-job routes
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: .rescue-workflows
+          sparse-checkout: .github
+          persist-credentials: false
+
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
+          permission-pull-requests: read
+
+      # Reads and writes go out as cmux-bot (its own installation pool); the repository's shared GITHUB_TOKEN pool,
+      # which the NEXT nightly needs, answers reads only while cmux-bot is low or refused.
+      - name: Cancel and re-run the hosted backlog
+        timeout-minutes: 6
+        env:
+          HOSTED_LIGHT_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+          BACKLOG_ACTIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.actions || '' }}
+          BACKLOG_RUN_IDS: ${{ github.event_name == 'workflow_dispatch' && inputs.run_ids || '' }}
+          BACKLOG_RECOVER_SINCE: ${{ github.event_name == 'workflow_dispatch' && inputs.recover_since || '' }}
+        run: >-
+          python3 scripts/ci/hosted_light_rescue.py
+          --backlog
+          --policy .rescue-workflows/.github
