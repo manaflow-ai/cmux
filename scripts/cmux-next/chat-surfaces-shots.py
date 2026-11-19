@@ -12,6 +12,8 @@ a harness, and makes one chat on it: a "surfaces-tour" turn (a plan, a shell cal
 chat as a workspace and writes the window as the window server composites it (`debug.window_snapshot`):
 
   DIR/LABEL-SCENARIO.png       SCENARIO is THEME-STYLE: dark|light x opaque|see-through|wallpaper
+  DIR/LABEL-SCENARIO-hover-KEY.png   with --hovers: the window with the pointer on one control (HOVERS below), moved
+                               there by `debug.page hover` (a real tracking-area hover); the reply's x, y are in results.json
 
   opaque        background-opacity 1: the page paints the theme's page colour
   see-through   background-opacity 0.6: the page is clear over the window's glass and the desktop
@@ -42,7 +44,18 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--app", action="append", required=True, help="LABEL=PATH of a built app, e.g. before=/x/cmux.app")
 parser.add_argument("--out", required=True)
 parser.add_argument("--only", default="")
+parser.add_argument("--hovers", action="store_true", help="also shoot each control in HOVERS under the pointer")
 opts = parser.parse_args()
+# The chat's controls whose hover fill moved to the host's hover (design/chat-surfaces.md): KEY -> selector.
+HOVERS = {
+    "edited-file": "button.acpmux-edited-file",
+    "edited-head": ".acpmux-edited-head[data-interactive]",
+    "edited-undo": ".acpmux-edited-undo",
+    "review-changes": ".acpmux-review-changes",
+    "card-copy": ".cv-card-copy__button",
+    "expand-row": ".cv-expand-row",
+    "turn-retry": ".cv-turn-retry .cv-iconbtn",
+}
 os.makedirs(opts.out, exist_ok=True)
 
 
@@ -87,6 +100,17 @@ def shoot(label: str, bundle: str, theme: str, style: str) -> dict:
         snap = app.call("debug.window_snapshot", {"kind": "main", "path": path}, timeout=60)
         row["snapshot"] = snap
         row["ok"] = os.path.exists(path) and not snap.get("error")
+        if opts.hovers:
+            row["hovers"] = {}
+            for key, selector in HOVERS.items():
+                page = {"page": "cmux.agent", "selector": selector}
+                scrolled = app.call("debug.page", {**page, "action": "scroll", "block": "center"}, timeout=20)
+                time.sleep(0.5)  # proof capture: the scroll settles before the pointer moves
+                hovered = app.call("debug.page", {**page, "action": "hover"}, timeout=20)
+                time.sleep(0.6)  # proof capture: the hover fill's transition ends
+                shot = os.path.join(opts.out, f"{name}-hover-{key}.png")
+                taken = app.call("debug.window_snapshot", {"kind": "main", "path": shot}, timeout=60)
+                row["hovers"][key] = {"scroll": scrolled, "hover": hovered, "shot": os.path.exists(shot) and not taken.get("error")}
     except Exception as error:  # one scenario's failure is reported; the matrix goes on
         row["ok"] = False
         row["error"] = f"{type(error).__name__}: {error}"[:400]
