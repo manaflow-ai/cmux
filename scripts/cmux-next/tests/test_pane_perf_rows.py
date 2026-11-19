@@ -33,7 +33,8 @@ def definitions(path, names):
 BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_applicable", "activate", "commit_frames",
                                                     "late_frames", "motion_arms", "commit_notes", "commit_placements",
                                                     "layout_spans", "windows_behind", "marker_color", "marker_command", "stills_facts",
-                                                    "stills_clock", "stills_cost", "docked_state", "cli_settings", "theme_facts"})
+                                                    "stills_clock", "stills_cost", "docked_state", "cli_settings", "theme_facts",
+                                                    "move_facts", "animated_row"})
 ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
@@ -408,6 +409,74 @@ class RecordedStills(unittest.TestCase):
         self.assertEqual(clock({"times": [0, 0], "t0_s": 50.1}, trace)["clock_problem"], "no second frame after the first (times [0, 0])")
         self.assertEqual(clock({"times": [0, 0.0083], "t0_s": 50.1}, {"samples": [{"t": 0}]})["clock_problem"], "the trace has no t0_s")
         self.assertEqual(clock({"times": [0, 0.0083], "t0_s": 50.1}, {"t0_s": 50.0, "samples": []})["clock_problem"], "the trace has no sample")
+
+
+def pane(name, end, now=None):
+    """One pane row of the pane trace as the app's sampler gives it: the id, 21 numbers; the first rect is where the
+    pane ends, the last 4 numbers where it IS in the sample."""
+    return [name, *end, 1, 1, *end, end[2], end[3], 1, *end, *(now or end)]
+
+
+class AMoveByThePaneTrace(unittest.TestCase):
+    """The row `animated` of a timed act and the row of a recorded act read the pane trace: a pane that is not where
+    it ends in 2 samples or more is a move. The app's `layout.commit` sample is only in a build with the probe: a
+    build with no such sample and with a move in the trace is animated, and a build with no source says NO SOURCE."""
+
+    def setUp(self):
+        self.bench = loaded()
+        self.facts, self.row = self.bench["move_facts"], self.bench["animated_row"]
+        kept = [100, 6, 200, 190]
+        widths = (100, 120.5, 160, 185.2, 199.2)  # each more than 0.5 pt from the end's 200
+        self.close = {"samples": [{"t": 0, "panes": [pane("a", [100, 6, 100, 190]), pane("b", [200, 6, 100, 190])]}]
+                      + [{"t": 8.3 * at, "panes": [pane("a", kept, [100, 6, width, 190]), pane("b", [200, 6, 100, 190])]}
+                         for at, width in enumerate(widths, 1)]
+                      + [{"t": 50, "panes": [pane("a", kept)]}]}
+        # A split that the app shows in one frame: the new pane has a rect of 0 x 0 in its first sample, no more.
+        self.one_frame = {"samples": [{"t": 0, "panes": [pane("a", kept)]},
+                                      {"t": 8.3, "panes": [pane("a", kept), pane("n", [200, 6, 100, 190], [100, 6, 0, 0])]},
+                                      {"t": 16.6, "panes": [pane("a", [100, 6, 100, 190]), pane("n", [200, 6, 100, 190])]}]}
+
+    def test_a_pane_that_is_not_where_it_ends_counts_its_samples(self):
+        self.assertEqual(self.facts(self.close), {"samples": 7, "samples_in_a_move": 5, "no_source": None})
+        self.assertEqual(self.facts(self.one_frame), {"samples": 3, "samples_in_a_move": 1, "no_source": None})
+
+    def test_a_trace_that_cannot_say_where_a_pane_is_has_no_source(self):
+        old = [7, 0, 0, 100, 80, 1, 0, 0, 0, 100, 80, 100, 80, 1, 0, 0, 100, 80]  # a sampler with no presentation rect
+        self.assertEqual(self.facts({"samples": [{"t": 0, "panes": [old]}]})["no_source"],
+                         "the build's pane trace does not say where a pane is in a sample (a pane row of fewer than 22 entries)")
+        self.assertEqual(self.facts({"samples": [{"t": 0}, {"t": 8.3, "panes": []}]})["no_source"], "no pane in the 2 samples of the pane trace")
+        self.assertEqual(self.facts({"error": "no such window"})["no_source"], "no sample in the pane trace: {'error': 'no such window'}")
+        self.assertEqual(self.facts(None), {"samples": 0, "samples_in_a_move": 0, "no_source": "no sample in the pane trace: None"})
+
+    def test_a_move_in_the_trace_is_animated_in_a_build_with_no_commit_sample(self):
+        name, expected, seen, ok = self.row("on", 0, 0, self.facts(self.close), [])
+        self.assertTrue(ok)
+        self.assertEqual(name, "animated (a pane is in a move in the pane trace, or a layout spring, the strip camera or a commit motion moved)")
+        self.assertEqual(expected, "2 samples in a move or more, or above 0 frames")
+        self.assertEqual(seen, "5 of 7 samples of the pane trace in a move; 0 spring frames, 0 commit frames")
+        self.assertTrue(self.row(None, 0, 0, self.facts(self.close), [])[3])  # no arm: the app's own setting
+
+    def test_a_change_in_one_frame_is_not_animated_and_is_not_a_tools_fault(self):
+        name, expected, seen, ok = self.row("on", 0, 0, self.facts(self.one_frame), ["layout.commit: no act"])
+        self.assertFalse(ok)
+        self.assertEqual(seen, "1 of 3 samples of the pane trace in a move; 0 spring frames, 0 commit frames; the app's notes: ['layout.commit: no act']")
+        self.assertNotIn("NO SOURCE", seen)
+
+    def test_a_row_with_no_source_says_so_and_fails(self):
+        for arm in ("on", "off", None):
+            name, expected, seen, ok = self.row(arm, 0, 0, self.facts({"samples": []}), [])
+            self.assertFalse(ok, arm)
+            self.assertTrue(seen.startswith("NO SOURCE: no sample in the pane trace: {'samples': []}; 0 spring frames, 0 commit frames"), seen)
+        # A spring or the probe's own sample is a source too: a New Column moves only the strip camera.
+        self.assertTrue(self.row("on", 12, 0, self.facts(None), [])[3])
+        self.assertTrue(self.row("on", 0, 9, self.facts(None), [])[3])
+
+    def test_the_off_arm_is_still_with_one_sample_at_the_most(self):
+        name, expected, seen, ok = self.row("off", 0, 0, self.facts(self.one_frame), [])
+        self.assertEqual((name, expected, ok), ("still (the pane motion is off)", "1 sample in a move at the most, 0 frames", True))
+        self.assertFalse(self.row("off", 0, 0, self.facts(self.close), [])[3])
+        self.assertFalse(self.row("off", 3, 0, self.facts(self.one_frame), [])[3])
+        self.assertFalse(self.row("off", 0, 2, self.facts(self.one_frame), [])[3])
 
 
 def dock(mode="docked", shown=True, panes=("p7",), edge="left"):
