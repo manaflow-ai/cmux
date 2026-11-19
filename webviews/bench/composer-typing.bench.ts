@@ -360,12 +360,6 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       to_frame_p95: typing.to_frame?.p95_ms,
       to_frame_max: typing.to_frame?.max_ms,
       longest_task_ms: Math.round(Math.max(0, ...long.map((task) => task.ms)) * 10) / 10,
-      // The stream's draws over the typed keys (schedule/drawPacer.ts): their count and longest, and how often one
-      // waited for the thread's share or a pending key.
-      draws: typing.draw_pacer?.draws,
-      max_draw_ms: typing.draw_pacer?.max_draw_ms,
-      paced_waits: typing.draw_pacer?.paced_waits,
-      input_waits: typing.draw_pacer?.input_waits,
       long_tasks: long.length,
       ...tasks,
       composer_per_stream_event: composerPerEvent,

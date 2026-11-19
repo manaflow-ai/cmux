@@ -12,17 +12,3 @@ export {
   type LanesEnv,
   type Slice,
 } from "./lanes";
-export {
-  afterTask,
-  createDrawPacer,
-  DRAW_FREE_MS,
-  DRAW_MAX_WAIT_MS,
-  DRAW_SHARE,
-  INPUT_DEFER_FRAMES,
-  pageDrawPacer,
-  setPageDrawPacer,
-  type DrawPacerStats,
-  type DrawPacer,
-  type DrawPacerEnv,
-  type FrameSchedule,
-} from "./drawPacer";

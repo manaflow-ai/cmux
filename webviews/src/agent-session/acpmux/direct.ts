@@ -3089,10 +3089,8 @@ export class AcpmuxDirectClient {
   private static readonly DAEMON_LIVENESS_GRACE_MS = 120_000;
   /// Coalesces the snapshots of acpmux events that land within one display frame: a fast stream
   /// sends several deltas per frame, and each snapshot re-renders the transcript. The page that
-  /// draws the transcript sets it (mountModel.tsx: ``nextFrame`` behind the draw pacer); unset, each event
-  /// snapshots at once. `paced` marks a draw of only streamed reply or thought text, which may wait while
-  /// draws are expensive and a key is pending (schedule/drawPacer.ts).
-  static scheduleFrame: ((run: () => void, paced?: boolean) => (() => void) | void) | undefined;
+  /// draws the transcript sets it (main.tsx: ``nextFrame``); unset, each event snapshots at once.
+  static scheduleFrame: ((run: () => void) => (() => void) | void) | undefined;
   /// The connection state of the snapshot waiting for the next frame.
   private frameSnapshot?: string;
   /// Another chat changed while the page was hidden: the list draws again when it shows.
@@ -3107,7 +3105,7 @@ export class AcpmuxDirectClient {
   private turnsEnded = 0;
   private hiddenDraw?: ReturnType<typeof setTimeout>;
   /// The frame this client waits for, if any: one at a time, cancelled on close (`emitInFrame`).
-  private frameRequest?: { cancel?: () => void; paced?: boolean };
+  private frameRequest?: { cancel?: () => void };
   private socket?: WebSocket;
   private nextRequest = 1;
   private pending = new Map<
@@ -8365,22 +8363,16 @@ export class AcpmuxDirectClient {
       return;
     }
     // A snapshot drawn since (a turn's start or end on a hidden page) left this frame nothing to
-    // draw, but it is still asked for: no second one, however many events land before it. A paced
-    // request (only streamed text) that an unpaced change joins is asked for again unpaced: the
-    // change draws in the next frame, and the text with it.
-    const waiting = this.frameRequest;
-    if (waiting && waiting.paced && !streamGrew) {
-      waiting.cancel?.();
-      this.frameRequest = undefined;
-    } else if (scheduled || waiting) return;
-    const request: { cancel?: () => void; paced?: boolean } = { paced: streamGrew };
+    // draw, but it is still asked for: no second one, however many events land before it.
+    if (scheduled || this.frameRequest) return;
+    const request: { cancel?: () => void } = {};
     this.frameRequest = request;
     request.cancel =
       schedule(() => {
         if (this.frameRequest === request) this.frameRequest = undefined;
         const pending = this.frameSnapshot;
         if (pending !== undefined && !this.closed) this.emit(pending);
-      }, streamGrew) ?? undefined;
+      }) ?? undefined;
   }
 
   /// Whether the chat runs a turn, as the snapshot says it (`isWorking`).
