@@ -320,6 +320,14 @@ final class LayoutViewContext {
         retired.compactMap { $0.value.screen == screen && $0.value.until == .zoom ? $0.key : nil }
     }
 
+    /// Tells the app each pane whose presence changed, in the order of `changes`. The app's work for them is one
+    /// span of the motion trace (`PaneZoomDim.ActSpan.report`).
+    func report(_ changes: [(PaneID, PanePresence)]) {
+        if MotionTrace.isEnabled { MotionTrace.begin(PaneZoomDim.ActSpan.report.rawValue) }
+        for (pane, presence) in changes { provider?.panePresenceDidChange(pane, presence: presence) }
+        if MotionTrace.isEnabled { MotionTrace.end(PaneZoomDim.ActSpan.report.rawValue) }
+    }
+
     /// Whether `pane` left the layout in a close whose host has not gone yet: it waits for the close to show, or,
     /// hidden, for the commit of the frame that showed it.
     func isClosing(_ pane: PaneID) -> Bool {

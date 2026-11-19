@@ -161,6 +161,8 @@ final class PaneCommitMotion {
     var zooms: Bool { armed?.act == .zoom }
     /// The change that waits for its frame is an unzoom that can move its pane.
     var unzooms: Bool { armed?.act == .unzoom }
+    /// A change waits for the frame that shows it.
+    var waits: Bool { armed != nil }
 
     /// `screen` is about to give its panes the sizes of the change that waits for its frame: no pane heard a size yet.
     /// Each pane that stays and gets smaller in a change that can move, and whose content keeps its own picture, starts
