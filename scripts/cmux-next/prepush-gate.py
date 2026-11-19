@@ -3358,9 +3358,8 @@ Never --no-verify: CI names every commit that adds a violation (step "Pushed com
 # The five layers below never run on CI otherwise, so a push that skipped the hook landed what they would have
 # refused and nobody saw it. Here they run on the same range and each finding is a `::warning file=,line=` annotation
 # plus a row in the step summary. They never change the exit code: the step passes or fails exactly as it did
-# without them. AGENTS.md / CLAUDE.md: "Never add CI gates, perf-gate rows or budgets, CI jobs or steps, or CI
-# tests" (Lawrence 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"): this is no gate,
-# no job and no step; it is advisory, as fleet-test-compile.yml is ("It gates nothing"). The hook stays the gate.
+# without them. It was built advisory under the 2026-10-23 "no new CI" rule (lifted 2026-11-18): no gate, no job
+# and no step, as fleet-test-compile.yml is ("It gates nothing"). The hook stays the gate.
 ADVISORY_ARCH = "arch ratchet"
 ADVISORY_GUARDRAILS = "guardrails line rules"
 ADVISORY_SWIFTFORMAT = "SwiftFormat"

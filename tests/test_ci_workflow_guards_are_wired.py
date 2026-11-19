@@ -45,38 +45,38 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
-    # lane = "manual" (no new CI tests, CLAUDE.md). It runs scripts/cmux-next/cargo-locks.py in a throwaway
+    # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It runs scripts/cmux-next/cargo-locks.py in a throwaway
     # repository and reads rust-workspaces.yml only as data (that the workflow calls the script). Run it by hand
     # when the script or that workflow changes. Exit: as below.
     "tests/test_cargo_locks.py",
-    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It pins
+    # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It pins
     # scripts/cmux-next/check-single-host-fallbacks.py, which the pre-push gate runs strictly and CI runs
     # with --advisory; it reads the workflows only as that script's data. Exit: as below.
     "tests/test_ci_single_host_fallbacks.py",
-    # lane = "manual" in tests/test-execution.d/other.toml (no new CI tests, CLAUDE.md). It pins
+    # lane = "manual" in tests/test-execution.d/other.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It pins
     # scripts/install-axe-ci.sh's sha256 refusal and reads ios-e2e.yml only to check it calls that script, not the
     # Homebrew tap. Run it by hand when either changes. Exit: as below.
     "tests/test_install_axe_ci.py",
-    # lane = "manual" (no new CI tests, CLAUDE.md). It checks pool reads against .github/runners.json and that
+    # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It checks pool reads against .github/runners.json and that
     # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
     "tests/test_ci_runner_pools_copy.py",
-    # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows and scripts only as data: which callers
+    # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It reads workflows and scripts only as data: which callers
     # read reload.sh's App path after --build-only without --keep-app. Run it after adding such a caller. Exit: as below.
     "tests/test_reload_build_only_app_path_readers.py",
-    # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows only as data: which files exist and which
+    # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It reads workflows only as data: which files exist and which
     # call a reusable declared workflow, for scripts/ci/hosted_light_rescue.py's scope. Exit: as below.
     "tests/test_ci_hosted_light_rescue.py",
-    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It runs
+    # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It runs
     # scripts/ci/swiftpm_prefetch_binary_artifacts.py against a fake cache and reads the owned-Mac workflows only as
     # data (each SwiftPM step seeds first, #43932). Run it by hand when the seed or such a step changes. Exit: as below.
     "tests/test_ci_swiftpm_prefetch_shared_cache.py",
-    # No new CI tests (CLAUDE.md): #44697 added it with no step. It reads test-ios.yml only as data (a bot's re-run
+    # Kept manual under the 2026-10-23 no-new-CI rule (lifted 2026-11-18): #44697 added it with no step. It reads test-ios.yml only as data (a bot's re-run
     # on a cmux-next lane takes the picker's Blacksmith route); run it by hand when that route changes. Exit: as below.
     "tests/test_ci_ios_bot_rerun_route.py",
-    # Both are lane = "manual" in tests/test-execution.toml: CLAUDE.md forbids adding CI tests (Lawrence
-    # 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"). Each reads a workflow
-    # only as data (a fixture nightly.yml; cmux-next.yml for stamp readers). Exit: wire it here if that
-    # rule changes and the toml entry moves to a CI lane.
+    # Both are lane = "manual" in tests/test-execution.toml, kept manual under the 2026-10-23 no-new-CI rule
+    # (lifted 2026-11-18). Each reads a workflow
+    # only as data (a fixture nightly.yml; cmux-next.yml for stamp readers). Exit: wire it here when its toml
+    # entry moves to a CI lane.
     "tests/test_cmux_next_guardrails.py",
     "tests/test_settings_stamp_not_committed.py",
     # lane = "manual" for the same rule. It runs tree-preflight's inspect step with fakes and asserts
