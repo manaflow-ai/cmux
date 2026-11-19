@@ -608,6 +608,131 @@ class PublishedPullRequestWebTest(unittest.TestCase):
             self.assertIsNone(hv.published_web_key(Path("/nonexistent"), planned))
 
 
+NIGHTLY_FEED_XML = """<?xml version="1.0" encoding="utf-8"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"
+     xmlns:cmux="https://cmux.com/xml-namespaces/cmux"><channel>
+<item><title>1.0.0-nightly.2</title><sparkle:shortVersionString>1.0.0-nightly.2</sparkle:shortVersionString>
+<enclosure url="https://files-next.cmux.com/nightly-next/n2.dmg" length="1" type="application/octet-stream"/>
+<cmux:sourceCommit>{nightly}</cmux:sourceCommit></item>
+<item><title>no commit</title><enclosure url="https://files-next.cmux.com/nightly-next/n0.dmg"/></item>
+</channel></rss>"""
+TIP_FEED_XML = """<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel>
+<item><title>1.0.0-tip.9</title><sparkle:shortVersionString>1.0.0-tip.9</sparkle:shortVersionString>
+<sparkle:fullReleaseNotesLink>https://github.com/manaflow-ai/cmux/commit/{tip}</sparkle:fullReleaseNotesLink>
+<enclosure url="https://files.cmux.com/nightly-next/tip/t9.dmg" length="1" type="application/octet-stream"/></item>
+<item><title>plain http</title>
+<sparkle:fullReleaseNotesLink>https://github.com/manaflow-ai/cmux/commit/{tip}</sparkle:fullReleaseNotesLink>
+<enclosure url="http://example.com/t.dmg"/></item>
+</channel></rss>"""
+
+
+class GoldenCopyTest(unittest.TestCase):
+    """`cmux app try .` copied only the installed NIGHTLY: a checkout at the feat-cmux-next tip exited 3 against a
+    nightly 354 commits behind it whose app FFI pin the commits since had moved (2026-11-18). `run --pick` takes the
+    nearest published build the tree goes into instead."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="hot-verify-golden-")
+        self.root = Path(self.tmp.name)
+        self.fx = Fixture(self.root)
+        self.c1 = self.fx.commit({"docs/notes.md": "one\n"}, "c1", parent=self.fx.base)
+        self.c2 = self.fx.commit({"docs/notes.md": "two\n"}, "c2")
+        self.fx.git("push", "-q", "origin", f"{self.c2}:refs/heads/feat-cmux-next")
+        self.fx.git("fetch", "-q", "origin")
+        self.ahead = self.fx.commit({"docs/notes.md": "three\n"}, "after the tree")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def feeds(self, nightly: str, tip: str):
+        texts = {hv.NIGHTLY_FEED: NIGHTLY_FEED_XML.format(nightly=nightly), hv.TIP_FEED: TIP_FEED_XML.format(tip=tip)}
+        return unittest.mock.patch.object(hv, "fetch_text", side_effect=texts.get)
+
+    def test_feeds_name_their_commits_both_ways(self):
+        nightly = hv.appcast_builds(NIGHTLY_FEED_XML.format(nightly="abc1234"), "nightly")
+        self.assertEqual([(b["commit"], b["label"]) for b in nightly], [("abc1234", "1.0.0-nightly.2")])
+        tip = hv.appcast_builds(TIP_FEED_XML.format(tip="d" * 40), "tip")
+        self.assertEqual([b["url"] for b in tip], ["https://files.cmux.com/nightly-next/tip/t9.dmg"])
+        self.assertEqual(hv.appcast_builds("not xml", "tip"), [])
+
+    def test_candidates_are_nearest_first_and_never_ahead_of_the_tree(self):
+        with self.feeds(self.fx.base, self.c1), unittest.mock.patch.object(hv, "cmux_ci", return_value=None):
+            found = hv.golden_candidates(self.fx.repo, self.c2, None, [])
+        self.assertEqual([(b["kind"], b["commit"], b["behind"]) for b in found],
+                         [("tip", self.c1, 1), ("nightly", self.fx.base, 2)])
+        with self.feeds(self.ahead, self.c1), unittest.mock.patch.object(hv, "cmux_ci", return_value=None):
+            found = hv.golden_candidates(self.fx.repo, self.c2, self.c1, [])
+        self.assertEqual(found, [], "a build after the tree and the installed app's commit are not candidates")
+
+    def test_a_nightly_wins_a_tie_with_a_dev_build(self):
+        with self.feeds(self.c1, self.c1[:9]), unittest.mock.patch.object(hv, "cmux_ci", return_value=None):
+            found = hv.golden_candidates(self.fx.repo, self.c2, None, [])
+        self.assertEqual([b["kind"] for b in found], ["nightly"], "the same commit is one candidate")
+
+    def test_the_nearest_finished_fleet_build(self):
+        tool = self.root / "cmux-ci"
+        jobs = {self.c1: [{"kind": "cmux", "state": "running", "artifact": "sha256:x", "id": "j0"},
+                          {"kind": "cmux", "state": "done", "artifact": "sha256:y", "id": "j1", "tag": "ahead-c1"}]}
+        tool.write_text("#!/usr/bin/env python3\nimport json, sys\n"
+                        f"jobs = {json.dumps(jobs)}\nprint(json.dumps(jobs.get(sys.argv[3], [])))\n")
+        tool.chmod(0o755)
+        with unittest.mock.patch.object(hv, "cmux_ci", return_value=str(tool)):
+            found = hv.fleet_build(self.fx.repo, self.c2, [])
+        self.assertEqual(found, {"kind": "fleet", "commit": self.c1, "job": "j1", "label": "ahead-c1"})
+
+    def test_pick_keeps_the_installed_app_when_it_fits_and_moves_off_it_when_it_does_not(self):
+        app = self.root / "cmux NIGHTLY.app"
+        (app / "Contents").mkdir(parents=True)
+        (app / "Contents/Info.plist").write_bytes(b"")
+
+        def fake_plan(repo, source, the_app, base):
+            commit = base or self.fx.base
+            return {"head": self.c2, "base": commit, "fork": commit, "layers": ["rust"],
+                    "needs_build": commit != self.c1 or self.fit_installed is False and the_app is not None,
+                    "build": {} if commit == self.c1 else {"Rust the app links (FFI)": ["pin"]}, "notes": []}
+
+        self.fit_installed = False
+        found = [{"kind": "nightly", "commit": self.fx.base, "behind": 2, "identity": "nightly", "label": "n"},
+                 {"kind": "fleet", "commit": self.c1, "behind": 1, "identity": "dev", "label": "ahead", "job": "j"}]
+        with unittest.mock.patch.object(hv, "plan", side_effect=fake_plan), \
+                unittest.mock.patch.object(hv, "golden_candidates", return_value=found):
+            chosen = hv.pick_golden(self.fx.repo, "dir:.", app)
+        self.assertEqual((chosen["kind"], chosen["commit"], chosen["job"]), ("fleet", self.c1, "j"))
+        self.assertIn("1 commit behind", chosen["why"])
+        self.assertIn("needs one (Rust the app links (FFI))", chosen["why"])
+        self.assertEqual(len(chosen["tried"]), 2)
+        with unittest.mock.patch.object(hv, "plan", side_effect=fake_plan), \
+                unittest.mock.patch.object(hv, "golden_candidates", return_value=found[:1]):
+            chosen = hv.pick_golden(self.fx.repo, "dir:.", app)
+        self.assertEqual(chosen["kind"], "installed")
+        self.assertTrue(chosen["plan"]["needs_build"])
+        self.assertTrue(chosen["why"].startswith("no published build takes this tree"))
+
+    def test_a_run_waits_for_no_page_reload_and_a_look_does(self):
+        tree = self.root / "tree"
+        (tree / "webviews").mkdir(parents=True)
+        side = unittest.mock.Mock(env=lambda: {})
+        ok = subprocess.CompletedProcess([], 0, "", "")
+        for settle, waits in ((False, []), (True, [hv.SETTLE_DEV_SERVER])):
+            slept = []
+            with unittest.mock.patch.object(hv.shutil, "which", return_value="/bin/bun"), \
+                    unittest.mock.patch.object(hv.subprocess, "run", return_value=ok), \
+                    unittest.mock.patch.object(hv.time, "sleep", side_effect=slept.append):
+                done = hv.apply_web(self.fx.repo, {"head": self.c2}, tree, side, self.root, settle=settle)
+            self.assertEqual(done["how"], "dev server")
+            self.assertEqual(slept, waits)
+
+    def test_a_local_cargo_build_says_how_long_first(self):
+        tree = self.root / "tree"
+        cold = hv.cargo_note("k" * 64, tree)
+        self.assertIn("about 10 min (cold", cold)
+        self.assertIn("cmux-ci build cmux", cold)
+        (tree / "cmux-tui/target/release").mkdir(parents=True)
+        (tree / "cmux-tui/target/release/cmux-tui").write_text("")
+        self.assertIn("about 4 min (warm)", hv.cargo_note(None, tree))
+
+
 class MarkerTest(unittest.TestCase):
     def test_marker_matches_hq(self):
         import re
