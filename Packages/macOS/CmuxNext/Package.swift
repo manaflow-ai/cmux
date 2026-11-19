@@ -640,6 +640,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .process("Resources/AttentionTabs.xcstrings"),
+                .process("Resources/SubagentLimit.xcstrings"),
                 .copy("Resources/agent-pane"),
             ],
             swiftSettings: uiSwiftSettings
