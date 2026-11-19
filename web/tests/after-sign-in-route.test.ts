@@ -23,7 +23,7 @@ let rawRefreshCookie: string;
 let rawAccessCookie: string;
 let getUserResponses: Array<TestStackAuthUser | null | Error> = [];
 let defaultUser: TestStackAuthUser | null = null;
-let defaultCreateSession: ReturnType<typeof mock>;
+let defaultCreateSession: ReturnType<typeof signedInUser>["createSession"];
 let promotionShouldFail = false;
 const claimVerifiedBilling = mock(async () => undefined);
 const applyAdminGrants = mock(async () => undefined);
