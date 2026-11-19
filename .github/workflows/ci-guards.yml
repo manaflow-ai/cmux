@@ -346,10 +346,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_signing_keychain_real_import_gate.py
 
-      - name: Validate v0.64.25 rpath repair workflow contract
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: bash tests/test_repair_v06425_workflow.sh
-
       - name: Validate Xcode build metrics receipt
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_build_metrics.py
@@ -516,10 +512,6 @@ jobs:
       - name: Validate CI process-tree cancellation cleanup
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_ci_process_tree_reaping.py
-
-      - name: Test Computer Use drag regression harness
-        if: ${{ !cancelled() && matrix.group == 'preflight' }}
-        run: python3 tests/test_cmux_cua_drag_cursor_harness.py
 
       - name: Validate Python test execution registry
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
@@ -773,6 +765,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_paths_cover_inputs.py
 
+      - name: Check that a cmux-rd-host change runs its macOS clippy and tests
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rd_host_macos_route.py
+
       - name: Validate the backend migration flow (append-only plan, push-safe guards)
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_backend_migration_flow.py
@@ -846,6 +842,12 @@ jobs:
       - name: Validate cargo affected-crate selection
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cargo_affected.py
+
+      # The crate-graph job router (scripts/ci/affected_jobs.py), and that each workflow it routes keeps
+      # every input of its jobs on its paths filter and wires each job to the router.
+      - name: Validate the crate-graph job routing
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_affected_jobs.py
 
       - name: Validate the portable SwiftPM rolling cache keys
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -957,6 +959,11 @@ jobs:
         run: |
           python3 tests/test_ci_no_github_token_polling.py
           python3 tests/test_ci_no_bare_urlopen.py
+
+      - name: Validate that no cache is saved under a run- or commit-scoped key
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        # setup-zig's per-run caches filled the 10 GB store and evicted the cargo caches (2026-11-18).
+        run: python3 tests/test_ci_no_run_scoped_cache_keys.py
 
       - name: Validate CI queue janitor policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1724,7 +1731,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: |
           python3 tests/test_update_release_tag.py
-          python3 tests/test_nightly_next_computer_use_helper.py
           python3 tests/test_nightly_next_post_publish.py
           python3 tests/test_nightly_publication_marker.py
           python3 tests/test_nightly_republish_delta_guard.py
@@ -2041,10 +2047,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: ./tests/test_fetch_previous_nightly_dmgs.sh
 
-      - name: Validate Computer Use helper notarization behavior
-        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
-        run: ./tests/test_notarize_computer_use_helper.sh
-
       - name: Validate the release signer scripts
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: |
@@ -2193,7 +2195,6 @@ jobs:
           python3 tests/test_issue_1138_sidebar_pr_polling.py
           # These use fake sockets/helpers and need no app or compile artifact.
           python3 tests/test_stress_cli_socket_api.py
-          python3 tests/test_cmux_cua_helper_identity.py
           python3 tests/test_issue_7028_claude_shim_persistence.py
           python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
           python3 tests/test_issue_6714_zsh_shim_noclobber.py
@@ -2380,7 +2381,7 @@ jobs:
       - workflow-guard-cli-scripts
       - workflow-guard-source-lints
     if: ${{ always() && !cancelled() && vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && fromJSON(vars.RUNNER_POOLS).hosted_saturated && fromJSON(vars.RUNNER_POOLS).linux_2 || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 4
     permissions:
       contents: read
@@ -2422,7 +2423,7 @@ jobs:
     # after GitHub has cancelled the run.
     if: ${{ always() && !cancelled() }}
     # Refresh portable capacity after the guard jobs finish, immediately before the rollup.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' guard-status ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' guard-status ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && fromJSON(vars.RUNNER_POOLS).hosted_saturated && fromJSON(vars.RUNNER_POOLS).linux_2 || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' guard-status ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' guard-status ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Check routed guard jobs

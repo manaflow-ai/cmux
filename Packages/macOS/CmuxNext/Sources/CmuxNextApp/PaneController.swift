@@ -52,7 +52,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
     private var presentedReport = PresentedContentReport() // what this pane last reported as presented to focus
-    private(set) var appliedRecordTabs: [String] = [] // the record's tab ids at the last apply: a record that differs is a stale strip (`stripIsStale`)
+    private(set) var appliedRecordTabs: [String] = [] // the record's tab ids at the last apply: a record that differs is a stale strip (`stripIsStale`); only a tab of that record can leave by a move (a mirror's close is a close)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
     /// Its workspace draws nothing (`WorkspaceContentController.drawsNothing`): no strip observation runs and
     /// no content is shown; `resume` maps the strip once and shows the selection then (PL-script A2).
@@ -308,7 +308,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             (item.machineBadge, item.machineName) = services.remoteTerminals.badge(for: tab)
             item.icon = .terminal
         } else if tab.kind != .browser {
-            (item.machineBadge, item.machineName) = (machine, machine.flatMap { _ in services.machines.machineName(daemon.machineID) })
+            item.setMachineBadge(machine, name: machine.flatMap { _ in services.machines.machineName(daemon.machineID) }, cloudChat: tab.agentSession != nil && services.machines.session(daemon.machineID) != nil)
             item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
         } else {
             // A browser tab names the machine whose localhost it sees.
@@ -345,7 +345,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Pushes daemon truth (a New Tab page's replacement in its slot: NewTabSuccession) into the strip. `force` resets optimistic strip state after a rejected command.
     func apply(_ reported: Snapshot, force: Bool = false) {
         let snapshot = NewTabSuccession.order(reported, in: self)
-        appliedRecordTabs = pane.tabs.map(\.id)
+        let was = appliedRecordTabs; appliedRecordTabs = pane.tabs.map(\.id)
         if force { view.stripView.discardPendingReorder() }
         snapshotHidesStrip = snapshot.hidesStrip
         view.showStrip(hidden: snapshot.hidesStrip || presentsPage, vertical: presentsPage ? nil : snapshot.verticalTabs)
@@ -353,7 +353,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if presentsPage, stripModel.zoomsSelected != snapshot.zoomed { stripModel.zoomsSelected = snapshot.zoomed; view.needsLayout = true } // only under a page's fullscreen (TabStripModel.zoomsSelected)
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items {
-            stripModel.tabs = snapshot.items
+            stripModel.take(snapshot.items) { id in was.contains(id.rawValue) && daemon.store.tab(id: id.rawValue).flatMap(daemon.store.pane(holding:)).map { $0.id != pane.id } ?? false }
             noteNeighbors()  // a reorder, close or new tab moves the neighbors
         }
         if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }
@@ -455,7 +455,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // Another tab's last page from the launch must not stay under this one.
             view.clearLaunchImage()
         }
-        if let currentTabKey, currentTabKey != key {
+        if let currentTabKey, currentTabKey != key, !((key.flatMap { services.cache.browsers[$0] } ?? services.cache.browsers[currentTabKey]).map { view.browserChrome.chrome?.shows($0.state) == true } == true && (key.flatMap { services.cache.browsers[$0] } != nil || daemon.store.creations.replacement(ofStandIn: currentTabKey, in: pane).map { $0.id == key && services.cache.moveBrowser(currentTabKey, to: $0) } == true)) { // the chrome shows `key`'s page already: a stand-in that became `key` (moved by its opener, or here, a step before it), the same page, its omnibar keeps the keyboard and the keys typed into it
             view.contentHost.handKeyboardToWindow() // before the old tab hides: no AppKit key view loop walk (5 ms); focus has the new selection
             BenchSpans.measure("switch.withdraw") { services.cache.withdraw(currentTabKey, by: self) }
         }

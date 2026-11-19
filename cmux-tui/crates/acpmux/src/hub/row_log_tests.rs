@@ -431,3 +431,6 @@ async fn a_follow_of_one_row_larger_than_a_reply_fits_under_the_cap() {
     assert!(row["name"].as_str().is_none_or(|n| n.len() < 3 << 20), "the row went whole");
     assert_eq!(follow["more"], false, "{}", follow.to_string().get(..400).unwrap_or_default());
 }
+
+#[path = "phone_list_tests.rs"]
+mod phone;

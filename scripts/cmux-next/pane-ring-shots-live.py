@@ -20,6 +20,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--job", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--label", required=True)
+parser.add_argument("--set", default="content", choices=["content", "styles"],
+                    help="content: the three content-area scenes; styles: every appearance.chromeStyle, split, light and dark")
 opts = parser.parse_args()
 
 OUT = os.path.realpath(os.environ.get("NX_ARTIFACTS") or f"/tmp/pane-ring-shots-{opts.tag}")
@@ -62,6 +64,10 @@ SCENES = {
     "tiled-vertical": {"appearance": {"density": "compact", "focusIndicator": "both"}, "focusRing": {"enabled": True},
                        "tabs": {"verticalTabs": True}},
 }
+
+CHROME_STYLES = ["default", "card", "card-outlined", "flat", "flat-sidebar-line", "bare", "panes", "two-tone", "floating", "blocks"]
+if opts.set == "styles":
+    SCENES = {f"style-{name}": {"appearance": {"chromeStyle": name, "density": "compact"}} for name in CHROME_STYLES}
 
 
 def rpc(method, params=None, timeout=60):
@@ -161,7 +167,7 @@ for tag_state in (os.path.expanduser(f"~/Library/Application Support/cmux-next/t
         os.rename(tag_state, f"{tag_state}.old-{int(time.time())}")
 if os.path.exists(SOCKET):
     os.unlink(SOCKET)
-write_config("floating-split", "light")
+write_config(next(iter(SCENES)), "light")
 env = dict(os.environ)
 env.pop("CMUX_NEXT_NO_ACTIVATE", None)
 env.update({"CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config,
@@ -206,14 +212,17 @@ try:
             # A second tab, so the strip (or the vertical list) shows real tabs.
             say("tab", json.dumps(cli_json("tab", "create", "terminal", "--pane", pane))[:200])
             time.sleep(0.6)  # capture harness: the new tab's prompt
-            if scene == "floating-single":
+            if scene.endswith("-single"):
                 tab = tab_of_terminal(term) or {}
                 say("mark", json.dumps(cli_json("tab", tab.get("id", term), "update", "--marked-unread", "true"))[:200])
             else:
-                say("split", json.dumps(cli_json("pane", pane, "split", "--right", "--focus"))[:200])
+                styles = opts.set == "styles"
+                split = cli_json("pane", pane, "split", "--right", *([] if styles else ["--focus"]))
+                say("split", json.dumps(split)[:200])
                 time.sleep(1.0)  # capture harness: the split lands and its prompt draws
-                # The first pane, now unfocused, marked unread: its ring shows beside the focused new pane.
-                tab = tab_of_terminal(term) or {}
+                # content: the first pane, now unfocused, marked unread: its ring shows beside the focused new pane.
+                # styles: the new trailing pane, unfocused, marked unread: its ring meets the window's (or card's) corner.
+                tab = tab_of_terminal((find_key(split, "terminal_id") or find_key(split, "content_id") or find_key(split, "pane_id")) if styles else term) or {}
                 say("mark", json.dumps(cli_json("tab", tab.get("id", term), "update", "--marked-unread", "true"))[:200])
             wait(lambda: rings(), 5)
             time.sleep(1.2)  # capture harness: the ring's entrance ends
