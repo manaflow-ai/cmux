@@ -93,7 +93,7 @@ await requireBrowserLane("composer-controls-bottom.browser.test.ts", async () =>
           taller: true,
           controls: ["plus", "send", "mic"],
         },
-        { name: "streaming-stop", entry: "agent-pane.composer", variant: "working-stop", controls: ["plus", "send"] },
+        { name: "streaming-stop", entry: "agent-pane.composer", variant: "working-stop", controls: ["plus", "mic"] },
         { name: "queued", entry: "agent-pane.composer", variant: "queued", controls: ["plus"] },
       ],
     },
