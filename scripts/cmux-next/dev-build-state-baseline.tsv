@@ -63,6 +63,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdaterService+ReleaseNotes.swif
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdaterService+Rollback.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/WebUpdates/WebUpdateStore.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/WhatsNew/WhatsNewLastUpdate.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
+cmux-tui/crates/acpmux/src/agent/command.rs	2	test fixtures only: a made-up /Users/someone path that a test passes through as the app's settings file, never read or written
 cmux-tui/crates/acpmux/src/agent_guidance.rs	2	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
 cmux-tui/crates/acpmux/src/agent_login.rs	3	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 cmux-tui/crates/acpmux/src/claude_cloud_auth.rs	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
