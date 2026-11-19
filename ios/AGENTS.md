@@ -20,12 +20,6 @@ tree as macOS-relevant, which can queue an unrelated macOS compile-admission
 build. Tests that genuinely need Xcode, a simulator, or a physical device stay
 in the corresponding iOS verification lane.
 
-## iOS UI follows the Apple HIG
-
-`Packages/iOS/AGENTS.md` requires consulting the Apple Human Interface
-Guidelines for any iOS UI change and citing the page in the PR. It applies to
-`Packages/iOS/` and `ios/`.
-
 ## iOS builds open on the iPhone by default
 
 Any work verified by opening the iOS app installs BOTH an isolated-simulator build AND the same build on the user's iPhone. Never stop at simulator-only. A macOS CMUX build proves neither iOS compilation nor installation. Build with `ios/scripts/reload.sh --tag <tag>`; with a default iPhone configured (`CMUX_IPHONE_DEVICE_ID` or `~/.config/cmux/iphone-device-id`) the device leg is automatic, and `--device-id <id>` still overrides (`xcrun devicectl list devices`). Physical iPhone builds always select the `personal` auth profile. Agent-driven Simulator verification always selects `agent`. Both named profiles live in `~/.secrets/cmuxterm-dev.env`; neither may fall back to the other. The simulator leg uses the tag's own isolated device `cmux-dev-<slug>`, created on demand; do not target a shared or user-visible simulator.
