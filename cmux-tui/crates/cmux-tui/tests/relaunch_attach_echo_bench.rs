@@ -457,7 +457,8 @@ fn grow(daemon: &Daemon, n: usize, kind: &str) -> (Vec<Terminal>, Duration) {
     conn.call(
         2,
         json!({"cmd": "set-client-info", "name": "attach bench setup", "kind": "frontend",
-               "capabilities": APP_CAPABILITIES}),
+               // The replies name each terminal's `term_` id, which the app's attach sends.
+               "capabilities": [APP_CAPABILITIES, &["terminal-public-ids-v1"]].concat()}),
     );
     let started = Instant::now();
     let mut terminals = Vec::with_capacity(n);
@@ -466,13 +467,18 @@ fn grow(daemon: &Daemon, n: usize, kind: &str) -> (Vec<Terminal>, Duration) {
             10 + i as u64,
             json!({
                 "cmd": "create-terminal", "create_workspace": true, "workspace_name": format!("w{i}"),
-                "key": format!("bench-w{i}"), "mutation_id": format!("bench-m{i}"),
+                // A workspace key is a UUID; the one-request workspace needs a mutation.
+                "key": format!("018f6e21-7b70-7e70-8000-{:012x}", i + 1),
+                "origin": "cmux-next", "mutation_id": format!("attach-bench-{i}"),
                 "argv": argv, "env": env, "cols": COLS, "rows": ROWS,
             }),
         );
         terminals.push(Terminal {
             surface: created["surface"].as_u64().expect("created terminal has a surface"),
-            terminal_id: created["terminal_id"].as_str().unwrap().to_string(),
+            terminal_id: created["terminal_resource_id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("no terminal_resource_id: {created}"))
+                .to_string(),
         });
     }
     for (i, terminal) in terminals.iter().enumerate() {
