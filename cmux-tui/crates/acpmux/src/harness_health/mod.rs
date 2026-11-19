@@ -180,6 +180,7 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         "opencode" => "opencode auth login",
         "unii" => "unii login",
         "hermes" => "hermes model",
+        "openclaw" => "openclaw onboard",
         _ => return None,
     })
 }
