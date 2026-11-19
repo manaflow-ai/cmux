@@ -446,3 +446,50 @@ fn resync_keeps_the_row_a_scrolled_back_reader_is_on_when_output_arrived() {
         "the resync moved the viewport"
     );
 }
+
+#[test]
+fn resync_at_a_new_width_never_moves_the_reader_to_an_older_copy_of_its_rows() {
+    // The reader's rows ("aa-*") also appear earlier in history, and the long
+    // lines around them wrap at 12 columns but not at 24.
+    let mut server = Terminal::new(12, 4, 100_000, Callbacks::default()).unwrap();
+    let block = |server: &mut Terminal| {
+        for index in 0..4 {
+            server.vt_write(format!("aa-{index}\r\n").as_bytes());
+        }
+    };
+    let long = |server: &mut Terminal, count: usize| {
+        for index in 0..count {
+            server.vt_write(format!("long-line-{index:010}\r\n").as_bytes());
+        }
+    };
+    block(&mut server);
+    long(&mut server, 60);
+    block(&mut server);
+    long(&mut server, 20);
+    let surface = test_remote_pty_surface(1, 12, 4, (8, 16));
+    surface.apply_stream_resize(12, 4, Some(&server.vt_replay_bytes().unwrap()), &[]).unwrap();
+    {
+        let mut term = surface.term.lock().unwrap();
+        for _ in 0..200 {
+            if term.viewport_text().unwrap().lines().next() == Some("aa-0") {
+                break;
+            }
+            term.scroll_delta(-1);
+        }
+        assert_eq!(term.viewport_text().unwrap().lines().next(), Some("aa-0"));
+    }
+    let from_end = |surface: &RemoteSurface| {
+        let scrollbar = surface.term.lock().unwrap().scrollbar().unwrap();
+        scrollbar.total - scrollbar.offset
+    };
+    let before = from_end(&surface);
+
+    server.resize(24, 4, 8, 16).unwrap();
+    surface.apply_stream_resize(24, 4, Some(&server.vt_replay_bytes().unwrap()), &[]).unwrap();
+
+    assert_eq!(
+        from_end(&surface),
+        before,
+        "the resync jumped to an older copy of the reader's rows"
+    );
+}
