@@ -2,7 +2,7 @@
 import CmuxNextDaemon
 import Testing
 
-/// The chats moving now (`ChatMoves`): what a sidebar drop knew stays when the run begins, the machine comes when
+/// The chats moving now (`ChatMoves`, through Rust's `moves::chat_moves`): what a sidebar drop knew stays when the run begins, the machine comes when
 /// the run picks it, the bar never runs back, and an end clears the move.
 @MainActor @Suite struct ChatMovesTests {
     @Test func aDropsMachineStaysWhenTheRunBeginsWithoutOne() {
