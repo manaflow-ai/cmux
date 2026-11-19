@@ -265,6 +265,51 @@ import Testing
         #expect(try await beside.handle(ControlRequest(id: "5", method: "system.identify", params: ["caller": Self.agent])).get()["beside"]?["placement"] == "own_pane")
     }
 
+    /// The pane the app splits off beside a caller is in the caller's own column (a screen stored as one split
+    /// tree is column 0 everywhere): the layout's right neighbors name it (`rightPaneIDs`), so it is the helper
+    /// column of the next open and of `system.identify`, not "nothing there" (fleet capture of build
+    /// 76840bfee0ac, 2026-11-18: every open off screen made one more pane). A terminal's browser is a tab in the
+    /// browser pane; its new terminal leaves the split below that lone pane to the app.
+    @Test func aPaneSplitOffBesideTheCallerIsItsHelperColumn() async throws {
+        func split(_ right: [ControlPaneInfo]) -> ControlSnapshot {
+            var snapshot = Self.snapshot(right: right)
+            snapshot.topology.workspaces = snapshot.topology.workspaces.map { workspace in
+                guard workspace.id == "ws-agent" else { return workspace }
+                var workspace = workspace
+                workspace.screens = workspace.screens.map { screen in
+                    var screen = screen
+                    screen.panes = screen.panes.map { pane in
+                        var pane = pane
+                        pane.column = 0
+                        pane.rightPaneIDs = pane.id == "pane-agent" ? right.map(\.id) : []
+                        return pane
+                    }
+                    return screen
+                }
+                return workspace
+            }
+            return snapshot
+        }
+        let web = split([Self.pane("pane-web", [Self.browser("tab-web")])])
+        let browser = try await run("openBrowser", web, args: ["url": "https://example.com"])
+        #expect(browser.target == Self.tabTarget("tab-web"), "a tab in the pane split off beside it: \(String(describing: browser.target))")
+        #expect(browser.besideCaller)
+        #expect(!browser.newColumnBeside)
+        let beside = try #require(try await identify(web)["beside"])
+        #expect(beside["placement"] == "existing_column", "\(beside)")
+        #expect(beside["pane"] == "pane-web")
+        let terminal = try await run("newSurface", web)
+        #expect(terminal.target == Self.tabTarget("tab-agent"), "the app splits below the lone browser pane: \(String(describing: terminal.target))")
+        #expect(terminal.newColumnBeside)
+        // Another agent's pane split off beside it is never its helper column.
+        let other = split([Self.pane("pane-other", [Self.chat("tab-other", session: "agent-2")])])
+        let taken = try await run("openBrowser", other, args: ["url": "https://example.com"])
+        #expect(taken.target == Self.tabTarget("tab-agent"))
+        #expect(taken.newColumnBeside)
+        #expect(taken.besideAgentHomes == ["pane-other"])
+        #expect(try await identify(other)["beside"] == ["pane": .null, "placement": "new_column"])
+    }
+
     @Test func anAgentsNewTerminalOpensBesideItInItsOwnFolder() async throws {
         let right = [Self.pane("pane-web", [Self.browser("tab-web")]), Self.pane("pane-shell", [Self.terminal("tab-shell", "term-shell", agent: nil)])]
         let request = try await run("newSurface", Self.snapshot(right: right))
@@ -408,6 +453,15 @@ import Testing
         #expect(refused.failure?.message.contains("tab-agent") != true)
         #expect(refused.failure?.data?["arguments"] == ["session"])
         #expect(executor.all.isEmpty)
+        // An empty or blank `--session` names nothing: it is refused as no `--session` is (review of 4fb5810d35c:
+        // the handler read it as "no session" and archived the agent's own).
+        for blank in ["", "  "] {
+            let empty = await router.handle(ControlRequest(id: "1", method: "action.run", params: [
+                "action": "cloud.team.archive", "args": ["session": .string(blank)], "caller": Self.agent,
+            ]))
+            #expect(empty.failure?.code == "target_required", "'\(blank)': \(String(describing: empty))")
+            #expect(executor.all.isEmpty, "'\(blank)' ran")
+        }
 
         let archived = try await run("cloud.team.archive", Self.snapshot(), args: ["session": "sess-9"])
         #expect(archived.target == nil, "not also aimed at the agent's own workspace: \(String(describing: archived.target))")

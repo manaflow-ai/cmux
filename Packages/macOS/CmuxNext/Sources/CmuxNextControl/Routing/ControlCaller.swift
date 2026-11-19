@@ -181,17 +181,20 @@ struct ControlCallerLocation: Sendable, Equatable {
         return nil
     }
 
-    /// The first pane of the next column right of `pane` (`column`, as the
-    /// window draws columns left to right). Only a scrolling column counts:
-    /// a dock (another chat dock, a tool dock) never takes an agent's tabs,
-    /// so a chat in the strip's last column gets a new column instead.
+    /// The first pane directly right of `pane` (``besideColumn(of:on:)``).
     static func besidePane(of pane: ControlPaneInfo, on screen: ControlScreenInfo) -> ControlPaneInfo? {
-        guard let column = pane.column else { return nil }
-        return screen.panes.first { $0.column == column + 1 && $0.dock == nil }
+        besideColumn(of: pane, on: screen).first
     }
 
-    /// Every pane of that column (``besidePane(of:on:)``'s), in the screen's order.
+    /// The panes directly right of `pane`, top to bottom: what the daemon's layout says (`rightPaneIDs`: the
+    /// panes across a side-by-side split of its own column, else the next scrolling column's), the same on and
+    /// off screen. Only a scrolling column counts: a dock (another chat dock, a tool dock) never takes an agent's
+    /// tabs, so a chat in the strip's last column gets a new column instead. A topology with no layout (built by
+    /// hand) has the next column's panes (`column + 1`), in the screen's order.
     static func besideColumn(of pane: ControlPaneInfo, on screen: ControlScreenInfo) -> [ControlPaneInfo] {
+        if let right = pane.rightPaneIDs {
+            return right.compactMap { id in screen.panes.first { $0.id == id && $0.dock == nil } }
+        }
         guard let column = pane.column else { return [] }
         return screen.panes.filter { $0.column == column + 1 && $0.dock == nil }
     }

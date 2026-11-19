@@ -76,10 +76,12 @@ enum TabLifecycle {
         // Home's dock that no window shows opens nothing in itself either: the tab moves beside it, the focus kept; a dock taking no tab: a column right of it (as above).
         let beside = HomeDockOpens.opensBeside(pane, services: ctx.services) || invocation.besideAgent?.newColumnBeside == true, width = ctx.services.newColumnWidth(nextTo: pane)
         let closed = ctx.services.daemon(for: pane).store.pinnedDock(holding: pane.handle)?.takesTabs == false
+        // An agent's terminal beside a pane no window shows: below the lone pane on its right that holds no terminal (the daemon's layout names it), as on screen; else a new column.
+        let below = invocation.besideAgent?.newColumnBeside == true ? RightColumnPlacement.paneToSplitBelow(beside: pane, in: ctx.services.daemon(for: pane).store, avoiding: invocation.besideAgentHomes, opening: .terminal, holds: { LinkOpener.holds(tabs: $0.tabs, $1) }) : nil
         ctx.send("new-tab") { connection in
             if closed { _ = try await connection.newColumn(beside: handle, left: false, width: width, options: options); return }
             let created = try await connection.newTab(in: handle, options: options)
-            if beside { _ = try await connection.moveTabToColumn(created.surface, target: .pane(handle), keepFocus: true) }
+            if let below { _ = try await connection.moveTabToSplit(created.surface, pane: below, edge: .bottom, keepFocus: true) } else if beside { _ = try await connection.moveTabToColumn(created.surface, target: .pane(handle), keepFocus: true) }
         }
     }
 

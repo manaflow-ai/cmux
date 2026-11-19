@@ -21,9 +21,12 @@ import Foundation
 /// - A docked chat (Home's, an agent chat's dock) keeps the strip beside it: a dock cannot split, and its strip is
 ///   where its tools open, so the strip's first column is its helper column whatever that column holds.
 ///
-/// The topology knows columns, not frames: two panes split side by side in one column are one column here. The app
-/// measures the column a window shows (AgentBesidePlacement) and takes ``agentHomes`` from this decision, so it
-/// never places the caller's tab in a pane of another agent either.
+/// "The column right of its pane" is the panes directly right of it in the daemon's layout
+/// (``ControlPaneInfo/rightPaneIDs``): the pane the app split off beside it, which is in its own column, as much as
+/// the next scrolling column. So the pane one open makes is the helper column of the next open, on and off screen
+/// (fleet capture of build 76840bfee0ac, 2026-11-18: off screen every open made another pane). The app measures
+/// the column a window shows (AgentBesidePlacement), reads the same layout for one no window shows, and takes
+/// ``agentHomes`` from this decision, so it never places the caller's tab in a pane of another agent either.
 struct ControlCallerPlacement: Sendable, Equatable {
     /// The wire names are `beside.placement`'s.
     enum Kind: String, Sendable {
@@ -88,11 +91,15 @@ struct ControlCallerPlacement: Sendable, Equatable {
 
     /// The helper column's pane for a new tab of `kind` (`terminal`, `browser`; nil for any other tab) when no
     /// window shows the column to measure (RightColumnPlacement): its lowest pane that holds the kind, else its
-    /// lowest pane when it has two or more (never another split), else its first.
+    /// lowest pane when it has two or more (never another split). A lone pane: its own for a tab with no kind;
+    /// nil for a terminal or a browser it does not hold, which opens in a split below it (the app makes the
+    /// split, AgentBesidePlacement; Leo 2026-10-31: "you only need the rightmost botom auto split when there's a
+    /// terminal that gets opened when there's already a browser, and vice versa").
     func pane(for kind: String?) -> ControlPaneInfo? {
         let filled = column.filter { !$0.tabs.isEmpty }
         if let kind, let same = filled.last(where: { ControlCallerLocation.kinds(of: $0).contains(kind) }) { return same }
-        return filled.count > 1 ? filled.last : column.first
+        if filled.count > 1 { return filled.last }
+        return kind != nil && filled.count == 1 ? nil : column.first
     }
 
     /// A tab of `pane` a tab-target action can name: its selected tab, else its first.
