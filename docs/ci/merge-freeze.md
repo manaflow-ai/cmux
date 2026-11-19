@@ -2,7 +2,7 @@
 
 A merge freeze stops pull requests that touch some paths from merging for a few hours. Use it for
 a release cut, or while one lane reworks an area that other merges would collide with. For a
-pull request's own risk, use [risk tiers](risk-tiers.md) on feat-cmux-next instead.
+pull request's own risk, use [risk tiers](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/docs/ci/risk-tiers.md) on feat-cmux-next instead.
 
 ## Freeze an area
 
