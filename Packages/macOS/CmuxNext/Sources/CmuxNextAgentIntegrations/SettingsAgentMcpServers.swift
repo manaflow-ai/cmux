@@ -41,7 +41,7 @@ public final class SettingsAgentMcpServers: PageProvider {
     public init(cli: @escaping @MainActor () async -> URL?,
                 enabled: @escaping @MainActor () -> Bool,
                 project: String = FileManager.default.homeDirectoryForCurrentUser.path(percentEncoded: false),
-                pickFolder: @escaping @MainActor () async -> URL? = { nil },
+                pickFolder: @escaping @MainActor () async -> URL?,
                 runCLI: @escaping @Sendable (URL, [String], [String: String]) async throws -> (Int32, Data, Data) = SettingsMcpServers.run) {
         self.cli = cli
         self.enabled = enabled

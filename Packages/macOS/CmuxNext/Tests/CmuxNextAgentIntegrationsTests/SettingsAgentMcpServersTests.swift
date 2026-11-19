@@ -30,6 +30,7 @@ import Testing
             cli: { SettingsAgentMcpServersTests.cli },
             enabled: { enabled },
             project: "/Users/me/src/",
+            pickFolder: { nil },
             runCLI: { _, arguments, _ in
                 recorder.calls.append(arguments)
                 if arguments.starts(with: ["agent-config", "mcp", "list"]) { return (0, Data(SettingsAgentMcpServersTests.list.utf8), Data()) }
