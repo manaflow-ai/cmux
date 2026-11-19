@@ -188,7 +188,9 @@ jobs:
   web-validation:
     name: web-validation
     needs: [changes, build, tests, database, portable-placement]
-    if: always()
+    # Not always(): a superseded run's cancel would start this job, which then waits for a runner while the
+    # cancelled run holds the concurrency group, so the newer head's run stays pending (cmux#47223).
+    if: ${{ !cancelled() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' web-validation ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' web-validation ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
