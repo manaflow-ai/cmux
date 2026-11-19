@@ -187,7 +187,7 @@ main() {
     local head="${headsha:-$here}" want
     for want in $base $head; do
       git cat-file -e "$want^{commit}" 2>/dev/null \
-        || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$want" || { echo "LR cannot fetch $want"; exit 3; }
+        || git fetch --quiet --recurse-submodules=no https://github.com/manaflow-ai/cmux.git "$want" || { echo "LR cannot fetch $want"; exit 3; }
     done
     if [[ -n "$base" ]]; then
       git -c advice.detachedHead=false checkout --quiet --detach "$base" || exit 3
