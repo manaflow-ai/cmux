@@ -6,5 +6,6 @@
   "author": "issue-45953 lane (claude opus 5.5)",
   "owner": "issue-45953 lane (claude opus 5.5)",
   "receipt": "Review (claude opus subagent a777c05fa953c641b): SHIP at 71788c7d0043f7394ef962e6490e362f869133cd",
-  "expiry": "2026-12-01"
+  "expiry": "2026-12-01",
+  "applied_sha": "92aeb2987f12fc87762cd724d9f805cc2fa2d221"
 }

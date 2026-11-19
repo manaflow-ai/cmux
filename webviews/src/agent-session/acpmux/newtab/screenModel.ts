@@ -20,6 +20,7 @@ import { commandLikeness, isMultiline } from "./commandIntent";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
 import { DEFAULT_SUGGESTION_ORDER, type SuggestionOrder } from "./suggestionOrder";
+import type { ScreenSections } from "./templates";
 import { TOP_SITES } from "./topSites";
 import { translateNewTab, type NewTabTranslate } from "./strings";
 import { type FolderListing, launchRows, type LaunchAgent, type LaunchRow } from "./launchRows";
@@ -702,13 +703,12 @@ export function recentChatCards(
   const live = liveChatCards(sessions, now, t, count, fold);
   const shown = new Set(live.map((card) => card.title.trim().toLowerCase()));
   // Every session's, an archived one's too: its transcript must not come back as a device chat.
-  // Read only when there are device chats to fill with: a pass over every chat otherwise.
-  const agents = new Set<string>();
-  if (device.length > 0)
-    for (const session of sessions) {
+  const agents = new Set(
+    sessions.flatMap((session) => {
       const id = normalizedSessionEntry(session as Parameters<typeof normalizedSessionEntry>[0]).agentSessionId;
-      if (id) agents.add(id);
-    }
+      return id ? [id] : [];
+    }),
+  );
   const fill = [...device]
     .sort((a, b) => b.updatedAt - a.updatedAt || a.key.localeCompare(b.key))
     .filter((chat) => !(fold && chat.parent) && !agents.has(chat.key.slice(chat.key.indexOf(":") + 1)))
@@ -725,9 +725,27 @@ export function recentChatCards(
     }));
   const cards = [...live, ...fill];
   if (!fold) return cards;
-  const children = indexChildren(sessions, device, now, t, cardParents(cards));
+  const parents = new Set(cards.flatMap((card) => [card.sessionId, card.chatKey].filter((id): id is string => !!id)));
+  const children = indexChildren(sessions, device, now, t, parents);
   return cards.map((card) => withChildren(card, children));
 }
+
+/// The cards a template's page draws (`sections`): none, with no pass over the chats, on a page
+/// that lists none (Minimal, the default, and Composer). Leo 2026-11-18, on New Tab sorting every
+/// chat and carding about 2,500 child chats behind Minimal: "We literally don't even have that as
+/// a visible option at all anymore".
+export function pageChatCards(
+  sections: ScreenSections,
+  sessions: AcpmuxSnapshot["sessions"],
+  now: number,
+  t: Translate,
+  device: DeviceChat[],
+): ChatCard[] {
+  if (sections.chats === "none") return NO_CHAT_CARDS;
+  return recentChatCards(sessions, now, t, device, sections.recent, sections.chats === "list");
+}
+
+const NO_CHAT_CARDS: ChatCard[] = [];
 
 /// The stage layout's needs-you rows (NewTabScreen's suggestions card).
 export const MAX_NEEDS_YOU = 3;
@@ -781,19 +799,8 @@ function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): Ch
 /// Child rows indexed once per snapshot, so each visible card does not rescan every session.
 type ChildCard = { parent: string; at: number; card: ChatCard };
 
-/// The ids a shown card's children name as their parent (`withChildren` reads both).
-function cardParents(cards: readonly ChatCard[]): Set<string> {
-  const parents = new Set<string>();
-  for (const card of cards) {
-    parents.add(card.sessionId);
-    if (card.chatKey) parents.add(card.chatKey);
-  }
-  return parents;
-}
-
-/// Only the children of the cards shown get a card: at Leo's scale a quarter of 10K chats were
-/// started by another, and every New Tab page built a card for each on every change of any chat
-/// (bench/session-scale-typing.bench.ts).
+/// Only the shown cards' children (`parents`) get a card: thousands of child chats under parents
+/// past the cut cost one pass, not a card each.
 function indexChildren(
   sessions: AcpmuxSnapshot["sessions"],
   device: DeviceChat[],
@@ -802,16 +809,12 @@ function indexChildren(
   parents: ReadonlySet<string>,
 ): Map<string, ChildCard[]> {
   const indexed = new Map<string, ChildCard[]>();
-  const add = (child: ChildCard) => {
-    const list = indexed.get(child.parent);
-    if (list) list.push(child);
-    else indexed.set(child.parent, [child]);
-  };
   for (const raw of sessions) {
     const session = normalizedSessionEntry(raw as Parameters<typeof normalizedSessionEntry>[0]);
-    if (!session.spawnedBy || !parents.has(session.spawnedBy) || !listed(session)) continue;
-    if (sessionMark(session, false) === "input") continue;
-    add({ parent: session.spawnedBy, at: activityTime(session) ?? 0, card: sessionCard(session, now, t) });
+    if (!session.spawnedBy || !parents.has(session.spawnedBy)) continue;
+    if (!listed(session) || sessionMark(session, false) === "input") continue;
+    const child = { parent: session.spawnedBy, at: activityTime(session) ?? 0, card: sessionCard(session, now, t) };
+    indexed.set(session.spawnedBy, [...(indexed.get(session.spawnedBy) ?? []), child]);
   }
   for (const chat of device) {
     if (!chat.parent || !parents.has(chat.parent)) continue;
@@ -828,7 +831,7 @@ function indexChildren(
         state: "idle",
       } satisfies ChatCard,
     };
-    add(child);
+    indexed.set(chat.parent, [...(indexed.get(chat.parent) ?? []), child]);
   }
   return indexed;
 }

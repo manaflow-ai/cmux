@@ -8,7 +8,6 @@ import {
   codexModels,
   mockResolvable,
   mockSessions,
-  fleetListedSession,
   listedSession,
   newSessionSummary,
   sessionHistory,
@@ -16,6 +15,7 @@ import {
   workedTurn,
   WORKED_SESSION,
   type SeedStep,
+  fleetListedSession,
 } from "./mockFixture";
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
@@ -428,6 +428,16 @@ export class MockAcpmuxSocket {
     this.sessions.push(created);
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
     return id;
+  }
+
+  /// Puts `count` prompts in `target`'s queue, delivered as acpmux's `queued` records for prompts sent
+  /// while a turn runs (the composer typing bench's `--queue`).
+  seedQueue(target: string, count: number): void {
+    for (let index = 0; index < count; index += 1)
+      this.emit(target, {
+        mux: "queued",
+        msg: { promptId: `${target}-queued-${index}`, text: `Queued prompt ${index + 1}` },
+      });
   }
 
   /// Records `updates` into `target`'s log in place of subagent `id`'s own records there, without

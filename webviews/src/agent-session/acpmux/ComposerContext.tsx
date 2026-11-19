@@ -159,6 +159,7 @@ export function ComposerContext({
   machineFolders,
   onBrowseProject,
   onNewWorktree,
+  onGitHubHere,
   onNewProject,
   newProject = false,
   newProjectName,
@@ -177,7 +178,6 @@ export function ComposerContext({
   onMoveTo,
   saved,
   onRefreshMachines: onRefreshPeers,
-  folderNote,
   onComputer,
   onRepick,
   cloudMachines,
@@ -227,6 +227,10 @@ export function ComposerContext({
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
   onNewWorktree?(cwd: string): void;
+  /// A GitHub repository (`owner/name`) picked for a new chat on this Mac: the host finds this Mac's checkout of
+  /// it (one of `candidates`, the folders here whose remote names it) or clones it, and the chat starts in a new
+  /// worktree of that. Without it a GitHub pick moves the chat to Cloud.
+  onGitHubHere?(repo: string, candidates: string[]): void;
   /// A new chat's New Project (FolderPopover, newtab/newProject.ts); `newProject` while it is the choice:
   /// the strip reads New Project until the send makes the folder.
   onNewProject?(): void;
@@ -273,9 +277,6 @@ export function ComposerContext({
   /// The machine list opened, and every few seconds while it stays open: read the machines and
   /// their status again.
   onRefreshMachines?(): void;
-  /// A quiet line in the folder menu: where a new chat starts while it has no folder (its
-  /// workspace's private folder).
-  folderNote?: string;
   /// A new chat's machine was picked (`local` for this Mac) where no folder of it is known; with a
   /// known folder the pick is `onProject(folder, peer)`.
   onComputer?(computer: string): void;
@@ -341,6 +342,15 @@ export function ComposerContext({
   const placeLists = useRef<SessionsBy | null>(null);
   placeLists.current ??= new SessionsBy(placeFields);
   const sessions = placeLists.current.of(listedSessions);
+  // The chat's own place (`placeFields` of its summary): the same object while where it runs is the
+  // same, so the machine and folder lists below are not made again from every listed chat when only
+  // the summary's other fields changed. A New Tab's summary is made anew from each snapshot. Kept in
+  // state, not a ref: render reads and writes no ref (React's "adjust state when a prop changes"), so
+  // the compiler still memoizes this component.
+  const [placedSummary, setPlacedSummary] = useState(summary);
+  const placeMoved = !samePlace(placedSummary, summary);
+  if (placeMoved) setPlacedSummary(summary);
+  const summaryPlace = placeMoved ? summary : placedSummary;
   const t = useT();
   const composerSettings = useComposerSettings();
   const newChat = !started && onProject !== undefined;
@@ -360,7 +370,7 @@ export function ComposerContext({
     // not as a lost link; in a new chat a paused one is a pick that resumes it.
     const listed = withCloudSleep(
       availableComputers(
-        summary,
+        summaryPlace,
         sessions,
         peers,
         peerKinds,
@@ -375,11 +385,11 @@ export function ComposerContext({
     );
     if (!newChat) return listed;
     const detail = t(CONTEXT_LABELS.cloud);
-    return withCloudMachines(listed, shownMachines, peers, computerId(summary)).map((row) =>
+    return withCloudMachines(listed, shownMachines, peers, computerId(summaryPlace)).map((row) =>
       isCloudMachineRow(row) ? { ...row, detail } : row,
     );
   }, [
-    summary,
+    summaryPlace,
     sessions,
     peers,
     peerKinds,
@@ -515,7 +525,7 @@ export function ComposerContext({
   // repository from it (FolderPopover `groupByRepo`), thousands of folders on each New Tab page and
   // chat (bench/session-scale-typing.bench.ts).
   const madeFolders = useMemo(() => {
-    const known = availableFolders(summary, sessions, selectedComputer);
+    const known = availableFolders(summaryPlace, sessions, selectedComputer);
     if (selectedComputer === "local") {
       const seen = new Set(known.map((folder) => folder.id));
       for (const environment of savedFolders) {
@@ -541,7 +551,7 @@ export function ComposerContext({
     }));
     return chatFolderChoices({ known, listed, cloudMachine: machineOnCloud });
   }, [
-    summary,
+    summaryPlace,
     sessions,
     selectedComputer,
     projectChoices,
@@ -740,12 +750,38 @@ export function ComposerContext({
   );
   // A folder pick is always the folder (the page's project, which Cloud sends and recent projects
   // record), then the saved environment that is only that folder, if there is one.
+  // A new chat on this Mac (This Mac picked: not Cloud, not Sandboxed, not another machine or a saved environment).
+  const gitHubHere = () =>
+    !started &&
+    !readOnly &&
+    runMode?.mode !== "cloud" &&
+    runMode?.mode !== "sandboxed" &&
+    currentComputer?.kind === "local" &&
+    !savedPick &&
+    waitingName === undefined;
   const pickFolder = (cwd: string) => {
     folderPicks.current += 1;
     setBrowseError(undefined);
     onCloudMachinePicked?.(undefined);
-    // A GitHub repository runs on Cloud: its pick with This Mac still picked moves the new chat there.
-    if (githubFolderRepo(cwd) && runMode && runMode.mode !== "cloud" && !started && !readOnly) runMode.onMode("cloud");
+    const repo = githubFolderRepo(cwd);
+    // A GitHub repository picked with This Mac picked runs here: this Mac's checkout of it, cloned first when
+    // there is none, in a new worktree for the chat.
+    if (repo && onGitHubHere && gitHubHere()) {
+      const name = repo.toLowerCase();
+      // The repository's main checkout first (a worktree's folder is one too, but the host makes worktrees of the main one).
+      const candidates = [
+        ...new Set(
+          folders
+            .filter((folder) => folder.repo?.github?.toLowerCase() === name)
+            .flatMap((folder) => [folder.repo!.root, folder.id])
+            .filter((path) => path.startsWith("/")),
+        ),
+      ];
+      onGitHubHere(repo, candidates);
+      return;
+    }
+    // Anywhere else (another machine) a GitHub repository runs on Cloud: its pick moves the new chat there.
+    if (repo && runMode && runMode.mode !== "cloud" && !started && !readOnly) runMode.onMode("cloud");
     onProject?.(cwd);
     const environment = savedRows && savedFolders.find((candidate) => normalizeCwd(candidate.folder) === cwd);
     if (environment) savedRows.onPick(environment.id);
@@ -1030,12 +1066,18 @@ export function ComposerContext({
               noProject={(noProject || !currentFolder) && !newProject}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
               {...(onNewProject ? { onNewProject } : {})}
-              {...((folderDetail ?? folderNote) && !currentFolder ? { note: folderDetail ?? folderNote } : {})}
               {...(extra ? { extra } : {})}
-              // A new chat that can run on Cloud also offers the person's GitHub repositories, with This
-              // Mac picked too: Connect to GitHub is found without knowing to pick Cloud first, and a
-              // repository's pick moves the chat to Cloud (pickFolder).
-              {...((cloudSide || (runMode !== undefined && !started)) && !sandboxPicked && !readOnly ? { github } : {})}
+              // A new chat on Cloud or on this Mac also offers the person's GitHub repositories, with This Mac
+              // picked too, so Connect to GitHub is found without knowing to pick Cloud first. On Cloud the
+              // machine clones the pick; with This Mac picked the pick is this Mac's checkout of it, cloned
+              // first when there is none, in a new worktree (onGitHubHere). Where neither applies (another
+              // machine) a pick moves the chat to Cloud (pickFolder).
+              {...((cloudSide ||
+                (!started && (runMode !== undefined || (onGitHubHere !== undefined && gitHubHere())))) &&
+              !sandboxPicked &&
+              !readOnly
+                ? { github, githubFirst: cloudSide }
+                : {})}
             />
           ) : (
             <LocationPicker
@@ -1360,6 +1402,13 @@ function availableFolders(summary: Summary | undefined, sessions: readonly Sessi
     if (sessionComputer === computer) add(session.cwd);
   }
   return folders;
+}
+
+/// Whether two summaries put their chat in the same place (`placeFields`).
+function samePlace(left: Summary | undefined, right: Summary | undefined): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return placeFields(left).every((field, index) => field === placeFields(right)[index]);
 }
 
 function normalizeCwd(cwd?: string): string | undefined {
