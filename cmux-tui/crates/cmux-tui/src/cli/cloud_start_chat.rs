@@ -24,8 +24,10 @@
 //!    acpmux (`cmux-tui acp send --no-wait`), which the chat's tab shows like any send. A prompt
 //!    of any length works: one too long to go in one command goes to a file on the machine first,
 //!    in pieces, and the send reads it from there ([`upload_prompt`]).
-//! 4. With `--wait`, `cloud exec` again until the turn ends (`cmux-tui acp wait`, under the
-//!    exec's own 25 s limit each time), then the turn's last reply (`cmux-tui acp last`).
+//! 4. With `--wait`, the turn's end: pushed over the machine's link for a chat this run started, else
+//!    `cloud exec` until the turn ends (`cmux-tui acp wait --until running`, then `acp wait`, under the
+//!    exec's own 25 s limit each time), then the turn's last reply (`cmux-tui acp last`). A send to a
+//!    running chat (`cmux chat send --wait`) waits inside the send's own exec first.
 //!    `--timeout` counts from the command's start: a new machine and the start spend it too.
 //!
 //! Output: one JSON object (`--json`): the reply text with `machine_id`, `session_id`,
@@ -79,6 +81,8 @@ const TAKES_VALUE: &[&str] = &[
     "-p",
     "--agent",
     "--model",
+    "--effort",
+    "--mode",
     "--cwd",
     "--from-folder",
     "--environment",
@@ -108,6 +112,13 @@ pub(super) struct Request {
     /// `cloud start-session --model` takes it (acpmux's `session/new` model); `None` leaves the
     /// harness's default there.
     pub model: Option<String>,
+    /// `--effort EFFORT` (low, medium, high, xhigh, max…): the thinking effort the machine's agent
+    /// runs at, as the composer's effort picker sets it on a Cloud start; set on the new session
+    /// before its first prompt ([`apply_settings`]). `None` keeps the harness's default.
+    pub effort: Option<String>,
+    /// `--mode MODE`: the harness permission mode the chat starts in (the composer's mode pick),
+    /// set like `effort`; the machine's acpmux decides whether it may.
+    pub mode: Option<String>,
     pub cwd: Option<String>,
     /// `--from-folder`: a folder on this Mac, canonical; the chat starts in its copy on the machine.
     pub from_folder: Option<String>,
@@ -218,6 +229,8 @@ pub(super) fn send_existing(
         prompt: Some(prompt),
         agent: String::new(),
         model: None,
+        effort: None,
+        mode: None,
         cwd: None,
         from_folder: None,
         environment: None,
@@ -319,6 +332,8 @@ pub(super) fn wait_on(
         prompt: None,
         agent: String::new(),
         model: None,
+        effort: None,
+        mode: None,
         cwd: None,
         from_folder: None,
         environment: None,
@@ -338,7 +353,7 @@ pub(super) fn wait_on(
     });
     let began = runner.now();
     let deadline = Deadline(Some(began.checked_add(request.timeout).unwrap_or(began)));
-    wait_turn(runner, &request, machine_id, session, (0, None), answer, deadline)
+    wait_turn(runner, &request, machine_id, session, (0, None, None), answer, deadline)
 }
 
 /// [`send_existing`]'s run: the prompt (step 4) and, with `--wait`, the turn (step 5), in one `--timeout`
@@ -364,7 +379,7 @@ fn send_to(runner: &mut dyn Runner, request: &Request, machine_id: &str, session
         request,
         machine_id,
         session,
-        (prompt, answer, None),
+        (prompt, answer, None, true),
         deadline,
         &mut progress,
     );
@@ -470,6 +485,7 @@ pub(super) fn parse(
     let mut make_room = false;
     let mut allow_large = false;
     let mut timeout = DEFAULT_TIMEOUT;
+    let (mut effort, mut mode, mut no_folder) = (None, None, false);
     // The prompt came after `--`: text, so `-- -` is "-", not stdin.
     let mut literal = false;
     let mut index = 0;
@@ -494,6 +510,9 @@ pub(super) fn parse(
             "--prompt" | "-p" => prompt = Some(value()?),
             "--agent" => agent = Some(value()?),
             "--model" => model = Some(value()?),
+            "--effort" => effort = Some(setting_word("--effort", &value()?)?),
+            "--mode" => mode = Some(setting_word("--mode", &value()?)?),
+            "--no-folder" => no_folder = true,
             "--cwd" => cwd = Some(value()?),
             "--from-folder" => from_folder = Some(value()?),
             "--environment" => environment = Some(value()?),
@@ -556,6 +575,11 @@ pub(super) fn parse(
     {
         return Err(UsageError::new(format!("--cwd {dir}: an absolute folder on the machine")));
     }
+    // `--no-folder`: the composer's No folder, said outright: a fresh folder of the chat's own on
+    // the machine (`~/chats/<chat>`), nothing copied. It is also what neither folder flag means.
+    if no_folder && (cwd.is_some() || from_folder.is_some()) {
+        return Err(UsageError::new(NO_FOLDER_WITH_FOLDER));
+    }
     let from_folder = from_folder.map(|dir| local_folder(&dir, cwd.is_some())).transpose()?;
     let environment = match environment.map(|word| word.trim().to_owned()) {
         Some(word) if word.is_empty() => return Err(UsageError::new("--environment is empty")),
@@ -588,6 +612,8 @@ pub(super) fn parse(
         prompt,
         agent,
         model,
+        effort,
+        mode,
         cwd,
         from_folder,
         environment,
@@ -599,6 +625,25 @@ pub(super) fn parse(
         until: None,
         allow_large,
     })))
+}
+
+/// Refused: `--no-folder` with a folder.
+pub(super) const NO_FOLDER_WITH_FOLDER: &str = "--no-folder starts the chat in a fresh folder of its own on the machine; not with --cwd or \
+     --from-folder";
+
+/// `--effort`'s or `--mode`'s word: 1 to 64 letters, digits, `.`, `_` or `-`, not starting with
+/// `-` (the ids harnesses give their efforts and modes: `high`, `xhigh`, `acceptEdits`, `plan`).
+pub(super) fn setting_word(flag: &str, word: &str) -> Result<String, UsageError> {
+    let value = word.trim();
+    let ok = (1..=64).contains(&value.len())
+        && !value.starts_with('-')
+        && value.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c));
+    if ok {
+        Ok(value.to_owned())
+    } else {
+        let example = if flag == "--effort" { "low, medium, high, xhigh or max" } else { "plan" };
+        Err(UsageError::new(format!("{flag} {word:?}: a value such as {example}")))
+    }
 }
 
 /// `--model`'s word, checked as the machine's daemon checks `agent-session-start`'s `model`
@@ -635,6 +680,16 @@ pub(super) trait Runner {
     /// A new machine's name: the run's prefix and 16 hex characters from the OS's random source, so it is another
     /// machine's only by a negligible chance ([`unused_name`] still refuses one that is).
     fn fresh_name(&mut self) -> String;
+    /// [`Runner::cmux`], ended at `until` too (as well as at [`Runner::until`]): a child still running then is killed
+    /// and answers `internal::bounded::PAST_DEADLINE` ([`fresh::START_BOUND`]). A runner that cannot bound a step
+    /// runs it as [`Runner::cmux`].
+    fn cmux_by(&mut self, args: &[String], until: Instant) -> Ran {
+        let _ = until;
+        self.cmux(args)
+    }
+    /// One line of progress while the run goes on (on stderr: never part of the answer), so a start that gives up a
+    /// machine and tries another is never a silent wait.
+    fn say(&mut self, _line: &str) {}
     /// One app control call (`cloud.machine_stream`): its result, or the app's refusal. None: no app answered on a
     /// socket (a runner that reaches none).
     fn app(
@@ -661,6 +716,12 @@ pub(super) trait Runner {
         wait: Duration,
     ) -> Result<Value, link_wait::Failure> {
         link_wait::observe(std::path::Path::new(socket), surface, after, wait)
+    }
+    /// The copy of `folder` (a `--from-folder`), estimated and decided (whole, first pass or seed)
+    /// before any machine is made for it (link/sync_cli/estimate.rs): `null` when it could not be
+    /// read, and the start goes on either way.
+    fn estimate(&mut self, folder: &str) -> Value {
+        crate::link::sync_cli::estimate::answer(std::path::Path::new(folder))
     }
 }
 
@@ -697,17 +758,27 @@ pub(super) fn self_runner(global: &GlobalArgs) -> impl Runner {
     SelfRunner::new(global)
 }
 
-impl Runner for SelfRunner {
-    fn cmux(&mut self, args: &[String]) -> Ran {
-        let exe = match self.exe.clone().map_or_else(std::env::current_exe, Ok) {
-            Ok(exe) => exe,
-            Err(error) => {
-                return Ran { code: 127, stdout: String::new(), stderr: error.to_string() };
-            }
-        };
+impl SelfRunner {
+    /// This binary with `args` as one step, or the answer of a step that could not be made.
+    fn step(&self, args: &[String]) -> Result<cmux_process::Command, Ran> {
+        let exe = self.exe.clone().map_or_else(std::env::current_exe, Ok).map_err(|error| Ran {
+            code: 127,
+            stdout: String::new(),
+            stderr: error.to_string(),
+        })?;
         // A step reads the app's own words (vm_words.rs), whatever the command prints.
         let mut command = cmux_process::Command::new(exe);
         command.env(super::vm_words::STEP_ENV, "1").args(&self.globals).args(args);
+        Ok(command)
+    }
+}
+
+impl Runner for SelfRunner {
+    fn cmux(&mut self, args: &[String]) -> Ran {
+        let mut command = match self.step(args) {
+            Ok(command) => command,
+            Err(ran) => return ran,
+        };
         match self.until {
             None => match command.output() {
                 Ok(output) => Ran {
@@ -721,6 +792,23 @@ impl Runner for SelfRunner {
         }
     }
 
+    fn cmux_by(&mut self, args: &[String], until: Instant) -> Ran {
+        match self.step(args) {
+            Ok(command) => internal::bounded::output_by(
+                command,
+                self.until.map_or(until, |own| own.min(until)),
+            ),
+            Err(ran) => ran,
+        }
+    }
+
+    fn say(&mut self, line: &str) {
+        match self.global.output {
+            OutputMode::Human => eprintln!("{line}"),
+            _ => eprintln!("{}", json!({"progress": line})),
+        }
+    }
+
     fn pause(&mut self, duration: Duration) {
         std::thread::sleep(duration);
     }
@@ -731,6 +819,20 @@ impl Runner for SelfRunner {
 
     fn until(&mut self) -> Option<Instant> {
         self.until
+    }
+
+    fn estimate(&mut self, folder: &str) -> Value {
+        let Ok(estimate) = crate::link::sync_cli::estimate::of_folder(std::path::Path::new(folder))
+        else {
+            return Value::Null;
+        };
+        // Said before the machine is asked for: a wait that follows is the machine's or the copy's,
+        // never a silent one (stderr; the answer carries it too).
+        match self.global.output {
+            OutputMode::Human => eprintln!("{}", estimate.words()),
+            _ => eprintln!("{}", json!({"estimate": estimate.json()})),
+        }
+        estimate.json()
     }
 
     fn fresh_name(&mut self) -> String {
@@ -823,6 +925,12 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     }
     if let Some(model) = &request.model {
         words.push(format!("--model {}", shell_quote(model)));
+    }
+    if let Some(effort) = &request.effort {
+        words.push(format!("--effort {}", shell_quote(effort)));
+    }
+    if let Some(mode) = &request.mode {
+        words.push(format!("--mode {}", shell_quote(mode)));
     }
     if let Some(cwd) = &request.cwd {
         words.push(format!("--cwd {}", shell_quote(cwd)));
@@ -1107,15 +1215,23 @@ impl Progress {
 /// A step that answered after the `--timeout` deadline ends the run as that phase's timeout ([`Progress::late`]),
 /// whatever it answered: one check here, after every step, instead of one after each call.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
+    let began = runner.now();
     let outcome = run_once(runner, request);
-    if request.make_room { make_room(runner, request, outcome) } else { outcome }
+    // A new machine this run made that never came up is deleted and the start runs on a fresh one (fresh.rs).
+    let outcome = fresh::replace_stuck(runner, request, began, outcome);
+    if request.make_room { make_room(runner, request, began, outcome) } else { outcome }
 }
 
 /// `--make-room` after a cap refusal: free the machine the refusal offers, then start once more. A
 /// delete frees room at once. An archive keeps the machine until its disk is archived, so the run
 /// ends there and says to ask again once it is gone; from the CLI the archive may also need a person
 /// (cloud_retention.rs), which that step's own answer says.
-fn make_room(runner: &mut dyn Runner, request: &Request, outcome: Outcome) -> Outcome {
+fn make_room(
+    runner: &mut dyn Runner,
+    request: &Request,
+    began: Instant,
+    outcome: Outcome,
+) -> Outcome {
     let Outcome::Failed { error, .. } = &outcome else { return outcome };
     if at(error, "code").as_str() != Some("cloud.machine_cap") {
         return outcome;
@@ -1170,7 +1286,12 @@ fn make_room(runner: &mut dyn Runner, request: &Request, outcome: Outcome) -> Ou
             1,
         );
     }
-    run_once(runner, &Request { make_room: false, ..request.clone() })
+    // The rerun makes a new machine too: one that never comes up is replaced the same way (fresh.rs).
+    // The rerun keeps the run's one deadline: `--timeout` counts from the command's start, not from here.
+    let until = request.until.or(Deadline::of(request, began).0);
+    let again = Request { make_room: false, until, ..request.clone() };
+    let outcome = run_once(runner, &again);
+    fresh::replace_stuck(runner, &again, began, outcome)
 }
 
 fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
@@ -1259,10 +1380,9 @@ impl<'a> Timed<'a> {
     }
 }
 
-impl Runner for Timed<'_> {
-    fn cmux(&mut self, args: &[String]) -> Ran {
-        let from = self.inner.now();
-        let ran = self.inner.cmux(args);
+impl Timed<'_> {
+    /// A `cmux` step that ran from `from` to now: its words, times, code and the app's own split of it.
+    fn record(&mut self, args: &[String], from: Instant, ran: &Ran) {
         let to = self.inner.now();
         if self.stages.len() < STAGES_KEPT {
             let step = args.iter().take(2).map(String::as_str).collect::<Vec<_>>().join(" ");
@@ -1274,18 +1394,37 @@ impl Runner for Timed<'_> {
             });
             // The app's own split of a step it times (`cloud start-session`'s `stages_ms`: the machine, its
             // connect, the login, the tab, the agent's start), so a long step names where its time went.
-            if let Some(parts) = app_stages(&ran) {
+            if let Some(parts) = app_stages(ran) {
                 entry.set("parts", parts);
             }
             // Every clock's step, sub-steps too, the machine's own start phases and the total (`stages_detail_ms`).
-            if let Some(detail) = app_detail(&ran) {
+            if let Some(detail) = app_detail(ran) {
                 entry.set("detail", detail);
             }
             self.stages.push(entry);
         } else {
             self.more += 1;
         }
+    }
+}
+
+impl Runner for Timed<'_> {
+    fn cmux(&mut self, args: &[String]) -> Ran {
+        let from = self.inner.now();
+        let ran = self.inner.cmux(args);
+        self.record(args, from, &ran);
         ran
+    }
+
+    fn cmux_by(&mut self, args: &[String], until: Instant) -> Ran {
+        let from = self.inner.now();
+        let ran = self.inner.cmux_by(args, until);
+        self.record(args, from, &ran);
+        ran
+    }
+
+    fn say(&mut self, line: &str) {
+        self.inner.say(line);
     }
 
     fn pause(&mut self, duration: Duration) {
@@ -1335,6 +1474,11 @@ impl Runner for Timed<'_> {
             },
         );
         answer
+    }
+
+    fn estimate(&mut self, folder: &str) -> Value {
+        // The runner's own: SelfRunner says it on stderr before the machine is asked for.
+        self.inner.estimate(folder)
     }
 }
 
@@ -1387,6 +1531,10 @@ fn steps(
     if let Err(outcome) = on_account(request, &listed, None) {
         return outcome;
     }
+    // The folder's copy is estimated and decided (whole, first pass or seed) before any machine
+    // exists: `--environment` makes one next, and `cloud start-session` may (Leo's 2026-11-10 start
+    // at ~/Projects began a 20 GB copy after a machine was already leased).
+    let estimate = request.from_folder.as_deref().map(|folder| runner.estimate(folder));
     // 2. The chat's machine: one made in --environment first, else the one asked for.
     // A `--cwd` on a machine that already exists may be a repository its bootstrap is still cloning
     // (`cloud new-machine --repo`): wait for the clone rather than fail "cwd is not a directory" (clone_wait.rs).
@@ -1486,7 +1634,22 @@ fn steps(
         start.extend(["--from-folder".to_owned(), folder.clone()]);
     }
     start.push("--json".to_owned());
-    let started = match step_result(&runner.cmux(&start)) {
+    // On a machine this run makes for itself, the start is bounded and a stuck machine is given up (fresh.rs); a
+    // `--from-folder` start's copy runs inside the step, so only the app's own stuck answer counts there.
+    let bound = fresh
+        .as_ref()
+        .filter(|_| request.from_folder.is_none())
+        .map(|_| fresh::start_until(runner, deadline));
+    let ran = match bound {
+        Some(until) => runner.cmux_by(&start, until),
+        None => runner.cmux(&start),
+    };
+    if let Some(name) = &fresh
+        && let Some(stuck) = fresh::stuck(runner, &ran, bound, name, deadline)
+    {
+        return stuck;
+    }
+    let started = match step_result(&ran) {
         Ok(started) => started,
         Err(error) => return start_refused(error, &listed, request),
     };
@@ -1525,12 +1688,25 @@ fn steps(
     if let Some(model) = &request.model {
         answer.set("model", json!(model));
     }
+    if let Some(effort) = &request.effort {
+        answer.set("effort", json!(effort));
+    }
+    if let Some(mode) = &request.mode {
+        answer.set("mode", json!(mode));
+    }
+    if let Some(estimate) = estimate {
+        answer.set("estimate", estimate);
+    }
     progress.machine = Some(Machine::Target(machine_id.to_owned()));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
     // With `--account`: the machine is that account's before anything is sent to it. A refusal names
     // the account the app is on (`app_account`); start-chat deletes nothing, since it cannot prove it
     // made the machine: the caller (a Run's cleanup) deletes its own machine by its own name there.
     if let Err(outcome) = machine_on_account(runner, request, machine_id, deadline) {
+        return outcome;
+    }
+    // The composer's effort and mode picks, on the session before anything is sent to it.
+    if let Err(outcome) = apply_settings(runner, request, machine_id, session, &answer, deadline) {
         return outcome;
     }
 
@@ -1558,7 +1734,15 @@ fn steps(
         return out_of_time(request, &Machine::Target(machine_id.to_owned()), answer);
     }
     let tab = internal::chat_tab(&started);
-    send_prompt(runner, request, machine_id, session, (prompt, answer, tab), deadline, progress)
+    send_prompt(
+        runner,
+        request,
+        machine_id,
+        session,
+        (prompt, answer, tab, false),
+        deadline,
+        progress,
+    )
 }
 
 /// The answer for a start the app answered `pending` for: where it is stuck, and the same command again to keep
@@ -1691,6 +1875,65 @@ fn machine_on_account(
     ))
 }
 
+/// The `acp session set` script for `request`'s effort and mode on `session` (after
+/// [`GUEST_PRELUDE`]), or None when neither is asked. Mode first: a harness may offer other
+/// efforts in another mode. The first refusal stops it, its words under `@@set`.
+pub(super) fn settings_script(request: &Request, session: &str) -> Option<String> {
+    let sets: Vec<String> = [("mode", &request.mode), ("effort", &request.effort)]
+        .into_iter()
+        .filter_map(|(key, value)| {
+            value.as_ref().map(|value| {
+                format!(
+                    "\"$c\" acp session set {} {} 2>&1",
+                    shell_quote(session),
+                    shell_quote(&format!("{key}={value}"))
+                )
+            })
+        })
+        .collect();
+    if sets.is_empty() {
+        return None;
+    }
+    Some(format!("{GUEST_PRELUDE}echo @@set; {}; x=$?; echo \"@@exit $x\"", sets.join(" && ")))
+}
+
+/// Step 3b, `--effort` and `--mode` on the new session (the composer's picks, applied as its
+/// chip would), in one exec before the first prompt. A refusal fails the start with the chat's
+/// answer so far, so nothing runs at an effort or in a mode that was not asked for.
+fn apply_settings(
+    runner: &mut dyn Runner,
+    request: &Request,
+    machine_id: &str,
+    session: &str,
+    answer: &Value,
+    deadline: Deadline,
+) -> Result<(), Outcome> {
+    let Some(script) = settings_script(request, session) else { return Ok(()) };
+    if deadline.passed(runner) {
+        return Err(out_of_time(request, &Machine::Target(machine_id.to_owned()), answer.clone()));
+    }
+    let refused = |words: String| {
+        failed(
+            "chat.settings_refused",
+            format!(
+                "the chat started, but its effort or mode was not set: {}; nothing was sent \
+                 (`cmux chat send {session} TEXT` sends it as it is)",
+                words.trim()
+            ),
+            json!({"answer": answer, "effort": request.effort, "mode": request.mode}),
+            1,
+        )
+    };
+    let ran = exec(runner, machine_id, &script).map_err(|error| {
+        refused(at(&error, "message").as_str().unwrap_or("cloud exec failed").to_owned())
+    })?;
+    let reported = sections(&ran);
+    if reported.get("exit").map(|code| code.trim()) == Some("0") {
+        return Ok(());
+    }
+    Err(refused(reported.get("set").cloned().unwrap_or_default()))
+}
+
 /// Step 4, the prompt to `session` on `machine_id`: inside the command when it fits there, else from
 /// a file on the machine; then, with `--wait`, its turn (step 5). `answer` is the answer so far. Each
 /// step starts only before `deadline`, as in [`steps`].
@@ -1699,7 +1942,7 @@ fn send_prompt(
     request: &Request,
     machine_id: &str,
     session: &str,
-    (prompt, mut answer, tab): (&str, Value, Option<u64>),
+    (prompt, mut answer, tab, one_exec): (&str, Value, Option<u64>, bool),
     deadline: Deadline,
     progress: &mut Progress,
 ) -> Outcome {
@@ -1709,12 +1952,38 @@ fn send_prompt(
         return progress.out_of_time(request, &chat, answer);
     }
     let quoted = shell_quote(prompt);
+    // With `--wait` to a chat whose turn is not pushed over the link (one this run did not start: no tab),
+    // the send's own exec waits for its turn too ([`turn_wait_script`]), so a short turn costs one Cloud
+    // round trip. The baseline is then `@@before`, since the wait's own `@@history` follows.
+    let first_wait = request.wait && one_exec && tab.is_none();
+    // The exec's whole slice runs from its first command (`$e`): the send, its `acp ls` and the
+    // history read spend it first, and the wait gets only what is left. With less than a second left the exec
+    // skips its wait and the later reads in [`wait_turn`] take over, so a slow send never runs the exec past the
+    // Cloud's own 25 s limit (a killed exec would report a delivered prompt as a send failure).
+    let budget = if first_wait {
+        deadline.bound(runner, Duration::from_secs(WAIT_SLICE_SECONDS)).as_secs()
+    } else {
+        0
+    };
+    let (clock, then_wait) = if budget == 0 {
+        (String::new(), String::new())
+    } else {
+        (
+            format!("e=$(( $(date +%s) + {budget} )); "),
+            format!(
+                "s=$(( e - $(date +%s) )); if [ \"$x\" = 0 ] && [ \"$s\" -ge 1 ]; then {}; fi",
+                sent_turn_wait_script(session)
+            ),
+        )
+    };
+    let before = if then_wait.is_empty() { "history" } else { "before" };
     // The uploaded prompt's file words, when the prompt went to a file.
     let mut uploaded = None;
     let send = if quoted.len() <= INLINE_PROMPT_BYTES {
         format!(
-            "{GUEST_PRELUDE}{SESSION_CWD}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
-             printf '%s' {quoted} | \"$c\" acp send --no-wait {sid} - 2>&1; echo \"@@exit $?\"",
+            "{clock}{GUEST_PRELUDE}echo @@{before}; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
+             printf '%s' {quoted} | \"$c\" acp send --no-wait {sid} - 2>&1; x=$?; echo \"@@exit $x\"; \
+             {SESSION_CWD}{then_wait}",
             sid = shell_quote(session),
         )
     } else {
@@ -1741,9 +2010,9 @@ fn send_prompt(
         }
         uploaded = Some(file.clone());
         format!(
-            "{GUEST_PRELUDE}{file}{SESSION_CWD}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
-             echo @@send; \"$c\" acp send --no-wait {sid} - < \"$f\" 2>&1; echo \"@@exit $?\"; \
-             rm -f \"$f\"",
+            "{clock}{GUEST_PRELUDE}{file}echo @@{before}; \"$c\" acp history {sid} --json -n 1 2>&1; \
+             echo @@send; \"$c\" acp send --no-wait {sid} - < \"$f\" 2>&1; x=$?; echo \"@@exit $x\"; \
+             rm -f \"$f\"; {SESSION_CWD}{then_wait}",
             sid = shell_quote(session),
         )
     };
@@ -1764,7 +2033,8 @@ fn send_prompt(
         }
     };
     let reported = sections(&sent);
-    let baseline = last_turn(reported.get("history")).map_or(0, |turn| turn.seq);
+    let baseline =
+        last_turn(reported.get("before").or(reported.get("history"))).map_or(0, |turn| turn.seq);
     if reported.get("exit").map(String::as_str).map(str::trim) != Some("0") {
         let output = reported.get("send").cloned().unwrap_or_default();
         return failed(
@@ -1784,7 +2054,12 @@ fn send_prompt(
     if !request.wait {
         return Outcome::Done(answer);
     }
-    wait_turn(runner, request, machine_id, session, (baseline, tab), answer, deadline)
+    // The send's exec already waited ([`turn_wait_script`]): its answer is the wait's first read.
+    let first = reported.contains_key("wait").then_some(reported);
+    if first.is_some() {
+        answer.set("wait_route", json!("send"));
+    }
+    wait_turn(runner, request, machine_id, session, (baseline, tab, first), answer, deadline)
 }
 
 /// 4. The turn after `baseline` in `session`: its end and its reply.
@@ -1793,7 +2068,7 @@ fn wait_turn(
     request: &Request,
     machine_id: &str,
     session: &str,
-    (baseline, tab): (u64, Option<u64>),
+    (baseline, tab, mut first): (u64, Option<u64>, Option<Sections>),
     mut answer: Value,
     deadline: Deadline,
 ) -> Outcome {
@@ -1814,33 +2089,36 @@ fn wait_turn(
     }
     // The reads in a row the Cloud API did not answer: a read only reads, so it is asked again.
     let mut unanswered = 0;
+    // Whether a read showed the sent turn (a turn after `baseline`): from then on the wait is for its end only.
+    let mut seen = false;
     loop {
-        // Each wait is bounded by exec's own limit and by what is left of `--timeout`, in whole seconds: with
-        // less than one left (the steps before spent it), no wait past the deadline.
-        let slice = deadline.bound(runner, Duration::from_secs(WAIT_SLICE_SECONDS)).as_secs();
-        if slice == 0 {
-            return wait_timeout(request, machine_id, session, answer);
-        }
-        let poll = format!(
-            "{GUEST_PRELUDE}\"$c\" acp wait {sid} --timeout {slice} >/dev/null 2>&1; \
-             echo \"@@wait $?\"; echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
-             echo @@last; \"$c\" acp last {sid} --json 2>&1; echo \"@@lastexit $?\"",
-            sid = shell_quote(session),
-        );
-        let polled = match exec(runner, machine_id, &poll) {
-            Ok(stdout) => stdout,
-            Err(error) if read_again(&error) && read_again_before(deadline, runner, unanswered) => {
-                unanswered += 1;
-                answer.set("unanswered_reads", json!(unanswered));
-                let pause = deadline.bound(runner, unanswered_pause(unanswered));
-                runner.pause(pause);
-                continue;
+        let polled = if let Some(polled) = first.take() {
+            polled
+        } else {
+            // Each wait is bounded by exec's own limit and by what is left of `--timeout`, in whole seconds: with
+            // less than one left (the steps before spent it), no wait past the deadline.
+            let slice = deadline.bound(runner, Duration::from_secs(WAIT_SLICE_SECONDS)).as_secs();
+            if slice == 0 {
+                return wait_timeout(request, machine_id, session, answer);
             }
-            Err(error) => return sent_failure(error, answer),
+            let poll = format!("{GUEST_PRELUDE}{}", turn_wait_script(session, slice, seen));
+            match exec(runner, machine_id, &poll) {
+                Ok(stdout) => sections(&stdout),
+                Err(error)
+                    if read_again(&error) && read_again_before(deadline, runner, unanswered) =>
+                {
+                    unanswered += 1;
+                    answer.set("unanswered_reads", json!(unanswered));
+                    let pause = deadline.bound(runner, unanswered_pause(unanswered));
+                    runner.pause(pause);
+                    continue;
+                }
+                Err(error) => return sent_failure(error, answer),
+            }
         };
         unanswered = 0;
-        let polled = sections(&polled);
         let turn = last_turn(polled.get("history")).filter(|turn| turn.seq > baseline);
+        seen |= turn.is_some();
         if let Some(turn) = turn.as_ref().filter(|turn| turn.ended) {
             answer.set("turn", turn.value.clone());
             if turn.failed() {
@@ -1890,11 +2168,73 @@ fn wait_turn(
         if deadline.passed(runner) {
             return wait_timeout(request, machine_id, session, answer);
         }
-        if turn.is_none() {
+        // No turn after the send yet. A machine whose `acp wait --until running` blocked for it (it answered:
+        // [`waited_for_start`]) is asked again at once. One whose CLI lacks it returned on `ready` before the
+        // sent turn started, so the next read comes after a pause, as before.
+        if turn.is_none() && !waited_for_start(&polled) {
             let pause = deadline.bound(runner, NOT_STARTED_PAUSE);
             runner.pause(pause);
         }
     }
+}
+
+/// A script's `@@name` sections ([`sections`]).
+type Sections = std::collections::HashMap<String, String>;
+
+/// One wait for the turn a send started, inside one `cloud exec` (after [`GUEST_PRELUDE`]), in at most `slice`
+/// seconds, then its `@@history` and `@@last`.
+///
+/// `acp wait` resolves at once while the session is `ready`, and a `--no-wait` send returns before its turn
+/// starts (its delivery runs in the daemon's background), so a plain wait right after the send answered the turn
+/// before it. Until a read showed the sent turn (`seen`), the script first blocks on `acp wait --until running`,
+/// which resolves when the session's next turn is accepted, then waits for its end in what is left of `slice`.
+/// That first wait's output (`@@started`: a status line when it resolved) and exit (`@@startedexit`) tell
+/// [`waited_for_start`] whether the machine's CLI serves it; an older one refuses `--until running` at once and
+/// the caller falls back to pausing between reads. Each `acp wait` blocks on the daemon's events, never a poll.
+pub(super) fn turn_wait_script(session: &str, slice: u64, seen: bool) -> String {
+    if seen {
+        turn_end_script(session, &slice.to_string())
+    } else {
+        format!(
+            "e=$(( $(date +%s) + {slice} )); {}",
+            start_then_end_script(session, &slice.to_string())
+        )
+    }
+}
+
+/// The send's own wait ([`send_prompt`]): [`turn_wait_script`] for a turn not seen yet, ending at the send exec's
+/// `$e`, set by its first command, with `$s` the seconds left of it when the wait starts (at least one).
+fn sent_turn_wait_script(session: &str) -> String {
+    start_then_end_script(session, "\"$s\"")
+}
+
+/// The wait for the sent turn to start in at most `first` seconds, then for its end before `$e`.
+fn start_then_end_script(session: &str, first: &str) -> String {
+    let sid = shell_quote(session);
+    format!(
+        "o=$(\"$c\" acp wait {sid} --timeout {first} --until running 2>/dev/null); \
+         echo \"@@startedexit $?\"; echo @@started; printf '%s\\n' \"$o\" | head -c 512; \
+         s=$(( e - $(date +%s) )); [ \"$s\" -ge 1 ] || s=1; {}",
+        turn_end_script(session, "\"$s\"")
+    )
+}
+
+/// The wait for the turn's end in at most `timeout` seconds, then its `@@history` and `@@last`.
+fn turn_end_script(session: &str, timeout: &str) -> String {
+    let sid = shell_quote(session);
+    format!(
+        "\"$c\" acp wait {sid} --timeout {timeout} >/dev/null 2>&1; \
+         echo \"@@wait $?\"; echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
+         echo @@last; \"$c\" acp last {sid} --json 2>&1; echo \"@@lastexit $?\""
+    )
+}
+
+/// Whether the read's `acp wait --until running` ([`turn_wait_script`]) blocked until a turn was accepted or its
+/// own timeout: it printed the session's status line, or exited 3 (timeout). An older CLI that refuses the state
+/// exits 2 (a usage error) with nothing on stdout; a read without the step (the turn already seen) has no section.
+pub(super) fn waited_for_start(polled: &Sections) -> bool {
+    let printed = polled.get("started").is_some_and(|out| !out.trim().is_empty());
+    printed || polled.get("startedexit").map(|code| code.trim()) == Some("3")
 }
 
 fn permission_waiting(answer: Value) -> Outcome {
@@ -2763,6 +3103,7 @@ mod cap;
 mod clone_wait;
 mod fault;
 mod folder;
+mod fresh;
 mod internal;
 use folder::local_folder;
 use internal::link_wait;
