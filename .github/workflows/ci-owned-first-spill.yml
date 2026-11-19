@@ -36,7 +36,8 @@ jobs:
     name: Spill owned-first jobs past their bound
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: polls the Actions API; never takes an owned runner it may be freeing
-    timeout-minutes: 15
+    # Up to MAX_SPILLS (3) spills, each with a 300 s settle budget, and the reads: the job must outlive them all.
+    timeout-minutes: 30
     permissions:
       actions: write
       contents: read

@@ -107,18 +107,37 @@ class GitHub:
         return self.call("GET", f"actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs") or []
 
 
-def spill(github: GitHub, run_id: int, sleep: Callable[[float], None] = time.sleep,
-          settle_seconds: float = CANCEL_SETTLE_SECONDS) -> str:
-    """Cancel the run, wait for it to finish, re-run its failed and cancelled jobs (attempt 2)."""
+def spill(github: GitHub, run: Mapping[str, Any], now: dt.datetime, spill_minutes: float = SPILL_MINUTES,
+          sleep: Callable[[float], None] = time.sleep, settle_seconds: float = CANCEL_SETTLE_SECONDS) -> str:
+    """Cancel the run, wait for it to finish, re-run its failed and cancelled jobs (attempt 2).
+
+    The jobs are read again right before the cancel: a job that started since the sweep's first read (the stuck job
+    itself, or a publish) keeps the run whole. Once the cancel is sent, the re-run is retried until the settle budget
+    ends; a run that still could not be re-run is an ::error:: that fails the sweep, so it is seen, never silent."""
+    run_id = run["id"]
+    verdict = decide(run, github.jobs(run_id), now, spill_minutes)
+    if verdict is None or verdict[0] != "spill":
+        return "not cancelled: the run changed since the first read" + (f" ({verdict[1]})" if verdict else "")
     github.call("POST", f"actions/runs/{run_id}/cancel")
     waited = 0.0
-    while github.call("GET", f"actions/runs/{run_id}").get("status") != "completed":
+    while True:
+        try:
+            if github.call("GET", f"actions/runs/{run_id}").get("status") == "completed":
+                github.call("POST", f"actions/runs/{run_id}/rerun-failed-jobs")
+                return "cancelled and re-run as attempt 2 (spill route)"
+        except urllib.error.URLError as error:
+            last = str(error)
+        else:
+            last = "cancel not settled"
         if waited >= settle_seconds:
-            return f"::error::cancel requested; still unfinished after {int(waited)} s: re-run it by hand (gh run rerun {run_id} --failed)"
+            raise SpillFailed(f"run {run_id} was cancelled but not re-run after {int(waited)} s ({last}): "
+                              f"gh run rerun {run_id} --failed")
         sleep(10)
         waited += 10
-    github.call("POST", f"actions/runs/{run_id}/rerun-failed-jobs")
-    return "cancelled and re-run as attempt 2 (spill route)"
+
+
+class SpillFailed(RuntimeError):
+    """A run this sweep cancelled that it could not re-run."""
 
 
 def main(env: Mapping[str, str] = os.environ, now: dt.datetime | None = None) -> int:
@@ -138,9 +157,14 @@ def main(env: Mapping[str, str] = os.environ, now: dt.datetime | None = None) ->
         lines.append(f"Skipped: listing runs failed ({error.code}); nothing was cancelled")
         return report(lines, env)
     runs.sort(key=lambda run: run.get("created_at") or "", reverse=True)
-    moved = 0
+    moved, failed = 0, []
     for run in runs:
-        verdict = decide(run, github.jobs(run["id"]), now, spill_minutes)
+        try:
+            jobs = github.jobs(run["id"])
+        except urllib.error.URLError as error:
+            lines.append(f"- skipped {run.get('html_url') or run['id']}: reading its jobs failed ({error})")
+            continue
+        verdict = decide(run, jobs, now, spill_minutes)
         if verdict is None:
             continue
         kind, why = verdict
@@ -151,11 +175,18 @@ def main(env: Mapping[str, str] = os.environ, now: dt.datetime | None = None) ->
         if dry_run:
             lines.append(f"- would spill {url}: {why}")
         else:
-            lines.append(f"- spill {url}: {why}: {spill(github, run['id'])}")
+            try:
+                lines.append(f"- spill {url}: {why}: {spill(github, run, now, spill_minutes)}")
+            except (SpillFailed, urllib.error.URLError) as error:
+                failed.append(str(error))
+                lines.append(f"- FAILED {url}: {error}")
         moved += 1
     if len(lines) == 1:
         lines.append("Nothing queued past the bound on an owned label.")
-    return report(lines, env)
+    report(lines, env)
+    for message in failed:
+        print(f"::error title=Owned-first spill::{message}")
+    return 1 if failed else 0
 
 
 def report(lines: list[str], env: Mapping[str, str]) -> int:

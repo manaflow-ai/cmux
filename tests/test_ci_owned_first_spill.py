@@ -76,31 +76,53 @@ class Decide(unittest.TestCase):
 
 
 class FakeGitHub:
-    def __init__(self, settle_after: int = 1):
+    def __init__(self, jobs: list[dict], settle_after: int = 1, rerun_errors: int = 0):
         self.calls: list[tuple[str, str]] = []
-        self.settle_after = settle_after
+        self.job_list, self.settle_after, self.rerun_errors = jobs, settle_after, rerun_errors
+
+    def jobs(self, run_id: int) -> list[dict]:
+        self.calls.append(("GET", f"actions/runs/{run_id}/jobs"))
+        return self.job_list
 
     def call(self, method: str, path: str):
         self.calls.append((method, path))
+        if path.endswith("rerun-failed-jobs") and self.rerun_errors:
+            self.rerun_errors -= 1
+            raise spill.urllib.error.URLError("503")
         if method == "GET":
-            gets = sum(1 for m, _ in self.calls if m == "GET")
+            gets = sum(1 for m, p in self.calls if m == "GET" and not p.endswith("/jobs"))
             return {"status": "completed" if gets >= self.settle_after else "in_progress"}
         return None
 
 
-class Spill(unittest.TestCase):
-    def test_cancel_then_rerun_failed_jobs(self) -> None:
-        github = FakeGitHub(settle_after=2)
-        result = spill.spill(github, 7, sleep=lambda _: None)
-        self.assertIn("attempt 2", result)
-        posts = [path for method, path in github.calls if method == "POST"]
-        self.assertEqual(posts, ["actions/runs/7/cancel", "actions/runs/7/rerun-failed-jobs"])
+STUCK = [DONE, job("cmux_next_ daemon tests", minutes=37)]
 
-    def test_an_unsettled_cancel_is_not_rerun(self) -> None:
-        github = FakeGitHub(settle_after=10**6)
-        result = spill.spill(github, 7, sleep=lambda _: None, settle_seconds=30)
-        self.assertIn("gh run rerun 7 --failed", result)
-        self.assertNotIn(("POST", "actions/runs/7/rerun-failed-jobs"), github.calls)
+
+class Spill(unittest.TestCase):
+    def posts(self, github: FakeGitHub) -> list[str]:
+        return [path for method, path in github.calls if method == "POST"]
+
+    def test_cancel_then_rerun_failed_jobs(self) -> None:
+        github = FakeGitHub(STUCK, settle_after=2)
+        self.assertIn("attempt 2", spill.spill(github, run(id=7), NOW, sleep=lambda _: None))
+        self.assertEqual(self.posts(github), ["actions/runs/7/cancel", "actions/runs/7/rerun-failed-jobs"])
+
+    def test_a_job_that_started_since_the_first_read_keeps_the_run(self) -> None:
+        started = [DONE, job("cmux_next_ daemon tests", status="in_progress"), job("x", minutes=37)]
+        github = FakeGitHub(started)
+        self.assertIn("not cancelled", spill.spill(github, run(id=7), NOW, sleep=lambda _: None))
+        self.assertEqual(self.posts(github), [])
+
+    def test_a_failed_rerun_is_retried(self) -> None:
+        github = FakeGitHub(STUCK, rerun_errors=2)
+        spill.spill(github, run(id=7), NOW, sleep=lambda _: None)
+        self.assertEqual(self.posts(github).count("actions/runs/7/rerun-failed-jobs"), 3)
+
+    def test_a_cancelled_run_never_rerun_fails_loudly(self) -> None:
+        github = FakeGitHub(STUCK, settle_after=10**6)
+        with self.assertRaisesRegex(spill.SpillFailed, "gh run rerun 7 --failed"):
+            spill.spill(github, run(id=7), NOW, sleep=lambda _: None, settle_seconds=30)
+        self.assertNotIn("actions/runs/7/rerun-failed-jobs", self.posts(github))
 
 
 class Workflow(unittest.TestCase):
