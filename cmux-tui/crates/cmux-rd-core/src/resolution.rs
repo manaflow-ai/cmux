@@ -245,7 +245,7 @@ mod tests {
             if p.fps > MIN_FPS {
                 assert!(bpp >= MIN_BITS_PER_PIXEL, "{kbps} kbps: {bpp} bpp at {p:?}");
             }
-            assert!(p.width % 2 == 0 && p.height % 2 == 0, "{p:?}");
+            assert!(p.width.is_multiple_of(2) && p.height.is_multiple_of(2), "{p:?}");
         }
     }
 
@@ -276,7 +276,7 @@ mod tests {
         let up_needs = MIN_BITS_PER_PIXEL * UP_MARGIN * f64::from(W * H) * 60.0;
         let edge = (up_needs * f64::from(RUNGS[0] * RUNGS[0]) / 64.0) as u64;
         for i in 0..20u64 {
-            let bps = if i % 2 == 0 { edge * 2 } else { 3_000_000 };
+            let bps = if i.is_multiple_of(2) { edge * 2 } else { 3_000_000 };
             l.update(bps, i * 500_000);
         }
         assert_eq!(l.picture().eighths, start);
