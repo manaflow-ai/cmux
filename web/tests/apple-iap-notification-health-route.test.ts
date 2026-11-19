@@ -13,6 +13,12 @@ const findAppleTestNotification = mock(async (_uuid: string): Promise<Receipt | 
   if (lookupError) throw lookupError;
   return receipt;
 });
+type CursorRow = {
+  nextStartAt: Date; windowStartAt: Date | null; windowEndAt: Date | null;
+  paginationToken: string | null; retryableRuns: number; updatedAt: Date;
+};
+let cursorRow: CursorRow | null = null;
+const findAppleHistoryCursor = mock(async (_bundleId: string, _environment: string): Promise<CursorRow | null> => cursorRow);
 const captureBillingError = mock(() => {});
 
 // Only the database read is replaced; the route's UUID validator is the real one.
@@ -21,6 +27,7 @@ const { isAppleNotificationUuid } = realHealth;
 mock.module("../services/billing/apple/notificationHealth", () => ({
   ...realHealth,
   findAppleTestNotification,
+  findAppleHistoryCursor,
 }));
 mock.module("../services/errors", () => ({ captureBillingError }));
 
@@ -40,6 +47,8 @@ function request(query: string, authorization?: string): Request {
 afterEach(() => {
   receipt = null;
   lookupError = null;
+  cursorRow = null;
+  findAppleHistoryCursor.mockClear();
   findAppleTestNotification.mockClear();
   captureBillingError.mockClear();
   for (const [key, value] of [[TOKEN_ENV, original.token], ["CRON_SECRET", original.cron]] as const) {
@@ -140,5 +149,65 @@ describe("Apple notification health", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toEqual({ error: "lookup_failed", retryable: true });
     expect(captureBillingError).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Apple notification history cursor read (post-release check)", () => {
+  test("refuses anything but an accepted bundle and a signed environment", async () => {
+    process.env[TOKEN_ENV] = HEALTH;
+    for (const query of ["?cursor=Xcode&bundle=com.cmux.app", "?cursor=Production&bundle=com.example.app", "?cursor=Production", "?cursor=&bundle=com.cmux.app"]) {
+      const response = await GET(request(query, `Bearer ${HEALTH}`));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "invalid_cursor" });
+    }
+    expect(findAppleHistoryCursor).not.toHaveBeenCalled();
+  });
+
+  test("needs the health token like the UUID read", async () => {
+    process.env[TOKEN_ENV] = HEALTH;
+    const response = await GET(request("?cursor=Production&bundle=com.cmux.app", "Bearer wrong"));
+    expect(response.status).toBe(401);
+    expect(findAppleHistoryCursor).not.toHaveBeenCalled();
+  });
+
+  test("reports where the cursor is, with an opaque position and never Apple's pagination token", async () => {
+    process.env[TOKEN_ENV] = HEALTH;
+    cursorRow = {
+      nextStartAt: new Date("2026-06-06T00:00:00.000Z"),
+      windowStartAt: new Date("2026-06-06T00:00:00.000Z"),
+      windowEndAt: new Date("2026-06-07T00:00:00.000Z"),
+      paginationToken: "apple-secret-token",
+      retryableRuns: 2,
+      updatedAt: new Date("2026-12-01T08:47:00.000Z"),
+    };
+    const response = await GET(request("?cursor=Production&bundle=com.cmux.app", `Bearer ${HEALTH}`));
+    expect(response.status).toBe(200);
+    const body = await response.json() as Record<string, unknown>;
+    expect(findAppleHistoryCursor).toHaveBeenCalledWith("com.cmux.app", "Production");
+    expect(body).toMatchObject({
+      found: true,
+      nextStartAt: "2026-06-06T00:00:00.000Z",
+      windowStartAt: "2026-06-06T00:00:00.000Z",
+      windowEndAt: "2026-06-07T00:00:00.000Z",
+      pagePending: true,
+      retryableRuns: 2,
+      updatedAt: "2026-12-01T08:47:00.000Z",
+    });
+    expect(typeof body.position).toBe("string");
+    expect(JSON.stringify(body)).not.toContain("apple-secret-token");
+
+    // A new page moves the position even when the window stays the same.
+    cursorRow = { ...cursorRow, paginationToken: "apple-next-token" };
+    const next = await (await GET(request("?cursor=Production&bundle=com.cmux.app", `Bearer ${HEALTH}`))).json() as Record<string, unknown>;
+    expect(next.position).not.toBe(body.position);
+  });
+
+  test("reports a cursor that does not exist yet", async () => {
+    process.env[TOKEN_ENV] = HEALTH;
+    const response = await GET(request("?cursor=Production&bundle=com.cmux.app", `Bearer ${HEALTH}`));
+    expect(await response.json()).toEqual({
+      found: false, position: null, nextStartAt: null, windowStartAt: null, windowEndAt: null,
+      pagePending: false, retryableRuns: 0, updatedAt: null,
+    });
   });
 });
