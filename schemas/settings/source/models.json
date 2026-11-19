@@ -20,7 +20,7 @@
           },
           "help": {
             "key": "settings.models.spreadUsage.help",
-            "text": "When one subscription runs out, a thread moves to another of your connections that serves the same model."
+            "text": "When one subscription runs out, a chat moves to another with the same model."
           },
           "kind": "toggle",
           "default": true,
