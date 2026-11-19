@@ -115,14 +115,22 @@ is_macho() {
 removable() {
   local app="$1" exe linked f
   exe="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+  # Names linked by the executable, by every top-level framework, and by every top-level dylib (so a dylib that only
+  # another dylib loads is kept too: conservative, it may keep a dylib nothing loads).
   linked="$( { otool -L "$exe"; find "$app/Contents/Frameworks" -maxdepth 1 -name '*.framework' | while read -r f; do
-    local b; b="$(basename "$f" .framework)"; [[ -f "$f/$b" ]] && otool -L "$f/$b"; done; } 2>/dev/null | awk 'NR > 0 { print $1 }' | sed 's#.*/##' | sort -u)"
+    local b; b="$(basename "$f" .framework)"; [[ -f "$f/$b" ]] && otool -L "$f/$b"; done
+    # A dylib's first entry is its own install name: skipped, or every dylib would count as linked.
+    find "$app/Contents/Frameworks" -maxdepth 1 -type f -name '*.dylib' | while read -r f; do otool -L "$f" | tail -n +3; done; } 2>/dev/null \
+    | awk '/^[[:space:]]/ { print $1 }' | sed 's#.*/##' | sort -u)"
   find "$app/Contents/Frameworks" -maxdepth 1 -name '*.app' -print
   find "$app/Contents/Resources" -type f 2>/dev/null | while read -r f; do is_macho "$f" && echo "$f"; done
   find "$app/Contents/Frameworks" -maxdepth 1 -type f -name '*.dylib' | while read -r f; do
     grep -qxF "$(basename "$f")" <<<"$linked" || echo "$f"
   done
 }
+
+# src_of SHIPPED: the devid master when it was made, else the shipped copy (a run whose arms leave devid out).
+src_of() { if [[ -d "$OUT/masters/devid/$NAME" ]]; then echo "$OUT/masters/devid/$NAME"; else echo "$1"; fi; }
 
 # make_master ARM SHIPPED: the arm's variant at $OUT/masters/ARM/NAME, with an FX-MASTER line (time to make, verify).
 make_master() {
@@ -131,11 +139,11 @@ make_master() {
   t0="$(date +%s)"
   case "$arm" in
     devid) mv "$shipped" "$app" ;;
-    nostaple) ditto "$OUT/masters/devid/$NAME" "$app" 2>/dev/null || ditto "$shipped" "$app"
+    nostaple) ditto "$(src_of "$shipped")" "$app" || return 1
       [[ -f "$app/Contents/CodeResources" ]] && { rm -f "$app/Contents/CodeResources"; removed=1; } ;;
-    adhoc) ditto "$OUT/masters/devid/$NAME" "$app" 2>/dev/null || ditto "$shipped" "$app"
-      codesign --force --deep --sign - "$app" >"$OUT/sign-$arm.log" 2>&1 || { tail -5 "$OUT/sign-$arm.log"; return 1; } ;;
-    lean|pad|nores) ditto "$OUT/masters/devid/$NAME" "$app" || return 1
+    adhoc) ditto "$(src_of "$shipped")" "$app" || return 1
+      codesign --force --deep --preserve-metadata=entitlements,flags,runtime --sign - "$app" >"$OUT/sign-$arm.log" 2>&1 || { tail -5 "$OUT/sign-$arm.log"; return 1; } ;;
+    lean|pad|nores) ditto "$(src_of "$shipped")" "$app" || return 1
       if [[ "$arm" == nores ]]; then
         while read -r f; do
           is_macho "$f" && continue
@@ -144,19 +152,22 @@ make_master() {
       else
         while read -r f; do
           [[ -e "$f" ]] || continue
-          size="$(du -sk "$f" | awk '{print $1 * 1024}')"
-          if [[ "$arm" == pad && -f "$f" ]]; then
-            size="$(stat -f %z "$f")"; rm -f "$f"; head -c "$size" /dev/urandom >"$f.pad"
-          elif [[ "$arm" == pad && -d "$f" ]]; then
-            # A helper app: one padding file of its bytes in its place.
-            rm -rf "$f"; head -c "$size" /dev/urandom >"$f.pad"
+          if [[ -d "$f" ]]; then
+            size="$(find "$f" -type f -exec stat -f %z {} + | awk '{ s += $1 } END { print s + 0 }')"
           else
-            rm -rf "$f"
+            size="$(stat -f %z "$f")"
+          fi
+          rm -rf "$f"
+          # pad: the removed bytes come back as one data file each under Contents/Resources/fx-pad (a data file in
+          # Contents/Frameworks would be taken for unsigned nested code).
+          if [[ "$arm" == pad ]]; then
+            mkdir -p "$app/Contents/Resources/fx-pad"
+            head -c "$size" /dev/urandom >"$app/Contents/Resources/fx-pad/$removed-$(basename "$f").pad"
           fi
           removed=$((removed + 1)); bytes=$((bytes + size))
         done < <(removable "$app")
       fi
-      codesign --force --deep --sign - "$app" >"$OUT/sign-$arm.log" 2>&1 || { tail -5 "$OUT/sign-$arm.log"; return 1; } ;;
+      codesign --force --deep --preserve-metadata=entitlements,flags,runtime --sign - "$app" >"$OUT/sign-$arm.log" 2>&1 || { tail -5 "$OUT/sign-$arm.log"; return 1; } ;;
   esac
   local verify; verify="$(codesign --verify --deep --strict "$app" 2>&1 | tail -1)"; [[ -z "$verify" ]] && verify=ok
   echo "FX-MASTER $arm made_s=$(($(date +%s) - t0)) removed=$removed removed_bytes=$bytes verify=\"$verify\" $(codesign -dv "$app" 2>&1 | grep -E '^(Authority|TeamIdentifier|flags|CodeDirectory)' | head -3 | tr '\n' ' ')"
@@ -191,7 +202,7 @@ PY
 }
 
 # busy N: N busy loops in the background; prints their pids.
-busy() { local i; for ((i = 0; i < $1; i++)); do ( while :; do :; done ) & echo $!; done; }
+busy() { local i; for ((i = 0; i < $1; i++)); do ( while :; do :; done ) >/dev/null 2>&1 & echo $!; done; }
 
 # run_arm ARM REP: a new copy of ARM's master, its first exec measured, then its second; the copy deleted.
 run_arm() {
@@ -223,7 +234,7 @@ run_arm() {
   fi
   touch "$OUT/hold-$tag" && chmod 0666 "$OUT/hold-$tag"
   line="$(console "$OUT/launch-premain" exec "$app" "$OUT/home-$tag" "$tag" "$OUT/hold-$tag" 2>>"$OUT/probe.log" | grep '^LP-RUN ')" || rc=1
-  [[ -n "$hogs" ]] && { kill $hogs 2>/dev/null; wait $hogs 2>/dev/null; }
+  [[ -n "$hogs" ]] && kill $hogs 2>/dev/null
   cpu_after="$(checker_cpu)"
   record_fx "$arm" "$rep" first "${line:-$NORESULT}" "$cpu_before" "$cpu_after"
   if [[ -n "$trace_pid" ]]; then kill -INT "$trace_pid" 2>/dev/null; wait "$trace_pid" 2>/dev/null; fs_reduce "$tag" "$app"; fi
@@ -249,7 +260,7 @@ import json, sys
 try: r = json.load(sys.stdin)
 except Exception: r = {"error": "unreadable probe line"}
 b = dict(p.split("=") for p in sys.argv[4].split()); a = dict(p.split("=") for p in sys.argv[5].split())
-for k in b: r[k + "_ms"] = int(a[k]) - int(b[k])
+for k in b: r[k + "_ms"] = (int(a[k]) - int(b[k])) if int(a[k]) >= int(b[k]) else None  # a checker that exited between readings
 r.update(arm=sys.argv[1], rep=sys.argv[2] if sys.argv[2] == "T" else int(sys.argv[2]), role=sys.argv[3], load=float(sys.argv[6]))
 print(json.dumps(r, sort_keys=True))' "$1" "$2" "$3" "$5" "$6" "$(load1)")"
   echo "FX-RUN $json"
@@ -267,10 +278,10 @@ for line in open(path, errors="replace"):
     parts = line.rstrip().rsplit(None, 1)
     if len(parts) < 2: continue
     proc = re.sub(r"\.\d+$", "", parts[1])
-    if not any(k in proc for k in ("syspolicyd", "XprotectService", "amfid", "trustd", "launch-premain", "cmux")): continue
+    if not any(k in proc for k in ("syspolicyd", "XprotectService", "amfid", "trustd", "launch-premain", "cmux", "NEXT", "Helper")): continue
     d = procs.setdefault(proc, {"calls": 0, "files": set(), "read_bytes": 0})
     d["calls"] += 1
-    if app in line: d["files"].add(line[line.index(app):].split()[0][len(app):])
+    if app in line: d["files"].add(re.split(r"\s{2,}", line[line.index(app) + len(app):])[0])
     m = re.search(r"B=0x([0-9a-f]+)", line)
     if m and re.search(r"\b(read|pread|RdData)", line): d["read_bytes"] += int(m.group(1), 16)
 out = {p: {"calls": d["calls"], "files": len(d["files"]), "read_bytes": d["read_bytes"], "sample": sorted(d["files"])[:8]} for p, d in procs.items()}
