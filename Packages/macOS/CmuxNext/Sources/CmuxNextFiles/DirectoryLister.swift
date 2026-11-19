@@ -13,6 +13,15 @@ public protocol DirectoryListing: Sendable {
     /// The current entry for one item, or nil when it no longer exists
     /// (for live updates of single paths).
     func entry(at url: URL) async -> FileEntry?
+
+    /// True when the folders are read in another process (a DEV build's cmux Files (dev) child):
+    /// nothing in this process should open them then, the folder watch included. It may look up
+    /// the child on first use, so ask it off the main thread.
+    var readsOutOfProcess: Bool { get }
+}
+
+extension DirectoryListing {
+    public var readsOutOfProcess: Bool { false }
 }
 
 /// Lists folders with `getattrlistbulk(2)`: name, type, dates, flags and size
@@ -38,6 +47,8 @@ public struct DirectoryLister: DirectoryListing {
     public init(outOfProcess: ProcessDirectoryLister?) {
         self.outOfProcess = outOfProcess
     }
+
+    public var readsOutOfProcess: Bool { outOfProcess?.readsOutOfProcess ?? false }
 
     @concurrent
     public func list(_ folder: URL) async throws -> [FileEntry] {

@@ -76,6 +76,9 @@ public final class ProcessDirectoryLister: Sendable {
         })
     }
 
+    /// True when this build has a child to read through (it looks it up on first use: may stat).
+    public var readsOutOfProcess: Bool { resolvedArguments() != nil }
+
     /// The children of `folder`, or nil when the child could not answer (read in process).
     /// - Throws: ``FileBrowserError/unreadable(_:_:)`` when the child could not read the folder,
     ///   `CancellationError` when the caller was cancelled.

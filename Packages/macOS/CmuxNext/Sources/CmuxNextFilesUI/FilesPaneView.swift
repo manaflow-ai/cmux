@@ -99,10 +99,12 @@ public final class FilesPaneView: NSView {
     /// The word Make Alias adds to names ("alias", localized as Finder does).
     public nonisolated static var aliasWord: String { FilesStrings.aliasWord }
 
-    /// A new tab's model on `folder`: reads through `lister`, names copies and aliases in this pane's
-    /// words, and remembers each folder's view in `defaults`.
+    /// A new tab's model on `folder`: reads through `lister` (and, when that reads in another process,
+    /// watches without opening the folder here), names copies and aliases in this pane's words, and
+    /// remembers each folder's view in `defaults`.
     public static func model(folder: URL, lister: any DirectoryListing, defaults: UserDefaults = .standard) -> FileBrowserModel {
         FileBrowserModel(folder: folder, lister: lister,
+                         watcher: FolderWatcher(watchesRoot: { !lister.readsOutOfProcess }),
                          files: FileOperator(namer: FileNamer(copyWord: copyWord, aliasWord: aliasWord)),
                          memory: FolderViewMemory(defaults: defaults))
     }
