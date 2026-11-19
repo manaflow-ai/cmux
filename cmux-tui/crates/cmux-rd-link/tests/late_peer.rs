@@ -87,7 +87,7 @@ fn connect_after(viewer_start_us: u64, budget_us: u64) -> Result<u64, (&'static 
 fn a_viewer_that_starts_after_slow_signaling_connects_on_the_lan_at_once() {
     match connect_after(10_500_000, 2_000_000) {
         Ok(us) => {
-            assert!(us <= 50_000, "connected {us} us after the viewer started, want <= 50 ms")
+            assert!(us <= 50_000, "connected {us} us after the viewer started, want <= 50 ms");
         }
         Err((side, e)) => panic!("{side}: {e} (the host gave up before the viewer could dial)"),
     }
