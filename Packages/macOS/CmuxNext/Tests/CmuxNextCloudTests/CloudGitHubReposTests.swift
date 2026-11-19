@@ -205,14 +205,13 @@ struct CloudGitHubReposTests {
         #expect(CloudGitHubCompletion(url: try #require(URL(string: "cmux-dev-x://integration/other?state=\(state)")), scheme: "cmux-dev-x") == nil)
         #expect(CloudGitHubCompletion(url: try #require(URL(string: "cmux-dev-x://integration/complete?code=abc")), scheme: "cmux-dev-x") == nil)
         // A cancel on GitHub carries its error; an installation id that is not a number is not sent.
-        // One #require per expression: a nested one is a recursive macro expansion to the compiler.
         let cancelURL = try #require(URL(string: "\(link)?state=\(state)&error=access_denied&installation_id=1;x"))
         let cancelled = try #require(CloudGitHubCompletion(url: cancelURL, scheme: "cmux-dev-x"))
         #expect(cancelled.error == "access_denied")
         #expect(cancelled.params == ["state": state])
         // A state whose team claim is not a team id routes nowhere.
-        let noTeamURL = try #require(URL(string: "\(link)?state=a.b.c"))
-        #expect(try #require(CloudGitHubCompletion(url: noTeamURL, scheme: "cmux-dev-x")).team == nil)
+        let teamlessURL = try #require(URL(string: "\(link)?state=a.b.c"))
+        #expect(try #require(CloudGitHubCompletion(url: teamlessURL, scheme: "cmux-dev-x")).team == nil)
     }
 
     @Test func aCompletionIsConnectedOnlyWhenTheAPISaysOk() {

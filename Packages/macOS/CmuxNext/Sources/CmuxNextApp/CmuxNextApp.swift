@@ -13,9 +13,9 @@ import CmuxNextCompat
 import CmuxNextUpdater
 import CmuxNextWakeups
 
-/// Entry point called from the Xcode target's `App/main.swift`.
+/// Entry point called from the stub `App/main.swift`: CmuxNextApp.framework's only export (Package.swift, CMUX-629).
+@_cdecl("cmux_next_app_main") public func cmuxNextAppMain() { CmuxNextApp().main() }
 public struct CmuxNextApp {
-    public static let shared = Self()
     public func main() {
         if StagedUpdatePrewarm.isPrewarm(CommandLine.arguments) { exit(0) }; DebugTimings.markLaunch("main_start") // a pre-warm needs only exec and dyld
         if StagedUpdatePrewarm.isChromiumPrewarm(CommandLine.arguments) { _ = cmux_early_malloc_zone_registration(); _exit(CEFStagedPrewarm().run(application: CmuxApplication.shared).rawValue) } // _exit: no static destructors under Chromium's threads

@@ -35,6 +35,7 @@ never paired, or cannot reach the Mac never writes.
 Its tests: python3 ios/tests/test_cnx_review.py (ReceiptCheckTests)
 """
 import argparse
+from urllib.parse import urlparse
 import json
 import os
 import posixpath
@@ -80,6 +81,19 @@ def check(a):
     for key, want in (("git_sha", a.git_sha), ("dev_tag", a.dev_tag)):
         if want and receipt.get(key) != want:
             reject(f"the installed app is another build: its {key} is {receipt.get(key)!r}, this run's is {want!r}")
+    # review.sh --backend: the app uses the tag's backend (on its first launch and, kept, on every later one).
+    if a.cloud_backend:
+        have = receipt.get("cloud_backend")
+        if not isinstance(have, str) or not have:
+            reject("the receipt names no cloud_backend (a build from before review.sh --backend)")
+        if a.cloud_backend == "default":
+            # The build's own backend: an override review.sh or the app kept from an earlier run (a tag's
+            # stack or a preview) must be gone.
+            host = (urlparse(have).hostname or "").lower()
+            if host.endswith(".ts.net") or host.startswith("cmux-api-preview-"):
+                reject(f"the app still uses the kept Cloud backend {have}")
+        elif have.rstrip("/").lower() != a.cloud_backend.rstrip("/").lower():
+            reject(f"the app uses the Cloud backend {have}, not {a.cloud_backend}")
     signed_out = receipt.get("signed_in") is False or receipt["session_source"] == "signed_out"
     if a.session == "signed_out":
         # --no-auth: the app must sit at the welcome screen, signed in to no account.
@@ -217,6 +231,7 @@ def main(argv=None):
     c.add_argument("--mac-id", default="")
     c.add_argument("--git-sha", default="")
     c.add_argument("--dev-tag", default="")
+    c.add_argument("--cloud-backend", default="")
     i = sub.add_parser("phone-ids")
     i.add_argument("receipt")
     e = sub.add_parser("env-value")
