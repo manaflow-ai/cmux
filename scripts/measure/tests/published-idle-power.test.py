@@ -18,7 +18,7 @@ SOURCE = (Path(__file__).parents[1] / 'published-idle-power.sh').read_text().spl
 
 
 class ObserverTests(unittest.TestCase):
-    def observe(self, *, exits=False, unreadable=False, capture_hangs=False, top_hangs=False, measure_fails=False, descendants=False):
+    def observe(self, *, exits=False, unreadable=False, capture_hangs=False, top_hangs=False, measure_fails=False, descendants=False, sampler_drops=False):
         with tempfile.TemporaryDirectory() as root:
             bundle = Path(root) / 'Test.app'
             (bundle / 'Contents').mkdir(parents=True)
@@ -43,7 +43,8 @@ class ObserverTests(unittest.TestCase):
             def measure(*args):
                 if measure_fails:
                     raise RuntimeError('sampler failed')
-                return {'label': args[2], 'total': {'mw': 1, 'cpu_pct': 2, 'wakeups_per_s': 3, 'footprint_mb': 4}}
+                return {'label': args[2], 'total': {'mw': 1, 'cpu_pct': 2, 'wakeups_per_s': 3, 'footprint_mb': 4},
+                        'kinds': {'app': {'count': 0 if sampler_drops else (3 if descendants else 1)}}}
             bp.measure = measure
             child = types.SimpleNamespace(returncode=None, terminated=False, killed=False)
             def wait(timeout):
@@ -83,6 +84,11 @@ class ObserverTests(unittest.TestCase):
 
     def test_unreadable_counter_invalidates(self):
         report, _, error = self.observe(unreadable=True)
+        self.assertFalse(report['valid'])
+        self.assertIsInstance(error, SystemExit)
+
+    def test_sampler_dropped_counter_invalidates_even_if_other_reads_succeed(self):
+        report, _, error = self.observe(sampler_drops=True)
         self.assertFalse(report['valid'])
         self.assertIsInstance(error, SystemExit)
 

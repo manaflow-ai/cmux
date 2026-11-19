@@ -88,11 +88,14 @@ with open(os.path.join(out, 'top.txt'), 'w') as top_output:
                 top.wait(timeout=5)
 after = bm.owned(pid, bundle)
 last = {p: bp.counters(p) for p in owned}
-valid = set(owned) == set(after) and all(first[p] is not None and last[p] is not None for p in owned)
+measured_count = sum(row['count'] for row in result['kinds'].values())
+valid = (set(owned) == set(after) and measured_count == len(owned)
+         and all(first[p] is not None and last[p] is not None for p in owned))
 result.update(start=start, end=utc(), bundle=bundle, pid=pid,
               host=platform.node().split('.')[0], os=platform.platform(), chip=platform.machine(),
               version=info.get('CFBundleShortVersionString'), bundle_id=info.get('CFBundleIdentifier'),
               members_before=owned, members_after=after, valid=valid, top_status=top.returncode,
+              measured_count=measured_count,
               process_scope='bundle-owned processes and all observed descendants',
               validity_scope='stable observed membership and readable endpoint counters; transient processes may be missed',
               capture_status=capture_status, capture_error=capture_error)
