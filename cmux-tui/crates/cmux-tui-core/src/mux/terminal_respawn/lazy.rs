@@ -322,8 +322,18 @@ thread_local! {
     static LAZY_CREATE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// The never-started runtimes this thread made in a scope, parked when
     /// the scope ends.
-    static LAZY_PENDING: std::cell::RefCell<Vec<SurfaceId>> =
+    static LAZY_PENDING: std::cell::RefCell<Vec<Arc<Surface>>> =
         const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// A line of the lazy-start trace (`CMUX_TUI_LAZY_TRACE`, a file the
+/// recovery tests read when a lazy tab is not parked).
+fn lazy_trace(line: impl FnOnce() -> String) {
+    use std::io::Write as _;
+    let Some(path) = std::env::var_os("CMUX_TUI_LAZY_TRACE") else { return };
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{}", line());
+    }
 }
 
 /// While it lives, a terminal this thread creates may start lazily
@@ -353,8 +363,15 @@ impl Drop for LazyCreateScope {
             let from = self.pending_from.min(pending.len());
             pending.split_off(from)
         });
+        lazy_trace(|| format!("scope end: {} pending", made.len()));
         for surface in made {
-            self.mux.finish_lazy_created_at(surface);
+            #[cfg(unix)]
+            {
+                let parked = self.mux.finish_lazy_created(&surface);
+                lazy_trace(|| format!("scope end: surface {} finish={parked}", surface.id));
+            }
+            #[cfg(not(unix))]
+            drop(surface);
         }
     }
 }
@@ -477,7 +494,8 @@ impl Mux {
             terminal_hex.to_string(),
             LazyCreated { incarnation: incarnation.clone(), cwd, parked: false },
         );
-        LAZY_PENDING.with(|pending| pending.borrow_mut().push(id));
+        lazy_trace(|| format!("create: surface {id} terminal {terminal_hex}"));
+        LAZY_PENDING.with(|pending| pending.borrow_mut().push(surface.clone()));
         if let Err(error) = self.insert_created_terminal(surface.clone(), workspace_key) {
             self.forget_lazy_created(terminal_hex);
             failed("surface-insert-failed", Some(&incarnation));
@@ -502,8 +520,14 @@ impl Mux {
     /// its placement): a creator's reap must leave it alone.
     #[cfg(unix)]
     pub(in crate::mux) fn finish_lazy_created(&self, surface: &Arc<Surface>) -> bool {
-        let Some(host) = surface.terminal_host_identity() else { return false };
-        let Some(public_id) = surface.terminal_public_id().cloned() else { return false };
+        let Some(host) = surface.terminal_host_identity() else {
+            lazy_trace(|| format!("finish {}: no host identity", surface.id));
+            return false;
+        };
+        let Some(public_id) = surface.terminal_public_id().cloned() else {
+            lazy_trace(|| format!("finish {}: no public id", surface.id));
+            return false;
+        };
         let _turn =
             self.terminal_respawns.lazy_finish.lock().unwrap_or_else(PoisonError::into_inner);
         let pending = {
@@ -511,7 +535,12 @@ impl Mux {
                 self.terminal_respawns.lazy_created.lock().unwrap_or_else(PoisonError::into_inner);
             match created.get(&host.terminal_id) {
                 Some(entry) if entry.incarnation == host.incarnation => entry.clone(),
-                _ => return false,
+                entry => {
+                    lazy_trace(|| {
+                        format!("finish {}: no pending entry ({entry:?}, {host:?})", surface.id)
+                    });
+                    return false;
+                }
             }
         };
         if pending.parked {
@@ -525,6 +554,7 @@ impl Mux {
                 .filter_map(|slot| state.resource_indexes.tab_ids.get(slot).map(|t| t.to_string()))
                 .collect::<Vec<_>>()
         });
+        lazy_trace(|| format!("finish {}: tabs {tab_ids:?}", surface.id));
         if tab_ids.is_empty() {
             return true;
         }
@@ -539,6 +569,7 @@ impl Mux {
             })
             .collect::<Vec<_>>();
         if let Err(error) = self.commit_kept_tabs(&rows) {
+            lazy_trace(|| format!("finish {}: kept rows failed: {error:#}", surface.id));
             eprintln!("cmux-tui: could not park new terminal {public_id}: {error:#}");
             return true;
         }
@@ -547,9 +578,11 @@ impl Mux {
             Some(&host.incarnation),
             &TerminalEnd::launch_failed("not-started-until-shown"),
         ) {
+            lazy_trace(|| format!("finish {}: exit commit failed: {error:#}", surface.id));
             eprintln!("cmux-tui: could not park new terminal {public_id}: {error:#}");
             return true;
         }
+        lazy_trace(|| format!("finish {}: parked", surface.id));
         if let Some(entry) = self
             .terminal_respawns
             .lazy_created

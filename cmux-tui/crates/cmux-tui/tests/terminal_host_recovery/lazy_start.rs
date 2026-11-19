@@ -18,6 +18,8 @@ const MARKER: &str = "session restored (previous process ended)";
 fn lazy_harness(name: &str) -> RecoveryHarness {
     let mut harness = RecoveryHarness::start_unstarted(name);
     harness.extra_env.push(("CMUX_TUI_LAZY_START".into(), "1".into()));
+    let trace = harness.dir.join("lazy-trace.log");
+    harness.extra_env.push(("CMUX_TUI_LAZY_TRACE".into(), trace.display().to_string()));
     harness.restart();
     harness
 }
@@ -428,7 +430,12 @@ fn a_never_shown_plain_shell_starts_on_its_first_need() {
     let terminal_id = tab["terminal_id"].as_str().unwrap().to_string();
     assert!(!host_of(&harness, &terminal_id), "a never-shown shell got a host");
     assert_eq!(tab["dead"], true, "{tab}");
-    assert_eq!(tab["relaunch"]["on_show"], true, "{tab}");
+    assert_eq!(
+        tab["relaunch"]["on_show"],
+        true,
+        "{tab}\nlazy trace:\n{}",
+        std::fs::read_to_string(harness.dir.join("lazy-trace.log")).unwrap_or_default()
+    );
 
     let added = request(
         &harness.socket,
@@ -462,7 +469,7 @@ fn commands_and_shown_workspaces_start_at_once() {
     assert!(host_of(&harness, &command_id), "a command waited for its first need");
     let with_env = request(
         &harness.socket,
-        serde_json::json!({"cmd":"create-terminal","env":{"LAZY_PROBE":"1"},"create_workspace":true,"workspace_name":"env","key":"lazy-env","mutation_id":"lazy-env-create"}),
+        serde_json::json!({"cmd":"create-terminal","env":{"LAZY_PROBE":"1"},"create_workspace":true,"workspace_name":"env","key":"lazy-env","origin":"cmux-next","mutation_id":"lazy-env-create"}),
     );
     let env_id = with_env["terminal_id"].as_str().expect("create-terminal returned no id");
     assert!(host_of(&harness, env_id), "a shell with its own environment waited");
