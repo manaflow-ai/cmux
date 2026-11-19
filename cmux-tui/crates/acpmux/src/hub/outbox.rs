@@ -284,14 +284,66 @@ pub struct Outbox {
     pub(crate) redelivered_to: StdMutex<HashMap<String, (u64, String)>>,
     /// What the outbox's work costs, for tests (`Stats`).
     pub(crate) stats: Stats,
+    /// The `send_status` waits of each delivery ([`Outbox::watch`]).
+    watched: StdMutex<HashMap<String, std::sync::Arc<Notify>>>,
+    /// What messages to each peer that is down wait for ([`Outbox::peer_back`]).
+    peers_back: StdMutex<HashMap<String, std::sync::Arc<Notify>>>,
+    /// The turn of each target with an attempt running or waiting ([`Outbox::target_turn`]).
+    turns: StdMutex<HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>,
+}
+
+/// A wait for one delivery's next change ([`Outbox::watch`]).
+pub(crate) struct Watch<'a> {
+    outbox: &'a Outbox,
+    id: String,
+    notify: std::sync::Arc<Notify>,
+}
+
+impl Watch<'_> {
+    pub(crate) fn notified(&self) -> tokio::sync::futures::Notified<'_> {
+        self.notify.notified()
+    }
+}
+
+impl Drop for Watch<'_> {
+    fn drop(&mut self) {
+        let mut watched = self.outbox.watched.lock().unwrap_or_else(|e| e.into_inner());
+        // Its own count goes under the map's lock, so of two waits that end at once the later
+        // sees only the map's: the last wait for the id takes the entry out.
+        drop(std::mem::take(&mut self.notify));
+        if watched.get(&self.id).is_some_and(|n| std::sync::Arc::strong_count(n) == 1) {
+            watched.remove(&self.id);
+        }
+    }
+}
+
+/// The turn of one target ([`Outbox::target_turn`]).
+pub(crate) struct TargetTurn<'a> {
+    outbox: &'a Outbox,
+    target: String,
+    lock: std::sync::Arc<tokio::sync::Mutex<()>>,
+    guard: Option<tokio::sync::OwnedMutexGuard<()>>,
+}
+
+impl Drop for TargetTurn<'_> {
+    fn drop(&mut self) {
+        let mut turns = self.outbox.turns.lock().unwrap_or_else(|e| e.into_inner());
+        // Its guard and its own count go under the map's lock (as in `Watch`).
+        drop(self.guard.take());
+        drop(std::mem::take(&mut self.lock));
+        if turns.get(&self.target).is_some_and(|l| std::sync::Arc::strong_count(l) == 1) {
+            turns.remove(&self.target);
+        }
+    }
 }
 
 /// Counts of the outbox's work, read by tests: what a change's bookkeeping reads, what a change
 /// wakes, and how many attempts run at once for each target (`server/outbox.rs` `deliver`).
+/// A few relaxed atomic adds per attempt; only tests read them.
 #[derive(Default)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) struct Stats {
-    /// `send_status` waits that started, and wake-ups they had (`server/outbox.rs`).
-    pub status_waits: std::sync::atomic::AtomicU64,
+    /// Wake-ups of `send_status` waits (`server/outbox.rs` `outbox_status`).
     pub status_wakes: std::sync::atomic::AtomicU64,
     /// Attempts that opened a connection to this daemon (`server/outbox.rs` `attempt_once`).
     pub connections: std::sync::atomic::AtomicU64,
@@ -305,6 +357,7 @@ impl Stats {
         counter.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
     }
 
+    #[cfg(test)]
     pub(crate) fn read(counter: &std::sync::atomic::AtomicU64) -> u64 {
         counter.load(std::sync::atomic::Ordering::Relaxed)
     }
@@ -338,7 +391,42 @@ struct Book {
     /// Deliveries read by the bookkeeping of changes and sends (`changed`, `add_scoped`), for
     /// tests (`Outbox::visits`).
     visits: u64,
+    /// What the indexes below hold of each delivery ([`Book::reindex`]), so a change reads only
+    /// what it changed and what is due, never every delivery kept.
+    keys: HashMap<String, Keys>,
+    /// The deliveries of each (prompt id, target): what a send with that prompt id may be.
+    by_message: HashMap<(String, String), BTreeSet<String>>,
+    /// Open deliveries by when they lapse ([`OPEN_ON_PEER_FOR_MS`] after they were handed over).
+    lapses: BTreeSet<(u64, String)>,
+    /// Settled deliveries by when they are dropped ([`KEEP_SETTLED_MS`], a team receipt's
+    /// seven days) and by when they settled, oldest first: what goes over [`MAX_SETTLED`] or
+    /// [`MAX_SETTLED_BYTES`].
+    drops: BTreeSet<(u64, String)>,
+    settled_order: BTreeSet<(u64, String)>,
+    settled_bytes: u64,
+    /// Deliveries not settled, and of them the messages each target is waiting for
+    /// (`Outbox::pending_to`).
+    unsettled: usize,
+    pending_targets: HashMap<String, usize>,
 }
+
+/// What [`Book`]'s indexes hold of one delivery.
+#[derive(Default)]
+struct Keys {
+    message: (String, String),
+    lapse: Option<u64>,
+    /// When it is dropped, when it settled and its bytes: a settled one only.
+    settled: Option<(u64, u64, u64)>,
+    unsettled: bool,
+    pending_target: Option<String>,
+}
+
+/// The most settled deliveries kept in memory (and so in the snapshot), whatever their age: two
+/// days' worth of 2026-11's busiest machine (2,500 a day), a week of team receipts beside them.
+pub(crate) const MAX_SETTLED: usize = 20_000;
+
+/// The most bytes of settled deliveries kept: a day of the busiest machine was 5 MB.
+pub(crate) const MAX_SETTLED_BYTES: u64 = 64 << 20;
 
 /// What the files hold.
 #[derive(Default)]
@@ -400,6 +488,10 @@ impl Outbox {
             if !named.contains(&entry.path()) {
                 let _ = crate::home_fs::remove_file(entry.path());
             }
+        }
+        let ids: Vec<String> = book.deliveries.keys().cloned().collect();
+        for id in ids {
+            book.reindex(&id);
         }
         let pending = book.deliveries.values().filter(|d| !d.settled()).cloned().collect();
         // A journal left over is folded into the snapshot now, so the files read alone by an
@@ -464,7 +556,7 @@ impl Outbox {
         if !added && !self.book().deliveries.contains_key(&delivery.id) {
             anyhow::bail!("the first send of this prompt id was not saved");
         }
-        self.changed.notify_waiters();
+        self.wake(&delivery.id);
         Ok(delivery)
     }
 
@@ -475,8 +567,57 @@ impl Outbox {
     pub fn remember_forward(&self, delivery: Delivery) -> anyhow::Result<Delivery> {
         let (delivery, change, _) = self.add_scoped(delivery, true);
         self.save_checked(change)?;
-        self.changed.notify_waiters();
+        self.wake(&delivery.id);
         Ok(delivery)
+    }
+
+    /// Delivery `id` changed: its own `send_status` waits wake ([`Self::watch`]), and the one
+    /// listener of every change (`hub/watches.rs`), never every other message's waits.
+    fn wake(&self, id: &str) {
+        // Under the map's lock, never a clone: a watch's drop reads the count to know it was the
+        // last one (`Watch`).
+        if let Some(notify) = self.watched.lock().unwrap_or_else(|e| e.into_inner()).get(id) {
+            notify.notify_waiters();
+        }
+        self.changed.notify_waiters();
+    }
+
+    /// What a wait for delivery `id`'s next change listens to; its entry goes with the last
+    /// wait for that id.
+    pub(crate) fn watch(&self, id: &str) -> Watch<'_> {
+        let mut watched = self.watched.lock().unwrap_or_else(|e| e.into_inner());
+        let notify = watched.entry(id.to_owned()).or_default().clone();
+        Watch { outbox: self, id: id.to_owned(), notify }
+    }
+
+    /// What a wait for peer `peer`'s link listens to: messages to it wait for that alone while
+    /// it is down (`server/outbox.rs` `deliver`), not for every other peer's list.
+    pub(crate) fn peer_back_notify(&self, peer: &str) -> std::sync::Arc<Notify> {
+        let mut peers = self.peers_back.lock().unwrap_or_else(|e| e.into_inner());
+        peers.entry(peer.to_owned()).or_default().clone()
+    }
+
+    /// Peer `peer`'s link is ready again, or listed its sessions (`hub/peers.rs`,
+    /// `hub/no_session.rs`): the messages waiting for it, and every retry wait, go now.
+    pub(crate) fn peer_back(&self, peer: &str) {
+        // One entry per peer name this daemon has had messages wait for: as many as its peers.
+        if let Some(notify) = self.peers_back.lock().unwrap_or_else(|e| e.into_inner()).get(peer) {
+            notify.notify_waiters();
+        }
+        self.peer_ready.notify_waiters();
+    }
+
+    /// One attempt at a time to each target: the turn of `target`, held while an attempt to it
+    /// runs (`server/outbox.rs` `deliver`). Its entry goes with the last holder or waiter.
+    pub(crate) async fn target_turn(&self, target: &str) -> TargetTurn<'_> {
+        let lock = {
+            let mut turns = self.turns.lock().unwrap_or_else(|e| e.into_inner());
+            turns.entry(target.to_owned()).or_default().clone()
+        };
+        let mut turn = TargetTurn { outbox: self, target: target.to_owned(), lock, guard: None };
+        // Dropped while it waits (a shutdown), `turn` still takes its entry out.
+        turn.guard = Some(turn.lock.clone().lock_owned().await);
+        turn
     }
 
     /// The delivery that holds the prompt id, the change to wait for, and whether it is new.
@@ -484,23 +625,26 @@ impl Outbox {
     /// (`Hub::prompt_with`): the same id to another target is another message.
     fn add_scoped(&self, delivery: Delivery, scoped: bool) -> (Delivery, u64, bool) {
         let mut book = self.book();
-        let prompt_id = delivery.prompt_id().to_owned();
-        book.visits += book.deliveries.len() as u64;
-        if let Some(first) = book.deliveries.values().find(|d| {
+        let message = (delivery.prompt_id().to_owned(), delivery.target.clone());
+        // Only the deliveries of this prompt id to this target, in id order as before.
+        let same: Vec<String> =
+            book.by_message.get(&message).into_iter().flatten().cloned().collect();
+        book.visits += same.len() as u64;
+        let found = same.iter().filter_map(|id| book.deliveries.get(id)).find(|d| {
             !d.is_team_receipt()
-                && d.prompt_id() == prompt_id
                 && d.target == delivery.target
                 && d.request.pointer("/_meta/acpmux/forwardProjection").is_some() == scoped
                 && (!scoped
                     || (d.caller == delivery.caller
                         && projected_message(d) == projected_message(&delivery)))
-        }) {
+        });
+        if let Some(first) = found {
             let first = first.clone();
             // The first add may still be writing: answer once the file holds it too.
             let change = book.changes;
             return (first, change, false);
         }
-        book.deliveries.insert(delivery.id.clone(), delivery.clone());
+        book.insert(delivery.clone());
         book.dirty.insert(delivery.id.clone());
         let change = book.changed();
         (delivery, change, true)
@@ -517,16 +661,15 @@ impl Outbox {
     /// Whether a delivery not settled yet goes to a target `named` matches (a session's id, name
     /// or an id prefix the sender gave): a turn may still come for that session
     /// (`Hub::work_coming`).
+    /// Reads each target once, however many messages wait for it.
     pub fn pending_to(&self, named: impl Fn(&str) -> bool) -> bool {
-        self.book().deliveries.values().any(|d| {
-            !d.settled() && !d.projection_only() && !d.is_team_receipt() && named(&d.target)
-        })
+        self.book().pending_targets.keys().any(|target| named(target))
     }
 
     /// How many deliveries are not settled yet (a projection intent waiting on its receiver's
     /// journal counts).
     pub fn unsettled(&self) -> usize {
-        self.book().deliveries.values().filter(|d| !d.settled()).count()
+        self.book().unsettled
     }
 
     /// Keep the original team destination independently of the hub's resolved receipt shape.
@@ -559,6 +702,7 @@ impl Outbox {
             created_at: now,
             updated_at: now,
         });
+        book.reindex(&key);
         book.dirty.insert(key);
         let change = book.changed();
         drop(book);
@@ -647,6 +791,7 @@ impl Outbox {
         // write will take (a restart went back to before it and sent it again).
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(d)));
         d.updated_at = crate::store::now_ms();
+        book.reindex(id);
         book.dirty.insert(id.to_owned());
         let change = book.changed();
         drop(book);
@@ -654,7 +799,7 @@ impl Outbox {
         if let Err(e) = &saved {
             tracing::warn!("outbox: could not save: {e:#}");
         }
-        self.changed.notify_waiters();
+        self.wake(id);
         if let Err(panic) = ran {
             std::panic::resume_unwind(panic);
         }
@@ -694,7 +839,11 @@ impl Outbox {
     /// told is not kept. Every add that shared the failed write fails too, as `saved` did not
     /// advance; each tries the write again itself.
     fn save_or_take_out(&self, change: u64, added: Option<&str>) -> anyhow::Result<()> {
-        let Some(path) = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
+        let path = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let Some(path) = path else {
+            // In memory only: nothing is written, so nothing waits to be (it grew by every
+            // change's id, and kept the bound on settled ones from dropping any).
+            self.book().dirty.clear();
             return Ok(());
         };
         let mut disk = self.disk.lock().unwrap_or_else(|e| e.into_inner());
@@ -815,7 +964,7 @@ impl Outbox {
             let mut book = self.book();
             book.dirty.extend(dirty);
             if let Some(id) = added {
-                book.deliveries.remove(id);
+                book.remove(id);
             }
             return Err(e);
         }
@@ -940,27 +1089,130 @@ fn read_saved(path: &Path) -> Saved {
 }
 
 impl Book {
-    /// Counts a change and drops what settled long ago; returns the change's number.
+    /// Counts a change, fails the open deliveries that lapsed and drops what settled long ago (or
+    /// past [`MAX_SETTLED`] and [`MAX_SETTLED_BYTES`], oldest first); returns the change's number.
+    /// It reads only what is due, from the indexes: a change costs the same with ten or 4,000
+    /// deliveries waiting (before, every change walked every delivery twice, and with 4,000
+    /// messages waiting for a peer that is down each of their attempts' changes cost 8,000 reads).
     fn changed(&mut self) -> u64 {
         let now = crate::store::now_ms();
-        self.visits += 2 * self.deliveries.len() as u64;
-        for d in self.deliveries.values_mut().filter(|d| d.open_lapsed(now)) {
-            tracing::warn!(delivery = %d.id, target = %d.target, "an open delivery lapsed; failed");
-            d.fail_open(OPEN_LAPSED.to_owned());
-            crate::attach::strip(&mut d.request);
-            d.updated_at = now;
-            // The journal gets its failed state too, not only the next snapshot.
-            self.dirty.insert(d.id.clone());
+        // The due ones are taken out first: each is read once, whatever its reindex does.
+        let later = self.lapses.split_off(&(now.saturating_add(1), String::new()));
+        let due = std::mem::replace(&mut self.lapses, later);
+        for (_, id) in due {
+            self.visits += 1;
+            if let Some(d) = self.deliveries.get_mut(&id)
+                && d.open_lapsed(now)
+            {
+                tracing::warn!(delivery = %d.id, target = %d.target, "an open delivery lapsed; failed");
+                d.fail_open(OPEN_LAPSED.to_owned());
+                crate::attach::strip(&mut d.request);
+                d.updated_at = now;
+                // The journal gets its failed state too, not only the next snapshot.
+                self.dirty.insert(id.clone());
+            }
+            // Failed now, so no longer open: no lapse is put back.
+            self.reindex(&id);
         }
-        self.deliveries.retain(|_, d| {
-            // Team bodies/receipts live at the hub for seven days; retain their origin
-            // for that entire lifetime, including owner sends with no caller session.
-            let keep = if d.is_team_receipt() { 7 * KEEP_SETTLED_MS } else { KEEP_SETTLED_MS };
-            // Open on its peer is not settled for this: kept until it closes or lapses.
-            !d.settled() || d.open_on_peer || now.saturating_sub(d.updated_at) < keep
-        });
+        while let Some((at, id)) = self.drops.first().cloned() {
+            if at > now {
+                break;
+            }
+            self.visits += 1;
+            self.remove(&id);
+        }
+        // Over the bounds: the oldest settled go, never one whose change is not written yet (a
+        // restart would read its older state from disk and send it again).
+        while self.settled_order.len() > MAX_SETTLED || self.settled_bytes > MAX_SETTLED_BYTES {
+            let Some((_, id)) = self.settled_order.first().cloned() else { break };
+            if self.dirty.contains(&id) {
+                break;
+            }
+            self.visits += 1;
+            self.remove(&id);
+        }
         self.changes += 1;
         self.changes
+    }
+
+    /// Adds (or replaces) delivery `d`.
+    fn insert(&mut self, d: Delivery) {
+        let id = d.id.clone();
+        self.deliveries.insert(id.clone(), d);
+        self.reindex(&id);
+    }
+
+    /// Takes delivery `id` out, with its keys.
+    fn remove(&mut self, id: &str) -> Option<Delivery> {
+        let d = self.deliveries.remove(id);
+        self.reindex(id);
+        d
+    }
+
+    /// Puts delivery `id`'s keys in the indexes as it is now (none when it is gone), taking its
+    /// old ones out: called after every change to it.
+    fn reindex(&mut self, id: &str) {
+        self.visits += 1;
+        if let Some(old) = self.keys.remove(id) {
+            if let Some(ids) = self.by_message.get_mut(&old.message) {
+                ids.remove(id);
+                if ids.is_empty() {
+                    self.by_message.remove(&old.message);
+                }
+            }
+            if let Some(at) = old.lapse {
+                self.lapses.remove(&(at, id.to_owned()));
+            }
+            if let Some((drop_at, settled_at, bytes)) = old.settled {
+                self.drops.remove(&(drop_at, id.to_owned()));
+                self.settled_order.remove(&(settled_at, id.to_owned()));
+                self.settled_bytes = self.settled_bytes.saturating_sub(bytes);
+            }
+            if old.unsettled {
+                self.unsettled = self.unsettled.saturating_sub(1);
+            }
+            if let Some(target) = old.pending_target
+                && let Some(n) = self.pending_targets.get_mut(&target)
+            {
+                *n = n.saturating_sub(1);
+                if *n == 0 {
+                    self.pending_targets.remove(&target);
+                }
+            }
+        }
+        let Some(d) = self.deliveries.get(id) else { return };
+        let settled = d.settled();
+        let keys = Keys {
+            message: (d.prompt_id().to_owned(), d.target.clone()),
+            lapse: d.open_on_peer.then(|| d.created_at.saturating_add(OPEN_ON_PEER_FOR_MS)),
+            // Open on its peer is not settled for this: kept until it closes or lapses.
+            settled: (settled && !d.open_on_peer).then(|| {
+                // Team bodies/receipts live at the hub for seven days; retain their origin
+                // for that entire lifetime, including owner sends with no caller session.
+                let keep = if d.is_team_receipt() { 7 * KEEP_SETTLED_MS } else { KEEP_SETTLED_MS };
+                let bytes = serde_json::to_vec(&*on_disk(d)).map_or(0, |b| b.len() as u64);
+                (d.updated_at.saturating_add(keep), d.updated_at, bytes)
+            }),
+            unsettled: !settled,
+            pending_target: (!settled && !d.projection_only() && !d.is_team_receipt())
+                .then(|| d.target.clone()),
+        };
+        self.by_message.entry(keys.message.clone()).or_default().insert(id.to_owned());
+        if let Some(at) = keys.lapse {
+            self.lapses.insert((at, id.to_owned()));
+        }
+        if let Some((drop_at, settled_at, bytes)) = keys.settled {
+            self.drops.insert((drop_at, id.to_owned()));
+            self.settled_order.insert((settled_at, id.to_owned()));
+            self.settled_bytes += bytes;
+        }
+        if keys.unsettled {
+            self.unsettled += 1;
+        }
+        if let Some(target) = &keys.pending_target {
+            *self.pending_targets.entry(target.clone()).or_default() += 1;
+        }
+        self.keys.insert(id.to_owned(), keys);
     }
 }
 
@@ -1130,6 +1382,27 @@ mod tests {
             large <= 4,
             "{large} deliveries read per change with 4000 waiting ({small} with 100)"
         );
+    }
+
+    /// Settled deliveries are kept in memory up to [`MAX_SETTLED`], the oldest going first;
+    /// waiting ones are never dropped for it.
+    #[test]
+    fn settled_deliveries_are_bounded_oldest_first_and_waiting_ones_stay() {
+        let outbox = Outbox::default();
+        let mut waiting = delivery(0);
+        waiting.created_at = 0;
+        outbox.add(waiting).unwrap();
+        for n in 1..=MAX_SETTLED + 10 {
+            let mut d = delivery(n);
+            (d.state, d.updated_at) = (State::Delivered, n as u64 + crate::store::now_ms());
+            outbox.add(d).unwrap();
+        }
+        assert_eq!(outbox.book().deliveries.len(), MAX_SETTLED + 1);
+        assert!(outbox.get("d-0").is_some(), "a waiting delivery was dropped");
+        assert!(outbox.get("d-10").is_none(), "the oldest settled ones go first");
+        assert!(outbox.get("d-11").is_some());
+        assert_eq!(outbox.unsettled(), 1);
+        assert!(outbox.pending_to(|t| t == "lane"));
     }
 
     /// An open delivery past [`OPEN_ON_PEER_FOR_MS`] is not dropped: it fails, saying why, and

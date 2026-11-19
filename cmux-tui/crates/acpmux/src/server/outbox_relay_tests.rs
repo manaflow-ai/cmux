@@ -22,6 +22,8 @@ struct FakeHub {
     unknown: std::sync::atomic::AtomicBool,
     /// How many more sends the hub keeps but whose answer is lost on the way back.
     lose: std::sync::atomic::AtomicUsize,
+    /// Runs once, inside the next send: something that happens while an attempt runs.
+    during_send: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl MeshHub for FakeHub {
@@ -42,6 +44,9 @@ impl MeshHub for FakeHub {
 
     fn send<'a>(&'a self, message: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
         self.sent.lock().unwrap().push(message.clone());
+        if let Some(during) = self.during_send.lock().unwrap().take() {
+            during();
+        }
         Box::pin(async move {
             if self.unknown.load(SeqCst) {
                 let mut e = HubError::refused("no such recipient");
@@ -375,22 +380,17 @@ async fn a_send_whose_record_cannot_be_saved_is_refused_and_not_kept() {
 /// the wait for the next one: the retry does not sleep out its delay with the peer up.
 #[tokio::test(start_paused = true)]
 async fn a_peer_ready_during_an_attempt_ends_the_retry_wait() {
-    let (hub, _fake) = setup(FakeHub { unknown: true.into(), ..FakeHub::default() });
-    // Fires `peer_ready` the moment attempt 1 starts, as a reconnect would.
-    let fired = {
-        let hub = hub.clone();
-        tokio::spawn(async move {
-            loop {
-                let changed = hub.outbox.changed.notified();
-                let running = hub.outbox.list(None, 10).0;
-                if running.iter().any(|d| d.attempts == 1 && d.state == State::Delivering) {
-                    hub.outbox.peer_ready.notify_waiters();
-                    return tokio::time::Instant::now();
-                }
-                changed.await;
-            }
-        })
-    };
+    let (hub, fake) = setup(FakeHub { unknown: true.into(), ..FakeHub::default() });
+    // Fires `peer_ready` inside attempt 1 (its relay post), as a reconnect would: an attempt to
+    // a peer known down reaches no connection, so nothing outside it sees it running.
+    let (tx, fired) = tokio::sync::oneshot::channel();
+    let ready = hub.clone();
+    *fake.during_send.lock().unwrap() = Some(Box::new(move || {
+        let attempts = ready.outbox.list(None, 10).0.iter().map(|d| d.attempts).max();
+        assert_eq!(attempts, Some(1), "inside attempt 1");
+        ready.outbox.peer_ready.notify_waiters();
+        let _ = tx.send(tokio::time::Instant::now());
+    }));
     let id = queue(&hub, request("huge-blue/lane", "prompt-ready-mid-attempt")).await;
     let fired = fired.await.unwrap();
     let d = after_attempt(&hub, &id, 1).await;
