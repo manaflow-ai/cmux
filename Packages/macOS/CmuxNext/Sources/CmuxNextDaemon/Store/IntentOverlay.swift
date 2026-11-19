@@ -156,7 +156,7 @@ import Foundation
     /// Applies a pending intent again after a daemon apply. A created tab the daemon already
     /// reported replaces its provisional one (``ProvisionalTab/created(_:surface:in:)``).
     static func restore(_ pending: PendingIntent, to store: DaemonStore) -> IntentUndo? {
-        if pending.closeWhenCreated { return CancelledCreation.hide(pending, in: store) }
+        if pending.closeWhenCreated { return store.intentLog.neverMergeFault == 4 ? nil : CancelledCreation.hide(pending, in: store) }
         if pending.standInClosed { return CancelledCreation.restoreClosedStandIn(pending, in: store) }
         if let created = pending.createdSurface, store.tabsBySurface[created] != nil {
             guard !pending.createdConfirmed else {

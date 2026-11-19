@@ -115,7 +115,7 @@ extension AgentTabStore {
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
-                if store.creations.wasCancelled(transaction), store.creations.neverMergeFault != 2 { throw CancellationError() }
+                if store.creations.wasCancelled(transaction), ![2, 7].contains(store.creations.neverMergeFault) { throw CancellationError() }
                 // A chat its page started (or the harness acpmux reported) before the store answered binds now.
                 if let started = sessions[AgentTabKey(machine: daemon.machineID, key: created.key)], !remote {
                     sendSession(started, for: created.key, machine: daemon.machineID)
@@ -366,7 +366,7 @@ extension AgentTabStore {
         if candidates.isEmpty {
             if record(for: tabKey(key)) == nil { release(resolve(key)) }
         } else {
-            for scoped in candidates where record(for: scoped) == nil { release(scoped.key, machine: scoped.machine) }
+            for scoped in candidates where record(for: scoped) == nil && (tabStores[scoped]?.creations.neverMergeFault ?? 0) < 6 { release(scoped.key, machine: scoped.machine) }
         }
     }
 
@@ -415,7 +415,7 @@ extension AgentTabStore {
             let scoped = entry.key
             if store.liveTreeLists(tab: scoped.key) == true {
                 seenLive.insert(scoped)
-            } else if seenLive.contains(scoped) {
+            } else if seenLive.contains(scoped), store.creations.neverMergeFault < 6 {
                 release(scoped.key, machine: scoped.machine)
             }
         }

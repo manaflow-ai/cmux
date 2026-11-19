@@ -44,6 +44,10 @@ extension NewTabHoldMovesItsPageTests {
         var failure: String?
         /// The keys of the tabs that the app reported as created (`AgentTabStore.moveSelection`), in the calls' order.
         var moves: [String] = []
+        /// NEVER MERGE: whether the store's pane had the daemon's tab when the store asked for its close (the row's own
+        /// handler only), and whether the store's pane and the strip had it in a task that the answer's turn made.
+        var atTheCloseRequest: Bool?
+        var inALaterTurn: (pane: Bool, strip: Bool)?
 
         var done: Bool { created != nil || failure != nil }
     }
@@ -78,13 +82,15 @@ extension NewTabHoldMovesItsPageTests {
 
     /// NEVER MERGE: the row with a fault turned on. 0 = no fault (the control); 1 and 2 = the 2 faults of the app's code
     /// for the answer, which read the fault's number from the row's own store (no other store has it); 3 = the app
-    /// sends no close for the daemon's tab of a cancelled creation (the row puts its own handler that does nothing in
-    /// the place of the app's).
-    @Test(arguments: [0, 1, 2, 3]) func anAnswerForATabThatACloseTabKeyClosedChangesNothingThatThePaneShows(fault: Int) async throws {
+    /// sends no close for the daemon's tab of a cancelled creation (the row puts its own handler that sends none in
+    /// the place of the app's); 4 = the store does not take the daemon's tab of a cancelled creation out of the records
+    /// that the app shows; 5 = 4 and 3; 6 = from the Close Tab key on, the app does not let go of the page state of a
+    /// tab that is gone; 7 = 6 and 2.
+    @Test(arguments: [0, 1, 2, 3, 4, 5, 6, 7]) func anAnswerForATabThatACloseTabKeyClosedChangesNothingThatThePaneShows(fault: Int) async throws {
         try await Self.row("cn-hold-moves-page-late-answer-\(fault)") { services, pane, views, _ in
             let tabs = services.agentTabs, router = services.keyRouter, store = pane.daemon.store, creations = store.creations
             if fault == 1 || fault == 2 { creations.turnOnNeverMergeFault(fault) }
-            if fault == 3 { creations.onClose { _, _ in } }
+            if fault == 4 || fault == 5 { creations.turnOnNeverMergeFault(4) }
             print("NewTabHoldMovesItsPageTests: row 15 with the fault \(fault) (0 = none)")
             let held = await Self.hold(5, in: pane, services, views)
             try #require(held.pressed == 5 && held.made == 0,
@@ -99,6 +105,9 @@ extension NewTabHoldMovesItsPageTests {
             let connection = try #require(pane.daemon.connection, "setup: the pane's daemon has no connection")
             // The request for each tab from here on waits in the row, then goes to the daemon as the app sends it.
             let gate = NewTabHoldInTheFirstNewTabTests.HeldCreations(), late = LateAnswer(), create = tabs.create, move = tabs.moveSelection
+            if fault == 3 || fault == 5 {
+                creations.onClose { _, surface in late.atTheCloseRequest = pane.pane.tabs.contains { $0.surface == surface } }
+            }
             tabs.create = { handle, daemon, record, key, transaction, split in
                 late.requests += 1
                 late.cancelled = { store.creations.wasCancelled(transaction) }
@@ -110,6 +119,10 @@ extension NewTabHoldMovesItsPageTests {
                     late.listedAtTheAnswer = store.liveTreeLists(tab: made.created.key) == true
                     late.stripAtTheAnswer = pane.orderedIDs.map(\.rawValue)
                     late.created = made.created
+                    let madeKey = made.created.key
+                    Task { @MainActor in
+                        late.inALaterTurn = (pane.pane.tabs.contains { $0.id == madeKey }, pane.orderedIDs.contains { $0.rawValue == madeKey })
+                    }
                     return made
                 } catch {
                     late.failure = String(describing: error)
@@ -145,6 +158,7 @@ extension NewTabHoldMovesItsPageTests {
             if (window.firstResponder as? NSView)?.isDescendant(of: page.webView) != true { _ = try Self.keyboard(to: page, in: pane) }
 
             // The Close Tab key, before the answer: row 14 has the wants of its turn, here they are the setup.
+            if fault == 6 || fault == 7 { creations.turnOnNeverMergeFault(fault) }
             let atTheKey = try Self.closeTabKey(page, in: pane, services, views, window: window)
             try #require(atTheKey.wasPending && atTheKey.faults.isEmpty,
                          "setup: the Close Tab key before the answer (its tab was a creation that waits: \(atTheKey.wasPending)): \(CloseRead.words(atTheKey.faults))")
@@ -179,6 +193,13 @@ extension NewTabHoldMovesItsPageTests {
                 \(wasAPageBefore); a page or a New Tab page under the closed tab's key after it: \(pageOfTheClosedTab), under the \
                 daemon's tab's key: \(pageOfTheDaemonsTab); the store listed the daemon's tab at the answer: \
                 \(late.listedAtTheAnswer), at the row's end: \(listedAtTheEnd)
+                """)
+            print("""
+                NewTabHoldMovesItsPageTests: row 15 with the fault \(fault), the daemon's tab in what the app shows: in a task that \
+                the answer's turn made, the store's pane had it: \(late.inALaterTurn.map { "\($0.pane)" } ?? "no read"), the strip had \
+                it: \(late.inALaterTurn.map { "\($0.strip)" } ?? "no read"); when the store asked for its close (the row's own handler \
+                only), the store's pane had it: \(late.atTheCloseRequest.map { "\($0)" } ?? "no read"); one frame after the answer the \
+                strip had it: \(stripAfterTheAnswer.contains(created.key))
                 """)
             try #require(late.cancelledAtTheAnswer, "setup: the store did not have the creation as a cancelled one when the answer came back")
             #expect(late.stripAtTheAnswer == stripAfterTheKey,
