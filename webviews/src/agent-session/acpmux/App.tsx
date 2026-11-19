@@ -9432,6 +9432,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           },
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),
+          // The catalog acpmux uses, for a host that does not serve `models.catalog`
+          // (modelCatalogHost.ts): a model the feed lists today shows without a page update.
+          "models.catalog": async ({ refresh }) => client.modelCatalog(refresh === true),
           // The picker's Refresh models: acpmux probes every agent again, then the catalog re-reads.
           "models.refresh": async () => {
             try {
