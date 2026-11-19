@@ -545,6 +545,7 @@ impl Supervisor {
             inner.sinks.remove(&client);
             inner.pages.client_gone(client);
             let mut provider_outs = self.provider_disconnect_locked(&mut inner, client);
+            provider_outs.extend(self.external_disconnect_locked(&mut inner, client));
             provider_outs.extend(self.cancel_client_locked(&mut inner, client));
             for set in inner.followers.values_mut() {
                 set.remove(&client);
@@ -690,6 +691,7 @@ impl Supervisor {
                     let _ = storage.clear(app);
                 }
                 self.remove_server_dirs(app);
+                self.remove_server_credential(app);
                 vec![]
             }
             Effect::StopHost(app) => {

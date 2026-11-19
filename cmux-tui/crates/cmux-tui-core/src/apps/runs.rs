@@ -225,9 +225,16 @@ impl Supervisor {
             return Err(ApiError::new("apps.hidden", "the app is hidden from this surface"));
         }
         let Some(export) = export else {
+            Self::server_approved_locked(inner, app)?;
             Self::admit_server_op(inner, app, op, origin)?;
             return Ok(Target::Server);
         };
+        // A `js` server's op runs in the app host, behind the same gates as
+        // a server op (servers.rs).
+        if super::servers::kind(package) == Some("js") {
+            Self::server_approved_locked(inner, app)?;
+            Self::admit_server_op(inner, app, op, origin)?;
+        }
         if inner.safe_mode.is_some() {
             return Err(ApiError::new("apps.safe_mode", super::safe_mode::OFF));
         }
