@@ -926,8 +926,14 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     func tableView(_ tableView: UITableView, willBeginEditingRowAt indexPath: IndexPath) {
         guard let id = dataSource?.itemIdentifier(for: indexPath) else { return }
         openRow = id
-        // The drawer closes it on a rightward swipe (Mail), as it closes a `List` row's.
-        RowSwipeActions.shared.setOpen(registrationKey, close: { [weak tableView] in tableView?.setEditing(false, animated: true) })
+        // A rightward swipe closes it and never opens the drawer (Mail). A swipe on the table is
+        // UIKit's: its own swipe recognizer drags the row closed under the finger, so closing it
+        // here too ran a second, animated close against that one, and the row jumped up a row's
+        // height for a moment. The drawer closes it only for a swipe that starts off the table.
+        RowSwipeActions.shared.setOpen(registrationKey, close: { [weak tableView] in
+            guard let tableView, !tableView.isTracking else { return }
+            tableView.setEditing(false, animated: true)
+        })
     }
 
     func tableView(_ tableView: UITableView, didEndEditingRowAt indexPath: IndexPath?) {
