@@ -60,7 +60,10 @@ env:
 
 jobs:
   # Secretless placement bootstrap: it reads the fresh runner-state publication and
-  # fails open to the existing hosted/Blacksmith route when state is stale.
+  # fails open to the existing hosted/Blacksmith route when state is stale. It places
+  # only post, which runs after the gates: resolve starts beside it, not behind it, so
+  # the gates wait for one light job's runner, not two in a row (2026-11-19: each light
+  # hop waited 40-45 min for a Blacksmith runner, about 156 min created-to-finished).
   portable-placement:
     name: portable light placement
     if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
@@ -88,12 +91,12 @@ jobs:
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          JOBS: resolve post
+          JOBS: post
           # Never a mini: an owned Mac's ephemeral runner spends 20-60 s setting up and tearing down
           # ("Set up runner", "Complete runner") around these jobs' ~5 s of work. resolve placed on a mini
           # ran 41 s at p50 and 67 s at p90 against 5 s and 7 s on hosted Ubuntu (2026-11-11 timing
           # records, 27 and 224 jobs), on the fast gate's critical path. Fleet Linux, when free, still takes them.
-          LINUX_ONLY: resolve post
+          LINUX_ONLY: post
           # Only the owned-pool rescue bot's third attempt may re-place these
           # light jobs. Other workflows and manual retries stay fail-closed.
           PORTABLE_ATTEMPT3_RESCUE: '1'
@@ -105,9 +108,10 @@ jobs:
 
   resolve:
     name: resolve head and base
-    needs: portable-placement
+    # No needs: the first job of the run, beside the placement bootstrap. Waiting for placement put a second
+    # Blacksmith queue wait in front of the gates for ~5 s of work (tests/test_ci_light_hops_before_work.py).
     # A draft is gated when it is marked ready; a dispatch always runs.
-    if: ${{ always() && !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     # Fork pull requests use the same ephemeral Blacksmith lane as other
     # Linux work; this job has read-only contents permission and no secrets.
     # The reconciled pool admits fleet first, records a three-minute no-start
@@ -117,7 +121,7 @@ jobs:
     # A light job: the reconciled Linux pool on every attempt (it holds no secret), never GitHub-hosted
     # Ubuntu (it left light jobs queued for hours, cmux#45735). On 2026-11-02 this queued on RUNNER_POOLS.linux's
     # saturated blacksmith-4vcpu-ubuntu-2404 (hundreds of jobs deep) for a few seconds of work.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' resolve ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' resolve ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       contents: read
