@@ -103,6 +103,20 @@ export interface BookmarksStoreOptions {
 
 const EMPTY_TREE = buildTree([]);
 
+/** The listing with each node whose fields all match the tree's kept as the tree's object: a list
+ * row takes its node as a prop, so a re-read after one change elsewhere re-renders that row only. */
+function keepUnchanged(listing: readonly Bookmark[], previous: ReadonlyMap<string, Bookmark>): Bookmark[] {
+  return listing.map((node) => {
+    const kept = previous.get(node.id);
+    return kept && sameFields(kept, node) ? kept : node;
+  });
+}
+
+function sameFields(a: Bookmark, b: Bookmark): boolean {
+  const keys = Object.keys(a) as (keyof Bookmark)[];
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
+}
+
 export class BookmarksStore {
   private snapshot: BookmarksSnapshot;
   private readonly listeners = new Set<() => void>();
@@ -300,7 +314,7 @@ export class BookmarksStore {
   }
 
   private take(listing: ListResult): void {
-    const tree = buildTree(listing.bookmarks);
+    const tree = buildTree(keepUnchanged(listing.bookmarks, this.snapshot.tree.nodes));
     const { folder, selection, focus } = this.snapshot;
     // A shown folder that went away (deleted elsewhere) falls back to the bar.
     const shown = isRoot(folder) || tree.nodes.has(folder) ? folder : "bar";
