@@ -27,6 +27,7 @@ type PSet<A> = imbl::OrdSet<A>;
 #[derive(Clone, Default)]
 pub(crate) struct RemoteRows {
     rows: PMap<String, Arc<RemoteSession>>,
+    pub(super) usage: super::usage_order::UsageOrder,
     by_pair: PMap<(String, String), PSet<String>>,
     /// Each peer's rows: their peer's own session id (`receipt.mux_session_id`) to their keys.
     by_peer: PMap<String, PMap<String, PSet<String>>>,
@@ -55,7 +56,7 @@ impl RemoteRows {
 
     /// Inserts a row its writer shares too (a peer's list announces the rows it changed).
     pub(crate) fn insert_shared(&mut self, key: String, row: Arc<RemoteSession>) {
-        self.take(&key);
+        self.take_indexed(&key);
         self.writes += 1;
         if let Some(pair) = row.summary.pair() {
             self.by_pair.entry(pair).or_default().insert(key.clone());
@@ -63,6 +64,7 @@ impl RemoteRows {
         let peer = self.by_peer.entry(row.peer.clone()).or_default();
         peer.entry(row.receipt.mux_session_id.clone()).or_default().insert(key.clone());
         self.names.add(&key, &row);
+        self.usage.replace_shared(&key, row.summary.usage_entry(&key));
         self.rows.insert(key, row);
     }
 
@@ -72,6 +74,14 @@ impl RemoteRows {
 
     // A write replaces the row; a reader keeps the version its snapshot holds until it ends.
     pub(crate) fn take(&mut self, key: &str) -> Option<Arc<RemoteSession>> {
+        let row = self.take_indexed(key)?;
+        self.usage.remove(key);
+        Some(row)
+    }
+
+    /// Replacement keeps the old usage entry until the new one is compared. A status-only
+    /// peer notice must not invalidate an unchanged usage cursor.
+    fn take_indexed(&mut self, key: &str) -> Option<Arc<RemoteSession>> {
         let row = self.rows.remove(key)?;
         self.stale_from.remove(key);
         self.writes += 1;

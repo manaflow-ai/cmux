@@ -116,6 +116,12 @@ impl Hub {
             // A task that never ran dropped no guard.
             self.logs_ready.send_replace(true);
         }
+        // Seed the usage order after restoration, using the existing live/recent candidate
+        // bounds and transcript byte bounds. `_acpmux/usage` never starts or waits for a pass.
+        let hub = self.clone();
+        self.scope.spawn_until_cancelled("usage-initial-pass", async move {
+            hub.refresh_usage_stats().await;
+        });
     }
 
     /// Reads `sessions`' logs on up to 8 threads, each on this runtime when there is one (a

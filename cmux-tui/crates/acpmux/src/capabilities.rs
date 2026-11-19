@@ -107,6 +107,8 @@ pub const CAPABILITIES: &[Capability] = &[
     // that reads the v2 list's keys asks for the rows it prints (agent service v2, row 7b); a
     // daemon without this id gets its v1 list read.
     Capability { id: INFO_ROWS, wire: &[method::MUX_INFO, method::MUX_STATUS] },
+    // Bounded usage by key or rank, with cached totals and cursor continuation.
+    Capability { id: "usage-rows-v1", wire: &[method::MUX_USAGE] },
     // `_acpmux/markRead`: mark a chat read without showing it (cmux's `chat.mark_read`).
     Capability { id: "mark-read-v1", wire: &[method::MUX_MARK_READ] },
     // The session list as a row log (`hub/row_log.rs`): `session_changed` and a watch's list

@@ -21,7 +21,7 @@ use crate::store::{SessionMeta, SessionStatus};
 use crate::usage_stats::{DAY_MS, Models, Source, Tracker};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
@@ -33,13 +33,37 @@ const REFRESH_EVERY_MS: u64 = 5_000;
 /// answers with the last pass's stats and the pass ends on its own.
 pub(crate) const READ_WAIT: Duration = Duration::from_millis(750);
 
+const PASS_IDLE: u8 = 0;
+const PASS_RUNNING: u8 = 1;
+const PASS_WANTED: u8 = 2;
+
+/// Finish a worker pass, preserving a concurrently requested follow-up pass.
+/// A successful RUNNING -> IDLE transition is the only way the worker exits.
+fn finish_usage_pass(state: &AtomicU8) -> bool {
+    if state.compare_exchange(PASS_RUNNING, PASS_IDLE, Ordering::AcqRel, Ordering::Acquire).is_ok()
+    {
+        true
+    } else {
+        state.store(PASS_RUNNING, Ordering::Release);
+        false
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct UsageCache {
     trackers: Arc<StdMutex<HashMap<String, Tracker>>>,
     stats: Arc<StdMutex<HashMap<String, UsageStats>>>,
+    pub(super) order: StdMutex<super::usage_order::UsageOrder>,
+    /// A complete background/legacy pass has seeded this run; never wait for it on usage reads.
+    pub(super) ready: AtomicBool,
+    /// Unix ms at which the most recent whole pass completed; zero before the first pass.
+    pub(super) last_pass_at: AtomicU64,
     /// Held for a pass, with when the last one started: a read that comes
     /// meanwhile waits for it instead of reading the stats it is about to replace.
     pass: tokio::sync::Mutex<u64>,
+    /// One background whole pass is running or wanted. Requests arriving during a pass are
+    /// coalesced into one follow-up instead of queueing one task per request.
+    pass_state: AtomicU8,
     /// A turn ended since the last pass began: the next read reads, however soon.
     dirty: AtomicBool,
     /// How many whole passes ran, and how many chats the last one read: a gate's timed pass is
@@ -73,6 +97,54 @@ pub(super) fn prune_unlisted<T, S>(
 }
 
 impl Hub {
+    /// Ask for the v1-throttled whole pass without putting it on a request's response path.
+    /// The state machine keeps one worker and at most one follow-up pass alive.
+    pub(crate) fn request_usage_refresh(self: &Arc<Self>) {
+        let mut state = self.usage_stats.pass_state.load(Ordering::Acquire);
+        loop {
+            let next = match state {
+                PASS_IDLE => PASS_RUNNING,
+                PASS_RUNNING => PASS_WANTED,
+                PASS_WANTED => return,
+                _ => PASS_IDLE,
+            };
+            match self.usage_stats.pass_state.compare_exchange(
+                state,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) if state == PASS_IDLE => {
+                    let hub = self.clone();
+                    self.scope.spawn_named("usage-refresh", async move {
+                        loop {
+                            hub.refresh_usage_stats().await;
+                            if hub
+                                .usage_stats
+                                .pass_state
+                                .compare_exchange(
+                                    PASS_WANTED,
+                                    PASS_RUNNING,
+                                    Ordering::AcqRel,
+                                    Ordering::Acquire,
+                                )
+                                .is_ok()
+                            {
+                                continue;
+                            }
+                            if finish_usage_pass(&hub.usage_stats.pass_state) {
+                                break;
+                            }
+                        }
+                    });
+                    return;
+                }
+                Ok(_) => return,
+                Err(actual) => state = actual,
+            }
+        }
+    }
+
     /// Reads every chat's usage, after the pass that runs if one does, unless one started in
     /// the last few seconds and no turn ended since.
     pub(crate) async fn refresh_usage_stats(&self) {
@@ -172,13 +244,17 @@ impl Hub {
     async fn read_usage(&self, sessions: Vec<Arc<Session>>, whole: bool) {
         let now = crate::store::now_ms();
         let sources = self.usage_sources(&sessions, now).await;
+        // The pass can finish after a purge or after this id is recreated. Check the original
+        // session's fence while holding the stats lock, paired with `forget_usage` below.
+        let fences: HashMap<String, Arc<AtomicBool>> =
+            sessions.iter().map(|s| (s.id.clone(), s.purged.clone())).collect();
         #[cfg(test)]
         if whole {
             self.usage_stats.sources_read.store(sources.len(), Ordering::SeqCst);
             self.usage_stats.passes.fetch_add(1, Ordering::SeqCst);
         }
-        // Only a turn's own read keeps its chat's handle, to announce it; a whole pass resolves
-        // what changed in the session map, so it builds no map of its candidates.
+        // Only a turn's own read keeps its chat's handle to announce it. A whole pass retains
+        // just the purge fences above and resolves changed rows by key after reading.
         let own = if whole { Vec::new() } else { sessions };
         let models = Models::from_catalog(&self.catalog.current());
         let cache = &self.usage_stats;
@@ -194,6 +270,7 @@ impl Hub {
                 }
             }
             let mut stats = stats.lock().unwrap_or_else(|e| e.into_inner());
+            fresh.retain(|(id, _)| fences.get(id).is_some_and(|f| !f.load(Ordering::SeqCst)));
             let same = |a: &UsageStats, b: &UsageStats| {
                 UsageStats { updated_at: 0, ..a.clone() }
                     == UsageStats { updated_at: 0, ..b.clone() }
@@ -210,11 +287,20 @@ impl Hub {
             // A turn's own read announces its chat's whether or not a list's pass read the
             // turn first, so every turn's end is followed by its usage.
             let announce = if whole { Vec::new() } else { fresh.clone() };
+            let projected: Vec<String> =
+                fresh.iter().map(|(id, _)| id.clone()).chain(gone.iter().cloned()).collect();
             stats.extend(fresh);
             let changed: Vec<String> = changed.into_iter().map(|(id, _)| id).chain(gone).collect();
-            (changed, announce)
+            (changed, announce, projected)
         });
-        let Ok((changed, announce)) = pass.await else { return };
+        let Ok((changed, announce, projected)) = pass.await else { return };
+        for id in projected {
+            if let Some(session) = self.session_by_id(&id) {
+                self.project_usage(&session);
+            } else {
+                self.usage_stats.order.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+            }
+        }
         // Only the chats whose stats changed or went: their rows, not every closed row. Each is
         // found in the session map (one lookup a chat): a chat pruned for age is there and tells
         // its own row; only a purged one, in no map, makes every closed row stale.
@@ -223,6 +309,10 @@ impl Hub {
                 Some(session) => self.events.row_changed(&session),
                 None => self.events.all_rows_stale(),
             }
+        }
+        if whole {
+            self.usage_stats.ready.store(true, Ordering::Release);
+            self.usage_stats.last_pass_at.store(crate::store::now_ms(), Ordering::Release);
         }
         for (id, stats) in announce {
             if let Some(session) = own.iter().find(|s| s.id == id) {
@@ -237,34 +327,114 @@ impl Hub {
     pub(super) fn usage_stats_of(&self, session: &Session, m: &SessionMeta) -> Option<UsageStats> {
         let stats = self.usage_stats.stats.lock().unwrap_or_else(|e| e.into_inner());
         let mut stats = stats.get(&m.id).cloned()?;
-        let size = m.usage.as_ref().and_then(|u| u.get("size")).and_then(Value::as_u64);
+        Self::overlay_usage(
+            session,
+            m.family.as_deref(),
+            m.status,
+            m.usage.as_ref().and_then(|u| u.get("size")).and_then(Value::as_u64),
+            &mut stats,
+        );
+        Some(stats)
+    }
+
+    fn overlay_usage(
+        session: &Session,
+        family: Option<&str>,
+        status: SessionStatus,
+        size: Option<u64>,
+        stats: &mut UsageStats,
+    ) {
         if let Some(size) = size.filter(|s| *s > 0) {
             stats.context_window = Some(size);
         }
         // The background subagents the hub follows (`subagents.rs`): a Codex child, which its
         // rollout does not name, and a Claude one its transcript has not shown yet.
         let followed = session.subagents.try_lock().ok().map(|t| t.background_running() as u64);
-        stats.subagents_live = match (m.family.as_deref(), stats.subagents_live, followed) {
+        stats.subagents_live = match (family, stats.subagents_live, followed) {
             (_, Some(read), Some(followed)) => Some(read.max(followed)),
             (Some("codex"), None, followed) => followed,
             (_, read, _) => read,
         };
         // No harness process runs, so none of its subagents does.
         if matches!(
-            m.status,
+            status,
             SessionStatus::Closed | SessionStatus::Disconnected | SessionStatus::Idle
         ) {
             stats.subagents_live = Some(0);
         }
-        Some(stats)
+    }
+
+    /// Called once after setting the purge fence, before unregistering this incarnation. A
+    /// late metadata write of the old handle never removes a replacement's usage entry.
+    pub(super) fn forget_usage(&self, session: &Session) {
+        let mut order = self.usage_stats.order.lock().unwrap_or_else(|e| e.into_inner());
+        self.usage_stats.stats.lock().unwrap_or_else(|e| e.into_inner()).remove(&session.id);
+        order.remove(&session.id);
+    }
+
+    /// Update just this chat, ordered with other projection writers. Never called by a usage
+    /// request. Taking the metadata after the order lock prevents a late writer publishing an
+    /// older context or status; the purge flag fences an in-flight transcript read.
+    pub(super) fn project_usage(&self, session: &Session) {
+        let mut order = self.usage_stats.order.lock().unwrap_or_else(|e| e.into_inner());
+        if session.purged.load(Ordering::SeqCst) {
+            return;
+        }
+        let stats = self
+            .usage_stats
+            .stats
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&session.id)
+            .cloned();
+        let Some(mut stats) = stats else {
+            order.remove(&session.id);
+            return;
+        };
+        // Copy only Usage's own small fields, never the transcript-sized metadata fields.
+        let (mut row, family, status, size) = session.read_meta(|m| {
+            let mut row = serde_json::Map::new();
+            row.insert("sessionId".into(), serde_json::json!(m.id));
+            row.insert("name".into(), serde_json::json!(m.name));
+            row.insert("title".into(), serde_json::json!(m.title));
+            row.insert("harness".into(), serde_json::json!(m.harness));
+            (
+                row,
+                m.family.clone(),
+                m.status,
+                m.usage.as_ref().and_then(|u| u.get("size")).and_then(Value::as_u64),
+            )
+        });
+        Self::overlay_usage(session, family.as_deref(), status, size, &mut stats);
+        row.insert("usageStats".into(), serde_json::to_value(stats).unwrap_or_default());
+        order.replace(
+            &session.id,
+            super::usage_order::Entry::new(session.id.clone(), &Value::Object(row)),
+        );
     }
 }
 
 #[cfg(test)]
 impl Hub {
+    pub(crate) fn seed_usage_for_test(&self, session: &Session, stats: UsageStats) {
+        if session.purged.load(Ordering::SeqCst) {
+            return;
+        }
+        self.usage_stats
+            .stats
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(session.id.clone(), stats);
+        self.project_usage(session);
+    }
+
     /// The next read runs a pass however soon, as after a turn's end.
     pub(crate) fn usage_pass_due_for_test(&self) {
         self.usage_stats.dirty.store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn usage_refresh_state_for_test(&self) -> u8 {
+        self.usage_stats.pass_state.load(Ordering::Acquire)
     }
 
     /// The candidates both ways, each timed in µs: as #43807 deduped them (a set of every
@@ -293,6 +463,18 @@ impl Hub {
         let cache = &self.usage_stats;
         (cache.passes.load(Ordering::SeqCst), cache.sources_read.load(Ordering::SeqCst))
     }
+}
+
+#[cfg(test)]
+#[test]
+fn finishing_usage_pass_only_exits_from_running() {
+    let state = AtomicU8::new(PASS_RUNNING);
+    assert!(finish_usage_pass(&state));
+    assert_eq!(state.load(Ordering::Acquire), PASS_IDLE);
+
+    state.store(PASS_WANTED, Ordering::Release);
+    assert!(!finish_usage_pass(&state));
+    assert_eq!(state.load(Ordering::Acquire), PASS_RUNNING);
 }
 
 #[cfg(test)]

@@ -155,6 +155,25 @@ async fn a_purged_chats_stats_make_every_closed_row_stale() {
     assert!(every_row_generation(&hub) > every, "every closed row went stale");
 }
 
+#[tokio::test]
+async fn usage_refresh_requests_coalesce_while_a_pass_is_held() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let held = hub.usage_stats.pass.lock().await;
+    for _ in 0..32 {
+        hub.request_usage_refresh();
+    }
+    assert_ne!(hub.usage_refresh_state_for_test(), 0);
+    drop(held);
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while hub.usage_refresh_state_for_test() != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("coalesced usage refresh did not finish");
+    assert_eq!(hub.usage_passes_for_test().0, 1, "many requests started one pass");
+}
+
 /// Decision 292: a pass on a hub whose list order is not sorted yet (a deferred start before
 /// its logs are read) sorts it once; the next pass and the next page read patch it.
 #[tokio::test]

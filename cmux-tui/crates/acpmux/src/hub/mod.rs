@@ -419,6 +419,8 @@ mod trust_wait;
 mod turn_attestation;
 mod turn_git;
 mod turn_usage;
+pub(crate) mod usage_order;
+mod usage_request;
 mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod background_cause;
@@ -853,6 +855,8 @@ pub struct Hub {
     /// Session summaries built, live or closed, with tools or without (tests).
     #[cfg(test)]
     pub(crate) summaries_built: AtomicU64,
+    #[cfg(test)]
+    pub(crate) session_map_walks: AtomicU64,
     /// Projection-only message repairs in flight, keyed by destination and delivery id. These
     /// retries never resend a prompt and are bounded in `message_events.rs`.
     pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
@@ -1404,6 +1408,8 @@ impl Hub {
             closed_summary_parses: AtomicU64::new(0),
             #[cfg(test)]
             summaries_built: AtomicU64::new(0),
+            #[cfg(test)]
+            session_map_walks: AtomicU64::new(0),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
             #[cfg(test)]
             message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
@@ -2195,6 +2201,8 @@ impl Hub {
     /// may hold an agent or run a turn (a close ends both before its status). A timer that takes
     /// the first deadline of these reads them, not every closed record too.
     pub(super) fn live_session_handles(&self) -> Vec<Arc<Session>> {
+        #[cfg(test)]
+        self.session_map_walks.fetch_add(1, Ordering::Relaxed);
         // The ids are copied and that lock let go at the end of this statement, before `sessions`
         // is taken: never both at once, so no order against a purge (which holds `sessions`
         // while it updates the index) can deadlock.
@@ -2225,6 +2233,8 @@ impl Hub {
 
     /// Every session, in no order and with no metadata read.
     pub(crate) fn session_handles(&self) -> Vec<Arc<Session>> {
+        #[cfg(test)]
+        self.session_map_walks.fetch_add(1, Ordering::Relaxed);
         self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect()
     }
 
