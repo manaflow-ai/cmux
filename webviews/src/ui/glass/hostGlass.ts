@@ -73,10 +73,10 @@ export type HostGlassLevel = "popover" | "menu" | "chip";
 const LEVELS: ReadonlySet<string> = new Set<HostGlassLevel>(["popover", "menu", "chip"]);
 
 /** On a surface: the native role whose glass the App draws when it is not its level's own (a dialog's
- * neutral glass, `sheet`, as CmuxDialogCardSurface draws a native dialog card). */
+ * neutral glass, `sheet`, as CmuxDialogCardSurface draws a native dialog card; a toast's, `toast`). */
 export const HOST_GLASS_ROLE_ATTRIBUTE = "data-host-glass-role";
-export type HostGlassRole = "sheet";
-const ROLES: ReadonlySet<string> = new Set<HostGlassRole>(["sheet"]);
+export type HostGlassRole = "sheet" | "toast";
+const ROLES: ReadonlySet<string> = new Set<HostGlassRole>(["sheet", "toast"]);
 
 /** One surface's box in the page's viewport (CSS px, where it shows under a pinch zoom), its corner
  * radius and its own opacity (a fade). */

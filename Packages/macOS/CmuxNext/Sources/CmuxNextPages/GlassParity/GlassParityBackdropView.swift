@@ -2,16 +2,17 @@
 import AppKit
 import CmuxNextDesign
 
-/// One column's backdrop in the Liquid Glass Parity playground (``GlassParityPlayground``). Every column
-/// draws the same picture in its own coordinates, so the pixels under a surface are the same in each
-/// column. Deterministic: no time, no randomness, nothing of the person's.
+/// The backdrop under every renderer of the Liquid Glass Parity playground (``GlassParityPlayground``).
+/// Deterministic: no time, no randomness, nothing of the person's.
 ///
 /// - `plain`: the theme's window background.
+/// - `color`: a custom background color (`color`).
 /// - `wallpaper`: a bright gradient with stripes and discs, detail a blur and a lensing rim both show.
-/// - `terminal`: an opaque terminal of colored text.
-/// - `terminal-translucent`: the same terminal at 0.6 background opacity over the wallpaper, as cmux
-///   draws a see-through terminal over a custom background.
+/// - `terminal`: a terminal of colored text at background opacity `terminalOpacity` over the wallpaper,
+///   as cmux draws a see-through terminal over a custom background (1: opaque).
 /// - `image`: the Mac's own desktop picture when one is installed, else the wallpaper.
+///
+/// `offset` moves the picture under the glass (down and right), as a backdrop that scrolls or drags.
 final class GlassParityBackdropView: NSView {
     /// A fixed test color (0xRRGGBB): the backdrop is test data, the same in every theme.
     private static func rgb(_ hex: UInt32, alpha: CGFloat = 1) -> NSColor {
@@ -21,6 +22,9 @@ final class GlassParityBackdropView: NSView {
     var backdrop: GlassParityPlayground.Backdrop = .wallpaper
     /// The Mac's desktop picture for `image` (``GlassParityPlayground`` reads it off the main actor).
     var picture: NSImage?
+    var color: UInt32 = 0x2D6CDF
+    var terminalOpacity: CGFloat = 1
+    var offset: CGFloat = 0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -45,22 +49,26 @@ final class GlassParityBackdropView: NSView {
     private var isDark: Bool { effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
 
     override func draw(_ dirtyRect: NSRect) {
+        // The picture moved by `offset`, drawn over a box that still covers the view.
+        NSGraphicsContext.current?.cgContext.translateBy(x: offset, y: offset)
+        let area = bounds.offsetBy(dx: -offset, dy: -offset)
         switch backdrop {
         case .plain:
             Palette.windowBackground.setFill()
-            bounds.fill()
+            area.fill()
+        case .color:
+            Self.rgb(color).setFill()
+            area.fill()
         case .wallpaper:
-            Self.drawWallpaper(in: bounds)
+            Self.drawWallpaper(in: area)
         case .terminal:
-            drawTerminal(opacity: 1)
-        case .terminalTranslucent:
-            Self.drawWallpaper(in: bounds)
-            drawTerminal(opacity: 0.6)
+            Self.drawWallpaper(in: area)
+            drawTerminal(opacity: terminalOpacity, in: area)
         case .image:
             if let image = picture {
-                Self.drawAspectFill(image, in: bounds)
+                Self.drawAspectFill(image, in: area)
             } else {
-                Self.drawWallpaper(in: bounds)
+                Self.drawWallpaper(in: area)
             }
         }
     }
@@ -76,33 +84,37 @@ final class GlassParityBackdropView: NSView {
         // Diagonal stripes: a rim's lensing bends them, a blur softens them.
         Self.rgb(0xFFFFFF, alpha: 0.28).setFill()
         let step: CGFloat = 18
-        var x = -bounds.height
-        while x < bounds.width {
+        var x = bounds.minX - bounds.height
+        while x < bounds.maxX {
             let stripe = NSBezierPath()
-            stripe.move(to: CGPoint(x: x, y: 0))
-            stripe.line(to: CGPoint(x: x + 7, y: 0))
-            stripe.line(to: CGPoint(x: x + 7 + bounds.height, y: bounds.height))
-            stripe.line(to: CGPoint(x: x + bounds.height, y: bounds.height))
+            stripe.move(to: CGPoint(x: x, y: bounds.minY))
+            stripe.line(to: CGPoint(x: x + 7, y: bounds.minY))
+            stripe.line(to: CGPoint(x: x + 7 + bounds.height, y: bounds.maxY))
+            stripe.line(to: CGPoint(x: x + bounds.height, y: bounds.maxY))
             stripe.close()
             stripe.fill()
             x += step
         }
-        // Discs of strong color across every row's surface edge.
+        // Discs of strong color across every surface's edge (the stage's grid, GlassParityPlayground).
         let discs: [(CGFloat, CGFloat, CGFloat, NSColor)] = [
             (40, 30, 34, Self.rgb(0xFFD91A)),
             (250, 90, 40, Self.rgb(0x0D0D1A)),
-            (120, 160, 30, Self.rgb(0xFFFFFF)),
-            (210, 250, 44, Self.rgb(0x1AE64C)),
-            (60, 330, 36, Self.rgb(0x0D0D1A)),
-            (260, 400, 34, Self.rgb(0xFFD91A)),
+            (380, 34, 30, Self.rgb(0xFFFFFF)),
+            (566, 96, 36, Self.rgb(0x1AE64C)),
+            (120, 150, 30, Self.rgb(0xFFFFFF)),
+            (300, 200, 44, Self.rgb(0x1AE64C)),
+            (520, 150, 34, Self.rgb(0x0D0D1A)),
+            (60, 300, 36, Self.rgb(0x0D0D1A)),
+            (262, 326, 34, Self.rgb(0xFFD91A)),
+            (450, 270, 40, Self.rgb(0xFFD91A)),
         ]
         for (cx, cy, radius, color) in discs {
             color.setFill()
-            NSBezierPath(ovalIn: CGRect(x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2)).fill()
+            NSBezierPath(ovalIn: CGRect(x: bounds.minX + cx - radius, y: bounds.minY + cy - radius, width: radius * 2, height: radius * 2)).fill()
         }
     }
 
-    private func drawTerminal(opacity: CGFloat) {
+    private func drawTerminal(opacity: CGFloat, in bounds: CGRect) {
         let background = isDark ? Self.rgb(0x17171C, alpha: opacity)
             : Self.rgb(0xFFFFFF, alpha: opacity)
         background.setFill()
@@ -116,10 +128,10 @@ final class GlassParityBackdropView: NSView {
         let words = ["$", "cargo", "build", "--release", "Compiling", "cmux-tui", "v0.1.0", "warning:", "unused", "ok", "142",
                      "tests", "passed;", "0", "failed", "finished", "in", "3.21s", "git", "status", "modified:", "glass.css"]
         var index = 0
-        var y: CGFloat = 4
-        while y < bounds.height {
-            var x: CGFloat = 6
-            while x < bounds.width - 20 {
+        var y = bounds.minY + 4
+        while y < bounds.maxY {
+            var x = bounds.minX + 6
+            while x < bounds.maxX - 20 {
                 let word = words[index % words.count]
                 let color = palette[(index / 3) % palette.count]
                 let text = NSAttributedString(string: word, attributes: [.font: font, .foregroundColor: color])
