@@ -19,7 +19,13 @@
 //!   host process reads the PTY and parses, the daemon mirrors its stream and
 //!   parses again; no viewer;
 //! - `daemon-hosted+viewer`: the same with one byte attach reading every
-//!   `output` event (JSON, base64 decoded), as the Mac app's terminal does;
+//!   `output` event (JSON, base64 decoded);
+//! - `daemon-hosted+viewer-snapshot`: the viewer attaches as the Mac app's
+//!   terminal does (`set-client-info`, then a snapshot attach: READY, then
+//!   `output` lines with offsets, base64 decoded);
+//! - `daemon-hosted+viewer-frames`: the same snapshot attach from a connection
+//!   that declared `attach-frames-v1`: `output` arrives as binary OUTPUT frames
+//!   (16-byte header, raw bytes), no JSON scan and no base64;
 //! - `daemon-ephemeral`: the daemon running the PTY in-process (`--ephemeral`,
 //!   no host process): one parser, no host hop.
 //!
@@ -316,8 +322,19 @@ fn busiest(
         .collect()
 }
 
-/// One byte attach, as the Mac app's terminal reads it: every `output` event's
-/// base64 decoded.
+/// How the viewer attaches and reads its output.
+#[derive(Clone, Copy, PartialEq)]
+enum ViewerMode {
+    /// A plain byte attach: `vt-state`, then `output` lines, base64 decoded.
+    Bytes,
+    /// The Mac app's attach: `set-client-info`, a snapshot attach (READY), `output` lines.
+    Snapshot,
+    /// The snapshot attach of a connection that declared `attach-frames-v1`: OUTPUT frames.
+    Frames,
+}
+
+/// One attach, read as a terminal view reads it: every `output` event's
+/// base64 decoded, or every OUTPUT frame's payload taken as is.
 struct Viewer {
     stop: Arc<AtomicBool>,
     stats: Arc<Mutex<ViewerStats>>,
@@ -331,6 +348,8 @@ struct ViewerStats {
     outputs: u64,
     output_bytes: u64,
     replays: u64,
+    /// OUTPUT frames whose offset was not the end of the one before.
+    frame_gaps: u64,
     other: HashMap<String, u64>,
     last_output: Option<Instant>,
     first_output: Option<Instant>,
@@ -342,12 +361,36 @@ struct ViewerStats {
 }
 
 impl Viewer {
-    fn attach(socket: &Path, surface: u64) -> Self {
+    fn attach(socket: &Path, surface: u64, mode: ViewerMode) -> Self {
         let stream = transport::connect(socket).unwrap();
         stream.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
         let mut writer = stream.try_clone_box().unwrap();
-        writeln!(writer, "{}", json!({"id": 1, "cmd": "attach-surface", "surface": surface}))
+        // The replies the viewer waits for before it counts as attached.
+        let mut replies_needed = 1;
+        if mode == ViewerMode::Bytes {
+            writeln!(writer, "{}", json!({"id": 1, "cmd": "attach-surface", "surface": surface}))
+                .unwrap();
+        } else {
+            let capabilities: &[&str] =
+                if mode == ViewerMode::Frames { &["attach-frames-v1"] } else { &[] };
+            writeln!(
+                writer,
+                "{}",
+                json!({"id": 0, "cmd": "set-client-info", "name": "throughput viewer",
+                       "kind": "frontend", "capabilities": capabilities})
+            )
             .unwrap();
+            writeln!(
+                writer,
+                "{}",
+                json!({"id": 1, "cmd": "attach-surface", "surface": surface, "mode": "bytes",
+                       "cols": 120, "rows": 40, "snapshot": "ghostsnp",
+                       "snapshot_version": ghostty_vt::snapshot_version(),
+                       "snapshot_local_history": true})
+            )
+            .unwrap();
+            replies_needed = 2;
+        }
         let stop = Arc::new(AtomicBool::new(false));
         let stats = Arc::new(Mutex::new(ViewerStats::default()));
         let handle = {
@@ -358,6 +401,8 @@ impl Viewer {
                 let mut buf = vec![0u8; 1 << 16];
                 let engine = base64::engine::general_purpose::STANDARD;
                 let mut decoded = Vec::new();
+                let mut replies = 0;
+                let mut next_offset: Option<u64> = None;
                 while !stop.load(Ordering::Relaxed) {
                     let n = match stream.read(&mut buf) {
                         Ok(0) => return,
@@ -377,7 +422,28 @@ impl Viewer {
                     let decode_started = Instant::now();
                     let mut got = stats.lock().unwrap();
                     let outputs_before = got.outputs;
-                    while let Some(offset) = pending[start..].iter().position(|b| *b == b'\n') {
+                    loop {
+                        if pending.get(start) == Some(&0xFF) {
+                            // An OUTPUT frame: u8 0xFF, u8 kind, u16 stream, u32 len, u64 offset.
+                            let Some(header) = pending.get(start..start + 16) else { break };
+                            let len = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
+                            let offset = u64::from_le_bytes(header[8..16].try_into().unwrap());
+                            if pending.len() < start + 16 + len {
+                                break;
+                            }
+                            if next_offset.is_some_and(|expected| expected != offset) {
+                                got.frame_gaps += 1;
+                            }
+                            next_offset = Some(offset + len as u64);
+                            start += 16 + len;
+                            got.outputs += 1;
+                            got.output_bytes += len as u64;
+                            got.last_output = Some(Instant::now());
+                            continue;
+                        }
+                        let Some(offset) = pending[start..].iter().position(|b| *b == b'\n') else {
+                            break;
+                        };
                         let line = &pending[start..start + offset];
                         start += offset + 1;
                         let text = std::str::from_utf8(line).unwrap_or("");
@@ -393,7 +459,15 @@ impl Viewer {
                                 got.last_output = Some(Instant::now());
                             }
                             "vt-state" => got.replays += 1,
-                            "" if text.contains("\"ok\":true") => got.attached = true,
+                            "snapshot" if text.contains("\"phase\":\"ready\"") => {
+                                got.replays += 1;
+                                // The next frame starts at the READY's offset.
+                                next_offset = None;
+                            }
+                            "" if text.contains("\"ok\":true") => {
+                                replies += 1;
+                                got.attached = replies >= replies_needed;
+                            }
                             other => *got.other.entry(other.to_string()).or_default() += 1,
                         }
                     }
@@ -455,7 +529,13 @@ fn wait_file(path: &Path, timeout: Duration) -> Option<Value> {
 
 /// One burst of `payload_path` through a terminal of `daemon`: (writer MB/s,
 /// busiest threads, viewer stats).
-fn burst(daemon: &Daemon, scripts: &Path, payload_path: &Path, label: &str, viewer: bool) -> Value {
+fn burst(
+    daemon: &Daemon,
+    scripts: &Path,
+    payload_path: &Path,
+    label: &str,
+    viewer: Option<ViewerMode>,
+) -> Value {
     let result = scripts.join(format!("{label}.json"));
     let go = scripts.join(format!("{label}.go"));
     let created = daemon.request(json!({
@@ -466,7 +546,7 @@ fn burst(daemon: &Daemon, scripts: &Path, payload_path: &Path, label: &str, view
         .as_u64()
         .or_else(|| created["surface_id"].as_u64())
         .unwrap_or_else(|| panic!("run reply names no surface: {created}"));
-    let attached = viewer.then(|| Viewer::attach(&daemon.socket, surface));
+    let attached = viewer.map(|mode| Viewer::attach(&daemon.socket, surface, mode));
     if let Some(attached) = &attached {
         let deadline = Instant::now() + Duration::from_secs(10);
         while !attached.stats().attached {
@@ -520,6 +600,8 @@ fn burst(daemon: &Daemon, scripts: &Path, payload_path: &Path, label: &str, view
             "outputs": stats.outputs, "output_bytes": stats.output_bytes,
             "bytes_per_output": stats.output_bytes.checked_div(stats.outputs).unwrap_or(0),
             "replays": stats.replays, "other_events": stats.other,
+            "frame_gaps": stats.frame_gaps,
+            "overflows": stats.other.get("overflow").copied().unwrap_or(0),
             "seconds_to_last_output": to_last, "mb_s_to_last_output": mb_s(stats.output_bytes as usize, to_last),
             "viewer_cpu_pct": (busy / window * 1000.0).round() / 10.0,
             "decode_pct": (stats.decode_seconds / window * 1000.0).round() / 10.0,
@@ -634,10 +716,12 @@ fn terminal_throughput_by_stage() {
         rows.push(row);
     }
     for (stage, hosted, viewer) in [
-        ("daemon-hosted", true, false),
-        ("daemon-hosted+viewer", true, true),
-        ("daemon-ephemeral", false, false),
-        ("daemon-ephemeral+viewer", false, true),
+        ("daemon-hosted", true, None),
+        ("daemon-hosted+viewer", true, Some(ViewerMode::Bytes)),
+        ("daemon-hosted+viewer-snapshot", true, Some(ViewerMode::Snapshot)),
+        ("daemon-hosted+viewer-frames", true, Some(ViewerMode::Frames)),
+        ("daemon-ephemeral", false, None),
+        ("daemon-ephemeral+viewer", false, Some(ViewerMode::Bytes)),
     ] {
         if !wants(stage) {
             continue;
@@ -677,7 +761,7 @@ fn terminal_throughput_by_stage() {
             .collect();
         let viewer = row.get("viewer").map_or(String::new(), |v| {
             format!(
-                "{:.1} MB in {} outputs, {} B each, {} replays, {:.1} MB/s to last output, viewer {} % CPU ({} % decoding), events {}",
+                "{:.1} MB in {} outputs, {} B each, {} replays, {:.1} MB/s to last output, viewer {} % CPU ({} % decoding), {} overflows, {} frame gaps, events {}",
                 v["output_bytes"].as_f64().unwrap_or(0.0) / 1e6,
                 v["outputs"],
                 v["bytes_per_output"],
@@ -685,6 +769,8 @@ fn terminal_throughput_by_stage() {
                 v["mb_s_to_last_output"].as_f64().unwrap_or(0.0),
                 v["viewer_cpu_pct"],
                 v["decode_pct"],
+                v["overflows"],
+                v["frame_gaps"],
                 v["other_events"]
             )
         });
