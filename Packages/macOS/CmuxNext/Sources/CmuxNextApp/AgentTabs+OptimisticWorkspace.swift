@@ -127,7 +127,12 @@ extension AgentTabStore {
     }
 
     /// Whether the New Tab tab `tab` takes a page view that is there already at its show (``warmPage(_:leaving:)``): a tab of this Mac with no chat, no seed but a folder, no kept composer. The one rule of the prediction (``idlePage(for:leaving:take:)``) and of the take (``view(for:machine:known:leaving:)``, which has the tab's record: `known`).
-    func takesWarmPage(_ tab: AgentTabKey, seed: AgentPaneSeedSource?, known: (thisMac: Bool, record: AgentSessionRef)? = nil) -> Bool { guard newTabPages[tab] != nil, sessions[tab] == nil, seed?.holdsOnlyFolder ?? true, wakeStates[tab] == nil, !relaunchWake.mayHold(tab.relaunchKeyCandidates), let known = known ?? record(for: tab).map({ (thisMac: hostKind($0.record, listedHere: daemon(for: tab)?.isLocal != false) == .local, record: $0.record) }) else { return false }; return known.thisMac && known.record.session == nil }
+    func takesWarmPage(_ tab: AgentTabKey, seed: AgentPaneSeedSource?, known: (thisMac: Bool, record: AgentSessionRef)? = nil) -> Bool {
+        guard newTabPages[tab] != nil, sessions[tab] == nil, seed?.holdsOnlyFolder ?? true else { return false }
+        guard wakeStates[tab] == nil, !relaunchWake.mayHold(tab.relaunchKeyCandidates) else { return false }
+        guard let known = known ?? record(for: tab).map({ (thisMac: hostKind($0.record, listedHere: daemon(for: tab)?.isLocal != false) == .local, record: $0.record) }) else { return false }
+        return known.thisMac && known.record.session == nil
+    }
 
     /// A page view that is there already, for a New Tab page that has none: an idle one first (``idlePage(for:leaving:take:)``; `leaving`: the pane that shows the page's tab now), else the pool's
     /// spare (``takeSpare``).
