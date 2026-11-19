@@ -399,7 +399,7 @@
     --acpmux-card-ring: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }
-/* The split controls stay on the first line as the prompt grows. */
+/* The controls stay on the prompt's last line as it grows. */
 .nt-input > .acpmux-chrome-area > .nt-pickers {
   flex: none;
   align-self: flex-end;
@@ -408,13 +408,16 @@
   padding: 0;
 }
 /* In Claude's split layout the New Tab plus belongs before the prompt, matching chat Composer's
-   leading control; the model/mic/send row remains under the field. */
+   leading control; the model/mic/send row remains under the field. It stands on the prompt's last
+   line, as the chat composer's controls do (Leo 2026-11-18: "and the buttons should be at the
+   bottom of the composer"). */
 .nt-input .nt-split-plus {
   flex: none;
   display: flex;
   align-items: center;
   height: var(--text-content--line-height);
-  margin-top: var(--nt-input-pad-block);
+  align-self: end;
+  margin-bottom: var(--nt-input-pad-block);
 }
 /* The split row's controls, as the chat composer's (composerLocation.css; leo-workspace
    design/composer.md, Controls; Leo 2026-10-31: "why is our shit not vertically centered like
@@ -593,10 +596,11 @@
   gap: var(--acpmux-composer-lead-gap);
   padding: 0 var(--acpmux-composer-inset);
 }
+/* The mic and Send stand on the prompt's last line, at the box's bottom, as + does. */
 .nt-input[data-split] > .acpmux-chrome-area > .nt-pickers {
-  align-self: start;
+  align-self: end;
   min-height: var(--acpmux-composer-control);
-  margin: max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2)) 0 0;
+  margin: 0 0 max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2));
 }
 /* Fixed top padding keeps the first line, placeholder and shell glyph still when text wraps. */
 .nt-input[data-split] .nt-field {
