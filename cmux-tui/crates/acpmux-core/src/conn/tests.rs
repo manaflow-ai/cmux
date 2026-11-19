@@ -1158,6 +1158,50 @@ async fn unsub_and_credit_after_the_connection_ended_the_sid_are_not_errors() {
     task.await.unwrap().unwrap();
 }
 
+/// With no room for a reply (the client reads nothing and other sids filled the budget past one
+/// largest frame), a late `credit` and `unsub` for a sid the connection ended itself are still
+/// taken: they answer nothing, so they wait for no room.
+#[tokio::test]
+async fn late_credit_and_unsub_need_no_reply_room() {
+    let source = Arc::new(DeferredSource::default());
+    let driver = source.clone();
+    let (mut client, server) = tokio::io::duplex(4096);
+    let (rd, wr) = tokio::io::split(server);
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, driver, "test", &["chat".into()], Role::Local).await },
+        );
+    hello(&mut client).await;
+    let mut sinks = Vec::new();
+    for sid in ["f", "g", "s"] {
+        send(&mut client, json!({"method":"sub","params":{"sid":sid,"stream":"chat:x"}})).await;
+        assert_eq!(receive(&mut client).await.kind, FrameKind::Error); // not_ready
+        sinks.push(source.0.lock().unwrap().clone().unwrap());
+    }
+    let [f, g, s] = [&sinks[0], &sinks[1], &sinks[2]];
+    // Three frames of nearly MAX_FRAME_BYTES and one of 4 KiB: past three quarters of the
+    // budget, so no request has reply room, and under the whole of it, so nothing drops.
+    assert_eq!(f.offer("f", frame(MAX_FRAME_BYTES - 64), Cursor(1)), Offer::Taken);
+    assert_eq!(f.offer("f", frame(MAX_FRAME_BYTES - 64), Cursor(2)), Offer::Taken);
+    assert_eq!(g.offer("g", frame(MAX_FRAME_BYTES - 64), Cursor(1)), Offer::Taken);
+    assert_eq!(g.offer("g", frame(4096), Cursor(2)), Offer::Taken);
+    s.dropped("s");
+    send(&mut client, json!({"method":"credit","params":{"sid":"s","consumed":1}})).await;
+    send(&mut client, json!({"method":"unsub","params":{"sid":"s"}})).await;
+    let metrics = s.metrics();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while metrics.after_end() < 2 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("the late credit and unsub waited for reply room");
+    assert!(f.metrics().queued_bytes() > 3 * MAX_FRAME_BYTES, "no reply room");
+    // The writer still holds frames the client never reads: end the connection's task.
+    task.abort();
+    drop(client);
+}
+
 /// A connection keeps at most `MAX_SUBSCRIPTIONS` sids it ended itself: the oldest is forgotten,
 /// counted, and a late request for it is `unknown_sid` again. Reusing a sid forgets it too. A
 /// late `credit` leaves the sid kept, for the `unsub` that may follow it.

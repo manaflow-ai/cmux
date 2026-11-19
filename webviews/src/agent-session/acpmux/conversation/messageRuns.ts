@@ -150,15 +150,37 @@ function sameMembers(kept: readonly AcpmuxRow[], rows: readonly AcpmuxRow[], sta
   return true;
 }
 
+/// The ids of the messages a received row brought: a message's `msgId`, an inbox notice's prompt ids.
+function receivedIds(row: AcpmuxRow): readonly string[] {
+  if (row.incoming?.kind === "inbox") return row.incoming.notice.threads.flatMap((thread) => thread.promptIds);
+  const message = row.incoming?.kind === "message" ? row.incoming.message : undefined;
+  return message?.msgId ? [message.msgId] : [];
+}
+
 function foldedRun(members: readonly AcpmuxRow[]): FoldedRun {
   const parts = members.map((row) => member(row)!);
   const lines = parts.reduce((sum, part) => sum + part.lines, 0);
   const sent = parts.reduce((sum, part) => sum + part.sent, 0);
-  const received = parts.reduce((sum, part) => sum + part.received, 0);
+  // Each message counts once: an inbox notice and the lines that then delivered its messages name
+  // the same ones ("Received 4 messages" for two).
+  const messages = new Set<string>();
+  let received = 0;
+  members.forEach((row, at) => {
+    const ids = receivedIds(row);
+    if (!ids.length) received += parts[at]!.received;
+    for (const id of ids) {
+      if (messages.has(id)) continue;
+      messages.add(id);
+      received += 1;
+    }
+  });
   // A run of received lines that all join the turn's "Received N messages" row is not a message
   // run: they draw in that row (laneNoticeBatches.ts `projectInboxRows`). One with a lane report,
-  // a task's result or a person's message among them still folds here.
-  const onlyReceived = sent === 0 && members.every(joinsReceivedRow);
+  // a task's result or a person's message among them still folds here. A member that draws no line
+  // (a run whose every call is hidden, mcpPresentation.ts `hidesEveryCall`) is no work between
+  // them: two received lines and a hidden ToolSearch drew "Received 2 messages" twice, once here
+  // and once in that row (Leo, 2026-11-17: "we sometimes have weird ui like this").
+  const onlyReceived = sent === 0 && members.every((row, at) => joinsReceivedRow(row) || parts[at]!.lines === 0);
   // Two runs a compaction alone splits are one stretch of work too, message or not (spec "Compaction
   // folds with the work"; Leo, 2026-11-12, ask-bc2af01f6e: "how come these aren't folded?"): only a
   // compaction between two runs of the same turn, never one at a run's edge or between two turns.
@@ -186,6 +208,9 @@ function foldedRun(members: readonly AcpmuxRow[]): FoldedRun {
         ...(row.id.endsWith(":fold") ? [row.id.slice(0, -5)] : []),
         ...(row.joined ?? []),
       ]),
+      // The received messages' ids, so the turn's "Received N messages" row never names one this
+      // closed line already counts (laneNoticeBatches.ts `collect`).
+      messages: [...messages],
     },
     // Moves with every member's version: the memoized line and the height cache compare versions only.
     version: members.reduce((sum, row) => (sum * 31 + row.version) % 1_000_003, members.length),

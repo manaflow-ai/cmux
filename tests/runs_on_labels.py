@@ -50,6 +50,9 @@ OVERFLOW_HOSTED_LINUX = "ubuntu-24.04"
 # with REQUIRE_LIVE_CAPACITY) emits it only when the runner census shows an idle Linux member, else ''.
 GCP_FLEET_LINUX = "cmux-fleet-linux-x64"
 FLEET_LINUX_OUTPUTS = ("needs.tree-preflight.outputs.linux_runner",)
+# Our persistent GCP build-lane runners (Ubuntu, one label each). The cmux-tui tree's short jobs take it on
+# attempt 1 of a nightly-path run (cmux-tui-artifacts.yml's jobs: comment).
+GCP_LANE_BUILD_LINUX = "cmux-gcp-lane-build-x64"
 
 TOKEN = re.compile(
     r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|<=|>=|[!(),<>])|(?P<prop>\.[A-Za-z_][A-Za-z0-9_]*)"
@@ -184,6 +187,17 @@ class _Parser:
         raise ValueError(f"unexpected {value!r}")
 
 
+def _label_array(value):
+    """fromJSON of a described variable's value: a tuple of labels, or unknown when it is not a JSON string array."""
+    try:
+        parsed = json.loads(value) if isinstance(value, str) else None
+    except ValueError:
+        parsed = None
+    if isinstance(parsed, list) and parsed and all(isinstance(label, str) for label in parsed):
+        return tuple(parsed)
+    return Unknown("fromjson(...)")
+
+
 def _truthy(value) -> bool:
     if value is NULL or value is False:
         return False
@@ -271,6 +285,9 @@ class _Evaluator:
                     out |= _compare(node[1], left, right)
             return out
         if kind == "call":
+            if node[1] == "fromjson" and len(node[2]) == 1 and node[2][0][0] == "ctx" and node[2][0][1] in self.variables:
+                # A described variable holding a JSON label array (vars.CI_SIDE_LANE_LABELS): the labels, as a tuple.
+                return {_label_array(value) for value in self(node[2][0])}
             return _call(node[1], [self(arg) for arg in node[2]])
         if kind == "prop":
             target = node[1]
@@ -396,7 +413,7 @@ def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = N
 
     GitHub-hosted labels and the personal workstation are refused first, even if a fleet declares them.
     """
-    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX}
+    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX, GCP_LANE_BUILD_LINUX}
     personal = personal_machine_names()
     if isinstance(runs_on, str):
         for output in FLEET_LINUX_OUTPUTS:

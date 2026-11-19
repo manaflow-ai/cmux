@@ -77,6 +77,83 @@ run CMUX_CI_STEP_KEY=k >/dev/null && fail "accepted a filter with shell syntax"
 ARGS=(deploy)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "accepted an unknown mode"
 [[ ! -e "$TMP/calls" ]] || fail "cargo ran for a refused request"
+# test FILTER SCOPE: a third argument names where the filter's tests are: crate names with commas,
+# or one CRATE:TARGET for one integration test target of a crate. cargo then builds the test
+# binaries of that scope only; a filtered run of the whole workspace builds every test binary of
+# every crate to run a few tests. Without it the scope is the whole workspace.
+# The step's target has a deps folder here, so the prune (cargo test --no-run) is in the calls.
+mkdir -p "$TMP/work/.build/cmux-tui-rust-target/debug/deps"
+ARGS=(test 'parked')
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "test with a filter refused"
+grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run --workspace --locked --profile ci --no-tests=fail parked$' "$TMP/calls" || fail "test without a crate scope: $(cat "$TMP/calls")"
+grep -q '^0022 .*/.build/cmux-tui-rust-target test --workspace --locked --no-run --message-format=json$' "$TMP/calls" || fail "the workspace run did not prune: $(cat "$TMP/calls")"
+rm -f "$TMP/calls"
+ARGS=(test 'parked' cmux-tui-core)
+out=$(run CMUX_CI_STEP_KEY=k) || fail "test with one crate refused: $out"
+grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run -p cmux-tui-core --locked --profile ci --no-tests=fail parked$' "$TMP/calls" || fail "test with one crate: $(cat "$TMP/calls")"
+grep -q '^0022 .*/.build/cmux-tui-rust-target nextest show-config test-groups -p cmux-tui-core --locked --profile ci$' "$TMP/calls" || fail "the test groups of one crate: $(cat "$TMP/calls")"
+! grep -q -- '--workspace' "$TMP/calls" || fail "a crate scope reached the whole workspace: $(cat "$TMP/calls")"
+# The prune keeps only the units that its own build lists. With a crate scope it would delete the
+# units of every other crate from a target that later steps share, so it does not run.
+! grep -q -- '--no-run' "$TMP/calls" || fail "a crate scope pruned the target: $(cat "$TMP/calls")"
+grep -q 'gate-notice: crate scope: -p cmux-tui-core$' <<<"$out" || fail "the crate scope is not in the log: $out"
+rm -f "$TMP/calls"
+ARGS=(test 'git_ops' cmux-tui-core,cmux-git)
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "test with two crates refused"
+grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run -p cmux-tui-core -p cmux-git --locked --profile ci --no-tests=fail git_ops$' "$TMP/calls" || fail "test with two crates: $(cat "$TMP/calls")"
+rm -f "$TMP/calls"
+# CRATE:TARGET is one test target: tests/startup_timings.rs of the crate cmux-tui here.
+ARGS=(test 'build_step' cmux-tui:startup_timings)
+out=$(run CMUX_CI_STEP_KEY=k) || fail "test with a crate and a test target refused: $out"
+grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run -p cmux-tui --test startup_timings --locked --profile ci --no-tests=fail build_step$' "$TMP/calls" || fail "test with a crate and a test target: $(cat "$TMP/calls")"
+! grep -q -- '--workspace' "$TMP/calls" || fail "a test target scope reached the whole workspace: $(cat "$TMP/calls")"
+! grep -q -- '--no-run' "$TMP/calls" || fail "a test target scope pruned the target: $(cat "$TMP/calls")"
+grep -q 'gate-notice: crate scope: -p cmux-tui --test startup_timings$' <<<"$out" || fail "the test target scope is not in the log: $out"
+rm -f "$TMP/calls"
+# 8 crates are the most that a scope takes.
+ARGS=(test 'parked' a,b,c,d,e,f,g,h)
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "test with 8 crates refused"
+grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run -p a -p b -p c -p d -p e -p f -p g -p h --locked --profile ci --no-tests=fail parked$' "$TMP/calls" || fail "test with 8 crates: $(cat "$TMP/calls")"
+rm -f "$TMP/calls"
+# A scope that is not a list of crate names or one CRATE:TARGET, or that has no filter, a shard,
+# an @affected scope or another mode, is refused with exit 2 before any cargo command. Refused
+# forms: a space, an option, an empty name (at the start, in the middle, at the end), a path, a
+# command substitution, more than 8 crates, a name that starts with _, an empty target or crate
+# next to the colon, 2 colons, a character that is not a letter, a digit, - or _, and a target
+# with a list.
+refused() { # WHAT ENV...: the run of ARGS ends with exit 2; its output is in $out
+  local what="$1" rc=0
+  shift
+  out=$(run "$@") || rc=$?
+  [[ "$rc" -eq 2 ]] || fail "$what: exit $rc, wanted the refusal's exit 2: $out"
+}
+for bad in 'cmux tui' '-p' '--workspace' 'cmux-tui-core,' ',cmux-git' 'a,,b' 'crates/cmux-git' 'a;b' '$(id)' '`id`' \
+  'a,b,c,d,e,f,g,h,i' '_a' 'cmux-tui:' ':startup_timings' 'cmux-tui:a:b' 'cmux-tui::a' 'cmux-tui:start up' \
+  'cmux-tui:a.b' 'cmux-tui:-a' 'cmux-tui:a,cmux-git' 'cmux-git,cmux-tui:a' 'cmux-tui:a,cmux-git:b'; do
+  ARGS=(test 'parked' "$bad")
+  refused "the crate scope '$bad'" CMUX_CI_STEP_KEY=k
+  grep -q 'error: the crate scope must be crate names' <<<"$out" || fail "crate scope '$bad' was refused without its reason: $out"
+done
+ARGS=(test '' cmux-tui-core)
+refused "a crate scope without a filter" CMUX_CI_STEP_KEY=k
+grep -q 'error: a crate scope takes the test mode with a TEST_FILTER' <<<"$out" || fail "no filter: refused without its reason: $out"
+ARGS=(test '@affected=0123456789abcdef0123456789abcdef01234567' cmux-tui-core)
+refused "a crate scope with an @affected scope" CMUX_CI_STEP_KEY=k
+ARGS=(all 'parked' cmux-tui-core)
+refused "a crate scope in the all mode" CMUX_CI_STEP_KEY=k
+ARGS=(terminal 'parked' cmux-tui-core)
+refused "a crate scope in the terminal mode" CMUX_CI_STEP_KEY=k
+ARGS=(clippy '' cmux-tui-core)
+refused "a crate scope in the clippy mode" CMUX_CI_STEP_KEY=k
+ARGS=(test 'parked' cmux-tui-core)
+refused "a crate scope with a shard" CMUX_CI_STEP_KEY=k CMUX_RUST_TEST_SHARD=1/2
+# The scope is one argument. 2 crates as 2 arguments would test the first crate only and say
+# nothing of the second one, so a fourth argument is refused.
+ARGS=(test 'parked' cmux-tui-core cmux-git)
+refused "a fourth argument after the crate scope" CMUX_CI_STEP_KEY=k
+grep -q 'error: the crate scope is one argument' <<<"$out" || fail "a fourth argument: refused without its reason: $out"
+[[ ! -e "$TMP/calls" ]] || fail "cargo ran for a refused crate scope: $(cat "$TMP/calls")"
+rm -rf "$TMP/work/.build/cmux-tui-rust-target/debug"
 # api-compat: cmux-tui-spec.yml's protocol compat check, the same cargo command. Its crate
 # needs only serde, so no ghostty-next checkout; it takes no filter and returns nothing.
 rm -f "$TMP/calls" "$TMP/git-calls"

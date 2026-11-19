@@ -80,9 +80,9 @@ describe("fitHighlight", () => {
     const muted = hex("#8a8a8e");
     const fit = fitHighlight(rgba("#f0f0f2"), page, muted, HIGHLIGHT_FLOORS.selection);
     expect(contrast(fit.fill, page)).toBeGreaterThanOrEqual(HIGHLIGHT_FLOORS.selection.surface);
-    expect(contrast(muted, fit.fill)).toBeGreaterThanOrEqual(
-      contrast(muted, page) / HIGHLIGHT_FLOORS.selection.surface - 0.05,
-    );
+    // Contrast ratios multiply along lightness: the text keeps its own ratio over the fill's step
+    // (the step is a hair past the floor, the fill being scored at the 8 bits it paints in).
+    expect(contrast(muted, fit.fill)).toBeGreaterThanOrEqual(contrast(muted, page) / contrast(fit.fill, page) - 0.05);
   });
 });
 

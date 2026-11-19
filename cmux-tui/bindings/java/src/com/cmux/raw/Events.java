@@ -14,6 +14,7 @@ public final class Events {
     public static final EventMetadata ACTIVITY_CHANGED = new EventMetadata("activity-changed", 12, "vm-activity-v1", List.of("control"), true);
     public static final EventMetadata AGENT_CHANGED = new EventMetadata("agent-changed", 11, null, List.of("subscribe"), true);
     public static final EventMetadata AGENT_CLI_FRAME = new EventMetadata("agent-cli-frame", 12, "agent-cli-hybrid-v1", List.of("attach-byte"), true);
+    public static final EventMetadata AGENT_CLI_LEAN = new EventMetadata("agent-cli-lean", 12, "agent-cli-hybrid-v2", List.of("attach-byte"), true);
     public static final EventMetadata AGENT_INVENTORY_CHANGED = new EventMetadata("agent-inventory-changed", 12, "agent-inventory-watch-v1", List.of("control"), true);
     public static final EventMetadata AGENT_INVENTORY_WATCH_ENDED = new EventMetadata("agent-inventory-watch-ended", 12, "agent-inventory-watch-v1", List.of("control"), true);
     public static final EventMetadata AGENT_PRESENCE_CHANGED = new EventMetadata("agent-presence-changed", 12, "agent-presence-v1", List.of("subscribe"), true);
@@ -48,6 +49,7 @@ public final class Events {
     public static final EventMetadata CONVERSATION_TYPING = new EventMetadata("conversation-typing", 12, "local-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata DAEMON_SHUTDOWN = new EventMetadata("daemon-shutdown", 12, null, List.of("control"), true);
     public static final EventMetadata DETACHED = new EventMetadata("detached", 5, null, List.of("attach-byte", "attach-render", "attach-browser"), true);
+    public static final EventMetadata DEVICE_SETUP_STEP = new EventMetadata("device-setup-step", 12, null, List.of("control"), true);
     public static final EventMetadata EMPTY = new EventMetadata("empty", 5, null, List.of("subscribe"), true);
     public static final EventMetadata FEED_REPORTS_CHANGED = new EventMetadata("feed-reports-changed", 12, "feed-client-v1", List.of("subscribe"), true);
     public static final EventMetadata FEED_VIEW_CHANGED = new EventMetadata("feed-view-changed", 12, "feed-client-v1", List.of("subscribe"), true);
@@ -113,6 +115,7 @@ public final class Events {
         values.put("activity-changed", ACTIVITY_CHANGED);
         values.put("agent-changed", AGENT_CHANGED);
         values.put("agent-cli-frame", AGENT_CLI_FRAME);
+        values.put("agent-cli-lean", AGENT_CLI_LEAN);
         values.put("agent-inventory-changed", AGENT_INVENTORY_CHANGED);
         values.put("agent-inventory-watch-ended", AGENT_INVENTORY_WATCH_ENDED);
         values.put("agent-presence-changed", AGENT_PRESENCE_CHANGED);
@@ -147,6 +150,7 @@ public final class Events {
         values.put("conversation-typing", CONVERSATION_TYPING);
         values.put("daemon-shutdown", DAEMON_SHUTDOWN);
         values.put("detached", DETACHED);
+        values.put("device-setup-step", DEVICE_SETUP_STEP);
         values.put("empty", EMPTY);
         values.put("feed-reports-changed", FEED_REPORTS_CHANGED);
         values.put("feed-view-changed", FEED_VIEW_CHANGED);

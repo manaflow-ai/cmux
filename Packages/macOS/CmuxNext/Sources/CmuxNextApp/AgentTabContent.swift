@@ -34,7 +34,7 @@ struct AgentTabContent {
             return nil
         }
         guard let view = services.agentTabs.view(for: key, machine: pane.daemon.machineID) else {
-            return services.agentTabs.notice(for: key, machine: pane.daemon.machineID).map(TabContent.notice)
+            return services.agentTabs.notice(for: key, machine: pane.daemon.machineID).map { TabContent.notice($0) }
         }
         // Set on each show, so a tab moved to another pane opens files there.
         // A file or preview the person clicks in the chat opens beside it (LinkOpener,
@@ -60,6 +60,8 @@ struct AgentTabContent {
         // A Cloud chat's Claude sign-in page, in a tab whose localhost is the chat's machine.
         view.model.onOpenSignInOnMachine = { [weak pane] url in pane.flatMap { ChatMachineSignInTab.opener(for: url, agentTab: key, from: $0) } }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
+        // A hold that gives up on the page before it paints (a workspace switch's two frames) asks for its picture again.
+        view.drawsLastPage = { [weak pane, weak view] in guard let pane, let view, pane.currentTabKey == key else { return false }; if pane.view.launchImageView == nil { AgentTabContent(pane: pane).drawLastPage(key, until: view) }; return pane.view.launchImageView != nil }
         if view.model.newTab != nil { AgentPaneNewTabFrame.shared.capture(view, in: pane.view.contentHost); BenchSpans.mark(view.superview is PageOffscreenParking ? "newTab.show.parked" : "newTab.show") }
         if view.model.hasPainted, view.superview is PageOffscreenParking { coverMove(of: view) }
         AgentReplySites(services: services).wire(view.model.replyLinks)
@@ -75,14 +77,17 @@ struct AgentTabContent {
         let images = pane.services.agentTabs.launchImages
         // From the tab's record, so a tab its launch defers (no view yet) is judged as what it is.
         let newTab = view.map { $0.model.newTab != nil } ?? pane.services.agentTabs.isNewTabPage(key)
-        // A New Tab page with no saved image of its own draws the last New Tab frame (cx-ec99), unless
-        // it shows in Chromium: that page draws over the frame as it comes in, both seen at once.
-        let newTabFrame = { view?.model.newTab == nil || view?.pageDrawsOverCovers == true ? nil : AgentPaneNewTabFrame.shared.image(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) }
-        let saved = { images.takeCovering(images.slot(key, machine: pane.daemon.machineID), newTab: newTab, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView), in: paneView) }
+        // A New Tab page with no saved image of its own draws the last New Tab frame (cx-ec99), one
+        // in Chromium too: that page lies outside the window until it painted (``AgentPaneView/holdChromiumPageUntilPainted()``).
+        let newTabFrame = { view?.model.newTab == nil ? nil : AgentPaneNewTabFrame.shared.image(size: paneView.contentHost.bounds.size, appearance: paneView.launchImageAppearance) }
+        let saved = { images.takeCovering(images.slot(key, machine: pane.daemon.machineID), newTab: newTab, size: paneView.contentHost.bounds.size, appearance: paneView.launchImageAppearance, in: paneView) }
         let image = { saved() ?? newTabFrame() }
-        if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) }
+        if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) } else if paneView.launchImageView == nil {
+            // Built while the saved pages still decode: the page once they have, if this pane still shows the chat unpainted.
+            images.whenReadEnds(images.slot(key, machine: pane.daemon.machineID)) { [weak pane] in guard let pane, pane.currentTabKey == key, pane.view.launchImageView == nil else { return }; let view = pane.services.agentTabs.existingView(key, machine: pane.daemon.machineID); if view?.model.hasPainted != true { AgentTabContent(pane: pane).drawLastPage(key, until: view) } }
+        }
         guard let imageView = paneView.launchImageView, let view else { return }
-        view.standOverPicture()
+        view.standOverPicture(); view.holdChromiumPageUntilPainted() // a Chromium New Tab page draws over the picture only whole, once it painted
         // The image's limit takes it only once the page has drawn. A chat read at launch can take
         // longer than that limit (acpmux's attach, and the page holds its first frame until the
         // chat is read), and the frame it would hand the pane to is empty.
@@ -108,9 +113,5 @@ struct AgentTabContent {
         let paneView = pane.view
         let size = pane.services.newTabSpares.openingSize(of: view) ?? paneView.contentHost.bounds.size
         view.coverMove(in: paneView, size: size, limit: paneLaunchImageLimit, mark: { BenchSpans.mark($0) })
-    }
-
-    private static func appearance(of view: NSView) -> NSAppearance.Name? {
-        view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
     }
 }

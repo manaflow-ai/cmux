@@ -11,7 +11,7 @@
 //!
 //! The leading space keeps it out of shell history where the shell ignores
 //! such lines, and the token rides in `sh`'s environment, never in an argument
-//! list. With a host (`machine add HOST`, `--destination HOST`) the command is
+//! list; a Windows PC pastes the PowerShell line beside it (`windows.rs`). With a host (`machine add HOST`, `--destination HOST`) the command is
 //! the app's ssh Add Machine card, as before.
 //!
 //! The platform origin comes from `--platform` (or `CMUX_PLATFORM_URL`) and
@@ -64,8 +64,7 @@ const WAIT_EVERY: Duration = Duration::from_secs(2);
 /// instead: its 90 s rows and its heartbeat stamp, which moves at most every 30 s.
 pub(super) const LEGACY_ONLINE_WITHIN_MS: u64 = 120_000;
 /// How soon a revoke takes effect: the platform checks revocation on every heartbeat (each
-/// 10 s, a third of the hub's row TTL) and relay request. A revoke answer that carries `accessEndsWithinSeconds` replaces
-/// this.
+/// 10 s, a third of the hub's row TTL) and relay request. A revoke answer that carries `accessEndsWithinSeconds` replaces this.
 const REVOKE_BOUND: &str = "30 seconds";
 /// The minted line's default life when the answer's `expiresAt` is unreadable.
 const DEFAULT_TTL_SECS: u64 = 600;
@@ -76,6 +75,7 @@ pub(super) const USB_TTL_SECS: u64 = MAX_TTL_SECS;
 
 mod bootstrap;
 pub(super) mod vault;
+mod windows;
 
 const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|--no-wait] [--vault [--yes]]
        cmux machine add --usb PATH [--ttl 10m] [--vault [--yes]]
@@ -699,8 +699,7 @@ pub(super) enum WaitEnd {
     Interrupted,
 }
 
-/// The list in a credentials answer: an array, or one under `credentials`,
-/// `machines` or `items`.
+/// The list in a credentials answer: an array, or one under `credentials`, `machines` or `items`.
 fn entries(body: Value) -> Option<Vec<Value>> {
     match body {
         Value::Array(rows) => Some(rows),
@@ -717,7 +716,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 /// The platform's machine-join refusal codes. Errors print only these and the codes of the
 /// platform's Cloud refusal table ([`cmux_cloud_machine::refusals::PLATFORM`]: a cap, a rate
 /// limit, a machine's state), each from its own table.
-const KNOWN_CODES: [&str; 48] = [
+const KNOWN_CODES: [&str; 62] = [
     "lease.not_found",
     "reservation.expired",
     "reservation.terminal",
@@ -763,6 +762,23 @@ const KNOWN_CODES: [&str; 48] = [
     // The acting team has no Cloud plan (reserve, bind, a workspace's machine): the pane says so and
     // offers the person's own team or the plans (CloudStartView), never a retry or a wait.
     "cloud.plan.required",
+    // A workspace adopting a machine (`POST /v1/workspaces/{w}/machine/import`, `automation create
+    // --webhook --on cloud`).
+    "machine.turn_machine_conflict",
+    "machine.turn_generation_conflict",
+    "machine.turn_busy",
+    "workspace_machine.fleet_machine",
+    "cloud.carrier_unavailable",
+    "cloud.machine.not_found",
+    "cloud.carrier_mismatch",
+    // A Cloud trigger (`POST /v1/triggers`).
+    "trigger.invalid",
+    "trigger.unauthorized",
+    "trigger.forbidden",
+    "trigger.not_found",
+    "trigger.conflict",
+    "trigger.unavailable",
+    "trigger.workspace_mismatch",
     "bad_request",
     "unauthorized",
     "not_found",
@@ -978,6 +994,7 @@ fn add_machine(
         "scriptUrl": format!("{}/v1/machines/join.sh", platform.origin),
         "joined": null,
     });
+    windows::add(&mut summary, &platform.origin, &minted.token);
     let now = now_ms();
     let io = |e: std::io::Error| Failure::new("io", e.to_string());
     match output {
@@ -985,6 +1002,7 @@ fn add_machine(
             let when = expiry_words(minted.expires_at_ms, now);
             writeln!(out, "Run this on the new machine. It works once and {when}:\n\n{line}\n")
                 .map_err(io)?;
+            windows::print(out, &summary).map_err(io)?;
         }
         OutputMode::JsonLines => {
             let mut event = summary.clone();
@@ -1268,8 +1286,7 @@ fn duration_words(seconds: u64) -> String {
     }
 }
 
-/// Rotates the machine's credential. The answer may carry the new credential;
-/// nothing of it is printed.
+/// Rotates the machine's credential. The answer may carry the new credential; none of it prints.
 fn rotate(
     platform: &Platform,
     key: &str,
@@ -1450,6 +1467,76 @@ pub(super) fn merge_rows(
     };
     listed.extend(rows);
     (result, None)
+}
+
+/// How long `machine list` waits for acpmux's own machines (`acp host ls`), a local read.
+const PEER_READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// `result` with the machines acpmux reaches itself added (`acpmux machine add HOST`), each a
+/// valid `cmux chat --on NAME` (hq#11835: such a machine was in `acpmux machine ls` and took
+/// chats from acpmux, but `machine list` and `--on` did not know it). Fails open with a note
+/// on stderr, as the joined rows do; quiet mode says nothing.
+pub(super) fn merge_peers(global: &GlobalArgs, result: Value) -> Value {
+    // No acpmux running here: it reaches no machine, and a list never starts one.
+    if !acpmux::config::socket_path().exists() {
+        return result;
+    }
+    match super::chat_start::joined::peers_within(PEER_READ_TIMEOUT) {
+        Ok(peers) => merge_peer_rows(result, &peers),
+        Err(reason) => {
+            if global.output != OutputMode::Quiet {
+                eprintln!("cmux: acpmux's machines are not in this list: {reason}");
+            }
+            result
+        }
+    }
+}
+
+/// `result` (an array of rows, or `{"items": [...]}`) with one `kind: "peer"` row per acpmux
+/// peer (a `host ls` row with no `via: "hub"`) that no row already names: a joined machine's
+/// hostname or a daemon row of the same name is that machine, listed once.
+pub(super) fn merge_peer_rows(mut result: Value, peers: &[Value]) -> Value {
+    let listed = match &mut result {
+        Value::Array(listed) => listed,
+        Value::Object(object) => match object.get_mut("items") {
+            Some(Value::Array(listed)) => listed,
+            _ => return result,
+        },
+        _ => return result,
+    };
+    for peer in peers {
+        if peer.get("via").and_then(Value::as_str) == Some("hub") {
+            continue;
+        }
+        let Some(name) = peer.get("name").and_then(Value::as_str).map(clean) else { continue };
+        if name.is_empty() {
+            continue;
+        }
+        let names = |row: &Value| {
+            ["id", "name", "hostname"].iter().any(|key| {
+                row.get(*key)
+                    .and_then(Value::as_str)
+                    .is_some_and(|it| it.eq_ignore_ascii_case(&name))
+            })
+        };
+        if listed.iter().any(names) {
+            continue;
+        }
+        let connected = peer.get("connected").and_then(Value::as_bool) == Some(true);
+        listed.push(json!({
+            "kind": "peer",
+            "id": name,
+            "name": name,
+            "hostname": name,
+            "origin": "acpmux",
+            "status": if connected { "connected" } else { "offline" },
+            "state": if connected { "online" } else { "offline" },
+            "connectable": connected,
+            "carrier": peer.get("carrier").and_then(Value::as_str),
+            "target": name,
+        }));
+    }
+    result
 }
 
 #[cfg(test)]

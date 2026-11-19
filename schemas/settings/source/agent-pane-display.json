@@ -75,7 +75,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.vscodeMinimap.help",
-            "text": "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll."
+            "text": "A small picture of the whole chat at its right edge. Click or drag it to scroll."
           },
           "kind": "toggle",
           "default": false,
@@ -106,7 +106,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.pinnedPlan.help",
-            "text": "While the agent works, its task list stays under the latest message instead of in the bar over the composer."
+            "text": "Keeps the agent's task list under the latest message, not over the composer."
           },
           "kind": "toggle",
           "default": false,
@@ -136,7 +136,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.finishSound.help",
-            "text": "A soft sound when a long turn in the chat you're looking at ends, its checks pass or its pull request merges. Follows the Mac's Play user interface sound effects setting."
+            "text": "A soft sound when a long turn ends, its checks pass or its pull request merges."
           },
           "kind": "toggle",
           "default": false,
@@ -164,7 +164,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.trayTucked.help",
-            "text": "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back."
+            "text": "Hides the running work bar. Hover the top of the composer to bring it back."
           },
           "kind": "toggle",
           "default": false,
@@ -197,7 +197,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.trayHandle.help",
-            "text": "Where the handle that tucks the running tray away and brings it back sits along the top of the composer."
+            "text": "Where the running tray's handle sits on top of the composer."
           },
           "kind": "choice",
           "choices": [
@@ -254,7 +254,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.unreadBanner.help",
-            "text": "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back."
+            "text": "A banner for new turns when you come back to a chat. Right-click it to hide it."
           },
           "kind": "choice",
           "choices": [
@@ -309,7 +309,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.senderIcon.lead.help",
-            "text": "Which is big in a sender's icon: the model family's mark, or the session's own colored badge."
+            "text": "Which is big in a sender's icon: the model's mark or the session badge."
           },
           "kind": "choice",
           "choices": [
@@ -700,7 +700,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.codeFont.help",
-            "text": "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font."
+            "text": "Empty uses the Markdown viewer's code font."
           },
           "kind": "font_family",
           "default": null,
@@ -760,7 +760,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.inspector.help",
-            "text": "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
+            "text": "Push narrows the chat; Overlay covers it."
           },
           "kind": "choice",
           "choices": [
@@ -807,7 +807,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.environment.help",
-            "text": "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it."
+            "text": "Where the chip sits: under the tabs (Left) or in the header (Right)."
           },
           "kind": "choice",
           "choices": [
@@ -861,7 +861,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.minimap.help",
-            "text": "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing."
+            "text": "What runs down the chat's edge."
           },
           "kind": "choice",
           "choices": [
@@ -918,7 +918,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.transcriptView.help",
-            "text": "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view."
+            "text": "How much of each turn a chat shows. A chat's ··· menu sets its own."
           },
           "kind": "choice",
           "choices": [
@@ -1010,7 +1010,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.promptCoach.help",
-            "text": "After a chat that took several corrections, shows how its first prompt could have said it all at once."
+            "text": "After a chat with many corrections, shows a better first prompt."
           },
           "kind": "toggle",
           "default": true,
@@ -1169,7 +1169,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.rail.side.help",
-            "text": "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it."
+            "text": "Right-click the rail to move it."
           },
           "kind": "choice",
           "choices": [
@@ -1214,7 +1214,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.commandLabels.help",
-            "text": "How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label."
+            "text": "The names the chat shows for background commands."
           },
           "kind": "text",
           "default": [],

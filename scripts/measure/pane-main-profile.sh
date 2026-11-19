@@ -5,6 +5,10 @@
 #   cmux-ci run --class exclusive --script scripts/measure/pane-main-profile.sh --ref SHA
 set -euo pipefail
 work="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$work"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 lane_log="$work/lane.log"
 # Builds the tests (and picks the Xcode); also runs the parse bench once.
 CMUX_PANE_TRANSPORT_BENCH=1 ./scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext AgentPaneTransportBenchParse \

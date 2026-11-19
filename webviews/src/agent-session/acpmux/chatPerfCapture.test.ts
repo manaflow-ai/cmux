@@ -50,7 +50,7 @@ describe("chat perf capture: pure parts", () => {
     const report = longTaskSummary(
       [
         {
-          duration: 120,
+          duration: 120, // motion-allow: a long-task entry's length, not motion
           blockingDuration: 70,
           scripts: [
             { invoker: "MessagePort.onmessage", sourceURL: "cmux-page://agent/app.js?token=x", duration: 90 },
@@ -69,7 +69,7 @@ describe("chat perf capture: pure parts", () => {
     expect(report.longest_ms).toBe(120);
     expect(report.blocking_ms).toBe(80);
     // A longtask entry (no LoAF) has no blockingDuration: its blocking time is its duration past 50 ms.
-    const fallback = longTaskSummary([{ duration: 120 }, { duration: 40 }, { duration: 51 }], "longtask");
+    const fallback = longTaskSummary([{ duration: 120 }, { duration: 40 }, { duration: 51 }], "longtask"); // motion-allow: a long-task entry's length, not motion
     expect(fallback.blocking_ms).toBe(71);
     expect(report.top_scripts[0]).toEqual({
       invoker: "MessagePort.onmessage",
@@ -180,6 +180,47 @@ function fakeEnv() {
   };
 }
 
+describe("chat perf capture: a record's own paint", () => {
+  // Leo, 2026-11-16: "it shuold be instant even under load". The capture counted the first frame after a
+  // record arrived, drawn or not; the pane drew it a frame later, and the report read on time.
+  test("a record drawn in a task after its frame counts the next frame's paint; one drawn in its frame, that frame's", async () => {
+    const page = fakeEnv();
+    let onDraw: () => void = () => {};
+    page.env.watchDraws = (draw) => {
+      onDraw = draw;
+      return { disconnect: () => {} };
+    };
+    const recorder = new ChatPerfCapture();
+    const running = recorder.capture({ seconds: 1 }, page.env);
+    page.advance(16);
+    page.frame();
+    page.paint();
+    // Drawn a frame late: arrives at 16, the frame at 266 paints without it, React draws it in a task after.
+    recorder.arrived("tool_call", 16, 17);
+    page.advance(250);
+    page.frame();
+    page.advance(10);
+    page.paint();
+    onDraw();
+    page.advance(250);
+    page.frame();
+    page.advance(10);
+    page.paint();
+    // Drawn in its frame: arrives, then the frame's callbacks change the transcript before it paints.
+    recorder.arrived("agent_message_chunk", page.env.now(), page.env.now());
+    page.advance(250);
+    page.frame();
+    onDraw();
+    page.advance(10);
+    page.paint();
+    page.finish();
+    const report = (await running) as Record<string, any>;
+    expect(report.records.tool_call.to_paint.max_ms).toBe(520);
+    expect(report.records.agent_message_chunk.to_paint.max_ms).toBe(260);
+    expect(report.records.unpainted).toBe(0);
+  });
+});
+
 describe("chat perf capture: the window", () => {
   test("times each arriving record to the first painted frame and removes everything after", async () => {
     const page = fakeEnv();
@@ -200,7 +241,7 @@ describe("chat perf capture: the window", () => {
     page.frame();
     page.advance(2);
     page.paint();
-    page.observers.get("long-animation-frame")?.([{ duration: 80, scripts: [] }]);
+    page.observers.get("long-animation-frame")?.([{ duration: 80, scripts: [] }]); // motion-allow: a long-task entry's length, not motion
     page.observers.get("layout-shift")?.([{ value: 0.2 }]);
     page.finish();
     const report = (await running) as Record<string, any>;

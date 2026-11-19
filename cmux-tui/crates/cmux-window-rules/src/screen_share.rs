@@ -114,9 +114,10 @@ pub fn plan(facts: &Facts) -> Plan {
             else {
                 return Plan::Refuse { reason: Refusal::NoDevice };
             };
-            // The current device-hub viewer supports macOS. Linux desktop hosts
-            // use the Cloud route above; Windows support needs its host port.
-            if device.platform.as_deref() != Some("macos") {
+            // Device-hub hosts: a Mac (the app), a Linux desktop (`cmux-rd
+            // linux-host`) and a Windows PC (`cmux-rd windows-host`); a phone never
+            // hosts. The hub refuses a host that does not share (`not_shared`).
+            if !matches!(device.platform.as_deref(), Some("macos" | "linux" | "windows")) {
                 return Plan::Refuse { reason: Refusal::Unsupported };
             }
             if !device.online {
@@ -179,9 +180,20 @@ mod tests {
         let mut facts = remote();
         facts.device.as_mut().unwrap().online = false;
         assert_eq!(plan(&facts), Plan::Refuse { reason: Refusal::Offline });
-        for platform in [None, Some("linux"), Some("windows"), Some("ios")] {
+        for platform in [None, Some("ios"), Some("android")] {
             facts.device.as_mut().unwrap().platform = platform.map(str::to_owned);
             assert_eq!(plan(&facts), Plan::Refuse { reason: Refusal::Unsupported });
+        }
+    }
+
+    #[test]
+    fn screen_share_views_a_registered_linux_desktop_or_windows_pc_like_a_mac() {
+        for platform in ["macos", "linux", "windows"] {
+            let mut facts = remote();
+            facts.device.as_mut().unwrap().platform = Some(platform.into());
+            assert_eq!(plan(&facts), Plan::ViewDevice { device_id: DEVICE.into() }, "{platform}");
+            facts.device.as_mut().unwrap().online = false;
+            assert_eq!(plan(&facts), Plan::Refuse { reason: Refusal::Offline }, "{platform}");
         }
     }
 

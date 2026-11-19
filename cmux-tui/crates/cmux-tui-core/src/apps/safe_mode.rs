@@ -286,7 +286,8 @@ impl Supervisor {
     fn stop_all_hosts_locked(&self, inner: &mut Inner) -> Vec<Out> {
         let mut apps: BTreeSet<String> = inner.hosts.keys().map(|key| key.app.clone()).collect();
         apps.extend(inner.mounts.values().map(|mount| mount.host.app.clone()));
-        let mut outs = Vec::new();
+        // Every web pane's calls end too, of apps with no host or mount as well.
+        let mut outs = self.cancel_page_calls_locked(inner, None, OFF);
         for app in apps {
             outs.extend(self.stop_app_locked(inner, &app, OFF));
             // A preview host (the store's) stops too.
@@ -298,7 +299,9 @@ impl Supervisor {
                 .map(|(key, _)| key.clone())
                 .collect();
             for key in doomed {
-                inner.mounts.remove(&key);
+                if let Some(gone) = inner.mounts.remove(&key) {
+                    self.cancel_widget_timers(gone.widget.as_ref());
+                }
                 outs.push(Out::Client(
                     key.client,
                     json!({ "event": "apps-mount-failed", "mount_id": key.mount_id, "reason": OFF }),

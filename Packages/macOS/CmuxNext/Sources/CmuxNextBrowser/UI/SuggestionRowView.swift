@@ -57,7 +57,7 @@ final class SuggestionRowView: NSView {
         // text and glyph at the new size (the card re-lays out the rows' height).
         density.update { [weak self] in
             guard let self else { return }
-            let iconSize = CGFloat.iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize)
+            let iconSize = OmnibarStyle.iconSide
             if let iconKind, !showsFavicon { icon.image = NSImage.icon(iconKind, size: iconSize) }
             if showsFavicon, let image = icon.image { image.size = NSSize(width: iconSize, height: iconSize) }
             applyColors()
@@ -76,7 +76,7 @@ final class SuggestionRowView: NSView {
         self.suggestion = suggestion
         let kind: IconName = switch suggestion.kind {
         case .navigate: .browser
-        case .search: .search
+        case .search: .browserOmniboxSearch
         case .history: .history
         case .bookmark: .bookmark
         case .keyword: .extension
@@ -102,7 +102,7 @@ final class SuggestionRowView: NSView {
         }
         if kind != iconKind, !showsFavicon {
             iconKind = kind
-            icon.image = NSImage.icon(kind, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
+            icon.image = NSImage.icon(kind, size: OmnibarStyle.iconSide)
         }
         setAccessibilityLabel([suggestion.title, suggestion.detail].filter { !$0.isEmpty }.joined(separator: ", "))
         guard force || suggestion.title != title || suggestion.detail != detail else { return }
@@ -127,7 +127,7 @@ final class SuggestionRowView: NSView {
 
     private func showFavicon(_ image: NSImage) {
         let sized = image.copy() as? NSImage ?? image
-        let side = CGFloat.iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize)
+        let side = OmnibarStyle.iconSide
         sized.size = NSSize(width: side, height: side)
         showsFavicon = true
         iconKind = nil
@@ -138,7 +138,7 @@ final class SuggestionRowView: NSView {
         super.layout()
         layer?.cornerRadius = OmnibarStyle.rowCornerRadius
         // 16 pt at Standard (13 pt glyph size), larger with the bar's text.
-        let side = CGFloat.iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize)
+        let side = OmnibarStyle.iconSide
         icon.frame = NSRect(x: (leadingIconCenter - side / 2).rounded(), y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
         let height = label.intrinsicContentSize.height
         label.frame = NSRect(
@@ -183,7 +183,7 @@ final class SuggestionRowView: NSView {
 
     private func applyColors() {
         performWithTheme {
-            icon.contentTintColor = OmnibarStyle.textSecondary
+            icon.contentTintColor = OmnibarStyle.resultsIcon
             let text = NSMutableAttributedString(string: title, attributes: [
                 .font: OmnibarStyle.font,
                 .foregroundColor: OmnibarStyle.textPrimary,

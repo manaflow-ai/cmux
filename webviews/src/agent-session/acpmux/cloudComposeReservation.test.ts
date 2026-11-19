@@ -396,6 +396,38 @@ test("a reserve the platform refuses for the team's plan never holds the Send: i
   expect(await answer).toEqual({ ok: true });
 });
 
+test("an empty local chat's compose names the chat it replaces on every reserve, and its Send binds that machine", async () => {
+  const h = harness();
+  h.reservation.selected("chat-1");
+  h.advance(RESERVATION_RENEW_MS);
+  h.reservation.typed("hello", "chat-1");
+  await settle();
+  expect(h.calls).toEqual([
+    ["cloud.reserve", { composeKey: "compose-1", replacesChat: "chat-1" }],
+    ["cloud.reserve", { composeKey: "compose-1", replacesChat: "chat-1" }],
+  ]);
+  const request = { task: "hello", replacesChat: "chat-1", reservationKey: h.reservation.handoff() };
+  expect(await h.start(request, "send-1")).toEqual({ ok: true });
+  expect(h.calls.at(-1)).toEqual([
+    "cloud.startChat",
+    { task: "hello", replacesChat: "chat-1", key: "send-1", reservationKey: "compose-1", gestureTicket: "ticket-1" },
+  ]);
+});
+
+test("a compose for another chat (a harness switch) gives the first chat's machine back and reserves its own", async () => {
+  const h = harness();
+  h.reservation.selected("chat-1");
+  await settle();
+  h.reservation.typed("hello", "chat-2");
+  await settle();
+  expect(h.calls).toEqual([
+    ["cloud.reserve", { composeKey: "compose-1", replacesChat: "chat-1" }],
+    ["cloud.releaseReservation", { composeKey: "compose-1" }],
+    ["cloud.reserve", { composeKey: "compose-2", replacesChat: "chat-2" }],
+  ]);
+  expect(h.reservation.handoff()).toBe("compose-2");
+});
+
 test("a Send refused before its reservation was bound gives the machine back, and the next Send names none", async () => {
   const h = harness();
   h.reservation.selected();

@@ -67,6 +67,7 @@ pub(super) fn changes_tree(event: &MuxEvent) -> bool {
         | MuxEvent::HistoryChanged { .. }
         | MuxEvent::FeedViewChanged { .. }
         | MuxEvent::FeedReportsChanged { .. }
+        | MuxEvent::GitHubChanged { .. }
         | MuxEvent::KeybindingsChanged(_)
         | MuxEvent::CloudConversation(_)
         | MuxEvent::TerminalReaped { .. }
@@ -79,6 +80,9 @@ pub(super) fn changes_tree(event: &MuxEvent) -> bool {
         | MuxEvent::MachineUsageChanged(_)
         | MuxEvent::StashChanged { .. }
         | MuxEvent::TasksChanged(_)
+        // What agents do with the person's apps (computer_use_lifecycle.rs): no tree field.
+        | MuxEvent::ComputerUseActivity(_)
+        | MuxEvent::ComputerUsePreview(_)
         // `chat.list`'s own index (mux/chat_index.rs), not a list-workspaces field.
         | MuxEvent::ChatsChanged { .. } => false,
         MuxEvent::SurfaceResized { .. }

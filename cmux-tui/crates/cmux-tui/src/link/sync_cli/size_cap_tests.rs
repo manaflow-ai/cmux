@@ -231,6 +231,36 @@ fn a_parent_of_repositories_past_the_limits_sends_their_files_without_their_hist
     assert!(left_on_mac(&set) >= 1);
 }
 
+/// A parent of repositories whose nested histories hold most of its files (cmuxterm-hq#11697): the
+/// histories never stop the listing short, so a folder named after them is in the first pass.
+#[test]
+fn nested_histories_do_not_stop_the_listing_before_later_folders() {
+    let root = tempfile::tempdir().unwrap();
+    let top = std::fs::canonicalize(root.path()).unwrap();
+    for index in 0..150 {
+        write(&top, &format!("aaa/.git/objects/{:02x}/o{index:03}", index % 16), 1);
+    }
+    write(&top, "aaa/src/main.rs", 1);
+    for index in 0..50 {
+        write(&top, &format!("zzz/f{index:02}.txt"), 1);
+    }
+    let set = with_limits(u64::MAX, 100, || capped(&top));
+    assert!(set.files.contains_key("aaa/src/main.rs"), "{:?}", set.files.keys());
+    for index in 0..50 {
+        let path = format!("zzz/f{index:02}.txt");
+        assert!(set.files.contains_key(&path), "{path}: {:?}", set.files.keys());
+    }
+    assert!(set.files.keys().all(|path| !path.contains(".git/")), "{:?}", set.files.keys());
+    assert!(!set.git);
+    assert_eq!(left_on_mac(&set), 150, "the histories stay on this Mac");
+    // Still bounded: histories past four times the limit end the listing.
+    for index in 150..600 {
+        write(&top, &format!("aaa/.git/objects/{:02x}/o{index:03}", index % 16), 1);
+    }
+    let set = with_limits(u64::MAX, 100, || capped(&top));
+    assert!(set.files.len() <= 100, "{}", set.files.len());
+}
+
 /// `--allow-large` records the folder for a day; a copy of it then counts nothing and goes whole.
 #[test]
 fn allow_large_lets_one_folder_through() {

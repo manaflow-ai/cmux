@@ -12,6 +12,12 @@ composite with the overlay panels that toasts and dialogs draw in; no Screen Rec
   confirm      the confirm dialog card (Cancel, Close)
   save         the three-button save dialog card
   update       the sidebar's Update Ready card
+  updated      the sidebar's Updated card, hovered so its close x shows
+  notice       a tip's notice card ("Did you know?") with its close x
+  keycaps      the Keycap Playground: every dialog keycap style on a real card's buttons, rest, hover and pressed
+  dialogs      the confirm and save dialogs alone (dialog-confirm, dialog-save), for keycap Before/After
+
+--only NAME[,NAME] shoots just those surfaces.
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
 
@@ -19,6 +25,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
+parser.add_argument("--only", default="")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -64,9 +71,16 @@ def snapshot(path, window=None):
     return rpc("debug.window_snapshot", params, timeout=40)
 
 
-def playground_window():
+ONLY = set(filter(None, opts.only.split(",")))
+
+
+def wanted(name):
+    return not ONLY or name in ONLY
+
+
+def playground_window(word="playground"):
     windows = (rpc("debug.window_list") or {}).get("windows") or []
-    pick = [w for w in windows if "playground" in (w.get("title") or "").lower()] or \
+    pick = [w for w in windows if word in (w.get("title") or "").lower()] or \
         [w for w in windows if w.get("kind") not in ("main", "panel", "TUINSWindow") and w.get("visible")]
     print("playground window", json.dumps(pick[:1]), flush=True)
     return pick[0]["id"] if pick else None
@@ -111,6 +125,18 @@ try:
         sys.exit("the tagged app did not come up")
     time.sleep(3)  # capture harness: the first window settles
     stop_all = {"stopped": True, "subagents": ["a1", "a3"], "errors": ["a2: its turn did not stop: acpmux refused the cancel"]}
+    if wanted("keycaps"):
+        # The playground opens in the app's appearance: open it again after each switch.
+        shoot("keycaps", lambda: print("keycaps", rpc("debug.toast", {"perform": "debug.keycapPlayground"}), flush=True),
+              window=lambda: playground_window("keycap"))
+    if wanted("dialogs"):
+        # The quit-style confirm and the three-button save dialog: their keyed buttons' keycaps.
+        shoot("dialog-confirm", lambda: rpc("debug.dialog", {"open": "confirm", "scope": "window"}),
+              lambda: rpc("debug.dialog", {"key": "escape"}))
+        shoot("dialog-save", lambda: rpc("debug.dialog", {"open": "save", "scope": "window"}),
+              lambda: rpc("debug.dialog", {"key": "escape"}))
+    if ONLY and not ONLY - {"keycaps", "dialogs"}:
+        raise SystemExit(0)
     shoot("toast", lambda: rpc("debug.toast", {"stop_all": stop_all}),
           lambda: rpc("debug.toast", {"close": "home.stopAllAgents"}))
     shoot("confirm", lambda: rpc("debug.dialog", {"open": "confirm", "scope": "window"}),
@@ -121,6 +147,14 @@ try:
     time.sleep(2)  # capture harness: the card comes in
     shoot("update")
     rpc("debug.updater", {"action": "unstage"})
+    if True:  # the cards with a close x: the Updated card (hovered, so its x shows) and a tip's notice card
+        print("updated", rpc("debug.updater", {"action": "updated", "previous": "0.0.1"}), flush=True)
+        time.sleep(3)  # capture harness: the Updated card's page loads its words
+        shoot("updated", lambda: rpc("debug.update_surfaces", {"action": "hover-updated"}))
+        print("tip", rpc("debug.updater", {"action": "tip"}), flush=True)
+        time.sleep(2)  # capture harness: the notice card comes in
+        shoot("notice")
+        rpc("debug.updater", {"action": "untip"})
     print("playground", rpc("debug.toast", {"perform": "debug.toastPlayground"}), flush=True)
     time.sleep(3)  # capture harness: the playground window and its toasts come up
     shoot("playground", window=playground_window)

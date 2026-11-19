@@ -48,8 +48,18 @@ export const {
   Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle
 } = g
 
+/** Gradient fills for `.background(...)` and a shape's `.fill(...)`: 2 to 8 stops (tones or
+ * `#RRGGBB[AA]`); the runtime's builders refuse a bad stop or angle. On a cmux older than them the
+ * value is built here and an older renderer draws no fill. */
+export const linearGradient: (colors: readonly string[], angle?: number) => CmuxGradient =
+  g.linearGradient ?? ((colors, angle) => ({ linear: angle === undefined ? { colors: [...colors] } : { colors: [...colors], angle } }))
+export const radialGradient: (colors: readonly string[]) => CmuxGradient =
+  g.radialGradient ?? ((colors) => ({ radial: { colors: [...colors] } }))
+
 export type View = CmuxView
 export type Signal<T> = CmuxSignal<T>
+export type Gradient = CmuxGradient
+export type Fill = CmuxFill
 
 // ---------------------------------------------------------------------------------------------
 // Places. Export the result under the name the manifest gives the place's `export`.
@@ -177,8 +187,10 @@ export const EVENT_STREAMS = Object.keys(eventTable.events) as EventStream[]
 
 /** The scope the manifest must ask for to hear `stream` (`workspace:read` for `workspace.changed`). */
 export function scopeFor(stream: EventStream): string {
-  const reads = eventTable.events[stream].reads as keyof typeof scopeTable.ops
-  return scopeTable.ops[reads].scope
+  const event = eventTable.events[stream] as { reads: string; scope?: string }
+  // A reads op with a placeholder scope (integration.request): the stream names its own (github.changed).
+  if (event.scope) return event.scope
+  return scopeTable.ops[event.reads as keyof typeof scopeTable.ops].scope
 }
 
 /**
@@ -271,3 +283,8 @@ export function onChange<T>(live: Live<T>, fn: (value: T) => void, options: { in
     untrack(() => fn(value))
   })
 }
+
+// ---------------------------------------------------------------------------------------------
+// Widgets (`cmux.widget/1`): the place and its glanceable layout helpers (widget.ts).
+
+export * from "./widget.ts"

@@ -120,6 +120,45 @@ class BreakdownTests(unittest.TestCase):
         self.assertEqual(perf_cron.part_for_row(rows[0]["name"]), "memory-agents")
 
 
+class AppVmTests(unittest.TestCase):
+    """ram-baseline (CMUX-571): every memory-agents run stores the empty app process's own split."""
+
+    def args(self, *extra):
+        import argparse
+        ns = argparse.Namespace(app="/A.app", agents="10", settle="20", measure="30", no_app_vm=False, app_vm_stacks=None)
+        for k, v in extra:
+            setattr(ns, k, v)
+        return ns
+
+    def test_every_run_asks_for_the_app_process_split(self):
+        self.assertIn("--app-vm", cron.bench_cmd(self.args(), "/r.json"))
+
+    def test_no_app_vm_leaves_it_out(self):
+        self.assertNotIn("--app-vm", cron.bench_cmd(self.args(("no_app_vm", True)), "/r.json"))
+
+    def test_stacks_pass_their_pattern(self):
+        cmd = cron.bench_cmd(self.args(("no_app_vm", True), ("app_vm_stacks", "Palette")), "/r.json")
+        self.assertIn("--app-vm", cmd)
+        self.assertEqual(cmd[cmd.index("--app-vm-stacks") + 1], "Palette")
+
+    def test_the_part_stores_the_empty_samples_split(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            raw = {"samples": [dict(EMPTY, app_vm={"vmmap": {"rc": 0, "lines": ["MALLOC_SMALL 40M"]}}), TEN]}
+
+            def fake_run(cmd, cwd=None):
+                with open(cmd[cmd.index("--out") + 1], "w") as f:
+                    json.dump(raw, f)
+                return mock.Mock(returncode=0)
+
+            out = os.path.join(d, "report.json")
+            with mock.patch.object(cron.subprocess, "run", side_effect=fake_run):
+                cron.main(["--app", "/A.app", "--json", out, "--out", d])
+            with open(out) as f:
+                self.assertEqual(json.load(f)["app_vm"]["vmmap"]["lines"], ["MALLOC_SMALL 40M"])
+
+
 class HeapSummaryTests(unittest.TestCase):
     def test_counts_each_renderer_isolate_once_and_counts_errors(self):
         # Pages 1 and 2 share renderer 7 (process-per-site): each answers the renderer's whole isolate.
