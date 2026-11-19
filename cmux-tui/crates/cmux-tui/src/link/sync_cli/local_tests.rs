@@ -410,3 +410,51 @@ fn a_git_copy_leaves_untracked_heavy_folders_here() {
     let shared = collect(&top, Rules::Share, None).unwrap();
     assert!(shared.files.contains_key("node_modules/left-pad/index.js"));
 }
+
+/// A checked-out submodule goes with its folder: its working files under its path and its
+/// `.git` file, beside its repository in the top's `.git/modules/`, so the machine's
+/// checkout holds it as this Mac does and `git status` agrees on both sides. RED before:
+/// git lists the submodule as one gitlink path, a folder, which the copy left out, and the
+/// machine's `git status` named `vendor/sub` deleted. A submodule whose `.git` file names a
+/// folder of this Mac by its full path stays out (it would name nothing on the machine).
+#[test]
+fn a_git_copy_takes_a_checked_out_submodule() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let (lib, top) = (root.join("lib"), root.join("top"));
+    for repo in [&lib, &top] {
+        std::fs::create_dir_all(repo).unwrap();
+        git(repo, &["init", "-q"]);
+    }
+    write(&lib, "lib.txt");
+    write(&lib, "deep/inner.txt");
+    git(&lib, &["add", "."]);
+    git(&lib, &["commit", "-q", "-m", "lib"]);
+    write(&top, "main.txt");
+    git(&top, &["add", "main.txt"]);
+    let url = format!("file://{}", lib.display());
+    git(&top, &["-c", "protocol.file.allow=always", "submodule", "add", "-q", &url, "vendor/sub"]);
+    git(&top, &["commit", "-q", "-m", "top"]);
+    write(&top, "vendor/sub/untracked.txt");
+
+    let set = collect(&top, Rules::Copy, None).unwrap();
+    for path in [
+        "main.txt",
+        ".gitmodules",
+        "vendor/sub/.git",
+        "vendor/sub/lib.txt",
+        "vendor/sub/deep/inner.txt",
+        "vendor/sub/untracked.txt",
+        ".git/modules/vendor/sub/HEAD",
+    ] {
+        assert!(set.files.contains_key(path), "{path} stayed here: {:?}", set.files.keys());
+    }
+    assert!(!set.files.keys().any(|path| path.starts_with(".git/modules/vendor/sub/hooks/")));
+
+    // A `.git` file naming this Mac's folder by its full path: the submodule stays out.
+    let gitdir = top.join(".git/modules/vendor/sub");
+    std::fs::write(top.join("vendor/sub/.git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+    let set = collect(&top, Rules::Copy, None).unwrap();
+    assert!(!set.files.contains_key("vendor/sub/lib.txt"));
+    assert!(!set.files.contains_key("vendor/sub/.git"));
+}

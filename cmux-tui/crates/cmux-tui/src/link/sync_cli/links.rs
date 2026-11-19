@@ -254,7 +254,21 @@ mod tests {
         assert_eq!(link("src/up", Path::new("../src/a.txt")), kept("../src/a.txt", None));
         assert_eq!(link("out", Path::new("/etc")), Local::Skip(Why::SymlinkOutside));
         assert_eq!(link("climb", Path::new("../..")), Local::Skip(Why::SymlinkOutside));
-        assert_eq!(link("gone", Path::new("nothing")), Local::Skip(Why::SymlinkBroken));
+        // A link to nothing yet inside the folder goes as written (git tracks it so).
+        assert_eq!(link("gone", Path::new("nothing")), kept("nothing", None));
+        assert_eq!(link("src/later", Path::new("deep/out/x")), kept("deep/out/x", None));
+        assert_eq!(link("src/up-gone", Path::new("../nothing")), kept("../nothing", None));
+        // One whose words climb out, leave, or pass a link or a file stays, named broken.
+        assert_eq!(
+            link("src/out-gone", Path::new("../../nothing")),
+            Local::Skip(Why::SymlinkBroken)
+        );
+        assert_eq!(link("abs-gone", &top.join("nothing")), Local::Skip(Why::SymlinkBroken));
+        assert_eq!(link("via", Path::new("rel/x")), Local::Skip(Why::SymlinkBroken));
+        assert_eq!(link("via-up", Path::new("rel/../nothing")), Local::Skip(Why::SymlinkBroken));
+        assert_eq!(link("past-file", Path::new("src/a.txt/x")), Local::Skip(Why::SymlinkBroken));
+        assert_eq!(link("out-gone", Path::new("/nonexistent/x")), Local::Skip(Why::SymlinkBroken));
+        assert_eq!(link("git-gone", Path::new(".git/nothing")), Local::Skip(Why::SymlinkBroken));
         assert_eq!(link("hooks", Path::new(".git")), Local::Skip(Why::SymlinkIntoRepository));
     }
 }
