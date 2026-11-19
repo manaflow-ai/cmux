@@ -140,9 +140,9 @@ fn partial_or_malformed_lifecycle_fences_never_reach_a_provider() {
         line["expected_revision"] = revision;
         lines.push(line);
     }
-    let (f, outs) = setup(&[Probe::new("bad-fence", true, lines)]);
+    let (f, outs) = setup(&[Probe::new("bad_fence", true, lines)]);
     let rx = credential_provider(&f);
-    f.install("cmux/bad-fence");
+    f.install("cmux/bad_fence");
     let answers = frames(&outs[0], 4);
     assert!(
         answers.iter().all(|a| a["type"] == "relay.error" && a["code"] == "validation.invalid")
