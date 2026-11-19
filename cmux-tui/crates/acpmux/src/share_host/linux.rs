@@ -79,6 +79,34 @@ pub(crate) fn user_manager_env(
     env
 }
 
+/// cmux-rd's virtual display unit (cmux-rd-host's `linux_host::setup::DISPLAY_UNIT`).
+const DISPLAY_UNIT: &str = "cmux-screen-display.service";
+
+/// The display number the written `cmux-screen-display.service` in `config_home` runs (`Xvfb :N`).
+pub(crate) fn own_virtual_display(config_home: &Path) -> Option<u32> {
+    let text = std::fs::read_to_string(config_home.join("systemd/user").join(DISPLAY_UNIT)).ok()?;
+    let exec = text.lines().find_map(|l| l.strip_prefix("ExecStart="))?;
+    exec.split_whitespace().find_map(|w| w.strip_prefix(':')?.parse().ok())
+}
+
+/// The variables the enable runs without: `DISPLAY` when it names `own`, cmux's own virtual
+/// display. The join puts that display in the user environment so apps land on the shared screen;
+/// a cmux-rd before 0.2.8 then read it as a person's X11 desktop and installed the desktop's host
+/// unit, which never starts on a machine with no graphical session. Unset, cmux-rd finds a real
+/// desktop through logind, and an old cmux-rd heals that host on the daemon's next start.
+pub(crate) fn enable_unset(
+    display: Option<&std::ffi::OsStr>,
+    own: Option<u32>,
+) -> Vec<&'static str> {
+    let names_own = display.and_then(|d| d.to_str()).is_some_and(|d| {
+        let d = d.trim();
+        let rest = d.strip_prefix("unix").unwrap_or(d);
+        own.is_some()
+            && rest.strip_prefix(':').and_then(|n| n.split('.').next()?.parse().ok()) == own
+    });
+    if names_own { vec!["DISPLAY"] } else { Vec::new() }
+}
+
 /// The arguments of the enable for the join at device hub `hub`.
 pub(crate) fn enable_args(hub: &str) -> [&str; 5] {
     ["linux-host", "enable", "--non-interactive", "--hub", hub]
@@ -195,10 +223,15 @@ pub(crate) fn run_enable(
     args: &[&str],
     acpmux_home: &Path,
     env: &[(&'static str, OsString)],
+    unset: &[&'static str],
     wait: Duration,
     cancel: &AtomicBool,
 ) -> Outcome {
-    let spawned = cmux_process::Command::new(rd)
+    let mut command = cmux_process::Command::new(rd);
+    for name in unset {
+        command.env_remove(name);
+    }
+    let spawned = command
         .args(args)
         .env("ACPMUX_HOME", acpmux_home)
         .envs(env.iter().map(|(k, v)| (*k, v)))
@@ -389,6 +422,11 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
         std::env::var_os("DBUS_SESSION_BUS_ADDRESS"),
         |p| p.exists(),
     );
+    let config_home = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|v| !v.is_empty())
+        .map_or_else(|| user_home.join(".config"), PathBuf::from);
+    let unset =
+        enable_unset(std::env::var_os("DISPLAY").as_deref(), own_virtual_display(&config_home));
     super::state::linux(status_json("setting_up", "cmux-rd linux-host enable runs", &rd, &hub));
     scope.spawn_named("share-host-linux", async move {
         // The thread outlives an aborted task: dropping this cancels its enable (stopped with
@@ -404,7 +442,7 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
         let (done, ended) = tokio::sync::oneshot::channel::<()>();
         let spawned =
             std::thread::Builder::new().name("share-host-linux".into()).spawn(move || {
-                set_up(&home, &folder, &mark, &rd, &hub, &env, &cancel);
+                set_up(&home, &folder, &mark, &rd, &hub, &env, &unset, &cancel);
                 let _ = done.send(());
             });
         match spawned {
@@ -425,6 +463,7 @@ fn set_up(
     rd: &Path,
     hub: &str,
     env: &[(&'static str, OsString)],
+    unset: &[&'static str],
     cancel: &AtomicBool,
 ) {
     // A unit that runs is left alone only when cmux-rd's own record says it is this join's: a
@@ -436,7 +475,7 @@ fn set_up(
         super::state::linux(status_json("already_set_up", &detail, rd, hub));
         return;
     }
-    let outcome = run_enable(rd, &enable_args(hub), home, env, ENABLE_WAIT, cancel);
+    let outcome = run_enable(rd, &enable_args(hub), home, env, unset, ENABLE_WAIT, cancel);
     // The join it ran for, read again now: a leave or a new join may have come meanwhile.
     let current = super::joined().is_ok_and(|(credential, _)| &mark_of(&credential) == mark);
     let after = after_enable(&outcome, cancel.load(Ordering::SeqCst), current);
