@@ -45,7 +45,8 @@ pub const SETTING_KEY: &str = "appearance.themeFile";
 pub const SCHEMA_FILE_NAME: &str = ".schema.json";
 
 /// Keys a theme file reads that are not settings.
-pub const RESERVED_KEYS: [&str; 5] = ["name", "description", "$schema", "colors", "ghostty"];
+pub const RESERVED_KEYS: [&str; 6] =
+    ["name", "description", "$schema", "colors", "ghostty", "density"];
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
 /// (where this Mac is), and the saved
@@ -69,15 +70,47 @@ const LOOK_PREFIXES: [&str; 7] = [
     "browser.omnibar.glass",
     "app.uiScale",
 ];
-/// Look keys outside those prefixes: the terminal font and the sidebar's
-/// shape and edges.
-const LOOK_KEYS: [&str; 6] = [
+/// Look keys outside those prefixes: the terminal font; the sidebar's shape,
+/// edges, text, group headers and buttons; the tab strip's and titlebar's
+/// buttons and inactive tabs; pane corners; and the agent chat's text sizes,
+/// sender marks and Session Info. Keep in step with Swift
+/// `ThemeFileOverlay.lookKeys`.
+const LOOK_KEYS: [&str; 35] = [
     "terminal.fontFamily",
     "terminal.fontSize",
     "sidebar.style",
     "sidebar.border",
     "sidebar.borderWidth",
     "sidebar.sectionLook",
+    "sidebar.density",
+    "sidebar.textSize",
+    "sidebar.groupHeader.background",
+    "sidebar.groupPalette",
+    "sidebar.groupGradient",
+    "sidebar.showSearchButton",
+    "sidebar.showProfileControl",
+    "sidebar.showNewWorkspaceChooser",
+    "sidebar.controlsOnHover",
+    "sidebar.detailedStatusIcons",
+    "sidebar.showColors",
+    "sidebar.spacesVisibility",
+    "tabs.toolbarButtons",
+    "tabs.plusButton",
+    "window.titlebarButtons",
+    "focus.inactiveTabStyle",
+    "layout.paneCornerRadius",
+    "layout.cornerPadding",
+    "layout.paneBorderWidth",
+    "agentPane.display.sessionInfo.placement",
+    "agentPane.display.font.preset",
+    "agentPane.display.font.ui",
+    "agentPane.display.font.size",
+    "agentPane.display.font.lineHeight",
+    "agentPane.display.code.scale",
+    "agentPane.display.senderIcon.lead",
+    "agentPane.display.senderIcon.badge",
+    "agentPane.display.senderIcon.corner",
+    "agentPane.display.trayHandle",
 ];
 
 /// Whether a theme file may set `row`: a look setting an agent may set too.

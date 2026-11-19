@@ -459,6 +459,7 @@ public final class SettingsController {
         var snapshot = CmuxConfigSnapshot.parse(
             effective.root, validDensities: valid.densities, validMetrics: valid.metrics, configDirectory: configDirectory
         )
+        snapshot.themeDensity = themes.overlay?.density(under: Set(effective.managedKeys.keys))
         if let problem { snapshot.diagnostics.insert(SettingsDiagnostic(kind: .unreadableFile, path: "", message: problem), at: 0) }
         snapshot.diagnostics += effective.diagnostics + themes.diagnostics
         var inputs = LoadInputs(source: source, managed: managed, team: team)
@@ -570,7 +571,9 @@ extension SettingsController {
             applied = overlay.applied(to: root, managed: managed)
             // Each row the file sets says where its value comes from.
             let file = "\(ThemeFileSetting.folderName)/\(name).\(ThemeFileSetting.fileExtension)"
-            diagnostics = overlay.diagnostics + overlay.values.map { $0.path.joined(separator: ".") }
+            let densityPath = DensitySetting.configPath.joined(separator: ".")
+            let ownDensity = overlay.density(under: managed) != nil && !overlay.values.contains { $0.path == DensitySetting.configPath }
+            diagnostics = overlay.diagnostics + (overlay.values.map { $0.path.joined(separator: ".") } + (ownDensity ? [densityPath] : []))
                 .filter { id in !managed.contains { $0 == id || id.hasPrefix($0 + ".") || $0.hasPrefix(id + ".") } }
                 .map { SettingsDiagnostic(kind: .setByThemeFile, path: $0, message: "set by the theme file; change it there, or unset Theme File", file: file) }
         }
