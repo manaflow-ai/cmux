@@ -22,6 +22,15 @@ on:
       - scripts/cmux-next/ext-store/extensions.json
       - scripts/cmux-next/payload_advisories.py
       - .github/workflows/cmux-next-payload-advisories.yml
+  # A pull request that moves a pin gets the same verdict before it merges
+  # (tests/test_ci_post_merge_checks.py). The issue step stays base-only: it reads github.ref.
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - scripts/cmux-next/fetch-ublock.sh
+      - scripts/cmux-next/ext-store/extensions.json
+      - scripts/cmux-next/payload_advisories.py
+      - .github/workflows/cmux-next-payload-advisories.yml
   workflow_dispatch:
 
 permissions:
@@ -33,7 +42,7 @@ concurrency:
 
 jobs:
   advisories:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
       contents: read
