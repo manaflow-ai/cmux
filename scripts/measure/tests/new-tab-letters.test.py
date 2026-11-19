@@ -117,6 +117,12 @@ class Verdict(unittest.TestCase):
         self.assertEqual(M.verdict("three-key", [{"not_run": "why"}])["verdict"], "NOT RUN")
 
 
+class Order(unittest.TestCase):
+    def test_the_guard_form_is_the_last_of_a_run_and_each_form_is_one_time_in_it(self):
+        self.assertEqual((M.FORMS[0], M.FORMS[-1], len(set(M.FORMS))), ("reselect", "two-key", 7))
+        self.assertEqual(M.NO_CHORD, ("two-key",))
+
+
 class Builder:
     """A model of the session helper: one pane, tabs with ids, the script's actions that a case sends."""
 
