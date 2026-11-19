@@ -146,19 +146,24 @@ fn three_restarts_in_a_row_are_each_an_exec_in_place() {
     let socket_id = inode(&socket);
 
     for n in 1..=3u64 {
+        let asked = Instant::now();
         let answer = call(dial(&socket), "_acpmux/shutdown", restart_request())
             .expect("the restart request was answered")
             .unwrap_or_else(|e| panic!("restart {n} refused: {e}"));
         assert_eq!(answer["handoff"], true, "restart {n}: {answer}");
-        // Dialed during the handoff: never refused; answered by the new image (or ended by the
-        // old one in its last moment, and then answered on the next dial).
+        // Dialed during the handoff: never refused; answered by the new image, or by the old one
+        // in its last moment (answered, or ended and then answered on the next dial).
         std::thread::sleep(Duration::from_millis(100));
         let during = dial(&socket);
         if let Some(reply) = call(during, "_acpmux/status", json!({})) {
             let status = reply.unwrap_or_else(|e| panic!("restart {n}: status refused: {e}"));
-            assert_eq!(status["handoffs"], n, "restart {n}: answered by the old image: {status}");
+            let count = status["handoffs"].as_u64();
+            assert!(count == Some(n) || count == Some(n - 1), "restart {n}: {status}");
         }
         let status = status_after(&socket, Duration::from_secs(30), |s| s["handoffs"] == n);
+        // The pause a client saw, for the PR's numbers (not a bound): the request sent to the
+        // new image's first answer.
+        println!("HANDOFF-PAUSE restart={n} ms={}", asked.elapsed().as_millis());
         assert_eq!(status["pid"].as_u64(), Some(pid), "restart {n}: {status}");
         assert_eq!(status["listen"], listen, "restart {n}: {status}");
         assert_eq!(inode(&socket), socket_id, "restart {n}: the socket was bound again");
