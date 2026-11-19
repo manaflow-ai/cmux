@@ -33,6 +33,12 @@ final class CloudChatsKeptUITests: XCTestCase {
             attach(app, String(format: "frame-%02d", frame))
             _ = XCTWaiter().wait(for: [XCTestExpectation(description: "pace")], timeout: 0.5)
         }
+        // A kept chat tapped while the channel still opens: the chat's screen waits for it in place
+        // (it opens once the channel is ready; CloudMachineConnectionTests runs that to a live chat).
+        newest.tap()
+        let opening = app.descendants(matching: .any)["cloudChats.keptOpening"].firstMatch
+        XCTAssertTrue(opening.waitForExistence(timeout: 5), "the tapped kept chat waits for the channel\n\(app.debugDescription)")
+        attach(app, "1-kept-chat-tapped")
     }
 
     @MainActor
