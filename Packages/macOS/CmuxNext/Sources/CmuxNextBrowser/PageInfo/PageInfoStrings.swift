@@ -84,6 +84,10 @@ nonisolated enum PageInfoStrings {
         String(localized: "pageInfo.cookies.sites", defaultValue: "Sites with data: \(count)", table: "PageInfo", bundle: .module)
     }
     static var deleteSiteData: String { String(localized: "pageInfo.cookies.delete", defaultValue: "Delete site data", table: "PageInfo", bundle: .module) }
+    /// The cookies page and the tab notice after "Delete site data" failed; `reason` is the engine's.
+    static func deleteSiteDataFailed(_ reason: String) -> String {
+        String(localized: "pageInfo.cookies.deleteFailed", defaultValue: "Couldn't delete site data: \(reason)", table: "PageInfo", bundle: .module)
+    }
     static var loading: String { String(localized: "pageInfo.loading", defaultValue: "Loading…", table: "PageInfo", bundle: .module) }
 
     // Rows
