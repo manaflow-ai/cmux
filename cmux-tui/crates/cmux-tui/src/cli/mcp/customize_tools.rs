@@ -217,7 +217,7 @@ const TOOLS: &[CustomizeTool] = &[
     CustomizeTool {
         name: "customize_doctor",
         verb: "doctor",
-        description: "What changes the person's customization in a way they may not expect: a pr or other code layer left on, a web-dev overlay, a layer that pins an old build, files that do not load, files or keys cmux skips, values another file or layer overrides, leftovers of a removed layer, unknown settings keys, files in the wrong folder. Each finding has its file, line, what it changes and its fixes; the app shows the same list. Reads only: a fix (`cmux customize doctor fix ID off|remove`) is the person's to choose.",
+        description: "What changes the person's customization in a way they may not expect: a pr or other code layer left on, a web-dev overlay, a layer that pins an old build, files that do not load, files or keys cmux skips, values another file or layer overrides, leftovers of a removed layer, unknown settings keys, files in the wrong folder, stray JSON or config files and environment variables that change cmux outside the usual settings, and values that hide something the default shows or no longer follow a changed default. Each finding has its file, line, what it changes and its fixes; the app shows the same list. Reads only: a fix (`cmux customize doctor fix ID off|remove|restore|follow-default`, or `recover` back to a setup that loads) is the person's to choose.",
         argument: None,
         note: None,
         minutes: false,
@@ -393,7 +393,9 @@ mod tests {
         assert!(w("customize_try", json!({"minutes": 0})).is_err());
         assert!(w("customize_try", json!({"minutes": "5"})).is_err());
         assert!(w("customize_keep", json!({"minutes": 5})).is_err());
-        assert_eq!(names.len(), 17);
+        assert_eq!(w("customize_doctor", json!({})).unwrap(), ["doctor"]);
+        assert!(w("customize_doctor", json!({"id": "broken:settings.json"})).is_err());
+        assert_eq!(names.len(), 18);
         assert!(names.iter().all(|name| name.starts_with("customize_")));
     }
 }
