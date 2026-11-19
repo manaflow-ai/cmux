@@ -147,6 +147,22 @@ import Testing
         ])
     }
 
+    /// Leo, 2026-11-08: "Every conceivable possible aspect of the app… how we work, how we look like to other
+    /// people". A theme sets the column strip's scroll bar; a mode that is none of the four is refused and the
+    /// rest of the file still applies.
+    @Test func aThemeFileSetsTheStripScrollBar() {
+        for mode in ["system", "auto", "always", "off"] {
+            let overlay = Self.overlay(#"{ "layout.stripScrollbar": "\#(mode)" }"#)
+            #expect(overlay.diagnostics.isEmpty)
+            let root = overlay.applied(to: .object(["layout": .object(["stripScrollbar": "system"])]))
+            #expect(root.value(at: ["layout", "stripScrollbar"]) == .string(mode))
+            #expect(StripScrollbarSetting.parse(root).0 == StripScrollbarMode(configValue: mode))
+        }
+        let refused = Self.overlay(#"{ "layout": { "stripScrollbar": "hidden" }, "appearance.borders": "none" }"#)
+        #expect(refused.values.map { $0.path.joined(separator: ".") } == ["appearance.borders"])
+        #expect(refused.diagnostics.map(\.path) == ["layout.stripScrollbar"])
+    }
+
     /// A theme's own density shapes its tabs (the blockiness of horizontal and sidebar tabs) and sizes the
     /// sidebar: a built-in with the playground's tokens over it, clamped, with unknown tokens refused.
     @Test func aThemeFileCarriesItsOwnDensity() throws {

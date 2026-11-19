@@ -58,10 +58,10 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     static let lookPrefixes = ["appearance.", "ui.animation", "ui.calm", "ui.paneAnimations", "ui.reducedBackgrounds",
                                "browser.omnibar.glass", "app.uiScale"]
     /// Look keys outside those prefixes: the terminal font; the sidebar's shape, edges, text, group headers and
-    /// buttons; the tab strip's and titlebar's buttons and inactive tabs; pane corners; and the agent chat's text
-    /// sizes, sender marks and Session Info (Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a
-    /// lot deeper too. prob likewise the session info and the top right buttons as well"). Keep in step with
-    /// cmux-config's `LOOK_KEYS`.
+    /// buttons; the tab strip's and titlebar's buttons and inactive tabs; pane corners and the column strip's
+    /// scroll bar; and the agent chat's text sizes, sender marks and Session Info (Leo, 2026-11-18: "you guys
+    /// should be customizing the tabs/sidebars a lot deeper too. prob likewise the session info and the top right
+    /// buttons as well"). Keep in step with cmux-config's `LOOK_KEYS`.
     static let lookKeys: Set<String> = [
         "terminal.fontFamily", "terminal.fontSize",
         "sidebar.style", "sidebar.border", "sidebar.borderWidth", "sidebar.sectionLook", "sidebar.density",
@@ -69,7 +69,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         "sidebar.showSearchButton", "sidebar.showProfileControl", "sidebar.showNewWorkspaceChooser",
         "sidebar.controlsOnHover", "sidebar.detailedStatusIcons", "sidebar.showColors", "sidebar.spacesVisibility",
         "tabs.toolbarButtons", "tabs.plusButton", "window.titlebarButtons", "focus.inactiveTabStyle",
-        "layout.paneCornerRadius", "layout.cornerPadding", "layout.paneBorderWidth",
+        "layout.paneCornerRadius", "layout.cornerPadding", "layout.paneBorderWidth", "layout.stripScrollbar",
         "agentPane.display.sessionInfo.placement", "agentPane.display.font.preset", "agentPane.display.font.ui",
         "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.scale",
         "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
