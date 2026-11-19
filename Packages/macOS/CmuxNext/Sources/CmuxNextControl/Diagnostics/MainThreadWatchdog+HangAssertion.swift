@@ -1,3 +1,5 @@
+import CmuxNextCompat
+
 extension MainThreadWatchdog {
     /// A stall past `assertNanos` fails the debug assertion only when the
     /// main thread was busy: it used CPU for at least half the threshold.
@@ -23,7 +25,7 @@ extension MainThreadWatchdog {
     /// to this stall.
     func runningHangFailsAssertion(beat: UInt64, elapsedNanos: UInt64, assertNanos: UInt64) -> Bool {
         let cpu = mainThreadCPU(sinceBeat: beat)
-        guard currentBeat == beat else { return false }
+        guard beatSequence.load(ordering: .acquiring) == beat else { return false }
         return Self.hangFailsAssertion(elapsedNanos: elapsedNanos, mainThreadCPUNanos: cpu, assertNanos: assertNanos)
     }
 }
