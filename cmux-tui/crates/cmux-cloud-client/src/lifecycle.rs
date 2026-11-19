@@ -8,18 +8,25 @@
 //! in [`Pending`] so the same intent can be retried without creating a second
 //! mutation.
 
+use cmux_cloud_wire::{CloudMachine, CloudMachineStatus};
+#[cfg(feature = "http")]
 use cmux_cloud_wire::{
-    CloudMachine, CloudMachineDeleteOp, CloudMachineDeleteParams, CloudMachinePauseOp,
-    CloudMachinePauseParams, CloudMachineStartOp, CloudMachineStartParams, CloudMachineStatus,
+    CloudMachineDeleteOp, CloudMachineDeleteParams, CloudMachinePauseOp, CloudMachinePauseParams,
+    CloudMachineStartOp, CloudMachineStartParams,
 };
 use cmux_lifeline::vm::{
     Attached, Deleted, Deleting, Failed, Observed, Paused, Pausing, Provisioning, Ready, Running,
     Starting, Status, Stopped, Unknown, Vm,
 };
 
+use crate::ApiError;
+#[cfg(feature = "http")]
+use crate::BuildError;
 use crate::machine::{HandleError, Machine, Scope};
+#[cfg(feature = "http")]
 use crate::ops::{self, Answer};
-use crate::{ApiError, BuildError};
+
+pub mod relay;
 
 /// The identity and last owner revision carried by a lifecycle capability.
 #[derive(Debug, PartialEq, Eq)]
@@ -97,6 +104,8 @@ pub enum ObserveError {
     TeamMismatch { expected: String, actual: String },
     /// An observation named a different allocation.
     MachineMismatch,
+    /// A missing, malformed or regressing owner revision cannot grant state.
+    InvalidRevision,
 }
 
 impl std::fmt::Display for ObserveError {
@@ -104,6 +113,9 @@ impl std::fmt::Display for ObserveError {
         match self {
             Self::InvalidStatus => {
                 f.write_str("the Cloud machine has an unrecognized lifecycle status")
+            }
+            Self::InvalidRevision => {
+                f.write_str("Cloud observation has an invalid or stale revision")
             }
             Self::MachineMismatch => f.write_str("Cloud observation named another machine"),
             Self::Handle(error) => error.fmt(f),
@@ -123,6 +135,8 @@ impl std::error::Error for ObserveError {}
 /// lifecycle capability; parsing through the shared lifeline status rejects
 /// it before any operation is available.
 pub fn observe(scope: &Scope, record: CloudMachine) -> Result<ObservedMachine, ObserveError> {
+    relay::check_revision(&record.revision, &record.revision)
+        .map_err(|_| ObserveError::InvalidRevision)?;
     let status = cloud_status(&record.status)?;
     if let Some(expected) = scope.team() {
         if expected != record.team {
@@ -197,6 +211,8 @@ fn validate_record(expected: &Snapshot, record: &CloudMachine) -> Result<Status,
             actual: record.team.clone(),
         });
     }
+    relay::check_revision(&expected.revision, &record.revision)
+        .map_err(|_| ObserveError::InvalidRevision)?;
     cloud_status(&record.status)
 }
 
@@ -228,6 +244,7 @@ impl<S> Pending<S> {
         self.state.payload().revision()
     }
 
+    #[cfg(feature = "http")]
     fn into_unknown(self) -> Pending<Unknown>
     where
         S: UncertainTransition,
@@ -240,10 +257,12 @@ impl<S> Pending<S> {
 /// A local conversion used when a mutation answer is ambiguous. The shared
 /// lifeline owns the same transition; this adapter only carries its snapshot
 /// payload through the client wrapper.
+#[cfg(feature = "http")]
 trait UncertainTransition: Sized {
     fn uncertain(state: Capability<Self>) -> Capability<Unknown>;
 }
 
+#[cfg(feature = "http")]
 macro_rules! uncertain_transition {
     ($($state:ty),+ $(,)?) => {
         $(
@@ -256,6 +275,7 @@ macro_rules! uncertain_transition {
     };
 }
 
+#[cfg(feature = "http")]
 uncertain_transition!(
     Provisioning,
     Running,
@@ -269,6 +289,7 @@ uncertain_transition!(
     Failed,
 );
 
+#[cfg(feature = "http")]
 impl UncertainTransition for Unknown {
     fn uncertain(state: Capability<Self>) -> Capability<Unknown> {
         state
@@ -305,6 +326,9 @@ impl Pending<Unknown> {
             Ok(status) => status,
             Err(error) => return Err((self, error)),
         };
+        if self.revision().trim_start_matches('0') == record.revision.trim_start_matches('0') {
+            return Err((self, ObserveError::InvalidRevision));
+        }
         let original_revision = self.revision().to_owned();
         self.state.vm.payload_mut().revision = record.revision;
         let observed = wrap(self.state.vm.observed(status));
@@ -313,6 +337,7 @@ impl Pending<Unknown> {
 
     /// Replay the exact unresolved intent. This grants no live capability and
     /// preserves its original scope, revision, operation and idempotency key.
+    #[cfg(feature = "http")]
     pub async fn retry(
         self,
         client: &LifecycleClient,
@@ -378,6 +403,7 @@ impl<S: std::fmt::Debug + 'static> std::error::Error for MutationError<S> {}
 impl Pending<Running> {
     /// Retry the same pause intent with the same key after reconciling the
     /// uncertain answer.
+    #[cfg(feature = "http")]
     pub async fn retry_pause(
         self,
         client: &LifecycleClient,
@@ -396,6 +422,7 @@ impl Pending<Running> {
 impl Pending<Ready> {
     /// Retry the same pause intent with the same key after reconciling the
     /// uncertain answer.
+    #[cfg(feature = "http")]
     pub async fn retry_pause(
         self,
         client: &LifecycleClient,
@@ -414,6 +441,7 @@ impl Pending<Ready> {
 impl Pending<Paused> {
     /// Retry the same resume intent with the same key after reconciling the
     /// uncertain answer.
+    #[cfg(feature = "http")]
     pub async fn retry_resume(
         self,
         client: &LifecycleClient,
@@ -435,6 +463,7 @@ macro_rules! pending_delete_retry {
         impl Pending<$state> {
             /// Retry the same delete intent with the same key after
             /// reconciling the uncertain answer.
+            #[cfg(feature = "http")]
             pub async fn retry_delete(
                 self,
                 client: &LifecycleClient,
@@ -466,6 +495,7 @@ pending_delete_retry!(
     Unknown,
 );
 
+#[cfg(feature = "http")]
 fn mutation_error<S: UncertainTransition>(
     pending: Pending<S>,
     source: ApiError,
@@ -485,11 +515,13 @@ fn mutation_error<S: UncertainTransition>(
 
 /// A wire-op transport bound to one backend and team scope.
 #[derive(Debug, Clone)]
+#[cfg(feature = "http")]
 pub struct LifecycleClient {
     scope: Scope,
     http: reqwest::Client,
 }
 
+#[cfg(feature = "http")]
 impl LifecycleClient {
     /// Build a client whose bearer and team header are fixed to `scope`.
     pub fn new(scope: Scope, bearer: &str, user_agent: &str) -> Result<Self, BuildError> {
@@ -508,6 +540,7 @@ impl LifecycleClient {
         &self.scope
     }
 
+    #[cfg(feature = "http")]
     async fn pause_impl<S: UncertainTransition>(
         &self,
         state: Capability<S>,
@@ -543,6 +576,7 @@ impl LifecycleClient {
             .map_err(|source| mutation_error(pending, source))
     }
 
+    #[cfg(feature = "http")]
     async fn resume_impl<S: UncertainTransition>(
         &self,
         state: Capability<S>,
@@ -578,6 +612,7 @@ impl LifecycleClient {
             .map_err(|source| mutation_error(pending, source))
     }
 
+    #[cfg(feature = "http")]
     async fn delete_impl<S: DeleteTransition + UncertainTransition>(
         &self,
         state: Capability<S>,
@@ -609,12 +644,16 @@ impl LifecycleClient {
             Ok(value) => value,
             Err(source) => return Err(mutation_error(pending, source)),
         };
+        if let Err(source) = relay::check_revision(pending.revision(), &revision) {
+            return Err(mutation_error(pending, source));
+        }
         let mut vm = S::delete(pending.state).vm.deleted();
         vm.payload_mut().revision = revision;
         Ok(Capability { vm })
     }
 }
 
+#[cfg(feature = "http")]
 fn mutation_value<T, E>(answer: Answer<T, E>) -> Result<(T, String), ApiError>
 where
     E: cmux_cloud_wire::WireError,
@@ -631,6 +670,7 @@ where
     }
 }
 
+#[cfg(feature = "http")]
 fn pause_response(
     scope: &Scope,
     expected: &Snapshot,
@@ -638,6 +678,10 @@ fn pause_response(
     revision: String,
 ) -> Result<Capability<Pausing>, ApiError> {
     validate_record(expected, &record).map_err(ApiError::unreadable)?;
+    relay::check_revision(&expected.revision, &revision)?;
+    if revision.trim_start_matches('0') != record.revision.trim_start_matches('0') {
+        return Err(ApiError::unreadable("machine and mutation revisions differ"));
+    }
     let observed = observe(scope, record).map_err(ApiError::unreadable)?;
     match observed {
         ObservedMachine::Pausing(mut capability) if capability.machine() == expected.machine() => {
@@ -651,6 +695,7 @@ fn pause_response(
     }
 }
 
+#[cfg(feature = "http")]
 fn resume_response(
     scope: &Scope,
     expected: &Snapshot,
@@ -658,6 +703,10 @@ fn resume_response(
     revision: String,
 ) -> Result<Capability<Starting>, ApiError> {
     validate_record(expected, &record).map_err(ApiError::unreadable)?;
+    relay::check_revision(&expected.revision, &revision)?;
+    if revision.trim_start_matches('0') != record.revision.trim_start_matches('0') {
+        return Err(ApiError::unreadable("machine and mutation revisions differ"));
+    }
     let observed = observe(scope, record).map_err(ApiError::unreadable)?;
     match observed {
         ObservedMachine::Starting(mut capability) if capability.machine() == expected.machine() => {
@@ -673,10 +722,12 @@ fn resume_response(
 
 /// States from which the lifeline permits a delete. `Deleted` is deliberately
 /// absent, so a second delete is rejected by the type checker.
+#[cfg(feature = "http")]
 trait DeleteTransition: Sized {
     fn delete(vm: Capability<Self>) -> Capability<Deleting>;
 }
 
+#[cfg(feature = "http")]
 macro_rules! deletable {
     ($($state:ty),+ $(,)?) => {
         $(
@@ -689,6 +740,7 @@ macro_rules! deletable {
     };
 }
 
+#[cfg(feature = "http")]
 deletable!(
     Provisioning,
     Running,
@@ -712,6 +764,7 @@ impl Capability<Running> {
     }
 
     /// Pause a provider-running machine. The capability is consumed.
+    #[cfg(feature = "http")]
     pub async fn pause(
         self,
         client: &LifecycleClient,
@@ -721,6 +774,7 @@ impl Capability<Running> {
     }
 
     /// Delete a provider-running machine.
+    #[cfg(feature = "http")]
     pub async fn delete(
         self,
         client: &LifecycleClient,
@@ -732,6 +786,7 @@ impl Capability<Running> {
 
 impl Capability<Ready> {
     /// Pause a machine whose agent has completed readiness.
+    #[cfg(feature = "http")]
     pub async fn pause(
         self,
         client: &LifecycleClient,
@@ -741,6 +796,7 @@ impl Capability<Ready> {
     }
 
     /// Delete a ready machine.
+    #[cfg(feature = "http")]
     pub async fn delete(
         self,
         client: &LifecycleClient,
@@ -752,6 +808,7 @@ impl Capability<Ready> {
 
 impl Capability<Paused> {
     /// Resume a paused machine; readiness must be established again afterwards.
+    #[cfg(feature = "http")]
     pub async fn resume(
         self,
         client: &LifecycleClient,
@@ -761,6 +818,7 @@ impl Capability<Paused> {
     }
 
     /// Delete a paused machine.
+    #[cfg(feature = "http")]
     pub async fn delete(
         self,
         client: &LifecycleClient,
@@ -775,6 +833,7 @@ macro_rules! delete_methods {
         $(
         impl Capability<$state> {
             /// Delete this machine. The `Deleted` capability has no such method.
+            #[cfg(feature = "http")]
             pub async fn delete(
                 self,
                 client: &LifecycleClient,
@@ -789,5 +848,5 @@ macro_rules! delete_methods {
 
 delete_methods!(Provisioning, Attached, Pausing, Starting, Stopped, Failed, Unknown);
 
-#[cfg(test)]
+#[cfg(all(test, feature = "http"))]
 mod tests;

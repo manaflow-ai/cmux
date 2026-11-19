@@ -47,10 +47,57 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
             params,
             idempotency_key: self.key.map(str::to_owned),
             origin: self.key.and(self.origin),
+            expected_backend: None,
+            expected_team: None,
+            expected_revision: None,
         };
+        self.send(call)
+    }
+
+    pub(crate) fn origin(&self) -> Option<&'static str> {
+        self.origin
+    }
+
+    pub(crate) fn key(&self) -> Option<&str> {
+        self.key
+    }
+
+    /// The host checks these non-secret fences against the exact credential
+    /// used for each POST; the app server never receives that credential.
+    pub(crate) fn fenced_wire(
+        &mut self,
+        op: &str,
+        params: Value,
+        scope: &cmux_cloud_client::machine::Scope,
+        mutation: Option<(&str, &str)>,
+    ) -> Result<WireResult, CloudError> {
+        self.send(WireCall {
+            op: op.to_owned(),
+            params,
+            idempotency_key: mutation.map(|(key, _)| key.to_owned()),
+            origin: mutation.and(self.origin),
+            expected_backend: Some(scope.origin().to_owned()),
+            expected_team: scope.team().map(str::to_owned),
+            expected_revision: mutation.map(|(_, revision)| revision.to_owned()),
+        })
+    }
+
+    fn send(&mut self, call: WireCall) -> Result<WireResult, CloudError> {
+        let op = call.op.as_str();
         match self.control_plane.call(&call) {
             Ok(WireReply::Result(result)) => Ok(result),
             Ok(WireReply::Error(error)) => {
+                // These are credential-host refusals before POST, not new
+                // backend catalog errors. Keep their final meaning intact.
+                if error.code == "credential.scope_refused" {
+                    return Err(CloudError::new(codes::CONFLICT, error.message));
+                }
+                if error.code == "credential.fence_invalid" {
+                    return Err(CloudError::new(codes::INVALID_ARGS, error.message));
+                }
+                if error.code == "credential.response_invalid" {
+                    return Err(CloudError::new(codes::BAD_RESPONSE, error.message));
+                }
                 let error = CloudError::from_wire_for(op, &error);
                 if error.code == codes::AUTH_REQUIRED {
                     self.projection.clear();

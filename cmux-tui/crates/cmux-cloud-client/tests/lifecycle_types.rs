@@ -33,6 +33,36 @@ fn lifecycle_capabilities_reject_invalid_operations_and_reuse() {
     fs::create_dir(&out).unwrap();
     let cases = [
         (
+            "relay_claimed_delete",
+            "fn check(p: Capability<Claimed>) { p.prepare_delete(\"key\"); }",
+            Some("E0599"),
+        ),
+        (
+            "relay_request_consumed",
+            "fn check(r: cmux_cloud_client::lifecycle::relay::Request) { let _ = r.complete(Default::default(), \"8\".into()); let _ = r.complete(Default::default(), \"8\".into()); }",
+            Some("E0382"),
+        ),
+        (
+            "relay_valid",
+            "fn check(r: Capability<Running>, p: Capability<Paused>) { let _ = r.prepare_pause(\"key\"); let _ = p.prepare_resume(\"key\"); }",
+            None,
+        ),
+        (
+            "relay_paused_pause",
+            "fn check(p: Capability<Paused>) { p.prepare_pause(\"key\"); }",
+            Some("E0599"),
+        ),
+        (
+            "relay_unknown_resume",
+            "fn check(u: Capability<Unknown>) { u.prepare_resume(\"key\"); }",
+            Some("E0599"),
+        ),
+        (
+            "relay_consumed",
+            "fn check(r: Capability<Running>) { let _ = r.prepare_pause(\"key\"); r.prepare_delete(\"other\"); }",
+            Some("E0382"),
+        ),
+        (
             "valid",
             "async fn check(r: Capability<Running>, p: Capability<Paused>, c: &LifecycleClient) { let _ = r.pause(c, \"key\").await; let _ = p.resume(c, \"key\").await; }",
             None,

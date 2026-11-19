@@ -27,6 +27,66 @@ fn record(status: &str, revision: &str) -> CloudMachine {
 }
 
 #[test]
+fn relay_completion_distinguishes_accepted_from_completed() {
+    for status in ["pausing", "paused"] {
+        let ObservedMachine::Running(vm) = observe(&scope(), record("running", "7")).unwrap()
+        else {
+            panic!()
+        };
+        let request = vm.prepare_pause("key");
+        let observed =
+            request.complete(json!({"machine":record(status, "8")}), "8".into()).unwrap();
+        assert!(matches!(
+            (&observed, status),
+            (ObservedMachine::Pausing(_), "pausing") | (ObservedMachine::Paused(_), "paused")
+        ));
+    }
+    for status in ["starting", "running"] {
+        let ObservedMachine::Paused(vm) = observe(&scope(), record("paused", "7")).unwrap() else {
+            panic!()
+        };
+        let observed = vm
+            .prepare_resume("key")
+            .complete(json!({"machine":record(status, "8")}), "8".into())
+            .unwrap();
+        assert!(matches!(
+            (&observed, status),
+            (ObservedMachine::Starting(_), "starting") | (ObservedMachine::Running(_), "running")
+        ));
+    }
+}
+
+#[test]
+fn relay_bad_revision_retains_the_consumed_unknown_request() {
+    for revision in ["6", "", "future"] {
+        let ObservedMachine::Running(vm) = observe(&scope(), record("running", "7")).unwrap()
+        else {
+            panic!()
+        };
+        let (request, _) = vm
+            .prepare_pause("original")
+            .complete(json!({"machine":record("pausing", revision)}), revision.into())
+            .unwrap_err();
+        assert_eq!(request.key(), "original");
+        assert_eq!(request.revision(), "7");
+        assert_eq!(request.op(), "cloud.machine.pause");
+        assert_eq!(request.params(), json!({"machine":"vm_test"}));
+    }
+}
+
+#[test]
+fn an_old_observation_cannot_restore_running_after_an_uncertain_pause() {
+    let ObservedMachine::Running(vm) = observe(&scope(), record("running", "7")).unwrap() else {
+        panic!()
+    };
+    let pending = Pending::new(vm, Intent::Pause, "same-key".into()).into_unknown();
+    let (pending, error) = pending.reconcile(record("running", "7")).unwrap_err();
+    assert_eq!(error, ObserveError::InvalidRevision);
+    assert_eq!(pending.key(), "same-key");
+    assert_eq!(pending.revision(), "7");
+}
+
+#[test]
 fn provider_status_is_strict_at_the_capability_boundary() {
     let mut future = record("running", "7");
     future.status = CloudMachineStatus::Unknown("ready".to_owned());

@@ -35,7 +35,7 @@ use serve_common::Host;
 use std::sync::Arc;
 use std::time::Duration;
 
-const PAUSED: &str = "vm-beta02";
+const PAUSED: &str = "vm_beta02";
 /// The resume bound the scenario holds the server to.
 const BOUND: Duration = Duration::from_secs(30);
 /// Retries of a fault that never clears: the waits 0.5+1+2+4+8+8 s fit in

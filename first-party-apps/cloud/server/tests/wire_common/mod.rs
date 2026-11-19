@@ -169,7 +169,7 @@ impl WireFake {
         }
         let agent = self.agent;
         let Some(route) = self.routes.iter_mut().find(|r| {
-            r.agent == agent
+            (r.agent == agent || (call.op == "cloud.machine.get" && r.key.is_none()))
                 && r.op == call.op
                 && r.params == call.params
                 && r.key == call.idempotency_key
@@ -201,6 +201,7 @@ impl WireFake {
     pub fn session_status(&self) -> Result<SessionStatus, RelayError> {
         Ok(SessionStatus {
             signed_in: self.signed_in,
+            backend: Some("https://cloud-api.cmux.dev".into()),
             team: Some("team_t0000000000000000001".into()),
         })
     }

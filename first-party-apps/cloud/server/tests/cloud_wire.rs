@@ -24,6 +24,27 @@ fn listed() -> Server<WireFake> {
     s
 }
 
+fn lifecycle_observation(s: &mut Server<WireFake>, n: u32) {
+    let value = if let Some(machine) = s.projection().get(&vm(n)) {
+        serde_json::to_value(machine).unwrap()
+    } else {
+        let vectors = wire_common::vectors();
+        vectors["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == "machine.list.default")
+            .unwrap()["responses"][0]["body"]["value"]["machines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["id"] == vm(n))
+            .unwrap()
+            .clone()
+    };
+    s.control_plane_mut().answer("cloud.machine.get", json!({"machine":vm(n)}), None, value);
+}
+
 fn record(s: &Server<WireFake>, id: &str) -> Value {
     s.projection().get(id).map_or(Value::Null, |m| serde_json::to_value(m).expect("record"))
 }
@@ -149,6 +170,7 @@ fn an_indeterminate_create_is_retried_with_the_same_key() {
 #[test]
 fn a_delete_after_mutation_indeterminate_retries_with_the_same_key() {
     let mut s = listed();
+    lifecycle_observation(&mut s, 3);
     let delete = mutation("cloud.machine.delete", json!({ "machine": vm(3) }), "key-delete-cut");
     let cut = err_json(s.handle(&delete));
     assert_eq!(cut["code"], "cmux.cloud.indeterminate", "{cut}");
@@ -170,6 +192,7 @@ fn a_delete_after_mutation_indeterminate_retries_with_the_same_key() {
 #[test]
 fn a_delete_retry_after_the_delete_answers_deleted() {
     let mut s = listed();
+    lifecycle_observation(&mut s, 2);
     let first = mutation("cloud.machine.delete", json!({ "machine": vm(2) }), "key-delete-1");
     assert_eq!(s.handle(&first), Ok(json!({ "deleted": true })));
     assert_eq!(s.handle(&first), Ok(json!({ "deleted": true })), "same key");
@@ -227,6 +250,7 @@ fn quota_and_plan_errors_map_to_typed_cloud_errors() {
     assert_eq!(quota["upstream_code"], "cloud.quota.exceeded");
     assert_eq!(quota["details"]["plan"], "max", "the plan that lifts the limit");
 
+    lifecycle_observation(&mut s, 2);
     let start = err_json(s.handle(&mutation(
         "cloud.machine.start",
         json!({ "machine": vm(2) }),
@@ -302,6 +326,9 @@ fn an_agent_principal_refusal_surfaces_as_forbidden() {
     )));
     assert_eq!(create["code"], "cmux.cloud.forbidden", "{create}");
     assert_eq!(create["upstream_code"], "auth.forbidden");
+    s.control_plane_mut().agent = false;
+    lifecycle_observation(&mut s, 1);
+    s.control_plane_mut().agent = true;
     let delete = err_json(s.handle(&mutation(
         "cloud.machine.delete",
         json!({ "machine": vm(1) }),
