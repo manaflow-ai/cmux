@@ -8,7 +8,11 @@ after --settled-wait more, the hidden pages frozen and released), the marginal c
 process group: idle CPU %, footprint and RSS, wakeups/s, disk bytes written and read per hour, and the
 GPU's own utilization (whole Mac, ioreg).
 
+A page axis (page-hidden, page-visible) also gets, per sample, the frames per second its pages got by
+visibility and its renderers by base priority, and page-hidden the show latency (request to first frame).
+
 Usage: idle_axes_report.py --json OUT.json --markdown OUT.md AXIS.json [AXIS.json ...]
+       idle_axes_report.py --pages AXIS.json     (one line per sample: frames, renderer CPU and priorities)
 """
 from __future__ import annotations
 
@@ -70,6 +74,27 @@ def phase_samples(report: dict, phase: str) -> list[dict]:
     return out
 
 
+def renderer_priorities(sample: dict) -> dict | None:
+    """{base priority: {n, cpu_pct}} of the sample's Chromium renderers (bench_memory.py, page axes)."""
+    return ((sample.get("kinds") or {}).get("cef-renderer") or {}).get("priorities")
+
+
+def page_lines(report: dict) -> list[str]:
+    """One line per sample of a page axis report, and its show latency (compact JSON values: one token each,
+    as the idle bench's ingest reads them)."""
+    def dumps(value) -> str:
+        return json.dumps(value, separators=(",", ":"))
+    lines = []
+    for s in report.get("samples", []):
+        renderer = (s.get("kinds") or {}).get("cef-renderer") or {}
+        lines.append(f"{report.get('axis')} {s.get('label')} items={s.get('items')} "
+                     f"frames={dumps(s.get('page_frames'))} renderer_cpu_pct={renderer.get('cpu_pct')} "
+                     f"renderer_priorities={dumps(renderer.get('priorities'))}")
+    if "show_latency" in report:
+        lines.append(f"{report.get('axis')} show_latency={dumps(report['show_latency'])}")
+    return lines
+
+
 def summarize(reports: list[dict]) -> dict:
     axes = []
     for report in reports:
@@ -79,7 +104,9 @@ def summarize(reports: list[dict]) -> dict:
             samples = phase_samples(report, phase)
             if len(samples) < 2:
                 continue
-            rows = [{"label": s["label"], "items": s.get("items", 0), "gpu": s.get("gpu"), "groups": grouped(s)}
+            rows = [{"label": s["label"], "items": s.get("items", 0), "gpu": s.get("gpu"), "groups": grouped(s),
+                     **({"page_frames": s["page_frames"]} if "page_frames" in s else {}),
+                     **({"renderer_priorities": p} if (p := renderer_priorities(s)) else {})}
                     for s in samples]
             marginal: dict[str, dict] = {}
             for name in GROUPS + ("total",):
@@ -91,7 +118,9 @@ def summarize(reports: list[dict]) -> dict:
                         marginal.setdefault(name, {})[metric] = round(got, 4)
             phases[phase] = {"samples": rows, "marginal_per_item": marginal}
         axes.append({"axis": axis, "made": report.get("axis_made"), "phases": phases,
-                     "pane_failures": report.get("pane_failures", [])[:5]})
+                     "pane_failures": report.get("pane_failures", [])[:5],
+                     **({"show_latency": report["show_latency"]} if "show_latency" in report else {}),
+                     **({"page_debug": report["page_debug"]} if "page_debug" in report else {})})
     return {"axes": axes}
 
 
@@ -143,6 +172,29 @@ def markdown(summary: dict, machine: str = "") -> str:
                                  f"in use {fmt(gpu.get('in_use_system_memory_mb'), 1)} | | "
                                  f"device {fmt(gpu.get('device_utilization_pct'))} % | "
                                  f"renderer {fmt(gpu.get('renderer_utilization_pct'))} % | | |")
+        page_rows = [(phase, row) for phase, data in axis["phases"].items() for row in data["samples"]
+                     if "page_frames" in row or "renderer_priorities" in row]
+        if page_rows:
+            lines += ["", "Frames the pages got (per second, by visibility) and the renderers by base priority "
+                      "(n renderers, their CPU %):", "", "| sample | items | frames | renderers by priority |",
+                      "|---|---:|---|---|"]
+            seen_pages = set()
+            for _phase, row in page_rows:
+                if row["label"] in seen_pages:
+                    continue
+                seen_pages.add(row["label"])
+                frames = "; ".join(f"{vis}: {e.get('pages')} pages {fmt(e.get('frames_per_s'))}/s "
+                                   f"(max {fmt(e.get('max_page_frames_per_s'))})"
+                                   for vis, e in (row.get("page_frames") or {}).items()) or "-"
+                bands = "; ".join(f"{p}: {b.get('n')} ({fmt(b.get('cpu_pct'), 3)} %)"
+                                  for p, b in sorted((row.get("renderer_priorities") or {}).items(),
+                                                     key=lambda item: -int(item[0]))) or "-"
+                lines.append(f"| {row['label']} | {row['items']} | {frames} | {bands} |")
+        if axis.get("show_latency"):
+            got = [s.get("first_frame_ms") for s in axis["show_latency"]]
+            lines += ["", "Show latency, request to first frame (ms): " + ", ".join(fmt(v, 0) for v in got)]
+        if axis.get("page_debug"):
+            lines += ["", "Page server: " + json.dumps(axis["page_debug"])[:3000]]
         if axis.get("pane_failures"):
             lines += ["", "Refused: " + "; ".join(axis["pane_failures"])]
     return "\n".join(lines) + "\n"
@@ -150,8 +202,9 @@ def markdown(summary: dict, machine: str = "") -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--json", required=True)
-    parser.add_argument("--markdown", required=True)
+    parser.add_argument("--json")
+    parser.add_argument("--markdown")
+    parser.add_argument("--pages", action="store_true", help="print page_lines of each report, nothing written")
     parser.add_argument("--machine", default="", help="a line naming the machine and commit")
     parser.add_argument("reports", nargs="+")
     args = parser.parse_args(argv)
@@ -162,6 +215,12 @@ def main(argv: list[str] | None = None) -> int:
                 reports.append(json.load(handle))
         except (OSError, ValueError) as error:
             print(f"idle-axes: {path}: {error}", file=sys.stderr)
+    if args.pages:
+        for report in reports:
+            print("\n".join(page_lines(report)))
+        return 0 if reports else 1
+    if not args.json or not args.markdown:
+        parser.error("--json and --markdown are required without --pages")
     summary = summarize(reports)
     with open(args.json, "w") as handle:
         json.dump(summary, handle, indent=2)

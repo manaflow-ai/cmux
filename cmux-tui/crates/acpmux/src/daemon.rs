@@ -699,12 +699,16 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             tracing::warn!("--person-key-fd: {e}");
         }
     }
-    // The curated model catalog (`catalog/`): the last good copy now, then a fetch at
-    // once and every 6 h. `ACPMUX_CATALOG_FETCH=0` keeps the stored or bundled copy.
+    // The curated model catalog (`catalog/`): the last good copy now, then a fetch of it and
+    // of the public model feed at once and every hour. `ACPMUX_CATALOG_FETCH=0` keeps the
+    // stored or bundled copy and reads no feed.
     let fetch_catalog = !std::env::var("ACPMUX_CATALOG_FETCH").is_ok_and(|v| v == "0");
     let fetcher: Option<std::sync::Arc<dyn crate::catalog::Fetcher>> =
         fetch_catalog.then(|| std::sync::Arc::new(crate::catalog::HttpsFetcher::current()) as _);
     hub.catalog.attach(home().join("catalog"), fetcher);
+    if fetch_catalog {
+        hub.catalog.attach_feed(std::sync::Arc::new(crate::catalog::feed::FeedFetcher::default()));
+    }
     if fetch_catalog {
         let catalog = hub.catalog.clone();
         crate::supervise::restarting("catalog", &hub.fatal, move || catalog.clone().run());
