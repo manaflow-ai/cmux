@@ -218,6 +218,25 @@ impl Daemon {
         }
     }
 
+    /// Waits up to `within` for the daemon to exit on its own (nothing is sent to it): the ms it
+    /// took, or None while it still runs.
+    pub fn wait_exit(&mut self, within: Duration) -> Option<f64> {
+        let t = Instant::now();
+        loop {
+            match self.child.as_mut().map(|c| c.try_wait()) {
+                Some(Ok(None)) => {}
+                _ => {
+                    self.child = None;
+                    return Some(t.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+            if t.elapsed() > within {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     /// SIGTERM to this daemon's own pid, then waits for it to exit (SIGKILL after `within`).
     pub fn term(&mut self, within: Duration) -> Result<f64, String> {
         let t = Instant::now();

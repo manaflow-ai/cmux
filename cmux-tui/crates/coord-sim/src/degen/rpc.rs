@@ -186,6 +186,8 @@ pub struct Followed {
     pub ends: HashMap<String, u64>,
     /// `_acpmux/lagged` or a reader.too_slow line the daemon sent.
     pub told_slow: u64,
+    /// `_acpmux/lagged` notices: each one costs a re-read from the reader's last record.
+    pub lagged: u64,
 }
 
 impl Followed {
@@ -266,12 +268,23 @@ pub fn follow(
                     *f.ends.entry("page_more".into()).or_insert(0) += 1;
                     continue;
                 }
+                let mut lagged = false;
                 for v in early.drain(..) {
+                    if is_lagged(&v) {
+                        lagged = true;
+                        break;
+                    }
                     if v.get("method").and_then(Value::as_str) == Some("_acpmux/event")
                         && let Some(p) = v.get("params")
                     {
                         take(p, "live", &mut f, &mut cursor);
                     }
+                }
+                if lagged {
+                    f.lagged += 1;
+                    f.bytes += c.bytes_in;
+                    *f.ends.entry("lagged".into()).or_insert(0) += 1;
+                    continue;
                 }
             }
             Err(e) => {
@@ -298,6 +311,13 @@ pub fn follow(
                     if note_slow(&v) {
                         f.told_slow += 1;
                     }
+                    // The daemon left records out of this connection (`server/fanout.rs`): a
+                    // client reads again from its last record.
+                    if is_lagged(&v) {
+                        f.lagged += 1;
+                        end = "lagged".into();
+                        break;
+                    }
                     if v.get("method").and_then(Value::as_str) == Some("_acpmux/event")
                         && let Some(p) = v.get("params")
                     {
@@ -320,6 +340,10 @@ pub fn follow(
 
 fn short(e: &str) -> String {
     e.chars().take(60).collect()
+}
+
+fn is_lagged(v: &Value) -> bool {
+    v.get("method").and_then(Value::as_str) == Some("_acpmux/lagged")
 }
 
 /// Whether `v` tells this reader it was too slow (a lag notice or the overrun's last line).

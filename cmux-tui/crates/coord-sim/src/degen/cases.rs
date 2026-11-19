@@ -161,10 +161,12 @@ fn judge(
         dup += t.dup(g);
         rows.push(json!({"truth": t.truth, "missed": t.missed, "first_missed": t.first_missed, "dup": t.dup(g),
             "page_live_overlap": g.page_live_overlap, "resent_below_cursor": g.resent_below_cursor,
-            "attaches": g.attaches, "attach_errors": g.attach_errors, "bytes": g.bytes, "told_slow": g.told_slow,
+            "attaches": g.attaches, "attach_errors": g.attach_errors, "bytes": g.bytes, "told_slow": g.told_slow, "lagged": g.lagged,
             "ends": g.ends}));
     }
     v.num(&format!("{label}_readers"), Value::Array(rows));
+    // Each lag notice is a re-read the daemon caused by leaving records out of a live stream.
+    v.num(&format!("{label}_lagged"), got.iter().map(|g| g.lagged).sum::<u64>());
     (missed, dup)
 }
 
@@ -656,30 +658,45 @@ fn full_disk_in(sc: Sc<'_, '_>, ctx: &Ctx) -> Result<Verdict, String> {
                 first_fail.get_or_insert(format!("#{i}: {e}"));
             }
         }
-        if !b.d.alive() {
+        // A daemon whose journal cannot be written stops for a restart (acpmux
+        // `a reply waited 10s for the event journal ... the daemon stops so that its restart
+        // writes the logs again`): its socket goes first.
+        if !b.d.alive() || !sock.exists() {
             break;
         }
     }
     let alive_full = b.d.alive();
+    let serving_full = alive_full && sock.exists();
+    let unserved_at = Instant::now();
     let avail_at_full = avail_bytes(&fs.dir).unwrap_or(0);
-    // Space comes back; a marker prompt must go through and be held.
+    // Space comes back.
     fs.release();
+    // This case is the daemon's supervisor: one that stopped itself must end (bounded), and a new
+    // one on the same home must serve the chat whole; the marker prompt must go through and be held.
+    let mut exit_ms = None;
+    let mut wedged = false;
+    let mut supervisor_restarts = 0u64;
+    if !serving_full {
+        exit_ms = b.d.wait_exit(Duration::from_secs(60));
+        if exit_ms.is_none() {
+            wedged = true;
+            let _ = b.d.term(Duration::from_secs(10));
+        }
+        b.d = b.s.start()?;
+        supervisor_restarts += 1;
+    }
+    let unserved_ms = if serving_full { 0.0 } else { ms_since(unserved_at) };
     let t = Instant::now();
     let marker = "recovered-after-full-disk";
-    let after = if alive_full {
-        turn(&sock, &sid, marker, Duration::from_secs(60))
-    } else {
-        Err("daemon gone".into())
-    };
+    let after = turn(&sock, &sid, marker, Duration::from_secs(60));
     ctx.run.op(
         "recovery_turn",
         ms_since(t),
         after.is_ok(),
         json!({"detail": after.as_ref().err()}),
     );
-    let truth =
-        if alive_full { rpc::read_all(&sock, &sid).unwrap_or_default() } else { Vec::new() };
-    let held = truth.iter().any(|r| r.text.as_deref() == Some(marker));
+    let truth = rpc::read_all(&sock, &sid).unwrap_or_default();
+    let held = truth.iter().any(|r| r.text.as_deref().is_some_and(|x| x.contains(marker)));
     let top = max_seq(&truth);
     let caught = reader.wait_for(top, Duration::from_secs(30));
     let got = reader.finish()?;
@@ -691,7 +708,7 @@ fn full_disk_in(sc: Sc<'_, '_>, ctx: &Ctx) -> Result<Verdict, String> {
     let again = b.s.start();
     let reread = match &again {
         Ok(_) => rpc::read_all(&sock, &sid)
-            .map(|t| t.iter().any(|r| r.text.as_deref() == Some(marker)))
+            .map(|t| t.iter().any(|r| r.text.as_deref().is_some_and(|x| x.contains(marker))))
             .unwrap_or(false),
         Err(_) => false,
     };
@@ -712,11 +729,24 @@ fn full_disk_in(sc: Sc<'_, '_>, ctx: &Ctx) -> Result<Verdict, String> {
         avail_at_full,
         "the disk was full during the run",
     );
+    v.num("serving_when_full", serving_full);
+    v.num("alive_when_full", alive_full);
+    v.num("supervisor_restarts", supervisor_restarts);
+    v.num("unserved_ms", round(unserved_ms));
+    v.num("self_stop_exit_ms_after_space", exit_ms.map(round));
+    // Bounded failure: a daemon that cannot write either serves on or ends, never sits alive
+    // without its socket once space is back.
     v.check(
-        "daemon_alive_when_full",
-        alive_full,
-        alive_full,
-        "a full disk does not end the daemon",
+        "bounded_failure",
+        !wedged,
+        exit_ms.map(round).map_or("still running 60 s after space came back".into(), |m| {
+            if serving_full {
+                "served on".into()
+            } else {
+                format!("stopped itself, exited {m} ms after space")
+            }
+        }),
+        "serves on, or stops and exits within 60 s of space returning",
     );
     v.at_most("rss_growth_mb", (peak.saturating_sub(first) / 1024) as f64, rss_bound_mb);
     v.at_most("unparsable_lines", bad as f64, 0.0);
