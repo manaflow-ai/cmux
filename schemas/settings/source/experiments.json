@@ -34,6 +34,53 @@
             "capsule",
             "keycaps"
           ]
+        },
+        {
+          "key": "experiments.menuStyleV2",
+          "note": "Menu Style v2: the restyled menus (webviews experiment menu-style-v2, arm v2; the native popup reads DesignSettings.shared.experiment(\"menuStyleV2\")). Off by default.",
+          "title": {
+            "key": "settings.experiments.menuStyleV2",
+            "text": "Menu Style v2"
+          },
+          "help": {
+            "key": "settings.experiments.menuStyleV2.help",
+            "text": "Restyled menus."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "experimental",
+            "menu",
+            "menus",
+            "style",
+            "look",
+            "labs"
+          ]
+        },
+        {
+          "key": "experiments.menuRowStates",
+          "note": "Menu Row States: a menu row that is unavailable says why, and a row that starts work shows its progress inline (webviews experiment menu-row-states, arm on; the native popup reads DesignSettings.shared.experiment(\"menuRowStates\")). Off by default.",
+          "title": {
+            "key": "settings.experiments.menuRowStates",
+            "text": "Menu Row States"
+          },
+          "help": {
+            "key": "settings.experiments.menuRowStates.help",
+            "text": "Menu rows that are unavailable say why, and rows that start work show their progress."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "experimental",
+            "menu",
+            "menus",
+            "unavailable",
+            "disabled",
+            "progress",
+            "labs"
+          ]
         }
       ]
     }

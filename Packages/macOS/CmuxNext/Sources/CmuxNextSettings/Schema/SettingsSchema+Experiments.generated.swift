@@ -5,6 +5,12 @@ extension CmuxConfigSnapshot {
     /// `experiments.glassToolbarGroups`: Taste prototype: the agent chat header's buttons draw as round glass buttons, related actions share one glass capsule, with a search chip and shortcut keycaps (webviews useExperimentSwitch("glassToolbarGroups")). Off by default; off keeps today's header.
     public nonisolated static let glassToolbarGroupsPath = ["experiments", "glassToolbarGroups"]
     public nonisolated static let glassToolbarGroupsDefault = false
+    /// `experiments.menuStyleV2`: Menu Style v2: the restyled menus (webviews experiment menu-style-v2, arm v2; the native popup reads DesignSettings.shared.experiment("menuStyleV2")). Off by default.
+    public nonisolated static let menuStyleV2Path = ["experiments", "menuStyleV2"]
+    public nonisolated static let menuStyleV2Default = false
+    /// `experiments.menuRowStates`: Menu Row States: a menu row that is unavailable says why, and a row that starts work shows its progress inline (webviews experiment menu-row-states, arm on; the native popup reads DesignSettings.shared.experiment("menuRowStates")). Off by default.
+    public nonisolated static let menuRowStatesPath = ["experiments", "menuRowStates"]
+    public nonisolated static let menuRowStatesDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -22,6 +28,26 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.glassToolbarGroupsDefault),
                 keywords: ["experiments", "experimental", "prototype", "glass", "toolbar", "header", "buttons", "capsule", "keycaps"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.menuStyleV2Path,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.menuStyleV2", "Menu Style v2"),
+                help: SettingsText.keyed("settings.experiments.menuStyleV2.help", "Restyled menus."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.menuStyleV2Default),
+                keywords: ["experiment", "experimental", "menu", "menus", "style", "look", "labs"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.menuRowStatesPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.menuRowStates", "Menu Row States"),
+                help: SettingsText.keyed("settings.experiments.menuRowStates.help", "Menu rows that are unavailable say why, and rows that start work show their progress."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.menuRowStatesDefault),
+                keywords: ["experiment", "experimental", "menu", "menus", "unavailable", "disabled", "progress", "labs"]
             ),
         ]
     }
