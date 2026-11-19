@@ -61,7 +61,7 @@ mod linux {
         let mut parsed = Args::default();
         let mut at = 0;
         while at < args.len() {
-            let flag = args[at].as_str();
+            let Some(flag) = args.get(at).map(String::as_str) else { break };
             if flag == "--fresh" {
                 parsed.fresh = true;
                 at += 1;

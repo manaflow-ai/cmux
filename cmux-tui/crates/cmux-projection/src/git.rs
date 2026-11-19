@@ -338,7 +338,10 @@ impl Projection {
                 .resolve(&item.path)
                 .ok_or_else(|| anyhow::anyhow!("{} is not in the manifest", item.path))?;
             if let Some(source) = sources.remove(&item.path) {
-                by_entry[entry as usize] = source;
+                *by_entry
+                    .get_mut(entry as usize)
+                    .ok_or_else(|| anyhow::anyhow!("manifest entry {entry} is out of range"))? =
+                    source;
             }
             index.push(IndexEntry {
                 path: item.path.clone(),
@@ -350,7 +353,9 @@ impl Projection {
             });
         }
         if let (Some(source), Some(entry)) = (sources.remove(".git"), manifest.resolve(".git")) {
-            by_entry[entry as usize] = source;
+            *by_entry
+                .get_mut(entry as usize)
+                .ok_or_else(|| anyhow::anyhow!("manifest entry {entry} is out of range"))? = source;
         }
         index.sort_by(|a, b| a.path.as_bytes().cmp(b.path.as_bytes()));
         Ok(Self {
@@ -417,8 +422,9 @@ pub fn index_bytes(entries: &[IndexEntry], uid: u32, gid: u32) -> anyhow::Result
 fn hex(oid: &str) -> anyhow::Result<[u8; 20]> {
     anyhow::ensure!(oid.len() == 40, "not a sha-1 object id: {oid}");
     let mut bytes = [0u8; 20];
-    for (at, byte) in bytes.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&oid[at * 2..at * 2 + 2], 16)?;
+    for (byte, pair) in bytes.iter_mut().zip(oid.as_bytes().chunks_exact(2)) {
+        let pair = std::str::from_utf8(pair)?;
+        *byte = u8::from_str_radix(pair, 16)?;
     }
     Ok(bytes)
 }
@@ -620,7 +626,7 @@ impl Fetch for GitBlobs {
         let bytes = self.bytes(entry)?;
         let start = usize::try_from(offset).unwrap_or(usize::MAX).min(bytes.len());
         let end = start.saturating_add(len as usize).min(bytes.len());
-        Ok(bytes[start..end].to_vec())
+        Ok(bytes.iter().skip(start).take(end.saturating_sub(start)).copied().collect())
     }
 
     fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
