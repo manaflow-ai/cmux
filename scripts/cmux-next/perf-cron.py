@@ -156,6 +156,12 @@ PARTS = [
      "artifact": "artifacts/split-spring/perf-gate.json", "kind": "perf_gate", "needs": "perf-gate"},
     {"name": "launch", "args": [*MEASURE, "--suite=launch", "--profile", "empty", "--mode", "warm", "--runs", "5", "--timeout", "20"],
      "artifact": "artifacts/split-spring/report.json", "kind": "launch", "needs": "launch"},
+    # The same launch as a Dock click opens it (CMUX-629, CMUX-631): through LaunchServices, activated, the app's own
+    # restore placement. The direct exec above skips the wait before main that only a LaunchServices launch pays
+    # (cmux#44204: about 600 ms on the nightly against about 50 ms by direct exec), so only this part sees it.
+    {"name": "launch-dock", "args": [*MEASURE, "--suite=launch", "--profile", "empty", "--mode", "warm", "--runs", "5",
+                                     "--timeout", "20", "--activation", "active", "--window-placement", "restore"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "launch", "needs": "launch-dock", "row_prefix": "launch.dock"},
     # 400 workspaces, 6 scenarios: not timed against 900 s yet (perf-budgets' own per-bench cap is 900 s).
     {"name": "sidebar", "args": [*MEASURE, "--suite=budgets", "--only=sidebar"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "run_seconds": 1500},
@@ -224,7 +230,7 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
-    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
+    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -247,6 +253,13 @@ DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_m
                 "diff.stream.p95": 250.0}
 # The launch-time budget that left the pull request CI (ms since process start, warm launch, empty profile).
 LAUNCH_BUDGETS = {"did_finish_launching_end": 800, "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000}
+# A Dock launch's budget (launch-dock). The Dock's bounce ends when AppKit checks in with LaunchServices
+# (NSRunningApplication.isFinishedLaunching), just before the delegate's applicationDidFinishLaunching runs: on the
+# nightly (launch-ready.sh, 2026-11-18, n=10) isFinishedLaunching came at 692 ms and did_finish_launching_start at
+# 719. Its target is launch-shell-first.md's "Dock bounce over", 250 ms: the icon rises once and stops. The other
+# rows keep the direct exec's budgets.
+LAUNCH_DOCK_BUDGETS = {"did_finish_launching_start": 250, "did_finish_launching_end": 800,
+                       "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000}
 
 
 def now_utc():
@@ -542,20 +555,22 @@ def rows_of_part(part, report, budgets_mod, budgets):
         for scenario, (_ok, failed) in sorted(per.items()):
             out[f"perf_gate.{scenario}.failed_checks"] = {"p50": failed, "p95": failed, "unit": "checks", "budget": 0, "floor": 0.5}
     elif part["kind"] == "launch":
+        prefix = part.get("row_prefix", "launch")
+        launch_budgets = LAUNCH_DOCK_BUDGETS if prefix == "launch.dock" else LAUNCH_BUDGETS
         for _tag, modes in report.items():
             for mode, runs in (modes or {}).items() if isinstance(modes, dict) else []:
                 runs = runs if isinstance(runs, list) else []
-                for mark, budget in LAUNCH_BUDGETS.items():
+                for mark, budget in launch_budgets.items():
                     values = [r[mark] for r in runs if isinstance(r, dict) and isinstance(r.get(mark), (int, float))]
                     if runs:
                         # A launch that hangs never sends the mark: the old CI budget failed on that, so it is a
                         # row of its own (target 0), and a run with no marks at all misses every one.
                         missing = len(runs) - len(values)
-                        out[f"launch.{mode}.{mark}.missing_runs"] = {"p50": missing, "p95": missing, "unit": "runs",
+                        out[f"{prefix}.{mode}.{mark}.missing_runs"] = {"p50": missing, "p95": missing, "unit": "runs",
                                                                      "budget": 0, "floor": 0.5}
                     if values:
                         p50, p95 = budgets_mod.pct(values, 0.5), budgets_mod.pct(values, 0.95)
-                        out[f"launch.{mode}.{mark}"] = {"p50": round(p50, 1), "p95": round(p95, 1), "unit": "ms",
+                        out[f"{prefix}.{mode}.{mark}"] = {"p50": round(p50, 1), "p95": round(p95, 1), "unit": "ms",
                                                         "budget": budget, "floor": 20.0}
     elif part["kind"] == "diff":
         sidecar, stream = report.get("sidecar") or {}, report.get("stream") or {}
@@ -1852,6 +1867,12 @@ def supported_parts_at(sha):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = "--suite=terminal-throughput" in text
+        elif need == "launch-dock":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
+                                  capture_output=True, text=True).stdout
+            bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
+                                   capture_output=True, text=True).stdout
+            ok = "--suite=launch" in text and '"--activation"' in bench
         elif need in ("perf-gate", "launch", "memory-agents"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
