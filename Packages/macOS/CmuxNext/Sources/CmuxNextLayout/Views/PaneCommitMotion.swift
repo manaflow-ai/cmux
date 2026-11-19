@@ -16,8 +16,9 @@ import CmuxNextDesign
 /// - A pane that gets smaller shows its own ground beside its content until its edge is there (`PaneCommitMotion+Layers`).
 /// - A pane's ring and the dividers get the same move.
 /// - A pane that a close took out, or that a zoom covers, does not move: it stays as it shows, under the panes that
-///   take its room, and hides in the frame that ends the motion (``keepsDeparted(on:)``). It shows only where no
-///   pane goes over it: a mask on its clip takes out the panes over it, as they show (`PaneCommitMotion+Cut`).
+///   take its room, and hides in the frame that ends the motion (``keepsDeparted(on:)``).
+/// - A pane that moves in a window whose sheet is one plain colour has that colour under its content, on its whole
+///   cell, until the motion's end (`PaneCommitMotion+Sheet`): no pane under it shows through its tab row.
 /// - An unzoom's pane closes from its screen's size to its place over the panes that come back, which do not move.
 ///   Its last frame shows at its old size under its moving clip (`PaneCommitMotion+Unzoom`); with no last frame
 ///   and no picture of its own the unzoom shows in one frame.
@@ -95,8 +96,6 @@ final class PaneCommitMotion {
     private var overtime = 0
     /// One number for each act, in the keys of its animations.
     var serial = 0
-    /// When the pass of each act of this motion placed its panes, by the act's number (`PaneCommitMotion+Cut`).
-    var began: [Int: CFTimeInterval] = [:]
     /// Each animation in flight.
     var moved: [(layer: CALayer, key: String)] = []
     /// The pane hosts that show ground strips, and the largest size each showed in this motion.
@@ -107,8 +106,9 @@ final class PaneCommitMotion {
     /// The hosts of the panes that a close took out, under every other pane until the motion's end, each with the
     /// `zPosition` that its layer had.
     var under: [(host: PaneHostView, z: CGFloat)] = []
-    /// For each of those hosts, the panes that came over it in this motion (`PaneCommitMotion+Cut`).
-    var covers: [ObjectIdentifier: [PaneHostView]] = [:]
+    /// The hosts that show the window's colour under their content in this motion, each with the colour that its
+    /// layer had (`PaneCommitMotion+Sheet`).
+    var sheets: [(host: PaneHostView, color: CGColor?)] = []
     /// The last frame of an unzoom's pane, from the turn that gives the sizes to the pass that shows the unzoom.
     var taken: Taken?
     /// The view that shows an unzoom's last frame over its pane's content.
@@ -201,9 +201,6 @@ final class PaneCommitMotion {
     @discardableResult
     func panesPlaced(on screen: ScreenContentView) -> (act: Act, change: Change)? {
         guard let armed else { return nil }
-        #if DEBUG
-        defer { checkKept(on: screen) }
-        #endif
         self.armed = nil
         overtime = 0
         passBegan = false
@@ -246,11 +243,11 @@ final class PaneCommitMotion {
             return nil
         }
         serial += 1
-        began[serial] = CACurrentMediaTime()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         dropLastFrame() // a second act in an unzoom's time: no old picture shows over a new layout
         keepUnder(leaving)
+        showSheet(under: changes, on: screen)
         for change in changes {
             guard let layer = change.host.layer else { continue }
             move(layer, act.spring, origin: change.origin, size: change.size)
@@ -258,7 +255,6 @@ final class PaneCommitMotion {
             moveRing(of: change, act.spring)
             moveClip(of: change, act.spring)
         }
-        cutKept()
         if act == .unzoom {
             // The others: the panes that come back, or, in a zoom's move, the panes that it still kept under.
             closeOver(changes[0], last: last, others: coming + staying.map(\.host).filter { $0 !== changes[0].host }, act.spring)
@@ -325,28 +321,25 @@ final class PaneCommitMotion {
         finish()
     }
 
-    /// Ends the motion now: each pane, ring and divider shows at its place, the ground strips and an unzoom's last
-    /// frame go, and the panes that a close took out hide. The motion's time is spent, or a change that shows in one
+    /// Ends the motion now: each pane, ring and divider shows at its place, the ground strips, the window's colour
+    /// under a pane and an unzoom's last frame go, and the panes that a close took out hide. The motion's time is spent, or a change that shows in one
     /// frame shows.
     func finish() {
         remaining = 0
         overtime = 0
-        began = [:]
         let held = Array(holds.values)
         holds = [:]
         for hold in held { endHold(hold.holder, of: hold.host) }
-        if !moved.isEmpty || !grounds.isEmpty || !under.isEmpty || lastFrame != nil || raised != nil {
+        if !moved.isEmpty || !grounds.isEmpty || !under.isEmpty || !sheets.isEmpty || lastFrame != nil || raised != nil {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             for (layer, key) in moved { layer.removeAnimation(forKey: key) }
             moved = []
             for ground in grounds.values { Self.strips(of: ground.layer).forEach { $0.removeFromSuperlayer() } }
             grounds = [:]
-            for (host, z) in under {
-                host.layer?.zPosition = z
-                uncut(host)
-            }
+            for (host, z) in under { host.layer?.zPosition = z }
             under = []
+            hideSheets()
             dropLastFrame()
             lower()
             CATransaction.commit()

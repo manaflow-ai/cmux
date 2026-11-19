@@ -63,22 +63,26 @@ extension PaneCommitMotion {
     /// the panes that take their room grow over them. Their rings hide now. ``finish()`` gives each layer its
     /// `zPosition` back, and hides the panes. A pane that a later change took back into the layout gets it back here:
     /// until then it shows no ring (`PaneHostView.hidesRing`), also in the turn of the key that took it back.
+    /// A pane that a later act takes out was over the panes that the move kept before: those go one step lower, so
+    /// it stays over them, whatever the order of the screen's views.
     func keepUnder(_ hosts: [PaneHostView]) {
         under.removeAll { entry in
             guard !entry.host.isLeaving else { return false }
             entry.host.layer?.zPosition = entry.z
-            uncut(entry.host)
             return true
         }
-        for host in hosts {
-            host.chrome.isHidden = true
-            guard let layer = host.layer, !under.contains(where: { $0.host === host }) else { continue }
+        let new = hosts.filter { host in host.layer != nil && !under.contains { $0.host === host } }
+        if !new.isEmpty { for entry in under { entry.host.layer?.zPosition -= 1 } }
+        for host in hosts { host.chrome.isHidden = true }
+        for host in new {
+            guard let layer = host.layer else { continue }
             under.append((host: host, z: layer.zPosition))
             layer.zPosition = Self.underZ
         }
     }
 
-    /// The `zPosition` of a pane host's layer while a move keeps the pane under the others.
+    /// The `zPosition` of a pane host's layer while a move keeps the pane under the others, or a lower one: a pane
+    /// that the move kept before another is under that one.
     static let underZ: CGFloat = -1
 
     /// Whether `host` is in front of no pane in what its screen shows, whatever its place in the order of the
@@ -125,5 +129,5 @@ extension PaneHostView {
     /// Whether this pane's ring is hidden: the host is hidden, or a move keeps it shown under the other panes
     /// (``PaneCommitMotion/keepUnder(_:)``). A pane that a second key takes back into the layout while a zoom's pane
     /// still moves over it gets its ring in the pass that shows that key's change, not in the key's turn.
-    var hidesRing: Bool { isHidden || layer?.zPosition == PaneCommitMotion.underZ }
+    var hidesRing: Bool { isHidden || (layer?.zPosition ?? 0) <= PaneCommitMotion.underZ }
 }
