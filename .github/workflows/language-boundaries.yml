@@ -21,19 +21,14 @@ on:
 
 permissions: {}
 
-# A title or description edit takes a group of its own, so it never cancels a real run.
 concurrency:
-  group: language-boundaries-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !github.event.changes.base && format('-edit-{0}', github.run_id) || '' }}
+  group: language-boundaries-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   language-boundaries:
     name: language-boundaries
     # Every label change re-runs it (a skipped run would read as a pass and replace a failing one).
-    # A title or description edit does not: the check never reads them. GitHub runs main's copy of a
-    # pull_request_target workflow, which is advisory; this copy keeps the same events
-    # (tests/test_ci_edit_events_start_no_runner.py). A retarget (changes.base) re-runs it.
-    if: ${{ !(github.event.action == 'edited' && !github.event.changes.base) }}
     # A base-revision control-plane job (cla-policy-guard.yml's runner rule): a VM destroyed after one job,
     # never a persistent or contributor-controlled machine.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
