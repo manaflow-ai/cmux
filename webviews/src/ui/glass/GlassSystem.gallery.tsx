@@ -9,6 +9,7 @@
 // - popover: glass in the page that floats, as the composer and Session Info draw it.
 // - menu: a menu and a hover card, the one floating material (--ds-transient-web-*).
 // - chip: a tooltip, the host's contrast-fitted tint (here the level's fallback).
+// - content: a card in the content layer (.ui-glass-content): near-solid, no blur (rule 2).
 //
 // Variants: Liquid Glass on (the gallery's base theme keeps glass on), Liquid Glass off
 // (data-glass="off", the shipped default since cmux#46104) and Reduce Transparency.
@@ -77,6 +78,18 @@ function GlassSystemGallery({ mode }: Props) {
       >
         <span style={{ fontWeight: "var(--weight-emphasis)" }}>Parser fixes</span>
         <span style={{ color: "var(--cmux-text-secondary)" }}>chrome · the bar docked on the page</span>
+      </div>
+      <div
+        className="ui-glass ui-glass-content"
+        data-level="content"
+        style={{
+          ...box(24, 150, 330, 96),
+          padding: "var(--ds-space-3) var(--ds-space-4)",
+          borderRadius: "var(--ui-popup-radius)",
+        }}
+      >
+        <div style={{ color: "var(--cmux-text-secondary)" }}>content · a permission ask in the transcript</div>
+        <div style={{ marginTop: "var(--ds-space-2)" }}>Allow edits to tokenizer.rs? Near-solid, no blur.</div>
       </div>
       <div
         className="ui-glass ui-glass-floats"

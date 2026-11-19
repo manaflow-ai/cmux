@@ -573,18 +573,18 @@
 
 /* Grouped: the browsers in one card, hairlines between, and the kinds in a second card, two to a
    line (Settings' lists; the agents step's list look). */
-/* The cards are frosted glass of their own: the surface color at 62% over a blur, so a busy wallpaper
+/* The cards are frosted glass of their own: the surface color at the chrome glass level over its blur, so a busy wallpaper
    behind the window's glass never fights the rows' text (the plain look's 5% tint did). Never opaque. */
 .onb-import {
-  --onb-card-glass: color-mix(in srgb, var(--ds-color-surface) 62%, transparent);
+  --onb-card-glass: color-mix(in srgb, var(--ds-color-surface) var(--ds-glass-chrome-tint), transparent);
 }
 .onb-import .onb-import-list,
 .onb-import .onb-import-options {
   border: 1px solid var(--onb-card-rim);
   border-radius: var(--ds-radius-xl);
   background: var(--onb-card-glass);
-  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
-  backdrop-filter: var(--ds-glass-popover-blur);
+  -webkit-backdrop-filter: var(--ds-glass-chrome-blur);
+  backdrop-filter: var(--ds-glass-chrome-blur);
 }
 .onb-import .onb-import-list {
   gap: 0;
@@ -880,8 +880,8 @@
   border: 1px solid var(--onb-card-rim);
   border-radius: var(--ds-radius-xl);
   background: var(--onb-card-glass);
-  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
-  backdrop-filter: var(--ds-glass-popover-blur);
+  -webkit-backdrop-filter: var(--ds-glass-chrome-blur);
+  backdrop-filter: var(--ds-glass-chrome-blur);
   text-align: start;
 }
 .onb-express-ask-icon {
