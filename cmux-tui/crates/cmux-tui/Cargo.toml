@@ -29,6 +29,12 @@ hotpatch = ["cmux-tui-core/hotpatch", "dep:cmux-terminal-client"]
 # Measurement only: the daemon's heap by allocation site (dhat), written to the file
 # CMUX_TUI_DHAT_OUT names when it exits (src/heap_profile.rs). No shipped build enables it.
 dhat-heap = ["dep:dhat"]
+# The cmux-next Home Chief (`optchat-chief`, run by argv[0]) in a build for a
+# unix other than macOS: measurement only (scripts/measure/fold-chief.sh builds
+# the Linux binary with it to stand in for the Mac's). The macOS build always
+# carries it (below); no shipped build enables this, so the Linux binary a
+# remote host fetches over ssh does not grow.
+fold-optchat-chief = ["dep:optchat-chief"]
 
 # The whole program. src/main.rs stays the crate root (its dispatch tables are
 # where they always were); the cmux-tui binary is a small entry point that
@@ -116,6 +122,8 @@ crossterm = { workspace = true, features = ["serde", "event-stream"] }
 crossbeam-channel.workspace = true
 anyhow.workspace = true
 dhat = { version = "0.3", optional = true }
+# `fold-optchat-chief` (measurement on Linux); the macOS table below always takes it.
+optchat-chief = { path = "../../../Native/OptChat/optchat-chief", optional = true }
 bytes.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
@@ -256,6 +264,11 @@ cmux-layout-reducer.workspace = true
 cmux-action-catalog.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# The cmux-next Home Chief runs from this binary by argv[0] (`optchat-chief`,
+# a link beside bin/cmux; CMUX-570). It stays its own Cargo workspace
+# (Native/OptChat) with its own binary for its tests, the Linux box and the
+# Cloud Chief, and a bundle whose cmux does not carry it.
+optchat-chief = { path = "../../../Native/OptChat/optchat-chief" }
 # `cmux carrier dial`: the device's Noise key in the login Keychain (carrier/noise_key.rs).
 # All three are already in the graph through rustls-native-certs.
 core-foundation = "0.10"

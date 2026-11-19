@@ -557,6 +557,24 @@ codegen-units = 1
 [profile.release.package.acpmux]
 codegen-units = 1
 
+# The Home Chief folded into bin/cmux (CMUX-570) keeps its own workspace's size
+# setting (Native/OptChat/optchat-chief/Cargo.toml): opt-level "s", nothing in
+# it runs per frame.
+[profile.release.package.optchat-chief]
+opt-level = "s"
+
+[profile.release.package.optchat-core]
+opt-level = "s"
+
+[profile.release.package.optchat-host]
+opt-level = "s"
+
+[profile.release.package.chief-kernel]
+opt-level = "s"
+
+[profile.release.package.chief-turn]
+opt-level = "s"
+
 # The agent service v2 gates (god against small, 1.2x) in `acpmux`'s own tests
 # build here: `cargo test --profile gate -p acpmux --lib NAME -- --ignored`. It is release's
 # code generation without its link-time cost. A release test build of `acpmux`
