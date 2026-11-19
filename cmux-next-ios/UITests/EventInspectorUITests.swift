@@ -51,10 +51,14 @@ final class EventInspectorUITests: XCTestCase {
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 10), "the Filter field shows\n\(app.debugDescription)")
         field.tap()
-        if let current = field.value as? String, !current.isEmpty, current != "Filter" {
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
-        }
-        field.typeText(text)
+        // The field's own clear button, not delete keys (keystrokes can drop on a loaded simulator).
+        let clear = field.buttons["Clear text"].firstMatch
+        if clear.exists { clear.tap() }
+        let empty = NSPredicate(format: "value == nil OR value == '' OR value == 'Filter'")
+        let cleared = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: empty, object: field)], timeout: 5) == .completed
+        XCTAssertTrue(cleared, "the Filter field is empty before typing, holds '\(field.value as? String ?? "")'")
+        if !text.isEmpty { field.typeText(text) }
+        attach(app, "filter-\(text.isEmpty ? "cleared" : text)")
     }
 
     @MainActor
