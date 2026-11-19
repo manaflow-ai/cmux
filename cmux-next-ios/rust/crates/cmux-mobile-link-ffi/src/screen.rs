@@ -796,7 +796,11 @@ mod tests {
             false,
             Arc::clone(&observer),
         ));
-        assert!(matches!(refused, Err(CmuxMobileError::InvalidArgument { .. })), "{refused:?}");
+        assert!(
+            matches!(refused, Err(CmuxMobileError::InvalidArgument { .. })),
+            "{:?}",
+            refused.as_ref().err()
+        );
     }
 
     /// A fake rd host in this process (the secure link on loopback UDP) answers the offer,
