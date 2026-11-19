@@ -1,11 +1,12 @@
 // Pieces every view shares: the state mark, the "5 min" stamp, an agent's row, a pull request's
 // chip and owner chips, and the view glyphs. Colors are theme roles only (pageBase.css,
 // StatusGlyph's tints); nothing here is blue.
-import type { ReactNode } from "react";
+import { createContext, memo, useCallback, useContext, type ReactNode } from "react";
+import { useDeadlineNow } from "../../ui/pageClock";
 import { StatusGlyph } from "../../ui/StatusGlyph";
 import type { StatusGlyphName } from "../../ui/statusGlyphs.generated";
 import type { Strings } from "../shared/i18n";
-import { agentPR, ciKind, folderName, LOCAL_MACHINE, shortDuration } from "./model";
+import { agentPR, ciKind, folderName, LOCAL_MACHINE, nextShortDuration, sameRowProps, shortDuration } from "./model";
 import type { ChiefViewManifest, ChiefViewProps } from "./registry";
 import type { AgentState, ChiefAgent } from "./types";
 
@@ -28,9 +29,19 @@ export function StateMark({ state, strings }: { state: AgentState; strings: Stri
   return <StatusGlyph name={GLYPH[state]} size={12} label={strings.t(stateKey(state))} className="cv-state" />;
 }
 
-/** "4 min" since `at`, in the page's language; nothing without a time. */
-export function Ago({ at, now, strings }: { at?: number | null; now: number; strings: Strings }) {
+/** A pinned time for every stamp (the gallery, a test); the wall clock when absent. */
+export const FixedNow = createContext<number | undefined>(undefined);
+
+/** "4 min" since `at`, in the page's language; nothing without a time. The stamp keeps its own
+ * clock and wakes only when its words change, so the passing minutes never draw its row. */
+export function Ago({ at, strings }: { at?: number | null; strings: Strings }) {
   if (!at) return null;
+  return <AgoStamp key={at} at={at} strings={strings} />;
+}
+
+function AgoStamp({ at, strings }: { at: number; strings: Strings }) {
+  const next = useCallback((now: number) => nextShortDuration(at, now), [at]);
+  const now = useDeadlineNow(next, useContext(FixedNow));
   return (
     <time
       className="cv-ago"
@@ -85,11 +96,11 @@ export function OwnerChips({ owners, strings }: { owners: readonly ChiefAgent[];
 
 /**
  * One agent: state, title, machine and folder, its task line, the time since its last output and
- * its pull request. `compact` (a sidebar, a board card) drops the folder and wraps the task.
+ * its pull request. `compact` (a sidebar, a board card) drops the folder and wraps the task. It
+ * draws again only when its own agent changed (the store keeps an unchanged agent's object).
  */
-export function AgentRow({
+export const AgentRow = memo(function AgentRow({
   agent,
-  now,
   strings,
   compact,
   showMachine,
@@ -97,7 +108,6 @@ export function AgentRow({
   onOpen,
 }: {
   agent: ChiefAgent;
-  now: number;
   strings: Strings;
   compact?: boolean;
   showMachine?: boolean;
@@ -111,7 +121,7 @@ export function AgentRow({
     <span className="cv-row-meta">
       {compact && showMachine && <span className="cv-row-machine">{machineLabel(agent, strings)}</span>}
       {pr !== undefined && <PRChip number={pr} />}
-      <Ago at={agent.lastOutputAt ?? agent.since} now={now} strings={strings} />
+      <Ago at={agent.lastOutputAt ?? agent.since} strings={strings} />
     </span>
   );
   return (
@@ -139,7 +149,7 @@ export function AgentRow({
       </button>
     </li>
   );
-}
+}, sameRowProps);
 
 /** A view's body while its data loads, failed or is missing; `children` once it is ready. */
 export function Loaded({
