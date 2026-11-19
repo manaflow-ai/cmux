@@ -33,8 +33,10 @@ struct ScreenLowLatencyEncoderTests {
         let first = try #require(result.outputs.first)
         #expect(first.width == 1280 && first.height == 800, "scaled to the size libwebrtc asked for")
         #expect(first.keyframe)
-        #expect(Array(first.nalTypes.prefix(3)) == [7, 8, 5], "SPS, PPS, IDR: \(first.nalTypes)")
-        #expect(result.outputs[1].nalTypes.allSatisfy { $0 == 1 }, "a delta frame is non-IDR slices: \(result.outputs[1].nalTypes)")
+        // SPS, PPS, then the IDR (VideoToolbox's real-time session puts an SEI, 6, before it).
+        #expect(Array(first.nalTypes.prefix(2)) == [7, 8], "SPS and PPS first: \(first.nalTypes)")
+        #expect(first.nalTypes.contains(5) && first.nalTypes.allSatisfy { [5, 6, 7, 8].contains($0) }, "an IDR picture: \(first.nalTypes)")
+        #expect(result.outputs[1].nalTypes.allSatisfy { $0 == 1 || $0 == 6 }, "a delta frame is non-IDR slices: \(result.outputs[1].nalTypes)")
         #expect(result.outputs[20].keyframe && result.outputs[20].nalTypes.contains(5), "the requested IDR at frame 20")
         #expect(result.outputs.filter(\.keyframe).count == 2, "no keyframe libwebrtc did not ask for")
         #expect(result.implementation == ScreenLowLatencyEncoder.implementation)
