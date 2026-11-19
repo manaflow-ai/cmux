@@ -72,6 +72,14 @@ public final class ScreenSharingRdSession {
             let latency = shown.latencyMicros.map { Double($0) / 1000 }
             Task { @MainActor [weak self] in self?.frameShown(latencyMs: latency) }
         }
+        #if DEBUG
+        // Test-only key-to-frame probe (CMUX_K2F_MARKER set by the latency UITest).
+        if control, let probe = ScreenKeyToFrame() {
+            probe.start(decoder: decoder, input: RdProbeInput(link: link),
+                        meta: ["viewer": "cmux-next-ios", "path": "rd",
+                               "present": "next vsync after the layer took the picture (estimate)"])
+        }
+        #endif
         let signaling = signaling
         tasks.append(Task { [weak self] in await self?.follow(signaling, link: link) })
     }
@@ -246,4 +254,23 @@ extension ScreenSharingRdSession {
         return String(localized: "Disconnected")
     }
 }
+
+#if DEBUG
+/// The key-to-frame probe's input on the rd link: the same calls a tap and the keyboard make.
+private final class RdProbeInput: KeyToFrameInput {
+    private let link: ScreenLink
+    init(link: ScreenLink) { self.link = link }
+
+    func key() {
+        link.keyEvent(usage: 0x04, down: true) // HID "a", as `cmux-rd bench --input key`
+        link.keyEvent(usage: 0x04, down: false)
+    }
+
+    func click(x: UInt32, y: UInt32) {
+        link.pointer(x: Int32(clamping: x), y: Int32(clamping: y))
+        link.button(button: 1, down: true)
+        link.button(button: 1, down: false)
+    }
+}
+#endif
 #endif

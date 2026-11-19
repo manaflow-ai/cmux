@@ -38,6 +38,9 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
     public var now: @Sendable () -> UInt64 = { 0 }
     /// After each shown frame, on the decode queue.
     public var shown: @Sendable (Shown) -> Void = { _ in }
+    /// The picture just handed to the layer, on the decode queue: the key-to-frame probe reads
+    /// its marker (nil, the default, costs nothing).
+    public var enqueued: (@Sendable (CVPixelBuffer) -> Void)?
 
     public init(layer: AVSampleBufferDisplayLayer = AVSampleBufferDisplayLayer()) {
         self.layer = layer
@@ -129,6 +132,7 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
         skipped = 0
         lastPixels = pixels
         enqueue(pixels)
+        enqueued?(pixels)
         let done = now()
         let decodeMicros = UInt32(clamping: done >= started ? done - started : 0)
         let latency = Self.latencyMicros(age: age, received: received, done: done)
