@@ -7,8 +7,11 @@
 //!    catalog entry whose `modelSource` is `catalog`. For an ACP harness that
 //!    already reported its models, only the curated ones it reported (the
 //!    agent decides what it runs; the catalog adds names, order and
-//!    metadata). Claude Code reports none, so its list comes from the catalog
-//!    after the "default" choice;
+//!    metadata), unless the entry `runsAnyModel` (Gemini CLI: its ACP menu is
+//!    fixed per release, `--model` takes any Gemini API id), which gets every
+//!    curated model, the ones newer than its whole menu leading `topModels`.
+//!    Claude Code reports none, so its list comes from the catalog after the
+//!    "default" choice;
 //! 3. the models the harness reported that the catalog does not list, marked
 //!    `curated: false` (for example an OpenCode user's own providers). A
 //!    `probe` entry lists no models: every reported model is shown, with the
@@ -129,7 +132,10 @@ fn offered(
         out.extend(reported.iter().map(|r| reported_json(r, catalog)));
         return out;
     };
-    let picks = (*kind == HarnessKind::Acp || live) && !reported.is_empty();
+    // A harness that runs any model id gets every catalog model, not only the ones it names.
+    let picks = (*kind == HarnessKind::Acp || live)
+        && !reported.is_empty()
+        && curated.runs_any_model != Some(true);
     for model in &curated.models {
         if !picks || lists(reported, model) {
             out.push(curated_json(model, catalog));
@@ -145,6 +151,42 @@ fn offered(
         }
     }
     out
+}
+
+/// Drops the models the catalog disabled from a harness's list: one never shows, even when the
+/// harness reports it itself or the user's config names it.
+fn drop_disabled(models: &mut Vec<Value>, disabled: &[String]) {
+    models.retain(|m| m["id"].as_str().is_none_or(|id| !disabled.iter().any(|d| d == id)));
+}
+
+/// For a harness that runs any model id (`runsAnyModel`: Gemini CLI, whose ACP menu is fixed in
+/// each release), the catalog models released after every model its menu names, in catalog
+/// order: they lead its picker menu, so a model the harness's release predates still shows
+/// first the day the catalog or the feed lists it. Empty for any other harness, or when no menu
+/// model has a known release date.
+fn newer_than_menu(
+    curated: &CatalogHarness,
+    catalog: &Catalog,
+    reported: &[(String, String)],
+) -> Vec<String> {
+    if curated.runs_any_model != Some(true) {
+        return Vec::new();
+    }
+    let released = |model: &HarnessModel| {
+        model
+            .reference
+            .as_deref()
+            .and_then(|r| catalog.models.get(r))
+            .and_then(|i| i.release_date.clone())
+    };
+    let newest = curated.models.iter().filter(|m| lists(reported, m)).filter_map(released).max();
+    let Some(newest) = newest else { return Vec::new() };
+    curated
+        .models
+        .iter()
+        .filter(|m| !lists(reported, m) && released(m).is_some_and(|date| date > newest))
+        .map(|m| m.id.clone())
+        .collect()
 }
 
 /// Preserve the harness's own picker order independently of the catalog's metadata order.
@@ -233,13 +275,23 @@ impl Hub {
             if let Some(live) = &live {
                 crate::live_models::overlay(&mut models, live);
             }
+            let disabled: &[String] = curated.as_ref().map_or(&[], |c| &c.disabled);
+            drop_disabled(&mut models, disabled);
             if models.is_empty() {
                 models.push(json!({"id": "default", "name": "default (agent's choice)"}));
             }
             super::model_availability::mark_unavailable(&mut models, name, &refused);
             let top =
                 if live.is_some() || (profile.kind == HarnessKind::Acp && !reported.is_empty()) {
-                    Some(picker_models(&current(&reported, live.as_deref()), &models))
+                    let menu = picker_models(&current(&reported, live.as_deref()), &models);
+                    let mut top: Vec<String> = curated
+                        .as_ref()
+                        .map(|c| newer_than_menu(c, &catalog, &reported))
+                        .unwrap_or_default();
+                    top.retain(|id| !menu.contains(id));
+                    top.extend(menu);
+                    top.retain(|id| !disabled.contains(id));
+                    Some(top)
                 } else {
                     None
                 };
@@ -302,6 +354,83 @@ mod picker_models_tests {
         let reported = [("default", "Default"), ("a", "A"), ("b", "B"), ("a", "A")]
             .map(|(id, name)| (id.to_owned(), name.to_owned()));
         assert_eq!(picker_models(&reported, &models), vec!["release-a", "release-b"]);
+    }
+
+    /// Gemini CLI's ACP menu is fixed in each release (0.69.0 names no Gemini 4 model) while it
+    /// runs any Gemini API id: its catalog models are offered, and the ones newer than its whole
+    /// menu lead it (user 2026-11-19: "gemini neon didn't automatically appear in model picker").
+    fn gemini_catalog(runs_any_model: bool) -> Catalog {
+        crate::catalog::schema::parse(
+            &serde_json::to_vec(&json!({
+                "schemaVersion": 1, "generatedAt": "2026-11-19T00:00:00.000Z", "source": "live",
+                "harnesses": [{
+                    "id": "gemini", "name": "Gemini CLI", "brand": "gemini", "families": ["gemini"],
+                    "modelSource": "catalog", "runsAnyModel": runs_any_model,
+                    "models": [
+                        {"id": "gemini-4-neon", "ref": "google/gemini-4-neon", "name": "Gemini 4 Neon", "shortName": "4 Neon"},
+                        {"id": "gemini-3.1-pro-preview", "ref": "google/gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro Preview", "shortName": "3.1 Pro Preview"},
+                        {"id": "gemini-2.5-pro", "ref": "google/gemini-2.5-pro", "name": "Gemini 2.5 Pro", "shortName": "2.5 Pro"}
+                    ]
+                }],
+                "models": {
+                    "google/gemini-4-neon": {"name": "Gemini 4 Neon", "releaseDate": "2026-11-18"},
+                    "google/gemini-3.1-pro-preview": {"name": "Gemini 3.1 Pro Preview", "releaseDate": "2026-02-19"},
+                    "google/gemini-2.5-pro": {"name": "Gemini 2.5 Pro", "releaseDate": "2025-06-17"}
+                },
+                "providers": {"google": {"name": "Google"}}
+            }))
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_disabled_model_never_shows_even_when_the_harness_reports_it() {
+        let mut models = vec![
+            json!({"id": "gemini-4-neon", "name": "Gemini 4 Neon"}),
+            json!({"id": "gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro Preview"}),
+        ];
+        drop_disabled(&mut models, &["gemini-4-neon".to_owned()]);
+        let ids: Vec<&str> = models.iter().filter_map(|m| m["id"].as_str()).collect();
+        assert_eq!(ids, ["gemini-3.1-pro-preview"]);
+    }
+
+    fn gemini_menu() -> Vec<(String, String)> {
+        [
+            ("auto-gemini-3", "Auto (Gemini 3)"),
+            ("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview"),
+            ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+        ]
+        .map(|(id, name)| (id.to_owned(), name.to_owned()))
+        .to_vec()
+    }
+
+    #[test]
+    fn a_harness_that_runs_any_model_offers_catalog_models_its_menu_lacks() {
+        let catalog = gemini_catalog(true);
+        let curated = &catalog.harnesses[0];
+        let offered = offered(&HarnessKind::Acp, Some(curated), &catalog, &gemini_menu(), false);
+        let ids: Vec<&str> = offered.iter().filter_map(|m| m["id"].as_str()).collect();
+        assert!(ids.contains(&"gemini-4-neon"), "{ids:?}");
+        assert!(ids.contains(&"auto-gemini-3"), "the harness's own choices stay: {ids:?}");
+        assert_eq!(newer_than_menu(curated, &catalog, &gemini_menu()), ["gemini-4-neon"]);
+    }
+
+    #[test]
+    fn a_harness_whose_menu_is_the_account_list_keeps_only_what_it_reports() {
+        let catalog = gemini_catalog(false);
+        let curated = &catalog.harnesses[0];
+        let offered = offered(&HarnessKind::Acp, Some(curated), &catalog, &gemini_menu(), false);
+        assert!(!offered.iter().any(|m| m["id"] == "gemini-4-neon"));
+        assert!(newer_than_menu(curated, &catalog, &gemini_menu()).is_empty());
+    }
+
+    /// A menu with no dated model gives nothing to compare: no catalog model is promoted.
+    #[test]
+    fn an_undated_menu_promotes_nothing() {
+        let catalog = gemini_catalog(true);
+        let menu = vec![("auto-gemini-3".to_owned(), "Auto".to_owned())];
+        assert!(newer_than_menu(&catalog.harnesses[0], &catalog, &menu).is_empty());
     }
 
     #[test]

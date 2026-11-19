@@ -100,7 +100,8 @@ int32_t cmux_agent_pane_policy_filter_reply(const uint8_t *method, size_t method
 
 /* One JSON op; request is a JSON object (or empty for {}); *out gets the
  * reply object. pane may be NULL for "policy", "refusal_frame", "raw_id",
- * "pick", "own_prompt_id" and "canonical_digest"; the others need it.
+ * "pick", "own_prompt_id", "canonical_digest" and "service_wait"; the others
+ * need it.
  *   add {session} -> {}               sent {method, id?, handoff?, owned?} -> {}
  *   contains {session} -> {contains}  is_unstarted -> {unstarted}
  *   question_keys {permission} -> {keys: [..]|null}
@@ -114,7 +115,10 @@ int32_t cmux_agent_pane_policy_filter_reply(const uint8_t *method, size_t method
  *   pick {method?, params?} -> {pick: {method: m|null, params: {..}|null}}
  *     (the pick a gesture ticket is bound to; params null: no match)
  *   own_prompt_id {id} -> {id}
- *   canonical_digest {value} -> {digest: hex|null} */
+ *   canonical_digest {value} -> {digest: hex|null}
+ *   service_wait {process_alive, socket_accepts}
+ *     -> {state: "busy"|"starting"|"down", restart}
+ *     (the pane's line while it waits; Restart only when down) */
 int32_t cmux_agent_pane_policy_call(const CmuxAgentPanePolicy *pane, const char *op,
                                     const uint8_t *request, size_t request_len,
                                     CmuxAgentPaneBytes *out);

@@ -82,6 +82,9 @@ DARWIN_CROSS_JOB = "macos-cross-shadow"
 DARWIN_CROSS = "darwin-cross-pool"
 # The owned GCP runners the nightly path's attempt 1 takes first (cmux-tui-artifacts.yml's jobs: comment).
 OWNED = "cmux-gcp-lane-build-x64"
+# The nightly-only runners: a nightly-next push and a tree request (dispatch) take these first, so the
+# nightly's tree never queues behind lane builds on OWNED (tree request 44427450458 sat 2 h there, 2026-11-19).
+NIGHTLY = "cmux-gcp-nightly-x64"
 # Jobs that keep their own route on the nightly path: the daemon tests (linux-placement, then Blacksmith;
 # their full checkout is not repaired for a reused self-hosted workspace) and the shadow (its override).
 OWN_ROUTE_JOBS = ("cmux-next-daemon-tests", DARWIN_CROSS_JOB)
@@ -113,6 +116,10 @@ LINUX_RUNNER_VALUES = (
     HOSTED,
 )
 TRUSTED_RUNNER_VALUES = ("", "ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404")
+# The one job outside this workflow's measured sizes on purpose: a ~20 s decision, before any
+# job takes a preflight-sized runner, whether a lane-branch push is superseded. It reads the
+# one-minute control pool, RUNNER_POOLS.linux_2 (tests/test_cmux_tui_superseded_gate.py pins it).
+HOSTED_GATE_JOBS = ("push-gate",)
 
 
 def linux_routes() -> list[tuple[str, str]]:
@@ -123,6 +130,8 @@ def linux_routes() -> list[tuple[str, str]]:
         cells = workflow_jobs.runs_on_cells(job)
         if cells is None:
             raise AssertionError(f"{WORKFLOW.name}#{name}: runs-on has a matrix value nothing resolves")
+        if name in HOSTED_GATE_JOBS:
+            continue
         routes.extend((name, runs_on) for runs_on in cells if "ubuntu" in runs_on)
     return routes
 
@@ -157,7 +166,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
             # tests) stays on Blacksmith. The nightly path's attempt 1 takes the owned pool.
             allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
-                       | ({OWNED} if name in NIGHTLY_TREE_JOBS else set()))
+                       | ({OWNED, NIGHTLY} if name in NIGHTLY_TREE_JOBS else set()))
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertTrue(labels <= allowed, labels - allowed)
 
@@ -203,15 +212,15 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         self.assertGreaterEqual(len(routes), len(NIGHTLY_TREE_JOBS) + 3)
         nightly = {"event": "'push'", "ref": "'refs/heads/feat-cmux-next'", "attempt": "1"}
         cases = (
-            ("feat-cmux-next push", nightly, True),
-            ("nightly-next push", {**nightly, "ref": "'refs/heads/nightly-next'"}, True),
-            ("dispatch", {**nightly, "event": "'workflow_dispatch'", "ref": "'refs/heads/feat-cmux-next'"}, True),
-            ("re-run", {**nightly, "attempt": "2"}, False),
-            ("lane push", {**nightly, "ref": "'refs/heads/lane/x'"}, False),
+            ("feat-cmux-next push", nightly, OWNED),
+            ("nightly-next push", {**nightly, "ref": "'refs/heads/nightly-next'"}, NIGHTLY),
+            ("dispatch", {**nightly, "event": "'workflow_dispatch'", "ref": "'refs/heads/feat-cmux-next'"}, NIGHTLY),
+            ("re-run", {**nightly, "attempt": "2"}, None),
+            ("lane push", {**nightly, "ref": "'refs/heads/lane/x'"}, None),
         )
         for workflow, name, runs_on in routes:
             for case, values, owned in cases:
-                if workflow == "cmux-tui-tree-request.yml" and case == "lane push":
+                if workflow == "cmux-tui-tree-request.yml" and case in ("lane push", "feat-cmux-next push"):
                     continue  # it runs only as a feat-cmux-next dispatch
                 text = runs_on.replace("github.run_attempt", values["attempt"])
                 text = text.replace("github.event_name", values["event"])
@@ -223,9 +232,9 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                         "LINUX_RUNNER": [linux_runner], "CI_CLOUD_OVERFLOW_SAVED": [""]})
                     with self.subTest(workflow=workflow, job=name, case=case, linux_runner=linux_runner):
                         if owned:
-                            self.assertEqual(labels, {OWNED})
+                            self.assertEqual(labels, {owned})
                         else:
-                            self.assertNotIn(OWNED, labels)
+                            self.assertFalse(labels & {OWNED, NIGHTLY}, labels)
 
     def test_a_fork_keeps_github_hosted_ubuntu(self) -> None:
         for name, runs_on in linux_routes():
@@ -233,5 +242,105 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                 self.assertEqual(resolved(runs_on, "someone-else", "", "", ""), {"ubuntu-24.04"})
 
 
+# The routes that can name an owned self-hosted Linux label whose runner user has no sudo:
+# cmux-gcp-lane-build-x64, the build-lane runners on the GCP agent lanes (cmuxterm-hq
+# build-fleet/swift-linux-builder/lane-build-runners). LINUX_BUILD_RUNNER and LINUX_RUNNER_DARWIN_CROSS name it,
+# the placement steps hand it on as a needs output or a reusable workflow's runner input, and a matrix runner
+# carries it in the workflows that read those variables. The nightly path names the label itself (6763b318).
+OWNED_ROUTE = re.compile(
+    r"vars\.(?:LINUX_BUILD_RUNNER|LINUX_RUNNER_DARWIN_CROSS|CMUX_TUI_GATE_RUNNER)\b"
+    r"|inputs\.linux(?:_build)?_runner\b"
+    r"|needs\.[\w-]+\.outputs\.[\w-]*runner\b"
+    r"|'cmux-gcp-lane-build[\w-]*'"
+)
+SUDO = re.compile(r"(?<![\w-])sudo(?![\w-])")
+APT_INSTALL = re.compile(r"\bapt(?:-get)?\s+(?:[^|;&\n]*\s)?install\b")
+
+
+def owned_routable_jobs() -> list[tuple[str, str, dict]]:
+    """(workflow, job, body) for every job whose runs-on can resolve to an owned label."""
+    found = []
+    for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        text = path.read_text(encoding="utf-8")
+        if not OWNED_ROUTE.search(text):
+            continue
+        for name, job in workflow_jobs.jobs(path).items():
+            runs_on = workflow_jobs.runs_on(job)
+            if OWNED_ROUTE.search(runs_on) or "matrix." in runs_on:
+                found.append((path.name, name, job))
+    return found
+
+
+class OwnedRunnerNeedsNoPasswordTest(unittest.TestCase):
+    """A job that can land on an owned runner never asks sudo for a password.
+
+    On 2026-11-18 LINUX_BUILD_RUNNER named cmux-gcp-lane-build-x64 and every musl leg of run 44363923089
+    died in its first step, `sudo apt-get install ... musl-tools`, with "sudo: a password is required": that
+    label's runner user has no sudo. Such a job installs packages through scripts/ci/apt-ensure.sh (nothing
+    to do when the image has them; `sudo -n` otherwise, failing at once with the packages to provision), and
+    any other sudo it runs is `sudo -n`. A step only GitHub-hosted runners take is exempt.
+    """
+
+    def test_the_musl_legs_are_found(self) -> None:
+        names = {(workflow, job) for workflow, job, _ in owned_routable_jobs()}
+        self.assertIn(("cmux-tui-build-package.yml", "build"), names)
+        self.assertIn(("cmux-tui-artifacts.yml", DARWIN_CROSS_JOB), names)
+
+    def test_no_password_prompt_on_an_owned_route(self) -> None:
+        for workflow, name, job in owned_routable_jobs():
+            for step in job.get("steps") or []:
+                run = step.get("run")
+                if not isinstance(run, str) or "github-hosted" in str(step.get("if", "")):
+                    continue
+                for line in run.splitlines():
+                    with self.subTest(workflow=workflow, job=name, step=step.get("name"), line=line.strip()):
+                        self.assertIsNone(
+                            APT_INSTALL.search(line),
+                            "install packages with scripts/ci/apt-ensure.sh PACKAGE..., not apt-get install",
+                        )
+                        for match in SUDO.finditer(line):
+                            self.assertTrue(line[match.end():].lstrip().startswith("-n"), "use sudo -n")
+
+    def test_the_detector_flags_the_failing_step(self) -> None:
+        self.assertTrue(APT_INSTALL.search("sudo apt-get install -y binutils clang musl-tools"))
+        self.assertTrue(APT_INSTALL.search("sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh"))
+        self.assertIsNone(APT_INSTALL.search("bash scripts/ci/apt-ensure.sh musl-tools"))
+        self.assertTrue(OWNED_ROUTE.search("${{ needs.tree-preflight.outputs.linux_build_runner || '' }}"))
+        self.assertTrue(OWNED_ROUTE.search("github.run_attempt == 1 && 'cmux-gcp-lane-build-x64' || vars.LINUX_RUNNER"))
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class NightlyTreeLegsTakeTheNightlyRunners(unittest.TestCase):
+    """2026-11-19: tree run 44431930226 (03103fd) never started on cmux-gcp-lane-build-x64, whose runners
+    newer PR legs kept busy. A nightly-next tree must take cmux-gcp-nightly-x64 for its build legs too: the
+    macOS leg (LINUX_DARWIN_RUNNER) and the build calls, which the shared-lane placement must not re-pin."""
+
+    def test_the_macos_leg_of_a_nightly_next_tree_takes_the_nightly_runners(self) -> None:
+        package = yaml.load((WORKFLOW.parent / "cmux-tui-build-package.yml").read_text(encoding="utf-8"),
+                            Loader=yaml.BaseLoader)["jobs"]["plan-build"]
+        expr = next(step for step in package["steps"] if step.get("id") == "targets")["env"]["LINUX_DARWIN_RUNNER"]
+        artifacts = "'manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml@refs/heads/x'"
+        for ref, event, expected in (("'refs/heads/nightly-next'", "'push'", {NIGHTLY}),
+                                     ("'refs/heads/feat-cmux-next'", "'workflow_dispatch'", {NIGHTLY}),
+                                     ("'refs/heads/feat-cmux-next'", "'push'", {OWNED})):
+            text = (expr.replace("github.run_attempt", "1").replace("github.event_name", event)
+                    .replace("github.workflow_ref", artifacts))
+            text = re.sub(r"\bgithub\.ref\b", ref, text)
+            labels = resolve_labels(text, owner="manaflow-ai", silent=("needs", "inputs"), variables={
+                "LINUX_RUNNER_DARWIN_CROSS": [OWNED], "LINUX_RUNNER": ["blacksmith-2vcpu-ubuntu-2404"],
+                "CI_CLOUD_OVERFLOW_SAVED": [""]})
+            with self.subTest(ref=ref, event=event):
+                if expected == {NIGHTLY}:
+                    self.assertEqual(labels, expected)
+                else:  # the shared lane while LINUX_RUNNER_DARWIN_CROSS is set, never the nightly runners
+                    self.assertIn(OWNED, labels)
+                    self.assertNotIn(NIGHTLY, labels)
+
+    def test_the_shared_lane_placement_skips_nightly_next(self) -> None:
+        preflight = yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]["tree-preflight"]
+        step = next(step for step in preflight["steps"] if step.get("id") == "gcp-placement")
+        self.assertIn("refs/heads/feat-cmux-next", step["if"])
+        self.assertNotIn("nightly-next", step["if"])
