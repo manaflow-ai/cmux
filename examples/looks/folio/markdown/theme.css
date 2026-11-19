@@ -1,0 +1,12 @@
+/* Folio's Markdown viewer reads as a wiki page: headings with no rule, code on a soft gray with
+   4 px corners, quotes behind a bar in the ink's own color, tables with a plain header.
+   Only --cmux-md-* custom properties on :root; every color is mixed from the page's own, so
+   this one file reads over the light and the dark theme file alike. */
+:root {
+  --cmux-md-code-background: color-mix(in srgb, var(--page-text) 4%, transparent);
+  --cmux-md-code-radius: 4px;
+  --cmux-md-heading-weight: 600;
+  --cmux-md-heading-rule: none;
+  --cmux-md-quote-border: 3px solid var(--page-text);
+  --cmux-md-table-header-background: color-mix(in srgb, var(--page-text) 3%, transparent);
+}
