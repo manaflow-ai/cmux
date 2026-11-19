@@ -8,7 +8,7 @@ import { useLasting } from "../../ui/lasting";
 import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
-import { Composer } from "./Composer";
+import { LaunchMain, OpenComposer } from "./LaunchComposer";
 import { ChiefTaskHat } from "./ChiefTaskHat";
 import { GoalStrip } from "./GoalStrip";
 import { useHostSelection, type HomeSelection } from "./hostSelection";
@@ -578,7 +578,9 @@ export function HomeChannelsPage({
               >
                 {chiefPage ? (
                   <ChiefRoutePage sheets={store.sheets} state={sheetState} strings={strings} />
-                ) : snap.loading ? null : empty || !open ? (
+                ) : snap.loading ? (
+                  <LaunchMain strings={strings} />
+                ) : empty || !open ? (
                   <EmptyState
                     strings={strings}
                     noConversations={empty}
@@ -733,7 +735,7 @@ export function HomeChannelsPage({
                         />
                         <ChiefTaskHat book={store.runs} conversation={open.id} strings={strings} />
                         <div className="lg-main-compose">
-                          <Composer
+                          <OpenComposer
                             key={open.id}
                             strings={strings}
                             placeholder={format("composer.placeholder", place)}

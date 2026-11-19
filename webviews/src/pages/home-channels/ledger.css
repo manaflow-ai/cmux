@@ -2303,3 +2303,9 @@
 .lg-task-hat__row[data-state="stopped"] .lg-task-hat__title {
   color: var(--page-text-2);
 }
+/* Before a conversation opens (LaunchComposer.tsx): the timeline's place, so the composer sits where
+   the open conversation's composer will. */
+.lg-stage-pending {
+  flex: 1;
+  min-height: 0;
+}

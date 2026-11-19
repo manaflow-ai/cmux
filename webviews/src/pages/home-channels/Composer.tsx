@@ -50,6 +50,8 @@ export interface ComposerProps {
   onCancel?(): void;
   /** Take the keyboard focus when it opens (an inline edit started from the keyboard). */
   focusOnOpen?: boolean;
+  /** Each change of the text the person types (the launch composer keeps it for the conversation). */
+  onValueChange?(markdown: string): void;
   className?: string;
 }
 
@@ -86,6 +88,7 @@ export function Composer({
   initialValue = "",
   onCancel,
   focusOnOpen,
+  onValueChange,
   className,
   attachments,
   dropZone,
@@ -423,6 +426,7 @@ export function Composer({
           value={value}
           onChange={(markdown) => {
             setValue(markdown);
+            onValueChange?.(markdown);
             refreshFormats();
             fileUndo.textChanged();
           }}
