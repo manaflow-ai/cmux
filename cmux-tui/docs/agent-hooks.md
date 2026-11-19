@@ -21,6 +21,39 @@ sends no hook when a permission dialog is dismissed with Esc, so this proof,
 or the agent's own status report (OSC 7501 `blocked`, then `idle` or
 `working`), is the only evidence that the agent stopped waiting.
 
+## Why an agent shows a state
+
+`cmux agent explain <terminal|name>` says why cmux holds the agent's state,
+from the same records the daemon decided on (it classifies nothing again):
+
+```bash
+cmux agent explain alpha
+cmux --json agent alpha explain
+```
+
+- `cause`: the journal record that set the state. A hook names its event and
+  time (`event: PermissionRequest`, `at_ms`); a screen report names its rule,
+  the rule manifest's version and source (`bundled`, `remote`,
+  `local_override`), what the state rests on (`basis`: `rule`,
+  `idle_fallback`, `output_activity`, `process_identity`, `process_exit`) and
+  the screen text the rule matched (`screen_text`). `decision` says how the
+  daemon took it: `hook`, `screen`, `screen_after_stale_hook` (the hooks were
+  quiet for 30 s), `screen_cleared_hook_blocker` (the exception above),
+  `screen_ended_hook_turn` (a turn that ended with no hook, such as Esc),
+  `socket_report` or `hook_report`.
+- `previous`: the state before, its source, and when it began and ended.
+- `screen`: the screen's last observation, also when a fresh hook kept its
+  own state (`agrees: false`).
+
+The screen text is read from the plugin's journal record, which is
+`sensitive`: only a local client reads it, and a record that left the
+journal says so (`retained: false`). No agent in the terminal is
+`agent.not_found` (exit 1).
+
+To wait for several agents at once, `cmux terminal wait --any A,B,C` returns
+on the first one that shows an `--until` state (`idle,blocked,done` by
+default) and `--all` when every one does; see `cmux terminal wait --help`.
+
 ## Agents in a tmux session started elsewhere
 
 An agent can run in a tmux session whose server was started outside

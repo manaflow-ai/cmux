@@ -6,6 +6,8 @@
 
 #[cfg(unix)]
 mod action_hint;
+#[cfg(unix)]
+mod agent_explain;
 mod agent_input_hint;
 mod agent_message;
 #[cfg(unix)]
@@ -831,6 +833,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     };
     #[cfg(unix)]
     if let Some(code) = agent_start::run_if_requested(args)
+        .or_else(|| agent_explain::run_if_requested(args))
         .or_else(|| chat_start::run_if_requested(args))
         .or_else(|| mcp::run_if_requested(args))
         .or_else(|| workflow::run_if_requested(args))
@@ -1781,6 +1784,7 @@ USAGE
                   ended agent of a closed terminal is listed only with
                   --state ended)
   cmux agent <agent> focus
+  cmux agent explain <terminal|name>      (also cmux agent <name> explain)
   cmux agent report --terminal <selector> --state working|blocked|idle|ended|unknown --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
@@ -1800,6 +1804,9 @@ tabs; it works wherever a terminal, tab or pane selector goes
 (cmux terminal NAME send --text ... --wait idle).
 agent resume NAME starts an agent that exited again with its recorded harness
 session (claude --resume <id>, codex resume <id>) in the same pane.
+agent explain says why cmux holds the agent's state: the hook event or screen
+rule that set it, how cmux took it, and the state before
+(cmux agent explain --help).
 ";
 
 const SIDEBAR_HELP: &str = "\

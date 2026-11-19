@@ -2,6 +2,7 @@ use std::sync::OnceLock;
 
 use crate::config::Action;
 
+mod agent_state;
 mod agent_wrapper;
 mod agents_doctor;
 mod app_control;
@@ -42,6 +43,7 @@ mod terminal_input;
 pub(crate) mod terminal_respawn;
 mod update_notice;
 
+pub(crate) use agent_state::AgentStateMessages;
 pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
 pub(crate) use app_control::{AppControlMessages, NightlyMessages, TryMessages, VersionLabels};
@@ -168,6 +170,7 @@ pub(crate) struct Catalog {
     pub notification_banners: NotificationBannersMessages,
     pub cli_connection: CliConnectionMessages,
     pub sidebar: SidebarMessages,
+    pub agent_state: AgentStateMessages,
     pub agent_wrapper: AgentWrapperMessages,
     pub agents_doctor: AgentsDoctorMessages,
     pub host_share: host_share::Messages,
@@ -203,6 +206,7 @@ static ENGLISH: Catalog = Catalog {
     sandbox_run: sandbox_run::ENGLISH,
     update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
+    agent_state: agent_state::ENGLISH,
     agent_wrapper: agent_wrapper::ENGLISH,
     agents_doctor: agents_doctor::ENGLISH,
     host_share: host_share::ENGLISH,
@@ -244,6 +248,7 @@ static JAPANESE: Catalog = Catalog {
     sandbox_run: sandbox_run::JAPANESE,
     update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,
+    agent_state: agent_state::JAPANESE,
     agent_wrapper: agent_wrapper::JAPANESE,
     agents_doctor: agents_doctor::JAPANESE,
     host_share: host_share::JAPANESE,

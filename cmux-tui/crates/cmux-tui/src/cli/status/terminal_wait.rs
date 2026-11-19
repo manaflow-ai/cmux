@@ -45,7 +45,7 @@ pub(super) const TIMEOUT_EXIT: i32 = 124;
 /// How long the daemon may take to open the event stream or answer a read.
 pub(super) const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
 /// A read timeout may wake this much before the deadline it was set for.
-const DEADLINE_SLACK: Duration = Duration::from_millis(50);
+pub(super) const DEADLINE_SLACK: Duration = Duration::from_millis(50);
 /// How long after input an idle terminal may take to show that the input
 /// started work. Measured: Claude Code's first `working` report came
 /// 116-897 ms after Enter at load average ~150 (owners/W5-R.md).

@@ -261,6 +261,8 @@ USAGE
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> wait --until idle|prompt|ready
     [--timeout <500ms|30s|5m>]
+  cmux terminal wait --any|--all <t1,t2,...> [--until idle,blocked,done]
+    [--timeout <30m>]
   cmux terminal <selector> send --text <message|-> [--wait idle|prompt|none]
     [--pattern <regex>] [--timeout <5m>] [--settle <3s>] [--force] [--exit-with-status]
   cmux terminal <selector> run [--pattern <regex>] [--timeout <5m>] [--force] -- <command...>
@@ -296,6 +298,8 @@ integration to see commands, and print the terminal record; a passed
 --timeout exits 124. --until ready waits until the terminal's agent can take
 a message, as cmux agent start does: a startup dialog (Claude's folder-trust
 question, a login) ends it as blocked with the dialog and a reason (exit 4).
+wait --any returns when the first listed agent shows an --until state, --all
+when every listed agent does (cmux terminal wait --help).
 process wait prints outcome once the process ends; when the timeout passes
 first it prints state pending, timed_out: true and exits 124.
 list --agents lists the terminals that run a coding agent (Claude Code,

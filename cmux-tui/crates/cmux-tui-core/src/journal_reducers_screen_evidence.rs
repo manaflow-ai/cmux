@@ -37,6 +37,13 @@ pub(super) struct ScreenEvidence {
     /// end or an exit counts only for the process whose screen showed it.
     #[serde(default)]
     source_session: Option<String>,
+    /// The journal sequence of the report, so `agent explain` can read the
+    /// screen text it carried.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sequence: Option<u64>,
+    /// The screen rule that matched (`native.matched_rule`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rule: Option<String>,
 }
 
 /// A hook's turn start on a terminal ([`AgentRoster::screen_ends_hook_row`]).
@@ -56,6 +63,22 @@ impl ScreenEvidence {
     /// When the plugin first saw the `working` stretch it reports now.
     pub(super) fn working_since_ms(&self) -> Option<u64> {
         (self.state == AgentState::Working.as_str()).then_some(self.observed_at_ms)
+    }
+
+    /// The record as `state_reason.screen`: what the screen showed
+    /// last, whether or not it won arbitration.
+    pub(super) fn to_json(&self) -> Value {
+        let mut value = serde_json::Map::new();
+        value.insert("state".into(), Value::String(self.state.clone()));
+        value.insert("producer".into(), Value::String(self.producer.clone()));
+        value.insert("observed_at_ms".into(), Value::String(self.observed_at_ms.to_string()));
+        if let Some(sequence) = self.sequence {
+            value.insert("sequence".into(), Value::String(sequence.to_string()));
+        }
+        if let Some(rule) = &self.rule {
+            value.insert("rule".into(), Value::String(rule.clone()));
+        }
+        Value::Object(value)
     }
 
     /// A restored record names a valid plugin and a live state.
@@ -109,6 +132,7 @@ impl AgentRoster {
         state: AgentState,
         visible_idle: bool,
         observed_at_ms: u64,
+        (sequence, rule): (u64, Option<String>),
     ) -> ScreenNote {
         let late = |stored: &ScreenEvidence| {
             stored.producer == producer
@@ -129,6 +153,8 @@ impl AgentRoster {
                     state: state.as_str().to_string(),
                     observed_at_ms,
                     source_session: source_session.map(str::to_owned),
+                    sequence: Some(sequence),
+                    rule,
                 },
             )
         };
