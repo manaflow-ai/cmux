@@ -1,27 +1,28 @@
-import CmuxNextDesign
+package import CmuxNextDesign
 import CmuxNextSettings
 import Foundation
 
 /// Subagent Limit… on a chat (Leo: "Right-click, edit subagent count"): how many of a chat's
 /// sub-sessions acpmux runs at once (`_acpmux/subsession/limits` `maxRunning`). A chat's own value
-/// comes first, then its workspace's, then `agents.subsessions.maxRunning`. There is no workspace
-/// item yet: acpmux reads a workspace's value through a chat's `workspace_id`, which chats started
-/// in the app do not carry.
+/// comes first, then its workspace's, then `agents.subsessions.maxRunning`. New local chats
+/// carry the pane's workspace through `AcpmuxPathPolicy.stampWorkspace`.
 /// The dialog reads the current value, asks for a number or Use Default, and sends it; a number
 /// sets the value, `null` clears it. Running sub-sessions never stop when it goes down.
 @MainActor
-struct SubagentLimit {
-    static let method = "_acpmux/subsession/limits"
+package struct SubagentLimit {
+    package static let method = "_acpmux/subsession/limits"
 
     /// What the limit belongs to.
-    enum Scope: Equatable {
+    package enum Scope: Equatable {
         /// One chat, by its acpmux session id.
         case chat(String)
+        case workspace(String)
 
         /// The request's params: `maxRunning` left out reads, a number sets, `nil` clears.
-        func params(_ change: Change?) -> [String: Any] {
+        package func params(_ change: Change?) -> [String: Any] {
             var params: [String: Any] = switch self {
             case .chat(let session): ["sessionId": session]
+            case .workspace(let workspace): ["workspaceId": workspace]
             }
             switch change {
             case nil: break
@@ -33,24 +34,24 @@ struct SubagentLimit {
     }
 
     /// What the person chose in the dialog.
-    enum Change: Equatable {
+    package enum Change: Equatable {
         case set(Int)
         case useDefault
     }
 
     /// The limit as acpmux reports it.
-    struct Current: Equatable {
+    package struct Current: Equatable {
         /// The scope's own value; nil when it uses the next one down.
-        var own: Int?
+        package var own: Int?
         /// The value in effect.
-        var effective: Int?
+        package var effective: Int?
         /// The chat's sub-sessions running a turn now, and the ones waiting for a slot.
-        var running: Int?
-        var queued: Int?
+        package var running: Int?
+        package var queued: Int?
 
         /// The current value from a read's reply; nil when acpmux has no run limit (an acpmux
         /// from before `maxRunning` answers a chat's read without it).
-        init?(reply: [String: Any], scope: Scope) {
+        package init?(reply: [String: Any], scope: Scope) {
             switch scope {
             case .chat:
                 guard let limits = reply["subsessionLimits"] as? [String: Any],
@@ -59,10 +60,14 @@ struct SubagentLimit {
                 own = limits["maxRunningSource"] as? String == "session" ? effective : nil
                 running = Self.int(limits["running"])
                 queued = Self.int(limits["queued"])
+            case .workspace:
+                guard reply["workspaceId"] is String, reply.keys.contains("maxRunning") else { return nil }
+                own = Self.int(reply["maxRunning"])
+                effective = own
             }
         }
 
-        init(own: Int? = nil, effective: Int? = nil, running: Int? = nil, queued: Int? = nil) {
+        package init(own: Int? = nil, effective: Int? = nil, running: Int? = nil, queued: Int? = nil) {
             self.own = own
             self.effective = effective
             self.running = running
@@ -73,26 +78,32 @@ struct SubagentLimit {
     }
 
     /// The field's id in the dialog's answer.
-    static let field = "maxRunning"
-    static let setButton = "set"
-    static let defaultButton = "useDefault"
+    package static let field = "maxRunning"
+    package static let setButton = "set"
+    package static let defaultButton = "useDefault"
 
     /// The numbers the field takes (the settings row's range).
-    static var range: ClosedRange<Int> {
+    package static var range: ClosedRange<Int> {
         let range = SubsessionSettings.subsessionsMaxRunningRange
         return Int(range.lowerBound)...Int(range.upperBound)
     }
 
-    let scope: Scope
-    let current: Current
+    package let scope: Scope
+    package let current: Current
     /// The global setting: the field's placeholder when acpmux sent no value in effect.
-    let setting: Int
+    package let setting: Int
+
+    package init(scope: Scope, current: Current, setting: Int) {
+        self.scope = scope
+        self.current = current
+        self.setting = setting
+    }
 
     /// The dialog: what the limit does, a chat's running and waiting counts, the field
     /// (the own value, else empty with the value in effect as its placeholder) and Cancel,
     /// Use Default and Set.
-    var spec: CmuxDialogSpec {
-        var lines = [SubagentLimitStrings.chatLine]
+    package var spec: CmuxDialogSpec {
+        var lines = [scope.isWorkspace ? SubagentLimitStrings.workspaceLine : SubagentLimitStrings.chatLine]
         if let running = current.running, let queued = current.queued {
             lines.append(SubagentLimitStrings.status(running: running, queued: queued))
         }
@@ -108,7 +119,7 @@ struct SubagentLimit {
 
     /// The change for `answer`: nil when the person cancelled, `.failure` for a field that is not a
     /// whole number in ``range``. Set with an empty field uses the default, as Use Default does.
-    static func change(for answer: CmuxDialogAnswer) -> Result<Change, InvalidNumber>? {
+    package static func change(for answer: CmuxDialogAnswer) -> Result<Change, InvalidNumber>? {
         if answer.isDismissal || answer.isCancel { return nil }
         if answer.button == defaultButton { return .success(.useDefault) }
         guard answer.button == setButton else { return nil }
@@ -119,53 +130,71 @@ struct SubagentLimit {
     }
 
     /// A field that is not a number the limit takes.
-    struct InvalidNumber: Error, Equatable {}
+    package struct InvalidNumber: Error, Equatable {
+        package init() {}
+    }
 }
 
-/// Handlers.xcstrings.
-enum SubagentLimitStrings {
-    static var title: String {
-        String(localized: "subagentLimit.title", defaultValue: "Subagent Limit", table: "Handlers", bundle: .module)
+private extension SubagentLimit.Scope {
+    var isWorkspace: Bool {
+        if case .workspace = self { return true }
+        return false
     }
-    static var chatLine: String {
+}
+
+/// SubagentLimit.xcstrings in the agent-pane bundle.
+package enum SubagentLimitStrings {
+    package static var title: String {
+        String(localized: "subagentLimit.title", defaultValue: "Subagent Limit", table: "SubagentLimit", bundle: .module)
+    }
+    package static var chatLine: String {
         String(localized: "subagentLimit.chat.line",
                defaultValue: "The most subagents this chat runs at the same time. More wait their turn and start as running ones finish.",
-               table: "Handlers", bundle: .module)
+               table: "SubagentLimit", bundle: .module)
     }
-    static func status(running: Int, queued: Int) -> String {
+    package static var workspaceLine: String {
+        String(localized: "subagentLimit.workspace.line",
+               defaultValue: "Subagents each local chat runs at once. A chat's own limit takes precedence.",
+               table: "SubagentLimit", bundle: .module)
+    }
+    package static func status(running: Int, queued: Int) -> String {
         String(format: String(localized: "subagentLimit.status", defaultValue: "%1$lld running, %2$lld waiting.",
-                              table: "Handlers", bundle: .module), running, queued)
+                              table: "SubagentLimit", bundle: .module), running, queued)
     }
-    static var field: String {
-        String(localized: "subagentLimit.field", defaultValue: "Subagents at once", table: "Handlers", bundle: .module)
+    package static var field: String {
+        String(localized: "subagentLimit.field", defaultValue: "Subagents at once", table: "SubagentLimit", bundle: .module)
     }
-    static var useDefault: String {
-        String(localized: "subagentLimit.useDefault", defaultValue: "Use Default", table: "Handlers", bundle: .module)
+    package static var useDefault: String {
+        String(localized: "subagentLimit.useDefault", defaultValue: "Use Default", table: "SubagentLimit", bundle: .module)
     }
-    static var set: String {
-        String(localized: "subagentLimit.set", defaultValue: "Set", table: "Handlers", bundle: .module)
+    package static var set: String {
+        String(localized: "subagentLimit.set", defaultValue: "Set", table: "SubagentLimit", bundle: .module)
     }
-    static var invalid: String {
+    package static var invalid: String {
         let range = SubagentLimit.range
         return String(format: String(localized: "subagentLimit.invalid", defaultValue: "Enter a whole number from %1$lld to %2$lld.",
-                                     table: "Handlers", bundle: .module), range.lowerBound, range.upperBound)
+                                     table: "SubagentLimit", bundle: .module), range.lowerBound, range.upperBound)
     }
-    static var failed: String {
+    package static var failed: String {
         String(localized: "subagentLimit.failed", defaultValue: "The subagent limit could not be changed.",
-               table: "Handlers", bundle: .module)
+               table: "SubagentLimit", bundle: .module)
     }
     /// No acpmux answered the read, it did not take the person proof, or it refused the read.
-    static var unreadable: String {
+    package static var unreadable: String {
         String(localized: "subagentLimit.unreadable", defaultValue: "The subagent limit could not be read.",
-               table: "Handlers", bundle: .module)
+               table: "SubagentLimit", bundle: .module)
     }
-    static var unsupported: String {
+    package static var unsupported: String {
         String(localized: "subagentLimit.unsupported",
                defaultValue: "This version of cmux has no subagent limit. Update cmux to set one.",
-               table: "Handlers", bundle: .module)
+               table: "SubagentLimit", bundle: .module)
     }
-    static var notAChat: String {
+    package static var notAChat: String {
         String(localized: "subagentLimit.notAChat", defaultValue: "Only an agent chat on this Mac has a subagent limit.",
-               table: "Handlers", bundle: .module)
+               table: "SubagentLimit", bundle: .module)
+    }
+    package static var notLocalWorkspace: String {
+        String(localized: "subagentLimit.notLocalWorkspace", defaultValue: "Choose a workspace on this Mac.",
+               table: "SubagentLimit", bundle: .module)
     }
 }

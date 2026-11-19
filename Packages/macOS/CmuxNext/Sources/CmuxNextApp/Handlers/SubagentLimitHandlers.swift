@@ -8,6 +8,7 @@ import CmuxNextSettings
 /// the focused chat. The row is left out of other tabs' menus.
 enum SubagentLimitHandlers {
     static let chatAction: ActionID = "agentChat.subagentLimit"
+    static let workspaceAction: ActionID = "workspace.subagentLimit"
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
@@ -35,6 +36,19 @@ enum SubagentLimitHandlers {
         })
         ActionTargetVisibility.hide(chatAction, in: registry) { invocation in
             invocation.target?.kind == .tab && registry.withoutRefusals { chat(invocation) } == nil
+        }
+        registry.bindEffect(workspaceAction, requires: nil, effect: { invocation in
+            let workspace = try context.workspace(invocation)
+            guard services.machines.local.store.workspace(id: workspace.model.id) != nil else {
+                return .refused(SubagentLimitStrings.notLocalWorkspace)
+            }
+            let run = flow(context.activeWindow?.window)
+            // action-wait-allow: the dialog must read the saved workspace value from acpmux before editing it.
+            return .waiting(.externalProcess) { await run.run(.workspace(workspace.key.rawValue)) }
+        })
+        ActionTargetVisibility.hide(workspaceAction, in: registry) { invocation in
+            guard let workspace = context.scope(invocation).workspace else { return true }
+            return services.machines.local.store.workspace(id: workspace.id) == nil
         }
     }
 }

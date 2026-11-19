@@ -221,6 +221,9 @@ enum DebugDialog {
                 ],
                 identifier: "cmux.dialog.cloud.workspaceActions"),
             // Move Sessions from Another cmux Build (session.moveFromBuild), with no other build running.
+            "subagentWorkspaceDefault": SubagentLimit(scope: .workspace("fixture"), current: .init(), setting: 1000).spec,
+            "subagentWorkspaceCustom": SubagentLimit(scope: .workspace("fixture"), current: .init(own: 8, effective: 8), setting: 1000).spec,
+            "subagentWorkspaceOne": SubagentLimit(scope: .workspace("fixture"), current: .init(own: 1, effective: 1), setting: 1000).spec,
             "sessionMove": SessionMoveSelection(peers: [moveFixturePeer]).dialog,
             "sessionMoveEnd": SessionMoveSelection.endTerminalsDialog(for: ["~/code/app"]),
         ].merging(CmuxDialogSpec.classicImportGallery) { first, _ in first }
