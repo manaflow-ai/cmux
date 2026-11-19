@@ -459,6 +459,8 @@ public final class SettingsController {
         var snapshot = CmuxConfigSnapshot.parse(
             effective.root, validDensities: valid.densities, validMetrics: valid.metrics, configDirectory: configDirectory
         )
+        // The look's sound pack rides the notification sounds; it plays only while lookPack is on.
+        snapshot.notifications.sounds.lookSounds = themes.overlay?.sounds ?? [:]
         if let problem { snapshot.diagnostics.insert(SettingsDiagnostic(kind: .unreadableFile, path: "", message: problem), at: 0) }
         snapshot.diagnostics += effective.diagnostics + themes.diagnostics
         var inputs = LoadInputs(source: source, managed: managed, team: team)

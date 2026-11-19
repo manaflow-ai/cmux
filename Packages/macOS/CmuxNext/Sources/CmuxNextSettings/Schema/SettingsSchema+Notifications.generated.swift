@@ -140,6 +140,9 @@ extension NotificationSoundPreferences {
     public nonisolated static let bellSoundPath = ["notifications", "sounds", "events", "bell"]
     /// `notifications.sounds.events.message`.
     public nonisolated static let messageSoundPath = ["notifications", "sounds", "events", "message"]
+    /// `notifications.sounds.lookPack`: The active look's sound pack (a theme file's "sounds" block: finished, needsInput, ciGreen; ThemeFileOverlay.sounds). Off by default so a look never changes what cmux sounds like until asked (Leo, 2026-11-19: "some of them maybe just as customizations lol if it affects default looks"). A per-event, workspace, group or agent sound still wins, and every mute ("none", a muted workspace, quiet hours, volume 0) still silences it.
+    public nonisolated static let lookPackPath = ["notifications", "sounds", "lookPack"]
+    public nonisolated static let lookPackDefault = false
     /// `notifications.sounds.volume`.
     public nonisolated static let volumePath = ["notifications", "sounds", "volume"]
     public nonisolated static let volumeDefault: Double = 1

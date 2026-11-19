@@ -179,8 +179,9 @@ extension SettingsSchema {
         // Notification sounds per event and level (sound only).
         "notifications.sounds.events.finished", "notifications.sounds.events.needsInput",
         "notifications.sounds.events.error", "notifications.sounds.events.bell", "notifications.sounds.events.message",
-        "notifications.sounds.volume", "notifications.sounds.when", "notifications.sounds.cooldownSeconds",
-        "notifications.sounds.workspaces", "notifications.sounds.groups", "notifications.sounds.agents",
+        "notifications.sounds.lookPack", "notifications.sounds.volume", "notifications.sounds.when",
+        "notifications.sounds.cooldownSeconds", "notifications.sounds.workspaces", "notifications.sounds.groups",
+        "notifications.sounds.agents",
         // A Chief configures its own reaction classifier (Lawrence 2026-10-21).
         "chief.reactionsCanWake", "chief.reactionClassifier.harness", "chief.reactionClassifier.model",
         "chief.reactionClassifier.prompt",
@@ -276,6 +277,8 @@ extension SettingsSchema {
         "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
         "browser.openPullRequestsInGitHubPage",
+        // Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.
+        "models.spreadUsage",
     ]
 
     /// True when an agent may change `descriptor`, false when it may not, nil

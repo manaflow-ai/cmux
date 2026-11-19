@@ -75,6 +75,10 @@ impl Schema {
                 "anyOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }],
             }),
         );
+        root.insert(
+            crate::theme_file::sounds::KEY.into(),
+            crate::theme_file::sounds::json_schema(),
+        );
         for row in self.rows.iter().filter(|row| is_look(row)) {
             root.insert(row.key.clone(), leaf(row));
             if row.path.len() > 1 {

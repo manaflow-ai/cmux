@@ -14,13 +14,15 @@
 //!
 //! Besides settings, a file may carry its own terminal colors (`"colors"`
 //! or a `"ghostty"` block), which become `appearance.themeEdits` of the
-//! terminal theme it names ([`colors`]). [`render`] writes the current look
+//! terminal theme it names ([`colors`]), and its own sound pack (`"sounds"`,
+//! [`sounds`]), which is no setting. [`render`] writes the current look
 //! as a theme file: applying it changes nothing.
 
 mod colors;
 pub mod render;
+pub mod sounds;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -45,7 +47,8 @@ pub const SETTING_KEY: &str = "appearance.themeFile";
 pub const SCHEMA_FILE_NAME: &str = ".schema.json";
 
 /// Keys a theme file reads that are not settings.
-pub const RESERVED_KEYS: [&str; 5] = ["name", "description", "$schema", "colors", "ghostty"];
+pub const RESERVED_KEYS: [&str; 6] =
+    ["name", "description", "$schema", "colors", "ghostty", sounds::KEY];
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
 /// (where this Mac is), and the saved
@@ -248,6 +251,10 @@ pub struct ThemeFile {
     pub diagnostics: Vec<ThemeDiagnostic>,
     /// The color tokens the contrast guard raised (`foreground`).
     pub corrected: Vec<String>,
+    /// The look's sound pack ([`sounds`]): event (`finished`, `needsInput`,
+    /// `ciGreen`) to sound (`Glass`, `none`, `file:NAME.ext`, `~/path`). Not
+    /// a setting: never in [`ThemeFile::values`].
+    pub sounds: BTreeMap<String, String>,
 }
 
 impl ThemeFile {
@@ -271,6 +278,7 @@ impl ThemeFile {
             values: Vec::new(),
             diagnostics: Vec::new(),
             corrected: Vec::new(),
+            sounds: BTreeMap::new(),
             is_unparsable: false,
         };
         let is_loaded = reader.read(source, base);
@@ -283,6 +291,7 @@ impl ThemeFile {
             values,
             diagnostics: reader.diagnostics,
             corrected: reader.corrected,
+            sounds: reader.sounds,
         }
     }
 
@@ -336,6 +345,7 @@ struct Reader<'a> {
     values: Vec<(Vec<String>, Value)>,
     diagnostics: Vec<ThemeDiagnostic>,
     corrected: Vec<String>,
+    sounds: BTreeMap<String, String>,
     is_unparsable: bool,
 }
 
@@ -377,6 +387,7 @@ impl<'a> Reader<'a> {
             self.walk(value, key_path(key));
         }
         colors::read(self, &members, base);
+        self.sounds = sounds::read(self, &members);
         true
     }
 

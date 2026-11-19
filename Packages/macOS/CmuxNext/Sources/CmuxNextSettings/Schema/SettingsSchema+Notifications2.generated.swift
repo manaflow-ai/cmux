@@ -291,6 +291,16 @@ extension NotificationSettingsSchema {
                 keywords: ["sound", "alert", "chime"]
             ),
             SettingDescriptor(
+                NotificationSoundPreferences.lookPackPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.sounds.lookPack", "Play the Look's Sound Pack"),
+                help: SettingsText.keyed("settings.notifications.sounds.lookPack.help", "When your theme file has a sound pack, play its sounds when an agent finishes, needs you, or its checks pass."),
+                kind: .toggle,
+                default: .bool(NotificationSoundPreferences.lookPackDefault),
+                keywords: ["sound", "sounds", "pack", "look", "theme", "ci", "checks"]
+            ),
+            SettingDescriptor(
                 NotificationSoundPreferences.volumePath,
                 section: .notifications,
                 group: group,

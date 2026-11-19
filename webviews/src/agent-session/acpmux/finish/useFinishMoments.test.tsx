@@ -11,6 +11,7 @@ import { settleReact } from "../../../../test/support/domTeardown";
 let dom: JSDOM;
 let root: Root | undefined;
 let sounds: unknown[] = [];
+let lookSounds: unknown[] = [];
 const scope = globalThis as Record<string, unknown>;
 const KEYS = ["window", "document", "navigator", "HTMLElement", "Node", "IS_REACT_ACT_ENVIRONMENT"] as const;
 // Each global as it was before the test, or absent: a global the test added is deleted afterwards, not
@@ -29,9 +30,11 @@ beforeEach(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   sounds = [];
+  lookSounds = [];
   (dom.window as unknown as { cmuxAcpmuxActions: Record<string, (p: unknown) => Promise<unknown>> }).cmuxAcpmuxActions =
     {
       "pane.finishSound": async (params) => void sounds.push(params),
+      "pane.lookSound": async (params) => void lookSounds.push(params),
     };
 });
 
@@ -225,4 +228,22 @@ test("the previous chat's pull request carried over a switch is no read of the n
   render({ session: "t", working: false, pullRequest: pr("open", "pending") });
   render({ session: "t", working: false, pullRequest: pr("open", "passing") });
   expect(finishMoment()?.kind).toBe("ci");
+});
+
+test("with the finish sound off, green checks ask only for the look's sound pack; a merge and a turn ask nothing", () => {
+  const start = Date.now() - 45_000;
+  render({ session: "s", working: true, turnStartedAtMs: start, pullRequest: pr("open", "pending") });
+  render({ session: "s", working: false, turnSummary: done("t1"), pullRequest: pr("open", "pending") });
+  render({ session: "s", working: false, turnSummary: done("t1"), pullRequest: pr("open", "passing") });
+  render({ session: "s", working: false, turnSummary: done("t1"), pullRequest: pr("merged", "passing") });
+  expect(sounds).toEqual([]);
+  expect(lookSounds).toEqual([{ kind: "ci" }]);
+});
+
+test("with the finish sound on, green checks ask for the finish sound and not the look-only one", () => {
+  setChatDisplay({ [FINISH_SOUND_KEY]: true });
+  render({ session: "s", working: false, pullRequest: pr("open", "pending") });
+  render({ session: "s", working: false, pullRequest: pr("open", "passing") });
+  expect(sounds).toEqual([{ kind: "ci" }]);
+  expect(lookSounds).toEqual([]);
 });

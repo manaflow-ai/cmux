@@ -1144,6 +1144,29 @@
           ]
         },
         {
+          "key": "notifications.sounds.lookPack",
+          "note": "The active look's sound pack (a theme file's \"sounds\" block: finished, needsInput, ciGreen; ThemeFileOverlay.sounds). Off by default so a look never changes what cmux sounds like until asked (Leo, 2026-11-19: \"some of them maybe just as customizations lol if it affects default looks\"). A per-event, workspace, group or agent sound still wins, and every mute (\"none\", a muted workspace, quiet hours, volume 0) still silences it.",
+          "title": {
+            "key": "settings.notifications.sounds.lookPack",
+            "text": "Play the Look's Sound Pack"
+          },
+          "help": {
+            "key": "settings.notifications.sounds.lookPack.help",
+            "text": "When your theme file has a sound pack, play its sounds when an agent finishes, needs you, or its checks pass."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sound",
+            "sounds",
+            "pack",
+            "look",
+            "theme",
+            "ci",
+            "checks"
+          ]
+        },
+        {
           "key": "notifications.sounds.volume",
           "title": {
             "key": "settings.notifications.sounds.volume",

@@ -23,5 +23,8 @@
   "sidebar.sectionLook": "quiet",
   "appearance.statusIndicator.style": "dot",
 
-  "appearance.density": "comfortable"
+  "appearance.density": "comfortable",
+
+  // Its sounds (with notifications.sounds.lookPack on): soft and low, nothing bright.
+  "sounds": { "finished": "Bottle", "needsInput": "Funk", "ciGreen": "Glass" }
 }

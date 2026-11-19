@@ -597,6 +597,7 @@
         "notifications.sounds.events.error",
         "notifications.sounds.events.bell",
         "notifications.sounds.events.message",
+        "notifications.sounds.lookPack",
         "notifications.sounds.volume",
         "notifications.sounds.when",
         "notifications.sounds.cooldownSeconds",

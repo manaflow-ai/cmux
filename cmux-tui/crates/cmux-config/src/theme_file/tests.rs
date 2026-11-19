@@ -406,3 +406,101 @@ fn with_no_theme_file_nothing_changes() {
     assert_eq!(state.effective().root, plain.root);
     assert!(state.theme_file().is_none());
 }
+
+#[test]
+fn a_sound_pack_is_read_apart_from_the_settings() {
+    let file = overlay(
+        r#"{ "appearance.accent": "blue",
+             "sounds": { "finished": "Glass", "needsInput": "none", "ciGreen": "file:fanfare.m4a" } }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.keys(), vec!["appearance.accent"]);
+    assert_eq!(
+        file.sounds,
+        BTreeMap::from([
+            ("ciGreen".to_string(), "file:fanfare.m4a".to_string()),
+            ("finished".to_string(), "Glass".to_string()),
+            ("needsInput".to_string(), "none".to_string()),
+        ])
+    );
+    // Never a setting: nothing under "sounds" reaches the applied root.
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, "sounds"), None);
+    assert!(!file.values.iter().any(|(path, _)| path.first().is_some_and(|key| key == "sounds")));
+}
+
+#[test]
+fn a_sound_pack_drops_an_unknown_event_or_bad_sound_and_keeps_the_rest() {
+    let file = overlay(
+        "{\n  \"sounds\": {\n    \"finished\": \"Ping\",\n    \"boot\": \"Hero\",\n    \"needsInput\": \"file:../x.wav\",\n    \"ciGreen\": 3\n  }\n}",
+    );
+    assert_eq!(file.sounds, BTreeMap::from([("finished".to_string(), "Ping".to_string())]));
+    let boot = file.diagnostics.iter().find(|d| d.path == "sounds.boot").expect("boot refused");
+    assert_eq!(boot.file.as_deref(), Some("themes/tokyo.json"));
+    assert_eq!(boot.line, Some(4));
+    assert!(boot.message.contains("finished, needsInput, ciGreen"), "{}", boot.message);
+    assert!(file.diagnostics.iter().any(|d| d.path == "sounds.needsInput" && d.line == Some(5)));
+    assert!(
+        file.diagnostics
+            .iter()
+            .any(|d| d.path == "sounds.ciGreen" && d.value.as_deref() == Some("3"))
+    );
+    assert_eq!(file.diagnostics.len(), 3, "{:?}", file.diagnostics);
+}
+
+#[test]
+fn a_sound_names_a_system_sound_none_a_file_beside_it_or_a_home_path() {
+    for good in ["Glass", "Sosumi", "none", "file:ding.aiff", "file:My Ding.WAV", "~/Sounds/a.caf"]
+    {
+        assert!(sounds::is_valid_sound(good), "{good}");
+    }
+    for bad in [
+        "",
+        "file:",
+        "file:.wav",
+        "file:a/b.wav",
+        "file:..wav",
+        "file:ding.txt",
+        "file:ding",
+        "/System/Library/Sounds/Glass.aiff",
+        "~/../etc/a.wav",
+        "~/a.exe",
+        "Glass.aiff",
+        " Glass",
+        "Gl\nass",
+    ] {
+        assert!(!sounds::is_valid_sound(bad), "{bad:?}");
+    }
+}
+
+#[test]
+fn a_sounds_block_that_is_no_object_is_one_diagnostic() {
+    let file = overlay(r#"{ "appearance.accent": "blue", "sounds": "Glass" }"#);
+    assert!(file.sounds.is_empty());
+    assert_eq!(file.keys(), vec!["appearance.accent"]);
+    assert_eq!(file.diagnostics.len(), 1, "{:?}", file.diagnostics);
+    assert_eq!(file.diagnostics[0].path, "sounds");
+    assert!(file.diagnostics[0].display().starts_with("themes/tokyo.json:1: sounds = \"Glass\": "));
+}
+
+#[test]
+fn every_shipped_look_carries_a_clean_sound_pack() {
+    for (name, text) in SHIPPED {
+        let file = overlay(text);
+        assert!(file.diagnostics.is_empty(), "{name}: {:?}", file.diagnostics);
+        let events: Vec<&str> = file.sounds.keys().map(String::as_str).collect();
+        assert_eq!(events, ["ciGreen", "finished", "needsInput"], "{name}");
+    }
+}
+
+#[test]
+fn the_theme_file_schema_checks_a_sound_pack() {
+    let schema = Schema::embedded().theme_file_json_schema(is_look);
+    let validator = jsonschema::validator_for(&schema).expect("a valid schema");
+    assert!(validator.is_valid(
+        &json!({"sounds": {"finished": "Glass", "needsInput": "none", "ciGreen": "file:a.wav"}})
+    ));
+    assert!(!validator.is_valid(&json!({"sounds": {"boot": "Glass"}})));
+    assert!(!validator.is_valid(&json!({"sounds": {"finished": "file:../a.wav"}})));
+    assert!(!validator.is_valid(&json!({"sounds": "Glass"})));
+}

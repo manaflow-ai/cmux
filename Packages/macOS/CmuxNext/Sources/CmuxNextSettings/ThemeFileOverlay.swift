@@ -37,9 +37,12 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     public internal(set) var diagnostics: [SettingsDiagnostic]
     /// The color tokens raised for contrast (`foreground`), empty when none were.
     public let corrected: [String]
+    /// The look's sound pack (`"sounds"`): a sound name, `"none"` or an absolute file path per moment.
+    /// It plays only while `notifications.sounds.lookPack` is on (``NotificationSoundPreferences/lookSounds``).
+    public let sounds: [NotificationSoundPreferences.LookEvent: String]
 
     /// Keys a theme file reads that are not settings.
-    static let reservedKeys: Set<String> = ["name", "description", "$schema", "colors", "ghostty"]
+    static let reservedKeys: Set<String> = ["name", "description", "$schema", "colors", "ghostty", "sounds"]
     /// Look keys that are no part of a look: the theme file itself, the star list and its rotation,
     /// per-machine and per-display maps, the sun location (where this Mac is), and the saved custom densities.
     static let excludedKeys: Set<String> = [
@@ -87,6 +90,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         values = reader.values.sorted { $0.path.lexicographicallyPrecedes($1.path) }
         diagnostics = reader.diagnostics
         corrected = reader.corrected
+        sounds = reader.sounds
     }
 
     /// `root` with every value set, except keys a managed layer sets (dotted, as `managedKeys`).
@@ -99,7 +103,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.name == rhs.name && lhs.isLoaded == rhs.isLoaded && lhs.isUnparsable == rhs.isUnparsable && lhs.diagnostics == rhs.diagnostics && lhs.corrected == rhs.corrected
+        lhs.name == rhs.name && lhs.isLoaded == rhs.isLoaded && lhs.isUnparsable == rhs.isUnparsable && lhs.diagnostics == rhs.diagnostics && lhs.corrected == rhs.corrected && lhs.sounds == rhs.sounds
             && lhs.values.map(\.path) == rhs.values.map(\.path) && lhs.values.map(\.value) == rhs.values.map(\.value)
     }
 
@@ -109,6 +113,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         var values: [(path: [String], value: JSONValue)] = []
         var diagnostics: [SettingsDiagnostic] = []
         var corrected: [String] = []
+        var sounds: [NotificationSoundPreferences.LookEvent: String] = [:]
         var isUnparsable = false
 
         /// Reads the file's text; false when there is none or it is not a JSON object.
@@ -132,7 +137,46 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
                 walk(value, path: CmuxConfigFile.keyPath(from: key))
             }
             readColors(members, base: base)
+            if let pack = members["sounds"] { readSounds(pack) }
             return true
+        }
+
+        /// The extensions a pack's `file:` sound may have (``NotificationSoundLibrary``'s).
+        static let soundExtensions: Set<String> = ["aiff", "aif", "aifc", "caf", "wav", "mp3", "m4a"]
+
+        /// `"sounds"`: `{"finished": "Glass", "needsInput": "Ping", "ciGreen": "file:chime.wav"}`. A
+        /// `file:` sound sits beside the theme file (no folders), or starts at `~`; it becomes an
+        /// absolute path. A bad entry is dropped with a diagnostic and the others still apply.
+        mutating func readSounds(_ value: JSONValue) {
+            guard case .object(let entries) = value else { return refuse("sounds", value, "expected {\"finished\", \"needsInput\", \"ciGreen\"}") }
+            let expected = NotificationSoundPreferences.LookEvent.allCases.map(\.rawValue).joined(separator: ", ")
+            for (key, entry) in entries.sorted(by: { $0.key < $1.key }) {
+                guard let event = NotificationSoundPreferences.LookEvent(rawValue: key) else {
+                    refuse("sounds.\(key)", entry, "unknown moment; expected one of \(expected)")
+                    continue
+                }
+                guard let text = entry.stringValue, !text.isEmpty else {
+                    refuse("sounds.\(key)", entry, "expected a sound name, \"none\" or \"file:NAME.wav\"")
+                    continue
+                }
+                guard let sound = soundPath(text) else {
+                    refuse("sounds.\(key)", entry, "a file: sound is a NAME.\(Self.soundExtensions.sorted().joined(separator: "|")) beside the theme file, or ~/path")
+                    continue
+                }
+                sounds[event] = sound
+            }
+        }
+
+        /// A sound name as written; a `file:` sound as an absolute path; nil when the file name is
+        /// no plain sound file name (a folder, `..`, another extension).
+        private func soundPath(_ text: String) -> String? {
+            guard text.hasPrefix("file:") else { return text }
+            let path = String(text.dropFirst("file:".count))
+            let ext = (path as NSString).pathExtension.lowercased()
+            guard Self.soundExtensions.contains(ext) else { return nil }
+            if path.hasPrefix("~/") { return NSString(string: path).expandingTildeInPath }
+            guard !path.contains("/"), !path.hasPrefix("."), let folder else { return nil }
+            return folder.appending(path: path).standardizedFileURL.path
         }
 
         mutating func walk(_ value: JSONValue, path: [String]) {

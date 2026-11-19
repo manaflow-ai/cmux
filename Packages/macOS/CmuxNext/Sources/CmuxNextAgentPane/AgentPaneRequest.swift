@@ -433,6 +433,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.finishSound {kind}`: a short system sound for a finish the page marks (a turn, CI, a merge),
     /// fire and forget (``AgentPaneFinishSound``). The page sends it only when the person turned it on.
     case finishSound(AgentPaneFinishSound.Kind)
+    /// `pane.lookSound {kind}`: the same moment while the finish sound is off; only the active look's
+    /// sound pack plays (`notifications.sounds.lookPack`), and nothing when it has none.
+    case lookSound(AgentPaneFinishSound.Kind)
     /// `pane.showContextUsage`, `pane.showDictation` or `pane.setScrollToBottomOnSend` with
     /// `{show}`: a composer setting which the host writes to cmux.json at `path`.
     case composerSetting(path: [String], show: Bool)

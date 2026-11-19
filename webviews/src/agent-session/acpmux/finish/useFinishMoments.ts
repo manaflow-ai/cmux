@@ -20,10 +20,16 @@ export const FINISH_SOUND_KEY = "agentPane.display.finishSound";
 
 /// Asks the host for the moment's sound when the person turned it on. The host plays nothing while
 /// macOS's Play user interface sound effects is off, and at most one sound per burst
-/// (CmuxNextAgentPane `pane.finishSound`).
+/// (CmuxNextAgentPane `pane.finishSound`). With the sound off, green checks still ask
+/// `pane.lookSound`: the host plays the active look's sound pack for them when the person turned
+/// that on (`notifications.sounds.lookPack`, off by default), and nothing otherwise. A turn's end
+/// needs no such ask: its Agent Finished notification carries the pack's sound.
 export function playFinishSound(kind: FinishKind, play = callNative): void {
-  if (chatDisplayValues()[FINISH_SOUND_KEY] !== true) return;
-  void play("pane.finishSound", { kind }).catch(() => undefined);
+  if (chatDisplayValues()[FINISH_SOUND_KEY] === true) {
+    void play("pane.finishSound", { kind }).catch(() => undefined);
+  } else if (kind === "ci") {
+    void play("pane.lookSound", { kind }).catch(() => undefined);
+  }
 }
 
 /// The turn ends that are no success: stopped or failed .
