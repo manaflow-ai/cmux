@@ -73,7 +73,7 @@ async fn flood_then_echo(rtt: Duration, echo_at: Duration) -> Run {
     let mut echo_seen: Option<Instant> = None;
     let mut flood_window = 0usize;
     let flood = vec![FLOOD_BYTE; CHUNK];
-    let echo = vec![ECHO_BYTE; ECHO_BYTES];
+    let echo = [ECHO_BYTE; ECHO_BYTES];
     let mut buffer = vec![0u8; 64 * 1024];
     while echo_seen.is_none() {
         let now = Instant::now();
