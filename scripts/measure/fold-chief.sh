@@ -14,7 +14,8 @@
 set -uo pipefail
 root="$(git rev-parse --show-toplevel)"
 source "$root/scripts/cmux-next/lib/fleet-only.sh"
-cmux_next_require_fleet fold-chief.sh 'cargo build' 'CMUX-570 folded Chief size and per-process cost'
+# The fast-checks fleet runner sets FAST_CHECKS_OUT (and neither variable the guard reads).
+[ -n "${FAST_CHECKS_OUT:-}" ] || cmux_next_require_fleet fold-chief.sh 'cargo build' 'CMUX-570 folded Chief size and per-process cost'
 [ -n "${FAST_CHECKS_OUT:-}" ] && exec > >(tee -a "$FAST_CHECKS_OUT/fold-chief.log") 2>&1
 base="${1:-}"
 rounds="${FOLD_ROUNDS:-15}"
