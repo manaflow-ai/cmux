@@ -159,6 +159,19 @@ pub(super) fn session(workspaces: usize) -> Arc<Mux> {
 /// [`session`] in `mux`, a new session with a registry of the caller's choice (in memory or a
 /// file).
 pub(super) fn session_in(mux: Arc<Mux>, workspaces: usize) -> Arc<Mux> {
+    session_in_impl(mux, workspaces)
+}
+
+/// [`session_in`] with `workspaces` workspaces in a new session whose registry is a file under
+/// `root`, built with the debug cross-check off, for the launch read bench
+/// (`server/launch_read_bench_tests.rs`).
+pub(crate) fn file_session_for_bench(root: &Path, workspaces: usize) -> Arc<Mux> {
+    let mux = open_persistent_test_mux("launch-read-bench", root);
+    assert!(mux.disk_usage_stats().is_some(), "the registry of this session is not a file");
+    without_crosscheck(|| session_in_impl(mux, workspaces))
+}
+
+fn session_in_impl(mux: Arc<Mux>, workspaces: usize) -> Arc<Mux> {
     let mut terminals = Vec::with_capacity(workspaces);
     for index in 0..workspaces {
         mux.create_empty_workspace(Some(format!("ws {index}")), Some(workspace_key(index)), None)
