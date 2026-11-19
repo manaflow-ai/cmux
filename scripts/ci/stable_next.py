@@ -61,6 +61,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -141,13 +142,22 @@ def notes_published(source: str, build: int) -> bool:
         return (Path(source) / f"{build}.json").is_file()
     request = urllib.request.Request(f"{source.rstrip('/')}/{build}.json", method="HEAD",
                                      headers={"User-Agent": "cmux-stable-next/1"})
-    try:
-        with urllib.request.urlopen(request, timeout=30):
-            return True
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            return False
-        raise
+    last = None
+    for attempt in range(3):  # a transient 5xx or timeout must not fail plan (it counts toward the night's 3 failures)
+        try:
+            with urllib.request.urlopen(request, timeout=30):
+                return True
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return False
+            if error.code < 500:
+                raise Refused(f"notes/{build}.json: HTTP {error.code}") from error
+            last = error
+        except (urllib.error.URLError, TimeoutError) as error:
+            last = error
+        if attempt < 2:
+            time.sleep(5 * (attempt + 1))  # backoff between HTTP retries, not synchronization
+    raise Refused(f"notes/{build}.json could not be read: {last}")
 
 
 def read_verdict(source: str | None, build: int) -> str | None:
@@ -197,11 +207,11 @@ def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int
         # The gates test the commit a build's release notes record (notes/<build>.json "head"). nightly.yml
         # publishes them after the feed, sometimes much later, and some runs not at all (4424316677601, 2026-11-17:
         # plan failed on every tick that night). Take the newest build with notes; a newer one is tested next tick.
-        with_notes = [(m, b) for m, b in offered if has_notes(b)]
-        if not with_notes:
+        first = next(((m, b) for m, b in offered if has_notes(b)), None)  # stop at the newest with notes
+        if first is None:
             raise Refused(f"no build on the feed has published release notes (newest {offered[0][1]})")
-        passed = [b for _, b in offered if b > with_notes[0][1]]
-        offered = with_notes
+        passed = [b for _, b in offered if b > first[1]]
+        offered = [first]
     match, chosen = offered[0]
     if chosen in pulled:
         raise Refused(f"build {chosen} was pulled from the cmux NEXT feed")
