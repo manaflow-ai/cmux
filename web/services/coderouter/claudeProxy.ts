@@ -1047,19 +1047,22 @@ async function bedrockMessages(
   }
   const parsed = parseJsonObject(body);
   if (!parsed.ok) return parsed.response;
-  // Message threads (`thread`, beta message-threads-2026-08-12) live in Anthropic's API; Bedrock has no such field. Answer
-  // as the API does for a request it cannot thread, so a client resends the full conversation without `thread`.
-  if (parsed.value.thread !== undefined && parsed.value.thread !== null) {
+  // Message threads (`thread`, beta message-threads-2026-08-12) live in Anthropic's API; Bedrock has no such field. A
+  // create carries the whole conversation, so bedrockInvokeBody drops `thread` and it goes on as a plain request. A
+  // continue carries only the new messages: answer as the API answers a thread it cannot continue (404
+  // thread_not_found), so the client replays the full conversation.
+  const thread = parsed.value.thread;
+  if (typeof thread === "object" && thread !== null && (thread as { type?: unknown }).type === "continue") {
     return Response.json(
       {
         type: "error",
         error: {
-          type: "invalid_request_error",
-          message: "message threads are not supported on this upstream; send the full conversation without thread",
-          details: { error_code: "thread_unsupported_request", unsupported: "upstream" },
+          type: "not_found_error",
+          message: "thread not found",
+          details: { error_code: "thread_not_found" },
         },
       },
-      { status: 400, headers: { "cache-control": "no-store" } },
+      { status: 404, headers: { "cache-control": "no-store" } },
     );
   }
   const invoke = bedrockInvokeBody(parsed.value);
