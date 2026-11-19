@@ -738,7 +738,7 @@ class WebUiTests(unittest.TestCase):
         self.assertTrue(cron.is_linux_part("web-ui-god"))
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-god")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only",
-                                "chat-open,chat-switch,transcript-replay,chat-open-god,chat-switch-god,transcript-replay-god"])
+                                "chat-switch,transcript-replay,chat-open-god,chat-switch-god,transcript-replay-god"])
         self.assertEqual(cron.part_for_row("webui.chat_open.god.compact.latest@linux"), "web-ui-god")
         self.assertEqual(cron.part_for_row("webui.god_ratio.chat_open.compact.latest@linux"), "web-ui-god")
         self.assertEqual(cron.part_for_row("webui.chat_switch.god.churn.heap_kb_per_switch@linux"), "web-ui-god")
@@ -786,6 +786,24 @@ class WebUiTests(unittest.TestCase):
         listed = cron.find_regressions(rows, {}, None, None, budgets_mod)
         self.assertIn("webui.god_ratio.chat_switch.unread.latest", {r["name"] for r in listed},
                       "a god row past 1.2x its twin is listed in the issue even before it has a reference")
+
+    def test_the_god_part_keeps_its_runner_calibration_and_per_calibration_rows_without_a_ratio(self):
+        # chat-open-god PAIRED=1 (webviews/bench/runnerCalibration.ts): the calibration under the god prefix, and each
+        # chat's attach_to_latest over it (unit x). The god part keeps the god ones; a quotient gets no god_ratio.
+        report = {"rows": [
+            {"name": "chat_open.compact.attach_to_latest", "p95": 30.0},
+            {"name": "chat_open.god.compact.attach_to_latest", "p95": 150.0},
+            {"name": "chat_open.god.calibration_ms", "p95": 40.0, "version": 1},
+            {"name": "chat_open.compact.attach_to_latest_per_calibration", "p95": 0.75, "unit": "x", "version": 1},
+            {"name": "chat_open.god.compact.attach_to_latest_per_calibration", "p95": 3.75, "unit": "x", "version": 1},
+        ], "failed": []}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["web-ui-god"], report, budgets_mod, {"rows": {}})
+        self.assertEqual(sorted(rows), ["webui.chat_open.god.calibration_ms",
+                                        "webui.chat_open.god.compact.attach_to_latest",
+                                        "webui.chat_open.god.compact.attach_to_latest_per_calibration",
+                                        "webui.god_ratio.chat_open.compact.attach_to_latest"])
+        per = rows["webui.chat_open.god.compact.attach_to_latest_per_calibration"]
+        self.assertEqual((per["unit"], per["p95"], per["floor"], per["measure_version"]), ("x", 3.75, 0.375, 1))
 
     @staticmethod
     def paired_round(thought, token=1.0, heap=1.0):
