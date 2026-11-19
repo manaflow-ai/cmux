@@ -588,6 +588,29 @@ async fn run(n: usize) -> Value {
         .unwrap()
     };
     let ls_cpu_ms = (daemon.cpu_seconds() - cpu_ls) * 1000.0 / ls_repeats.max(1) as f64;
+    // `acpmux --json ls --live` itself, the CLI the tooling runs: its wall time and output.
+    let cli_ls = {
+        let mut command = match std::env::var_os("ACPMUX_GOD_DAEMON_BIN") {
+            Some(bin) => {
+                daemon_env::command_at(Path::new(&bin), &scratch, daemon_env::Agents::StandIn, &[])
+            }
+            None => daemon_env::command(&scratch, daemon_env::Agents::StandIn, &[]),
+        };
+        command
+            .args(["--json", "ls", "--live"])
+            .env("ACPMUX_HOME", &home)
+            .env("ACPMUX_SOCKET", &daemon.socket)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null());
+        let at = Instant::now();
+        let out = command.output().ok().filter(|o| o.status.success());
+        let ms = at.elapsed().as_millis() as u64;
+        let rows = out.as_ref().and_then(|o| {
+            let v: Value = serde_json::from_slice(&o.stdout).ok()?;
+            v["sessions"].as_array().or(v.as_array()).map(|a| a.len() as u64)
+        });
+        (ms, out.map_or(0, |o| o.stdout.len() as u64), rows)
+    };
     let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
     let (rss_end, peak_rss) = daemon.rss();
     let threads = daemon.threads();
@@ -628,6 +651,7 @@ async fn run(n: usize) -> Value {
         "relistMs": relist.0, "relistBytes": relist.1, "relistRows": relist.2,
         "lsLiveUs": spread(&ls_live.0), "lsLiveBytes": ls_live.1, "lsLiveRows": ls_live.2,
         "lsLivePages": ls_live.3, "lsLiveCpuMs": (ls_cpu_ms * 10.0).round() / 10.0,
+        "cliLsLiveMs": cli_ls.0, "cliLsLiveBytes": cli_ls.1, "cliLsLiveRows": cli_ls.2,
         "listReplies": status["listReplies"],
         "peerLists": status["gauges"]["peerLists"],
     })
@@ -654,6 +678,7 @@ fn row_line(r: &Value, base: Option<&Value>) -> Value {
         "ls_live_p95_ms": ms(&r["lsLiveUs"]["p95"]),
         "ls_live_bytes": r["lsLiveBytes"],
         "ls_live_cpu_ms": r["lsLiveCpuMs"],
+        "cli_ls_live_ms": r["cliLsLiveMs"],
     });
     if let Some(b) = base {
         let ratio = |k: &str| match (
@@ -677,6 +702,7 @@ fn row_line(r: &Value, base: Option<&Value>) -> Value {
             "/ls_live_p95_ms",
             "/ls_live_bytes",
             "/ls_live_cpu_ms",
+            "/cli_ls_live_ms",
         ];
         let ratios: serde_json::Map<String, Value> =
             keys.iter().map(|k| (k[1..].replace('/', "."), ratio(k))).collect();
