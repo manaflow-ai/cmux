@@ -269,23 +269,42 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         }
 
         /// `colors` and `ghostty` as `appearance.themeEdits` of the terminal theme the file (or `base`)
-        /// names, over `base`'s edits; then the contrast guard over every theme the file colors.
+        /// names, over `base`'s edits; then the contrast guard over every theme the file colors. The plain colors
+        /// paint every theme it names; a `"light"` or `"dark"` half of `colors` paints only that side of
+        /// `light:X,dark:Y`, over them (cmux-config `theme_file::colors`).
         private mutating func readColors(_ members: [String: JSONValue], base: JSONValue) {
             let editsPath = ThemeEditsSetting.configPath
             let ownEdits = values.first { $0.path == editsPath }?.value.objectValue ?? [:]
             var colors: [String: String] = [:]
+            var light: [String: String] = [:]
+            var dark: [String: String] = [:]
             if let ghostty = members["ghostty"] { readGhostty(ghostty, into: &colors) }
-            if let value = members["colors"] { readColorMap(value, into: &colors) }
+            if let value = members["colors"] {
+                readColorMap(value, at: "colors", into: &colors, light: &light, dark: &dark, hasHalves: true)
+            }
             var themes = Set(ownEdits.keys.compactMap { key in key.lastIndex(of: "/").map { String(key[..<$0]) } })
             let shown = base.value(at: editsPath)?.objectValue ?? [:]
             var edits = shown.merging(ownEdits) { $1 }
-            if !colors.isEmpty {
+            if !colors.isEmpty || !light.isEmpty || !dark.isEmpty {
                 let themePath = AppThemeSetting.configPath
                 let theme = values.first { $0.path == themePath }?.value.stringValue ?? base.value(at: themePath)?.stringValue
                 if let theme, let spec = ThemeSpec(theme) {
-                    for name in Set([spec.light, spec.dark]) {
-                        themes.insert(name)
-                        for (token, color) in colors { edits[ThemeEditsSetting.key(theme: name, token: token)] = .string(color) }
+                    // One theme for both appearances has no sides to tell apart: its halves are refused and the
+                    // plain colors apply.
+                    let sides: [(name: String, half: [String: String])]
+                    if spec.light == spec.dark {
+                        for (half, side) in [("light", light), ("dark", dark)] where !side.isEmpty {
+                            refuse("colors.\(half)", nil, ThemeFileOverlay.halfNeedsPair)
+                        }
+                        sides = [(spec.light, [:])]
+                    } else {
+                        sides = [(spec.light, light), (spec.dark, dark)]
+                    }
+                    for side in sides {
+                        themes.insert(side.name)
+                        for (token, color) in colors.merging(side.half, uniquingKeysWith: { $1 }) {
+                            edits[ThemeEditsSetting.key(theme: side.name, token: token)] = .string(color)
+                        }
                     }
                 } else {
                     refuse("colors", nil, "colors need appearance.theme: they edit that terminal theme")
@@ -297,26 +316,39 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             values.append((editsPath, .object(edits)))
         }
 
-        private mutating func readColorMap(_ value: JSONValue, into colors: inout [String: String]) {
-            guard case .object(let entries) = value else { return refuse("colors", value, "expected an object") }
+        /// `colors` at `path`: the plain tokens into `colors`, and, at the top (`hasHalves`), a `"light"` and a
+        /// `"dark"` map of the same tokens into their halves. A half holds no halves of its own.
+        private mutating func readColorMap(
+            _ value: JSONValue, at path: String, into colors: inout [String: String],
+            light: inout [String: String], dark: inout [String: String], hasHalves: Bool
+        ) {
+            guard case .object(let entries) = value else { return refuse(path, value, "expected an object") }
             for (token, entry) in entries.sorted(by: { $0.key < $1.key }) {
                 if token == "palette" {
                     guard let list = entry.arrayValue, list.count <= 16 else {
-                        refuse("colors.palette", entry, "expected a list of up to 16 \"#RRGGBB\" colors")
+                        refuse("\(path).palette", entry, "expected a list of up to 16 \"#RRGGBB\" colors")
                         continue
                     }
-                    for (index, item) in list.enumerated() { set(String(index), item, into: &colors) }
+                    for (index, item) in list.enumerated() { set(String(index), item, at: path, into: &colors) }
                 } else if ThemeEdits.tokens.contains(token) {
-                    set(token, entry, into: &colors)
+                    set(token, entry, at: path, into: &colors)
+                } else if hasHalves, token == "light" {
+                    var none: [String: String] = [:], other: [String: String] = [:]
+                    readColorMap(entry, at: "\(path).light", into: &light, light: &none, dark: &other, hasHalves: false)
+                } else if hasHalves, token == "dark" {
+                    var none: [String: String] = [:], other: [String: String] = [:]
+                    readColorMap(entry, at: "\(path).dark", into: &dark, light: &none, dark: &other, hasHalves: false)
+                } else if hasHalves {
+                    refuse("\(path).\(token)", entry, "unknown color; expected background, foreground, cursor, selection, accent, 0 to 15, palette, light or dark")
                 } else {
-                    refuse("colors.\(token)", entry, "unknown color; expected background, foreground, cursor, selection, accent, 0 to 15 or palette")
+                    refuse("\(path).\(token)", entry, "unknown color; expected background, foreground, cursor, selection, accent, 0 to 15 or palette")
                 }
             }
         }
 
-        private mutating func set(_ token: String, _ value: JSONValue, into colors: inout [String: String]) {
+        private mutating func set(_ token: String, _ value: JSONValue, at path: String, into colors: inout [String: String]) {
             guard let text = value.stringValue, ThemeEdits.isColor(text) else {
-                return refuse("colors.\(token)", value, "expected \"#RRGGBB\"")
+                return refuse("\(path).\(token)", value, "expected \"#RRGGBB\"")
             }
             colors[token] = text.lowercased()
         }
@@ -357,4 +389,9 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             if !corrected.contains("foreground") { corrected.append("foreground") }
         }
     }
+}
+
+nonisolated extension ThemeFileOverlay {
+    /// A `colors.light` or `colors.dark` half over a theme that is the same in both appearances.
+    static let halfNeedsPair = "a light or dark half needs appearance.theme \"light:NAME,dark:NAME\""
 }
