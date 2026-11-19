@@ -334,7 +334,8 @@ fn every_first_need_path_starts_a_parked_shell() {
                 &harness.socket,
                 serde_json::json!({"id":1,"cmd":"attach-surface","surface":surface,"cols":80,"rows":24}),
             );
-            assert_eq!(attached["ok"], true, "attach was refused: {attached}");
+            // The first line is the attach stream's first frame, or a refusal.
+            assert_ne!(attached["ok"], false, "attach was refused: {attached}");
         }),
         ("select-workspace", |harness, _| select(harness, "lazy")),
     ];
