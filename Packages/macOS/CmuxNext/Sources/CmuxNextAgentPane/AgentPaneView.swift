@@ -129,6 +129,8 @@ public final class AgentPaneView: NSView {
     }
     private var reduceMotionObserver: MainActorObservation?
     private var reduceMotionOverrideObserver: MainActorObservation?
+    /// The app finished a GitHub install (``CloudGitHubChanges``): the folder menu reads GitHub again.
+    var gitHubChangeObservation: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
     private var gestureMonitor: Any?
     var transportPacer: AgentPaneFramePacer?
@@ -450,6 +452,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
+            gitHubChangeObservation?.cancel()
             actAsMePill.stop()
             sessionStatusObservation?.cancel()
             model.sessionInfo.hostObservation?.cancel()
