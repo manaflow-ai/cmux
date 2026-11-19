@@ -10,14 +10,27 @@ public final class HostsSidebar {
     public struct Host {
         public var rows: @MainActor () -> [MachineSectionRow]
         public var add: @MainActor () -> Void
-        public var open: @MainActor (MachineSectionRow) -> Void
+        private var openConnected: @MainActor (String) -> Void
+        private var openJoined: @MainActor (JoinedMachine) -> Void
 
         public init(rows: @escaping @MainActor () -> [MachineSectionRow],
                     add: @escaping @MainActor () -> Void,
-                    open: @escaping @MainActor (MachineSectionRow) -> Void) {
+                    openConnected: @escaping @MainActor (String) -> Void,
+                    openJoined: @escaping @MainActor (JoinedMachine) -> Void) {
             self.rows = rows
             self.add = add
-            self.open = open
+            self.openConnected = openConnected
+            self.openJoined = openJoined
+        }
+
+        /// Mesh-only joined Macs use the signed-in dial flow; linked rows use the ordinary workspace action.
+        public func open(_ machine: MachineSectionRow) {
+            if let joined = machine.joined, machine.id == JoinedMachine.healthID(joined.id),
+               joined.state == .online, joined.isMac {
+                openJoined(joined)
+            } else if machine.isConnected {
+                openConnected(machine.id)
+            }
         }
     }
 
