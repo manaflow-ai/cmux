@@ -72,6 +72,14 @@ enum TopPages {
         services.pages.register(WebPageTab(.automations, symbol: "clock.badge.checkmark", icon: .automation, title: SidebarBuiltIn.automations.title,
                                            view: { [weak services] _ in let scope = services?.windows.active?.themeScope ?? .app; return automations.makeView(tokens: { [weak scope] in scope?.tokens ?? ThemeScope.app.tokens }) }))
         _ = services.registry.bindEffect("automations.show", effect: { [weak services] _ in _ = services.map { TopPages.show(.page(.automations), services: $0) }; return .done })
+        registerMachines(services)
+    }
+
+    /// The Machines page (design/machines-section.md): `machines.show` and the sidebar's Machines item open it on top.
+    static func registerMachines(_ services: AppServices) {
+        let item = SidebarBuiltIn.machines
+        services.pages.register(WebPageTab(.machines, symbol: item.symbol, icon: item.icon, title: item.title, view: { [weak services] _ in services.map { MachineSectionHostView(services: $0) } }))
+        _ = services.registry.bindEffect("machines.show", effect: { [weak services] _ in _ = services.map { TopPages.show(.page(.machines), services: $0) }; return .done })
     }
 
     /// The bookmarks profile of a Bookmarks top page: the browser profile

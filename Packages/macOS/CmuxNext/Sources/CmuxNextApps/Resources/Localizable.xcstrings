@@ -1313,6 +1313,268 @@
         }
       }
     },
+    "store.feature.machinesSidebarItem.name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "الأجهزة في الشريط الجانبي"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Računari u bočnoj traci"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maskiner i sidepanelet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechner in der Seitenleiste"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Machines in Sidebar"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Máquinas en la barra lateral"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Machines dans la barre latérale"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Macchine nella barra laterale"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドバーにマシン"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ម៉ាស៊ីននៅក្នុងរបារចំហៀង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사이드바에 머신"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maskiner i sidepanelet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maszyny na pasku bocznym"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Máquinas na barra lateral"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Компьютеры в боковой панели"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เครื่องในแถบด้านข้าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kenar Çubuğunda Makineler"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Комп’ютери на бічній панелі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Máy trong thanh bên"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "边栏中的机器"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "側邊欄中的機器"
+          }
+        }
+      }
+    },
+    "store.feature.machinesSidebarItem.summary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "هذا الـ Mac وأجهزتك في Cloud وSSH والمنضمة في صفحة واحدة، مع مساحة عمل جديدة على كل منها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ovaj Mac i vaši Cloud, SSH i pridruženi računari na jednoj stranici, s novim radnim prostorom na svakom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne Mac og dine Cloud-, SSH- og tilknyttede maskiner på én side, med Nyt arbejdsområde på hver."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Mac und deine Cloud-, SSH- und verbundenen Rechner auf einer Seite, mit Neuer Arbeitsbereich auf jedem."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Mac and your Cloud, SSH and joined machines on one page, with New Workspace on each."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este Mac y tus máquinas en Cloud, SSH y unidas en una página, con Nuevo espacio de trabajo en cada una."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce Mac et vos machines Cloud, SSH et jointes sur une seule page, avec Nouvel espace de travail sur chacune."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo Mac e le tue macchine Cloud, SSH e collegate in una pagina, con Nuovo spazio di lavoro su ciascuna."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この Mac と Cloud、SSH、参加済みのマシンを 1 ページに表示し、それぞれに新規ワークスペースを用意します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac នេះ និងម៉ាស៊ីន Cloud, SSH និងម៉ាស៊ីនដែលបានចូលរួមរបស់អ្នកនៅលើទំព័រតែមួយ ដោយមានកន្លែងធ្វើការថ្មីនៅលើនីមួយៗ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 Mac과 Cloud, SSH, 참여한 머신을 한 페이지에 보여 주고 각각에서 새 워크스페이스를 엽니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne Macen og Cloud-, SSH- og tilknyttede maskiner på én side, med Nytt arbeidsområde på hver."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ten Mac oraz Twoje maszyny Cloud, SSH i dołączone na jednej stronie, z nowym obszarem roboczym na każdej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este Mac e suas máquinas Cloud, SSH e associadas em uma página, com Novo espaço de trabalho em cada uma."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Этот Mac и ваши компьютеры в Cloud, по SSH и подключённые на одной странице, с новым рабочим пространством на каждом."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac เครื่องนี้และเครื่อง Cloud, SSH และเครื่องที่เข้าร่วมของคุณในหน้าเดียว พร้อมพื้นที่ทำงานใหม่บนแต่ละเครื่อง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac ve Cloud, SSH ve katılmış makineleriniz tek sayfada, her birinde Yeni Çalışma Alanı ile."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цей Mac і ваші комп’ютери в Cloud, через SSH і приєднані на одній сторінці, з новим робочим простором на кожному."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Máy Mac này cùng các máy Cloud, SSH và đã tham gia của bạn trên một trang, mỗi máy có Không gian làm việc mới."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在一个页面中查看这台 Mac 以及你的 Cloud、SSH 和已加入的机器，每台都可新建工作区。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在一個頁面中查看這台 Mac 以及你的 Cloud、SSH 和已加入的機器，每台都可新增工作區。"
+          }
+        }
+      }
+    },
     "store.feature.category.appearance" : {
       "extractionState" : "manual",
       "localizations" : {

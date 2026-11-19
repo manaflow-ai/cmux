@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-15",
+  "row": "app_lines",
+  "allow": 19,
+  "why": "machines-home: the Machines page needs a top-page home again. Its host glue registers MachineSectionHostView (an App type that reads AppServices' machine registry, hub client and registry menus) as an InternalPageID page with a machines.show effect, beside the Automations page in TopPages; the route case and page id live on App-owned TopPageRoute and InternalPageID. The host now reads the joined list when the page enters a window. No logic moves into the App: the page is the existing React MachineSectionPageProvider.",
+  "author": "Claude (machines-home lane)",
+  "owner": "machines-home lane; whoever moves top-page registration out of CmuxNextApp",
+  "receipt": "Review (claude opus, independent reviewer): SHIP at d21c3157127877363514b75e5d9d0f28f10e3662",
+  "expiry": "2026-12-15"
+}

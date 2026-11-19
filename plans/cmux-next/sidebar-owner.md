@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-15 (machines-home): a new built-in sidebar item, Machines (`SidebarBuiltIn.machines`, `desktopcomputer`
+  / `.machine` icon, title "Machines" in every locale). The Machines page lost its surface with the right sidebar
+  (#41025); the item opens it on top (`TopPageRoute.page(.machines)`, `machines.show`, also in Cmd+Shift+P). Like the
+  Automations and Chief items it is NOT in `SidebarLayoutDocument.defaults` and no migration adds it, so the default
+  sidebar does not change; Add to Sidebar and the App Store's "Machines in Sidebar" card add it, and removing it gives
+  back the sidebar as it was. Picked over a Machines section and a Settings > Devices list (gallery
+  `sidebar.machines-placement`, design/machines-section.md "Where it lives"). Regression: `MachinesEntryTests`.
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset

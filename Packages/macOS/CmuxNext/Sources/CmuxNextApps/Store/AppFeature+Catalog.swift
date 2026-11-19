@@ -84,6 +84,13 @@ extension AppFeature {
                        summary: t("store.feature.automationsSidebarItem.summary",
                                   "Your scheduled prompts and commands on this Mac and cmux Cloud, with failures first."),
                        keywords: ["automations", "schedule", "cron", "jobs", "recurring"]),
+            // The Machines page lost its home with the right sidebar; this item opens it on top. Off by default.
+            AppFeature(id: "machines.sidebarItem", setting: "sidebar.layout", on: .sidebarItem("machines"),
+                       category: .sidebar, preview: .window(.sidebarItem, .machine),
+                       name: t("store.feature.machinesSidebarItem.name", "Machines in Sidebar"),
+                       summary: t("store.feature.machinesSidebarItem.summary",
+                                  "This Mac and your Cloud, SSH and joined machines on one page, with New Workspace on each."),
+                       keywords: ["machines", "devices", "remote", "ssh", "cloud", "joined", "workspace"]),
             AppFeature(id: "chief.channels", setting: "home.channelsEnabled", on: .toggle,
                        category: .chief, preview: .window(.pane, .team),
                        name: t("store.feature.channels.name", "Channels"),

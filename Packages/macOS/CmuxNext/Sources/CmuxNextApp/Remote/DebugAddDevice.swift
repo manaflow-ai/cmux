@@ -59,8 +59,8 @@ enum DebugAddDevice {
 
 extension DebugAddDevice {
     /// `debug.joined_machines {menu?, check?}` (captures): the Machines section lists the fixture's
-    /// joined machines in place of `cmux machine list`. `menu: true` marks the
-    /// first row's menu open (its "…" button lit, as while its menu is up; a window capture does not
+    /// joined machines in place of `cmux machine list`. `menu: true` (or a joined id, `"m_mini"`) marks the
+    /// first (that) row's menu open (its "…" button lit, as while its menu is up; a window capture does not
     /// include the menu's own window). `check: true` opens Check on it with the fixture's doctor
     /// lines. The fixture stays for the rest of the app's run, which a capture starts fresh.
     static func showJoined(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
@@ -68,7 +68,7 @@ extension DebugAddDevice {
         services.debugFixtures.joinedMachines = MachineJoinService(mint: { _ in .failure(.unavailable) }, list: { rows })
         let store = services.joinedMachines
         store.apply(rows)
-        store.openMenu = params["menu"]?.boolValue == true ? rows[0].id : nil
+        store.openMenu = params["menu"]?.stringValue ?? (params["menu"]?.boolValue == true ? rows[0].id : nil)
         if params["check"]?.boolValue == true {
             services.addMachine.checkJoined(id: rows[0].id, name: rows[0].name, over: services.windows.active?.window)
         }

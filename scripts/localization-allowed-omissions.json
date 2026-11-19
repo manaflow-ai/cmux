@@ -7519,5 +7519,23 @@
       "de": "Agent is the standard noun for an AI agent in German, spelled as in English (as home.info.agent).",
       "fr": "Agent is the standard noun for an AI agent in French, spelled as in English (as home.info.agent)."
     }
+  },
+  "action.machines.show": {
+    "source": "Machines",
+    "identityLocales": {
+      "fr": "\"Machines\" is spelled identically in French."
+    }
+  },
+  "argument.sidebar.builtin.machines": {
+    "source": "Machines",
+    "identityLocales": {
+      "fr": "\"Machines\" is spelled identically in French."
+    }
+  },
+  "sidebar.builtin.machines": {
+    "source": "Machines",
+    "identityLocales": {
+      "fr": "\"Machines\" is spelled identically in French."
+    }
   }
 }
