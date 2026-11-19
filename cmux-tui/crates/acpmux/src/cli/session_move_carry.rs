@@ -38,7 +38,9 @@ pub(crate) struct Carry {
     pub patch: Vec<u8>,
     /// `git diff --cached --binary` from `base` to the source index.
     pub staged_patch: Vec<u8>,
-    /// The files the patch changes, adds or deletes.
+    /// NUL-separated paths whose source index entry has the intent-to-add flag.
+    pub intent_to_add: Vec<u8>,
+    /// The files either snapshot changes, adds or deletes.
     pub files: usize,
     /// Untracked files that stay on the source, each with why.
     pub left_out: Vec<(String, String)>,
@@ -49,7 +51,7 @@ impl Carry {
     pub fn record(&self) -> Value {
         let left: Vec<Value> =
             self.left_out.iter().map(|(p, why)| json!({"path": p, "why": why})).collect();
-        json!({"files": self.files, "bytes": self.staged_patch.len() + self.patch.len(), "leftOut": left})
+        json!({"files": self.files, "bytes": self.staged_patch.len() + self.patch.len() + self.intent_to_add.len(), "leftOut": left})
     }
 }
 
@@ -66,7 +68,8 @@ echo"#;
 
 /// The fixed script that makes the patches: the top folder, the base commit and the untracked
 /// files to add (NUL-separated, base64) on three lines of stdin. Prints the changed paths
-/// (NUL-separated, base64), staged and final patch sizes, then both patches in base64, whatever
+/// (NUL-separated, base64), visible and ordinary index paths, staged and final patch sizes,
+/// then both patches in base64, whatever
 /// their size: a move never leaves work behind for being large. Exit 4: HEAD is no longer the
 /// base.
 const PATCH_SCRIPT: &str = r#"read -r top || exit 2; read -r base || exit 2; read -r keep
@@ -88,8 +91,14 @@ else git read-tree HEAD || exit 3; fi
 # Every path is a file name, never pathspec magic: `:(glob)**` must not add the secrets left out.
 GIT_LITERAL_PATHSPECS=1; export GIT_LITERAL_PATHSPECS
 g() { git -c core.fsmonitor=false -c core.quotepath=false "$@"; }
-g diff --cached --binary --full-index --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$base" >"$s/staged" || exit 3
-g diff --cached --name-only -z --no-renames "$base" >"$s/names" || exit 3
+g ls-files --unmerged >"$s/unmerged" || exit 3
+if [ -s "$s/unmerged" ]; then
+  echo "the index has unresolved conflicts: resolve and stage them, then move again" >&2; exit 5
+fi
+g diff --cached --binary --ita-visible-in-index --full-index --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$base" >"$s/staged" || exit 3
+g diff --cached --name-only -z --no-renames --ita-visible-in-index "$base" >"$s/index-names" || exit 3
+g diff --cached --name-only -z --no-renames --ita-invisible-in-index "$base" >"$s/staged-names" || exit 3
+cp -- "$s/index-names" "$s/names" || exit 2
 # `--sparse`: a sparse checkout's changes inside its cone carry like any other.
 g add --sparse --update -- . || exit 3
 if [ -n "$keep" ]; then
@@ -99,6 +108,10 @@ fi
 tree=$(g write-tree) || exit 3
 g diff --name-only -z --no-renames "$base" "$tree" >>"$s/names" || exit 3
 base64 <"$s/names" | tr -d '\n'
+echo
+base64 <"$s/index-names" | tr -d '\n'
+echo
+base64 <"$s/staged-names" | tr -d '\n'
 echo
 wc -c <"$s/staged" | tr -d ' '
 g diff --binary --full-index --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$base" "$tree" >"$s/patch" || exit 3
@@ -165,6 +178,14 @@ pub(crate) fn snapshot(exec: Exec<'_>, top: &Path, local: bool) -> Result<Carry>
     let mut lines = out.stdout.lines();
     let names = decode(lines.next().unwrap_or_default()).context("the changed paths")?;
     let files = names.split(|b| *b == 0).filter(|p| !p.is_empty()).collect::<BTreeSet<_>>().len();
+    let index_names = decode(lines.next().unwrap_or_default()).context("the index paths")?;
+    let staged_names = decode(lines.next().unwrap_or_default()).context("the staged paths")?;
+    let staged_names: BTreeSet<_> = staged_names.split(|b| *b == 0).collect();
+    let intent_to_add = index_names
+        .split(|b| *b == 0)
+        .filter(|p| !p.is_empty() && !staged_names.contains(p))
+        .flat_map(|p| p.iter().copied().chain(std::iter::once(0)))
+        .collect();
     let mut number = || lines.next().and_then(|l| l.trim().parse::<usize>().ok());
     let (Some(staged_size), Some(size)) = (number(), number()) else {
         bail!("reading the uncommitted changes answered no counts");
@@ -180,7 +201,7 @@ pub(crate) fn snapshot(exec: Exec<'_>, top: &Path, local: bool) -> Result<Carry>
     if patch.len() != size {
         bail!("the uncommitted changes came over cut short ({} of {size} bytes)", patch.len());
     }
-    Ok(Carry { base, patch, staged_patch, files, left_out })
+    Ok(Carry { base, patch, staged_patch, intent_to_add, files, left_out })
 }
 
 /// Why an untracked file stays behind (`cmux_git::secrets`), or None when it goes.
@@ -196,40 +217,79 @@ fn leave_out(_top: &Path, _relative: &[u8]) -> Option<&'static str> {
     Some("untracked files are carried only from macOS and Linux")
 }
 
-/// The fixed script that applies carried patches in the chat's new folder on the target: the
-/// folder and base commit are plain lines, followed by base64 staged and final worktree patches. The
-/// staged patch updates only the index; the final patch updates only the worktree. Exit 4: the
-/// worktree there is not at the base.
-pub(crate) const APPLY_SCRIPT: &str = r#"read -r d || exit 2; read -r base || exit 2; read -r staged || exit 2; read -r patch || exit 2
+/// The target folder and base commit are plain lines, followed by a tar stream containing
+/// only `staged`, `patch` and `intent`. The candidate index is prepared under the target's
+/// index lock and published only after the worktree apply succeeds. Exit 4: different HEAD.
+pub(crate) const APPLY_SCRIPT: &str = r#"read -r d || exit 2; read -r base || exit 2
 top=$(git -C "$d" rev-parse --show-toplevel) || exit 2
 head=$(git -C "$top" rev-parse HEAD) || exit 2
 if [ "$head" != "$base" ]; then echo "the new worktree is at $head, not $base" >&2; exit 4; fi
 s=$(mktemp -d) || exit 2
 trap 'rm -rf -- "$s"' EXIT
-decode() { base64 -d 2>/dev/null || base64 -D; }
-printf '%s' "$staged" | decode >"$s/staged" || exit 2
-printf '%s' "$patch" | decode >"$s/patch" || exit 2
+# Do not read multi-megabyte payloads into shell variables: tar consumes stdin directly.
+tar -xf - -C "$s" staged patch intent || exit 2
+cd -- "$top" || exit 2
+real=$(git rev-parse --git-path index) || exit 3
+# Claim only our own lock. A concurrent Git writer makes the carry refuse unchanged.
+if ! (set -C; : >"$real.lock") 2>/dev/null; then
+  echo "the target index is locked: finish its Git operation, then move again" >&2; exit 5
+fi
+trap 'rm -f -- "$real.lock"; rm -rf -- "$s"' EXIT
+GIT_INDEX_FILE="$s/index"; export GIT_INDEX_FILE
+GIT_LITERAL_PATHSPECS=1; export GIT_LITERAL_PATHSPECS
+if [ -f "$real" ]; then cp -- "$real" "$s/index" || exit 2
+else git read-tree "$base" || exit 3; fi
 if [ -s "$s/patch" ]; then
   git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn --check "$s/patch" || exit 5
 fi
 if [ -s "$s/staged" ]; then
-  git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn --cached --check "$s/staged" || exit 5
   git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn --cached "$s/staged" || exit 5
 fi
+if [ -s "$s/intent" ]; then
+  # The visible-index patch supplies the empty blobs and modes of intent entries. Recreate
+  # their flags against a scratch worktree, even when the final worktree deleted the file.
+  mkdir "$s/intent-worktree" || exit 2
+  git checkout-index --prefix="$s/intent-worktree/" -z --stdin <"$s/intent" || exit 5
+  git update-index --force-remove -z --stdin <"$s/intent" || exit 5
+  git -c core.fsmonitor=false --work-tree="$s/intent-worktree" add -N -f --pathspec-from-file="$s/intent" --pathspec-file-nul -- || exit 5
+fi
+# Write the candidate beside the real index before touching the working tree. Publishing
+# is then a rename on the same filesystem, with no allocation after the worktree changes.
+cp -- "$s/index" "$real.lock" || exit 2
 if [ -s "$s/patch" ]; then
   if ! git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn "$s/patch"; then
-    if [ -s "$s/staged" ]; then
-      git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn --cached --reverse "$s/staged" || exit 6
-    fi
     exit 5
   fi
+fi
+# Once published, another writer may immediately claim index.lock; never clean up its lock.
+trap 'rm -rf -- "$s"' EXIT
+if ! mv -- "$real.lock" "$real"; then
+  rm -f -- "$real.lock"
+  if [ -s "$s/patch" ]; then
+    git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn --reverse "$s/patch" || exit 6
+  fi
+  exit 5
 fi"#;
 
-/// [`APPLY_SCRIPT`]'s stdin for `carry` in `folder`.
-pub(crate) fn apply_input(folder: &str, carry: &Carry) -> Vec<u8> {
-    let staged = base64::engine::general_purpose::STANDARD.encode(&carry.staged_patch);
-    let patch = base64::engine::general_purpose::STANDARD.encode(&carry.patch);
-    format!("{folder}\n{}\n{staged}\n{patch}\n", carry.base).into_bytes()
+/// [`APPLY_SCRIPT`]'s stdin for `carry` in `folder`, framed without shell-sized variables.
+pub(crate) fn apply_input(folder: &str, carry: &Carry) -> Result<Vec<u8>> {
+    let mut input = format!("{folder}\n{}\n", carry.base).into_bytes();
+    {
+        let mut archive = tar::Builder::new(&mut input);
+        for (name, bytes) in [
+            ("staged", carry.staged_patch.as_slice()),
+            ("patch", carry.patch.as_slice()),
+            ("intent", carry.intent_to_add.as_slice()),
+        ] {
+            let mut header = tar::Header::new_ustar();
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o600);
+            header.set_cksum();
+            archive.append_data(&mut header, name, bytes)?;
+        }
+        archive.finish()?;
+    }
+    Ok(input)
 }
 
 /// The base a carry was read against must be the commit the move pushed: one that moved on

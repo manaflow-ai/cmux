@@ -39,7 +39,7 @@ fn repo(dir: &Path) {
 
 /// Applies `carry` in `dir` the way the target does, through [`APPLY_SCRIPT`].
 fn apply(dir: &Path, carry: &Carry) -> RemoteOut {
-    here(APPLY_SCRIPT, &apply_input(&dir.to_string_lossy(), carry)).unwrap()
+    here(APPLY_SCRIPT, &apply_input(&dir.to_string_lossy(), carry).unwrap()).unwrap()
 }
 
 #[test]
@@ -204,6 +204,23 @@ fn index_and_worktree_snapshots_match_independently_for_every_change_kind() {
             "git rm -q gone.txt && git show HEAD:gone.txt > gone.txt",
             1,
         ),
+        ("intent to add", "printf 'new\\n' > new.txt && git add -N new.txt", 1),
+        (
+            "intent to add then delete",
+            "printf 'new\\n' > new.txt && git add -N new.txt && rm new.txt",
+            1,
+        ),
+        ("empty intent to add", "touch new.txt && git add -N new.txt", 1),
+        (
+            "executable intent to add",
+            "printf 'new\\n' > new.txt && chmod +x new.txt && git add -N new.txt",
+            1,
+        ),
+        (
+            "intent and staged additions",
+            "printf 'new\\n' > new.txt && git add -N new.txt && printf 'staged\\n' > renamed.txt && git add renamed.txt",
+            2,
+        ),
         ("untracked unusual names", "printf 'new\\n' > 'space name'", 2),
     ];
     for (name, setup, files) in cases {
@@ -233,7 +250,11 @@ fn index_and_worktree_snapshots_match_independently_for_every_change_kind() {
         let source_bytes = paths.map(|p| std::fs::read(src.path().join(p)).ok());
         let carry = snapshot(&here, src.path(), true).unwrap();
         assert_eq!(carry.files, files, "{name}");
-        assert_eq!(carry.record()["bytes"], carry.patch.len() + carry.staged_patch.len(), "{name}");
+        assert_eq!(
+            carry.record()["bytes"],
+            carry.patch.len() + carry.staged_patch.len() + carry.intent_to_add.len(),
+            "{name}"
+        );
         sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
         let out = apply(dst.path(), &carry);
         assert!(out.ok, "{name}: {}", out.stderr);
@@ -262,7 +283,7 @@ fn index_and_worktree_snapshots_match_independently_for_every_change_kind() {
 }
 
 #[test]
-fn worktree_apply_failure_rolls_back_the_staged_patch() {
+fn worktree_apply_failure_preserves_the_original_index() {
     let src = tempfile::tempdir().unwrap();
     let dst = tempfile::tempdir().unwrap();
     repo(src.path());
@@ -272,18 +293,117 @@ fn worktree_apply_failure_rolls_back_the_staged_patch() {
     );
     let carry = snapshot(&here, src.path(), true).unwrap();
     sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
-    let before = sh(dst.path(), "git ls-files --stage -z");
+    let before = std::fs::read(dst.path().join(".git/index")).unwrap();
     // Inject a failure only at the final write, after both real preflights and the index apply.
     let failing = APPLY_SCRIPT.replace(
         "if ! git -c core.fsmonitor=false -C \"$top\" apply --binary --whitespace=nowarn \"$s/patch\"; then",
         "if ! false; then",
     );
     assert_ne!(failing, APPLY_SCRIPT);
-    let out = here(&failing, &apply_input(&dst.path().to_string_lossy(), &carry)).unwrap();
+    let out = here(&failing, &apply_input(&dst.path().to_string_lossy(), &carry).unwrap()).unwrap();
     assert!(!out.ok);
-    assert_eq!(sh(dst.path(), "git ls-files --stage -z"), before);
+    assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), before);
+    assert!(!dst.path().join(".git/index.lock").exists());
     assert_eq!(std::fs::read(dst.path().join("kept.txt")).unwrap(), b"one\n");
-    assert!(apply(dst.path(), &carry).ok, "the rollback permits a fresh retry");
+    assert!(apply(dst.path(), &carry).ok, "the discarded candidate permits a fresh retry");
+}
+
+#[test]
+fn failed_index_publication_restores_the_worktree() {
+    let src = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(
+        src.path(),
+        "printf 'two\\n' >> kept.txt && git add kept.txt && printf 'three\\n' >> kept.txt",
+    );
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    let index = std::fs::read(dst.path().join(".git/index")).unwrap();
+    let failing =
+        APPLY_SCRIPT.replace("if ! mv -- \"$real.lock\" \"$real\"; then", "if ! false; then");
+    assert_ne!(failing, APPLY_SCRIPT);
+    let out = here(&failing, &apply_input(&dst.path().to_string_lossy(), &carry).unwrap()).unwrap();
+    assert!(!out.ok);
+    assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
+    assert_eq!(std::fs::read(dst.path().join("kept.txt")).unwrap(), b"one\n");
+    assert!(!dst.path().join(".git/index.lock").exists());
+    assert!(apply(dst.path(), &carry).ok);
+}
+
+#[test]
+fn unresolved_conflicts_refuse_without_changing_the_source() {
+    let src = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(
+        src.path(),
+        "git checkout -qb side && printf 'side\\n' > kept.txt && git commit -qam side && git checkout -q lane/t && printf 'main\\n' > kept.txt && git commit -qam main && ! git merge side",
+    );
+    sh(src.path(), "printf 'staged\\n' > gone.txt && git add gone.txt");
+    let index = std::fs::read(src.path().join(".git/index")).unwrap();
+    let conflict = std::fs::read(src.path().join("kept.txt")).unwrap();
+    let refs = sh(src.path(), "git show-ref --head");
+    let error = snapshot(&here, src.path(), true).unwrap_err().to_string();
+    assert!(error.contains("unresolved conflicts"), "{error}");
+    assert_eq!(std::fs::read(src.path().join(".git/index")).unwrap(), index);
+    assert_eq!(std::fs::read(src.path().join("kept.txt")).unwrap(), conflict);
+    assert_eq!(sh(src.path(), "git show-ref --head"), refs);
+}
+
+#[test]
+fn an_existing_target_index_lock_is_preserved() {
+    let src = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(src.path(), "printf 'two\\n' >> kept.txt && git add kept.txt");
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    let lock = dst.path().join(".git/index.lock");
+    std::fs::write(&lock, b"another writer").unwrap();
+    let index = std::fs::read(dst.path().join(".git/index")).unwrap();
+    let out = apply(dst.path(), &carry);
+    assert!(!out.ok && out.stderr.contains("index is locked"), "{}", out.stderr);
+    assert_eq!(std::fs::read(&lock).unwrap(), b"another writer");
+    assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
+    assert_eq!(std::fs::read(dst.path().join("kept.txt")).unwrap(), b"one\n");
+}
+
+/// Same payload and process harness for both transports; run explicitly on the fleet.
+#[test]
+#[ignore = "transport timing receipt, not a correctness gate"]
+fn carry_transport_before_after() {
+    let carry = Carry {
+        base: "a".repeat(40),
+        staged_patch: vec![b'x'; 8 * 1024 * 1024],
+        patch: vec![b'y'; 8 * 1024 * 1024],
+        intent_to_add: vec![],
+        files: 1,
+        left_out: vec![],
+    };
+    let old = format!(
+        "{}\n{}\n",
+        base64::engine::general_purpose::STANDARD.encode(&carry.staged_patch),
+        base64::engine::general_purpose::STANDARD.encode(&carry.patch)
+    );
+    let new = apply_input("/tmp/transport-only", &carry).unwrap();
+    let old_script = r#"s=$(mktemp -d); trap 'rm -rf -- "$s"' EXIT
+read -r staged; read -r patch
+printf '%s' "$staged" | base64 -d >"$s/staged"
+printf '%s' "$patch" | base64 -d >"$s/patch""#;
+    let new_script = r#"s=$(mktemp -d); trap 'rm -rf -- "$s"' EXIT
+read -r d; read -r base
+tar -xf - -C "$s" staged patch intent"#;
+    for round in 0..3 {
+        let start = std::time::Instant::now();
+        assert!(here(old_script, old.as_bytes()).unwrap().ok);
+        let before = start.elapsed();
+        let start = std::time::Instant::now();
+        assert!(here(new_script, &new).unwrap().ok);
+        eprintln!(
+            "carry transport round {round}, 16 MiB: shell-base64={before:?}, tar={:?}",
+            start.elapsed()
+        );
+    }
 }
 
 #[test]
@@ -410,6 +530,7 @@ fn a_base_that_moved_refuses() {
         base: "a".repeat(40),
         patch: vec![],
         staged_patch: vec![],
+        intent_to_add: vec![],
         files: 0,
         left_out: vec![],
     };

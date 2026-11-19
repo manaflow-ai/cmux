@@ -5,18 +5,23 @@ independently. A HEAD-to-worktree diff cannot prove staging survived: staging ca
 be partially undone, or completely canceled, in the working tree.
 
 The carry reader copies the source index and emits two base-relative binary
-patches: HEAD to index, and HEAD to final working tree. Apply checks both patches
-before writing, applies the first only to the index and the second only to the
-working tree, and reverses the index patch if the working-tree write fails.
-File counts are the union of both patches' raw paths; byte counts include both.
+patches: HEAD to index, and HEAD to final working tree. Apply prepares a candidate index under the target index lock, including
+intent-to-add flags, and publishes it only after the final working-tree patch
+applies. A failed worktree apply leaves the original index byte-for-byte intact.
+Unmerged source indexes refuse with recovery guidance instead of losing conflict
+stages. Payloads stream through tar; no patch occupies a shell variable.
+File counts are the union of both patches' raw paths; byte counts include both and the intent-to-add path list.
 Secrets, ignored files and nested repositories retain their existing exclusions.
 
 Detector: `session_move_carry::tests::index_and_worktree_snapshots_match_independently_for_every_change_kind`
 compares Git index entries, staged and unstaged diffs, filesystem bytes and source
 refs independently. It covers canceling edits, staged binary edits, renames,
-additions followed by deletion, and unusual untracked paths. The companion
-failure tests cover preflight refusal, rollback after index apply, retry, and
-changed target HEAD. Run through `cmux-ci test --setup rust -- bash -c
+additions followed by deletion, intent-to-add (including deleted and empty files),
+and unusual untracked paths. The companion
+failure tests cover preflight refusal, failure after candidate index preparation, retry, and
+changed target HEAD and existing target index locks. The ignored
+`carry_transport_before_after` test records the old shell-base64 transport and
+streamed tar transport timings for the same 16 MiB payload. Run through `cmux-ci test --setup rust -- bash -c
 'cd cmux-tui && cargo test -p acpmux --lib session_move_carry'`.
 
 All explicit session carry routes (local to peer, peer to peer through `--from`,
