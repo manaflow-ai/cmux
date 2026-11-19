@@ -15,14 +15,18 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     public func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data {
         try await mapped {
-            try await client.attach(afterSeq: page.afterSeq, beforeSeq: page.beforeSeq, limit: page.limit, kinds: page.kinds) { event, line in
+            try await client.attach(afterSeq: page.afterSeq, beforeSeq: page.beforeSeq, limit: page.limit, kinds: page.kinds,
+                                    maxBytes: page.maxBytes) { event, line in
                 handler(Self.event(event, line))
             }
         }
     }
 
     public func events(_ page: AgentSessionPage) async throws -> Data {
-        try await mapped { try await client.events(afterSeq: page.afterSeq, beforeSeq: page.beforeSeq, limit: page.limit, kinds: page.kinds) }
+        try await mapped {
+            try await client.events(afterSeq: page.afterSeq, beforeSeq: page.beforeSeq, limit: page.limit, kinds: page.kinds,
+                                    maxBytes: page.maxBytes)
+        }
     }
 
     public func prompt(id: String, text: String) async throws -> Data {

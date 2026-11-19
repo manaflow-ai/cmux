@@ -162,6 +162,7 @@ const CAPABILITIES: &[&str] = &[
     agent_session_attach::AGENT_SESSION_ATTENTION_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY,
     agent_session_attach::AGENT_SESSION_BTW_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_PAGE_BYTES_CAPABILITY,
     agent_session_attach::agent_session_children::AGENT_SESSION_CHILDREN_CAPABILITY,
     agent_session_attach::member::AGENT_SESSION_MEMBER_CAPABILITY,
     agent_session_attach::member::AGENT_SESSION_STEER_CAPABILITY,

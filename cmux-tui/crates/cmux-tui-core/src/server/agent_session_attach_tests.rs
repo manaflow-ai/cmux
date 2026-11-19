@@ -1073,6 +1073,45 @@ fn attach_takes_the_agent_panes_whole_kind_list() {
     assert_eq!(sent["params"]["kinds"], kinds);
 }
 
+/// hq#14027: the agent pane's page budget reaches acpmux as `maxBytes`, so a Cloud chat's open
+/// page is the 128 KiB a local one is, not acpmux's 1 MiB default. Zero is a bad request, a
+/// budget past this daemon's own page cap is held to it, and a page that names none still goes
+/// without one (acpmux's default).
+#[test]
+fn attach_and_events_pass_the_pages_byte_budget() {
+    let fake = FakeAcpmux::start("page-bytes");
+    let mux = mux_with(&fake, "asa-page-bytes");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_PAGE_BYTES_CAPABILITY)
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "page-bytes");
+    let refused = client.request(json!({"cmd":"agent-session-attach","surface":surface,
+                                        "max_bytes":0}));
+    assert_code(&refused, "agent_session.bad_request");
+    let reply = client.request(json!({"cmd":"agent-session-attach","surface":surface,
+                                      "limit":400,"max_bytes":131072}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/attach"));
+    assert_eq!(sent["params"]["maxBytes"], json!(131072));
+    let reply = client.request(json!({"cmd":"agent-session-events","surface":surface,
+                                      "before_seq":9,"max_bytes":u64::MAX}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/events"));
+    assert_eq!(sent["params"]["maxBytes"], json!(agent_session_attach::MAX_PAGE_BYTES as u64));
+    let reply = client.request(json!({"cmd":"agent-session-events","surface":surface,
+                                      "before_seq":9}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert!(fake.frame()["params"].get("maxBytes").is_none());
+}
+
 // MARK: Streaming
 
 #[test]
