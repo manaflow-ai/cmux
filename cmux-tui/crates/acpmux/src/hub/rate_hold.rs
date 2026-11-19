@@ -128,6 +128,12 @@ impl RateHold {
         self.lock().streak.saturating_sub(1)
     }
 
+    /// Whether the chat is in a 429 streak: a turn it runs now is a probe of the limit, and no
+    /// notice steers into it (`inbox.rs`).
+    pub(crate) fn probing(&self) -> bool {
+        self.lock().streak > 0
+    }
+
     /// A turn completed: the next 429 starts the backoff again at its first step.
     pub(super) fn completed(&self) {
         self.lock().streak = 0;

@@ -656,10 +656,15 @@ impl Hub {
             let reset = reset_hint::reset_at(&error, limits.as_ref(), now).max(not_before);
             // Never sooner than the hold the failure set.
             let held = session.rate_hold.until().filter(|_| rate);
-            let next_at = now
-                .saturating_add(staggered(delay, &session.id))
-                .max(reset.unwrap_or(now))
-                .max(held.unwrap_or(now));
+            let next_at = match (rate, reset) {
+                // A rate limit that names its reset (retry-after, the error's or the account
+                // window's) goes on exactly then, not a backoff step after it.
+                (true, Some(reset)) => reset.max(held.unwrap_or(reset)),
+                _ => now
+                    .saturating_add(staggered(delay, &session.id))
+                    .max(reset.unwrap_or(now))
+                    .max(held.unwrap_or(now)),
+            };
             let delay = next_at.saturating_sub(now);
             let retry = RetrySummary {
                 attempt: attempt as u64,

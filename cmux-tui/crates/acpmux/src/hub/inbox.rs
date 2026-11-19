@@ -1564,7 +1564,13 @@ impl Hub {
                             if stopping {
                                 inbox.due_now = true;
                             }
+                            // Nor does a probe under the account's rate limit (a turn while
+                            // the chat is in a 429 streak, `rate_hold.rs`): a steer would be a
+                            // second full-context request into the same limit. What is new
+                            // waits for the turn's end: the next probe, or after a success.
+                            let probing = session.rate_hold.probing();
                             if stopping
+                                || probing
                                 || !steers
                                 || turn.persons
                                 || inbox.held_by_person
