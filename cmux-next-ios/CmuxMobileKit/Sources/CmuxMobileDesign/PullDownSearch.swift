@@ -39,11 +39,17 @@ struct PullDownSearch: UIViewRepresentable {
             done = true
             let height = search.frame.height
             guard height > 0, scroll.contentOffset.y <= -scroll.adjustedContentInset.top + 1 else { return }
-            scroll.setContentOffset(CGPoint(x: 0, y: -scroll.adjustedContentInset.top + height), animated: false)
+            // The screen's own placement, not a shift of what is read: a shared list
+            // (``PagedList``) counts these moves as its own.
+            let place: (CGFloat) -> Void = { y in
+                let move = { scroll.setContentOffset(CGPoint(x: 0, y: y), animated: false) }
+                if let list = scroll as? PagedListCollectionView, let deliberately = list.deliberately { deliberately(move) } else { move() }
+            }
+            place(-scroll.adjustedContentInset.top + height)
             // The collapsed drawer shrinks the top inset; settle on the new top
             // so the first row sits right under the bar.
             DispatchQueue.main.async {
-                scroll.setContentOffset(CGPoint(x: 0, y: -scroll.adjustedContentInset.top), animated: false)
+                place(-scroll.adjustedContentInset.top)
             }
         }
 
