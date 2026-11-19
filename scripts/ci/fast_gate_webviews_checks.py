@@ -75,8 +75,21 @@ SUMMARY = re.compile(r"^Found \d+ (?:errors? and \d+ warnings?|warnings? and \d+
                      r"(?: \(\d+(?:\.\d+)?m?s(?:, \d+ threads?)?\))?\.?$")
 
 
-def run_check(webviews: Path, check: str) -> tuple[int, str]:
-    result = subprocess.run(["bun", "run", check], cwd=webviews, capture_output=True, text=True)
+# The type check of the tree under test runs inside fixit-compile (ci-oops 0a): when every type error has one safe
+# language-service fix it writes the fixup patch for fixit-compile-push, and still exits with the check's status.
+FIXIT_COMPILE = Path(__file__).resolve().parent / "oops" / "fixit_compile.py"
+
+
+def run_check(webviews: Path, check: str, fixit: bool = False) -> tuple[int, str]:
+    argv = ["bun", "run", check]
+    if not (fixit and check == "typecheck" and FIXIT_COMPILE.is_file()):
+        result = subprocess.run(argv, cwd=webviews, capture_output=True, text=True)
+        return result.returncode, result.stdout + result.stderr
+    # Its own lines go to a report printed apart, so the findings compared with the base are the check's alone.
+    with tempfile.NamedTemporaryFile("r", suffix=".log") as report:
+        result = subprocess.run([sys.executable, "-I", str(FIXIT_COMPILE), "run", "--kind", "tsc", "--report",
+                                 report.name, "--", *argv], cwd=webviews, capture_output=True, text=True)
+        print(report.read(), end="", flush=True)
     return result.returncode, result.stdout + result.stderr
 
 
@@ -227,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     failed = []
     try:
         for check in CHECKS:
-            code, output = run_check(webviews, check)
+            code, output = run_check(webviews, check, fixit=True)
             print(output, end="", flush=True)
             if code == 0:
                 continue
