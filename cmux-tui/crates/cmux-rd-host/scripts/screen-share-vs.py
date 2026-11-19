@@ -1536,7 +1536,7 @@ class Orchestrator:
         # The first session after the rig starts can miss every key (the marker window is
         # not key yet), so warm-up attempts are logged but not counted.
         for n in range(1 - self.a.warmup, self.a.trials + 1):
-            origin = self.marker([])
+            origin = self.marker(["--tick", "--motion"] if self.a.key_motion else [])
             rec = self.cmux_attempt(origin, "key")
             timing = self.host_timing()
             if n < 1:
@@ -1821,6 +1821,9 @@ def main():
                    "and noise translate; churn is new content every frame)")
     r.add_argument("--trials", type=int, default=10)
     r.add_argument("--warmup", type=int, default=1, help="uncounted key attempts first")
+    r.add_argument("--key-motion", action="store_true",
+                   help="run the key trials over the moving scene too, so the first frame is "
+                   "measured on a screen that changes every refresh, not a still one")
     r.add_argument("--fps-trials", type=int, default=3)
     r.add_argument("--samples", type=int, default=30)
     r.add_argument("--fps-seconds", type=int, default=10)
