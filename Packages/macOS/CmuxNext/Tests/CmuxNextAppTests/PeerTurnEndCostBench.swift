@@ -11,8 +11,8 @@ import Testing
 /// Design audit 2026-11-18, finding 7: main-thread time of one acpmux peer's turn end (its
 /// `_acpmux/session_changed` from working to idle, as the watch feed handles it on main) in a session of
 /// 1,600 tabs, with 10,000 sessions listed and 30 peers. Prints one `PEER-TURN-END` line. Off unless
-/// `CMUX_PEER_TURN_END_BENCH=1` (scripts/measure/swift-test-bench.sh `enable=`); built only from APIs base has,
-/// so `restore_from=` measures base's sources with this same harness.
+/// `CMUX_PEER_TURN_END_BENCH=1` (scripts/measure/swift-test-bench.sh `enable=`); built from APIs base has but for one line,
+/// the turn-end hook's wiring (base: `agentTurnEnded(session: $0)`), so base is measured with this same harness.
 @MainActor @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_PEER_TURN_END_BENCH"] == "1"))
 struct PeerTurnEndCostBench {
     static let tabs = 1_600, tabsPerWorkspace = 10, sessions = 10_000, peers = 30, peerRows = 100, rounds = 2_000
@@ -46,7 +46,7 @@ struct PeerTurnEndCostBench {
         service.services = services
         let turns = AgentTurnStateStore()
         turns.localHost = "install:peer-bench"
-        turns.onTurnEnded = { [weak service] in service?.agentTurnEnded(session: $0) }
+        turns.onTurnEnded = { [weak service] in service?.agentTurnEnded($0) }
         let feed = AgentTurnStateFeed(socketPath: "/nonexistent/peer-turn-end-bench.sock", turns: turns, lanes: AgentLaneStore())
         let design = DesignSettings.shared
         let before = design.attention
