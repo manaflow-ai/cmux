@@ -212,14 +212,16 @@ first() {
   cpu_prepare="$(checker_cpu)"
   # Every row mounts with hdiutil, unbrowsed, at the job's own mount point. Rows q and m quarantine the DMG file first;
   # hdiutil carries that onto the volume's files, so the copy (q) and the mounted app (m) are quarantined as a
-  # download's are. Never `open DMG`: DiskImageMounter mounts it under /Volumes, where a walk of the job (or of anything
+  # download's are. -noautofsck: hdiutil checks a quarantined image with fsck_apfs before mounting it, and fsck_apfs
+  # reading the image's device asks "would like to access files on a removable volume" in the worker's name
+  # (cmux-austin-mini-0, 2026-11-19 10:53Z, tccd: accessing fsck_apfs, responsible the worker). Never `open DMG`: DiskImageMounter mounts it under /Volumes, where a walk of the job (or of anything
   # else on the Mac) asks "would like to access files on a removable volume" in the worker's name, and it stayed mounted
   # after the run (cmux-austin-mini-0, 2026-11-19, job c5408b53).
   if [[ "$name" == q || "$name" == m ]]; then
     quarantine "$dmgfile"
     marker_refresh
   fi
-  hdiutil attach "$dmgfile" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LF attach failed $tag"; return 1; }
+  hdiutil attach "$dmgfile" -nobrowse -readonly -noautofsck -mountpoint "$mount" >/dev/null || { echo "LF attach failed $tag"; return 1; }
   local found; found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
   case "$name" in
     n|p|s|x) dir="$OUT/copy-$tag"; mkdir -p "$dir"; ditto "$found" "$dir/$(basename "$found")" && copied_by=ditto

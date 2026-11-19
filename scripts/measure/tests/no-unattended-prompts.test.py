@@ -10,7 +10,10 @@ the run never detached it). So in every tracked .sh and .py under scripts/ and .
   - no Apple event to Finder, unless the file gates it behind an opt-in variable that a fleet job never sets
     (FINDER_EVENT_GATES);
   - no DMG opened through LaunchServices (`open X.dmg`, `open "$dmg..."`);
-  - every `hdiutil attach` passes -nobrowse and its own -mountpoint, never /Volumes.
+  - every `hdiutil attach` passes -nobrowse and its own -mountpoint, never /Volumes;
+  - in a file that writes com.apple.quarantine, every `hdiutil attach` also passes -noautofsck: hdiutil runs fsck_apfs
+    on a quarantined image first, and fsck_apfs reading its device is the removable-volume ask (tccd on
+    cmux-austin-mini-0, 10:53Z: accessing fsck_apfs, responsible the worker).
 
 Static: it reads the files, runs nothing. Run: python3 scripts/measure/tests/no-unattended-prompts.test.py [--root DIR]
 """
@@ -26,6 +29,9 @@ FINDER_EVENT_GATES = {"scripts/measure/files-finder-bench.sh": "CMUX_FILES_BENCH
 FINDER_EVENT = re.compile(r'application\s+(?:id\s+)?\\?"(?:Finder|com\.apple\.finder)\\?"')
 # `open` as a command (line start, after console/exec/sudo, or a subshell) whose arguments name a DMG.
 OPEN_DMG = re.compile(r'(?:^|[;&(]|\b(?:console|exec|sudo -n|then|do))\s*(?:/usr/bin/)?open\s+[^|;&\n]*(?:\.dmg\b|\$\{?[A-Za-z_]*dmg)')
+QUARANTINE_WRITE = re.compile(r'xattr"?,?\s+"?-w"?,?\s+(?:"?-r"?,?\s+)?"?com\.apple\.quarantine')
+# A call, not a message about one ("hdiutil attach: ..."): options or a path follow.
+ATTACH = re.compile(r'\bhdiutil\s+attach\s+["$-]|"hdiutil",\s*"attach"')
 THIS = "scripts/measure/tests/no-unattended-prompts.test.py"
 
 
@@ -59,7 +65,13 @@ def findings(root):
         except OSError:
             continue
         raw = text.splitlines()
+        quarantines = QUARANTINE_WRITE.search(text) is not None
         for n, line in logical_lines(text):
+            if quarantines and ATTACH.search(line):
+                window = " ".join(raw[n - 1:n + 2]) if rel.endswith(".py") else line
+                if "-noautofsck" not in window:
+                    bad.append(f"{rel}:{n}: hdiutil attach in a file that quarantines, without -noautofsck (fsck_apfs "
+                               "asks for the removable volume)")
             code = line.split("#", 1)[0] if rel.endswith(".sh") else line
             if FINDER_EVENT.search(code):
                 gate = FINDER_EVENT_GATES.get(rel)
