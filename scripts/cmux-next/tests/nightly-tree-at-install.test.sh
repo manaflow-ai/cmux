@@ -298,7 +298,7 @@ check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output"' "an
 # Nothing will publish the tip's tree (its publisher ended without it, no same-key run is active):
 # the resolver picks the newest published tree instead of a build that fails 45 min in (2026-11-09).
 ended_run="{\"total_count\":1,\"workflow_runs\":[{\"id\":3,\"status\":\"completed\",\"conclusion\":\"failure\",\"head_sha\":\"$own\",\"html_url\":\"u3\"}]}"
-reset_cdn; set_runs "$no_runs"; printf '%s\n' "$ended_run" > "$runs_dir/runs-$own"; pending
+reset_cdn; set_runs "$no_runs"; jobs_file 3 "$preflight_failed"; printf '%s\n' "$ended_run" > "$runs_dir/runs-$own"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output" && grep -q "nothing will publish" "$TMP/summary"' \
   "a tree whose publisher ended unpublished leaves it to the resolver"
 printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":4,\"status\":\"queued\",\"head_sha\":\"$app\"}]}" > "$runs_dir/runs-$app"; pending
@@ -323,6 +323,15 @@ own_run "$own" 13; own_list 13; jobs_file 13 "$(stalled_jobs 0)"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a publisher queued under the stall bound keeps the tip pending"
 own_run "$own" 14 1; own_list 14; jobs_file 14 "$failed_jobs"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a failed build a retry will re-run keeps the tip pending"
+# Preflight is a required publisher stage on both resolver and wait surfaces.
+own_run "$own" 16; own_list 16
+jobs_file 16 '{"jobs":[{"name":"cmux-tui tree preflight","status":"queued","runner_name":null,"labels":["cmux-gcp-lane-build-x64"],"created_at":"'"$(ago 1000)"'"}]}'
+pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output" && grep -q "cmux-tui tree preflight queued" "$TMP/summary"' "a stalled preflight leaves the tip to the resolver with its state"
+completed_run "$own" 17; set_runs "$no_runs"; jobs_file 17 "$preflight_failed"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output" && grep -q "failed cmux-tui tree preflight" "$TMP/summary"' "a completed preflight failure leaves the tip to the resolver with its state"
+own_run "$own" 17 2; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "an active preflight retry keeps the tip pending"
 # A stuck owner is passed over for a same-key run that builds: still pending.
 own_run "$own" 11; jobs_file 11 "$(stalled_jobs 6000)"; own_run "$app" 15
 set_runs "{\"total_count\":2,\"workflow_runs\":[{\"id\":11,\"status\":\"in_progress\",\"head_sha\":\"$own\",\"head_branch\":\"feat-cmux-next\"},{\"id\":15,\"status\":\"in_progress\",\"head_sha\":\"$app\",\"head_branch\":\"feat-cmux-next\"}]}"

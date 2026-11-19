@@ -561,35 +561,43 @@ PY
 # (2026-11-18: the resolver took owner 44223233076, whose builds had sat queued with
 # no runner since 02:32Z, as a publisher; nightly 44235456054 then waited 45 min on it).
 tree_publisher() {
-  local key="$1" candidate progress found stuck="" skip="" unknown=false ended=false
+  local key="$1" candidate state progress found scan stuck="" skip="" unknown=false ended=false
   shift
   for candidate in "$@"; do
-    case "$(artifacts_runs_state "$candidate")" in
-      active)
+    state="$(artifacts_runs_state "$candidate")"
+    case "$state" in
+      active|ended\ *)
+        [[ "$state" == active ]] || ended=true
         progress="$(artifacts_run_progress "$candidate")"
         case "$progress" in
-          # none: the run list said active a moment ago; trust it until the next check.
-          building|unknown|none) echo "building $candidate"; return 0 ;;
+          building) echo "building $candidate"; return 0 ;;
+          unknown) unknown=true ;;
+          # The first read observed an active run; preserve it across list lag.
+          none) [[ "$state" != active ]] || { echo "building $candidate"; return 0; } ;;
           *) stuck="the run of ${candidate:0:12} is $progress"; skip="$skip $candidate" ;;
         esac ;;
       unknown) unknown=true ;;
-      ended\ *) ended=true ;;
     esac
   done
   if [[ "$unknown" == true ]]; then echo unknown; return 0; fi
-  found="$(CMUX_TUI_TREE_SKIP_PUBLISHERS="$skip" active_publisher_for_key "$key")"
-  case "$found" in
-    unknown) echo unknown; return 0 ;;
-    "") ;;
-    *)
-      progress="$(artifacts_run_progress "$found")"
-      case "$progress" in
-        # none: the commit-filtered list lags the full one; the full list said active.
-        building|unknown|none) echo "building $found"; return 0 ;;
-        *) stuck="the run of ${found:0:12} is $progress" ;;
-      esac ;;
-  esac
-  if [[ -n "$stuck" ]]; then echo "stuck $stuck"
+  # Inspect alternatives within a finite bound. An incomplete scan cannot prove
+  # that no publisher can finish the tree.
+  for ((scan = 0; scan < 20; scan++)); do
+    found="$(CMUX_TUI_TREE_SKIP_PUBLISHERS="$skip" active_publisher_for_key "$key")"
+    case "$found" in
+      unknown) echo unknown; return 0 ;;
+      "") break ;;
+      *)
+        progress="$(artifacts_run_progress "$found")"
+        case "$progress" in
+          building|none) echo "building $found"; return 0 ;;
+          unknown) echo unknown; return 0 ;;
+          *) stuck="the run of ${found:0:12} is $progress"; skip="$skip $found" ;;
+        esac ;;
+    esac
+  done
+  if (( scan >= 20 )); then echo unknown
+  elif [[ -n "$stuck" ]]; then echo "stuck $stuck"
   elif [[ "$ended" == true ]]; then echo ended
   else echo none
   fi
