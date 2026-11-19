@@ -33,6 +33,9 @@ extension PaletteController {
         }
         if changed { model.frecencyRevision += 1 }
         model.remembersSearches = settings.remembersSearches
+        let experiments = sources.experiments?() ?? PaletteExperiments()
+        PaletteLayout.experiments = experiments
+        if model.experiments != experiments { model.experiments = experiments }
     }
 
     /// The scope a run of `id` opens (`PaletteScopeDescriptor.openAction`): Toggle Setting opens

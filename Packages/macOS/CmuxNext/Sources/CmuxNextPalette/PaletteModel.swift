@@ -30,6 +30,8 @@ public final class PaletteModel {
     }
 
     public internal(set) var sections: [PaletteResultSection] = []
+    /// The palette experiments read when the palette opened (`PaletteSources.experiments`).
+    public internal(set) var experiments = PaletteExperiments()
     /// The top level's selection (owned by the reducer).
     public internal(set) var selectedRowID: String? {
         didSet { if selectedRowID != oldValue { reportHighlight() } }
