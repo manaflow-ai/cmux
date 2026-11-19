@@ -1,0 +1,47 @@
+name: static-analysis daily dispatcher
+
+# Once a day, starts feat-cmux-next's static-analysis-daily.yml ("static-analysis daily"), which runs
+# osv-scanner, cargo-deny, cargo-machete and knip and files ONE issue per finding that is new since
+# its baseline (scripts/static-analysis/daily.sh there). Scheduled workflows run only from the
+# default branch and that workflow lives on feat-cmux-next, so this file on main starts it, unless a
+# run is already pending. It is no pull request check and nothing requires it: a new advisory or
+# license reaches the repo as an issue, never as a red on an unrelated pull request.
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: static-analysis-daily-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: Start the static-analysis daily run on feat-cmux-next unless one is pending
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const source = 'feat-cmux-next';
+            const workflow = 'static-analysis-daily.yml';
+            for (const status of ['queued', 'in_progress', 'waiting', 'pending', 'requested']) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner, repo, workflow_id: workflow, branch: source, status, per_page: 5,
+              });
+              if (data.total_count > 0) {
+                core.notice(`A static-analysis daily run is already ${status} (run ${data.workflow_runs[0].id}); nothing to start`);
+                return;
+              }
+            }
+            // Fully qualified: a tag named feat-cmux-next must never be picked.
+            await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: workflow, ref: `refs/heads/${source}` });
+            core.notice(`Started the static-analysis daily run on ${source}`);
