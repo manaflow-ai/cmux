@@ -29,14 +29,23 @@ pub(super) fn merge(global: &GlobalArgs, result: Value) -> Value {
     apply(global, result, reads)
 }
 
-/// Runs the three reads at once and waits for all of them.
+/// Runs the three reads at once and waits for all of them: two on scoped threads, the
+/// third on this one. Each read keeps its own bound, so the wait is the slowest's.
 pub(super) fn read_all<C, J, P>(cloud: C, joined: J, peers: P) -> SideReads
 where
     C: FnOnce() -> SideRead + Send,
     J: FnOnce() -> SideRead + Send,
     P: FnOnce() -> SideRead,
 {
-    SideReads { cloud: cloud(), joined: joined(), peers: peers() }
+    std::thread::scope(|scope| {
+        let cloud = scope.spawn(cloud);
+        let joined = scope.spawn(joined);
+        let peers = peers();
+        // A read that panicked panics the list, as it did when the reads ran in turn.
+        let cloud = cloud.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        let joined = joined.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        SideReads { cloud, joined, peers }
+    })
 }
 
 /// `result` with each read's rows added, in the order they always were.
