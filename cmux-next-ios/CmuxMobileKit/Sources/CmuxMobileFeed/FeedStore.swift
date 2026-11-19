@@ -201,6 +201,7 @@ public final class FeedStore {
                 return
             }
             reindex()
+            derivedRuns += 1
             recordReadMarks()
             refreshDerived()
             #if DEBUG
@@ -209,6 +210,14 @@ public final class FeedStore {
             onItemsChange?(items)
         }
     }
+
+    /// Runs `body`'s writes (each one a Feed change of its own here).
+    public func batch(_ body: () -> Void) {
+        body()
+    }
+
+    /// Item changes that ran the derived work (tests: once per batch).
+    @ObservationIgnored public private(set) var derivedRuns = 0
 
     /// How many events the Feed holds in memory: the newest, plus any open ask
     /// older than them (an ask is never dropped while it waits for an answer).

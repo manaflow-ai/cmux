@@ -26,6 +26,8 @@ public final class AppStore {
     /// Moves on every change of `workspaces`: what reads them can key a memo
     /// on it instead of comparing every workspace (read it with `workspaces`).
     @ObservationIgnored public private(set) var workspacesRevision = 0
+    /// Row writes by `updateWorkspaces` (tests: O(changed) per publication).
+    @ObservationIgnored public private(set) var rowWrites = 0
     /// The active team's workspaces that need attention (the Workspaces tab
     /// badge). Kept as a value that changes only with the count: the
     /// workspaces change on every Mac tree update while an agent works, and a
@@ -192,6 +194,7 @@ public final class AppStore {
                   let index = workspaces.firstIndex(where: { $0.macID == macID && $0.id == row.id }),
                   workspaces[index] != row else { continue }
             workspaces[index] = row
+            rowWrites += 1
         }
     }
 

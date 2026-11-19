@@ -53,6 +53,10 @@ public final class WorkspaceSync {
     /// coverage starts before the arrangement requests, not before the list.
     @ObservationIgnored private var arrangementSequence: UInt64 = 0
     @ObservationIgnored private var pendingChanged = false
+    /// Runs a publication at the next display frame (tests run it by hand).
+    @ObservationIgnored var nextFrame: @MainActor (@escaping @MainActor () -> Void) -> Void = { $0() }
+    /// Live publications made (tests: at most one a frame).
+    @ObservationIgnored private(set) var publications = 0
     @ObservationIgnored private var initializing = false
     @ObservationIgnored private var dirty = false
     /// The daemon takes `known` on `list-workspaces` (`list-workspaces-known-v1` in its
@@ -314,6 +318,11 @@ public final class WorkspaceSync {
 
     func handle(_ event: DaemonEvent) { enqueue(event, sequence: nil) }
 
+    /// Returns once every queued event has been applied to the projection (tests).
+    func waitForUpdates() async {
+        while let task = updateTask ?? refreshTask { await task.value }
+    }
+
     /// An event at a wire position, as the daemon's stream delivers it (tests).
     func handle(_ event: DaemonEvent, sequence: UInt64) { enqueue(event, sequence: sequence) }
 
@@ -452,6 +461,7 @@ public final class WorkspaceSync {
     }
 
     private func publish(_ update: WorkspaceProjection.Update, agentChanged: Bool) {
+        publications += 1
         tree = update.tree
         lastError = nil
         if !update.topology, let onRows {
