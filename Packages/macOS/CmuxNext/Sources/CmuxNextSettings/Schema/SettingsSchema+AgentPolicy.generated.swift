@@ -274,6 +274,8 @@ extension SettingsSchema {
         "layout.columnWidthPresets", "window.trafficLightClearance", "sidebar.workspaceIcons",
         // Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy.
         "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
+        // Whether a chat's sealed log segments are compressed on disk as it grows, and how hard: lossless (every byte reads back, nothing is removed), a local disk policy.
+        "agents.chats.coldSegments", "agents.chats.coldSegmentsLevel",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
         "browser.openPullRequestsInGitHubPage",
     ]

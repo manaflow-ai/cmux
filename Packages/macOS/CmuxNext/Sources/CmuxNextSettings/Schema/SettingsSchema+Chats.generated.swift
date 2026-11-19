@@ -21,6 +21,13 @@ extension ChatSettings {
     public nonisolated static let coldArchiveAfterDaysPath = ["agents", "chats", "coldArchiveAfterDays"]
     public nonisolated static let coldArchiveAfterDaysDefault: Double = 30
     public nonisolated static let coldArchiveAfterDaysRange: ClosedRange<Double> = 1...3650
+    /// `agents.chats.coldSegments`: Off by default while it is reviewed (Leo: "dont delete automatically but maybe we can add an option for people to opt in release old chats if theyre really idle and old or store them"; lossless compression of history is allowed, deleting it is not). On: as a chat's 8 MiB log segment seals, the acpmux daemon's one worker compresses it into the chat's cold-segments/ folder as checksummed zstd frames, verifies the archive against the segment's SHA-256, then removes the plain segment; the chat pages back through the frames as before. Measured at 100k rows: 152.1 MB local before (scripts/measure/chat-cold-segments.py). Off stops new moves; segments already compressed stay readable, and `cmux chats warm` (acpmux `_acpmux/chats_warm`) brings them all back as plain files, checked byte for byte (cmux-tui acpmux store/cold_segments.rs, hub/cold_segments.rs, read from the settings file at each pass).
+    public nonisolated static let coldSegmentsPath = ["agents", "chats", "coldSegments"]
+    public nonisolated static let coldSegmentsDefault = false
+    /// `agents.chats.coldSegmentsLevel`: The zstd level Compress Long Chats uses, 1 to 19; 3 by default (7.11 MB for a 100k-row chat at level 3, measured by scripts/measure/chat-cold-segments.py). Higher is smaller and slower to write; reading back costs about the same.
+    public nonisolated static let coldSegmentsLevelPath = ["agents", "chats", "coldSegmentsLevel"]
+    public nonisolated static let coldSegmentsLevelDefault: Double = 3
+    public nonisolated static let coldSegmentsLevelRange: ClosedRange<Double> = 1...19
     /// `chat.on`: The default target of `cmux chat` (cli/chat_start.rs): here, cloud, vm:new, vm:ID|NAME, or a device id or name. `--on` and then CMUX_ON come first; empty is here. The CLI reads it through settings.get only when both are absent, and `cmux config set on TARGET` is the CLI's short name for this key (cli/app/settings.rs). Leo, 2026-11-07: "cmux chat is normal, and cmux chat with the flag/arguments can separate if you want it on a different device/vm/cloud/whatevret".
     public nonisolated static let chatOnPath = ["chat", "on"]
     public nonisolated static let chatOnDefault = ""
@@ -92,6 +99,26 @@ nonisolated enum ChatSettingsSchema {
                 kind: .number(SettingNumber(ChatSettings.coldArchiveAfterDaysRange, step: 1, unit: .days)),
                 default: .number(ChatSettings.coldArchiveAfterDaysDefault),
                 keywords: ["agents", "chats", "archive", "cold", "compress", "disk", "idle", "days"]
+            ),
+            SettingDescriptor(
+                ChatSettings.coldSegmentsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.chats.coldSegments", "Compress Long Chats"),
+                help: SettingsText.keyed("settings.chats.coldSegments.help", "Compresses the older parts of long chats. Run cmux chats warm to undo."),
+                kind: .toggle,
+                default: .bool(ChatSettings.coldSegmentsDefault),
+                keywords: ["agents", "chats", "history", "cold", "compress", "segments", "disk", "storage", "zstd"]
+            ),
+            SettingDescriptor(
+                ChatSettings.coldSegmentsLevelPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.chats.coldSegmentsLevel", "Long Chat Compression Level"),
+                help: SettingsText.keyed("settings.chats.coldSegmentsLevel.help", "Higher levels use less disk and take longer to compress."),
+                kind: .number(SettingNumber(ChatSettings.coldSegmentsLevelRange, step: 1, unit: .count)),
+                default: .number(ChatSettings.coldSegmentsLevelDefault),
+                keywords: ["agents", "chats", "history", "compress", "level", "zstd", "disk"]
             ),
             SettingDescriptor(
                 ChatSettings.chatOnPath,

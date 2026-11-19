@@ -1574,6 +1574,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chats_warm",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/chat_fork",
       "params": true,
       "result": true

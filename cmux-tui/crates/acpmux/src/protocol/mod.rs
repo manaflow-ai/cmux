@@ -414,6 +414,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chat_settled", Request),
         untyped("_acpmux/chat_transcript", Request),
         untyped("_acpmux/chats_search", Request),
+        untyped("_acpmux/chats_warm", Request),
         untyped("_acpmux/chat_fork", Request),
         untyped("_acpmux/chat_projects", Request),
         untyped("_acpmux/chat_changed", Notification),

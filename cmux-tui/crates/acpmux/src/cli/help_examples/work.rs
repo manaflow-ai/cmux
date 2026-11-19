@@ -425,6 +425,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     ("chats roots", &[("List the folders the chat index reads", "acpmux chats roots")]),
     (
+        "chats warm",
+        &[
+            ("Bring back every chat's compressed history", "acpmux chats warm"),
+            ("Bring back one chat's", "acpmux chats warm --chat 019a3f9c"),
+        ],
+    ),
+    (
         "hand",
         &[
             ("Show this hand's id, API and roots", "acpmux hand status"),
