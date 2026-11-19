@@ -18,7 +18,7 @@ struct ScreenLowLatencyEncoderTests {
         #expect(ScreenEncoderFactory.usesLowLatencyEncoder(Self.info("640C1F")), "hex case does not matter")
         #expect(!ScreenEncoderFactory.usesLowLatencyEncoder(Self.info("42e01f")), "baseline: low-latency mode encodes High only")
         #expect(!ScreenEncoderFactory.usesLowLatencyEncoder(Self.info("640c34", mode: "0")), "single NAL mode: frames are not sized to packets")
-        #expect(!ScreenEncoderFactory.usesLowLatencyEncoder(RTCVideoCodecInfo(name: kRTCVideoCodecVp8Name)))
+        #expect(!ScreenEncoderFactory.usesLowLatencyEncoder(RTCVideoCodecInfo(name: "VP8")))
         #expect(ScreenEncoderFactory().createEncoder(Self.info("640c34")) is ScreenLowLatencyEncoder)
         #expect(!(ScreenEncoderFactory().createEncoder(Self.info("42e01f")) is ScreenLowLatencyEncoder))
     }
