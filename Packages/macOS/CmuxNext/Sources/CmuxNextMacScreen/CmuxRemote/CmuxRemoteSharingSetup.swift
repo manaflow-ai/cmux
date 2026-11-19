@@ -54,7 +54,7 @@ struct CmuxRemoteSharingSetup {
                     let shared: Bool
                     if permissions.screen && permissions.control {
                         // Recheck before enabling: a grant can disappear after the first read.
-                        shared = try await proceed(after: "continue") { spec in
+                        shared = try await proceed(after: "continue", remembersYes: false) { spec in
                             await CmuxDialogCenter.shared.present(spec, in: .window(window)).button
                         }
                     } else {
@@ -101,7 +101,7 @@ struct CmuxRemoteSharingSetup {
 
     /// Each permission step advances only after a fresh TCC read. A declined or closed sheet never
     /// changes the sharing switch. Accessibility is optional; viewing still needs Screen Recording.
-    func proceed(after answer: String, present: (CmuxDialogSpec) async -> String) async throws -> Bool {
+    func proceed(after answer: String, remembersYes: Bool = true, present: (CmuxDialogSpec) async -> String) async throws -> Bool {
         guard answer == "continue", !Task.isCancelled else { return false }
         var permissions = await refresh()
         var screenRequested = false, controlRequested = false, viewOnly = false
@@ -128,8 +128,9 @@ struct CmuxRemoteSharingSetup {
         }
         guard !Task.isCancelled else { return false }
         try await enable()
-        // Every path here followed the person's own answer or click: that is the one yes.
-        if !consented() { rememberConsent() }
+        // The overview sheet (its last line names the standing yes) was answered: that is the one yes. A native
+        // click with both grants ready shows no sheet and keeps nothing.
+        if remembersYes, !consented() { rememberConsent() }
         return true
     }
 
@@ -143,7 +144,8 @@ struct CmuxRemoteSharingSetup {
         case .overview:
             title = L.t("macScreen.setup.title", "Share This Mac")
             lines = [L.t("macScreen.setup.source", "Share this Mac’s main display with your devices."),
-                     L.t("macScreen.setup.consent", "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click.")]
+                     L.t("macScreen.setup.consent", "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."),
+                     L.t("macScreen.setup.standingYes", "After this, your cmux CLI and agents can turn sharing on without asking. Change it in Settings.")]
             choices = [.init(id: "continue", title: L.t("macScreen.setup.continue", "Continue"), role: .default)]
         case .screen, .screenCheck:
             title = L.t("macScreen.setup.screen.title", "Allow Screen Recording")
