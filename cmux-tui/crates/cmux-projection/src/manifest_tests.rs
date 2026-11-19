@@ -71,6 +71,21 @@ fn a_bad_or_doubled_path_is_refused() {
 }
 
 #[test]
+fn case_collisions_are_refused_for_a_mac_folder_and_kept_for_a_case_sensitive_source() {
+    let mac = |items| Manifest::build_with(1, items, Case::Insensitive);
+    let linux = |items| Manifest::build_with(1, items, Case::Sensitive);
+    assert!(mac(vec![file("Foo", 1), file("foo", 2)]).is_err());
+    assert!(mac(vec![file("Dir/a", 1), file("dir/a", 2)]).is_err());
+    let manifest =
+        linux(vec![file("Foo", 1), file("foo", 2), file("Dir/a", 3), file("dir/a", 4)]).unwrap();
+    for (path, size) in [("Foo", 1), ("foo", 2), ("Dir/a", 3), ("dir/a", 4)] {
+        let entry = manifest.entry(manifest.resolve(path).unwrap()).unwrap();
+        assert_eq!(entry.size, size, "{path}");
+    }
+    assert!(linux(vec![file("Foo", 1), file("Foo", 2)]).is_err(), "an exact double still is");
+}
+
+#[test]
 fn wire_manifests_cannot_bypass_case_collision_checks() {
     let mut manifest = Manifest::build(1, vec![file("A", 1), file("b", 2)]).unwrap();
     manifest.entries[2].name = "a".into();

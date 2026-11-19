@@ -14,19 +14,78 @@
 //! - **git's own state on the real disk.** `.git` is a file naming a worktree of the host's mirror
 //!   ([`Worktree`]), whose index is written here with the stat data the mount serves, so
 //!   `git status` matches every file by stat and reads none.
+//!
+//! Both object formats work (SHA-1 and SHA-256), names are case-sensitive as on any Linux
+//! checkout, and a blob of any size is read a range at a time in bounded memory. A commit this
+//! cannot show as `git checkout` would (a path or link text that is not UTF-8) is refused with
+//! [`Unsupported`] before anything is written, so the caller makes an ordinary checkout instead.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::ffi::{OsStr, OsString};
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdin, ChildStdout};
+use std::sync::Arc;
 
 use cmux_process::{Child, Command, Stdio};
 use std::sync::{Mutex, PoisonError};
 
 use sha1::{Digest as _, Sha1};
+use sha2::Sha256;
 
-use crate::manifest::{Item, Kind, Manifest};
+use crate::manifest::{Case, Item, Kind, Manifest};
 use crate::{Fetch, FetchError};
+
+/// A commit the projection cannot show as `git checkout` would. It is found before the mount
+/// point, the keep folder or the mirror's worktree is touched, so the caller falls back to an
+/// ordinary checkout with nothing to clean up.
+#[derive(Debug)]
+pub struct Unsupported(pub String);
+
+impl std::fmt::Display for Unsupported {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}; make an ordinary checkout instead", self.0)
+    }
+}
+
+impl std::error::Error for Unsupported {}
+
+/// The object format of a repository: how long its ids are and which hash sums its index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObjectFormat {
+    Sha1,
+    Sha256,
+}
+
+impl ObjectFormat {
+    /// Bytes of one object id.
+    #[must_use]
+    pub fn id_bytes(self) -> usize {
+        match self {
+            Self::Sha1 => 20,
+            Self::Sha256 => 32,
+        }
+    }
+
+    fn digest(self, bytes: &[u8]) -> Vec<u8> {
+        match self {
+            Self::Sha1 => Sha1::digest(bytes).to_vec(),
+            Self::Sha256 => Sha256::digest(bytes).to_vec(),
+        }
+    }
+}
+
+/// The object format of the repository at `git_dir` (`extensions.objectFormat`).
+pub fn object_format(git_dir: &Path) -> anyhow::Result<ObjectFormat> {
+    let mut command = git(git_dir);
+    command.args(["rev-parse", "--show-object-format"]);
+    let text = String::from_utf8(output(command)?)?;
+    match text.trim() {
+        "sha1" => Ok(ObjectFormat::Sha1),
+        "sha256" => Ok(ObjectFormat::Sha256),
+        other => Err(Unsupported(format!("object format {other:?}")).into()),
+    }
+}
 
 /// What one manifest entry's bytes are.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -116,18 +175,29 @@ pub fn ls_tree(git_dir: &Path, commit: &str) -> anyhow::Result<Vec<TreeItem>> {
     parse_ls_tree(&output(command)?)
 }
 
-/// `git ls-tree -r -l -z` output as items: `MODE TYPE OID SIZE\tPATH\0`.
+/// `git ls-tree -r -l -z` output as items: `MODE TYPE OID SIZE\tPATH\0`. A path that is not
+/// UTF-8 is [`Unsupported`]: the manifest, the mount and the index all carry names as text.
 pub fn parse_ls_tree(bytes: &[u8]) -> anyhow::Result<Vec<TreeItem>> {
     let mut items = Vec::new();
     for record in bytes.split(|byte| *byte == 0).filter(|record| !record.is_empty()) {
-        let record = std::str::from_utf8(record)?;
-        let (head, path) =
-            record.split_once('\t').ok_or_else(|| anyhow::anyhow!("bad ls-tree line"))?;
+        let tab = record
+            .iter()
+            .position(|byte| *byte == b'\t')
+            .ok_or_else(|| anyhow::anyhow!("bad ls-tree line"))?;
+        let (head, path) = record.split_at(tab);
+        let path = path.strip_prefix(b"\t").unwrap_or(path);
+        let head = std::str::from_utf8(head)?;
+        let path = std::str::from_utf8(path).map_err(|_| {
+            Unsupported(format!(
+                "the path {:?} is not UTF-8",
+                String::from_utf8_lossy(path).into_owned()
+            ))
+        })?;
         let mut fields = head.split_whitespace();
         let (Some(mode), Some(_kind), Some(oid), Some(size)) =
             (fields.next(), fields.next(), fields.next(), fields.next())
         else {
-            anyhow::bail!("bad ls-tree line {record:?}");
+            anyhow::bail!("bad ls-tree line {head:?}\t{path:?}");
         };
         items.push(TreeItem {
             path: path.to_owned(),
@@ -330,7 +400,8 @@ impl Projection {
                 link: Some(target.to_string_lossy().into_owned()),
             });
         }
-        let manifest = Manifest::build(layout.commit_ns, list)?;
+        // A commit's names are case-sensitive: `Foo` and `foo` are two files of a Linux checkout.
+        let manifest = Manifest::build_with(layout.commit_ns, list, Case::Sensitive)?;
         let mut by_entry = vec![Source::None; manifest.len()];
         let mut index = Vec::with_capacity(items.len());
         for item in items {
@@ -370,8 +441,14 @@ impl Projection {
 
 /// The index (version 2) of `entries`, with the stat data the mount serves for each: mtime and
 /// ctime from the manifest, inode number entry + 1, owner `uid`/`gid`. git then finds every file
-/// unchanged by stat alone.
-pub fn index_bytes(entries: &[IndexEntry], uid: u32, gid: u32) -> anyhow::Result<Vec<u8>> {
+/// unchanged by stat alone. Ids and the closing checksum are `format`'s (SHA-1 or SHA-256), as
+/// git writes them for that repository.
+pub fn index_bytes(
+    entries: &[IndexEntry],
+    format: ObjectFormat,
+    uid: u32,
+    gid: u32,
+) -> anyhow::Result<Vec<u8>> {
     let mut out = Vec::with_capacity(entries.len() * 100 + 32);
     out.extend_from_slice(b"DIRC");
     out.extend_from_slice(&2u32.to_be_bytes());
@@ -405,7 +482,7 @@ pub fn index_bytes(entries: &[IndexEntry], uid: u32, gid: u32) -> anyhow::Result
         for field in fields {
             out.extend_from_slice(&field.to_be_bytes());
         }
-        out.extend_from_slice(&hex(&entry.oid)?);
+        out.extend_from_slice(&hex(&entry.oid, format)?);
         let name = entry.path.as_bytes();
         let flags = u16::try_from(name.len().min(0xfff))?;
         out.extend_from_slice(&flags.to_be_bytes());
@@ -414,14 +491,15 @@ pub fn index_bytes(entries: &[IndexEntry], uid: u32, gid: u32) -> anyhow::Result
         let padded = (len + 8) & !7;
         out.resize(start + padded, 0);
     }
-    let digest = Sha1::digest(&out);
+    let digest = format.digest(&out);
     out.extend_from_slice(&digest);
     Ok(out)
 }
 
-fn hex(oid: &str) -> anyhow::Result<[u8; 20]> {
-    anyhow::ensure!(oid.len() == 40, "not a sha-1 object id: {oid}");
-    let mut bytes = [0u8; 20];
+fn hex(oid: &str, format: ObjectFormat) -> anyhow::Result<Vec<u8>> {
+    let len = format.id_bytes();
+    anyhow::ensure!(oid.len() == len * 2, "not a {format:?} object id: {oid}");
+    let mut bytes = vec![0u8; len];
     for (byte, pair) in bytes.iter_mut().zip(oid.as_bytes().chunks_exact(2)) {
         let pair = std::str::from_utf8(pair)?;
         *byte = u8::from_str_radix(pair, 16)?;
@@ -610,41 +688,74 @@ fn write_if_changed(file: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Link texts of every symlink in `items`, by blob id, read in one `git cat-file --batch`.
+/// The longest link text read: Linux's `PATH_MAX` less its NUL. `git checkout` cannot make a
+/// longer link either.
+const MAX_LINK_BYTES: u64 = 4095;
+
+/// Link texts of every symlink in `items`, by blob id, read in one `git cat-file --batch`. A
+/// link text that is not UTF-8, or longer than a link can be, is [`Unsupported`].
 pub fn link_texts(git_dir: &Path, items: &[TreeItem]) -> anyhow::Result<HashMap<String, String>> {
-    let oids: BTreeSet<&str> =
-        items.iter().filter(|item| item.mode == LINK).map(|item| item.oid.as_str()).collect();
+    let mut paths: HashMap<&str, &str> = HashMap::new();
+    for item in items.iter().filter(|item| item.mode == LINK) {
+        paths.entry(item.oid.as_str()).or_insert(item.path.as_str());
+    }
     let mut texts = HashMap::new();
-    if oids.is_empty() {
+    if paths.is_empty() {
         return Ok(texts);
     }
+    let oids: BTreeSet<&str> = paths.keys().copied().collect();
     let mut cat = CatFile::spawn(git_dir)?;
     for oid in oids {
-        let bytes = cat.blob(oid).map_err(|_| anyhow::anyhow!("no link blob {oid}"))?;
-        texts.insert(oid.to_owned(), String::from_utf8(bytes)?);
+        let path = paths.get(oid).copied().unwrap_or_default();
+        let size = cat.start(oid).map_err(|_| anyhow::anyhow!("no link blob {oid}"))?;
+        if size > MAX_LINK_BYTES {
+            return Err(Unsupported(format!(
+                "the link {path:?} is {size} bytes, longer than a link can be"
+            ))
+            .into());
+        }
+        let bytes = cat.take(size).map_err(|_| anyhow::anyhow!("no link blob {oid}"))?;
+        cat.end().map_err(|_| anyhow::anyhow!("no link blob {oid}"))?;
+        let text = String::from_utf8(bytes)
+            .map_err(|_| Unsupported(format!("the link {path:?} has a text that is not UTF-8")))?;
+        texts.insert(oid.to_owned(), text);
     }
     Ok(texts)
 }
 
+/// The most payload bytes skipped to bring a `git cat-file --batch` back in step; past it the
+/// process is ended instead (a new one starts in milliseconds, a multi-GiB drain takes seconds).
+const DRAIN_BYTES: u64 = 1024 * 1024;
+
 /// One long-lived `git cat-file --batch`.
+///
+/// A request is [`CatFile::start`], then the payload's bytes through [`CatFile::take`] and
+/// [`CatFile::skip`] (never more than asked for in memory), then [`CatFile::end`]. Between a
+/// start and its end the stream is mid-record ([`CatFile::in_step`] is false): such a process
+/// is drained ([`CatFile::drain`]) or dropped, never asked for another object.
 struct CatFile {
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
+    /// Payload bytes of the current record still on the stream (its closing newline aside).
+    left: u64,
+    /// Whether the stream is at a header: false from a request until its record is read.
+    in_step: bool,
     /// Held so the process ends with this handle, after its stdin (above) closes.
     _child: Child,
 }
 
 impl CatFile {
     fn spawn(git_dir: &Path) -> anyhow::Result<Self> {
-        Self::spawn_with(git_dir, false)
+        Self::spawn_with(OsStr::new("git"), git_dir, false)
     }
 
     fn spawn_local(git_dir: &Path) -> anyhow::Result<Self> {
-        Self::spawn_with(git_dir, true)
+        Self::spawn_with(OsStr::new("git"), git_dir, true)
     }
 
-    fn spawn_with(git_dir: &Path, no_lazy_fetch: bool) -> anyhow::Result<Self> {
-        let mut command = git(git_dir);
+    fn spawn_with(program: &OsStr, git_dir: &Path, no_lazy_fetch: bool) -> anyhow::Result<Self> {
+        let mut command = Command::new(program);
+        command.arg("--git-dir").arg(git_dir);
         command.args(["cat-file", "--batch"]);
         if no_lazy_fetch {
             command.env("GIT_NO_LAZY_FETCH", "1");
@@ -654,71 +765,222 @@ impl CatFile {
         let stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("no stdin"))?;
         let stdout =
             BufReader::new(child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout"))?);
-        Ok(Self { _child: child, stdin, stdout })
+        Ok(Self { _child: child, stdin, stdout, left: 0, in_step: true })
     }
 
-    fn blob(&mut self, oid: &str) -> Result<Vec<u8>, FetchError> {
-        writeln!(self.stdin, "{oid}").map_err(|_| FetchError::Failed)?;
-        self.stdin.flush().map_err(|_| FetchError::Failed)?;
-        let mut header = String::new();
-        self.stdout.read_line(&mut header).map_err(|_| FetchError::Failed)?;
-        let mut fields = header.split_whitespace();
-        let (Some(_), Some(kind), Some(size)) = (fields.next(), fields.next(), fields.next())
-        else {
-            return Err(FetchError::Failed);
-        };
-        let size: usize = size.parse().map_err(|_| FetchError::Failed)?;
-        if kind != "blob" {
-            let size = u64::try_from(size)
-                .ok()
-                .and_then(|size| size.checked_add(1))
-                .ok_or(FetchError::Failed)?;
-            let mut payload = self.stdout.by_ref().take(size);
-            let drained = std::io::copy(&mut payload, &mut std::io::sink())
-                .map_err(|_| FetchError::Failed)?;
-            if drained != size {
-                return Err(FetchError::Failed);
-            }
+    /// Whether the stream is at a header, ready for the next request.
+    fn in_step(&self) -> bool {
+        self.in_step
+    }
+
+    /// Asks for blob `oid` and reads its header: the blob's size, with its payload next on the
+    /// stream. A missing id or another kind of object is an error, the stream left at the next
+    /// header when that costs at most [`DRAIN_BYTES`].
+    fn start(&mut self, oid: &str) -> Result<u64, FetchError> {
+        if !self.in_step || oid.contains(['\n', ' ']) {
             return Err(FetchError::Failed);
         }
-        let mut bytes = vec![0u8; size + 1];
-        self.stdout.read_exact(&mut bytes).map_err(|_| FetchError::Failed)?;
-        bytes.pop();
+        self.in_step = false;
+        writeln!(self.stdin, "{oid}").map_err(|_| FetchError::Failed)?;
+        self.stdin.flush().map_err(|_| FetchError::Failed)?;
+        // A header is `OID TYPE SIZE`, or `OID missing`: far under this bound.
+        let mut header = Vec::new();
+        self.stdout
+            .by_ref()
+            .take(256)
+            .read_until(b'\n', &mut header)
+            .map_err(|_| FetchError::Failed)?;
+        if header.pop() != Some(b'\n') {
+            return Err(FetchError::Failed);
+        }
+        let header = std::str::from_utf8(&header).map_err(|_| FetchError::Failed)?;
+        let mut fields = header.split(' ');
+        let (Some(_), Some(kind), Some(size), None) =
+            (fields.next(), fields.next(), fields.next(), fields.next())
+        else {
+            // `OID missing` (or `ambiguous`): no payload follows.
+            self.in_step = header.ends_with(" missing") || header.ends_with(" ambiguous");
+            return Err(FetchError::Failed);
+        };
+        let size: u64 = size.parse().map_err(|_| FetchError::Failed)?;
+        self.left = size;
+        if kind != "blob" {
+            self.drain()?;
+            return Err(FetchError::Failed);
+        }
+        Ok(size)
+    }
+
+    /// The next `len` bytes of the payload.
+    fn take(&mut self, len: u64) -> Result<Vec<u8>, FetchError> {
+        if len > self.left {
+            return Err(FetchError::Failed);
+        }
+        let mut bytes = Vec::with_capacity(usize::try_from(len).map_err(|_| FetchError::Failed)?);
+        let read = self
+            .stdout
+            .by_ref()
+            .take(len)
+            .read_to_end(&mut bytes)
+            .map_err(|_| FetchError::Failed)?;
+        if read as u64 != len {
+            return Err(FetchError::Failed);
+        }
+        self.left -= len;
+        Ok(bytes)
+    }
+
+    /// Skips the next `len` bytes of the payload, holding none of them.
+    fn skip(&mut self, len: u64) -> Result<(), FetchError> {
+        if len > self.left {
+            return Err(FetchError::Failed);
+        }
+        let mut payload = self.stdout.by_ref().take(len);
+        let skipped =
+            std::io::copy(&mut payload, &mut std::io::sink()).map_err(|_| FetchError::Failed)?;
+        if skipped != len {
+            return Err(FetchError::Failed);
+        }
+        self.left -= len;
+        Ok(())
+    }
+
+    /// Reads the newline that closes a fully read payload: the stream is then at the next header.
+    fn end(&mut self) -> Result<(), FetchError> {
+        if self.left != 0 {
+            return Err(FetchError::Failed);
+        }
+        let mut newline = [0u8; 1];
+        self.stdout.read_exact(&mut newline).map_err(|_| FetchError::Failed)?;
+        if newline != *b"\n" {
+            return Err(FetchError::Failed);
+        }
+        self.in_step = true;
+        Ok(())
+    }
+
+    /// Skips the rest of the current payload and its newline, when that is at most
+    /// [`DRAIN_BYTES`]; a longer rest leaves the process out of step, to be dropped.
+    fn drain(&mut self) -> Result<(), FetchError> {
+        if self.left > DRAIN_BYTES {
+            return Err(FetchError::Failed);
+        }
+        self.skip(self.left)?;
+        self.end()
+    }
+
+    /// The whole of blob `oid` when it holds at most `max` bytes; a bigger one is refused
+    /// without reading it into memory.
+    fn blob(&mut self, oid: &str, max: u64) -> Result<Vec<u8>, FetchError> {
+        let size = self.start(oid)?;
+        if size > max {
+            let _ = self.drain();
+            return Err(FetchError::Failed);
+        }
+        let bytes = self.take(size)?;
+        self.end()?;
         Ok(bytes)
     }
 }
 
 /// Reads blobs of a git object store by id, for a seed ([`crate::peers::serve`]).
-pub struct ObjectReader(CatFile);
+pub struct ObjectReader {
+    cat: CatFile,
+    git_dir: PathBuf,
+    local: bool,
+}
 
 impl ObjectReader {
     pub fn spawn(git_dir: &Path) -> anyhow::Result<Self> {
-        Ok(Self(CatFile::spawn(git_dir)?))
+        Ok(Self { cat: CatFile::spawn(git_dir)?, git_dir: git_dir.to_owned(), local: false })
     }
 
     /// Starts a reader that never asks a promisor remote for a missing object.
     pub fn spawn_local(git_dir: &Path) -> anyhow::Result<Self> {
-        Ok(Self(CatFile::spawn_local(git_dir)?))
+        Ok(Self { cat: CatFile::spawn_local(git_dir)?, git_dir: git_dir.to_owned(), local: true })
     }
 
-    /// The blob's bytes, or `None` when the store has no blob by that id.
+    /// The blob's bytes, or `None` when the store has no blob by that id or it is bigger than a
+    /// peer takes ([`crate::peers::MAX_HTTP_BODY_BYTES`]), so a seed never holds a huge blob.
     pub fn blob(&mut self, oid: &str) -> Option<Vec<u8>> {
-        self.0.blob(oid).ok()
+        let max = crate::peers::MAX_HTTP_BODY_BYTES as u64;
+        let bytes = self.cat.blob(oid, max).ok();
+        if !self.cat.in_step() {
+            let respawned = if self.local {
+                CatFile::spawn_local(&self.git_dir)
+            } else {
+                CatFile::spawn(&self.git_dir)
+            };
+            // With no new process the old one answers every later request as failed.
+            if let Ok(cat) = respawned {
+                self.cat = cat;
+            }
+        }
+        bytes
     }
 }
 
-/// The most blobs kept in memory, and their bytes, so a file read in many pieces costs one
-/// object read.
+/// The most blobs (or ranges of one) kept in memory, and their bytes, so a file read in many
+/// pieces costs one object read.
 const RECENT_FILES: usize = 64;
 const RECENT_BYTES: usize = 64 * 1024 * 1024;
+/// Blobs up to this size are read whole and kept; a bigger one is streamed a range at a time and
+/// only the ranges read are kept, each at most this size.
+const WHOLE_BYTES: u64 = 8 * 1024 * 1024;
+/// The most streams held part way through a big blob, ready to go on from where they stopped.
+const STREAMS: usize = 4;
+
+/// Bytes kept from a blob: the whole of it (`start` 0, `bytes` of length `size`) or one range.
+struct Held {
+    entry: u32,
+    start: u64,
+    /// The blob's size.
+    size: u64,
+    bytes: Arc<Vec<u8>>,
+}
+
+impl Held {
+    /// `len` bytes at `offset` (fewer at the blob's end), when this holds all of them.
+    fn get(&self, entry: u32, offset: u64, len: u64) -> Option<Vec<u8>> {
+        if entry != self.entry || offset < self.start {
+            return None;
+        }
+        let end = self.start.saturating_add(self.bytes.len() as u64);
+        let want = offset.saturating_add(len).min(self.size);
+        if want > end {
+            return None;
+        }
+        Some(range(&self.bytes, self.start, offset, len))
+    }
+}
+
+/// A `git cat-file --batch` part way through blob `entry`'s payload, at byte `at` of its `size`.
+struct Stream {
+    entry: u32,
+    at: u64,
+    size: u64,
+    cat: CatFile,
+}
+
+/// `len` bytes at `offset` of a blob whose bytes from `start` on are `bytes` (fewer at its end).
+fn range(bytes: &[u8], start: u64, offset: u64, len: u64) -> Vec<u8> {
+    let from = usize::try_from(offset.saturating_sub(start)).unwrap_or(usize::MAX).min(bytes.len());
+    let to = from.saturating_add(usize::try_from(len).unwrap_or(usize::MAX)).min(bytes.len());
+    bytes.get(from..to).unwrap_or_default().to_vec()
+}
 
 /// A projection's bytes from the host's git object store: a pool of `git cat-file --batch`
-/// processes and the last few blobs read. Nothing is copied to disk.
+/// processes, the streams part way through big blobs, and the last few blobs and ranges read.
+/// Nothing is copied to disk, and memory stays bounded whatever a blob's size: at most
+/// [`RECENT_BYTES`] kept, and a read holds only the range asked for.
 pub struct GitBlobs {
     git_dir: PathBuf,
+    /// The git program (a stand-in in tests).
+    program: OsString,
     sources: Vec<Source>,
     pool: Mutex<Vec<CatFile>>,
-    recent: Mutex<VecDeque<(u32, std::sync::Arc<Vec<u8>>)>>,
+    streams: Mutex<VecDeque<Stream>>,
+    recent: Mutex<VecDeque<Held>>,
 }
 
 impl GitBlobs {
@@ -726,60 +988,189 @@ impl GitBlobs {
     pub fn new(git_dir: &Path, sources: Vec<Source>) -> Self {
         Self {
             git_dir: git_dir.to_owned(),
+            program: OsString::from("git"),
             sources,
             pool: Mutex::new(Vec::new()),
+            streams: Mutex::new(VecDeque::new()),
             recent: Mutex::new(VecDeque::new()),
         }
     }
 
-    fn bytes(&self, entry: u32) -> Result<std::sync::Arc<Vec<u8>>, FetchError> {
-        {
-            let recent = self.recent.lock().unwrap_or_else(PoisonError::into_inner);
-            if let Some((_, bytes)) = recent.iter().find(|(at, _)| *at == entry) {
-                return Ok(bytes.clone());
-            }
+    /// Bytes kept in memory now (never more than [`RECENT_BYTES`]).
+    #[must_use]
+    pub fn retained(&self) -> usize {
+        let recent = self.recent.lock().unwrap_or_else(PoisonError::into_inner);
+        recent.iter().map(|held| held.bytes.len()).sum()
+    }
+
+    fn cat(&self) -> Result<CatFile, FetchError> {
+        let taken = self.pool.lock().unwrap_or_else(PoisonError::into_inner).pop();
+        match taken {
+            Some(cat) => Ok(cat),
+            None => CatFile::spawn_with(&self.program, &self.git_dir, false)
+                .map_err(|_| FetchError::Failed),
         }
-        let bytes = match self.sources.get(entry as usize) {
-            Some(Source::Blob(oid)) => {
-                let taken = self.pool.lock().unwrap_or_else(PoisonError::into_inner).pop();
-                let mut cat = match taken {
-                    Some(cat) => cat,
-                    None => CatFile::spawn(&self.git_dir).map_err(|_| FetchError::Failed)?,
-                };
-                let bytes = cat.blob(oid)?;
-                self.pool.lock().unwrap_or_else(PoisonError::into_inner).push(cat);
-                bytes
-            }
-            Some(Source::Bytes(bytes)) => bytes.clone(),
-            _ => return Err(FetchError::Failed),
-        };
-        let bytes = std::sync::Arc::new(bytes);
+    }
+
+    /// Returns `cat` to the pool when it is ready for a request; a process out of step ends.
+    fn put(&self, cat: CatFile) {
+        if cat.in_step() {
+            self.pool.lock().unwrap_or_else(PoisonError::into_inner).push(cat);
+        }
+    }
+
+    fn held(&self, entry: u32, offset: u64, len: u64) -> Option<Vec<u8>> {
+        let recent = self.recent.lock().unwrap_or_else(PoisonError::into_inner);
+        recent.iter().find_map(|held| held.get(entry, offset, len))
+    }
+
+    /// Keeps `bytes`, forgetting the oldest until at most [`RECENT_FILES`] pieces and
+    /// [`RECENT_BYTES`] bytes are kept. A piece bigger than [`WHOLE_BYTES`] is not kept.
+    fn hold(&self, held: Held) {
+        if held.bytes.len() as u64 > WHOLE_BYTES || held.bytes.is_empty() {
+            return;
+        }
         let mut recent = self.recent.lock().unwrap_or_else(PoisonError::into_inner);
-        recent.push_front((entry, bytes.clone()));
+        recent.push_front(held);
         let mut total = 0;
         let mut keep = 0;
-        for (_, held) in recent.iter() {
-            total += held.len();
-            if keep >= RECENT_FILES || (keep > 0 && total > RECENT_BYTES) {
+        for held in recent.iter() {
+            if keep >= RECENT_FILES || total + held.bytes.len() > RECENT_BYTES {
                 break;
             }
+            total += held.bytes.len();
             keep += 1;
         }
         recent.truncate(keep);
-        Ok(bytes)
+    }
+
+    /// The stream of `entry` furthest along that has not passed `offset`.
+    fn take_stream(&self, entry: u32, offset: u64) -> Option<Stream> {
+        let mut streams = self.streams.lock().unwrap_or_else(PoisonError::into_inner);
+        let at = streams
+            .iter()
+            .enumerate()
+            .filter(|(_, stream)| stream.entry == entry && stream.at <= offset)
+            .max_by_key(|(_, stream)| stream.at)
+            .map(|(at, _)| at)?;
+        streams.remove(at)
+    }
+
+    /// Keeps `stream` for the next range, ending the least recently used one past [`STREAMS`].
+    fn keep_stream(&self, stream: Stream) {
+        let retired = {
+            let mut streams = self.streams.lock().unwrap_or_else(PoisonError::into_inner);
+            streams.push_front(stream);
+            if streams.len() > STREAMS { streams.pop_back() } else { None }
+        };
+        if let Some(mut retired) = retired {
+            // A short rest is drained so the process serves again; a long one ends it.
+            if retired.cat.drain().is_ok() {
+                self.put(retired.cat);
+            }
+        }
+    }
+
+    /// Starts reading blob `entry`: the whole of it, kept, when it is small; else a stream at 0.
+    fn open(&self, entry: u32, oid: &str) -> Result<Result<Arc<Vec<u8>>, Stream>, FetchError> {
+        let mut cat = self.cat()?;
+        let size = match cat.start(oid) {
+            Ok(size) => size,
+            Err(error) => {
+                self.put(cat);
+                return Err(error);
+            }
+        };
+        if size > WHOLE_BYTES {
+            return Ok(Err(Stream { entry, at: 0, size, cat }));
+        }
+        let bytes = cat.take(size)?;
+        cat.end()?;
+        self.put(cat);
+        let bytes = Arc::new(bytes);
+        self.hold(Held { entry, start: 0, size, bytes: bytes.clone() });
+        Ok(Ok(bytes))
+    }
+
+    /// `len` bytes at `offset` of big blob `stream`, holding only them; the stream goes on from
+    /// where they end.
+    fn read_stream(
+        &self,
+        mut stream: Stream,
+        offset: u64,
+        len: u64,
+    ) -> Result<Vec<u8>, FetchError> {
+        if offset >= stream.size {
+            self.keep_stream(stream);
+            return Ok(Vec::new());
+        }
+        let len = len.min(stream.size - offset);
+        stream.cat.skip(offset - stream.at)?;
+        let bytes = stream.cat.take(len)?;
+        stream.at = offset + len;
+        let bytes = Arc::new(bytes);
+        self.hold(Held {
+            entry: stream.entry,
+            start: offset,
+            size: stream.size,
+            bytes: bytes.clone(),
+        });
+        if stream.at == stream.size {
+            stream.cat.end()?;
+            self.put(stream.cat);
+        } else {
+            self.keep_stream(stream);
+        }
+        Ok(Arc::unwrap_or_clone(bytes))
     }
 }
 
 impl Fetch for GitBlobs {
     fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
-        let bytes = self.bytes(entry)?;
-        let start = usize::try_from(offset).unwrap_or(usize::MAX).min(bytes.len());
-        let end = start.saturating_add(len as usize).min(bytes.len());
-        Ok(bytes.iter().skip(start).take(end.saturating_sub(start)).copied().collect())
+        let len = u64::from(len);
+        let oid = match self.sources.get(entry as usize) {
+            Some(Source::Blob(oid)) => oid,
+            Some(Source::Bytes(bytes)) => return Ok(range(bytes, 0, offset, len)),
+            _ => return Err(FetchError::Failed),
+        };
+        if let Some(bytes) = self.held(entry, offset, len) {
+            return Ok(bytes);
+        }
+        let stream = match self.take_stream(entry, offset) {
+            Some(stream) => stream,
+            None => match self.open(entry, oid)? {
+                Ok(whole) => return Ok(range(&whole, 0, offset, len)),
+                Err(stream) => stream,
+            },
+        };
+        self.read_stream(stream, offset, len)
     }
 
+    /// Whole files, for small ones only: a blob over [`WHOLE_BYTES`] is refused (the overlay
+    /// reads a big file a range at a time).
     fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
-        entries.iter().map(|entry| self.bytes(*entry).map(|bytes| bytes.to_vec())).collect()
+        entries
+            .iter()
+            .map(|entry| {
+                let oid = match self.sources.get(*entry as usize) {
+                    Some(Source::Blob(oid)) => oid,
+                    Some(Source::Bytes(bytes)) => return Ok(bytes.clone()),
+                    _ => return Err(FetchError::Failed),
+                };
+                if let Some(bytes) = self.held(*entry, 0, WHOLE_BYTES + 1) {
+                    return Ok(bytes);
+                }
+                match self.open(*entry, oid)? {
+                    Ok(whole) => Ok(Arc::unwrap_or_clone(whole)),
+                    Err(mut stream) => {
+                        if stream.cat.drain().is_ok() {
+                            self.put(stream.cat);
+                        }
+                        Err(FetchError::Failed)
+                    }
+                }
+            })
+            .collect()
     }
 
     fn cache(&self) -> bool {

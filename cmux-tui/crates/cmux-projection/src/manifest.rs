@@ -85,11 +85,28 @@ struct Node {
     folded_names: BTreeMap<String, String>,
 }
 
+/// Whether two names that differ only in letter case are one name, as the source's file system
+/// has it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Case {
+    /// A Mac folder (APFS, HFS+): `Foo` and `foo` are one file there, so a listing with both
+    /// cannot be the Mac's and is refused.
+    Insensitive,
+    /// A git commit, as `git checkout` makes it on Linux: `Foo` and `foo` are two files.
+    Sensitive,
+}
+
 impl Manifest {
-    /// The manifest of `items`. A folder above an item that is not itself listed is added (mode
-    /// 0755, the folder's own `root_mtime_ns`). Refuses a bad path, a path listed twice, and an
-    /// item below a file or a link.
+    /// The manifest of a Mac folder's `items` ([`Manifest::build_with`], [`Case::Insensitive`]).
     pub fn build(root_mtime_ns: i64, items: Vec<Item>) -> anyhow::Result<Self> {
+        Self::build_with(root_mtime_ns, items, Case::Insensitive)
+    }
+
+    /// The manifest of `items`. A folder above an item that is not itself listed is added (mode
+    /// 0755, the folder's own `root_mtime_ns`). Refuses a bad path, a path listed twice, an item
+    /// below a file or a link, and, when `case` is [`Case::Insensitive`], two names of one folder
+    /// that differ only in case.
+    pub fn build_with(root_mtime_ns: i64, items: Vec<Item>, case: Case) -> anyhow::Result<Self> {
         let mut root =
             Node { kind: Some(Kind::Dir), mode: 0o755, mtime_ns: root_mtime_ns, ..Node::default() };
         for item in items {
@@ -97,7 +114,9 @@ impl Manifest {
             let (last, above) = names.split_last().ok_or_else(|| anyhow::anyhow!("empty path"))?;
             let mut at = &mut root;
             for name in above {
-                ensure_case_unique(&mut at.folded_names, name, &item.path)?;
+                if case == Case::Insensitive {
+                    ensure_case_unique(&mut at.folded_names, name, &item.path)?;
+                }
                 anyhow::ensure!(
                     matches!(at.kind, None | Some(Kind::Dir)),
                     "{} is below a file",
@@ -114,7 +133,9 @@ impl Manifest {
                 "{} is below a file",
                 item.path
             );
-            ensure_case_unique(&mut at.folded_names, last, &item.path)?;
+            if case == Case::Insensitive {
+                ensure_case_unique(&mut at.folded_names, last, &item.path)?;
+            }
             let node = at.children.entry((*last).to_owned()).or_default();
             anyhow::ensure!(
                 node.kind.is_none() || (node.kind == Some(Kind::Dir) && item.kind == Kind::Dir),

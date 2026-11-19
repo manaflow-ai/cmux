@@ -20,6 +20,14 @@
 //! environment names, each answer checked against its id (`cmux_projection::peers`, hq RFD 0008),
 //! and only the rest come from GitHub; `CMUX_PROJECTION_PEERS=0` sends them all to GitHub. `seed` serves MIRROR's blobs read only on ADDR
 //! (a tailnet or VPC address, never 0.0.0.0) for the other hosts' chains.
+//!
+//! A commit the projection cannot show as `git checkout` would (a path or link text that is not
+//! UTF-8) exits with status 3 before PATH, the keep folder or the worktree is touched: the caller
+//! makes an ordinary checkout instead. Every other failure exits with status 1.
+
+/// The exit status of a commit the projection does not take ([`cmux_projection::git::Unsupported`]).
+#[cfg(target_os = "linux")]
+const UNSUPPORTED: u8 = 3;
 
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
@@ -27,7 +35,11 @@ fn main() -> std::process::ExitCode {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("cmux-projection: {error:#}");
-            std::process::ExitCode::FAILURE
+            if error.downcast_ref::<cmux_projection::git::Unsupported>().is_some() {
+                std::process::ExitCode::from(UNSUPPORTED)
+            } else {
+                std::process::ExitCode::FAILURE
+            }
         }
     }
 }
@@ -212,29 +224,37 @@ mod linux {
             args.git_dir.clone().ok_or_else(|| anyhow::anyhow!("--git-dir is required"))?;
         let git_dir = git_dir.canonicalize()?;
         let rev = args.commit.clone().ok_or_else(|| anyhow::anyhow!("--commit is required"))?;
-        let at = if at.is_absolute() { at.to_owned() } else { std::env::current_dir()?.join(at) };
-        let at = if at.exists() { at.canonicalize()? } else { at };
-        let provisional_name =
-            args.name.clone().unwrap_or_else(|| format!("projected-{}", hash(&git_dir, &at)));
-        Worktree::validate(&git_dir, &provisional_name, &at)?;
-        std::fs::create_dir_all(&at)?;
-        let at = at.canonicalize()?;
+        // Everything is read and checked before anything is written: PATH, the keep folder and
+        // the worktree are made only for a commit the projection takes, so a refused one
+        // (`git::Unsupported`) leaves the caller a clean fallback to an ordinary checkout. Only
+        // blobs the commit names may land in the mirror first, as `git checkout` would fetch them.
+        let base = std::env::current_dir()?;
+        let at = planned_path_from(at, &base)?;
         let keep = match &args.keep {
-            Some(keep) => keep.clone(),
+            Some(keep) => planned_path_from(keep, &base)?,
             None => {
                 let home = std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("no HOME"))?;
                 let home = PathBuf::from(home);
                 reject_legacy_default_state(&home, &git_dir, &at, args.name.is_none())?;
-                home.join(".cache/cmux-projection").join(hash(&git_dir, &at))
+                planned_path_from(
+                    &home.join(".cache/cmux-projection").join(hash(&git_dir, &at)),
+                    &base,
+                )?
             }
         };
         let name =
             args.name.clone().unwrap_or_else(|| format!("projected-{}", hash(&git_dir, &at)));
         let worktree = Worktree::validate(&git_dir, &name, &at)?;
-        let keep = canonical_keep(&keep)?;
 
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
+        let format = git::object_format(&git_dir)?;
+        // Trees only (a partial clone has them all): a path git checks out but this cannot show is
+        // refused before a blob is fetched.
+        let items = git::ls_tree(&git_dir, &commit)?;
+        let ls_tree_ms = ms(phase);
+
+        let phase = Instant::now();
         let missing = git::missing(&git_dir, &commit)?;
         let rest = match Chain::from_env() {
             Some(chain) => {
@@ -256,12 +276,8 @@ mod linux {
             None => missing.clone(),
         };
         git::fetch_missing(&git_dir, &rest)?;
-        let fetch_ms = ms(phase);
-
-        let phase = Instant::now();
-        let items = git::ls_tree(&git_dir, &commit)?;
         let links = git::link_texts(&git_dir, &items)?;
-        let ls_tree_ms = ms(phase);
+        let fetch_ms = ms(phase);
 
         let phase = Instant::now();
         let book_file = keep.join("book");
@@ -279,6 +295,13 @@ mod linux {
             links: &links,
         };
         let projection = Projection::build(&commit, &items, &mut book, &layout)?;
+        // SAFETY: getuid and getgid cannot fail.
+        let owner = unsafe { (libc::getuid(), libc::getgid()) };
+        let index = git::index_bytes(&projection.index, format, owner.0, owner.1)?;
+
+        // The first write.
+        make_dir(&at)?;
+        make_dir(&keep)?;
         for real in &projection.real_dirs {
             std::fs::create_dir_all(real_root.join(real))?;
         }
@@ -289,10 +312,7 @@ mod linux {
         if args.fresh && state.exists() {
             std::fs::remove_dir_all(&state)?;
         }
-        // SAFETY: getuid and getgid cannot fail.
-        let owner = unsafe { (libc::getuid(), libc::getgid()) };
         if git::remount_needs_reset(&admin, &commit, args.fresh)? {
-            let index = git::index_bytes(&projection.index, owner.0, owner.1)?;
             Worktree::write(&git_dir, &name, &at, &commit, &index, &projection.real_dirs)?;
         }
         book.save(&book_file)?;
@@ -322,28 +342,56 @@ mod linux {
         })
     }
 
-    fn canonical_keep(keep: &Path) -> anyhow::Result<PathBuf> {
-        let base = std::env::current_dir()?;
-        canonical_keep_from(keep, &base)
+    /// `path` (taken from `base` when relative) as it canonicalizes once made: its nearest
+    /// existing folder canonicalized, the names below it appended. Nothing is created.
+    fn planned_path_from(path: &Path, base: &Path) -> anyhow::Result<PathBuf> {
+        let path = if path.is_absolute() { path.to_owned() } else { base.join(path) };
+        let mut below = Vec::new();
+        let mut at = path.as_path();
+        loop {
+            match at.canonicalize() {
+                Ok(mut found) => {
+                    found.extend(below.iter().rev());
+                    return Ok(found);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    let (Some(name), Some(parent)) = (at.file_name(), at.parent()) else {
+                        anyhow::bail!("{} has no folder to be made in", path.display());
+                    };
+                    below.push(name);
+                    at = parent;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
     }
 
-    fn canonical_keep_from(keep: &Path, base: &Path) -> anyhow::Result<PathBuf> {
-        let keep = if keep.is_absolute() { keep.to_owned() } else { base.join(keep) };
-        std::fs::create_dir_all(&keep)?;
-        Ok(keep.canonicalize()?)
+    /// Makes folder `planned` ([`planned_path_from`]) and checks it canonicalizes to itself.
+    fn make_dir(planned: &Path) -> anyhow::Result<()> {
+        std::fs::create_dir_all(planned)?;
+        anyhow::ensure!(
+            planned.canonicalize()? == planned,
+            "{} is not where it was planned (a link appeared?)",
+            planned.display()
+        );
+        Ok(())
     }
 
     #[cfg(test)]
     mod tests {
+        use std::os::unix::ffi::OsStrExt as _;
+        use std::path::Path;
+
         use super::{
-            canonical_keep_from, hash, legacy_hash, listen_is_specific, reject_legacy_default_state,
+            Args, git_mount, hash, legacy_hash, listen_is_specific, make_dir, planned_path_from,
+            reject_legacy_default_state,
         };
 
         #[test]
         fn default_keys_isolate_known_legacy_collision() {
-            let git_dir = std::path::Path::new("/mirror");
-            let first = std::path::Path::new("/tmp/proj/S1PeuLm9h0Gk");
-            let second = std::path::Path::new("/tmp/proj/WlAVSM8HUQw0");
+            let git_dir = Path::new("/mirror");
+            let first = Path::new("/tmp/proj/S1PeuLm9h0Gk");
+            let second = Path::new("/tmp/proj/WlAVSM8HUQw0");
             assert_eq!(legacy_hash(first), legacy_hash(second));
             assert_ne!(hash(git_dir, first), hash(git_dir, second));
             assert_eq!(hash(git_dir, first).len(), 64);
@@ -351,18 +399,15 @@ mod linux {
 
         #[test]
         fn default_keys_isolate_repositories_at_the_same_mount() {
-            let at = std::path::Path::new("/tmp/proj/shared");
-            assert_ne!(
-                hash(std::path::Path::new("/mirror/one"), at),
-                hash(std::path::Path::new("/mirror/two"), at)
-            );
+            let at = Path::new("/tmp/proj/shared");
+            assert_ne!(hash(Path::new("/mirror/one"), at), hash(Path::new("/mirror/two"), at));
         }
 
         #[test]
         fn legacy_default_state_requires_explicit_recovery() {
             let home = tempfile::tempdir().unwrap();
             let git_dir = tempfile::tempdir().unwrap();
-            let at = std::path::Path::new("/tmp/proj/legacy");
+            let at = Path::new("/tmp/proj/legacy");
             let legacy_keep = home.path().join(".cache/cmux-projection").join(legacy_hash(at));
             std::fs::create_dir_all(&legacy_keep).unwrap();
             let error = reject_legacy_default_state(home.path(), git_dir.path(), at, true)
@@ -386,9 +431,51 @@ mod linux {
         #[test]
         fn relative_keep_is_resolved_before_projection_paths_use_it() {
             let root = tempfile::tempdir().unwrap();
-            let keep = canonical_keep_from(std::path::Path::new("upper"), root.path()).unwrap();
-            assert_eq!(keep, root.path().join("upper").canonicalize().unwrap());
-            assert!(keep.is_absolute());
+            let keep = planned_path_from(Path::new("upper/state"), root.path()).unwrap();
+            assert!(!root.path().join("upper").exists(), "planning makes nothing");
+            assert_eq!(keep, root.path().canonicalize().unwrap().join("upper/state"));
+            make_dir(&keep).unwrap();
+            assert_eq!(keep, root.path().join("upper/state").canonicalize().unwrap());
+        }
+
+        fn git(dir: &Path, args: &[&str]) {
+            let out = std::process::Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+                .args(args)
+                .current_dir(dir)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        }
+
+        #[test]
+        fn an_unsupported_commit_is_refused_before_anything_is_written() {
+            let dir = tempfile::tempdir().unwrap();
+            let work = dir.path().join("work");
+            std::fs::create_dir_all(&work).unwrap();
+            let name = std::ffi::OsStr::from_bytes(b"caf\xe9.txt");
+            std::fs::write(work.join(name), "latin-1\n").unwrap();
+            git(&work, &["init", "-q"]);
+            git(&work, &["add", "-A"]);
+            git(&work, &["commit", "-q", "-m", "one"]);
+            let at = dir.path().join("mnt");
+            let keep = dir.path().join("keep");
+            let args = Args {
+                git_dir: Some(work.join(".git")),
+                commit: Some("HEAD".into()),
+                at: Some(at.clone()),
+                keep: Some(keep.clone()),
+                ..Args::default()
+            };
+            let error = git_mount(&args, &at).unwrap_err();
+            assert!(
+                error.downcast_ref::<cmux_projection::git::Unsupported>().is_some(),
+                "{error:#}"
+            );
+            assert!(error.to_string().contains("not UTF-8"), "{error:#}");
+            assert!(!at.exists(), "the mount point is not made");
+            assert!(!keep.exists(), "the keep folder is not made");
+            assert!(!work.join(".git/worktrees").exists(), "no worktree is registered");
         }
     }
 }
