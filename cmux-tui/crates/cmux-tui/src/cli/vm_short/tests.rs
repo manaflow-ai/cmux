@@ -306,3 +306,11 @@ fn an_unlisted_vm_id_for_an_app_verb_is_named_verbatim() {
         "{respelled}"
     );
 }
+
+/// cmuxterm-hq#13944: `cmux vm status --help` is answered here (exit 0, status's usage), never
+/// left to vm.rs, which knows no `status` and printed the generic `cmux vm` usage.
+#[test]
+fn vm_status_help_is_answered_with_its_own_usage() {
+    assert_eq!(super::run_if_requested(&words(&["vm", "status", "--help"])), Some(0));
+    assert_eq!(super::run_if_requested(&words(&["vm", "rename", "-h"])), Some(0));
+}
