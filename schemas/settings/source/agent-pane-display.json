@@ -1108,6 +1108,163 @@
           ]
         },
         {
+          "key": "agentPane.display.thinking.shimmer",
+          "name": "thinkingShimmer",
+          "note": "How the live line's light band moves while the agent works (webviews agent chat). Cadenced is today's one-second sweep every four seconds; Continuous sweeps back to back, eased in and out, over shimmerPeriod.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.shimmer",
+            "text": "Thinking Shimmer"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.shimmer.help",
+            "text": "How the light band moves across the live status line."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "cadenced",
+              "title": {
+                "key": "settings.choice.thinkingShimmerCadenced",
+                "text": "Every Few Seconds"
+              }
+            },
+            {
+              "value": "continuous",
+              "title": {
+                "key": "settings.choice.thinkingShimmerContinuous",
+                "text": "Continuous"
+              }
+            }
+          ],
+          "default": "cadenced",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "shimmer",
+            "status",
+            "animation",
+            "sweep",
+            "claude"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.shimmerPeriod",
+          "name": "thinkingShimmerPeriod",
+          "note": "One continuous shimmer pass in milliseconds; read only when shimmer is continuous.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.shimmerPeriod",
+            "text": "Shimmer Speed"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.shimmerPeriod.help",
+            "text": "How long one continuous pass of the shimmer takes."
+          },
+          "kind": "number",
+          "range": {
+            "min": 600,
+            "max": 4000,
+            "step": 50,
+            "unit": "milliseconds",
+            "placeholder": 1250
+          },
+          "default": 1250,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "shimmer",
+            "speed",
+            "period",
+            "duration",
+            "animation",
+            "claude"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.shimmerBand",
+          "name": "thinkingShimmerBand",
+          "note": "The shimmer band's width in points; 0 keeps today's band, half the line's width.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.shimmerBand",
+            "text": "Shimmer Width"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.shimmerBand.help",
+            "text": "The width of the shimmer's light band. 0 uses half the line."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 240,
+            "step": 4,
+            "unit": "points",
+            "placeholder": 0
+          },
+          "default": 0,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "shimmer",
+            "band",
+            "width",
+            "animation",
+            "claude"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.jumpButton",
+          "name": "thinkingJumpButton",
+          "note": "What Jump to latest shows while the agent works: the arrow (today), or three small dots in the theme accent moving in turn; the arrow comes back on hover and when the agent stops.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.jumpButton",
+            "text": "Jump to Latest While Working"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.jumpButton.help",
+            "text": "What the Jump to latest button shows while the agent works."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "arrow",
+              "title": {
+                "key": "settings.choice.thinkingJumpArrow",
+                "text": "Arrow"
+              }
+            },
+            {
+              "value": "dots",
+              "title": {
+                "key": "settings.choice.dots",
+                "text": "Dots"
+              }
+            }
+          ],
+          "default": "arrow",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "jump",
+            "latest",
+            "scroll",
+            "button",
+            "arrow",
+            "dots",
+            "claude"
+          ]
+        },
+        {
           "key": "agentPane.display.harnessPlacement",
           "title": {
             "key": "settings.agentPane.display.harnessPlacement",

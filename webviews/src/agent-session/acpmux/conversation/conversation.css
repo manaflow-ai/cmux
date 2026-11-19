@@ -3023,12 +3023,12 @@ pre.cv-math-source {
 /* Codex's loading text is a one-second sweep, not a stretched infinite loop. The cadence
    controller starts a pass every four seconds and leaves only the base text between passes. */
 @keyframes cmux-cadenced-shimmer-band {
-  from { transform: translateX(-50%); }
-  to { transform: translateX(125%); }
+  from { transform: translateX(var(--cv-shimmer-band-from, -50%)); }
+  to { transform: translateX(var(--cv-shimmer-band-to, 125%)); }
 }
 @keyframes cmux-cadenced-shimmer-lit {
-  from { transform: translateX(50%); }
-  to { transform: translateX(-125%); }
+  from { transform: translateX(var(--cv-shimmer-lit-from, 50%)); }
+  to { transform: translateX(var(--cv-shimmer-lit-to, -125%)); }
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-shimmer__band.is-shimmer-active,
@@ -3040,6 +3040,131 @@ pre.cv-math-source {
   .cv-row-shimmer.is-shimmer-active > .cv-row-shimmer__band > .cv-row-shimmer__lit {
     /* motion-allow: decorative loading sweep, 1s every 4s; runs only while visible and motion is allowed. */
     animation: cmux-cadenced-shimmer-lit var(--cv-shimmer-sweep-duration) steps(48, end) 1;
+  }
+}
+
+/* A look's continuous shimmer (thinkingLook.ts; agentPane.display.thinking.shimmer "continuous", off by
+   default): as Claude's desktop app draws its running line, the band crosses the words pass after pass,
+   speeding up out of the left and slowing into the right, one pass every --cv-shimmer-period
+   (agentPane.display.thinking.shimmerPeriod). shimmerCadence.ts adds `is-shimmer-continuous` only while
+   the words are on screen and motion is allowed (Reduce Motion, the static status look, the motion gate
+   and a hidden page leave the dim words still), with a negative delay that puts every label on one
+   wall-clock phase. Transform only, as the cadenced pass. */
+@keyframes cmux-continuous-shimmer-band {
+  0% {
+    transform: translateX(var(--cv-shimmer-band-from, -50%));
+  }
+  10% {
+    transform: translateX(calc(var(--cv-shimmer-band-from, -50%) * 0.98 + var(--cv-shimmer-band-to, 125%) * 0.02));
+  }
+  20% {
+    transform: translateX(calc(var(--cv-shimmer-band-from, -50%) * 0.918 + var(--cv-shimmer-band-to, 125%) * 0.082));
+  }
+  30% {
+    transform: translateX(calc(var(--cv-shimmer-band-from, -50%) * 0.813 + var(--cv-shimmer-band-to, 125%) * 0.187));
+  }
+  40% {
+    transform: translateX(calc(var(--cv-shimmer-band-from, -50%) * 0.668 + var(--cv-shimmer-band-to, 125%) * 0.332));
+  }
+  50% {
+    transform: translateX(calc(var(--cv-shimmer-band-from, -50%) * 0.5 + var(--cv-shimmer-band-to, 125%) * 0.5));
+  }
+  60% {
+    transform: translateX(calc(var(--cv-shimmer-band-from, -50%) * 0.332 + var(--cv-shimmer-band-to, 125%) * 0.668));
+  }
+  70% {
+    transform: translateX(calc(var(--cv-shimmer-band-from, -50%) * 0.187 + var(--cv-shimmer-band-to, 125%) * 0.813));
+  }
+  80% {
+    transform: translateX(calc(var(--cv-shimmer-band-from, -50%) * 0.082 + var(--cv-shimmer-band-to, 125%) * 0.918));
+  }
+  90% {
+    transform: translateX(calc(var(--cv-shimmer-band-from, -50%) * 0.02 + var(--cv-shimmer-band-to, 125%) * 0.98));
+  }
+  100% {
+    transform: translateX(var(--cv-shimmer-band-to, 125%));
+  }
+}
+@keyframes cmux-continuous-shimmer-lit {
+  0% {
+    transform: translateX(var(--cv-shimmer-lit-from, 50%));
+  }
+  10% {
+    transform: translateX(calc(var(--cv-shimmer-lit-from, 50%) * 0.98 + var(--cv-shimmer-lit-to, -125%) * 0.02));
+  }
+  20% {
+    transform: translateX(calc(var(--cv-shimmer-lit-from, 50%) * 0.918 + var(--cv-shimmer-lit-to, -125%) * 0.082));
+  }
+  30% {
+    transform: translateX(calc(var(--cv-shimmer-lit-from, 50%) * 0.813 + var(--cv-shimmer-lit-to, -125%) * 0.187));
+  }
+  40% {
+    transform: translateX(calc(var(--cv-shimmer-lit-from, 50%) * 0.668 + var(--cv-shimmer-lit-to, -125%) * 0.332));
+  }
+  50% {
+    transform: translateX(calc(var(--cv-shimmer-lit-from, 50%) * 0.5 + var(--cv-shimmer-lit-to, -125%) * 0.5));
+  }
+  60% {
+    transform: translateX(calc(var(--cv-shimmer-lit-from, 50%) * 0.332 + var(--cv-shimmer-lit-to, -125%) * 0.668));
+  }
+  70% {
+    transform: translateX(calc(var(--cv-shimmer-lit-from, 50%) * 0.187 + var(--cv-shimmer-lit-to, -125%) * 0.813));
+  }
+  80% {
+    transform: translateX(calc(var(--cv-shimmer-lit-from, 50%) * 0.082 + var(--cv-shimmer-lit-to, -125%) * 0.918));
+  }
+  90% {
+    transform: translateX(calc(var(--cv-shimmer-lit-from, 50%) * 0.02 + var(--cv-shimmer-lit-to, -125%) * 0.98));
+  }
+  100% {
+    transform: translateX(var(--cv-shimmer-lit-to, -125%));
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-shimmer__band.is-shimmer-continuous,
+  .cv-row-shimmer.is-shimmer-continuous > .cv-row-shimmer__band {
+    /* motion-allow: a look's opt-in loading sweep; runs only while visible and motion is allowed. */
+    animation: cmux-continuous-shimmer-band var(--cv-shimmer-period, 1250ms) linear
+      var(--cv-shimmer-delay, 0ms) infinite;
+  }
+  .cv-shimmer__band.is-shimmer-continuous > .cv-shimmer__lit,
+  .cv-row-shimmer.is-shimmer-continuous > .cv-row-shimmer__band > .cv-row-shimmer__lit {
+    /* motion-allow: a look's opt-in loading sweep; runs only while visible and motion is allowed. */
+    animation: cmux-continuous-shimmer-lit var(--cv-shimmer-period, 1250ms) linear
+      var(--cv-shimmer-delay, 0ms) infinite;
+  }
+}
+/* A look's band width (agentPane.display.thinking.shimmerBand, px; 0 keeps the band half the line): the
+   lit window is that wide on any line, short or long, as Claude's two or three words are. The band
+   layer stays the words' width, so the motion stays a transform; its mask puts the window, soft at
+   both edges, at the layer's quarter point, and the pass carries that window from just before the
+   words' start to just past their end. */
+:root[data-thinking-band] {
+  --cv-shimmer-band-from: calc(-25% - var(--cv-shimmer-band) / 2);
+  --cv-shimmer-band-to: calc(75% + var(--cv-shimmer-band) / 2);
+  --cv-shimmer-lit-from: calc(25% + var(--cv-shimmer-band) / 2);
+  --cv-shimmer-lit-to: calc(-75% - var(--cv-shimmer-band) / 2);
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-thinking-band]:not([data-status-indicators="static"]) .cv-shimmer__band,
+  :root[data-thinking-band] .cv-tool.is-live .cv-row-shimmer__band {
+    -webkit-mask-image: linear-gradient(
+      90deg,
+      transparent calc(25% - var(--cv-shimmer-band) / 2),
+      #000 calc(25% - var(--cv-shimmer-band) / 6) calc(25% + var(--cv-shimmer-band) / 6),
+      transparent calc(25% + var(--cv-shimmer-band) / 2)
+    );
+    mask-image: linear-gradient(
+      90deg,
+      transparent calc(25% - var(--cv-shimmer-band) / 2),
+      #000 calc(25% - var(--cv-shimmer-band) / 6) calc(25% + var(--cv-shimmer-band) / 6),
+      transparent calc(25% + var(--cv-shimmer-band) / 2)
+    );
+    transform: translateX(var(--cv-shimmer-band-from));
+  }
+  :root[data-thinking-band]:not([data-status-indicators="static"]) .cv-shimmer__lit,
+  :root[data-thinking-band] .cv-tool.is-live .cv-row-shimmer__lit {
+    transform: translateX(var(--cv-shimmer-lit-from));
   }
 }
 
