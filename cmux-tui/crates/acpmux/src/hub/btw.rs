@@ -386,7 +386,8 @@ impl Hub {
                     adopt: None,
                     remote: meta.remote_origin,
                     vm_boundary: meta.vm_boundary,
-                    env: Default::default(),
+                    // The answer of the Mac that started its chat (`cmux_tools_answer.rs`).
+                    env: super::cmux_tools_answer::inherited(Default::default(), &meta.session_env),
                     // The side chat works in its chat's workspace (agent_displays.rs).
                     workspace_id: meta.workspace_id.clone(),
                     // Never the start mode (it may be full access): read-only is set below.
