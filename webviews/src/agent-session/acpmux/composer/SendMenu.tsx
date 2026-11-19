@@ -36,6 +36,9 @@ export function SendMenu({
 }) {
   const t = useT();
   const look = experimentArm(sendMenuLook);
+  // The arms (sendMenuLook.experiment.ts): which rows draw a leading icon, which draw caps.
+  const withIcon = look === "icons" || look === "icons-caps" || look === "tiles";
+  const withCaps = look === "caps" || look === "icons-caps" || look === "tiles";
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // A long press opened the menu: the click that ends that press is not a send.
   const pressed = useRef(false);
@@ -50,11 +53,11 @@ export function SendMenu({
     return {
       id: choice,
       ariaLabel: label,
-      ...(look === "icons" ? { icon: <Icon name={SEND_ICONS[choice]} size={14} /> } : {}),
+      ...(withIcon ? { icon: <Icon name={SEND_ICONS[choice]} size={14} /> } : {}),
       label: (
         <>
           <span className="ui-menu-label">{label}</span>
-          {look === "caps" ? (
+          {withCaps ? (
             <span className="ui-menu-shortcut acpmux-send-menu-caps" aria-hidden="true">
               {glyphs.map((glyph) => (
                 <kbd key={glyph} className="acpmux-keycap">
@@ -77,7 +80,7 @@ export function SendMenu({
       id: choice,
       label: t(SEND_LABELS[choice]),
       shortcut: SEND_KEYS[choice].glyphs.join(""),
-      ...(look === "icons" ? { icon: SEND_ICONS[choice] } : {}),
+      ...(withIcon ? { icon: SEND_ICONS[choice] } : {}),
     })),
   );
   const onPointerDown = (event: PointerEvent<Element>) => {
@@ -105,7 +108,13 @@ export function SendMenu({
   return (
     // Send keeps its own place in the composer's action slot (Send right before the mic), as
     // before the menu: the menu and the press add handlers to it, no element around it.
-    <ContextMenu asChild popupClassName="acpmux-send-menu-popup" items={items} selection="menu" native={{ model }}>
+    <ContextMenu
+      asChild
+      popupClassName={look === "tiles" ? "acpmux-send-menu-popup acpmux-send-menu-tiles" : "acpmux-send-menu-popup"}
+      items={items}
+      selection="menu"
+      native={{ model }}
+    >
       {cloneElement(children, {
         onPointerDown,
         onPointerUp: stopTimer,

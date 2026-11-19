@@ -54,9 +54,11 @@ const MemoPlusMenu = memo(function PlusMenu({
 }: ComposerPlusMenuProps) {
   acpmuxPerf.render("composer:plus");
   const t = useT();
-  // Untitled groups: a hairline splits them (styles.css), with no header band between.
+  // Untitled groups: a hairline splits them (styles.css), with no header band between. Only the
+  // `recent-header` and `recent-compact` arms title one (their recent commands, "Recent").
   const sections: Section[] = composerPlusMenuSections(entries, planning, experimentArm(composerPlusCommands)).map(
     (group) => ({
+      ...(group.title ? { title: t(group.title) } : {}),
       choices: group.choices,
       onPick: (id: string) => {
         const entry = group.entries.find((row) => row.id === id);

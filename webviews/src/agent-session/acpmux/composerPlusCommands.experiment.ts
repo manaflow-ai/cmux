@@ -22,6 +22,16 @@ export const composerPlusCommands = defineExperiment({
       label: "Row only",
       description: "No recent commands: one Commands and skills… row.",
     },
+    "recent-header": {
+      label: "Recent, titled",
+      description:
+        "The recent commands in their own group under a Recent header, each with its description; Commands and skills… in a group of its own after them.",
+    },
+    "recent-compact": {
+      label: "Recent, names only",
+      description:
+        "The recent commands under a Recent header by name alone (no description line), so the group is short; Commands and skills… after them.",
+    },
   },
   defaultArm: "recents-then-row",
 });
