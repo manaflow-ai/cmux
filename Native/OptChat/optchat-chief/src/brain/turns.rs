@@ -2509,9 +2509,10 @@ impl Brain {
         // (a steer the cancel left in Claude Code's queue, which acpmux takes
         // back only for another agent's message): the harness may still act
         // on it, and the next turn sends it again. Not kept.
-        let steer_left = outcome.cancelled
-            && (self.steering.iter().any(|st| st.key == key)
-                || self.steer_left.as_deref() == Some(key));
+        // Also a turn that ended by itself while a withdraw was asked: the
+        // steer may still be read in a turn the session carries on.
+        let steer_left = self.steer_left.as_deref() == Some(key)
+            || (outcome.cancelled && self.steering.iter().any(|st| st.key == key));
         if steer_left {
             (self.log)(&format!(
                 "turn {key}: a message it was sent is still unread in its session; not kept"
