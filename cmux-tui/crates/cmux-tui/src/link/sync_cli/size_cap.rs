@@ -7,7 +7,9 @@
 //! what it listed, at most [`FIRST_BYTES`] in [`FIRST_FILES`] files, the smallest first and no
 //! repository history (`.git` at any depth), so the chat starts in the folder the person chose at
 //! once. Everything else stays on this Mac, counted as `left_on_mac` in the copy's
-//! `skipped_counts`; the chat's agent asks for a file of it with `cmux link access request PATH`.
+//! `skipped_counts` and named, by folder with sizes, in a note at the copy's top that the chat's
+//! agent gets with its first message ([`super::left_note`]); it asks for a file of it with
+//! `cmux link access request PATH`.
 //!
 //! Leo, 2026-11-15, on a Cloud chat at `~/Projects` refused as too big to copy: "why are you guys
 //! still blocking on these?"
@@ -127,6 +129,11 @@ impl Cap {
     /// Whether what was listed is more than a copy sends whole, in bytes or in files.
     pub(super) fn past(&self) -> bool {
         self.bytes > self.max_bytes || self.files > self.max_files
+    }
+
+    /// The bytes of every file counted so far.
+    pub(super) fn bytes(&self) -> u64 {
+        self.bytes
     }
 
     /// Whether what was listed is more bytes than a copy sends whole.
