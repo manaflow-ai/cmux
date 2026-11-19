@@ -37,7 +37,7 @@ enum SubagentLimitHandlers {
         ActionTargetVisibility.hide(chatAction, in: registry) { invocation in
             invocation.target?.kind == .tab && registry.withoutRefusals { chat(invocation) } == nil
         }
-        registry.bindEffect(workspaceAction, effect: { invocation in
+        registry.bindEffect(workspaceAction, requires: nil, effect: { invocation in
             let workspace = try context.workspace(invocation)
             guard services.machines.local.store.workspace(id: workspace.model.id) != nil else {
                 return .refused(SubagentLimitStrings.notLocalWorkspace)
