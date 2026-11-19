@@ -79,3 +79,10 @@ fn vm_lifecycle_uncertain_mutation_retains_identity_for_reconciliation() {
     let running = paused.resume().running();
     assert_eq!(running.payload(), "vm-a");
 }
+
+#[test]
+fn vm_lifecycle_proxy_connection_needs_remote_identification() {
+    let connection = Vm::connected("proxy-to-vm-a");
+    let attached = connection.ready().attach();
+    assert_eq!(*attached.payload(), "proxy-to-vm-a");
+}

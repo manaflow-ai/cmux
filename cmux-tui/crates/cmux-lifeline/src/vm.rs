@@ -22,6 +22,11 @@
 //! use cmux_lifeline::vm::{Vm, Unallocated};
 //! Vm::<Unallocated, _>::new("vm").provision().running().attach();
 //! ```
+//! A local proxy socket is not proof that the provider is running:
+//! ```compile_fail
+//! use cmux_lifeline::vm::Vm;
+//! Vm::connected("proxy").pause();
+//! ```
 //! A deleted VM has no pause operation:
 //! ```compile_fail
 //! use cmux_lifeline::vm::{Vm, Unallocated};
@@ -166,6 +171,7 @@ macro_rules! states {
 
 states!(
     Unallocated,
+    Unidentified,
     Provisioning,
     Preclaimed,
     Claimed,
@@ -194,10 +200,18 @@ impl<T> Vm<Unallocated, T> {
     }
 }
 
+impl<T> Vm<Unidentified, T> {
+    /// A transport to the VM exists, but the remote agent has not identified
+    /// itself. A local proxy accepting a socket grants no power capability.
+    pub fn connected(payload: T) -> Self {
+        Self { payload, state: PhantomData }
+    }
+}
+
 impl<T> Vm<Running, T> {
-    /// Bind an authoritative running observation to its subject. A connected
-    /// transport may also establish this fact, but must still identify the agent
-    /// before granting readiness. This does not allocate or resume a VM.
+    /// Bind an authoritative provider running observation to its subject.
+    /// A local proxy socket alone does not establish this fact; use
+    /// [`Vm::connected`] until the remote agent identifies itself.
     pub fn observed_running(payload: T) -> Self {
         Self { payload, state: PhantomData }
     }
@@ -219,6 +233,12 @@ edge!(Preclaimed, claim, Claimed, "The reservation was committed to the caller."
 edge!(Provisioning, running, Running, "The provider observed a running VM (without a pool claim).");
 edge!(Claimed, running, Running, "The claimed VM is running according to the provider.");
 edge!(Starting, running, Running, "The resumed VM is running according to the provider.");
+edge!(
+    Unidentified,
+    ready,
+    Ready,
+    "The remote agent readiness handshake succeeded on this transport."
+);
 edge!(Running, ready, Ready, "The agent readiness handshake succeeded for this VM.");
 edge!(Ready, attach, Attached, "The attach handshake succeeded.");
 edge!(Attached, detach, Ready, "The attachment ended; the agent remains ready.");
