@@ -185,7 +185,7 @@ public final class MacScreenPane {
             guard counter.tick(frame: frame.frame, decodedAtNanos: frame.decodedAtNanos) else { return }
             Task { @MainActor [weak self] in self?.framesShown(counter) }
         }
-        let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver)
+        let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver, presented: { counter.shown($0) })
         // task-owner: this transport's decoder; ends with its stream or the next session's
         decodeTask = Task.detached(priority: .userInitiated) { await pipeline.run() }
         cursorTask?.cancel()
