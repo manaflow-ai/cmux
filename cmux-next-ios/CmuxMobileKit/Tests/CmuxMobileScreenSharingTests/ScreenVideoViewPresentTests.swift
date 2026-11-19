@@ -34,7 +34,7 @@ import WebRTC
     /// 120 frames go in from a background thread at 120 fps while the main thread is
     /// blocked; the layer's renderer is already rendering before the main thread is
     /// free, and each hand-off costs well under a millisecond.
-    @Test func framesReachTheDisplayLayerWhileTheMainThreadIsBlocked() async throws {
+    @Test func framesReachTheDisplayLayerWhileTheMainThreadIsBlocked() throws {
         let view = ScreenVideoView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let layer = try #require(view.layer as? AVSampleBufferDisplayLayer, "the view is backed by a display layer")
         let renderer = layer.sampleBufferRenderer
