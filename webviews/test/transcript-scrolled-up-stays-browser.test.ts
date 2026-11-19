@@ -12,6 +12,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -279,12 +280,12 @@ await requireBrowserLane("transcript-scrolled-up-stays-browser.test.ts", async (
         box = (await nested(page, spec.rowId, spec.scrolls))!;
 
         // From here the reader scrolls only the box: watch the transcript's offset and its rows.
-        await page.evaluate(() => {
+        await page.evaluate((transcriptRow) => {
           const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
           const places = () => {
             const view = node.getBoundingClientRect();
             const tops = new Map<string, number>();
-            for (const each of node.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
+            for (const each of node.querySelectorAll<HTMLElement>(transcriptRow)) {
               const rect = each.getBoundingClientRect();
               if (rect.bottom <= view.top + 1 || rect.top >= view.bottom - 1) continue;
               tops.set(each.dataset.rowId!, rect.top);
@@ -322,7 +323,7 @@ await requireBrowserLane("transcript-scrolled-up-stays-browser.test.ts", async (
               watch.following += 1;
           });
           (window as unknown as { __watch: typeof watch }).__watch = watch;
-        });
+        }, TRANSCRIPT_ROW);
         // Inside the box near its left, clear of Jump to latest (which floats over the view's middle).
         await page.mouse.move(box.left + 30, box.top + Math.min(60, (box.bottom - box.top) / 2));
         // Five notches down and two up, all within the box's own scroll: none reaches its end. Each
