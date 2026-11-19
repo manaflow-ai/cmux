@@ -909,7 +909,8 @@ mod tests {
 
         let (mut frames, mut messages, mut paths) = (Vec::new(), Vec::new(), Vec::new());
         let deadline = Instant::now() + Duration::from_secs(5);
-        while frames.len() < 3 && Instant::now() < deadline {
+        // welcome is a control record and the frames are datagrams: either may come first.
+        while (frames.len() < 3 || messages.is_empty()) && Instant::now() < deadline {
             match seen.recv_timeout(Duration::from_millis(100)) {
                 Ok(Seen::Frame(f)) => frames.push(f),
                 Ok(Seen::Message(m)) => messages.push(m),
