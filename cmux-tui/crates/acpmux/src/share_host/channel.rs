@@ -99,16 +99,17 @@ pub(crate) async fn serve(shared: Arc<Shared>, path: PathBuf) {
 }
 
 async fn serve_at(shared: Arc<Shared>, path: &std::path::Path) -> anyhow::Result<()> {
-    use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+    use std::os::unix::fs::FileTypeExt;
     if let Some(parent) = path.parent() {
         cmux_hub_host::identity::private_dir(parent).map_err(|e| anyhow::anyhow!("{e}"))?;
     }
-    // A socket left by an earlier daemon; anything else at the path is not ours to remove.
-    if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_socket()) {
-        std::fs::remove_file(path)?;
+    // A socket left by an earlier daemon; anything else at the path is not ours to remove. Read,
+    // removed and narrowed in the held home (`home_fs`), never a replacement at the same path.
+    if crate::home_fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_socket()) {
+        crate::home_fs::remove_file(path)?;
     }
     let listener = tokio::net::UnixListener::bind(path)?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    crate::home_fs::set_mode(path, 0o600)?;
     // SAFETY: geteuid has no preconditions.
     let me = unsafe { libc::geteuid() };
     let mut connections = tokio::task::JoinSet::new();

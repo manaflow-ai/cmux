@@ -66,6 +66,7 @@ public final class CmuxDialogButtonView: ClickableButton {
         wantsLayer = true
         self.target = target
         self.action = action
+        isEnabled = button.isEnabled
         identifier = NSUserInterfaceItemIdentifier("cmux.dialog.button.\(button.id)")
         setAccessibilityLabel(button.title)
         // VoiceOver reads the key after the title; the label stays the title (automation finds it).
@@ -96,6 +97,11 @@ public final class CmuxDialogButtonView: ClickableButton {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    public override class var cellClass: AnyClass? {
+        get { TitleCell.self }
+        set {}
+    }
 
     public override var isEnabled: Bool { didSet { refresh() } }
 
@@ -252,6 +258,20 @@ public final class CmuxDialogButtonView: ClickableButton {
 }
 
 extension CmuxDialogButtonView {
+    /// Draws a disabled button's title in its own ink: AppKit repaints it in the system's disabled ink, which on the
+    /// button's fill read as no title at all. The button dims as a whole instead (its `alphaValue`).
+    final class TitleCell: NSButtonCell {
+        override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
+            guard !isEnabled, title.length == attributedTitle.length else { return super.drawTitle(title, withFrame: frame, in: controlView) }
+            // The title as AppKit laid it out (centered), in the button's own inks.
+            let own = NSMutableAttributedString(attributedString: title)
+            attributedTitle.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: own.length)) { ink, range, _ in
+                if let ink { own.addAttribute(.foregroundColor, value: ink, range: range) }
+            }
+            return super.drawTitle(own, withFrame: frame, in: controlView)
+        }
+    }
+
     /// The room after the title for the gap and the keycap, less the leading inset: the title and this room,
     /// centered in the button, leave the leading inset before the title and the keycap's inset after the plate.
     fileprivate func keycapRoom(_ keycap: CmuxDialogKeycapView) -> CGFloat {
