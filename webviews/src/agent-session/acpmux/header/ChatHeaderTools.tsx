@@ -35,6 +35,8 @@ import type { NeedsYouItem } from "../needsYou/model";
 import { newKinds, type HeaderControls, type NewKind } from "./headerTrio";
 import { HeaderNewButton } from "./HeaderNewButton";
 import { useShortcut } from "../shortcuts";
+import { ShortcutKeycaps } from "../ButtonKeycaps";
+import { ariaKeyshortcuts, useShortcutKeycapLook } from "../shortcutKeycaps";
 import { registerPicker } from "../pickerOpeners";
 import {
   Menu,
@@ -202,6 +204,8 @@ function ChatHeaderToolsView({
   const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
+  // The shortcut-keycaps experiment (off by default) draws each button's key inside it.
+  const keycapsOn = useShortcutKeycapLook() !== "off";
   const { lit, pullRequest, headerControls, headerMotion } = useHeaderState();
   const style = motion ?? headerMotion;
   const actions = useQuickActions();
@@ -433,6 +437,8 @@ function ChatHeaderToolsView({
           className="acpmux-header-tool"
           aria-label={tool.label}
           aria-pressed={tool.pressed}
+          aria-keyshortcuts={keycapsOn ? ariaKeyshortcuts(shortcut) : undefined}
+          data-keycaps={keycapsOn && shortcut ? "" : undefined}
           // The morph's hover preview stands in for the tooltip, so the two never stack.
           {...(morphs ? {} : tooltipProps(tool.title ?? tool.label, shortcut))}
           onPointerEnter={
@@ -467,6 +473,7 @@ function ChatHeaderToolsView({
           }}
         >
           <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
+          <ShortcutKeycaps shortcut={shortcut} />
         </button>
       );
     });
