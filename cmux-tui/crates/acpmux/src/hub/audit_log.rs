@@ -33,7 +33,8 @@
 //!   be written is counted (`writeErrors` in `_acpmux/audit`) and logged, never silently
 //!   dropped. A review verdict waits for its line to be synced ([`AuditLog::record_durable_of`]):
 //!   the verdict fails, and its pull request stays in the queue, unless the line is on disk (a
-//!   sync that fails is counted and fails the verdict, its line left in the file). `open` reads
+//!   sync that fails is counted and fails the verdict, its line cut off again while it is the
+//!   file's last, else left in it and the failure says so). `open` reads
 //!   the file once, before it returns, for the chain's head (so a restart continues the chain)
 //!   and the pull requests that already have a verdict, by session and URL, so the first queue
 //!   read already leaves them out. At shutdown (`Hub::flush`) [`AuditLog::close`] refuses later
@@ -43,21 +44,25 @@
 //!   each chat of an incognito space) leaves no history. [`AuditLog::purge`] rewrites the file
 //!   without that session's entries (a new file synced, then renamed over the old one, mode
 //!   0600) and chains the rest again from [`GENESIS`], so `verify` still passes and nothing of the
-//!   chat, not even its id, survives a restart. From the purge on, every entry of that session
-//!   is refused (a verdict checked before the purge and given after it too), and the hub writes
-//!   none. The rewrite does not hold the lock over the whole file: under the lock the purge
-//!   fences the session and notes the file's length; the lines before that length are read and
-//!   written to the new file, synced, while callers go on appending to the old one; then, under
-//!   the lock again, the lines appended meanwhile follow the kept ones, chained on from them,
-//!   and the new file is synced and renamed over the old one. A record that meets a purge waits
-//!   only for that last step, which grows with the lines written during the purge, never with
-//!   the file. The purge runs first in `Hub::kill`, before anything of the chat stops: one that
-//!   fails or times out fails the deletion, lifts the fence and leaves the chat as it was. The
+//!   chat, not even its id, survives a restart. From the purge's start on, every entry of that
+//!   session is refused (a verdict checked before the purge and given after it too), and the hub
+//!   writes none. One written while the purge waited in the queue is in the file and goes with
+//!   the rest; a purge that fails or is given up on refused nothing. The rewrite does not hold
+//!   the lock over the whole file: as it starts, under the lock, the purge fences the session
+//!   and notes the file's length; the lines before that length are read and written to the new
+//!   file, synced, while callers go on appending to the old one; then, under the lock again,
+//!   the lines appended meanwhile follow the kept ones, chained on from them, and the new file
+//!   is synced and renamed over the old one. A record that meets a purge waits only for that
+//!   last step, which grows with the lines written during the purge, never with the file. The
+//!   purge runs first in `Hub::kill`, before anything of the chat stops: one that fails or
+//!   times out fails the deletion, lifts the fence it raised and leaves the chat as it was. The
 //!   audit folder must be a real owner-only directory (no link).
 //! - Torn writes: a line that fails to write is cut off again (the file goes back to its length
-//!   before it), and the chain's head moves only after a line is written. A tail without its
-//!   newline (a crash mid-write) is cut off when the log opens. A purge drops lines that are not
-//!   entries. The chain proves the file was not edited by anything but this daemon.
+//!   before it; when that cut fails too, the next record or the thread cuts it), and the chain's
+//!   head moves only after a line is written. A verdict whose sync failed is cut off again while
+//!   it is still the file's last line. A tail without its newline (a crash mid-write) is cut off
+//!   when the log opens. A purge drops lines that are not entries. The chain proves the file
+//!   was not edited by anything but this daemon.
 //! - A memory store (tests) keeps the entries in memory, chained the same way.
 
 use cmux_json::JsonSet as _;
@@ -103,9 +108,33 @@ enum Msg {
     /// Answered once every line written before it is synced.
     Flush(mpsc::Sender<()>),
     /// Removes a purged session's entries: answered with how many, unless its caller withdrew
-    /// it first (the state goes from [`QUEUED`] to [`CANCELLED`]). One that fails leaves the
-    /// session unfenced.
-    Purge(String, tokio::sync::oneshot::Sender<Result<usize, String>>, Arc<AtomicU8>),
+    /// it first (the state goes from [`QUEUED`] to [`CANCELLED`]). Its ticket names it in
+    /// [`Chain::queued`]. One that fails leaves the session unfenced.
+    Purge(String, tokio::sync::oneshot::Sender<Result<usize, String>>, Arc<AtomicU8>, u64),
+    /// A failed write left bytes it could not cut: cut them, unless a record did first.
+    Repair,
+    /// Tests: tells the first sender the thread is held, then holds it until the second
+    /// channel gets a message or ends.
+    #[cfg(test)]
+    Hold(mpsc::Sender<()>, mpsc::Receiver<()>),
+}
+
+/// A purge sent to the thread and not yet taken by it.
+struct Queued {
+    ticket: u64,
+    sid: String,
+    /// A chat was created under the id since the purge was sent (`AuditLog::reopen`).
+    reopened: bool,
+}
+
+/// A line a record wrote.
+struct Written {
+    /// The entry as written.
+    entry: Value,
+    /// On disk: the file, and where the line starts and ends in it.
+    at: Option<(Arc<std::fs::File>, u64, u64)>,
+    /// The first line since the last sync started: the thread is asked for one.
+    ask_sync: bool,
 }
 
 /// The chain's head: the last entry's `seq` and `hash`.
@@ -125,12 +154,25 @@ impl Default for Head {
 /// the chain's head and where its next line goes.
 struct Chain {
     head: Head,
-    /// The file, opened `O_APPEND`. Shared so the sync thread syncs it outside the lock.
+    /// The file the next line goes to, opened `O_APPEND`; None: opened again first.
     file: Option<Arc<std::fs::File>>,
+    /// The last file opened, kept when a failed write drops `file`: what the sync thread
+    /// syncs, outside the lock. A later open of the same path is the same file, so a sync of
+    /// either covers every line written through both.
+    last_file: Option<Arc<std::fs::File>>,
     /// Sessions purged since start: their entries are refused.
     purged: HashSet<String>,
-    /// A failed write left bytes that could not be cut: read the file again first.
-    needs_repair: bool,
+    /// Purges sent and not yet taken by the thread.
+    queued: Vec<Queued>,
+    /// The last purge ticket given out.
+    next_ticket: u64,
+    /// A failed write left bytes from here on that it could not cut: cut before the next line.
+    torn_at: Option<u64>,
+    /// [`Msg::Repair`] is sent and not yet taken.
+    repair_asked: bool,
+    /// A running purge's snapshot length: it reads the lines before it outside the lock, so
+    /// none of them is cut until it ends.
+    purging_upto: Option<u64>,
     /// Set by `close`: a record after it is counted as not written.
     closed: bool,
     /// The entries of a log kept in memory (no state folder).
@@ -141,14 +183,16 @@ struct Chain {
 enum NotWritten {
     /// Its chat was purged: not an error to count.
     Purged,
-    Failed(String),
+    /// Why, and whether the thread is to cut what the failed write left ([`Msg::Repair`]).
+    Failed(String, bool),
 }
 
 /// The log's state, shared by its handle and the sync thread.
 struct Inner {
     path: Option<PathBuf>,
     chain: StdMutex<Chain>,
-    /// Lines were written since the sync thread last started a sync.
+    /// Lines were written since the sync thread last started a sync. Set and cleared only
+    /// under the `chain` lock.
     dirty: AtomicBool,
     /// Pull requests (session, URL) whose verdict is written: they leave the review queue.
     reviewed: StdMutex<Reviewed>,
@@ -157,6 +201,9 @@ struct Inner {
     /// Tests: every purge fails, after its fence went up.
     #[cfg(test)]
     fail_purges: AtomicBool,
+    /// Tests: the lines the last purge copied from after its snapshot.
+    #[cfg(test)]
+    late_copied: AtomicU64,
 }
 
 pub(crate) struct AuditLog {
@@ -178,8 +225,13 @@ impl AuditLog {
             chain: StdMutex::new(Chain {
                 head: Head::default(),
                 file: None,
+                last_file: None,
                 purged: HashSet::new(),
-                needs_repair: false,
+                queued: Vec::new(),
+                next_ticket: 0,
+                torn_at: None,
+                repair_asked: false,
+                purging_upto: None,
                 closed: false,
                 memory,
             }),
@@ -188,6 +240,8 @@ impl AuditLog {
             write_errors: AtomicU64::new(0),
             #[cfg(test)]
             fail_purges: AtomicBool::new(false),
+            #[cfg(test)]
+            late_copied: AtomicU64::new(0),
         });
         // Before the first record and the first queue read: the head to chain on, and the
         // verdicts already written leave their pull requests out.
@@ -220,13 +274,20 @@ impl AuditLog {
     /// set by now, the entry is dropped.
     pub(crate) fn record_of(&self, entry: Value, gone: Option<Arc<AtomicBool>>) {
         match self.inner.write(entry, gone.as_deref()) {
-            Ok((written, _)) => {
-                self.inner.note_reviewed(&written);
-                self.written();
+            Ok(w) => {
+                self.inner.note_reviewed(&w.entry);
+                self.written(&w);
             }
-            Err(NotWritten::Purged) => {}
-            Err(NotWritten::Failed(why)) => self.inner.lost(&why),
+            Err(e) => {
+                self.not_written(e);
+            }
         }
+    }
+
+    /// Tests: the lines the last purge copied from after its snapshot.
+    #[cfg(test)]
+    fn late_copied(&self) -> u64 {
+        self.inner.late_copied.load(Ordering::SeqCst)
     }
 
     /// [`AuditLog::record_durable_of`] with no chat flag (tests).
@@ -242,31 +303,50 @@ impl AuditLog {
         entry: Value,
         gone: Option<Arc<AtomicBool>>,
     ) -> Result<Value, String> {
-        let (written, file) = match self.inner.write(entry, gone.as_deref()) {
+        let w = match self.inner.write(entry, gone.as_deref()) {
             Ok(w) => w,
-            Err(NotWritten::Purged) => return Err("the session was purged".into()),
-            Err(NotWritten::Failed(why)) => {
-                self.inner.lost(&why);
-                return Err(why);
+            Err(e) => {
+                return Err(self.not_written(e).unwrap_or_else(|| "the session was purged".into()));
             }
         };
-        if let Some(file) = file
+        // Asked even though this verdict syncs itself: `dirty` is set now, so a line written
+        // after it asks for no sync of its own and waits for this one.
+        self.written(&w);
+        if let Some((file, _, _)) = &w.at
             && let Err(e) = file.sync_data()
         {
-            // The line stays in the file (a cut could take later callers' lines with it): the
-            // verdict fails and may be given again.
-            let why = format!("sync of the audit file failed: {e}");
+            // The verdict fails and may be given again: its line goes, unless a line follows it.
+            let why = if self.inner.unwrite(&w) {
+                format!("sync of the audit file failed: {e}")
+            } else {
+                format!("sync of the audit file failed (its line stays in the file): {e}")
+            };
             self.inner.lost(&why);
             return Err(why);
         }
-        self.inner.note_reviewed(&written);
-        Ok(written)
+        self.inner.note_reviewed(&w.entry);
+        Ok(w.entry)
     }
 
-    /// Asks the sync thread for a sync, unless one is already asked for and not yet started.
-    fn written(&self) {
-        if !self.inner.dirty.swap(true, Ordering::AcqRel) {
+    /// Asks the sync thread for a sync when `w` is the first line since the last one started.
+    fn written(&self, w: &Written) {
+        if w.ask_sync {
             let _ = self.send(Msg::Written);
+        }
+    }
+
+    /// Counts and logs a record that failed, asking the thread to cut what its write left when
+    /// it could not: why it failed. None for a purged chat's entry, which is no error.
+    fn not_written(&self, e: NotWritten) -> Option<String> {
+        match e {
+            NotWritten::Purged => None,
+            NotWritten::Failed(why, torn) => {
+                if torn {
+                    let _ = self.send(Msg::Repair);
+                }
+                self.inner.lost(&why);
+                Some(why)
+            }
         }
     }
 
@@ -316,8 +396,9 @@ impl AuditLog {
         self.inner.write_errors.load(Ordering::Relaxed)
     }
 
-    /// Removes every entry of session `session_id` from the log; one recorded after this call is
-    /// refused. The answer comes once the rewritten file is on disk (None: the thread is gone).
+    /// Removes every entry of session `session_id` from the log; one recorded after the thread
+    /// starts the purge is refused. The answer comes once the rewritten file is on disk (None:
+    /// the thread is gone).
     #[cfg(test)]
     pub(crate) fn purge(
         &self,
@@ -332,12 +413,19 @@ impl AuditLog {
     ) -> Option<(tokio::sync::oneshot::Receiver<Result<usize, String>>, Arc<AtomicU8>)> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let state = Arc::new(AtomicU8::new(QUEUED));
-        // The fence goes up now, not when the thread takes the purge: an entry of the session
-        // recorded after this call is refused, as one sent after the purge always was.
-        self.inner.lock().purged.insert(session_id.to_owned());
-        let sent = self.send(Msg::Purge(session_id.to_owned(), tx, state.clone()));
+        // No fence yet: it goes up when the thread starts the purge (`Inner::purge_fenced`), so
+        // a purge that waits, then fails or is given up on, refused no entry. One written while
+        // it waits is in the file, and goes with the rest when it runs.
+        let ticket = {
+            let mut c = self.inner.lock();
+            c.next_ticket += 1;
+            let ticket = c.next_ticket;
+            c.queued.push(Queued { ticket, sid: session_id.to_owned(), reopened: false });
+            ticket
+        };
+        let sent = self.send(Msg::Purge(session_id.to_owned(), tx, state.clone(), ticket));
         if sent.is_err() {
-            self.inner.lock().purged.remove(session_id);
+            self.inner.lock().queued.retain(|q| q.ticket != ticket);
             return None;
         }
         Some((rx, state))
@@ -362,8 +450,8 @@ impl AuditLog {
                     .compare_exchange(QUEUED, CANCELLED, Ordering::AcqRel, Ordering::Acquire)
                     .is_ok()
                 {
-                    // Never runs: the session is unfenced, and its entries are written again.
-                    self.inner.lock().purged.remove(session_id);
+                    // Never runs, so its fence never went up: the session's entries were
+                    // written all along, and stay.
                     return Err("the audit writer did not take the purge in time".into());
                 }
                 rx.await.unwrap_or_else(|_| Err("the audit writer is gone".into()))
@@ -373,8 +461,19 @@ impl AuditLog {
 
     /// A chat was created under `session_id` (`Hub::new_session_with_id`): if a purge fenced that
     /// id this run, the fence comes down at once. Never blocks on the disk.
+    ///
+    /// A purge of the id still waiting in the queue is marked: when it starts it raises no
+    /// fence, so the id stays writable afterwards, as when the reopen queued behind the purge.
+    /// It still removes every entry of the id written before it starts. A new chat's entries
+    /// written between the reopen and that start would go with them, but `Hub::kill` keeps the
+    /// purged chat, and its id, until its purge ended or was given up on (a create under a live
+    /// id is refused), so a reopen does not meet a waiting purge of its id there.
     pub(crate) fn reopen(&self, session_id: &str) {
-        self.inner.lock().purged.remove(session_id);
+        let mut c = self.inner.lock();
+        c.purged.remove(session_id);
+        for q in c.queued.iter_mut().filter(|q| q.sid == session_id) {
+            q.reopened = true;
+        }
     }
 
     /// Whether the pull request at `url`, opened by session `session_id`, has a written verdict.
@@ -508,35 +607,49 @@ impl Inner {
                     self.sync();
                     let _ = done.send(());
                 }
-                Msg::Purge(sid, done, state) => {
+                Msg::Purge(sid, done, state, ticket) => {
                     if state
                         .compare_exchange(QUEUED, STARTED, Ordering::AcqRel, Ordering::Acquire)
                         .is_err()
                     {
-                        // Withdrawn: the chat stays, and so do its entries.
+                        // Withdrawn: it never ran, so it never fenced; the chat stays, and so do
+                        // its entries.
+                        self.lock().queued.retain(|q| q.ticket != ticket);
                         continue;
                     }
-                    let purged = self.purge(&sid);
+                    let purged = self.purge(&sid, ticket);
                     if let Err(why) = &purged {
                         tracing::warn!("audit: a purged chat's entries were not removed: {why}");
                     }
                     let _ = done.send(purged);
                 }
+                Msg::Repair => self.repair(),
+                #[cfg(test)]
+                Msg::Hold(held, release) => {
+                    let _ = held.send(());
+                    let _ = release.recv();
+                }
             }
         }
-        // Closed: every line was written by its caller; the last ones are synced.
+        // Closed (`AuditLog::stop` set `closed` under the lock before it ended the channel) or
+        // dropped: no line is written from here on, and this sync, which reads `dirty` under
+        // the same lock, covers every line written before.
         self.sync();
     }
 
     /// Syncs every line written before it starts, if any was. The lock is held only to take the
     /// file: a caller writes while the disk syncs.
     fn sync(&self) {
-        // Cleared first: a line written from here on asks for the next sync. AcqRel, so every
-        // line whose caller set the flag before this read is in the file the sync covers.
-        if !self.dirty.swap(false, Ordering::AcqRel) {
-            return;
-        }
-        let Some(file) = self.lock().file.clone() else { return };
+        let file = {
+            let c = self.lock();
+            // Read and cleared under the lock every append sets it under: a line written before
+            // is in what this sync covers, one written after asks for the next sync.
+            if !self.dirty.swap(false, Ordering::AcqRel) {
+                return;
+            }
+            c.last_file.clone()
+        };
+        let Some(file) = file else { return };
         if let Err(e) = file.sync_data() {
             self.write_errors.fetch_add(1, Ordering::Relaxed);
             tracing::warn!("audit: the sync of the audit file failed: {e}");
@@ -567,15 +680,10 @@ impl Inner {
     }
 
     /// Under the lock, at the event: numbers, chains and writes `entry` (one write, no sync).
-    /// The entry as written and the file to sync for it (None for a log in memory).
-    fn write(
-        &self,
-        entry: Value,
-        gone: Option<&AtomicBool>,
-    ) -> Result<(Value, Option<Arc<std::fs::File>>), NotWritten> {
+    fn write(&self, entry: Value, gone: Option<&AtomicBool>) -> Result<Written, NotWritten> {
         let mut c = self.lock();
         if c.closed {
-            return Err(NotWritten::Failed("the audit log is closed".into()));
+            return Err(NotWritten::Failed("the audit log is closed".into(), false));
         }
         let sid = entry.get("sessionId").and_then(Value::as_str);
         if gone.is_some_and(|g| g.load(Ordering::SeqCst))
@@ -584,68 +692,125 @@ impl Inner {
             // A purged chat leaves no history.
             return Err(NotWritten::Purged);
         }
-        self.append_locked(&mut c, entry).map_err(NotWritten::Failed)
+        self.append_locked(&mut c, entry)
     }
 
-    fn append_locked(
-        &self,
-        c: &mut Chain,
-        entry: Value,
-    ) -> Result<(Value, Option<Arc<std::fs::File>>), String> {
-        if c.needs_repair {
-            self.repair(c);
-        }
-        let (entry, head) = seal(&c.head, entry).ok_or("not an object")?;
+    fn append_locked(&self, c: &mut Chain, entry: Value) -> Result<Written, NotWritten> {
+        let Some((entry, head)) = seal(&c.head, entry) else {
+            return Err(NotWritten::Failed("not an object".into(), false));
+        };
         if let Some(m) = &mut c.memory {
             m.push(entry.clone());
             c.head = head;
-            return Ok((entry, None));
+            return Ok(Written { entry, at: None, ask_sync: false });
         }
-        let Some(path) = &self.path else { return Err("no audit file".into()) };
+        let Some(path) = &self.path else {
+            return Err(NotWritten::Failed("no audit file".into(), false));
+        };
         let mut line = entry.to_string();
         line.push('\n');
         match append(c, path, line.as_bytes()) {
-            Ok(file) => {
+            Ok((file, start)) => {
                 c.head = head;
-                Ok((entry, Some(file)))
+                // Under the lock: a sync that starts after this (the last one at close too)
+                // covers this line.
+                let ask_sync = !self.dirty.swap(true, Ordering::AcqRel);
+                let end = start + line.len() as u64;
+                Ok(Written { entry, at: Some((file, start, end)), ask_sync })
             }
             Err(e) => {
                 // The next entry tries again with a new handle; this one is not chained.
                 c.file = None;
-                Err(format!("append to {} failed: {e}", path.display()))
+                // Bytes the write left and could not cut: the next append cuts them first (one
+                // `set_len`, no read), so a record meanwhile is written after the cut and loses
+                // nothing when the disk works; the thread is asked once to cut them in case no
+                // record comes. A cut that fails again fails that record, counted.
+                let torn = c.torn_at.is_some() && !c.repair_asked;
+                if torn {
+                    c.repair_asked = true;
+                }
+                Err(NotWritten::Failed(format!("append to {} failed: {e}", path.display()), torn))
             }
         }
     }
 
-    /// A failed write left bytes it could not cut: the torn tail goes, and the head is read
-    /// again. Reads the whole file, but only after a write failed.
-    fn repair(&self, c: &mut Chain) {
-        c.file = None;
-        self.load(c);
-        c.needs_repair = false;
+    /// The thread's side of a failed write: cuts the bytes it left, unless a record or a purge
+    /// did first. One `set_len` under the lock, no read: the torn line never moved the head.
+    fn repair(&self) {
+        let mut c = self.lock();
+        c.repair_asked = false;
+        if c.torn_at.is_none() {
+            return;
+        }
+        let Some(path) = &self.path else { return };
+        if let Err(e) = open_locked(&mut c, path) {
+            c.file = None;
+            tracing::warn!("audit: could not cut a failed write off {}: {e}", path.display());
+        }
     }
 
-    /// Drops session `sid`'s entries and chains the rest again: how many went. On a failure the
-    /// session is unfenced again: the chat stays, and its entries keep being written.
-    fn purge(&self, sid: &str) -> Result<usize, String> {
-        let purged = self.purge_fenced(sid);
+    /// A verdict whose sync failed: its line is cut off again while it is still the file's last
+    /// (no line written after it, no purge since), and the head goes back to the entry before
+    /// it. Whether it was. Otherwise the line stays: a cut would take later lines with it, so a
+    /// restart counts it and a retry of the verdict writes a second entry.
+    fn unwrite(&self, w: &Written) -> bool {
+        let Some((file, start, end)) = &w.at else { return false };
+        let seq = w.entry.get("seq").and_then(Value::as_u64).unwrap_or(0);
+        let hash = w.entry.get("hash").and_then(Value::as_str).unwrap_or_default();
+        let prev = w.entry.get("prevHash").and_then(Value::as_str).unwrap_or(GENESIS);
+        let mut c = self.lock();
+        let last = c.head.seq == seq
+            && c.head.hash == hash
+            && c.torn_at.is_none()
+            && c.purging_upto.is_none_or(|upto| *start >= upto)
+            && c.file.as_ref().is_some_and(|f| Arc::ptr_eq(f, file))
+            && file.metadata().is_ok_and(|m| m.len() == *end);
+        if !last || file.set_len(*start).is_err() {
+            return false;
+        }
+        c.head = Head { seq: seq.saturating_sub(1), hash: prev.to_owned() };
+        true
+    }
+
+    /// Drops session `sid`'s entries and chains the rest again: how many went. On a failure a
+    /// fence this purge raised comes down again: the chat stays, and its entries keep being
+    /// written.
+    fn purge(&self, sid: &str, ticket: u64) -> Result<usize, String> {
+        let mut fenced = false;
+        let purged = self.purge_fenced(sid, ticket, &mut fenced);
+        let mut c = self.lock();
+        c.purging_upto = None;
         match &purged {
             Ok(_) => {
+                drop(c);
                 self.reviewed.lock().unwrap_or_else(|e| e.into_inner()).retain(|(s, _)| s != sid);
             }
             Err(_) => {
-                self.lock().purged.remove(sid);
+                if fenced {
+                    c.purged.remove(sid);
+                }
             }
         }
         purged
     }
 
-    fn purge_fenced(&self, sid: &str) -> Result<usize, String> {
-        // Under the lock: the fence is up since the purge was sent (`send_purge`), so every
-        // entry of the session is in the file already, before its length now, which bounds what
-        // the slow part reads.
+    /// [`Inner::purge`]; `fenced` is set when it raised the session's fence.
+    fn purge_fenced(&self, sid: &str, ticket: u64, fenced: &mut bool) -> Result<usize, String> {
+        // Under the lock, as the purge starts: the fence goes up with the length snapshot, so
+        // every entry of the session written before is in the file before that length, which
+        // bounds what the slow part reads, and every later one is refused.
         let upto = {
             let mut c = self.lock();
+            let reopened = match c.queued.iter().position(|q| q.ticket == ticket) {
+                Some(i) => c.queued.swap_remove(i).reopened,
+                None => false,
+            };
+            if !reopened {
+                // Only when it was not already up (an earlier purge), so a failure lowers only
+                // its own. A purge a reopen of the id met in the queue raises none: the new chat
+                // took the id, and the old queue order would have lowered it again.
+                *fenced = c.purged.insert(sid.to_owned());
+            }
             #[cfg(test)]
             if self.fail_purges.load(Ordering::SeqCst) {
                 return Err("purges fail in this test".into());
@@ -662,11 +827,14 @@ impl Inner {
                 return Ok(removed);
             }
             let Some(path) = &self.path else { return Ok(0) };
-            if c.needs_repair {
-                // The snapshot ends on a whole line.
-                self.repair(&mut c);
-            }
-            file_len(path).map_err(|e| format!("stat {}: {e}", path.display()))?
+            // The snapshot ends on a whole line: before the bytes a failed write left, if any
+            // (no line follows them until they are cut).
+            let upto = match c.torn_at {
+                Some(at) => at,
+                None => file_len(path).map_err(|e| format!("stat {}: {e}", path.display()))?,
+            };
+            c.purging_upto = Some(upto);
+            upto
         };
         let Some(path) = &self.path else { return Ok(0) };
         // Outside the lock: callers keep appending to the old file, after `upto`.
@@ -681,20 +849,25 @@ impl Inner {
         // Under the lock again: the lines written since the snapshot follow, chained on, and
         // the new file takes the old one's place before any later line is written.
         let mut c = self.lock();
+        // Up to the bytes a failed write left meanwhile, if any: they are no line.
+        let late_end = c.torn_at;
         let swapped = (|| {
-            let late = read_lines_in(path, upto, None)?;
+            let late = read_lines_in(path, upto, late_end)?;
             let (late, _, head) = without(&late, None, head);
             write_entries(&mut file, &late)?;
             file.sync_all()?;
             crate::home_fs::rename(&tmp, path)?;
-            Ok::<Head, std::io::Error>(head)
+            Ok::<(Head, usize), std::io::Error>((head, late.len()))
         })();
         match swapped {
-            Ok(head) => {
+            Ok((head, _late)) => {
                 c.head = head;
-                // The next line opens the new file.
+                // The next line opens the new file, which holds only whole lines, synced.
                 c.file = None;
-                c.needs_repair = false;
+                c.last_file = None;
+                c.torn_at = None;
+                #[cfg(test)]
+                self.late_copied.store(_late as u64, Ordering::SeqCst);
             }
             Err(e) => return Err(format!("rewrite {}: {e}", path.display())),
         }
@@ -708,25 +881,43 @@ impl Inner {
     }
 }
 
-/// Appends `line` to the chain's file (opened first if needed) in one write: the file, for its
-/// sync. A write that fails is cut off again, so the next line does not land on half of it.
-fn append(c: &mut Chain, path: &Path, line: &[u8]) -> std::io::Result<Arc<std::fs::File>> {
-    if c.file.is_none() {
-        private_dir_of(path)?;
-        let file = crate::config::private_state_append(path).map_err(std::io::Error::other)?;
-        c.file = Some(Arc::new(file));
+/// The chain's file, opened if needed, with the bytes a failed write left cut off first.
+/// Under the lock. The folder check runs on the caller of a record at the first open (once per
+/// process, and again after a failed write dropped the handle): a few `stat`s, no read.
+fn open_locked(c: &mut Chain, path: &Path) -> std::io::Result<Arc<std::fs::File>> {
+    let file = match c.file.clone() {
+        Some(f) => f,
+        None => {
+            private_dir_of(path)?;
+            let file = crate::config::private_state_append(path).map_err(std::io::Error::other)?;
+            let file = Arc::new(file);
+            c.file = Some(file.clone());
+            c.last_file = Some(file.clone());
+            file
+        }
+    };
+    if let Some(at) = c.torn_at {
+        file.set_len(at)?;
+        c.torn_at = None;
     }
-    let file = c.file.clone().ok_or_else(|| std::io::Error::other("no file"))?;
+    Ok(file)
+}
+
+/// Appends `line` to the chain's file (opened first if needed) in one write: the file, for its
+/// sync, and where the line starts. A write that fails is cut off again, so the next line does
+/// not land on half of it; when that cut fails, `torn_at` keeps where to cut.
+fn append(c: &mut Chain, path: &Path, line: &[u8]) -> std::io::Result<(Arc<std::fs::File>, u64)> {
+    let file = open_locked(c, path)?;
     // Every write is under the lock: the length before is where this line starts.
     let before = file.metadata()?.len();
     let mut out: &std::fs::File = &file;
     if let Err(e) = out.write_all(line) {
         if file.set_len(before).is_err() {
-            c.needs_repair = true;
+            c.torn_at = Some(before);
         }
         return Err(e);
     }
-    Ok(file)
+    Ok((file, before))
 }
 
 /// The entries of `old` that are not `sid`'s (all of them for None), chained again after `head`,
@@ -1125,18 +1316,30 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// An entry given while the purge waits in the queue is written, then goes with the rest; one
+    /// given after the purge started (a verdict that passed the hub's check before) is refused.
     #[tokio::test]
-    async fn an_entry_sent_after_the_purge_is_refused_by_the_writer() {
+    async fn an_entry_after_the_purge_started_is_refused_and_one_before_goes_with_it() {
         let d = dir("fence");
         let log = AuditLog::open(Some(d.clone()));
         log.record(entry("gone", 1));
-        // A verdict that passed the hub's check before the purge, sent after it.
+        let (held_tx, held) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel::<()>();
+        log.send(Msg::Hold(held_tx, release_rx)).unwrap();
+        held.recv().unwrap();
         let purge = log.purge("gone").unwrap();
-        let late = log.record_durable(json!({"at": 2, "sessionId": "gone", "kind": "review",
-                                             "prUrl": "https://github.com/o/r/pull/5",
+        let waiting = log.record_durable(json!({"at": 2, "sessionId": "gone", "kind": "review",
+                                                "prUrl": "https://github.com/o/r/pull/5",
+                                                "ask": "Review", "decision": {"kind": "accept"},
+                                                "answeredBy": {"person": true}}));
+        assert!(waiting.is_ok(), "{waiting:?}");
+        drop(release);
+        assert_eq!(purge.await.unwrap(), Ok(2));
+        assert!(!log.reviewed("gone", "https://github.com/o/r/pull/5"));
+        let late = log.record_durable(json!({"at": 3, "sessionId": "gone", "kind": "review",
+                                             "prUrl": "https://github.com/o/r/pull/6",
                                              "ask": "Review", "decision": {"kind": "accept"},
                                              "answeredBy": {"person": true}}));
-        assert_eq!(purge.await.unwrap(), Ok(1));
         assert!(late.is_err());
         log.record(entry("gone", 3));
         log.record(entry("kept", 4));
@@ -1336,7 +1539,7 @@ mod tests {
         log.record(entry("s1", 1));
         let (done, mut rx) = tokio::sync::oneshot::channel();
         let state = Arc::new(AtomicU8::new(CANCELLED));
-        log.send(Msg::Purge("s1".into(), done, state)).unwrap();
+        log.send(Msg::Purge("s1".into(), done, state, 0)).unwrap();
         log.record(entry("s1", 2));
         log.flush();
         assert!(rx.try_recv().is_err(), "a withdrawn purge gets no answer");
@@ -1346,20 +1549,26 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
-    /// A `kill -9` right after a record: nothing closes the log or waits for its thread (the
-    /// handle is leaked, the thread never told to stop), and a fresh read of the file, as the
-    /// next daemon's open does, already has the entry, chained.
+    /// What a `kill -9` right after a record keeps: the audit thread is held before the records,
+    /// so it runs nothing of them, and a fresh read of the file, as the next daemon's open does,
+    /// already has both entries, chained. A record that only queued its line for the thread
+    /// fails this.
     #[test]
-    fn a_kill_right_after_a_record_keeps_the_entry() {
+    fn a_record_is_in_the_file_when_it_returns_before_the_thread_runs() {
         let d = dir("kill");
         let log = AuditLog::open(Some(d.clone()));
+        let (held_tx, held) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel::<()>();
+        log.send(Msg::Hold(held_tx, release_rx)).unwrap();
+        held.recv().unwrap();
         log.record(entry("s1", 1));
         log.record(entry("s2", 2));
-        std::mem::forget(log);
         let on_disk = read_lines(&d.join(FILE)).unwrap();
         let ats: Vec<_> = on_disk.iter().map(|e| e["at"].clone()).collect();
-        assert_eq!(ats, vec![json!(1), json!(2)], "an entry recorded before the kill was lost");
+        assert_eq!(ats, vec![json!(1), json!(2)], "a record returned before its line was written");
         assert_eq!(verify(&on_disk), json!({"ok": true, "entries": 2}));
+        drop(release);
+        drop(log);
         // The next daemon continues the chain from them.
         let next = AuditLog::open(Some(d.clone()));
         next.record(entry("s1", 3));
@@ -1398,10 +1607,24 @@ mod tests {
     }
 
     /// Records keep coming while a purge reads and rewrites the file: every one of them is in
-    /// the rewritten file, after the kept ones, and the chain verifies.
+    /// the rewritten file, after the kept ones, and the chain verifies. At least one run (of a
+    /// bounded number) has a line written after the purge's snapshot, copied by its last step.
     #[tokio::test]
     async fn a_purge_racing_records_loses_none_of_them() {
-        let d = dir("purge-race");
+        let mut copied = 0;
+        for attempt in 0..20 {
+            copied = purge_racing_records(attempt).await;
+            if copied > 0 {
+                break;
+            }
+        }
+        assert!(copied > 0, "no record landed after the purge's snapshot in 20 runs");
+    }
+
+    /// One run of [`a_purge_racing_records_loses_none_of_them`]: the lines the purge copied
+    /// from after its snapshot.
+    async fn purge_racing_records(attempt: u32) -> u64 {
+        let d = dir(&format!("purge-race-{attempt}"));
         let log = Arc::new(AuditLog::open(Some(d.clone())));
         // Enough of the purged chat that the rewrite takes a while.
         for at in 0..5_000 {
@@ -1442,6 +1665,89 @@ mod tests {
             assert!(ats.windows(2).all(|w| w[0] < w[1]), "late{t} out of order");
         }
         assert_eq!(log.write_errors(), 0);
+        let copied = log.late_copied();
+        let _ = std::fs::remove_dir_all(&d);
+        copied
+    }
+
+    /// A purge that waits in the queue, then is given up on or fails, refuses no record of its
+    /// session meanwhile: every one is in the file after it.
+    #[tokio::test]
+    async fn a_purge_that_did_not_run_or_failed_refused_nothing() {
+        let d = dir("purge-wait");
+        let log = AuditLog::open(Some(d.clone()));
+        let (held_tx, held) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel::<()>();
+        log.send(Msg::Hold(held_tx, release_rx)).unwrap();
+        held.recv().unwrap();
+        // Queued behind the held thread, recorded while it waits, then given up on. The record
+        // yields first, so it runs after the purge was sent whichever future is polled first.
+        let (given_up, ()) =
+            tokio::join!(log.purge_within("s1", Duration::from_millis(200)), async {
+                tokio::task::yield_now().await;
+                log.record(entry("s1", 1));
+            });
+        assert!(given_up.is_err());
+        log.record(entry("s1", 2));
+        drop(release);
+        log.fail_purges(true);
+        let (held_tx, held) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel::<()>();
+        log.send(Msg::Hold(held_tx, release_rx)).unwrap();
+        held.recv().unwrap();
+        // Queued, then fails.
+        let failed = log.purge("s1").unwrap();
+        log.record(entry("s1", 3));
+        drop(release);
+        assert!(failed.await.unwrap().is_err());
+        log.record(entry("s1", 4));
+        let all = log.all().unwrap();
+        let ats: Vec<_> = all.iter().map(|e| e["at"].clone()).collect();
+        assert_eq!(ats, vec![json!(1), json!(2), json!(3), json!(4)]);
+        assert_eq!(log.write_errors(), 0);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A chat recreated under an id whose purge still waits in the queue: the purge removes
+    /// what was written before it starts and leaves the id writable after it.
+    #[tokio::test]
+    async fn a_reopen_while_a_purge_waits_leaves_the_id_writable() {
+        let d = dir("purge-reopen");
+        let log = AuditLog::open(Some(d.clone()));
+        log.record(entry("same", 1));
+        let (held_tx, held) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel::<()>();
+        log.send(Msg::Hold(held_tx, release_rx)).unwrap();
+        held.recv().unwrap();
+        let purge = log.purge("same").unwrap();
+        log.reopen("same");
+        drop(release);
+        assert_eq!(purge.await.unwrap(), Ok(1));
+        log.record(entry("same", 2));
+        let all = log.all().unwrap();
+        let ats: Vec<_> = all.iter().map(|e| e["at"].clone()).collect();
+        assert_eq!(ats, vec![json!(2)]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A verdict whose sync fails is cut off again while its line is the file's last, and the
+    /// chain goes on from the entry before it.
+    #[test]
+    fn an_unsynced_verdict_is_cut_while_it_is_the_last_line() {
+        let d = dir("unwrite");
+        let log = AuditLog::open(Some(d.clone()));
+        log.record(entry("s1", 1));
+        let before = std::fs::read(d.join(FILE)).unwrap();
+        let w = log.inner.write(entry("s1", 2), None).ok().unwrap();
+        assert!(log.inner.unwrite(&w));
+        assert_eq!(std::fs::read(d.join(FILE)).unwrap(), before);
+        let w = log.inner.write(entry("s1", 3), None).ok().unwrap();
+        log.record(entry("s1", 4));
+        assert!(!log.inner.unwrite(&w), "a line followed by another stays");
+        let all = log.all().unwrap();
+        let ats: Vec<_> = all.iter().map(|e| e["at"].clone()).collect();
+        assert_eq!(ats, vec![json!(1), json!(3), json!(4)]);
+        assert_eq!(verify(&all)["ok"], true, "{}", verify(&all));
         let _ = std::fs::remove_dir_all(&d);
     }
 

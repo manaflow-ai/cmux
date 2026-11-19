@@ -8,8 +8,9 @@
 //! Manual: `cargo test -p acpmux --release --lib audit_record_cost -- --ignored --nocapture
 //! --test-threads=1`. One `AUDIT-RECORD-COST` line per home.
 
+// `Write` (for `writeln!` and `flush`) comes with `super::*`: `audit_log.rs` imports it, here
+// and in the build before.
 use super::*;
-use std::io::Write as _;
 use std::time::Instant;
 
 /// Timed records per home.
