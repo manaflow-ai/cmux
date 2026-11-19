@@ -554,6 +554,53 @@ fn goal_of(event: &AcpmuxEvent) -> Option<&Value> {
 
 /// Whether the session reported a goal in `events` (Codex's own, set from
 /// the stop condition: goal.rs).
+/// Whether a prompt came after seq `end` in `events` (acpmux logs `user_message` when a prompt
+/// is taken, `turn_started` when it runs): the turn that ended at `end` is not the run's end,
+/// the next one is. A Chief restart cuts a turn, and the Chief's next prompt can be queued behind
+/// it before the reopened session's idle reaches the host.
+/// A prompt acpmux refused or took back out of its queue (`prompt_refused`, `queue_removed`)
+/// starts no turn, so it does not count.
+pub(super) fn prompt_after(events: &[AcpmuxEvent], end: u64) -> bool {
+    let id = |e: &AcpmuxEvent| {
+        e.msg
+            .get("promptId")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    let dropped: Vec<String> = events
+        .iter()
+        .filter(|e| e.dir == "mux" && matches!(e.kind.as_str(), "prompt_refused" | "queue_removed"))
+        .filter_map(id)
+        .collect();
+    events.iter().any(|e| {
+        e.seq > end
+            && e.dir == "mux"
+            && match e.kind.as_str() {
+                "turn_started" => true,
+                "user_message" => id(e).is_none_or(|p| !dropped.contains(&p)),
+                _ => false,
+            }
+    })
+}
+
+/// Whether every prompt in `events` (at least one) was an acpmux notice (`user_message` whose
+/// `_meta.provenance.kind` is `notice`: a background command of its own finished, a watch
+/// fired), none the Chief's or the person's.
+pub(super) fn notice_only(events: &[AcpmuxEvent]) -> bool {
+    let mut prompts = events
+        .iter()
+        .filter(|e| e.dir == "mux" && e.kind == "user_message")
+        .peekable();
+    prompts.peek().is_some()
+        && prompts.all(|e| {
+            e.msg
+                .get("_meta")
+                .and_then(|m| m.pointer("/provenance/kind"))
+                .and_then(Value::as_str)
+                == Some("notice")
+        })
+}
+
 pub(super) fn has_goal(events: &[AcpmuxEvent]) -> bool {
     events
         .iter()
