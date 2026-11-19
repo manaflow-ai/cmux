@@ -17,9 +17,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::*;
-use optchat_chief::brain::Settings;
+use optchat_chief::brain::{Input, Settings};
 use optchat_chief::subagents::{Spawner, SubagentSettings};
 use optchat_chief::tools::{Orchestrator, SendCall};
+use cmux_conversation::{Op, Part};
 use optchat_core::Kind;
 use serde_json::Value;
 
@@ -237,4 +238,98 @@ fn a_person_message_that_cannot_reach_the_turn_goes_on_in_the_same_session() {
         tb.iter().any(|t| t.contains("wait, wrong repo")),
         "{tb:?}"
     );
+}
+
+/// The posted texts that contain `needle`.
+fn posted(h: &Harness, needle: &str) -> usize {
+    h.owner
+        .lock()
+        .unwrap()
+        .ops
+        .iter()
+        .filter(|(_, op)| match op {
+            Op::MessageSend { parts, .. } => parts
+                .iter()
+                .any(|p| matches!(p, Part::Text { text, .. } if text.contains(needle))),
+            _ => false,
+        })
+        .count()
+}
+
+#[test]
+fn the_next_turn_in_a_kept_session_posts_its_reply_once() {
+    let mut h = harness(endless_first_turn());
+    running(&mut h, "one");
+    let sp = spawner(&h);
+    run(&mut h, move || {
+        sp.send(SendCall {
+            text: Some("On it.".into()),
+            ..SendCall::default()
+        })
+    })
+    .expect("send answers");
+    let sp = spawner(&h);
+    run(&mut h, move || sp.stop_turn()).expect("stop answers");
+    h.agents.hold(false);
+    h.settle_posts();
+    h.say("user_local", "two");
+    h.settle_posts();
+    assert_eq!(h.agents.inner.lock().unwrap().prompt_sessions, vec!["s1", "s1"]);
+    assert_eq!(posted(&h, "answer 1"), 1, "the second turn's reply, once");
+    assert_eq!(posted(&h, "On it."), 1, "the first turn's line, once");
+}
+
+#[test]
+fn the_owners_stop_after_the_chiefs_own_stop_still_ends_the_session() {
+    let mut h = harness(endless_first_turn());
+    running(&mut h, "one");
+    let sp = spawner(&h);
+    run(&mut h, move || {
+        sp.send(SendCall {
+            text: Some("On it.".into()),
+            ..SendCall::default()
+        })
+    })
+    .expect("send answers");
+    let sp = spawner(&h);
+    run(&mut h, move || sp.stop_turn()).expect("stop answers");
+    // The owner presses Stop before the turn has ended.
+    let (reply, _answer) = std::sync::mpsc::channel();
+    h.brain.step(Input::Stop { reply });
+    h.agents.hold(false);
+    h.settle_posts();
+    h.say("user_local", "two");
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.specs.len(), 2, "a new session after the owner's Stop");
+    assert!(inner.ended.contains(&"s1".to_owned()), "the stopped session ended");
+}
+
+#[test]
+fn a_message_left_unread_in_the_session_ends_it() {
+    let mut h = harness(long_tool_script());
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.steering = true;
+        // Claude Code is in a long tool call: the steer waits unread in it.
+        inner.steer_at_end = true;
+    }
+    h.brain.set_steer_deadline(Some(Duration::from_millis(20)));
+    running(&mut h, "fix the sidebar");
+    h.say("user_local", "stop, do the composer first");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while h.agents.inner.lock().unwrap().cancels.is_empty() {
+        assert!(std::time::Instant::now() < deadline, "no cancel");
+        tick(&mut h);
+    }
+    h.agents.hold(false);
+    until_prompts(&mut h, 2);
+    h.settle_posts();
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(
+        inner.prompt_sessions,
+        vec!["s1", "s2"],
+        "the session that may still hold the message is not prompted again"
+    );
+    assert!(inner.ended.contains(&"s1".to_owned()));
 }
