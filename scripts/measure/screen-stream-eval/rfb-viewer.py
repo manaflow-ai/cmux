@@ -17,10 +17,11 @@ What it measures and what it does not: this is screensharingd serving a standard
 decodes, so these rows are Apple's server with standard encodings, not the app's picture.
 Glass-to-glass ends at this client's decode of the marker, like rd's `bench`, not at a display.
 
-The login comes from a file only (--login-file, default ~/.config/screen-stream-eval/login in the
-account's real home, mode 0600), never argv or the environment, and is never logged. One line is the
-password of an account with this account's name on the host (the fleet Macs share one); two lines
-are a user name, then its password.
+The login comes from a file (--login-file, default ~/.config/screen-stream-eval/login in the
+account's real home, mode 0600) or, with no default file, from the login Screen Sharing.app saved in
+this account's keychain for the host. It never goes through argv or the environment and is never
+logged. One line of the file is the password of an account with this account's name on the host
+(the fleet Macs share one); two lines are a user name, then its password.
 """
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ import re
 import socket
 import stat
 import struct
+import subprocess
 import sys
 import time
 import zlib
@@ -41,6 +43,7 @@ import zlib
 ENCODINGS = {"raw": 0, "copyrect": 1, "zlib": 6, "zrle": 16}
 PSEUDO_DESKTOP_SIZE = -223
 GUARD = (True, False, True, False)
+MESSAGE_S = 15  # the most one server message may take to arrive once it has started
 
 
 class RFBError(RuntimeError):
@@ -124,15 +127,42 @@ def apple_dh_response(username: str, password: str, generator: int, prime: bytes
     return aes128_ecb_encrypt(hashlib.md5(shared).digest(), creds) + public
 
 
-def read_login(path: str | None) -> tuple[str, str]:
+def keychain_login(host: str, run=subprocess.run) -> tuple[str, str] | None:
+    """The login Screen Sharing.app saved for this host (an `rfb ` internet password), or None.
+
+    The password comes back on a pipe only. The first read may show macOS's keychain prompt once
+    ("Always Allow" keeps it quiet), so it gets time for a person to answer."""
+    query = ["security", "find-internet-password", "-r", "rfb ", "-s", host]
+    try:
+        attrs = run(query, capture_output=True, text=True, timeout=10)
+        if attrs.returncode != 0:
+            return None
+        account = re.search(r'"acct"<blob>="([^"]*)"', attrs.stdout)
+        secret = run(query + ["-w"], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    password = secret.stdout.rstrip("\n") if secret.returncode == 0 else ""
+    if not account or not account.group(1) or not password:
+        return None
+    return account.group(1), password
+
+
+def read_login(path: str | None, host: str | None = None, run=subprocess.run) -> tuple[str, str]:
     account = pwd.getpwuid(os.getuid())
+    explicit = bool(path)
     if not path:
         # A step's $HOME is scratch; the file lives in the account's real home.
         path = os.path.join(account.pw_dir, ".config/screen-stream-eval/login")
     try:
         info = os.stat(path)
     except OSError:
-        raise RFBError(f"no login file at {path}; next: put the host account's password there (mode 0600)") from None
+        # No file: the login Screen Sharing.app saved in this account's keychain.
+        saved = None if explicit or not host else keychain_login(host, run)
+        if saved:
+            return saved
+        raise RFBError(f"no login file at {path} and no Screen Sharing login saved in the keychain for "
+                       f"{host or 'the host'}; next: connect once with Screen Sharing.app and tick "
+                       f"\"Remember this password\", or put the host account's password in that file (mode 0600)") from None
     if stat.S_IMODE(info.st_mode) & 0o077:
         raise RFBError(f"{path} is readable by others; next: chmod 600 it")
     lines = [line for line in open(path, encoding="utf8").read().splitlines() if line]
@@ -239,8 +269,11 @@ class Client:
         self.send(struct.pack("!BBHH", 5, 1, x, y) + struct.pack("!BBHH", 5, 0, x, y))
 
     def read_message(self, deadline: float | None) -> dict | None:
-        """One server message. A framebuffer update returns {"rects", "decode_ms"}; others None."""
+        """One server message. A framebuffer update returns {"rects", "decode_ms"}; others None.
+        The deadline bounds only the wait for a message to start: once its first byte is read the
+        rest is read whole (bounded by MESSAGE_S), since a message cut short would desync the stream."""
         kind = self.recv(1, deadline)[0]
+        deadline = time.monotonic() + MESSAGE_S
         if kind == 0:
             self.recv(1, deadline)
             count = struct.unpack("!H", self.recv(2, deadline))[0]
@@ -415,13 +448,21 @@ def write_png(path: str, width: int, height: int, rgb: bytes) -> None:
 # significant first, then the guard 1,0,1,0 (cmux-rd-host's mac-marker for latency; scene.swift's
 # counter row plus eight nonce rows for the window runs).
 
-def read_row(c: Client, ox: int, oy: int, cell: float) -> int | None:
+def read_row(c: Client, ox: int, oy: int, cell: float, strict: bool = False) -> int | None:
+    """One marker row's 16-bit word, or None when the guard is not there. `strict` (for finding
+    the marker) also asks each cell to read the same at four inner points, so a half-size or
+    shifted reading of a real marker, or text that happens to match the guard, does not pass."""
     bits = []
+    inner = ((0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)) if strict else ()
     for i in range(20):
         x, y = int(ox + (i + 0.5) * cell), int(oy + 0.5 * cell)
-        if x >= c.width or y >= c.height:
+        if int(ox + 20 * cell) > c.width or int(oy + cell) > c.height:
             return None
-        bits.append(c.pixel(x, y) >= 128)
+        bit = c.pixel(x, y) >= 128
+        for fx, fy in inner:
+            if (c.pixel(int(ox + (i + fx) * cell), int(oy + fy * cell)) >= 128) != bit:
+                return None
+        bits.append(bit)
     if tuple(bits[16:]) != GUARD:
         return None
     return sum(1 << i for i in range(16) if bits[i])
@@ -430,11 +471,18 @@ def read_row(c: Client, ox: int, oy: int, cell: float) -> int | None:
 def locate(c: Client, rows: int, max_y: int) -> tuple[int, float] | None:
     """The marker's top (y) and cell size in framebuffer pixels: the first place `rows` guarded rows
     stack. Needs the top of the framebuffer decoded."""
-    for cell in range(8, 130):
+    # Largest cell first: a real marker read at half its cell size can still look guarded.
+    for cell in range(129, 7, -1):
         for y in range(0, min(max_y, c.height - rows * cell)):
-            if all(read_row(c, 0, y + r * cell, cell) is not None for r in range(rows)):
-                # Cell edges as well as centres, so a half-size reading cannot pass.
+            if all(read_row(c, 0, y + r * cell, cell, strict=True) is not None for r in range(rows)):
+                # The cell edges too: the guard's white cell ends where the black one starts.
                 if c.pixel(int(16 * cell + cell - 2), y + cell // 2) >= 128 and c.pixel(int(17 * cell + 1), y + cell // 2) < 128:
+                    # The first matching y is up to a quarter cell above the row: move to the top
+                    # edge of the black guard cell, where the pixel above it is not black.
+                    gx = int(17.5 * cell)
+                    for top in range(y, y + cell):
+                        if c.pixel(gx, top) < 128 and (top == 0 or c.pixel(gx, top - 1) >= 128):
+                            return top, float(cell)
                     return y, float(cell)
     return None
 
@@ -447,7 +495,7 @@ def nonce_words(nonce: str) -> list[int]:
 # --- Verbs -----------------------------------------------------------------------------------
 
 def connect(args) -> Client:
-    c = Client(args.host, args.port, read_login(args.login_file), args.encodings.split(","))
+    c = Client(args.host, args.port, read_login(args.login_file, args.host), args.encodings.split(","))
     c.handshake()
     return c
 

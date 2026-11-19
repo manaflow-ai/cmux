@@ -8,7 +8,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// DevTools session, so the per-renderer reuse switch applies.
     var rendererPaths = false
     /// Development builds share one ad hoc identity per tag; the real
-    /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
+    /// keychain would prompt on every rebuild. Every other build keeps
+    /// Chromium's key in cmux's own item (`CEFKeychainItem`), and falls back to
+    /// this when the fork does not take that item (`CEFRuntime.applyKeychainItem`).
     var useMockKeychain: Bool
     /// Unpacked extension directories (development and verification only).
     var loadExtensions: [String]
@@ -234,6 +236,12 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
+        #if DEBUG
+        // Verification of the real keychain path (cmux's own item) in a development bundle.
+        let realKeychain = environment["CMUX_NEXT_REAL_KEYCHAIN"] == "1"
+        #else
+        let realKeychain = false
+        #endif
         let extensions = (environment["CMUX_NEXT_CEF_LOAD_EXTENSIONS"] ?? "")
             .split(separator: ":")
             .map(String.init)
@@ -246,7 +254,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,
-            useMockKeychain: dev,
+            useMockKeychain: dev && !realKeychain,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,

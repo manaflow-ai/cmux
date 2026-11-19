@@ -127,10 +127,12 @@ public struct RemoteHostLayout: Sendable, Equatable {
 
     /// The daemon's supervisor socket: hello, requests, events.
     public var supervisorSocket: String { directory + "/s.sock" }
-    /// The app's socket: device signing, hub push relay, Computer Use control.
+    /// The app's socket: device signing and the hub push relay (the Screen Sharing channel).
     public var appSocket: String { directory + "/a.sock" }
     /// The Screen Sharing worker's own socket (the host forwards to it).
     public var screenSharingSocket: String { directory + "/w-screen.sock" }
+    /// The Computer Use worker's agent socket (cmux-computer-use-v1; the daemon hands it to acpmux).
+    public var computerUseSocket: String { directory + "/w-cu.sock" }
     /// The adoption record the daemon writes (`docs/cmux-remote.md`, Lifecycle).
     public var record: String { directory + "/host.json" }
     public var log: String { directory + "/host.log" }

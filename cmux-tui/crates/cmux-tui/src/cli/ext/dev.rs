@@ -70,10 +70,14 @@ const PACK_TS: &str = include_str!("../../../../cmux-app-host/tools/pack.ts");
 /// no copy of its own (a sample copied out of a checkout, one a person installs): the
 /// packer gets it in `CMUX_EXTENSION_SDK`. Paths keep the checkout's layout, which the
 /// SDK's relative imports of its tables expect.
-const SDK_FILES: [(&str, &str); 3] = [
+const SDK_FILES: [(&str, &str); 4] = [
     (
         "cmux-extension-sdk/typescript/src/index.ts",
         include_str!("../../../../cmux-extension-sdk/typescript/src/index.ts"),
+    ),
+    (
+        "cmux-extension-sdk/typescript/src/widget.ts",
+        include_str!("../../../../cmux-extension-sdk/typescript/src/widget.ts"),
     ),
     (
         "cmux-app-host/schema/v2/events.json",
@@ -196,6 +200,15 @@ const V2: &str = "cmux-app.v2.json";
 /// Validates `dir` with the validator the daemon runs (`cmux-app-manifest`),
 /// reading the manifest file the daemon reads for a local folder.
 pub(super) fn load_package(dir: &Path) -> Result<Package, Vec<Problem>> {
+    load_package_unbuilt(dir, false)
+}
+
+/// `load_package` before a build. When `builds` (the build will run and
+/// writes the main script, `build_will_run`), a `runtime.main` that does
+/// not exist yet is no error: a fresh clone has `src/main.ts` and no
+/// `dist/` (examples gitignore it), and the build makes it. The full check,
+/// `runtime.main` included, runs again after the build.
+pub(super) fn load_package_unbuilt(dir: &Path, builds: bool) -> Result<Package, Vec<Problem>> {
     let manifest_file = if dir.join(V1).is_file() {
         V1
     } else if dir.join(V2).is_file() {
@@ -214,6 +227,7 @@ pub(super) fn load_package(dir: &Path) -> Result<Package, Vec<Problem>> {
         .issues
         .iter()
         .filter(|issue| issue.severity == cmux_app_manifest::Severity::Error)
+        .filter(|issue| !(builds && issue.path == "/runtime/main" && issue.code == "path.missing"))
         .map(|issue| Problem {
             file: Some(manifest_file.into()),
             field: Some(if issue.path.is_empty() { "/".into() } else { issue.path.clone() }),
@@ -232,20 +246,15 @@ pub(super) fn load_package(dir: &Path) -> Result<Package, Vec<Problem>> {
         field: Some("/id".into()),
         ..Problem::message(message)
     };
-    // The daemon's local folder only holds `local/` apps (catalog.rs), and
-    // `local/customize` loads only from the customize folder.
-    let Some(name) = id.strip_prefix("local/").map(str::to_string) else {
-        return Err(vec![field(format!(
-            "{id}: an extension in development is a local/ app; use \"local/{}\"",
-            id.split('/').nth(1).unwrap_or("name")
-        ))]);
-    };
+    // The daemon's local folder holds only `local/` apps (catalog.rs), `local/customize` only from
+    // its own folder; a published `OWNER/NAME` (publish.rs) loads as `local/NAME`.
+    let name = super::publish::dev_name(&id, &manifest).map_err(|message| vec![field(message)])?;
     if name == "customize" {
         return Err(vec![field(
             "local/customize is your customize folder (~/.config/cmux/customize), which cmux already reloads on save; pick another name".into(),
         )]);
     }
-    Ok(Package { dir: dir.to_path_buf(), manifest, id, name })
+    Ok(Package { dir: dir.to_path_buf(), manifest, id: format!("local/{name}"), name })
 }
 
 /// How the folder is built.
@@ -262,10 +271,20 @@ pub(super) enum BuildPlan {
 /// The plan for `pkg`: `--build`, else the packer when the main script is
 /// built from `src/main.ts` and `bun` is at `bun`, else nothing.
 pub(super) fn build_plan(pkg: &Package, command: Option<&str>, bun: Option<&Path>) -> BuildPlan {
+    plan_for(&pkg.dir, command, bun)
+}
+
+/// Whether `build_plan` will run a build for the folder `dir`: what lets
+/// the check before it skip the main script the build writes.
+pub(super) fn build_will_run(dir: &Path, command: Option<&str>, bun: Option<&Path>) -> bool {
+    !matches!(plan_for(dir, command, bun), BuildPlan::None { .. })
+}
+
+fn plan_for(dir: &Path, command: Option<&str>, bun: Option<&Path>) -> BuildPlan {
     if let Some(command) = command {
         return BuildPlan::Command(command.to_string());
     }
-    if !pkg.dir.join("src/main.ts").is_file() {
+    if !dir.join("src/main.ts").is_file() {
         return BuildPlan::None { note: None };
     }
     match bun {
@@ -602,6 +621,7 @@ pub(super) fn sync(pkg: &Package, target: &Path) -> Result<bool, Problem> {
     for rel in &files {
         let from = pkg.dir.join(rel);
         let bytes = std::fs::read(&from).map_err(|e| io("cannot read", &from, e))?;
+        let bytes = super::publish::as_loaded(pkg, rel, bytes);
         total += bytes.len() as u64;
         if total > MAX_BYTES {
             return Err(Problem::message(format!("the package is over {} MiB", MAX_BYTES >> 20)));
@@ -802,6 +822,7 @@ pub(super) fn placements(
                     "the whole New Tab page, once you pick it (cmux settings set tabs.newTabApp <id>)"
                         .into()
                 }
+                "cmux.widget/1" => "a widget the person adds from Edit Widgets > Add Widget (New Tab page or sidebar)".into(),
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),
                 "cmux.composer.command/1" => "the agent chat composer's / menu".into(),
                 "cmux.composer.mention/1" => "the agent chat composer's @ completions".into(),
@@ -847,12 +868,48 @@ pub(super) fn web_check(manifest: &Value, record: Option<&Value>) -> Result<Vec<
     Ok(served)
 }
 
+/// The context the load check mounts `interface` with: a widget mounts as a tile of its default
+/// size in the first place it goes (the daemon builds the rest of its context); anything else
+/// renders with no context.
+fn probe_context(manifest: &Value, interface: &str) -> Value {
+    if interface != "cmux.widget/1" {
+        return json!({});
+    }
+    let options = manifest.pointer("/implements/cmux.widget~11/options");
+    let sizes: Vec<&str> = options
+        .and_then(|o| o.get("sizes"))
+        .and_then(Value::as_array)
+        .map(|list| list.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let default = options
+        .and_then(|o| o.get("defaultSize"))
+        .and_then(Value::as_str)
+        .or_else(|| sizes.first().copied())
+        .unwrap_or("small");
+    // The place first (New Tab unless the widget goes only in the sidebar), then a size it takes:
+    // the sidebar holds small and medium.
+    let places = options.and_then(|o| o.get("places")).and_then(Value::as_array);
+    let newtab = places.is_none_or(|list| list.iter().any(|p| p == "newtab"));
+    let (place, size) = if newtab {
+        ("newtab", default)
+    } else if default != "large" {
+        ("sidebar", default)
+    } else {
+        ("sidebar", sizes.iter().copied().find(|s| *s != "large").unwrap_or("small"))
+    };
+    json!({ "place": place, "size": size, "instance": "ext-dev-probe" })
+}
 /// The interface the load check mounts: a view that renders with no context.
 fn probe_interface(manifest: &Value) -> Option<String> {
     let implements = manifest.get("implements")?.as_object()?;
     let has_export = |name: &str| implements.get(name).and_then(|e| e.get("export")).is_some();
-    const PREFERRED: [&str; 4] =
-        ["cmux.section/1", "cmux.pane/1", "cmux.session.info.section/1", "cmux.newtab/1"];
+    const PREFERRED: [&str; 5] = [
+        "cmux.section/1",
+        "cmux.pane/1",
+        "cmux.session.info.section/1",
+        "cmux.newtab/1",
+        "cmux.widget/1",
+    ];
     PREFERRED
         .iter()
         .find(|name| has_export(name))
@@ -1063,7 +1120,10 @@ impl Session {
     pub(super) fn reload(&mut self, probe_unchanged: bool) -> Outcome {
         let mut outcome = Outcome::new(Phase::Manifest);
         self.built_print = None;
-        let pkg = match load_package(&self.dir) {
+        // A fresh clone has no built main script yet: the build makes it, and
+        // the full check below runs after the build.
+        let builds = build_will_run(&self.dir, self.build.as_deref(), self.bun.as_deref());
+        let pkg = match load_package_unbuilt(&self.dir, builds) {
             Ok(pkg) => pkg,
             Err(errors) => return outcome.failed(Phase::Manifest, errors),
         };
@@ -1176,7 +1236,8 @@ impl Session {
         if outcome.changed || probe_unchanged {
             outcome.probe = probe_interface(&pkg.manifest);
             if let Some(interface) = outcome.probe.clone().filter(|_| enabled) {
-                match self.probe(&pkg.id, &interface, !installed) {
+                let base = probe_context(&pkg.manifest, &interface);
+                match self.probe(&pkg.id, &interface, base, !installed) {
                     Ok(Ok(ops)) => outcome.scene = super::scene::outline(&[&ops]),
                     Ok(Err(problem)) => {
                         outcome.logs = self.daemon.take_logs();
@@ -1250,7 +1311,9 @@ impl Session {
     /// know the request still reloads on its watch, waited for as before.
     fn pickup(&mut self, id: &str, target: &Path) -> Result<Result<(), Problem>, Stop> {
         let folder = target.display().to_string();
-        let asked = self.daemon.send(json!({ "cmd": "apps-reload-local" }))?;
+        // It names the folder, so the pass reads only it (an older daemon reads all).
+        let asked =
+            self.daemon.send(json!({ "cmd": "apps-reload-local", "folders": [&folder] }))?;
         self.daemon.wait(Instant::now() + PICKUP_DEADLINE, |value| {
             if value.get("id").and_then(Value::as_str) == Some(asked.as_str()) {
                 if value.field("ok").as_bool() != Some(true) {
@@ -1302,11 +1365,11 @@ impl Session {
         &mut self,
         id: &str,
         interface: &str,
+        mut context: Value,
         preview: bool,
     ) -> Result<Result<Value, Problem>, Stop> {
         self.probes += 1;
         let mount_id = format!("ext-dev-probe-{}-{}", std::process::id(), self.probes);
-        let mut context = json!({});
         if preview {
             context.set("preview", json!(true));
         }
@@ -1327,6 +1390,11 @@ impl Session {
             }
             match value.field("event").as_str()? {
                 "apps-scene" => Some(Ok(value.field("ops").clone())),
+                // A widget whose render throws stays mounted and goes stale (let it crash):
+                // the probe reports its error rather than waiting out the deadline.
+                "apps-widget-health" if value.field("stale").as_bool() == Some(true) => {
+                    Some(Err(load_problem(value.field("reason").as_str().unwrap_or(""))))
+                }
                 "apps-mount-failed" => {
                     Some(Err(load_problem(value.field("reason").as_str().unwrap_or(""))))
                 }
@@ -1455,8 +1523,10 @@ pub(super) fn run_once(global: &GlobalArgs, options: &DevOptions, json_out: bool
 /// The reload behind `run_once` (tests read it directly, with no Ctrl-C
 /// watch: with no signal handler installed it would wake at once).
 pub(super) fn once(global: &GlobalArgs, options: &DevOptions, interrupts: bool) -> Outcome {
-    // A broken manifest or build needs no daemon to report.
-    if let Err(errors) = load_package(&options.dir) {
+    // A broken manifest or build needs no daemon to report. The main script
+    // the build will write is checked after the build (`Session::reload`).
+    let builds = build_will_run(&options.dir, options.build.as_deref(), options.bun.as_deref());
+    if let Err(errors) = load_package_unbuilt(&options.dir, builds) {
         return Outcome::new(Phase::Manifest).failed(Phase::Manifest, errors);
     }
     let (sender, wakes) = channel();
@@ -1467,7 +1537,7 @@ pub(super) fn once(global: &GlobalArgs, options: &DevOptions, interrupts: bool) 
         Ok(daemon) => daemon,
         Err(message) => {
             let mut outcome = Outcome::new(Phase::Daemon);
-            let Ok(pkg) = load_package(&options.dir) else {
+            let Ok(pkg) = load_package_unbuilt(&options.dir, builds) else {
                 return outcome.failed(Phase::Daemon, vec![Problem::message(message)]);
             };
             outcome.app = Some(pkg.id.clone());
