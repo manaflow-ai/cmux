@@ -103,7 +103,30 @@ import Testing
         let exported = try #require(try await reader.exportedHistory(json))
         #expect(exported.format == .chromeTakeout)
         #expect(exported.entries.map(\.visitCount) == [2])
-        #expect(await Self.sent(wire).last?["base64"] as? String == json.base64EncodedString())
+        let sent = await Self.sent(wire)
+        let append = try #require(sent.first { $0["reader"] as? String == "upload.append" })
+        let parse = try #require(sent.first { $0["reader"] as? String == "exported_history.parse" })
+        #expect(append["base64"] as? String == json.base64EncodedString())
+        #expect(parse["base64"] == nil)
+        #expect(parse["path"] as? String == "history.json")
+        #expect(parse["upload"] as? String == append["upload"] as? String)
+        #expect(sent.last?["reader"] as? String == "upload.drop")
+    }
+
+    /// An export's history past the daemon's 4 MiB request limit goes in chunks that each stay under it.
+    @Test func largeExportedHistoryIsSentInChunks() async throws {
+        let wire = Wire { fields in
+            fields["reader"] as? String == "exported_history.parse"
+                ? ["ok": ["format": "safari", "entries": []] as [String: Any]] as [String: Any]
+                : ["ok": NSNull()] as [String: Any]
+        }
+        let json = Data(repeating: UInt8(ascii: " "), count: 5 * ProtectedProfileUpload.chunkBytes / 2)
+        _ = try await Self.reader(wire).exportedHistory(json)
+        let requests = await wire.requests
+        let appends = requests.map(Self.fields).filter { $0["reader"] as? String == "upload.append" }
+        #expect(appends.count == 3)
+        #expect(appends.compactMap { ($0["base64"] as? String).flatMap { Data(base64Encoded: $0) } }.reduce(Data(), +) == json)
+        #expect(requests.allSatisfy { $0.count < 4 << 20 })
     }
 
     @Test func aProtectedProfileIsSentIntoAnUploadNeverCopiedToDisk() async throws {

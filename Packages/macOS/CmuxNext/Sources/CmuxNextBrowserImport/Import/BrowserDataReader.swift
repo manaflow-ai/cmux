@@ -157,9 +157,12 @@ public struct BrowserDataReader: Sendable {
         return text.contains(",") ? .passwords : nil
     }
 
-    /// Exported history in `json`; nil when it is neither format.
+    /// Exported history in `json`; nil when it is neither format. The bytes go in chunks into an
+    /// upload: an export's history (up to ``ExportArchive``'s 64 MiB) is past one request's 4 MiB.
     @concurrent public func exportedHistory(_ json: Data) async throws -> ExportedHistory? {
-        try await call(Request(reader: "exported_history.parse", base64: json), as: ExportedHistory.self)
+        try await protected.bytes(json, as: "history.json", over: transport) {
+            try await call(Request(reader: "exported_history.parse", $0), as: ExportedHistory.self)
+        }
     }
 
     /// The Mac's web search provider (`NSPreferredWebServices`, set by Safari's Search settings);

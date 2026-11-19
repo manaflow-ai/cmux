@@ -59,6 +59,18 @@ public struct ProtectedProfileUpload: Sendable {
         }
     }
 
+    /// `data`, bytes the app already holds, sent into an upload as `name`, held while `body` runs.
+    public func bytes<T>(_ data: Data, as name: String, over transport: BrowserDataReader.Transport,
+                         _ body: (Source) async throws -> T) async throws -> T {
+        try await upload(sending: { id in
+            // Empty bytes are one empty chunk, as an empty file is.
+            for offset in stride(from: 0, to: max(data.count, 1), by: Self.chunkBytes) {
+                let start = data.startIndex + offset
+                try await append(Data(data[start..<min(start + Self.chunkBytes, data.endIndex)]), as: name, to: id, over: transport)
+            }
+        }, over: transport) { try await body(Source(path: name, upload: $0)) }
+    }
+
     /// `profile` itself when it is not protected; else the files the readers open there
     /// (``profileFiles``, the files of ``profileFolders``, each extension's manifest and messages)
     /// sent into an upload, held while `body` runs. The upload's top folder is `.`.
@@ -106,10 +118,18 @@ public struct ProtectedProfileUpload: Sendable {
     /// `body` with its id, and drops it however `body` ends.
     private func upload<T>(from folder: URL, names: [String], over transport: BrowserDataReader.Transport,
                            _ body: (String) async throws -> T) async throws -> T {
+        try await upload(sending: { id in
+            for name in names { try await send(folder.appending(path: name), as: name, to: id, over: transport) }
+        }, over: transport, body)
+    }
+
+    /// A new upload filled by `sending`, then `body` with its id; dropped however either ends.
+    private func upload<T>(sending: (String) async throws -> Void, over transport: BrowserDataReader.Transport,
+                           _ body: (String) async throws -> T) async throws -> T {
         let id = UUID().uuidString
         let dropRequest = try JSONEncoder().encode(Drop(upload: id))
         do {
-            for name in names { try await send(folder.appending(path: name), as: name, to: id, over: transport) }
+            try await sending(id)
             let result = try await body(id)
             _ = try? await transport(dropRequest)
             return result
@@ -129,10 +149,15 @@ public struct ProtectedProfileUpload: Sendable {
         let size = (attributes?[.size] as? NSNumber)?.intValue ?? 0
         for _ in stride(from: 0, to: max(size, 1), by: Self.chunkBytes) {
             let chunk = try handle.read(upToCount: Self.chunkBytes) ?? Data()
-            let reply = try await transport(try JSONEncoder().encode(Append(upload: id, name: name, base64: chunk)))
-            if let error = try JSONDecoder().decode(Reply.self, from: reply).error { throw error }
+            try await append(chunk, as: name, to: id, over: transport)
             if chunk.count < Self.chunkBytes { return }
         }
+    }
+
+    /// One `upload.append`; a daemon error throws.
+    private func append(_ chunk: Data, as name: String, to id: String, over transport: BrowserDataReader.Transport) async throws {
+        let reply = try await transport(try JSONEncoder().encode(Append(upload: id, name: name, base64: chunk)))
+        if let error = try JSONDecoder().decode(Reply.self, from: reply).error { throw error }
     }
 }
 
