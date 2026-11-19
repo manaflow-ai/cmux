@@ -8,6 +8,8 @@ process kind and sample, which `ingest` reads from the step log:
   PERF-IDLE app <sample> workspaces=N kind=K n=.. cpu_pct=.. wakeups_per_s=.. rss_mb=.. footprint_mb=..
   PERF-IDLE app-agents <sample> agents=N kind=K ...                (agents=: N idle agent chats)
   PERF-IDLE daemon N=.. role=R n=.. cpu_pct=.. wakeups_per_s=.. rss_each_mb=.. footprint_each_mb=.. threads=..
+  PERF-IDLE-PAGES <axis> <sample> items=N frames={vis:{pages,frames_per_s,..}} renderer_cpu_pct=.. renderer_priorities={..}
+  PERF-IDLE-PAGES <axis> show_latency=[{page,first_frame_ms},..]   (axes=pages: hidden and visible Chromium pages)
 
 Rows (better = lower):
   scope=app|agents, labels sample (idle-launch, idle-N, purged-N, released-N), count, kind (bench_memory.py's
@@ -15,6 +17,10 @@ Rows (better = lower):
   cpu (%), wakeups (per_s), footprint (MB), rss (MB), processes (count).
   scope=daemon, labels count, role (daemon, hosts, shells): cpu (%), wakeups (per_s), footprint_each (MB),
   rss_each (MB), processes (count), threads (count).
+  scope=pages, labels axis (page-hidden, page-visible), sample, count: frames (per_s, labels visibility: the
+  animation frames the pages got; hidden pages should get 0), renderer_cpu (%), renderers (count, labels
+  priority: the renderers at each base priority); show_latency (ms, samples: a hidden page shown again, request
+  to its first frame).
 
 The app is built at the commit under test (--build SHA, or a NIGHTLY's source commit), a tagged build of the
 same source rather than the signed NIGHTLY binary; the NIGHTLY's own idle numbers come from xbench's cmux-budget
@@ -23,6 +29,7 @@ rows. Default args: counts=1,10 measure=60 (about 25 minutes with the build). Ha
 """
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -37,6 +44,7 @@ FIELD = re.compile(r"(\w+)=(\S+)")
 APP_LINE = re.compile(r"^PERF-IDLE (app|app-agents) (\S+) (.*)$")
 DAEMON_LINE = re.compile(r"^PERF-IDLE daemon (.*)$")
 MACHINE_LINE = re.compile(r"^PERF-IDLE-MACHINE (.*)$")
+PAGES_LINE = re.compile(r"^PERF-IDLE-PAGES (\S+) (\S+)(?: (.*))?$")
 
 
 def _num(fields: dict[str, str], key: str) -> float | None:
@@ -115,6 +123,9 @@ class Idle(Bench):
                     tot[metric] = tot.get(metric, 0.0) + v
                 found += 1
                 continue
+            if m := PAGES_LINE.match(line):
+                found += self.ingest_pages(ctx, m.group(1), m.group(2), m.group(3) or "")
+                continue
             if m := DAEMON_LINE.match(line):
                 f = dict(FIELD.findall(m.group(1)))
                 labels = {"scope": "daemon", "count": f.get("N", "?"), "role": f.get("role", "?")}
@@ -132,6 +143,38 @@ class Idle(Bench):
         for (scope, sample, count), tot in totals.items():
             for metric, v in tot.items():
                 ctx.row(metric, v, units[metric], labels={"scope": scope, "sample": sample, "count": count, "kind": "total"})
+
+    @staticmethod
+    def ingest_pages(ctx: Context, axis: str, sample: str, rest: str) -> int:
+        """Rows of one PERF-IDLE-PAGES line (idle_axes_report.py page_lines); 1 when it gave any."""
+        if sample.startswith("show_latency="):
+            try:
+                shows = json.loads(sample.split("=", 1)[1])
+            except ValueError:
+                return 0
+            got = [s["first_frame_ms"] for s in shows if isinstance(s.get("first_frame_ms"), (int, float))]
+            if got:
+                ctx.row("show_latency", max(got), "ms", samples=got, labels={"scope": "pages", "axis": axis})
+            return 1 if got else 0
+        f = dict(FIELD.findall(rest))
+        base = {"scope": "pages", "axis": axis, "sample": sample, "count": f.get("items", "?")}
+        rows = 0
+        try:
+            frames = json.loads(f.get("frames") or "null") or {}
+            priorities = json.loads(f.get("renderer_priorities") or "null") or {}
+        except ValueError:
+            frames, priorities = {}, {}
+        for visibility, entry in frames.items():
+            if isinstance(entry.get("frames_per_s"), (int, float)):
+                ctx.row("frames", entry["frames_per_s"], "per_s", labels={**base, "visibility": visibility})
+                rows += 1
+        if (v := _num(f, "renderer_cpu_pct")) is not None:
+            ctx.row("renderer_cpu", v, "%", labels=base)
+            rows += 1
+        for priority, band in priorities.items():
+            ctx.row("renderers", band.get("n", 0), "count", better="none", labels={**base, "priority": priority})
+            rows += 1
+        return 1 if rows else 0
 
 
 BENCH = Idle()

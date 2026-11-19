@@ -143,7 +143,7 @@
   border-radius: var(--acpmux-attach-radius);
   /* A neutral backing under the image, so a transparent one still shows its content as a
      thumbnail; a checker read as an image that failed to draw. */
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-surface-inset);
   /* The edge draws over the image (an outline paints above it) in the text's color, so a
      screenshot as dark or light as the composer still shows where it ends (Leo, 2026-10-13 and
      -14: dark ones looked missing behind a hairline of the border color). */
@@ -176,7 +176,7 @@
   width: 100%;
   height: var(--acpmux-attach-height);
   border-radius: var(--acpmux-attach-radius);
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-surface-inset);
   outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: -1px;
 }
@@ -373,7 +373,7 @@
   padding: 0;
   border: 0;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--agent-text);
   text-decoration: none;
   cursor: default;
@@ -679,7 +679,7 @@
   text-align: start;
 }
 button.acpmux-attachment-pasted-open:hover {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-color-hover);
 }
 .acpmux-attachment-pasted-open:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -778,7 +778,7 @@ button.acpmux-attachment-pasted-open:hover {
   width: 32px;
   height: 32px;
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--agent-muted);
 }
 .acpmux-paste-chip__body {
@@ -1006,7 +1006,7 @@ button.acpmux-attachment-pasted-open:hover {
   white-space: nowrap;
 }
 .acpmux-chip-collapse:hover {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-color-hover);
   color: var(--agent-text);
 }
 .acpmux-chip-collapse:focus-visible {
