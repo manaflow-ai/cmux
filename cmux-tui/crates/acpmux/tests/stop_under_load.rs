@@ -13,7 +13,8 @@
 //! -32800, counted apart), and whether each home's first agent streamed before its stop. Each
 //! daemon runs with `ACPMUX_STOP_TIMELINE=1` and its stderr in a file of the scratch folder: its
 //! `STOP-TIMELINE` line (`daemon/stop_timeline.rs`) gives each phase's end in ms since the stop
-//! began, and `marksMs` their p50 and p95 for each home (`noTimeline`: runs without the line).
+//! began, and a `STOP-MARK` line for each gives its p50 and p95 for each home (`noTimeline`: runs
+//! without the line; `total` is the timeline's own end).
 //!
 //! Every stop must take under a second, and the god home's p95 at most 1.2 times the small one's
 //! plus [`FLOOR_MS`] (hq `docs/handbook/perf-regresses-on-degenerate-sessions.md`).
@@ -277,7 +278,10 @@ fn timeline(text: &str) -> Option<Vec<(String, f64)>> {
     let line = text.lines().find_map(|line| line.strip_prefix("STOP-TIMELINE "))?;
     let v: Value = serde_json::from_str(line).ok()?;
     let marks = v["marks"].as_array()?;
-    Some(marks.iter().filter_map(|m| Some((m[0].as_str()?.to_string(), m[1].as_f64()?))).collect())
+    let mut marks: Vec<(String, f64)> =
+        marks.iter().filter_map(|m| Some((m[0].as_str()?.to_string(), m[1].as_f64()?))).collect();
+    marks.extend(v["totalMs"].as_f64().map(|ms| ("total".to_string(), ms)));
+    Some(marks)
 }
 
 /// What one home's runs gave.
@@ -352,7 +356,7 @@ fn run(scratch: &Path, home: &Path, god: &str, stops: &mut Stops) {
 }
 
 /// For each mark name, in first-seen order, the p50 and p95 of its ms across the runs: the
-/// object for `marksMs`, and the names by p50 for `markOrder`.
+/// object the `STOP-MARK` lines read, and the names by p50, their order.
 fn marks_ms(runs: &[Vec<(String, f64)>]) -> (Value, Vec<String>) {
     let mut names: Vec<String> = Vec::new();
     for marks in runs {
@@ -418,9 +422,13 @@ fn a_stop_under_load_takes_under_a_second_whatever_the_home() {
             "inFlight": stops.in_flight, "answered": stops.answered,
             "cancelAnswers": stops.cancels, "streamedRuns": stops.streamed,
             "failedExits": stops.failed,
-            "marksMs": marks, "markOrder": order, "noTimeline": stops.no_timeline,
+            "noTimeline": stops.no_timeline,
         });
         eprintln!("STOP-UNDER-LOAD {line}");
+        // A line for each mark, by p50: a CI log keeps only the head of a long line.
+        for name in &order {
+            eprintln!("STOP-MARK {} {name} {}", shape.name, marks[name.as_str()]);
+        }
         p95s.push(p95);
         if max >= STOP_MS || stops.failed > 0 {
             slow.push(line);
