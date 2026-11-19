@@ -27,6 +27,12 @@ pub trait FrameSource: Send {
     fn set_bitrate(&mut self, kbps: u32);
     fn kbps(&self) -> u32;
     fn encoder_name(&self) -> String;
+    /// The picture the next [`FrameSource::encode`] makes, from the engine's resolution ladder
+    /// (design D5): its size (the source scales the stream down to it) and QP ceiling. Set
+    /// before each capture; `None` (no ladder): the full stream, no ceiling. The default
+    /// ignores it and encodes the full stream (the Linux and Windows sources today; the macOS
+    /// source scales on the GPU).
+    fn set_picture(&mut self, _picture: Option<cmux_rd_core::resolution::Picture>) {}
 }
 
 /// Both halves of one opened desktop.

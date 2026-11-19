@@ -17,6 +17,7 @@ use cmux_rd_core::cc::PathKind;
 use cmux_rd_core::flow::Rect;
 use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
+use cmux_rd_core::resolution::{LadderConfig, Picture};
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
 use cmux_rd_proto::{DatagramHeader, DatagramKind};
@@ -56,6 +57,12 @@ pub struct SessionCfg {
     /// After injected input, frames skip the frame-rate cap for a short window
     /// (`--input-frame-now 1`; the engine's `input_frame_now`).
     pub input_frame_now: bool,
+    /// The resolution ladder (design D5, `--resolution-ladder 1`; off by default): below the
+    /// bits-per-pixel floor the encoded picture gets smaller, not blurrier.
+    pub resolution_ladder: bool,
+    /// The ladder's QP ceiling (`--max-qp N`, default
+    /// `cmux_rd_core::resolution::DEFAULT_MAX_QP`); unused without the ladder.
+    pub max_qp: u8,
     /// macOS: stream at most this many pixels wide (`--max-width`; the display's aspect is
     /// kept). Encode time grows with the pixel count (remote-desktop-mac-host.md section 6).
     #[cfg_attr(target_os = "linux", allow(dead_code))]
@@ -144,8 +151,9 @@ impl Timing {
         encoded_us: u64,
         encoded_bytes: usize,
         idr_reason: Option<&'static str>,
+        picture: Option<Picture>,
     ) -> serde_json::Value {
-        serde_json::json!({
+        let mut line = serde_json::json!({
             "input_us": self.input_us.take(),
             "shown_us": shown.map(|t| t.0),
             "arrived_us": shown.map(|t| t.1),
@@ -155,7 +163,15 @@ impl Timing {
             "encoded_bytes": encoded_bytes,
             "idr": idr_reason.is_some(),
             "idr_reason": idr_reason,
-        })
+        });
+        // With a resolution ladder: the picture this frame was encoded at.
+        if let (Some(p), Some(fields)) = (picture, line.as_object_mut()) {
+            fields.insert("width".into(), p.width.into());
+            fields.insert("height".into(), p.height.into());
+            fields.insert("eighths".into(), p.eighths.into());
+            fields.insert("max_qp".into(), p.max_qp.into());
+        }
+        line
     }
 
     /// Writes a frame's line once its last datagram was handed to the carrier at `sent_us`.
@@ -266,6 +282,9 @@ impl MediaSession {
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
                 input_frame_now: cfg.input_frame_now,
+                resolution_ladder: cfg
+                    .resolution_ladder
+                    .then(|| LadderConfig { max_qp: Some(cfg.max_qp), ..LadderConfig::default() }),
                 ..EngineConfig::default()
             },
             now_us(),
@@ -518,7 +537,7 @@ impl MediaSession {
         }
         let line = match (self.timing.as_mut(), logged) {
             (Some(timing), Some((shown, t_capture_us, encoded_us, len, idr))) => {
-                Some(timing.frame(shown, t_capture_us, encoded_us, len, idr))
+                Some(timing.frame(shown, t_capture_us, encoded_us, len, idr, req.picture))
             }
             _ => None,
         };
@@ -889,6 +908,8 @@ mod encode_off_loop_tests {
             upstream_record_max_bytes: 0,
             frames_in_flight: 2,
             input_frame_now: false,
+            resolution_ladder: false,
+            max_qp: cmux_rd_core::resolution::DEFAULT_MAX_QP,
             max_width: None,
             capture: crate::capture_backend::CaptureBackend::default(),
         }
