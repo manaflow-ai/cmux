@@ -6,7 +6,9 @@
 //! - An agent chat (`CMUX_AGENT_SESSION`) or a Chief turn
 //!   (`CMUX_CALLER_HOME_CHAT=1`): beside its chat. The app's `beside` answer
 //!   (`system.identify`) names the column right of the chat; a tab goes
-//!   there, and with no such column a split right of the chat makes it.
+//!   there, and with no pane there a new one is made directly right of the
+//!   chat: a split of its pane, or for a docked chat (which cannot split) a
+//!   strip column that shares the window.
 //!   Within that column a tab goes to the pane that already holds one of its
 //!   kind; a lone pane of another kind (a browser for a terminal) gets a
 //!   split below it, the column's lower pane; two or more panes, the lowest.
@@ -65,8 +67,18 @@ pub(super) enum Placement {
     /// The column right of the chat is one pane of another kind: a new pane
     /// split below it, in that column.
     SplitBelow { workspace: String, pane: String },
-    /// No column yet: split right of the chat's pane as a new column.
+    /// No pane right of a docked chat (Home's, an agent chat's dock), which
+    /// cannot split: a new strip column right of it that shares the window.
+    /// Also for an app that does not say whether the caller is docked
+    /// (`caller.docked`), as before.
     NewColumn { workspace: String, chat_pane: String },
+    /// No pane right of a caller that is not docked: a new pane split off
+    /// the right of the caller's own pane, directly beside it, as the app
+    /// makes one. A strip column goes after the caller's whole column: with
+    /// another pane split off the caller's right (another agent's home), the
+    /// column landed past that pane, the right-of relation never found it,
+    /// and every creation made one more column.
+    SplitRight { workspace: String, pane: String },
     /// A browser from a plain terminal, whose right side the app does not
     /// report (`own_pane`): the panes right of `pane`, by the same-kind
     /// rule, else a new pane right of it. The transport reads those panes
@@ -106,7 +118,8 @@ pub(super) fn placement(identity: &Value) -> Option<Placement> {
 
 /// [`placement`] for a new tab of `kind`: in the panes right of the caller
 /// (`beside.panes`, top to bottom, with the kinds each holds), the same-kind
-/// rule ([`same_kind`]); with none there, a new column right of the caller.
+/// rule ([`same_kind`]); with none there, a new pane right of the caller
+/// ([`new_pane_right`]).
 fn same_kind_placement(identity: &Value, kind: Kind) -> Option<Placement> {
     let caller = identity.get("caller")?;
     if caller.get("found").and_then(Value::as_bool) == Some(false) {
@@ -136,8 +149,20 @@ fn same_kind_placement(identity: &Value, kind: Kind) -> Option<Placement> {
             .unwrap_or_default();
         return Some(same_kind(workspace, pane, &column));
     }
-    let chat_pane = caller.get("pane").and_then(Value::as_str)?.to_owned();
-    Some(Placement::NewColumn { workspace, chat_pane })
+    let pane = caller.get("pane").and_then(Value::as_str)?.to_owned();
+    Some(new_pane_right(caller, workspace, pane))
+}
+
+/// The new pane right of `caller` (the app's `caller`), whose pane is
+/// `pane`: a plain split of that pane when the app says the caller is not
+/// docked (`docked: false`), else a strip column that shares the window (a
+/// dock cannot split; an older app does not say).
+fn new_pane_right(caller: &Value, workspace: String, pane: String) -> Placement {
+    if caller.get("docked").and_then(Value::as_bool) == Some(false) {
+        Placement::SplitRight { workspace, pane }
+    } else {
+        Placement::NewColumn { workspace, chat_pane: pane }
+    }
 }
 
 /// The same-kind rule for a new tab in the panes right of the caller
@@ -230,7 +255,7 @@ fn right_of_own_pane(identity: &Value) -> Option<Placement> {
 
 /// The placement `identity` gives a new tab of `kind` whose pane this CLI
 /// makes itself when there is none (a terminal, a profile browser tab): the
-/// same-kind rule in the panes right of the caller, else a new column. A
+/// same-kind rule in the panes right of the caller, else a new pane there. A
 /// browser from a plain terminal (`own_pane`) goes right of the terminal
 /// too ([`Placement::RightOf`]); a terminal from a plain terminal is a tab
 /// in its own pane.
@@ -354,9 +379,14 @@ const COLUMN_WALK: usize = 6;
 /// [`Placement::RightOf`] made concrete with reads of the daemon (`read`:
 /// one read of the session of `create`, `None` when it fails): the panes
 /// right of the caller's `pane` are its right neighbor and the panes above
-/// and below that one. One of them is an agent's home ([`holds_agent`]):
-/// a new pane right of the caller, as the app does. Else the same-kind rule
-/// for a browser ([`same_kind`]). Nothing on the right: a new pane there.
+/// and below that one whose own left neighbor is the caller's pane. A pane
+/// below both (a full-width pane under the caller and its neighbor) or one
+/// diagonal to the caller (the lower pane of the next column, beside the
+/// pane under the caller) is not right of the caller and is never counted.
+/// One of them is an agent's home ([`holds_agent`]): a new pane right of the
+/// caller, as the app does. Else the same-kind rule for a browser
+/// ([`same_kind`]). Nothing on the right: a new pane there. The caller is a
+/// terminal, never a dock, so the new pane is a split of its own pane.
 pub(super) fn right_of(
     create: &Map<String, Value>,
     workspace: String,
@@ -368,7 +398,7 @@ pub(super) fn right_of(
             .and_then(|answer| neighbor_pane(&answer))
     };
     let Some(right) = neighbor(&pane, "right") else {
-        return Placement::NewColumn { workspace, chat_pane: pane };
+        return Placement::SplitRight { workspace, pane };
     };
     let mut column = vec![right.clone()];
     for direction in ["up", "down"] {
@@ -379,6 +409,10 @@ pub(super) fn right_of(
             else {
                 break;
             };
+            // Right of the caller: it touches the caller's right edge.
+            if neighbor(&next, "left").as_deref() != Some(pane.as_str()) {
+                break;
+            }
             if direction == "up" {
                 column.insert(0, next.clone());
             } else {
@@ -394,7 +428,7 @@ pub(super) fn right_of(
         tabs.insert("pane".into(), json!(id));
         let tabs = read(ResourceOperation::TabList, tabs).unwrap_or(Value::Null);
         if holds_agent(&tabs, &agents) {
-            return Placement::NewColumn { workspace, chat_pane: pane };
+            return Placement::SplitRight { workspace, pane };
         }
         let browser = rows(&tabs).iter().any(|tab| {
             tab.get("content_kind").and_then(Value::as_str) == Some(Kind::Browser.word())
@@ -579,18 +613,29 @@ pub(super) fn workspace_of_key(workspaces: &Value, key: &str) -> Option<String> 
 }
 
 /// The `pane.split` params that open the terminal a `tab.create_terminal`
-/// asked for as a new column right of `chat_pane`: its command, directory
-/// and size carry over; `name` does not (a split has none), so the caller
-/// renames the new tab after.
+/// asked for as a new column right of `chat_pane` ([`Placement::NewColumn`]):
+/// its command, directory and size carry over; `name` does not (a split has
+/// none), so the caller renames the new tab after.
 pub(super) fn split_params(
     create: &Map<String, Value>,
     workspace: &str,
     chat_pane: &str,
 ) -> Map<String, Value> {
-    let mut split = split_below_params(create, workspace, chat_pane);
-    split.insert("direction".into(), json!("right"));
+    let mut split = split_right_params(create, workspace, chat_pane);
     // A column that shares the window with the chat, never one wider than it.
     split.insert("fit".into(), json!(true));
+    split
+}
+
+/// [`split_params`] for [`Placement::SplitRight`]: a new pane split off the
+/// right of `pane`, directly beside it (no strip column, so no `fit`).
+pub(super) fn split_right_params(
+    create: &Map<String, Value>,
+    workspace: &str,
+    pane: &str,
+) -> Map<String, Value> {
+    let mut split = split_below_params(create, workspace, pane);
+    split.insert("direction".into(), json!("right"));
     split
 }
 

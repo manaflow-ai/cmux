@@ -93,15 +93,17 @@ cmux --json tab create browser --url https://example.com
 The result carries the new tab's `tab_…` id. With no place flag the tab opens
 in your own workspace, and the app places it. "Right of you" means the panes
 that touch the right edge of your pane and overlap it in height, in a split or
-the next column. From an agent chat: in those panes by the same-kind rule (a
-tab in the lowest pane that already holds a browser; else a split below a lone
-pane of another kind; else a tab in the lowest pane), else a new column right
-of the chat. From a cmux terminal (an agent's or a plain shell), on screen the
-app's rule and the person's link placement setting decide: by default the
-panes right of the terminal, else a new pane right of it. When no window shows
-the terminal's workspace, the pane directly right of the terminal is used by
-the same-kind rule (never another agent's pane), else a new pane right of it,
-whatever that setting says; the terminal stays the shown tab of its pane.
+the next column. The same-kind rule places the tab: a tab in the lowest pane
+there that already holds a browser; else a split below a lone pane of another
+kind; else, with two or more panes there and none that holds a browser, a tab
+in the lowest pane. Another agent's pane never takes the tab. With no pane
+there, a new pane is made: a plain split right of your pane (a docked chat
+gets a column that shares the window). From an agent chat that rule always
+applies. From a cmux terminal (an agent's or a plain shell), on screen the
+person's link placement setting also applies (by default the rule above).
+When no window shows the terminal's workspace, the rule applies to the pane
+directly right of the terminal, whatever that setting says; the terminal
+stays the shown tab of its pane.
 `cmux browser open URL` is the same command, and `cmux open URL` lands in the
 same place.
 Add `--workspace S --screen S --pane S` only when the person names another
@@ -126,9 +128,11 @@ window-scoped actions that give you nothing to name are refused for an agent
 `space next|previous|select-1-9`, `action home-stop-all-agents`,
 `app close-window`, `app close-other-windows`. Stopping the Chief
 (`cmux chief stop`) is refused by the CLI itself (`origin.forbidden`). A
-tab-group action with no target acts on your own tab's group; `history open`
-and `screen-group reopen-saved` act at your own pane and workspace. Check an
-action's arguments with
+tab-group action with no target acts on your own tab's group.
+`screen-group reopen-saved` acts at your own workspace only when a window
+shows that workspace; off screen it is refused. `history open` goes beside you
+for a page entry; the other entry kinds (location, closed, agent, command)
+still act on the front window. Check an action's arguments with
 `cmux action describe "tab new-browser"` before use.
 
 ## Find an existing browser tab without changing focus
@@ -275,10 +279,8 @@ cmux --json tab "$TAB" show                              # extra.browser_profile
 
 `open` takes an http or https URL. Without `--engine webkit|cef` the tab opens
 in the person's default engine setting; `--pane <pane_…>` picks the pane. With
-no `--pane` the tab opens in your own workspace by the same-kind rule: in the
-panes right of your chat or terminal (a tab in the lowest pane that holds a
-browser; else a split below a lone pane of another kind; else the lowest
-pane; never another agent's pane), else a new pane right of you. It differs
+no `--pane` the tab opens in your own workspace, right of your chat or
+terminal, by the same-kind rule that `browser open` uses (above). It differs
 from `browser open` in one way: it does not read the person's link placement
 setting. `--background true` keeps the pane's selected tab.
 

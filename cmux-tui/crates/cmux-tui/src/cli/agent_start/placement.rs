@@ -75,8 +75,10 @@ impl ChatPlace {
             beside::Placement::Pane { pane, .. } => (pane, Placement::Tab),
             beside::Placement::NewColumn { chat_pane, .. } => (chat_pane, Placement::Column),
             beside::Placement::SplitBelow { pane, .. } => (pane, Placement::Split("down".into())),
-            // Only a browser gets this; a new terminal never does.
-            beside::Placement::RightOf { pane, .. } => (pane, Placement::Split("right".into())),
+            // A chat that is not docked: a split of its own pane, directly
+            // right of it (`RightOf` is a browser's alone and never comes here).
+            beside::Placement::SplitRight { pane, .. }
+            | beside::Placement::RightOf { pane, .. } => (pane, Placement::Split("right".into())),
         };
         let pane = identity.pointer("/caller/pane").and_then(Value::as_str).map(str::to_owned);
         Some(Self { pane, beside })

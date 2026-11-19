@@ -156,6 +156,11 @@ impl<B: Backend> Server<B> {
                     let split = beside::correlated(split, correlation.as_deref());
                     return Err(self.split_for(tool, &unplaced, &workspace, split));
                 }
+                Some(Placement::SplitRight { workspace, pane }) => {
+                    let split = beside::split_right_params(&unplaced, &workspace, &pane);
+                    let split = beside::correlated(split, correlation.as_deref());
+                    return Err(self.split_for(tool, &unplaced, &workspace, split));
+                }
                 Some(Placement::SplitBelow { workspace, pane }) => {
                     let split = beside::split_below_params(&unplaced, &workspace, &pane);
                     let split = beside::correlated(split, correlation.as_deref());

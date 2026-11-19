@@ -18,7 +18,7 @@ use serde_json::{Map, Value, json};
 use super::{
     Caller, Earlier, Kind, Placement, app_placement, app_places_terminals, browser_placement,
     correlated, correlation_key, creation_lookup_params, earlier_creation, names_no_place,
-    rename_params, right_of, split_below_params, split_params,
+    rename_params, right_of, split_below_params, split_params, split_right_params,
 };
 use crate::cli::GlobalArgs;
 use crate::cli::command::{RequestPlan, WireOperation};
@@ -157,6 +157,10 @@ fn apply(
         }
         (None, Some(Placement::NewColumn { workspace, chat_pane })) => {
             let split = split_params(params, &workspace, &chat_pane);
+            split_for(&mut sender, plan, kind, correlated(split, correlation.as_deref()))
+        }
+        (None, Some(Placement::SplitRight { workspace, pane })) => {
+            let split = split_right_params(params, &workspace, &pane);
             split_for(&mut sender, plan, kind, correlated(split, correlation.as_deref()))
         }
         (None, Some(Placement::SplitBelow { workspace, pane })) => {
