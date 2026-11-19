@@ -100,6 +100,8 @@ await requireBrowserLane("composer-buttons-bottom.test.ts", async () => {
     page.waitForFunction(() => document.querySelector(".acpmux-md-field")!.getAnimations().length === 0);
 
   /** Every frame's controls stand where `rest`'s do on screen, and as far off the box's bottom. */
+  /** How many of `all` moved a control off `rest`'s place, and the most it moved (px). Each case is
+   *  measured before any is judged, so a red run reports every case's numbers. */
   function still(label: string, rest: Frame, all: Frame[]) {
     expect(all.length).toBeGreaterThan(0);
     let worst = 0;
@@ -121,8 +123,11 @@ await requireBrowserLane("composer-buttons-bottom.test.ts", async () => {
     console.log(
       `composer-buttons-bottom ${label}: ${moved}/${all.length} frames moved a control, at most ${worst.toFixed(1)}px`,
     );
-    expect({ label, moved, worst: Math.round(worst) }).toEqual({ label, moved: 0, worst: 0 });
+    return { label, moved, worst: Math.round(worst) };
   }
+  type Result = ReturnType<typeof still>;
+  const allStill = (results: Result[]) =>
+    expect(results).toEqual(results.map((result) => ({ ...result, moved: 0, worst: 0 })));
 
   const paste = (page: Page, text?: string) =>
     page.evaluate(
@@ -174,48 +179,63 @@ await requireBrowserLane("composer-buttons-bottom.test.ts", async () => {
             const grown = await frames(page);
             // The box did grow: the test measured a growing composer.
             expect(grown.at(-1)!.box.top).toBeLessThan(rest.box.top - 100);
-            still(`${look} w${width} grow`, rest, grown);
+            allStill([still(`${look} w${width} grow`, rest, grown)]);
           } finally {
             await page.close();
           }
         });
 
-        test("the controls keep the box's bottom while an image preview comes and goes, and a pasted text chip comes", async () => {
-          const page = await newChat(width, look);
-          try {
-            const rest = await restFrame(page);
-            await page.screenshot({ path: path.join(out, `${look}-w${width}-empty.png`) });
-            await record(page);
-            await paste(page);
-            await page.waitForFunction(() => {
-              const box = document.querySelector(".acpmux-composer-box")!;
-              const img = box.querySelector<HTMLImageElement>(".acpmux-attachment-image img");
-              return !box.querySelector('[aria-busy="true"]') && !!img?.complete && img.naturalWidth > 0;
-            });
-            await settle(page);
-            const coming = await frames(page);
-            expect(coming.some((frame) => frame.tile)).toBe(true);
-            await page.screenshot({ path: path.join(out, `${look}-w${width}-with-preview.png`) });
-            still(`${look} w${width} preview in`, rest, coming);
-            // Once drawn, the preview never moves until it goes.
-            const shown = coming.filter((frame) => frame.tile);
-            const last = shown.at(-1)!;
-            for (const frame of shown) {
-              expect(Math.abs(frame.tile!.top - last.tile!.top)).toBeLessThan(0.5);
-              expect(Math.abs(frame.tile!.bottom - last.tile!.bottom)).toBeLessThan(0.5);
+        for (const view of ["inline", "strip"] as const)
+          test(`${view} view: the controls keep the box's bottom while an image preview comes and goes, and a pasted text chip comes`, async () => {
+            const page = await newChat(width, look);
+            const tag = `${look}-w${width}-${view}`;
+            try {
+              if (view === "strip") await page.evaluate(() => window.cmuxAcpmuxComposer?.({ attachmentView: "strip" }));
+              const rest = await restFrame(page);
+              await page.screenshot({ path: path.join(out, `${tag}-empty.png`) });
+              const results: Result[] = [];
+              await record(page);
+              await paste(page);
+              await page.waitForFunction(() => {
+                const box = document.querySelector(".acpmux-composer-box")!;
+                const img = box.querySelector<HTMLImageElement>(".acpmux-attachment-image img");
+                return !box.querySelector('[aria-busy="true"]') && !!img?.complete && img.naturalWidth > 0;
+              });
+              await settle(page);
+              const coming = await frames(page);
+              expect(coming.some((frame) => frame.tile)).toBe(true);
+              await page.screenshot({ path: path.join(out, `${tag}-with-preview.png`) });
+              results.push(still(`${tag} preview in`, rest, coming));
+              // Once drawn, the preview itself never moves on screen until it goes.
+              const shown = coming.filter((frame) => frame.tile);
+              const last = shown.at(-1)!.tile!;
+              const off = shown.map((frame) =>
+                Math.max(Math.abs(frame.tile!.top - last.top), Math.abs(frame.tile!.bottom - last.bottom)),
+              );
+              const tile = {
+                label: `${tag} preview tile`,
+                moved: off.filter((each) => each > 0.5).length,
+                worst: Math.round(Math.max(...off)),
+              };
+              console.log(
+                `composer-buttons-bottom ${tile.label}: ${tile.moved}/${shown.length} frames moved it, at most ${tile.worst}px`,
+              );
+              results.push(tile);
+              await record(page);
+              await page.keyboard.press("Backspace");
+              await page.waitForFunction(
+                () => !document.querySelector(".acpmux-composer-box :is(.acpmux-md-inline-chip, .acpmux-attachments)"),
+              );
+              await settle(page);
+              results.push(still(`${tag} preview out`, rest, await frames(page)));
+              await record(page);
+              await paste(page, Array.from({ length: 80 }, (_, i) => `pasted line ${i}`).join("\n"));
+              await settle(page);
+              results.push(still(`${tag} pasted text`, rest, await frames(page)));
+              allStill(results);
+            } finally {
+              await page.close();
             }
-            await record(page);
-            await page.keyboard.press("Backspace");
-            await page.waitForFunction(() => !document.querySelector(".acpmux-composer-box .acpmux-md-inline-chip"));
-            await settle(page);
-            still(`${look} w${width} preview out`, rest, await frames(page));
-            await record(page);
-            await paste(page, Array.from({ length: 80 }, (_, i) => `pasted line ${i}`).join("\n"));
-            await settle(page);
-            still(`${look} w${width} pasted text`, rest, await frames(page));
-          } finally {
-            await page.close();
-          }
-        });
+          });
       });
 });
