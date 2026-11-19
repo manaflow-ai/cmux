@@ -125,8 +125,11 @@ def main() -> int:
     arms = [a for a in args.arms.split(",") if a]
     apps = {arm: args.app for arm in arms}
     if args.base_sha:
-        apps["base"] = build_base(args.base_sha, args.out)
-        arms.append("base")
+        try:
+            apps["base"] = build_base(args.base_sha, args.out)
+            arms.append("base")
+        except SystemExit as error:  # the head's arms still measure; the base arm is reported as missing
+            print(f"IDLE-ATTN-FAIL arm=base {error}", flush=True)
     host = {"host": platform.node(), "macos": platform.mac_ver()[0],
             "model": subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip(),
             "chip": subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True).stdout.strip(),
