@@ -231,10 +231,10 @@ extension AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.appearance.toolbarButtonStyle", "Top Right Buttons"),
                 help: SettingsText.keyed("settings.appearance.toolbarButtonStyle.help", "How a pane's buttons draw: today's, plain glyphs, a grouped pill, or glass."),
                 kind: .choice([
-                    SettingChoice(ToolbarButtonStyle.standard.rawValue, SettingsText.keyed("settings.choice.toolbarButtonStyle.standard", "Standard")),
+                    SettingChoice(ToolbarButtonStyle.standard.rawValue, SettingsText.keyed("settings.choice.standard", "Standard")),
                     SettingChoice(ToolbarButtonStyle.plain.rawValue, SettingsText.keyed("settings.choice.toolbarButtonStyle.plain", "Plain")),
                     SettingChoice(ToolbarButtonStyle.grouped.rawValue, SettingsText.keyed("settings.choice.toolbarButtonStyle.grouped", "Grouped")),
-                    SettingChoice(ToolbarButtonStyle.glass.rawValue, SettingsText.keyed("settings.choice.toolbarButtonStyle.glass", "Glass")),
+                    SettingChoice(ToolbarButtonStyle.glass.rawValue, SettingsText.keyed("settings.choice.glass", "Glass")),
                 ]),
                 default: .string(ToolbarButtonStyleSetting.fallback.rawValue),
                 keywords: ["toolbar", "buttons", "top right", "pill", "glass", "plain", "grouped", "capsule", "tab bar"]
@@ -246,10 +246,10 @@ extension AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.appearance.homeCardStyle", "Home Cards"),
                 help: SettingsText.keyed("settings.appearance.homeCardStyle.help", "How the cards on Home and the New Tab page draw: today's, flat, raised, or glass."),
                 kind: .choice([
-                    SettingChoice(HomeCardStyle.standard.rawValue, SettingsText.keyed("settings.choice.homeCardStyle.standard", "Standard")),
+                    SettingChoice(HomeCardStyle.standard.rawValue, SettingsText.keyed("settings.choice.standard", "Standard")),
                     SettingChoice(HomeCardStyle.flat.rawValue, SettingsText.keyed("settings.choice.homeCardStyle.flat", "Flat")),
                     SettingChoice(HomeCardStyle.raised.rawValue, SettingsText.keyed("settings.choice.homeCardStyle.raised", "Raised")),
-                    SettingChoice(HomeCardStyle.glass.rawValue, SettingsText.keyed("settings.choice.homeCardStyle.glass", "Glass")),
+                    SettingChoice(HomeCardStyle.glass.rawValue, SettingsText.keyed("settings.choice.glass", "Glass")),
                 ]),
                 default: .string(HomeCardStyleSetting.fallback.rawValue),
                 keywords: ["home", "new tab", "cards", "card", "chats", "flat", "raised", "shadow", "glass", "elevated"]

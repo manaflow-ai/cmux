@@ -1982,7 +1982,7 @@
             {
               "value": "standard",
               "title": {
-                "key": "settings.choice.toolbarButtonStyle.standard",
+                "key": "settings.choice.standard",
                 "text": "Standard"
               }
             },
@@ -2003,7 +2003,7 @@
             {
               "value": "glass",
               "title": {
-                "key": "settings.choice.toolbarButtonStyle.glass",
+                "key": "settings.choice.glass",
                 "text": "Glass"
               }
             }
@@ -2043,7 +2043,7 @@
             {
               "value": "standard",
               "title": {
-                "key": "settings.choice.homeCardStyle.standard",
+                "key": "settings.choice.standard",
                 "text": "Standard"
               }
             },
@@ -2064,7 +2064,7 @@
             {
               "value": "glass",
               "title": {
-                "key": "settings.choice.homeCardStyle.glass",
+                "key": "settings.choice.glass",
                 "text": "Glass"
               }
             }
