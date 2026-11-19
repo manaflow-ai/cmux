@@ -18,6 +18,9 @@ use serde_json::{Value, json};
 use super::caller_selector::{Split, caller_in_alpha_beta_focused};
 use super::*;
 
+#[path = "caller_place/dock.rs"]
+mod dock;
+
 const AGENT_SESSION: &str = "acp_agent_session_own_ws";
 
 /// Who runs the command, as its environment says.
