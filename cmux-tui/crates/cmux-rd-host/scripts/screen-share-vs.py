@@ -378,7 +378,8 @@ def quality_summary(scores, why_none):
     }
 
 
-def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=None, source=None):
+def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=None, source=None,
+                 cmux_input="key", host=None, viewer=None):
     """The budget record. CMUX: {"rows", "ledgers", "presented", "motion_rows", "scores",
     "quality_null"} or {"skipped": why}; APPLE: {"g2g"} or {"skipped": why}."""
     cmux = cmux or {"skipped": "not run (--stacks)"}
@@ -401,6 +402,9 @@ def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=Non
     return {
         "schema": BUDGET_SCHEMA, "label": label, "rev": rev, "link": link, "rtt": rtt,
         "source": source or "screen", "rows": rows,
+        # What the cmux leg timed (key, click or scroll) and on which two Macs: a pair of one
+        # Mac's names is loopback, whatever the link label says.
+        "input": cmux_input, "host": host, "viewer": viewer,
         "mbps": {"cmux": c_mbps, "apple": null(why_apple or WHY_APPLE["mbps"])},
         "quality": {"cmux": c_quality,
                     "apple": {"frame_score": null(why_apple or WHY_APPLE["quality"]),
@@ -1240,7 +1244,7 @@ class SpoolRemote(Remote):
         for i in range(0, len(data), self.CHUNK):
             self.run(f"printf %s {data[i:i + self.CHUNK]} >> {tmp}", timeout=300)
         q = shlex.quote(remote_path)
-        self.run(f"base64 -D -i {tmp} | gunzip > {q}.tmp && rm {tmp} && chmod {mode} {q}.tmp "
+        self.run(f"base64 -d < {tmp} | gunzip > {q}.tmp && rm {tmp} && chmod {mode} {q}.tmp "
                  f"&& mv {q}.tmp {q}", timeout=300)
 
     def popen(self, cmd):
@@ -1292,7 +1296,7 @@ class SpoolProc:
             if not self.buf:
                 return
             data, self.buf = base64.b64encode(self.buf.encode()).decode(), ""
-            self.proc.remote.run(f"printf %s {data} | base64 -D >> {self.proc.d}/in")
+            self.proc.remote.run(f"printf %s {data} | base64 -d >> {self.proc.d}/in")
 
         def close(self):
             self.flush()
@@ -1903,7 +1907,9 @@ class Orchestrator:
         if "apple" in stacks:
             apple = {"skipped": self.apple_skipped} if self.apple_skipped else {"g2g": self.apple_g2g}
         b = build_budget(cmux, apple, label=self.a.label, rev=self.rev, link=self.a.link,
-                         rtt=clock.get("rtt_min_ms"), source=self.a.source)
+                         rtt=clock.get("rtt_min_ms"), source=self.a.source,
+                         cmux_input=getattr(self.a, "cmux_input", "key"), host=self.a.host,
+                         viewer=self.a.viewer)
         print()
         print("\n".join(format_budget(b)))
         self.log({"budget": b})

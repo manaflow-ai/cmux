@@ -419,5 +419,80 @@ class RfbLeg(unittest.TestCase):
             b.close()
 
 
+class BudgetInputTests(unittest.TestCase):
+    def test_budget_names_the_input_kind_and_pair(self):
+        b = vs.build_budget({"rows": [breakdown_row()]}, None, cmux_input="scroll", host="mac-a", viewer="mac-b")
+        self.assertEqual((b["input"], b["host"], b["viewer"]), ("scroll", "mac-a", "mac-b"))
+
+    def test_budget_input_defaults_to_key(self):
+        self.assertEqual(vs.build_budget({"rows": [breakdown_row()]}, None)["input"], "key")
+
+
+class FakeRelay(vs.SpoolRemote):
+    """A SpoolRemote whose relay is a local shell: each run is one `reach` call's command,
+    refused with "nothing was run" for the first FAILS calls."""
+
+    def __init__(self, fails=0):
+        super().__init__("fake-mac")
+        self.calls, self.fails = [], fails
+
+    def argv(self, cmd):
+        self.calls.append(cmd)
+        if self.fails:
+            self.fails -= 1
+            return ["sh", "-c", "echo 'reach: refused: nothing was run' >&2; exit 4"]
+        return ["sh", "-c", cmd]
+
+
+class SpoolTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.sleep = vs.time.sleep
+        vs.time.sleep = lambda s: None
+
+    def tearDown(self):
+        vs.time.sleep = self.sleep
+
+    def test_put_chunks_under_the_relay_command_limit(self):
+        relay = FakeRelay()
+        src = os.path.join(self.tmp, "blob")
+        with open(src, "wb") as f:
+            f.write(os.urandom(100_000))  # random: gzip cannot shrink it below several chunks
+        dst = os.path.join(self.tmp, "out", "blob")
+        relay.put(src, dst)
+        with open(src, "rb") as a, open(dst, "rb") as b:
+            self.assertEqual(a.read(), b.read())
+        self.assertGreater(len(relay.calls), 4)
+        self.assertTrue(all(len(c.encode()) <= 16384 for c in relay.calls), "a call over the relay's 16 KiB")
+
+    def test_run_retries_a_refusal_that_ran_nothing(self):
+        relay = FakeRelay(fails=2)
+        self.assertEqual(relay.run("printf ok"), "ok")
+        self.assertEqual(len(relay.calls), 3)
+
+    def test_run_does_not_retry_a_command_that_failed(self):
+        relay = FakeRelay()
+        with self.assertRaises(RuntimeError):
+            relay.run("exit 3")
+        self.assertEqual(len(relay.calls), 1)
+
+    def test_popen_feeds_stdin_and_reads_lines_to_exit(self):
+        if not os.path.exists("/usr/bin/python3"):
+            self.skipTest("the runner is started with /usr/bin/python3")
+        relay = FakeRelay()
+        p = relay.popen("read a; echo got:$a; echo second")
+        p.stdin.write("hello\n")
+        p.stdin.flush()
+        p.stdin.close()
+        self.assertEqual(p.wait(timeout=30), 0)
+        lines = []
+        while True:
+            line = p.lines.get(timeout=5)
+            if line is None:
+                break
+            lines.append(line)
+        self.assertEqual(lines, ["got:hello\n", "second\n"])
+
+
 if __name__ == "__main__":
     unittest.main()
