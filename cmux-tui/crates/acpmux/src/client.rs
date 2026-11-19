@@ -373,6 +373,7 @@ impl Client {
             // it marks the connection closed, so no request slips between.
             let mut pending = self.pending.lock_or_recover();
             if self.closed.load(Ordering::SeqCst) {
+                drop(pending);
                 return Err(self.closed(&context));
             }
             pending.insert(key.clone(), tx);
