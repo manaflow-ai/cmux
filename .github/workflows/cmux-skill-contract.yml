@@ -6,6 +6,7 @@ on:
       - "skills/cmux-browser/**"
       - "skills/cmux-capture/**"
       - "skills/cmux-settings/**"
+      - "skills/*/SKILL.md"
       - "web/data/cmux.schema.json"
       - "Sources/CmuxSettingsJSONPathSupport.swift"
       - "tests/test_cmux_settings_supported_paths.py"
@@ -15,6 +16,7 @@ on:
       - "scripts/validate-cmux-browser-skill.py"
       - "tests/test_cmux_browser_skill.py"
       - "tests/test_cmux_capture_skill.py"
+      - "tests/test_skill_frontmatter.py"
       - "CLI/CMUXCLI+Record.swift"
       - "CLI/CMUXCLI+Screenshot.swift"
       - "CLI/CMUXCLI+TaskHelp.swift"
@@ -32,6 +34,7 @@ on:
       - "skills/cmux-browser/**"
       - "skills/cmux-capture/**"
       - "skills/cmux-settings/**"
+      - "skills/*/SKILL.md"
       - "web/data/cmux.schema.json"
       - "Sources/CmuxSettingsJSONPathSupport.swift"
       - "tests/test_cmux_settings_supported_paths.py"
@@ -41,6 +44,7 @@ on:
       - "scripts/validate-cmux-browser-skill.py"
       - "tests/test_cmux_browser_skill.py"
       - "tests/test_cmux_capture_skill.py"
+      - "tests/test_skill_frontmatter.py"
       - "CLI/CMUXCLI+Record.swift"
       - "CLI/CMUXCLI+Screenshot.swift"
       - "CLI/CMUXCLI+TaskHelp.swift"
@@ -78,6 +82,9 @@ jobs:
 
       - name: Exercise capture skill regression guard
         run: python3 tests/test_cmux_capture_skill.py
+
+      - name: Check skill descriptions for angle brackets
+        run: python3 tests/test_skill_frontmatter.py
 
       - name: Exercise settings JSONC mutation regressions
         run: python3 tests/test_cmux_settings_jsonc.py
