@@ -289,8 +289,10 @@ def sha256_of(path: str) -> str:
 
 
 def macho_parts(data: bytes) -> dict[str, int] | None:
-    """A Mach-O file's bytes split into code, unwind, symbols, signature and the rest;
-    None when it is not a 64-bit Mach-O (thin or fat)."""
+    """A Mach-O file's bytes split into code, unwind, symbols, export trie, signature and the rest;
+    None when it is not a 64-bit Mach-O (thin or fat). The export trie is the names an executable
+    exports to dlsym and to images loaded into it: no strip removes it, only a link flag
+    (-no_exported_symbols, or an exported-symbols list)."""
     if len(data) < 32:
         return None
     magic = struct.unpack(">I", data[:4])[0]
@@ -315,7 +317,7 @@ def macho_parts(data: bytes) -> dict[str, int] | None:
     if magic != 0xFEEDFACF:
         return None
     ncmds = struct.unpack("<I", data[16:20])[0]
-    parts = {"code and data": 0, "unwind tables": 0, "symbols": 0, "code signature": 0}
+    parts = {"code and data": 0, "unwind tables": 0, "symbols": 0, "export trie": 0, "code signature": 0}
     off = 32
     for _ in range(ncmds):
         cmd, size = struct.unpack("<II", data[off:off + 8])
@@ -335,6 +337,10 @@ def macho_parts(data: bytes) -> dict[str, int] | None:
         elif cmd == 0x2:  # LC_SYMTAB
             _so, nsyms, _st, strsize = struct.unpack("<IIII", data[off + 8: off + 24])
             parts["symbols"] += nsyms * 16 + strsize
+        elif cmd == 0x80000033:  # LC_DYLD_EXPORTS_TRIE: dataoff, datasize
+            parts["export trie"] += struct.unpack("<I", data[off + 12: off + 16])[0]
+        elif cmd in (0x22, 0x80000022):  # LC_DYLD_INFO(_ONLY): its last pair is export_off, export_size
+            parts["export trie"] += struct.unpack("<I", data[off + 44: off + 48])[0]
         elif cmd == 0x1D:  # LC_CODE_SIGNATURE
             parts["code signature"] += struct.unpack("<I", data[off + 12: off + 16])[0]
         off += size
@@ -554,11 +560,13 @@ def print_tree(t: dict, top: int) -> None:
     print("\n| Kind | On disk (MB) | In DMG (MB) |\n|---|---:|---:|")
     for r in t["kinds"]:
         print(f"| {r['kind']} | {mb(r['bytes'])} | {mb(r['dmg_bytes'])} |")
-    print("\n| Binary | On disk (MB) | In DMG (MB) | Code+data | Unwind | Symbols | Signature |\n|---|---:|---:|---:|---:|---:|---:|")
+    print("\n| Binary | On disk (MB) | In DMG (MB) | Code+data | Unwind | Symbols | Exports | Signature |"
+          "\n|---|---:|---:|---:|---:|---:|---:|---:|")
     for b in t["binaries"][:top]:
         p = b["parts"]
         print(f"| `{b['path']}` | {mb(b['bytes'])} | {mb(b['dmg_bytes'])} | {mb(p.get('code and data', 0))} | "
-              f"{mb(p.get('unwind tables', 0))} | {mb(p.get('symbols', 0))} | {mb(p.get('code signature', 0))} |")
+              f"{mb(p.get('unwind tables', 0))} | {mb(p.get('symbols', 0))} | {mb(p.get('export trie', 0))} | "
+              f"{mb(p.get('code signature', 0))} |")
     lang = t.get("code_by_language")
     if lang:
         total = sum(lang["bytes"].values()) or 1

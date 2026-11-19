@@ -150,22 +150,23 @@ def test_summary_under_budget_without_a_previous_nightly(tmp: Path) -> None:
     assert "Over budget" not in r.stdout, r.stdout
 
 
-def macho(text: int, unwind: int, symbols: int, strsize: int) -> bytes:
-    """A minimal arm64 Mach-O: __TEXT with __text and __eh_frame, and a symbol table."""
+def macho(text: int, unwind: int, symbols: int, strsize: int, exports: int = 0) -> bytes:
+    """A minimal arm64 Mach-O: __TEXT with __text and __eh_frame, a symbol table and an export trie."""
     import struct
     sect = lambda name, size: (name.ljust(16, b"\0") + b"__TEXT".ljust(16, b"\0")
                                + struct.pack("<QQIIIIIIII", 0, size, 0, 0, 0, 0, 0, 0, 0, 0))
     seg = struct.pack("<II", 0x19, 72 + 2 * 80) + b"__TEXT".ljust(16, b"\0") + struct.pack(
         "<QQQQiiII", 0, 0, 0, text + unwind, 5, 5, 2, 0) + sect(b"__text", text) + sect(b"__eh_frame", unwind)
     symtab = struct.pack("<IIIIII", 0x2, 24, 0, symbols, 0, strsize)
-    header = struct.pack("<IiiIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 2, len(seg) + len(symtab), 0, 0)
-    body = header + seg + symtab
-    return body + b"\0" * (text + unwind + symbols * 16 + strsize)
+    trie = struct.pack("<IIII", 0x80000033, 16, 0, exports)  # LC_DYLD_EXPORTS_TRIE
+    header = struct.pack("<IiiIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 3, len(seg) + len(symtab) + len(trie), 0, 0)
+    body = header + seg + symtab + trie
+    return body + b"\0" * (text + unwind + symbols * 16 + strsize + exports)
 
 
 def test_tree_splits_binaries_kinds_and_duplicates(tmp: Path) -> None:
     app = make_app(tmp)
-    (app / "Contents/Resources/bin/cmux").write_bytes(macho(text=4000, unwind=1000, symbols=10, strsize=40))
+    (app / "Contents/Resources/bin/cmux").write_bytes(macho(text=4000, unwind=1000, symbols=10, strsize=40, exports=300))
     for page in ("a", "b"):
         write(app, f"Contents/Resources/pages/{page}/vendor.js", 2048)
     write(app, "Contents/Resources/fr.lproj/Localizable.strings", 300)
@@ -177,6 +178,7 @@ def test_tree_splits_binaries_kinds_and_duplicates(tmp: Path) -> None:
     cmux = next(b for b in data["binaries"] if b["path"] == "Contents/Resources/bin/cmux")
     assert cmux["parts"]["code and data"] == 4000 and cmux["parts"]["unwind tables"] == 1000, cmux
     assert cmux["parts"]["symbols"] == 10 * 16 + 40, cmux
+    assert cmux["parts"]["export trie"] == 300, cmux
     assert sum(cmux["parts"].values()) == cmux["bytes"], cmux
     kinds = {k["kind"]: k["bytes"] for k in data["kinds"]}
     assert kinds["JS"] == 4096 and kinds["localizations"] == 300 and kinds["fonts"] == 50, kinds
@@ -187,6 +189,7 @@ def test_tree_splits_binaries_kinds_and_duplicates(tmp: Path) -> None:
     assert data["app_bytes"] == sum(c["bytes"] for c in data["components"])
     assert 0 < data["dmg_estimate_bytes"] < data["app_bytes"], data["dmg_estimate_bytes"]
     assert "| `Contents/Resources/bin/cmux` |" in r.stdout, r.stdout
+    assert "| Symbols | Exports | Signature |" in r.stdout, r.stdout
 
 
 def fat(slices: list[bytes], wide: bool) -> bytes:

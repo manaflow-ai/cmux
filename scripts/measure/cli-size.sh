@@ -7,7 +7,8 @@
 #       Four builds in one job: BASE and HEAD (commits, each built with its own
 #       rust-toolchain.toml; HEAD `.` or omitted is this checkout), and HEAD with
 #       acpmux and cmux-tui-core at opt-level "s" and at "z". Stripped and
-#       unstripped bytes, then interleaved CLI and daemon p50 (cli-size-speed.py).
+#       unstripped bytes (on macOS also fully stripped bytes and the export trie), then
+#       interleaved CLI and daemon p50 (cli-size-speed.py). CLI_SIZE_LEVELS="" skips s and z.
 #       Commits come from this clone's history, else from origin. A job checkout
 #       with no history or remote passes HEAD `.` and PATCH, the diff from this
 #       tree to BASE.
@@ -22,12 +23,22 @@ strip_copy() {  # strip_copy BUILT DIR: DIR/cmux.unstripped and the stripped DIR
   mkdir -p "$2"
   cp "$1" "$2/cmux.unstripped"
   cp "$1" "$2/cmux"
+  local extra=""
   case "$(uname -s)" in
-    Darwin) strip -x "$2/cmux" ;;
+    Darwin)
+      strip -x "$2/cmux"
+      # What the release bundle ships once bin/cmux is stripped fully (its names in a side
+      # map), and its export trie, which no strip removes (LC_DYLD_EXPORTS_TRIE, or LC_DYLD_INFO's).
+      cp "$1" "$2/cmux.full-strip"
+      strip "$2/cmux.full-strip"
+      extra=" full_strip=$(wc -c <"$2/cmux.full-strip" | tr -d ' ')"
+      extra+=" export_trie=$(otool -l "$1" | awk '/cmd LC_DYLD_EXPORTS_TRIE/ { t = 1 }
+        t && /datasize/ { n += $2; t = 0 } /export_size/ { n += $2 } END { print n + 0 }')"
+      ;;
     Linux) strip --strip-unneeded "$2/cmux" ;;
     *) echo 'CLI size comparison requires a Linux or macOS fleet worker' >&2; exit 2 ;;
   esac
-  echo "SIZE $(basename "$2") unstripped=$(wc -c <"$2/cmux.unstripped" | tr -d ' ') stripped=$(wc -c <"$2/cmux" | tr -d ' ')"
+  echo "SIZE $(basename "$2") unstripped=$(wc -c <"$2/cmux.unstripped" | tr -d ' ') stripped=$(wc -c <"$2/cmux" | tr -d ' ')$extra"
 }
 
 if [[ "${1:-}" == toolchain ]]; then
@@ -79,12 +90,15 @@ if [[ "${1:-}" == toolchain ]]; then
   target="${CARGO_TARGET_DIR:-$root/cmux-tui/target/cli-size}"
   build "$base" "$target-base" base
   build "$head" "$target" head
-  for level in s z; do
+  # CLI_SIZE_LEVELS="" builds only BASE and HEAD, for a change that is not an opt-level.
+  variants=(base head)
+  for level in ${CLI_SIZE_LEVELS-s z}; do
     build "$head" "$target" "head-$level" \
       --config "profile.release.package.acpmux.opt-level=\"$level\"" \
       --config "profile.release.package.cmux-tui-core.opt-level=\"$level\""
+    variants+=("head-$level")
   done
-  python3 "$root/scripts/measure/cli-size-speed.py" "$out" base head head-s head-z
+  python3 "$root/scripts/measure/cli-size-speed.py" "$out" "${variants[@]}"
   for t in ${trees[@]+"${trees[@]}"}; do git -C "$root" worktree remove --force "$t" || true; done
   exit 0
 fi
