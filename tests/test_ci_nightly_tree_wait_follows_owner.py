@@ -94,7 +94,9 @@ def test_the_wait_cases_pass_against_fake_runs() -> None:
     for case in ("whose build failed on its last attempt fails fast", "no runner past the stall bound fails fast",
                  "queued under the stall bound keeps the wait", "a retry will re-run keeps the wait",
                  "the fallback rebuilds it) keeps the wait", "holds no tree back keeps the wait",
-                 "failed owner is passed over"):
+                 "failed owner is passed over", "a preflight with no runner past the stall bound fails fast",
+                 "a terminal preflight failure fails fast", "a preflight failure with active retry grace",
+                 "a preflight queued under the stall bound keeps the wait"):
         assert any(line.startswith("ok   ") and case in line for line in result.stdout.splitlines()), (case, result.stdout)
 
 

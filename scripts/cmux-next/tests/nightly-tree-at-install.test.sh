@@ -185,6 +185,28 @@ jobs_file 9 '{"jobs":[{"name":"build / build aarch64-unknown-linux-musl","status
 client "$own" "$app"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a queued job that holds no tree back keeps the wait (took $took s)"
 
+# Preflight gates every build: the incident had only this job, queued without a runner.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 10
+jobs_file 10 '{"jobs":[{"name":"cmux-tui tree preflight","status":"queued","runner_name":null,"labels":["cmux-gcp-lane-build-x64"],"created_at":"'"$(ago 1000)"'"}]}'
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "stalled cmux-tui tree preflight queued" "$TMP/err" && grep -q "cmux-gcp-lane-build-x64" "$TMP/err" && grep -q "/actions/runs/10" "$TMP/err"' "a preflight with no runner past the stall bound fails fast with its state and run (took $took s)"
+
+preflight_failed='{"jobs":[{"name":"cmux-tui tree preflight","status":"completed","conclusion":"failure","runner_name":"linux-1","created_at":"2023-11-14T22:00:00Z"}]}'
+reset_cdn; set_runs "$no_runs"; own_run "$own" 11 3; jobs_file 11 "$preflight_failed"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a terminal preflight failure fails fast with its state and run (took $took s)"
+
+for attempt in 1 2; do
+  reset_cdn; set_runs "$no_runs"; own_run "$own" 12 "$attempt"; jobs_file 12 "$preflight_failed"
+  client "$own" "$app"
+  check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a preflight failure with active retry grace keeps the wait on attempt $attempt (took $took s)"
+done
+
+reset_cdn; set_runs "$no_runs"; own_run "$own" 13
+jobs_file 13 '{"jobs":[{"name":"cmux-tui tree preflight","status":"queued","runner_name":null,"labels":["cmux-gcp-lane-build-x64"],"created_at":"'"$(ago 0)"'"}]}'
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a preflight queued under the stall bound keeps the wait (took $took s)"
+
 # The failed owner is passed over for another same-key run that is building.
 reset_cdn; own_run "$own" 3 3
 set_runs "{\"total_count\":2,\"workflow_runs\":[{\"id\":3,\"status\":\"in_progress\",\"head_sha\":\"$own\",\"head_branch\":\"feat-cmux-next\"},{\"id\":6,\"status\":\"in_progress\",\"head_sha\":\"$app\",\"head_branch\":\"feat-cmux-next\"}]}"
