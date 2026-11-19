@@ -52,6 +52,29 @@
     "manaflow-ai": "blacksmith"
   },
 
+  "runner_groups": {
+    "$comment": "Every self-hosted label is registered in one public-allowed group. Reconciler checks this declaration before minting a JIT config.",
+    "cmux-fleet-linux": {
+      "labels": ["cmux-fleet-linux-x64"],
+      "allows_public_repositories": true
+    },
+    "cmux-gcp-lanes": {
+      "labels": ["cmux-gcp-lane-x64", "cmux-gcp-lane-build-x64"],
+      "allows_public_repositories": true
+    },
+    "cmux-freestyle-linux": {
+      "labels": ["cmux-freestyle-linux-x64"],
+      "allows_public_repositories": true
+    }
+  },
+
+  "outage_override": {
+    "$comment": "Optional, time-bounded spill hint consumed by the single reconciler; no workflow writes this value.",
+    "label": null,
+    "expires_at": null,
+    "reason": null
+  },
+
   "default_fleet": "hosted",
 
   "hosted_light_jobs": {
