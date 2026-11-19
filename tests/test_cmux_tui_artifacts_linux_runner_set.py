@@ -85,6 +85,8 @@ OWNED = "cmux-gcp-lane-build-x64"
 # Jobs that keep their own route on the nightly path: the daemon tests (linux-placement, then Blacksmith;
 # their full checkout is not repaired for a reused self-hosted workspace) and the shadow (its override).
 OWN_ROUTE_JOBS = ("cmux-next-daemon-tests", DARWIN_CROSS_JOB)
+# The jobs a NEXT nightly waits for; only these take the 4-runner owned GCP lane first.
+NIGHTLY_TREE_JOBS = ("tree-preflight", "tree-owner-wait", "publish", "publish-tree", "mark-tree-commits")
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
 # The short jobs that sat queued on 2026-10-30; each must stay in the set.
 SHORT_JOBS = (
@@ -155,7 +157,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
             # tests) stays on Blacksmith. The nightly path's attempt 1 takes the owned pool.
             allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
-                       | ({OWNED} if name not in OWN_ROUTE_JOBS else set()))
+                       | ({OWNED} if name in NIGHTLY_TREE_JOBS else set()))
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertTrue(labels <= allowed, labels - allowed)
 
@@ -192,12 +194,13 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         # Blacksmith only as overflow." Every Linux job of the tree path (this workflow's, the build package's
         # select/package jobs when this workflow calls it, the tree request) resolves to the owned pool alone on
         # attempt 1 of a nightly-path run, whatever LINUX_RUNNER holds; a re-run, and a lane push, keep Blacksmith.
-        routes = [(WORKFLOW.name, name, runs_on) for name, runs_on in linux_routes() if name not in OWN_ROUTE_JOBS]
+        routes = [(WORKFLOW.name, name, runs_on) for name, runs_on in linux_routes() if name in NIGHTLY_TREE_JOBS]
+        self.assertEqual({name for _, name, _ in routes}, set(NIGHTLY_TREE_JOBS))
         for workflow in ("cmux-tui-build-package.yml", "cmux-tui-tree-request.yml"):
             jobs = yaml.load((WORKFLOW.parent / workflow).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
             routes.extend((workflow, name, job["runs-on"]) for name, job in jobs.items()
                           if "vars.LINUX_RUNNER" in str(job.get("runs-on", "")))
-        self.assertGreater(len(routes), len(SHORT_JOBS) + 2)
+        self.assertGreaterEqual(len(routes), len(NIGHTLY_TREE_JOBS) + 3)
         nightly = {"event": "'push'", "ref": "'refs/heads/feat-cmux-next'", "attempt": "1"}
         cases = (
             ("feat-cmux-next push", nightly, True),

@@ -60,7 +60,7 @@ class OwnedRouteCheckoutRepair(unittest.TestCase):
                         seen += 1
                         if not repaired(steps, index):
                             missing.append(f"{file}:{name}")
-        self.assertGreater(seen, 20, "the owned route lost its jobs; this test checks nothing")
+        self.assertGreaterEqual(seen, 6, "the owned route lost its jobs; this test checks nothing")
         self.assertEqual(missing, [], "checkouts on the owned GCP lane with no reused-workspace repair")
 
     def test_a_full_checkout_leaves_sparse_mode(self) -> None:
