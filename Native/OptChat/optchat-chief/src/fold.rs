@@ -144,6 +144,11 @@ pub struct TurnFold {
     /// The `turn_result` that follows the last `turn_end` was read: it says
     /// whether another carried turn follows.
     result_after_end: bool,
+    /// Inside a turn Claude Code ran on its own (acpmux `background_turn`
+    /// started .. ended: a task notification, a scheduled wakeup, a hook)
+    /// between two Chief turns of a kept session: its lines are not this
+    /// turn's, and its words never join this turn's reply.
+    in_background_turn: bool,
     /// The last raw Claude Code line came from one of its own subagents
     /// (Task/Agent): it is not timed, and its result and usage are not the turn's.
     in_subagent: bool,
@@ -238,6 +243,14 @@ impl TurnFold {
             self.last_seq = event.seq;
         }
         let mut out = Vec::new();
+        if event.dir == "mux" && event.kind == "background_turn" {
+            self.in_background_turn =
+                event.msg.get("state").and_then(Value::as_str) == Some("started");
+            return out;
+        }
+        if self.in_background_turn {
+            return out;
+        }
         // After a `turn_end`: its `turn_result` says whether Claude Code runs
         // on into a turn of its own with a message steered in after its last
         // answer (`carriedTo`), and that turn's `turn_started` (`carried`,
