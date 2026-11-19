@@ -351,7 +351,8 @@ pub(crate) enum Line {
         info: SessionInfo,
     },
     /// The session was purged: the fold drops everything before it about `sid`. The writer
-    /// compacts right after one is written, so the purged lines leave the file with it.
+    /// compacts right after one is written, a close notwithstanding, so the purged lines leave
+    /// the file with it; a start that folds one compacts too (a kill came first).
     #[serde(rename = "p")]
     Purge { sid: String },
 }
@@ -431,7 +432,7 @@ impl Ledger {
             let path = dir.join(store::FILE);
             {
                 let mut s = state.lock().unwrap_or_else(PoisonError::into_inner);
-                let size = store::fold(&path, &mut s);
+                let (size, purged) = store::fold(&path, &mut s);
                 // Folded sessions with no repository yet: their folder's origin, once.
                 let ids: Vec<Arc<str>> = s.sessions.keys().cloned().collect();
                 for id in ids {
@@ -449,6 +450,9 @@ impl Ledger {
                     size,
                     compact_bytes,
                     awaiting_seed,
+                    // A tombstone with no compaction after it (a kill between the two): the
+                    // writer's first step compacts, so the purged lines leave the file now.
+                    purged,
                     Arc::clone(&closed),
                 ));
             }
@@ -473,10 +477,10 @@ impl Ledger {
 
     /// Shutdown (`Hub::flush`): every line emitted so far is in the file already, so this only
     /// stops appends (later lines are kept in memory only), closes the writer's queue and waits
-    /// up to `within` for the thread to end. The thread skips what is queued (a compaction, a
-    /// repository lookup) and ends after a rewrite under way, or a first start's seed queued
-    /// before the close. True when it ended; a writer still running is kept for
-    /// [`Ledger::wait_closed`].
+    /// up to `within` for the thread to end. The thread skips what is queued (a compaction for
+    /// size, a repository lookup) and ends after a rewrite under way, a purge's compaction, or a
+    /// first start's seed queued before the close. True when it ended; a writer still running is
+    /// kept for [`Ledger::wait_closed`].
     pub fn close(&self, within: std::time::Duration) -> bool {
         self.stop_appends();
         let Some(thread) = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take() else {
@@ -700,6 +704,9 @@ impl Ledger {
             return;
         }
         let info = SessionInfo { pull_requests: vec![url.to_owned()], ..Default::default() };
+        // The line carries all of the session's pull requests, encoded here on the caller: at
+        // most `MAX_PULL_REQUESTS` (200, `hub/pull_requests.rs`), the cap on the meta list every
+        // URL here comes from. The ledger's own list has no cap of its own.
         if s.merge_session(session, info) {
             let info = s.sessions.get(session).cloned().unwrap_or_default();
             self.emit(&mut s, Line::Session { sid: session.to_owned(), info });

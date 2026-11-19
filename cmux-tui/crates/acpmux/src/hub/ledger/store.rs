@@ -15,6 +15,11 @@
 //!   next one opens the new file).
 //! - Until the first start's seed is in the file ([`Disk::holding`]) nothing is appended: a line
 //!   held then is in the state, which the seed's snapshot carries, or in the seed's tail.
+//! - The appends after a rewrite go to a handle the writer thread opened before its rename (on
+//!   the temporary file the rename makes the ledger), so a caller opens the file only for the
+//!   first append of the process, or when that open failed.
+//! - A purge's tombstone is followed by a compaction, after a close too. A start that folds a
+//!   tombstone compacts at once: a kill between the two left the purged lines in the file.
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
@@ -27,16 +32,19 @@ use super::{Line, State, Work};
 
 pub(crate) const FILE: &str = "turns.jsonl";
 
-/// Folds `path` into `state`; returns its size. A complete line that does not parse is skipped.
-/// A last line with no newline (a write torn by a crash) is cut off the file, so the next append
-/// starts a line of its own instead of joining the fragment. The file counts as existing
-/// (`State::existed`, no seed) only once a line of it parsed: an empty file, or one holding only a
-/// torn or unreadable first write, is seeded again rather than taken for a ledger.
-pub(crate) fn fold(path: &Path, state: &mut State) -> u64 {
-    let Ok(file) = File::open(path) else { return 0 };
+/// Folds `path` into `state`; returns its size, and whether it holds a purge's tombstone (no
+/// compaction followed it, which drops tombstones: the start's step compacts). A complete line
+/// that does not parse is skipped. A last line with no newline (a write torn by a crash) is cut
+/// off the file, so the next append starts a line of its own instead of joining the fragment.
+/// The file counts as existing (`State::existed`, no seed) only once a line of it parsed: an
+/// empty file, or one holding only a torn or unreadable first write, is seeded again rather than
+/// taken for a ledger.
+pub(crate) fn fold(path: &Path, state: &mut State) -> (u64, bool) {
+    let Ok(file) = File::open(path) else { return (0, false) };
     let mut reader = BufReader::new(file);
     let mut buf = Vec::new();
     let mut whole: u64 = 0;
+    let mut purged = false;
     loop {
         buf.clear();
         match reader.read_until(b'\n', &mut buf) {
@@ -55,6 +63,7 @@ pub(crate) fn fold(path: &Path, state: &mut State) -> u64 {
         match serde_json::from_str::<Line>(text) {
             Ok(line) => {
                 state.existed = true;
+                purged |= matches!(line, Line::Purge { .. });
                 apply(state, line);
             }
             Err(e) => tracing::debug!("ledger: skipped a line: {e}"),
@@ -71,7 +80,7 @@ pub(crate) fn fold(path: &Path, state: &mut State) -> u64 {
             Err(e) => tracing::warn!("ledger: cannot cut a torn line off {}: {e}", path.display()),
         }
     }
-    whole
+    (whole, purged)
 }
 
 fn apply(state: &mut State, line: Line) {
@@ -140,7 +149,8 @@ fn encode(line: &Line) -> Option<String> {
 pub(crate) struct Disk {
     dir: PathBuf,
     path: PathBuf,
-    /// Open for append; `None` until the first append after the start or a rewrite.
+    /// Open for append; `None` until the first append after the start, or after a rewrite whose
+    /// reopen failed.
     file: Option<File>,
     size: u64,
     compact_bytes: u64,
@@ -154,8 +164,9 @@ pub(crate) struct Disk {
     /// read as a ledger and skip the seed for good) and every step tries the rewrite again. A
     /// restart before one lands finds no ledger and seeds again.
     seed_pending: bool,
-    /// A purge was written: the writer's next step compacts at once, so the purged session's
-    /// lines leave the file now, not at the next size bound.
+    /// A purge was written, or the start folded one: the writer's next step compacts at once,
+    /// after a close too, so the purged session's lines leave the file now, not at the next size
+    /// bound.
     purge_due: bool,
     /// While a rewrite runs: every line appended since its snapshot, for the end of its file.
     tail: Option<String>,
@@ -167,12 +178,14 @@ pub(crate) struct Disk {
 
 impl Disk {
     /// The file at `path` (`size` bytes now), appended to from the start unless `awaiting_seed`.
+    /// `purge_due`: the file holds a purge's tombstone ([`fold`]), so the first step compacts.
     pub(crate) fn new(
         dir: PathBuf,
         path: PathBuf,
         size: u64,
         compact_bytes: u64,
         awaiting_seed: bool,
+        purge_due: bool,
         closed: Arc<AtomicBool>,
     ) -> Self {
         Self {
@@ -184,7 +197,7 @@ impl Disk {
             floor: 0,
             awaiting_seed,
             seed_pending: false,
-            purge_due: false,
+            purge_due,
             tail: None,
             asked: false,
             closed,
@@ -294,6 +307,19 @@ impl Writer {
                 file.sync_all()?;
                 Ok(file)
             });
+        // The handle for the appends after the rename, opened here outside the lock so no caller
+        // pays the folder's checks and an open after a rewrite. It is the temporary file's, which
+        // the rename makes the ledger. If it fails, the next append opens the file itself.
+        let reopened = match &written {
+            Ok(_) => match crate::config::private_state_append(&tmp) {
+                Ok(file) => Some(file),
+                Err(e) => {
+                    tracing::warn!("ledger: cannot reopen {}: {e:#}", tmp.display());
+                    None
+                }
+            },
+            Err(_) => None,
+        };
         #[cfg(test)]
         if let Some((reached, resume)) = self.pause.take() {
             let _ = reached.send(());
@@ -313,7 +339,7 @@ impl Writer {
         });
         match landed {
             Ok(()) => {
-                disk.file = None;
+                disk.file = reopened;
                 disk.size = (text.len() + tail.len()) as u64;
                 disk.floor = disk.size;
                 // The whole state is in the file: a first start's hold is over.
@@ -344,16 +370,16 @@ impl Writer {
     }
 
     /// One step: a pending seed's rewrite again, else a compaction when a purge or the size
-    /// bound calls for one. Nothing once the ledger is closed.
+    /// bound calls for one. Once the ledger is closed only a purge's compaction: the purged
+    /// session's lines must not stay in the file until a later start.
     fn step(&mut self) {
+        let closed = self.closed.load(Ordering::SeqCst);
         let due = {
             let mut state = self.lock();
             let Some(disk) = state.disk.as_mut() else { return };
             disk.asked = false;
             let purge = std::mem::take(&mut disk.purge_due);
-            !self.closed.load(Ordering::SeqCst)
-                && !disk.awaiting_seed
-                && (disk.seed_pending || purge || disk.over_bound())
+            !disk.awaiting_seed && (purge || (!closed && (disk.seed_pending || disk.over_bound())))
         };
         if due {
             self.rewrite();
@@ -382,12 +408,15 @@ impl Writer {
     fn run(mut self, rx: Receiver<Work>) {
         self.step();
         while let Ok(work) = rx.recv() {
-            // After the close every line is in the file already: a queued step or repository
-            // lookup is skipped (the next start asks for the repository again). A queued seed
-            // is still written: it is the first start's whole ledger.
+            // After the close every line is in the file already. A queued step still runs, but
+            // compacts only for a purge (`Writer::step`). A queued repository lookup is skipped:
+            // a stop must not wait on git, and the next start asks again for every session with
+            // no repository, so one is lost only when its folder is gone by then, which costs
+            // that session's repository, never its spend. A queued seed is still written: it is
+            // the first start's whole ledger.
             let closed = self.closed.load(Ordering::SeqCst);
             match work {
-                Work::Step if !closed => self.step(),
+                Work::Step => self.step(),
                 Work::Repo { sid, cwd } if !closed => {
                     self.repo(sid, &cwd);
                     self.step();
@@ -402,6 +431,11 @@ impl Writer {
                 Work::Pause { reached, resume } => self.pause = Some((reached, resume)),
                 _ => {}
             }
+        }
+        // Closed: a purge whose step was never queued (its caller lost the race with the close)
+        // still gets its compaction.
+        if self.closed.load(Ordering::SeqCst) {
+            self.step();
         }
     }
 }

@@ -60,8 +60,9 @@ fn home(dir: &Path, lines: usize, sessions: usize) -> Ledger {
     }
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(dir.join(store::FILE), text).unwrap();
-    let l = Ledger::open_with(Some(dir.to_path_buf()), COMPACT_BYTES, "leo@test".into());
-    // The large file is past `COMPACT_BYTES`: its compaction at the start ends before the timing.
+    // No compaction bound: the large file stays 200,000 lines while it is timed, rather than
+    // compacting at the start to a few hundred kB.
+    let l = Ledger::open_with(Some(dir.to_path_buf()), u64::MAX, "leo@test".into());
     l.flush();
     l
 }

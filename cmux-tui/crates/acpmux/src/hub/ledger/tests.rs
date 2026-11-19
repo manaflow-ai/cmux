@@ -540,6 +540,8 @@ fn a_tombstone_in_the_file_drops_what_came_before_it() {
     let text = format!("{}\n{}\n{{\"t\":\"p\",\"sid\":\"x\"}}\n", spend("x"), spend("y"));
     std::fs::write(dir.join(store::FILE), text).unwrap();
     let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    // The start compacts the tombstone away: done before the folder is removed.
+    l.flush();
     assert_eq!(l.query(&all(D0, D0)).totals.turns, 1);
     assert!(!l.lock().sessions.contains_key("x"));
     let _ = std::fs::remove_dir_all(&dir);
@@ -1001,23 +1003,30 @@ fn a_deleted_chats_late_record_leaves_its_replacement_alone() {
     assert_eq!(l.query(&all(D0, D0)).totals.turns, 2);
 }
 
-/// A writer still busy past `close`'s bound is kept, and `wait_closed` returns only once it has
-/// written and ended: the daemon holds its home lock until then (Codex review of #42296, where
-/// `close` gave up on the writer and the lock went while it still wrote).
+/// A writer still busy past `close`'s bound is kept, `close` returns at its bound, and
+/// `wait_closed` returns only once the writer's rewrite has landed and it ended: the daemon holds
+/// its home lock until then (Codex review of #42296, where `close` gave up on the writer and the
+/// lock went while it still wrote).
 #[test]
-fn a_writer_past_the_close_bound_is_waited_for_until_its_lines_are_written() {
+fn a_writer_past_the_close_bound_is_waited_for_until_its_rewrite_lands() {
     let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join(super::store::FILE);
     let l = std::sync::Arc::new(Ledger::open_with(
         Some(dir.path().to_path_buf()),
         COMPACT_BYTES,
         "leo@test".into(),
     ));
     let done = json!({"status": "completed"});
+    // The turn's line is in the file at once, written by the caller.
     turn(&l, "slow-disk", D0, 1, done, "claude", "anthropic");
+    // A line no rewrite keeps (it does not parse): gone from the file once the rewrite landed.
+    OpenOptions::new().append(true).open(&file).unwrap().write_all(b"{\"t\":\"stray\"}\n").unwrap();
     // The seed's rewrite reads the state under its lock: held here, the writer is a slow one.
     let held = l.lock();
     l.send(Work::Seed);
+    let started = std::time::Instant::now();
     assert!(!l.close(std::time::Duration::from_millis(50)), "the held writer ended");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5), "close passed its bound");
     let ended = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let waiter = {
         let (l, ended) = (l.clone(), ended.clone());
@@ -1031,28 +1040,100 @@ fn a_writer_past_the_close_bound_is_waited_for_until_its_lines_are_written() {
         !ended.load(std::sync::atomic::Ordering::SeqCst),
         "wait_closed returned while the writer still had its rewrite to write"
     );
+    // Still held: the rewrite has not landed.
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains("stray"), "the file was rewritten while the writer was held: {text}");
     drop(held);
     waiter.join().unwrap();
-    let text = std::fs::read_to_string(dir.path().join(super::store::FILE)).unwrap();
-    assert!(text.contains("slow-disk"), "the writer's lines are not on disk: {text}");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(!text.contains("stray"), "wait_closed returned before the rewrite landed: {text}");
+    assert!(text.contains("slow-disk"), "the rewrite lost the turn: {text}");
 }
 
-/// A kill of the daemon right after a turn result keeps its line: the caller wrote it to the file
-/// before `record` returned, with no step of the writer thread, flush or close in between.
+/// The turns a start would fold from a copy of `file` as it is now (a kill here), read with no
+/// second writer on the folder the test's ledger writes.
+fn turns_in_copy(file: &std::path::Path) -> u64 {
+    let copy = tempfile::tempdir().unwrap();
+    std::fs::copy(file, copy.path().join(store::FILE)).unwrap();
+    let l = Ledger::open_with(Some(copy.path().to_path_buf()), COMPACT_BYTES, "leo@test".into());
+    l.flush();
+    l.query(&all(D0, D0)).totals.turns
+}
+
+/// A turn result's line is in the file when `record` returns, written by the caller: the writer
+/// thread is blocked throughout, so a kill of the daemon right then keeps it.
 #[test]
-fn a_kill_right_after_a_turn_keeps_its_line() {
+fn a_turns_line_is_in_the_file_while_the_writer_thread_is_blocked() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().to_path_buf();
     let l = Ledger::open_with(Some(path.clone()), COMPACT_BYTES, "leo@test".into());
+    // The writer blocks on this reply until the test takes it, after every check below.
+    let (blocked_tx, blocked) = std::sync::mpsc::sync_channel(0);
+    l.send(Work::Flush(blocked_tx));
     turn(&l, "a", D0, 1, json!({"model": "claude-opus-5-5", "costUsd": 1.0}), "claude", "claude");
-    // The kill: the ledger is never flushed, closed or dropped.
-    std::mem::forget(l);
+    // The kill: what a start reads from the file now.
     let after = Ledger::open_with(Some(path), COMPACT_BYTES, "leo@test".into());
     let t = after.query(&all(D0, D0)).totals;
     assert_eq!((t.turns, t.tool_calls), (1, 1));
     assert!((t.cost_usd - 1.0).abs() < 1e-9, "{}", t.cost_usd);
     let title = after.lock().sessions.get("a").and_then(|i| i.title.clone());
     assert_eq!(title.as_deref(), Some("claude chat"));
+    blocked.recv().unwrap();
+}
+
+/// A purge just before the stop leaves the file with its compaction: the close does not skip
+/// the step the purge queued.
+#[test]
+fn a_purge_right_before_the_close_leaves_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join(store::FILE);
+    let l = Ledger::open_with(Some(dir.path().to_path_buf()), COMPACT_BYTES, "leo@test".into());
+    let cost = json!({"model": "claude-opus-5-5", "costUsd": 1.0});
+    turn(&l, "keep", D0, 0, cost.clone(), "claude", "claude");
+    turn(&l, "gone", D0, 0, cost.clone(), "claude", "claude");
+    // The writer blocks on this reply: the purge's step is taken only after the close began.
+    let (blocked_tx, blocked) = std::sync::mpsc::sync_channel(0);
+    l.send(Work::Flush(blocked_tx));
+    l.purge("gone");
+    l.stop_appends();
+    blocked.recv().unwrap();
+    assert!(l.close(std::time::Duration::from_secs(10)));
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(!text.contains("gone"), "the purged session is still in the file:\n{text}");
+    assert!(text.contains("keep"), "{text}");
+}
+
+/// A purge's tombstone with no compaction after it (a kill between the two) is compacted away at
+/// the next start: the purged session's lines leave the file then, not at the size bound.
+#[test]
+fn a_start_compacts_a_tombstone_left_by_a_kill() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join(store::FILE);
+    let session = |sid: &str, title: &str| {
+        json!({"t": "s", "sid": sid, "title": title, "harness": "claude",
+            "createdAt": D0})
+    };
+    let spend = |sid: &str| {
+        json!({"t": "u", "sid": sid, "at": D0, "model": "m", "pv": "v", "costUsd": 1.0,
+            "turns": 1})
+    };
+    let lines = [
+        session("keep", "kept chat"),
+        session("gone", "private plans"),
+        spend("keep"),
+        spend("gone"),
+        json!({"t": "p", "sid": "gone"}),
+    ];
+    let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    std::fs::write(&file, text).unwrap();
+    let l = Ledger::open_with(Some(dir.path().to_path_buf()), COMPACT_BYTES, "leo@test".into());
+    l.flush();
+    let text = std::fs::read_to_string(&file).unwrap();
+    for needle in ["gone", "private plans", "\"t\":\"p\""] {
+        assert!(!text.contains(needle), "{needle} is still in the file:\n{text}");
+    }
+    assert!(text.contains("kept chat"), "{text}");
+    assert_eq!(l.query(&all(D0, D0)).totals.turns, 1);
 }
 
 /// A turn emitted while a compaction rewrites the file is in the file the next open reads at
@@ -1081,8 +1162,9 @@ fn a_turn_during_a_compaction_is_in_the_file_before_and_after_it() {
         .recv_timeout(std::time::Duration::from_secs(10))
         .expect("the purge's compaction did not start");
     turn(&l, "b", D0 + 100, 0, cost.clone(), "claude", "claude");
-    // A kill here: the old file is still the ledger, and holds the turn.
-    assert_eq!(open().query(&all(D0, D0)).totals.turns, 11);
+    // A kill here: the old file is still the ledger, and holds the turn. Read from a copy: a
+    // start on this folder would compact the purge's tombstone itself.
+    assert_eq!(turns_in_copy(&file), 11);
     resume_tx.send(()).unwrap();
     l.flush();
     let text = std::fs::read_to_string(&file).unwrap();
