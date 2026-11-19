@@ -289,7 +289,9 @@ fi
 # the screen host. cmux-rd links glibc: its builds are the gnu targets. A
 # failure never fails the join: one line, and the reason in the share
 # host's folder, where `acpmux share-host status` reads it. A cmux-rd that
-# is a symlink was put there on purpose (a test build, say) and is kept.
+# is a symlink to a file was put there on purpose (a test build, say) and is
+# kept; a symlink to nothing or to a directory is replaced. The channel's
+# bytes without the execute bit (which the daemon refuses) are made executable.
 rd="$bin_dir/cmux-rd"
 rd_state="${ACPMUX_HOME:-$HOME/.acpmux}/share-host/cmux-rd-install"
 case "$cli_target" in
@@ -301,9 +303,13 @@ rd_failed() {
   { mkdir -p "${rd_state%/*}" && printf '%s\n' "$1" >"$rd_state"; } 2>/dev/null || true
 }
 install_cmux_rd() {
-  if [ -L "$rd" ]; then
+  if [ -L "$rd" ] && [ -f "$rd" ]; then
     say "keeping $rd (a symlink someone put there)"
     rm -f "$rd_state"
+    return 0
+  fi
+  if [ ! -L "$rd" ] && [ -e "$rd" ] && [ ! -f "$rd" ]; then
+    rd_failed "$rd is not a file: remove it, then run the line again"
     return 0
   fi
   [ -n "$want" ] || {
@@ -327,8 +333,15 @@ install_cmux_rd() {
     }
     mkdir -p "$bin_dir"
     install -m 755 "$tmp/cmux-rd" "$bin_dir/.cmux-rd.new"
+    # A symlink to a directory would take the new file inside it.
+    [ ! -L "$rd" ] || rm -f "$rd"
     mv -f "$bin_dir/.cmux-rd.new" "$rd"
     say "installed cmux-rd to $rd"
+  elif [ ! -x "$rd" ]; then
+    chmod 755 "$rd" || {
+      rd_failed "cannot make $rd executable"
+      return 0
+    }
   fi
   rm -f "$rd_state"
   # Cisco's OpenH264, downloaded from Cisco on this machine: the screen
