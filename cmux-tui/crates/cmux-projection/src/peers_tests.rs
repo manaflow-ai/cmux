@@ -191,7 +191,7 @@ fn http_body_understated_length_cannot_install_the_wrong_object() {
         |base| {
             let chain = Chain::new(vec![remote("peer", base)], Box::new(http));
             let writes = AtomicUsize::new(0);
-            let (rest, filled) = chain.fill(&[oid.clone()], &|_, _| {
+            let (rest, filled) = chain.fill(std::slice::from_ref(&oid), &|_, _| {
                 writes.fetch_add(1, Ordering::Relaxed);
                 Ok(())
             });
