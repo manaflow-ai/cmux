@@ -106,9 +106,12 @@ final class PaneCommitMotion {
     /// The hosts of the panes that a close took out, under every other pane until the motion's end, each with the
     /// `zPosition` that its layer had.
     var under: [(host: PaneHostView, z: CGFloat)] = []
-    /// The hosts that show the window's colour under their content in this motion, each with the colour that its
-    /// layer had (`PaneCommitMotion+Sheet`).
-    var sheets: [(host: PaneHostView, color: CGColor?)] = []
+    /// The hosts that show the window's ground under their content in this motion, each with the colour that its
+    /// layer had, and with its copy of the window's picture when the ground is one (`PaneCommitMotion+Sheet`).
+    var sheets: [(host: PaneHostView, color: CGColor?, picture: CALayer?)] = []
+    /// The window's picture that the copies show, as it was read at the motion's first act, and its screen.
+    var shownPicture: WindowStillPicture?
+    weak var pictured: ScreenContentView?
     /// The last frame of an unzoom's pane, from the turn that gives the sizes to the pass that shows the unzoom.
     var taken: Taken?
     /// The view that shows an unzoom's last frame over its pane's content.
@@ -200,7 +203,10 @@ final class PaneCommitMotion {
     /// Returns the pane that a zoom or an unzoom moves from this pass on, for the dim; nil: no such move starts here.
     @discardableResult
     func panesPlaced(on screen: ScreenContentView) -> (act: Act, change: Change)? {
-        guard let armed else { return nil }
+        guard let armed else {
+            placePictures() // a pass with no act can give a pane a new place: its copy of the window's picture stays where the picture is
+            return nil
+        }
         self.armed = nil
         overtime = 0
         passBegan = false
@@ -238,7 +244,8 @@ final class PaneCommitMotion {
         // or its own hold), and its screen has no floating pane: the pane goes above each other pane of its screen.
         let closes = act != .unzoom || (changes.count == 1 && screen.baseGeometry.floatingCards.isEmpty
             && (last?.host === changes[0].host || changes[0].host.holdsContentForMove))
-        guard !changes.isEmpty, time > 0, covered, closes, riders.allSatisfy({ $0.content.paneRidesCommitMotion }) else {
+        // A window's picture that changed in the move: the copies show the old one, so this act shows in one frame.
+        guard !changes.isEmpty, time > 0, covered, closes, pictureStays, riders.allSatisfy({ $0.content.paneRidesCommitMotion }) else {
             finish()
             return nil
         }
@@ -303,6 +310,8 @@ final class PaneCommitMotion {
     /// tick that shows it), then its time ends it: a change whose pass never comes keeps no motion.
     func step(_ dt: Double) {
         guard remaining > 0 else { return }
+        // The window's picture, its tint or its place changed: the copies under the panes show the old one.
+        guard pictureStays else { return finish() }
         if armed != nil, remaining - dt <= PaneZoomDim.spent, overtime <= ScreenContentView.commitBound {
             overtime += 1
             return
