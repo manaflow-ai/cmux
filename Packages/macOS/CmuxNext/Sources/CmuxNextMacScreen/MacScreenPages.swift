@@ -108,6 +108,11 @@ public final class MacScreenPages {
             #endif
         }
     }
+    /// Settings > Devices > Mac Screen (`macScreen.defaultQuality`, `macScreen.defaultAccess`):
+    /// the quality and access a new device tab starts with; the app feeds them from the
+    /// settings, and the toolbar still changes a session live.
+    var defaultQuality = ScreenQuality.auto
+    var defaultScope = SessionScope.full
     /// Tab key -> the record a person opened in it.
     private var confirmed: [String: MacScreenRecord] = [:]
     /// Tab key -> the record it shows, set before its view is made.
@@ -424,7 +429,8 @@ public final class MacScreenPages {
     private func makeHubPane(deviceID: String, record: MacScreenRecord, key: String) -> MacScreenPane {
         let viewer = MacScreenHubViewer(deviceID: deviceID) { [weak self] in self?.hub }
         viewer.onStreaming = { [weak self] in self?.viewerStarted() }
-        let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), preferences: ScreenPreferences())
+        viewer.lastScope = defaultScope
+        let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), preferences: ScreenPreferences(quality: defaultQuality))
         if confirmed[key] == record, let scope = pendingScopes.removeValue(forKey: deviceID) { viewer.resumeScope = scope }
         #if DEBUG
         if relayOnly { pane.setRelayOnly(true) }

@@ -317,7 +317,10 @@ extension SettingsPageLayout {
     /// Devices holds what the Server page showed; its old links open it (legacy_ids).
     private static let devicesCategory = CategorySpec(
         id: "devices", title: SettingsText.keyed("settings.category.devices", "Devices"), symbol: "laptopcomputer",
-        groups: [],
+        groups: [
+            // What a new Mac Screen session viewing another Mac starts with (quality, access).
+            GroupSpec(group: "settings.group.macScreenViewer"),
+        ],
         lead: [.devices], trail: [.server, .tailnet], legacyIDs: ["server"]
     )
 

@@ -794,6 +794,124 @@
       ]
     },
     {
+      "name": "macScreenViewer",
+      "section": "general",
+      "group": {
+        "key": "settings.group.macScreenViewer",
+        "text": "Mac Screen"
+      },
+      "note": "What a new Mac Screen session viewing another Mac starts with; the session's toolbar still changes it live. The iPhone keeps its own choices (Settings > Screen Sharing on the phone, ScreenSharingPreferences).",
+      "rows": [
+        {
+          "key": "macScreen.defaultQuality",
+          "note": "Seeds ScreenPreferences.quality of each new Mac Screen tab (MacScreenPages.makeHubPane); its first offer's a=cmux-rd-max-width / a=cmux-rd-max-fps come from it (MacScreenRdDocument.wish). The values are ScreenQuality's raw values (CmuxVNCWebRTC).",
+          "title": {
+            "key": "settings.macScreen.defaultQuality",
+            "text": "Default Quality"
+          },
+          "help": {
+            "key": "settings.macScreen.defaultQuality.help",
+            "text": "The quality a new Mac Screen session starts with. The session's toolbar still changes it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.macScreen.defaultQuality.auto",
+                "text": "Auto"
+              }
+            },
+            {
+              "value": "smooth",
+              "title": {
+                "key": "settings.macScreen.defaultQuality.smooth",
+                "text": "Smooth Motion"
+              }
+            },
+            {
+              "value": "low",
+              "title": {
+                "key": "settings.macScreen.defaultQuality.low",
+                "text": "Fixed Low (720p)"
+              }
+            },
+            {
+              "value": "medium",
+              "title": {
+                "key": "settings.macScreen.defaultQuality.medium",
+                "text": "Fixed Medium (1080p)"
+              }
+            },
+            {
+              "value": "high",
+              "title": {
+                "key": "settings.macScreen.defaultQuality.high",
+                "text": "Fixed High (Full)"
+              }
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "mac screen",
+            "screen sharing",
+            "quality",
+            "resolution",
+            "frame rate",
+            "fps",
+            "720p",
+            "1080p",
+            "smooth"
+          ],
+          "swift_enum": {
+            "name": "MacScreenDefaultQuality"
+          }
+        },
+        {
+          "key": "macScreen.defaultAccess",
+          "note": "The Connect card's default button (Return) and the scope Connect Again falls back to (MacScreenHubViewer.lastScope). The values are SessionScope's raw values (CmuxDeviceHub).",
+          "title": {
+            "key": "settings.macScreen.defaultAccess",
+            "text": "Default Access"
+          },
+          "help": {
+            "key": "settings.macScreen.defaultAccess.help",
+            "text": "What Connect asks another Mac for. View Only shows the screen; Full Control also sends your clicks and keys."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "full",
+              "title": {
+                "key": "settings.macScreen.defaultAccess.full",
+                "text": "Full Control"
+              }
+            },
+            {
+              "value": "view",
+              "title": {
+                "key": "settings.macScreen.defaultAccess.view",
+                "text": "View Only"
+              }
+            }
+          ],
+          "default": "full",
+          "keywords": [
+            "mac screen",
+            "screen sharing",
+            "access",
+            "view only",
+            "full control",
+            "connect",
+            "scope"
+          ],
+          "swift_enum": {
+            "name": "MacScreenDefaultAccess"
+          }
+        }
+      ]
+    },
+    {
       "name": "macScreenDebug",
       "section": "development",
       "group": {

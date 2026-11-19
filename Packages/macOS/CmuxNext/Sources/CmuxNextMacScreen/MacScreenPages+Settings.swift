@@ -1,11 +1,14 @@
 public import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextDevices
+import CmuxScreenKit
 public import CmuxNextSettings
 import Foundation
 
 extension MacScreenPages {
     /// Keyboard > Mac Screen > Send System Shortcuts to the Remote Mac drives the
     /// system shortcut tap; the toolbar's menu item writes the same setting.
+    /// Devices > Mac Screen's Default Quality and Default Access seed each new device tab.
     /// DEV builds: Settings > Development > Relay Only drives every Mac Screen session.
     /// `refuse` reports a refused write (an automation run changing a user-only setting).
     public func follow(_ settings: SettingsController, refuse: @escaping @MainActor (String) -> Void) {
@@ -27,6 +30,13 @@ extension MacScreenPages {
         Task { [weak shortcuts] in
             for await on in ObservationStream({ settings.snapshot.macScreen.systemShortcuts }) {
                 shortcuts?.enabled = on
+            }
+        }
+        // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds the pages weakly
+        Task { [weak self] in
+            for await macScreen in ObservationStream({ settings.snapshot.macScreen }) {
+                self?.defaultQuality = ScreenQuality(rawValue: macScreen.defaultQuality.rawValue) ?? .auto
+                self?.defaultScope = SessionScope(rawValue: macScreen.defaultAccess.rawValue) ?? .full
             }
         }
         #if DEBUG

@@ -492,7 +492,9 @@
           "title": {"key": "settings.category.devices", "text": "Devices"},
           "symbol": "laptopcomputer",
           "note": "Devices holds what the Server page showed; its old links open it (legacy_ids).",
-          "groups": [],
+          "groups": [
+            {"group": "settings.group.macScreenViewer", "note": "What a new Mac Screen session viewing another Mac starts with (quality, access)."}
+          ],
           "lead": ["devices"],
           "trail": ["server", "tailnet"],
           "legacy_ids": ["server"]

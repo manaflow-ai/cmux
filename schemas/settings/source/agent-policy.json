@@ -1533,6 +1533,14 @@
       ]
     },
     {
+      "agent": "settable",
+      "why": "Only what a new Mac Screen session first asks for: the other Mac still approves the access, and the toolbar changes both live.",
+      "keys": [
+        "macScreen.defaultQuality",
+        "macScreen.defaultAccess"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "cmux Remote: the person's call.",
       "keys": [
