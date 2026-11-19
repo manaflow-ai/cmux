@@ -196,6 +196,16 @@ PARTS = [
     {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
      "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
+    # Terminal key to echo (scripts/cmux-next/typing-frame-bench.py, the cron's run of bench-typing.py's probe): one
+    # key at a time typed into a `zsh -f` prompt, from the key event's timestamp to the frame Ghostty reports shown on
+    # the layer with the echoed glyph (the typing probe's contents_ms; the photon follows at the next vsync). Idle and
+    # with 20 busy terminals and 2 streaming mock chats, 3 rounds of 80 keys each pooled per phase: rows
+    # terminal.key_to_echo.idle and .load, target p95 TYPING_KEY_TO_ECHO_MS. The bench configuration, like the
+    # throughput part next to it (one build serves both): an optimized app is the latency people feel.
+    {"name": "typing", "args": [*MEASURE, "--config=bench", "--suite=typing-frame", "--surfaces=terminal",
+                                "--phases=idle,load", "--rounds=3", "--samples=80"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "typing", "needs": "typing",
+     "run_seconds": 1800},  # under 5 minutes of keys and load, plus a cold bench build (800 s) when this part runs first
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -237,7 +247,7 @@ ROW_PARTS = [
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"), (r"^launch\.", "launch"),
-    (r"^terminal\.throughput\.", "throughput"),
+    (r"^terminal\.throughput\.", "throughput"), (r"^terminal\.key_to_echo\.", "typing"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
     (r"^webui\.(god_ratio\.|[a-z0-9_]+\.god\.)", "web-ui-god"), (r"^webui\.infinite_items\.", "infinite-items"),
@@ -264,6 +274,9 @@ LAUNCH_BUDGETS = {"did_finish_launching_end": 800, "first_window_frame_committed
 # nightly (launch-ready.sh, 2026-11-18, n=10) isFinishedLaunching came at 692 ms and did_finish_launching_start at
 # 719. Its target is launch-shell-first.md's "Dock bounce over", 250 ms: the icon rises once and stops. The other
 # rows keep the direct exec's budgets.
+# Terminal key to echo's target p95 (ms): plans/cmux-next/perf-lead.md's "Key to frame (terminal, Home composer,
+# omnibar) p95 < 8 ms", whose proof is bench-typing.py's probe. Under the generic LATENCY_TARGET_MS on purpose.
+TYPING_KEY_TO_ECHO_MS = 8.0
 LAUNCH_DOCK_BUDGETS = {"did_finish_launching_start": 250, "did_finish_launching_end": 800,
                        "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000}
 
@@ -609,6 +622,8 @@ def rows_of_part(part, report, budgets_mod, budgets):
             version = versions.get(bench)
             out[name]["measure_version"] = (version if isinstance(version, int) else DIFF_LEGACY_VERSION) \
                 + 100 * DIFF_LOAD_VERSION
+    elif part["kind"] == "typing":
+        out.update(typing_rows(report, budgets_mod))
     elif part["kind"] == "webui":
         # web-ui-suite.ts's rows (webviews/bench/perfRow.ts): its target is the row's budget, its floor the noise on
         # a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule).
@@ -622,6 +637,28 @@ def rows_of_part(part, report, budgets_mod, budgets):
             # god_chat_replay_ratio_max reads webui.god_ratio.transcript_replay.long.{heap_mb,thought_ms,token_ms}).
             paired = report.get("paired") if isinstance(report.get("paired"), dict) else {}
             out.update(paired_ratio_rows(paired.get("rounds") or []))
+    return out
+
+
+def typing_rows(report, budgets_mod):
+    """{terminal.key_to_echo.<phase>: row} of a typing-frame-bench.py report (pure): every round's measured keys of
+    the terminal surface pooled per session and phase, p50 and p95 of key to echoed frame, target
+    TYPING_KEY_TO_ECHO_MS. The light session's rows carry no session; another session's (STRESS, a backdrop) name it.
+    A run without `key_to_frame_values` (a bench before the cron's part) gives no row."""
+    pooled = {}
+    for run in report.get("runs") or []:
+        if not isinstance(run, dict) or run.get("surface") != "terminal":
+            continue
+        values = [v for v in run.get("key_to_frame_values") or [] if isinstance(v, (int, float))]
+        session = re.sub(r"[^a-z0-9_]+", "_", str(run.get("session") or "light").lower())
+        phase = re.sub(r"[^a-z0-9_]+", "_", str(run.get("phase") or "idle").lower())
+        name = f"terminal.key_to_echo.{phase}" if session == "light" else f"terminal.key_to_echo.{session}.{phase}"
+        pooled.setdefault(name, []).extend(values)
+    out = {}
+    for name, values in pooled.items():
+        if values:
+            out[name] = {"p50": round(budgets_mod.pct(values, 0.5), 2), "p95": round(budgets_mod.pct(values, 0.95), 2),
+                         "unit": "ms", "budget": TYPING_KEY_TO_ECHO_MS, "floor": 1.0, "n": len(values)}
     return out
 
 
@@ -831,7 +868,7 @@ def refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms):
 
 def target_of(name, row, refresh_ms):
     """The row's target p95: latency 10 ms; a frame row one display refresh (the row's own when it has one); counts
-    0; diff, launch, web UI and main-thread rows their budget (a web UI row without a target has none)."""
+    0; diff, launch, web UI, terminal key-to-echo and main-thread rows their budget (a web UI row without a target has none)."""
     refresh_ms = row_refresh(row, refresh_ms)
     unit = row.get("unit") or "ms"
     name = base_row(name)
@@ -839,7 +876,7 @@ def target_of(name, row, refresh_ms):
         # Scaling rows are judged only by their 1000-vs-baseline ratio. Their absolute
         # latency is intentionally advisory and must not inherit the generic 10 ms target.
         return None
-    if name.startswith(("diff.", "launch.", "webui.")):
+    if name.startswith(("diff.", "launch.", "webui.", "terminal.key_to_echo.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
         return 0
@@ -1895,6 +1932,12 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{INFINITE_ITEMS}"], capture_output=True).returncode == 0
         elif need == "chat-disk":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_DISK}"], capture_output=True).returncode == 0
+        elif need == "typing":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
+                                  capture_output=True, text=True).stdout
+            bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/typing-frame-bench.py"],
+                                   capture_output=True, text=True).stdout
+            ok = "--suite=typing-frame" in text and '"key_to_frame_values"' in bench
         elif need == "terminal-throughput":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout

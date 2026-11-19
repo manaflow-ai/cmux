@@ -201,6 +201,49 @@ class RegressionTests(unittest.TestCase):
         rows = cron.rows_of_part(cron.PART_BY_NAME["throughput"], report, budgets_mod, {})
         self.assertEqual(rows["terminal.throughput.ratio"]["p95"], 0.8)
 
+    def test_terminal_key_to_echo_rows_pool_rounds_with_the_perf_lead_target(self):
+        # typing-frame-bench.py's terminal runs: every round's keys pooled per phase into one row, p50 and p95 of key to
+        # echoed frame, judged against perf-lead.md's 8 ms (not the generic 10 ms). Other surfaces give no row here.
+        keys = lambda base: [base + i / 10 for i in range(20)]  # base .. base+1.9
+        report = {"runs": [
+            {"session": "light", "surface": "terminal", "phase": "idle", "key_to_frame_values": keys(3.0)},
+            {"session": "light", "surface": "terminal", "phase": "idle", "key_to_frame_values": keys(4.0)},
+            {"session": "light", "surface": "terminal", "phase": "load", "key_to_frame_values": keys(9.0)},
+            {"session": "stress", "surface": "terminal", "phase": "idle", "key_to_frame_values": keys(5.0)},
+            {"session": "light", "surface": "home", "phase": "idle", "key_to_frame_values": keys(1.0)},
+            {"session": "light", "surface": "terminal", "phase": "idle", "key_to_frame_ms": {"p95": 99.0}},
+        ]}
+        part = cron.PART_BY_NAME["typing"]
+        rows = cron.rows_of_part(part, report, budgets_mod, {})
+        self.assertEqual(sorted(rows), ["terminal.key_to_echo.idle", "terminal.key_to_echo.load",
+                                        "terminal.key_to_echo.stress.idle"])
+        idle = rows["terminal.key_to_echo.idle"]
+        self.assertEqual(idle["n"], 40)
+        self.assertEqual(idle["p50"], round(budgets_mod.pct(keys(3.0) + keys(4.0), 0.5), 2))
+        self.assertEqual(idle["p95"], round(budgets_mod.pct(keys(3.0) + keys(4.0), 0.95), 2))
+        self.assertEqual((idle["unit"], idle["budget"]), ("ms", cron.TYPING_KEY_TO_ECHO_MS))
+        self.assertEqual(cron.TYPING_KEY_TO_ECHO_MS, 8.0)
+        self.assertEqual(cron.target_of("terminal.key_to_echo.idle@cmux21", idle, 8.33), 8.0)
+        self.assertFalse(cron.over_target("terminal.key_to_echo.idle@cmux21", idle, 8.33))
+        self.assertTrue(cron.over_target("terminal.key_to_echo.load@cmux21", rows["terminal.key_to_echo.load"], 8.33))
+        self.assertEqual(cron.part_for_row("terminal.key_to_echo.load@cmux21"), "typing")
+        self.assertEqual(cron.part_for_row("terminal.throughput.ratio@cmux21"), "throughput")
+        self.assertEqual(cron.rows_of_part(part, {"runs": [{"surface": "terminal", "phase": "idle"}]}, budgets_mod, {}), {})
+        # 9 ms is over 8 ms but under the generic 10: only the row's own target catches it.
+        regs = cron.find_regressions({"terminal.key_to_echo.idle@cmux21": row(9.0, budget=8.0)},
+                                     {"terminal.key_to_echo.idle@cmux21": row(7.5, budget=8.0)}, 8.33, 8.33, budgets_mod)
+        self.assertEqual([(r["name"], r["target"]) for r in regs], [("terminal.key_to_echo.idle@cmux21", 8.0)])
+
+    def test_typing_part_types_into_the_terminal_on_the_bench_build(self):
+        args = cron.PART_BY_NAME["typing"]["args"]
+        self.assertIn("--suite=typing-frame", args)
+        self.assertIn("--surfaces=terminal", args)
+        self.assertIn("--app-cache", args)
+        self.assertEqual([a for a in args if a.startswith("--config=")],
+                         [a for a in cron.PART_BY_NAME["throughput"]["args"] if a.startswith("--config=")],
+                         "one bench build serves typing and throughput")
+        self.assertFalse(cron.is_linux_part("typing"))
+
     def test_typing_stage_rows_are_stored_never_judged(self):
         # CMUX-571 typing-latency: to_listener and to_work say where acp.<engine>.typing.to_frame's time goes; they are
         # stored and shown (measurement only), while to_frame itself stays judged.
