@@ -494,6 +494,7 @@ def check_in_tree():
         if not rows:
             return None
         good = all(b.get("presentation") == "in_tree" and b.get("rwhv_in_window") is True and b.get("widget_drawing") == 0
+                   and b.get("headless_window_visible") is not True and b.get("headless_in_sync") is not False
                    for b in rows)
         views = sum(len(w.get("page_views") or []) for w in windows)
         pages_as_windows = sum(1 for w in windows for c in w.get("child_windows") or [] if c.get("role") == "content" and c.get("visible"))
@@ -502,7 +503,9 @@ def check_in_tree():
         return (good, rows, windows) if good else None
     found = wait(pages, 5)
     windows = found[2] if found else (rpc("debug.layers") or {}).get("windows") or []
-    FACTS["in_tree_pages"] = [{k: b.get(k) for k in ("pane", "presentation", "rwhv_in_window", "widget_drawing")}
+    # headless_in_sync: the headless page window still tracks the pane (the fork anchors extension popups to it).
+    FACTS["in_tree_pages"] = [{k: b.get(k) for k in ("pane", "presentation", "rwhv_in_window", "widget_drawing",
+                                                    "headless_in_sync", "headless_window_frame", "headless_window_visible")}
                               for w in windows for b in w.get("browsers") or []]
     FACTS["page_views"] = [v for w in windows for v in w.get("page_views") or []]
     FACTS["reorders"] = [w.get("reorders") for w in windows]

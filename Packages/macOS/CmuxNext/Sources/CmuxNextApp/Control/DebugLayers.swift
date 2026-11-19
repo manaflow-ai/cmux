@@ -105,6 +105,17 @@ enum DebugLayers {
                 let census = censusByPane[pane.paneKey]
                 fields["rwhv_in_window"] = .bool(census?.contentInWindow ?? false)
                 fields["widget_drawing"] = .number(Double(census?.widgetDrawing ?? -1))
+                // The headless page window never shows, but the fork anchors an extension's action popup to its frame:
+                // it must keep tracking the pane (`headless_in_sync`).
+                if content.window === window, !content.isHiddenOrHasHiddenAncestor {
+                    let host = window.convertToScreen(content.convert(content.bounds, to: nil))
+                    let headless = (window.childWindows ?? []).filter(WindowOverlayLayer.isContent)
+                        .min { distance($0.frame, host) < distance($1.frame, host) }
+                    fields["host_screen_rect"] = rect(host)
+                    fields["headless_window_frame"] = headless.map { rect($0.frame) } ?? .null
+                    fields["headless_window_visible"] = headless.map { .bool($0.isVisible) } ?? .null
+                    fields["headless_in_sync"] = headless.map { .bool(distance($0.frame, host) <= 1) } ?? .null
+                }
             }
             if entry.tab.presentation == .childWindow, content.window === window, !content.isHiddenOrHasHiddenAncestor {
                 // The page window must cover the host view exactly, in

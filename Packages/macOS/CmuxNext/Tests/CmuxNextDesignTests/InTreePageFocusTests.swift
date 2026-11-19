@@ -133,7 +133,7 @@ import Testing
         f.page.addSubview(deep)
         #expect(InTreePageFocus.container(of: deep) === f.container)
         #expect(InTreePageFocus.container(of: f.field) == nil)
-        #expect(InTreePageFocus.containers(in: f.window).map(ObjectIdentifier.init) == [ObjectIdentifier(f.container)])
+        #expect(InTreePageFocus.containers(in: f.window).map { ObjectIdentifier($0) } == [ObjectIdentifier(f.container)])
     }
 
     @Test func theSwitchFollowsEnvironmentThenFileThenTag() {

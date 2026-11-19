@@ -6,14 +6,14 @@ import CmuxNextDesign
 /// app uses lives here, so a rename touches one place.
 struct CEFInTreeCalls {
     /// The shim's symbol names.
-    enum Symbol {
+    nonisolated enum Symbol {
         static let setInTreeHosting = "cmux_shim_browser_set_in_tree_hosting"
         static let contentView = "cmux_shim_browser_in_tree_content_view"
         static let widgetDrawing = "cmux_shim_browser_in_tree_widget_drawing"
     }
 
     /// The first fork API with the in-tree calls.
-    static let forkAPI: Int32 = 36
+    nonisolated static let forkAPI: Int32 = 36
 
     /// Puts the page into `container` (its `WebContentsViewCocoa` as the container's bottom subview) and returns the
     /// page's view; nil when the fork refused. A nil container ends it.
