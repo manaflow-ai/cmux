@@ -46,6 +46,7 @@ const RELEASE = process.env.RELEASE === "1";
 const REOPEN = Number(process.env.REOPEN ?? 10);
 const COLLECT_GC = process.env.COLLECT === "gc";
 const AGE = Number(process.env.AGE ?? 0);
+const CHURN = Number(process.env.CHURN ?? 0);
 if (COUNTS.some((n) => !Number.isInteger(n) || n < 1) || !Number.isInteger(TURNS) || TURNS < 1) {
   console.error("usage: bun bench/chat-pages-memory.bench.ts [counts=1,10,30] [turns=100]");
   process.exit(2);
@@ -621,6 +622,88 @@ try {
     const reshow = Number(await shown.jsonValue()) - start;
     console.log(`chat-pages-memory: a hidden chat shown again draws its newest reply in ${reshow.toFixed(0)} ms`);
     perfRow({ name: "chat_pages_memory.reshow", p50: reshow, p95: reshow, unit: "ms" });
+  }
+  if (CHURN > 0) {
+    // CHURN=R: R rounds of what the app does as chats come and go (a chat closed, or a hidden idle chat released by
+    // HiddenChatPages): the oldest open chat's page closes, the renderer gets the app's collection
+    // (CEFPageRendererGC), and a new chat opens in its place. So the open count stays the same while every chat
+    // left open was opened after a collection. A collection that empties V8's compilation cache makes each of
+    // them compile its own copy of the pane's code; one that keeps it lets them share one.
+    // CHURN_COLLECT names the collection: devtools (HeapProfiler.collectGarbage, the app's call through fork 157:
+    // collect-all-available, which empties the cache), gc (one full collection that keeps it, the page's gc()),
+    // pressure (a critical memory-pressure notice, CEFHiddenPageTrim's) or none.
+    const mode = process.env.CHURN_COLLECT ?? "devtools";
+    const heapUsed = async (cdp: CDPSession) =>
+      ((await cdp.send("Runtime.getHeapUsage")) as { usedSize: number }).usedSize / 1048576;
+    const before = await sample(pages.filter(({ page }) => !page.isClosed()));
+    const reclaimed: number[] = [];
+    const pauses: number[] = [];
+    const opens: number[] = [];
+    for (let round = 0; round < CHURN; round++) {
+      const oldest = pages.find(({ page }) => !page.isClosed())!;
+      await oldest.cdp.detach().catch(() => undefined);
+      await oldest.page.close();
+      // The close's own teardown (the document detached, its context disposed) before the collection runs, as
+      // the app's runs `CEFPageRendererGC.delay` after the close.
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const target = pages.find(({ page }) => !page.isClosed())!;
+      const garbage = await heapUsed(target.cdp);
+      const start = performance.now();
+      if (mode === "devtools") await target.cdp.send("HeapProfiler.collectGarbage");
+      else if (mode === "gc") await target.page.evaluate(() => (globalThis as { gc?: () => void }).gc?.());
+      else if (mode === "pressure") {
+        await target.cdp.send("Memory.simulatePressureNotification", { level: "critical" });
+        await target.page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 2000)));
+      }
+      pauses.push(performance.now() - start);
+      reclaimed.push(garbage - (await heapUsed(target.cdp)));
+      const index = pages.length;
+      const page = await context.newPage();
+      await page.goto(urlFor(index % total));
+      const shown = await page.waitForFunction(
+        (text) => (document.body.textContent?.includes(text) ? performance.now() : false),
+        FIRST_TEXT,
+        { timeout: 120_000, polling: "raf" },
+      );
+      opens.push(Number(await shown.jsonValue()));
+      pages.push({ page, cdp: await context.newCDPSession(page) });
+      await settledAt(page).catch(() => undefined);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const live = pages.filter(({ page }) => !page.isClosed());
+    const after = await sample(live);
+    const perChatHeap = (after.heap - before.heap) / live.length;
+    const perChatMB = (after.mb - before.mb) / live.length;
+    const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
+    const [p50, p95] = [percentile(opens, 0.5), percentile(opens, 0.95)];
+    console.log(
+      `chat-pages-memory: churn ${CHURN} rounds, ${live.length} open, collection ${mode}: js heap ${before.heap.toFixed(1)} -> ${after.heap.toFixed(1)} MB (${perChatHeap >= 0 ? "+" : ""}${perChatHeap.toFixed(1)} MB a chat), renderer ${before.mb.toFixed(1)} -> ${after.mb.toFixed(1)} MB (${perChatMB >= 0 ? "+" : ""}${perChatMB.toFixed(1)} MB a chat); each collection reclaimed ${mean(reclaimed).toFixed(1)} MB in ${mean(pauses).toFixed(0)} ms (mean); a chat opened after it draws its newest reply in p50 ${p50.toFixed(0)} ms, p95 ${p95.toFixed(0)} ms`,
+    );
+    perfRow({
+      name: `chat_pages_memory.churn.${mode}.heap_mb_per_chat`,
+      p50: perChatHeap,
+      p95: perChatHeap,
+      unit: "MB",
+    });
+    perfRow({
+      name: `chat_pages_memory.churn.${mode}.renderer_mb_per_chat`,
+      p50: perChatMB,
+      p95: perChatMB,
+      unit: "MB",
+    });
+    perfRow({
+      name: `chat_pages_memory.churn.${mode}.reclaimed_mb`,
+      p50: percentile(reclaimed, 0.5),
+      p95: percentile(reclaimed, 0.95),
+      unit: "MB",
+    });
+    perfRow({
+      name: `chat_pages_memory.churn.${mode}.pause`,
+      p50: percentile(pauses, 0.5),
+      p95: percentile(pauses, 0.95),
+      unit: "ms",
+    });
+    perfRow({ name: `chat_pages_memory.churn.${mode}.open`, p50, p95, unit: "ms" });
   }
   if (warmLoads.length) {
     const sorted = [...warmLoads].sort((a, b) => a - b);
