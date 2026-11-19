@@ -324,6 +324,10 @@ place_companion "$agent_screen_detection_src" cmux-agent-screen-detection
 if (( ${#folded_hosts[@]} )); then
   "$repo_root/scripts/cmux-next/link-folded-hosts.sh" "$dest_dir" "${folded_hosts[@]}"
 fi
+# The Home Chief (CMUX-570): a bin/optchat-chief copy or link from an earlier
+# build matches this bin/cmux (link-optchat-chief.sh; the "Bundle
+# optchat-chief" phase after this one places a new copy and links it again).
+"$repo_root/scripts/cmux-next/link-optchat-chief.sh" "$dest_dir"
 if [[ ! -f "$version_file" ]] || [[ "$(cat "$version_file")" != "${version_text%$'\n'}" ]]; then
   printf '%s' "$version_text" > "$version_file"
 fi

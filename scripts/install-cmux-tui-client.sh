@@ -280,6 +280,9 @@ folded_hosts=()
 fold_hosts() {
   local name
   folded_hosts=()
+  # The Home Chief too, when the app already bundles its copy (bundle-optchat-chief.sh runs before this in the
+  # nightly and release builds): bin/optchat-chief becomes a link when the client carries it (CMUX-570).
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/link-optchat-chief.sh" "$DEST_DIR"
   "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/link-folded-hosts.sh" --probe "$DEST" || return 0
   for name in "${COMPANIONS[@]}"; do
     [[ "$name" == cmux-app-host || "$name" == cmux-browser-host ]] && folded_hosts+=("$name")

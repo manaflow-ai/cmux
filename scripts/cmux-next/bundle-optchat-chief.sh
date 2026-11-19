@@ -59,6 +59,12 @@ cp "$src" "$dest"
 chmod 755 "$dest"
 cp -f "$src.ref" "$dest.version" 2>/dev/null || true
 echo "bundled optchat-chief from $src"
+# When bin/cmux (the "Bundle cmux-tui" phase, before this one) runs the Chief
+# by argv[0], the copy becomes a link to it (CMUX-570, -15 MB). The nightly
+# installs bin/cmux after this; install-cmux-tui-client.sh links it there.
+if [[ -f "$dest_dir/cmux" && ! -L "$dest_dir/cmux" ]]; then
+  "$repo_root/scripts/cmux-next/link-optchat-chief.sh" "$dest_dir"
+fi
 
 # The Chief's codex (the cmux codex fork) beside it, in its own directory so
 # it never shadows the user's `codex` on a PATH that holds Resources/bin.

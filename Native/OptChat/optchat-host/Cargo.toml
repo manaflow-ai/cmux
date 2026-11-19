@@ -17,7 +17,10 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 ureq = { version = "2", features = ["json"] }
 libc = "0.2"
 # The memory store: one SQLite file per Chief home (bundled SQLite with FTS5).
-rusqlite = { version = "0.32", features = ["bundled"] }
+# 0.39: the one cmux-tui pins (=0.39.0; its graph allows one `links = "sqlite3"`), so the
+# multicall bin/cmux can carry the Chief (CMUX-570). `fallible_uint` keeps the u64/usize
+# conversions 0.32 had built in.
+rusqlite = { version = "0.39", features = ["bundled", "fallible_uint"] }
 
 [dev-dependencies]
 tempfile = "3"

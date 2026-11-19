@@ -58,7 +58,10 @@ x25519-dalek = { version = "2", features = ["static_secrets"] }
 sha2 = "0.10"
 # `move`: consistent SQLite copies (VACUUM INTO) and row counts; the same
 # rusqlite optchat-host links.
-rusqlite = { version = "0.32", features = ["bundled"] }
+# 0.39: the one cmux-tui pins (=0.39.0; its graph allows one `links = "sqlite3"`), so the
+# multicall bin/cmux can carry the Chief (CMUX-570). `fallible_uint` keeps the u64/usize
+# conversions 0.32 had built in.
+rusqlite = { version = "0.39", features = ["bundled", "fallible_uint"] }
 # The four fingerprint words, the same list and derivation the app shows.
 cmux-server-core = { path = "../../../cmux-tui/crates/cmux-server-core" }
 # The longest socket path every host binds (src/acpmux_daemon.rs).

@@ -1849,6 +1849,10 @@ pub fn main() -> std::process::ExitCode {
         // The status the standalone host binaries' `process::exit` gives: its low 8 bits.
         return std::process::ExitCode::from(u8::try_from(code & 0xff).unwrap_or(u8::MAX));
     }
+    #[cfg(all(unix, any(target_os = "macos", feature = "fold-optchat-chief")))]
+    if let Some(code) = run_folded_chief() {
+        return code;
+    }
     cmux_tui_core::startup_timings::process_mark("process.start");
     // SAFETY: the first statements of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
@@ -1900,6 +1904,18 @@ fn run_folded_host() -> Option<i32> {
         "cmux-app-host" => Some(cmux_app_host::entry::run(&args())),
         _ => None,
     }
+}
+
+/// The cmux-next Home Chief (`optchat-chief`, a link beside bin/cmux;
+/// CMUX-570): run when argv[0]'s file name is the Chief's, before any cmux
+/// setup. Its re-runs (each turn's MCP server, `chief` shim, `move --detach`)
+/// take the link, not this binary's path (optchat-chief `self_exe`). The
+/// macOS build carries it; another unix only with `fold-optchat-chief`.
+#[cfg(all(unix, any(target_os = "macos", feature = "fold-optchat-chief")))]
+fn run_folded_chief() -> Option<std::process::ExitCode> {
+    let argv0 = std::env::args_os().next()?;
+    (Path::new(&argv0).file_name()? == "optchat-chief")
+        .then(|| optchat_chief::entry::run_folded(&argv0))
 }
 
 /// The `cmux_tui.dll` entry point (cx-w0uha) that the thin Windows

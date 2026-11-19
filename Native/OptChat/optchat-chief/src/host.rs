@@ -47,10 +47,15 @@ const NATIVE_MODEL: &str = "claude-opus-5-5";
 const BASH_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// The commit this binary was built from (`OPTCHAT_BUILD_COMMIT` at build
-/// time), so host.log shows which code a dogfood run is.
+/// time), so host.log shows which code a dogfood run is. Folded into the
+/// multicall bin/cmux (CMUX-570), cmux-tui's build stamps the commit instead
+/// (`CMUX_TUI_BUILD_COMMIT`, the same tree).
 const BUILD: &str = match option_env!("OPTCHAT_BUILD_COMMIT") {
     Some(commit) => commit,
-    None => "unknown",
+    None => match option_env!("CMUX_TUI_BUILD_COMMIT") {
+        Some(commit) => commit,
+        None => "unknown",
+    },
 };
 
 /// The turn harness and the compactor harness: `OPTCHAT_CHIEF_HARNESS`, else
@@ -748,7 +753,12 @@ fn start(
     daemon_socket: &str,
     source: Source,
 ) -> Result<String, String> {
-    let exe = std::env::current_exe()
+    // The command each turn's MCP server, `chief` shim and rights hooks run:
+    // this program again, as the Chief (self_exe: the `optchat-chief` link
+    // when bin/cmux runs it). The update watch below watches the file that
+    // runs, the multicall binary then.
+    let exe = crate::self_exe::canonical().map_err(|e| format!("finding this executable: {e}"))?;
+    let binary = std::env::current_exe()
         .and_then(|p| p.canonicalize())
         .map_err(|e| format!("finding this executable: {e}"))?;
     let acpmux_socket = crate::acpmux_daemon::socket_path();
@@ -896,7 +906,7 @@ fn start(
     // under the telemetry choice, re-read every few minutes.
     {
         let cloud = matches!(source, Source::Cloud { .. });
-        let exe = std::env::current_exe().ok();
+        let exe = crate::self_exe::path().ok();
         let channel = crate::analytics::channel(
             if cloud { "cloud" } else { "local" },
             &|k| std::env::var(k).ok(),
@@ -1131,7 +1141,7 @@ fn start(
     // and the relaunched app keeps a host that holds the lock: hand off once no
     // turn runs (update_watch.rs). OPTCHAT_BINARY_WATCH=0 turns it off.
     if env("OPTCHAT_BINARY_WATCH").as_deref() != Some("0") {
-        watch_binary(&exe, tx.clone());
+        watch_binary(&binary, tx.clone());
     }
     // Turn sessions get their own Claude Code configuration (section 7: a
     // fresh call with nothing carried over). OPTCHAT_CHIEF_ISOLATE=0 turns it
