@@ -406,3 +406,43 @@ fn with_no_theme_file_nothing_changes() {
     assert_eq!(state.effective().root, plain.root);
     assert!(state.theme_file().is_none());
 }
+
+/// #44894: a key the person changed in Settings while the theme file sets it
+/// (`appearance.themeFileExceptions`) keeps the person's value; the file still
+/// applies everywhere else, as the Mac app's `ThemeFileOverlay` does.
+#[test]
+fn the_settings_owner_keeps_the_keys_changed_over_the_theme_file() {
+    use crate::managed::{FixedManagedReader, ManagedPreferences};
+    use crate::owner::ConfigStore;
+
+    let dir = std::env::temp_dir().join(format!("cmux-theme-exceptions-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("themes")).expect("dir");
+    let settings = dir.join("cmux-next.json");
+    std::fs::write(
+        &settings,
+        r#"{ "ui": { "reducedBackgrounds": false },
+             "appearance": { "themeFile": "tokyo", "backgroundOpacity": 0.6,
+                             "themeFileExceptions": ["appearance.backgroundOpacity", "ui.reducedBackgrounds"] } }"#,
+    )
+    .expect("write");
+    std::fs::write(
+        dir.join("themes/tokyo.json"),
+        r#"{ "ui.reducedBackgrounds": true, "appearance.backgroundOpacity": 0.85, "appearance.accent": "blue" }"#,
+    )
+    .expect("write");
+    let store = ConfigStore::open(
+        settings,
+        None,
+        None,
+        Box::new(FixedManagedReader(ManagedPreferences::default())),
+    );
+    let root = store.state().effective().root.clone();
+    assert_eq!(at(&root, "appearance.backgroundOpacity"), Some(&json!(0.6)));
+    assert_eq!(at(&root, "ui.reducedBackgrounds"), Some(&json!(false)));
+    assert_eq!(at(&root, "appearance.accent"), Some(&json!("blue")));
+    // A theme file never sets the list itself.
+    let file = overlay(r#"{ "appearance.themeFileExceptions": ["appearance.accent"] }"#);
+    assert!(file.keys().is_empty(), "{:?}", file.keys());
+    let _ = std::fs::remove_dir_all(&dir);
+}
