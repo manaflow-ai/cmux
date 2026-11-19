@@ -76,7 +76,15 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     let answer: unknown = null;
     const keep = (body: unknown) => Effect.sync(() => { answer = body; });
     const sourceId = source === undefined ? null : upstreamIdOf(source.owns);
-    const imageId = image === undefined ? null : vmImageEvidenceOf(image).snapshotId;
+    const sourceDigest = (id: string) => digest(JSON.stringify(["source", id]));
+    // An approved image revision may have two snapshots of one bake (its own and a large one, proofs/vm-image.ts).
+    // A first attempt boots the one the proof chose. A resumed creation keeps the one it was journaled from, named
+    // by its retained source digest: the switch may have changed or the entry gained a large snapshot since, and the
+    // VM that attempt may have made is found and checked as what it is, never created a second time from the other.
+    const approved = image === undefined ? null : vmImageEvidenceOf(image);
+    const booted = approved?.other !== undefined && journal.source !== null && (yield* sourceDigest(approved.other.snapshotId)) === journal.source ? approved.other : approved;
+    const imageId = booted?.snapshotId ?? null;
+    if (phases !== undefined && booted !== null) phases["imageVariant"] = booted.variant;
     if (sourceId !== null && imageId !== null) return yield* Effect.fail(new UpstreamError({ operation: "createVm", status: 400 }));
     const slug = `cmux-vm-${config.environment}-${spec.cmuxId.replace("_", "-")}`;
     const metadata: Record<string, string> = { cmux_id: spec.cmuxId, cmux_env: spec.environment };
@@ -111,7 +119,7 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
       provider: yield* providerContext(config),
       environment: config.environment,
       request,
-      ...((sourceId ?? imageId) === null ? {} : { source: yield* digest(JSON.stringify(["source", sourceId ?? imageId])) }),
+      ...((sourceId ?? imageId) === null ? {} : { source: yield* sourceDigest(String(sourceId ?? imageId)) }),
     });
     // A receipt that differs from the request can never be committed: recovery checks the same fields. When the answer
     // to this request's own POST describes a VM that is provably this creation's (exact slug and every metadata value
@@ -142,9 +150,22 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     // read fails the create with its own error, a recovered VM is the answer whatever the image read said, and only
     // when nothing was recovered does a failed image read fail the create, before anything is sent. The image read's
     // verdict is held as a value so that it cannot fail the pair.
+    //
+    // With `withoutReads` (the caller's switch) neither read is made on a first attempt:
+    // - The exact-slug read finds a VM an earlier attempt under this key made and lost the answer of. The slug carries
+    //   the VM id, and an id minted in this request has been sent to the provider by no one, so there is nothing to
+    //   find. A resumed creation (journal.minted false) reads first as before, and the read after a failed create
+    //   below is kept for every attempt.
+    // - The boot image read finds a listed snapshot the provider no longer has before anything is sent. The create's
+    //   answer is already held to the approved snapshot (`matches`: any other snapshot id deletes the VM and fails the
+    //   create, cmux#35013), which is what covered a snapshot deleted between the read and the create. So without the
+    //   read a missing snapshot is the provider's refusal of the create (marked rejected once the exact slug answers
+    //   404), or a VM booted from anything else, deleted: nothing is recorded either way, and the caller sees the
+    //   same 503.
+    const readFirst = spec.withoutReads !== true;
     const [existing, imageVerdict] = yield* Effect.all([
-      timedPhase(phases, "recoverMs", recover),
-      imageId === null ? Effect.succeed(Either.void) : timedPhase(phases, "verifyImageMs", Effect.either(verifyImage(imageId))),
+      readFirst || !journal.minted ? timedPhase(phases, "recoverMs", recover) : Effect.succeed(Option.none<typeof Receipt.Type>()),
+      imageId === null || !readFirst ? Effect.succeed(Either.void) : timedPhase(phases, "verifyImageMs", Effect.either(verifyImage(imageId))),
     ], { concurrency: "unbounded" });
     if (phases !== undefined) phases["recovered"] = Option.isSome(existing);
     const created = Option.isSome(existing) ? existing.value : yield* Effect.gen(function* () {

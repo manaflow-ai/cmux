@@ -376,6 +376,43 @@ check that receipt because an older API may ignore `image`. With the same retry
 key, a changed revision or backing snapshot produces 409 within the existing
 24-hour idempotency window. Omitted image keeps ordinary creation unchanged.
 
+### One provider call per create
+
+An image create that asks for a size boots the image's own snapshot (baked
+small) and is then resized, after two provider reads: four provider calls. Two
+switches, each a Worker var listing service key ids (`CMUX_VM_SERVICE_KEYS`
+ids), remove all but the create for those services. Unset, nothing changes.
+
+- `CMUX_VM_SIZED_IMAGE_SERVICE_IDS`: an entry of `VM_BOOT_IMAGES` may carry
+  `"large": { "snapshotId": "...", "vcpus": 4, "memoryMib": 16384, "diskMib": 65536 }`,
+  a second snapshot of the same bake taken after its builder was grown to that
+  size (`web/scripts/cmux-vm-image/large-image.ts`). A listed service's create
+  that names the image and asks for exactly that size on all three axes boots
+  it, so the VM is at its size from the create and no resize is sent. The
+  resize is decided by the provider's answer, not by the entry: a VM that
+  boots smaller is still grown. Any other size, a create that names no size
+  and an image without `large` boot the image's own snapshot as before. The
+  receipt is the same either way (`bootImage` id and revision, exact
+  `resources`); the large snapshot's id is never returned. A malformed `large`
+  is dropped and the image stays listed. Publish `large` together with its
+  revision. A create in flight when the switch changes, or when an entry
+  gains `large`, still recovers: a retry keeps the snapshot its first attempt
+  was journaled from.
+- `CMUX_VM_CREATE_NO_READS_SERVICE_IDS`: a listed service's create sends no
+  provider read first. The exact-slug read is skipped only when the VM id was
+  minted in that request (no earlier attempt can have created its slug); a
+  retry under the same key, and a fork resumed from its capture, read first as
+  before, and the read after a failed create stays. The boot image read is
+  skipped on every attempt: the create's answer must name the approved
+  snapshot, and a VM that names another is deleted and the create fails, so a
+  snapshot the provider no longer has is 503 with nothing recorded, as before,
+  found by the create instead of a read before it.
+
+The staging Worker lists `cloud-platform-dev` in both (it also serves
+cmux-platform staging, which stays as before); production lists none. The
+`vm_create` line (Operations) says what each create did: `imageVariant`, and
+null `recoverMs`, `verifyImageMs` and `resizeMs` for a call that was not made.
+
 The operator CLI supports `cmux-vm image list --json` and
 `cmux-vm create --image cloud-standard --image-revision r1 --json`.
 `--public-egress` separately requests outbound access and requires `vm:network`.
@@ -614,9 +651,13 @@ public VM id (and mesh id) and no tenant, provider id or request body.
 - `vm_create`: one per `POST /v1/vms` (or fork) that reached the provider,
   success or failure (`ok`). `recoverMs` (the exact-slug read), `verifyImageMs`
   (the boot image read, in flight with it; null without an approved image),
+  both null when the read was not made ("One provider call per create"),
+  `imageVariant` (`large` or `base`: which snapshot of an approved image
+  booted; null without one),
   `createMs` (the provider create; null when the VM was recovered),
   `recoverAfterMs` (the read after a failed create; null otherwise),
-  `resizeMs` (null without a grow), `recordMs` (the ownership write),
+  `resizeMs` (null without a grow: the VM booted at the size asked),
+  `recordMs` (the ownership write),
   `preMs` (handler entry to the first provider call: validation, idempotency,
   quota), `totalMs`, `recovered`, `meshAtCreate` (with `meshId`, `meshJoined`
   and `memberMs` when a mesh was named), and the provider's own

@@ -228,9 +228,9 @@ describe("a create with no provider read before it", () => {
   it("reads the exact slug first on a retry of a create the provider refused, then creates once", async () => {
     await harness(NO_READS);
     const key = await serviceKey();
-    h.upstream.fail("create", 500);
+    h.upstream.fail("create", 400);
     expect((await imageCreate(key, undefined, "one-call-refused")).status).toBe(503);
-    // The failed create is followed by its exact-slug read, as before: a 5xx does not prove nothing was made.
+    // The refused create is followed by its exact-slug read, as before: only a 404 there proves nothing was made.
     expect(providerCalls()).toEqual(["POST /v5/vms", "GET /v5/vms/<slug>"]);
     expect((await imageCreate(key, undefined, "one-call-refused")).status).toBe(201);
     expect(providerCalls()).toEqual(["POST /v5/vms", "GET /v5/vms/<slug>", "GET /v5/vms/<slug>", "POST /v5/vms"]);
