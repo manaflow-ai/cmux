@@ -173,7 +173,7 @@
 .acpmux-quick-menu .ui-menu-group-label {
   display: block;
   padding: 4px var(--ui-row-padding-inline) 2px;
-  color: var(--agent-muted);
+  color: var(--menu-label-color, var(--agent-muted));
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
@@ -181,7 +181,7 @@
 .acpmux-quick-menu .ui-separator {
   height: 0;
   margin: 4px var(--ui-row-padding-inline);
-  border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border-block-start: var(--cmux-hairline, 0.5px) solid var(--menu-separator, var(--agent-border));
 }
 /* The agent pane does not load src/ui/ui.css. Model rows use an explicit trailing column, so every
    shortcut digit stays right-aligned even when the names have different lengths. */

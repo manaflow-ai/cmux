@@ -155,6 +155,12 @@
      side by side (gallery ui.menu-material). */
   --host-glass-fill: color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-host-veil) * 100%), transparent);
 }
+/* A look's menu fill (--menu-fill, ui/README.md "Menu tokens a look sets"): a menu's and popover's
+   tint, on the page's glass and on the App's. Unset: the level's own, above. */
+.ui-popup.ui-glass {
+  --glass-tint: var(--menu-fill, color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent));
+  --host-glass-fill: var(--menu-fill, color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-host-veil) * 100%), transparent));
+}
 :root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) :is(.ui-popup, .ui-card, .ui-dialog).ui-glass {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
   --glass-backdrop: var(--ds-glass-lens-blur);

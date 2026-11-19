@@ -428,7 +428,7 @@ export function MenuPopup({
         collisionPadding={padding}
         {...(collisionBoundary ? { collisionBoundary } : {})}
         align={align}
-        sideOffset={UI_ANCHOR_GAP}
+        sideOffset={nested ? submenuOffset : UI_ANCHOR_GAP}
       >
         <BaseMenu.Popup
           // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
@@ -512,6 +512,14 @@ function focusAfterClose(
   return false;
 }
 
+/** A submenu's distance from its menu: a look's `--menu-submenu-offset` (px, on :root; negative
+ *  overlaps the menu), else the gap every anchored menu takes. Read as the submenu is placed, so a
+ *  look's stylesheet applies on the next open with no reload. */
+function submenuOffset(): number {
+  const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--menu-submenu-offset"));
+  return Number.isFinite(value) ? value : UI_ANCHOR_GAP;
+}
+
 /** What a menu opened from: its `anchor` (an element or a virtual anchor), else its open trigger. */
 function anchorElement(anchor: MenuPopupProps["anchor"], popup: HTMLElement | null): AnchorBox | null {
   const resolved = typeof anchor === "function" ? anchor() : anchor && "current" in anchor ? anchor.current : anchor;
@@ -527,6 +535,8 @@ export interface MenuItemProps {
   "data-value"?: string;
   disabled?: boolean;
   shortcut?: ReactNode;
+  /** A second, quieter line under the row's title (`children`, the title's text). */
+  subtitle?: ReactNode;
   onPointerMove?(event: PointerEvent<HTMLElement>): void;
   onPointerEnter?(event: PointerEvent<HTMLElement>): void;
   onPointerLeave?(event: PointerEvent<HTMLElement>): void;
@@ -543,6 +553,7 @@ export function MenuItem({
   "data-value": dataValue,
   disabled,
   shortcut,
+  subtitle,
   onPointerMove,
   onPointerEnter,
   onPointerLeave,
@@ -598,7 +609,14 @@ export function MenuItem({
         onSelect?.(event);
       }}
     >
-      {children}
+      {subtitle ? (
+        <span className="ui-menu-text">
+          <span className="ui-menu-label">{children}</span>
+          <span className="ui-menu-subtitle">{subtitle}</span>
+        </span>
+      ) : (
+        children
+      )}
       {shortcut ? <span className="ui-menu-shortcut">{shortcut}</span> : null}
     </BaseMenu.Item>
   );
