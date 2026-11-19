@@ -134,20 +134,26 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
 
   type Rect = { top: number; bottom: number; left: number; right: number };
   type Frame = {
+    at: "painted" | "callbacks";
     step: string;
     composer?: Rect;
     subagent: boolean;
     pill?: Rect;
     row?: { id: string; rect: Rect };
   };
-  /// Starts sampling every frame into `window.__frames`, each tagged with `window.__step`.
+  /// Starts sampling every frame into `window.__frames`, each tagged with `window.__step`, twice: as
+  /// the frame painted it (`cmuxAfterPaint`, support/paintedFrames.ts) and as the frame's own
+  /// callbacks see it (`callbacks`: before the frame's layout and ResizeObservers, where the follow
+  /// chase and the pinned live line read the rows). A transcript shown again stands in its final
+  /// place for both: a state the callbacks read and an observer then corrects is a frame in which
+  /// everything that draws per frame drew from rows that were not where they end up.
   const sample = (page: Page) =>
     page.evaluate(() => {
       const w = window as unknown as {
         __frames: unknown[];
         __step: string;
         __stop?: () => void;
-        cmuxAfterPaint: (read: () => boolean | void) => () => void;
+        cmuxAfterPaint: (read: () => boolean | void, drive?: () => void) => () => void;
       };
       w.__frames = [];
       w.__step = "open-subagent";
@@ -156,18 +162,22 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
         const r = node.getBoundingClientRect();
         return r.width || r.height ? { top: r.top, bottom: r.bottom, left: r.left, right: r.right } : undefined;
       };
-      // Each frame as it painted (support/paintedFrames.ts), not as its callbacks saw it.
-      w.__stop = w.cmuxAfterPaint(() => {
+      const read = (at: "painted" | "callbacks") => {
         const rows = document.querySelectorAll("[data-row-id]");
         const last = rows[rows.length - 1];
         w.__frames.push({
+          at,
           step: w.__step,
           composer: rect(document.querySelector(".acpmux-composer-box")),
           subagent: Boolean(document.querySelector(".acpmux-subagent-composer")),
           pill: rect(document.querySelector(".cv-subagent-of")),
           row: last ? { id: last.getAttribute("data-row-id") ?? "", rect: rect(last) } : undefined,
         });
-      });
+      };
+      w.__stop = w.cmuxAfterPaint(
+        () => read("painted"),
+        () => read("callbacks"),
+      );
     });
   const step = (page: Page, name: string) =>
     page.evaluate((name) => ((window as unknown as { __step: string }).__step = name), name);
@@ -272,22 +282,32 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
         "Please also check that the rebased branch still passes the gallery's undeclared-move run before it lands, and say which states changed and by how many pixels each one moved, then post the table on the pull request so the reviewer sees it before the merge",
       );
       await settle(page, 30);
-      const all = await frames(page);
+      const sampled = await frames(page);
+      const all = sampled.filter((frame) => frame.at === "painted");
       const result = table(all);
+      const inCallbacks = table(sampled.filter((frame) => frame.at === "callbacks"));
       for (const [name, value] of Object.entries(result))
-        console.log(`LAYOUT-MOTION subagent step=${name} ${JSON.stringify(value)}`);
+        console.log(
+          `LAYOUT-MOTION subagent step=${name} ${JSON.stringify(value)} callbacksLastRow=${inCallbacks[name]?.lastRow ?? 0}`,
+        );
       expect(all.some((frame) => frame.subagent)).toBe(true);
       // Nothing moves but the composer's own growth while the prompt wraps.
       for (const name of ["open-subagent", "stream", "to-chat", "to-subagent"]) {
         expect({ step: name, composer: result[name]?.composer ?? 0 }).toEqual({ step: name, composer: 0 });
         expect({ step: name, pill: result[name]?.pill ?? 0 }).toEqual({ step: name, pill: 0 });
       }
-      // The transcript's last row holds still in the subagent's view. Back on the chat (`to-chat`) the
-      // chat's own transcript remounts and its last row rises once by about 28 px a frame after it
-      // first draws (its scroll height grows with no row added): the chat view's, on the base too,
-      // measured here and left to its own fix.
-      for (const name of ["open-subagent", "stream", "to-subagent", "type-wrap"])
+      // The transcript's last row holds still in every step, painted and as the frame's callbacks read
+      // it. Back on the chat (`to-chat`) the chat's hat comes over the composer in the switch's commit:
+      // its room is read in that commit (VirtualTranscript `measureDock`), so the last row stands over
+      // it before the next frame's callbacks run. Read by the stack's ResizeObserver instead, the
+      // callbacks found the row 28 px low (the hat's height) and the observer moved it up after them.
+      for (const name of ["open-subagent", "stream", "to-chat", "to-subagent", "type-wrap"]) {
         expect({ step: name, lastRow: result[name]?.lastRow ?? 0 }).toEqual({ step: name, lastRow: 0 });
+        expect({ step: name, callbacksLastRow: inCallbacks[name]?.lastRow ?? 0 }).toEqual({
+          step: name,
+          callbacksLastRow: 0,
+        });
+      }
       // The wrap grows the box upward: its bottom edge stays.
       const wrap = all.filter((frame) => frame.step === "type-wrap" && frame.composer);
       const bottoms = wrap.map((frame) => frame.composer!.bottom);
