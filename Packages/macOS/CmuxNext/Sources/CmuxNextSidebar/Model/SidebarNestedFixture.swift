@@ -142,11 +142,11 @@ public nonisolated struct SidebarNestedFixture: Sendable {
     }
 
     /// The thread selected in ``Scenario/studio``.
-    public static let studioSelected = WorkspaceID("w-explain-structure")
+    static let studioSelected = WorkspaceID("w-explain-structure")
 
     /// ``Scenario/studio``'s threads, newest first: agent chats in three project folders (Group by Folder draws a
     /// header per project), each with the time its chat last changed (`chatActivity`, the row's age).
-    public static func studioThreads(now: Date) -> [SidebarWorkspace] {
+    static func studioThreads(now: Date) -> [SidebarWorkspace] {
         func thread(_ id: String, _ title: String, _ project: String, minutesAgo: Double, activity: StatusIndicatorState = .idle,
                     status: String? = nil, pullRequest: String? = nil, unread: UnreadState = .none, message: String) -> SidebarWorkspace {
             let folder = "~/Developer/\(project)"
