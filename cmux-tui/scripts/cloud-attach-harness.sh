@@ -18,6 +18,8 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self,*a): pass
 http.server.HTTPServer(("0.0.0.0",8080),H).serve_forever()' &
 srv=$!
+# The server goes with this script however it ends: left running, it held the
+# caller's output open and the caller waited on it for good.
+trap 'kill $srv 2>/dev/null || true' EXIT
 ( sleep "$attach"; ip addr add 10.9.9.1/32 dev lo ) &
 CMUX_ATTACH_URL=http://10.9.9.1:8080/bind "$bin" --ignored --exact cloud_http::tests::attach_harness_request --nocapture 2>&1 | grep attach-harness
-kill $srv

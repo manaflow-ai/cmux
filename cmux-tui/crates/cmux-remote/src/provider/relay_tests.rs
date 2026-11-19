@@ -529,6 +529,72 @@ async fn timed_out_credential_command_reports_its_stderr_length() {
     assert!(message.ends_with("timed out after 200 ms; stderr: 19 bytes"), "{message}");
 }
 
+/// A client ticket command whose answer comes only when the test writes it:
+/// `cat` of a FIFO, a slow peer on tokio's paused clock. The writer is a
+/// blocking task, which keeps the clock from moving on its own (tokio holds
+/// auto-advance while one runs) until `done` is sent: only `advance` moves it.
+#[cfg(unix)]
+fn fifo_ticket_command() -> (
+    tempfile::TempDir,
+    RelayCredentialSource,
+    std::sync::mpsc::Sender<Option<&'static str>>,
+    std::sync::mpsc::Sender<()>,
+    tokio::task::JoinHandle<()>,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let fifo = dir.path().join("ticket");
+    assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+    let source = RelayCredentialSource::command("/bin/cat", [fifo.as_os_str().to_owned()]);
+    let (answer_tx, answer_rx) = std::sync::mpsc::channel::<Option<&'static str>>();
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    let writer = tokio::task::spawn_blocking(move || {
+        if let Ok(Some(answer)) = answer_rx.recv() {
+            std::fs::write(&fifo, answer).unwrap();
+        }
+        let _ = done_rx.recv();
+    });
+    (dir, source, answer_tx, done_tx, writer)
+}
+
+/// A client's ticket command that answers 12 s in (a busy machine, a slow
+/// service) is used: it was killed at a fixed 10 s and asked again from
+/// scratch, so a slow answer never came. No real time passes.
+#[cfg(unix)]
+#[tokio::test(start_paused = true)]
+async fn a_client_ticket_command_answering_after_10_s_is_used() {
+    let (_dir, source, answer, done, writer) = fifo_ticket_command();
+    let started = tokio::time::Instant::now();
+    let fetch = tokio::spawn(async move { source.fetch().await });
+    // The fetch starts its command and its timeout before the clock moves.
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    tokio::time::advance(Duration::from_secs(12)).await;
+    answer.send(Some("slow-ticket\n")).unwrap();
+    let credential = fetch.await.unwrap().unwrap();
+    assert_eq!(credential.expose(), "slow-ticket");
+    assert!(started.elapsed() >= Duration::from_secs(12), "{:?}", started.elapsed());
+    done.send(()).unwrap();
+    writer.await.unwrap();
+}
+
+/// A client's ticket command that never answers still ends, at its bound.
+#[cfg(unix)]
+#[tokio::test(start_paused = true)]
+async fn a_hung_client_ticket_command_still_ends() {
+    let (_dir, source, answer, done, writer) = fifo_ticket_command();
+    let fetch = tokio::spawn(async move { source.fetch().await });
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    tokio::time::advance(DAEMON_TICKET_COMMAND_TIMEOUT).await;
+    let message = fetch.await.unwrap().unwrap_err().to_string();
+    assert!(message.contains("timed out after 35000 ms"), "{message}");
+    drop(answer);
+    done.send(()).unwrap();
+    writer.await.unwrap();
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn background_registration_retries_a_failing_ticket_command_until_shutdown() {
@@ -1001,7 +1067,7 @@ async fn rotating_credentials_refresh_on_connect_authentication_retry() {
         assert!(matches!(
             receive_test_control(&mut failed_control).await,
             RelayControl::Connect { generation: 7, ticket, .. }
-                if ticket == "client-ticket-2"
+                if ticket == "client-ticket-1"
         ));
         send_test_control(
             &mut failed_control,
@@ -1015,13 +1081,13 @@ async fn rotating_credentials_refresh_on_connect_authentication_retry() {
 
         let (stream, _) = listener.accept().await.unwrap();
         let (mut replacement_control, authorization) = accept_with_authorization(stream).await;
-        assert_eq!(authorization, "Bearer client-ticket-3");
+        assert_eq!(authorization, "Bearer client-ticket-2");
         let RelayControl::Connect { lane, generation, ticket, .. } =
             receive_test_control(&mut replacement_control).await
         else {
             panic!("expected client connect on replacement control socket");
         };
-        assert_eq!(ticket, "client-ticket-4");
+        assert_eq!(ticket, "client-ticket-2");
         let circuit = CircuitId("reconnected-circuit".into());
         send_test_control(
             &mut replacement_control,
@@ -1096,7 +1162,9 @@ async fn rotating_credentials_refresh_on_connect_authentication_retry() {
     .unwrap();
     link.send(Bytes::from_static(b"after-reconnect")).await.unwrap();
     assert_eq!(link.receive().await.unwrap().unwrap(), &b"after-reconnect"[..]);
-    assert_eq!(calls.load(AtomicOrdering::SeqCst), 4);
+    // One fetch per control socket: its Connect reuses the ticket it was
+    // opened with, and a refused ticket is fetched afresh for the next socket.
+    assert_eq!(calls.load(AtomicOrdering::SeqCst), 2);
     link.close().await.unwrap();
     group.close().await.unwrap();
     tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();
