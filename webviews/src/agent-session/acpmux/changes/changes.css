@@ -27,9 +27,9 @@
 .acpmux-diff-tool[aria-pressed=true]:active{background:var(--acpmux-step-pressed)}
 .acpmux-review-changes:active,.acpmux-edited-undo:active:not(:disabled),.acpmux-edited-more:active{background:var(--acpmux-step-pressed-on-page)}
 .acpmux-file-menu-item:active{background:var(--acpmux-step-pressed)}
-button.acpmux-edited-file:active{background:color-mix(in srgb,var(--agent-text) 9%,transparent)}
+button.acpmux-edited-file:active{background:var(--ds-color-pressed)}
 .acpmux-file-menu-item[aria-disabled="true"]:active{background:none}
-.acpmux-edited-more:hover{background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
+.acpmux-edited-more:hover{background-image:var(--ds-surface-hover-layer)}
 button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:-1.5px}
 /* The file filter is a field: its edge darkens on hover and takes the accent while typing. */
 .acpmux-diff-filter:hover{border-color:color-mix(in srgb,var(--agent-text) 22%,transparent)}

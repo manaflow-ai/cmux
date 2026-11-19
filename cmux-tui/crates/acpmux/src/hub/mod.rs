@@ -153,6 +153,7 @@ mod peer_row;
 pub(crate) mod v1_source;
 pub use peer_row::PeerRow;
 pub(crate) mod native_history;
+pub(crate) mod page_replies;
 pub(crate) mod row_log;
 pub(crate) mod subagent_transcript;
 mod team_information;
@@ -1287,6 +1288,9 @@ pub struct Hub {
     /// Which predicted next prompts reach the person (`suggestion_gate.rs`): this daemon's own
     /// chats and the peers' chats it relays to its person.
     pub(crate) suggestion_gate: StdMutex<crate::suggestion_gate::Gate>,
+    /// The last few `_acpmux/events` replies, kept while their chat's log is unchanged
+    /// (`page_replies.rs`).
+    pub(crate) page_replies: page_replies::PageReplies,
 }
 
 /// What a cached closed row was built after: every row's changes (`Events::summary_generation`),
@@ -1579,6 +1583,7 @@ impl Hub {
             presence: Default::default(),
             workflow_index: Default::default(),
             suggestion_gate,
+            page_replies: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
