@@ -28,7 +28,8 @@ from-chat `dropped 1` and no letter in that field. A case whose hold ended befor
 report came first, or the hold kept no key) is a `ready` case: it is counted apart and wants `dropped 0` and the
 letter. A form with a second New Tab key and fewer `chord` cases than half of its cases is NOT PROVED.
 
-LIMITS: the cases come after the measure's rows, in the session that the rows left. The app is not the active app
+LIMITS: the cases come after the measure's rows, in the session that the rows left, and a case that would start
+after the run's budget (BUDGET_S) is `not_run`. The app is not the active app
 in the `one-key` launch form. The time of a key is the app's own play of the sequence. A case does not read which
 window was the key window at each key: the hold's log names the responder of a release only.
 """
@@ -42,6 +43,7 @@ SWITCH_WAIT_MS, CLOSE_WAIT_MS = 100.0, 60.0
 FORMS = ("reselect", "three-key", "two-key", "from-chat", "switch-next", "switch-previous", "close-move")
 WANT_DROPPED = {"from-chat": 1}
 NO_CHORD = ("two-key",)
+BUDGET_S = 900.0  # of all cases of a run: a case that would start later is `not_run`
 SETTLE_S = 0.7  # after a sequence: the 3 keys take 70 ms, and the hold's log has each note at once
 DROPPED = re.compile(r"dropped (\d+) key")
 NOT_PROVED = "NOT PROVED: too few chord cases"
@@ -234,11 +236,13 @@ class Letters:
                     record["workspace_not_closed"] = repr(error)
         return record
 
-    def run(self, count, forms=FORMS, say=print):
-        """`count` cases of each form, form after form: {"forms": [each form's verdict], "cases": [each record]}."""
-        report = {"gap_ms": GAP_MS, "forms": [], "cases": []}
+    def run(self, count, forms=FORMS, say=print, budget_s=BUDGET_S, now=time.monotonic):
+        """`count` cases of each form, form after form: {"forms": [each form's verdict], "cases": [each record]}.
+        A case that would start after `budget_s` seconds is `not_run`: the cases cannot use up the step's time."""
+        report, end = {"gap_ms": GAP_MS, "budget_s": budget_s, "forms": [], "cases": []}, now() + budget_s
+        late = f"the budget of the letter cases ({budget_s:.0f} s) ended before this case"
         for form in forms:
-            cases = [self.case(form, index) for index in range(count)]
+            cases = [self.case(form, index) if now() < end else {"form": form, "index": index, "not_run": late} for index in range(count)]
             for record in cases:
                 say("HELD-NEW-TAB-LETTER-CASE " + repr(record))
             report["cases"] += cases
