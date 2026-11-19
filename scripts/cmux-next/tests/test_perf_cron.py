@@ -89,6 +89,17 @@ class CloudClaimRowsTests(unittest.TestCase):
         parsed = cron.rows_of_part(cron.PART_BY_NAME["cloud-claim"], {"rows": list(rows.values())}, budgets_mod, {"rows": {}})
         self.assertEqual(sorted(parsed), sorted(f"cloud.{n}" for n in rows))
 
+    def test_reading_stops_at_the_deadline_and_counts_unread_artifacts(self):
+        arts = {"artifacts": [{"id": i, "name": "cloud-journey-prod-stub", "created_at": "2026-11-19T0%d:00:00Z" % i,
+                               "expired": False} for i in range(1, 4)]}
+        ticks = iter([0, 1, 2, 999])
+        with mock.patch.object(claim_mod, "gh_json", lambda path: arts if "name=cloud-journey-prod-stub" in path else {}), \
+                mock.patch.object(claim_mod, "gh_bytes", side_effect=RuntimeError("refused")), \
+                contextlib.redirect_stderr(io.StringIO()):
+            claims, unread = claim_mod.fetch_claims("o/r", datetime.datetime(2026, 11, 18, tzinfo=datetime.timezone.utc), 24,
+                                                    deadline_s=10, clock=lambda: next(ticks))
+        self.assertEqual((claims, unread), ([], 2))  # newest first; the third waits past the deadline
+
     def test_too_few_ready_claims_make_no_rows_and_no_spare_row_without_a_spare(self):
         few = [{"ready_ms": 40000.0, "spare": False}] * (claim_mod.MIN_SAMPLES - 1) + [{"failed": "create machine"}]
         self.assertEqual(claim_mod.claim_rows(few), [])

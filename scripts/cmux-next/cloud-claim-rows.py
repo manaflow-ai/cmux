@@ -7,7 +7,8 @@ No machine is made here. The hourly production Cloud journey (.github/workflows/
 scripts/cmux-next/cloud-journey.ts) already claims a machine the way the app does every hour, and its probe.json
 artifact carries ready_ms: create (the claim: a warm spare when the platform has one, else a cold create) to the
 agent running, the sum of cloud-journey.ts READY_STEPS (create machine, running, first exec, the login, start agent).
-This reads the newest --samples of those rows within --window-hours (the artifacts keep 3 days) through `gh api`, and
+This reads the newest --samples of those rows within --window-hours (the artifacts keep 3 days) through `gh api` (two
+artifact lists by name, then one download per row), and
 prints PERF_ROW lines, then {"rows": [...]} on a line of its own: the report perf-cron.py's cloud-claim part reads
 (its rows are cloud.claim_to_ready*).
 
@@ -22,16 +23,20 @@ import json
 import os
 import subprocess
 import sys
+import time
 import zipfile
 
 ROW_VERSION = 1
 PERF_ROW_MARK = "PERF_ROW "
-WORKFLOW = "cloud-journey-prod.yml"
 ARTIFACT_PREFIX = "cloud-journey-prod-"
+MODELS = ("stub", "real")
 P50_TARGET_MS = 8000
 P95_TARGET_MS = 15000
 WARM_TARGET_MS = 1000
 MIN_SAMPLES = 5
+# The part's own bound on reading artifacts, well under the Linux part's 1800 s run cap: a clean run read 24 claims'
+# artifacts in 101 s (2026-11-19, a lane VM).
+DEADLINE_S = 240
 # The steps before ready (cloud-journey.ts READY_STEPS): a probe row that failed at one of them is a claim that never
 # got ready; a later failure (the chat) still had its ready_ms.
 READY_STEP_PREFIXES = ("create machine", "running (status)", "first exec", "pass Claude login", "pass Codex login",
@@ -111,35 +116,36 @@ def gh_bytes(path):
     return out.stdout
 
 
-def fetch_claims(repo, since, limit):
-    """The claims of the journey's completed runs since `since`, newest first, scanning until `limit` reached ready."""
-    claims, ready, page = [], 0, 1
-    while ready < limit and page <= 5:
-        runs = gh_json(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?status=completed&per_page=50&page={page}")
-        runs = runs.get("workflow_runs") or []
-        if not runs:
+def fetch_claims(repo, since, limit, deadline_s=DEADLINE_S, clock=time.monotonic):
+    """(claims, unread): the claims of the journey's artifacts made since `since`, newest first, downloading until
+    `limit` reached ready or `deadline_s` passed, and how many artifacts could not be read. The artifacts are listed by
+    name across the repository (one call per model, not one per run)."""
+    started = clock()
+    arts = []
+    for model in MODELS:
+        listed = gh_json(f"repos/{repo}/actions/artifacts?name={ARTIFACT_PREFIX}{model}&per_page=100")
+        arts += [a for a in listed.get("artifacts") or [] if not a.get("expired")
+                 and parse_iso(a["created_at"]) >= since]
+    arts.sort(key=lambda a: a["created_at"], reverse=True)
+    claims, ready, unread = [], 0, 0
+    for art in arts:
+        if ready >= limit:
             break
-        for run in runs:
-            if parse_iso(run["created_at"]) < since:
-                return claims
-            if run.get("conclusion") not in ("success", "failure", "cancelled"):
-                continue
-            arts = gh_json(f"repos/{repo}/actions/runs/{run['id']}/artifacts").get("artifacts") or []
-            for art in arts:
-                if not str(art.get("name") or "").startswith(ARTIFACT_PREFIX) or art.get("expired"):
-                    continue
-                try:
-                    with zipfile.ZipFile(io.BytesIO(gh_bytes(f"repos/{repo}/actions/artifacts/{art['id']}/zip"))) as z:
-                        probe = json.loads(z.read("probe.json").decode())
-                except (KeyError, ValueError, zipfile.BadZipFile, RuntimeError) as e:
-                    print(f"cloud-claim: run {run['id']} {art.get('name')}: no probe.json ({e})", file=sys.stderr)
-                    continue
-                c = claim_of(probe)
-                if c:
-                    claims.append(c)
-                    ready += "ready_ms" in c
-        page += 1
-    return claims
+        if clock() - started > deadline_s:
+            print(f"cloud-claim: stopped reading at the {deadline_s} s deadline", file=sys.stderr)
+            break
+        try:
+            with zipfile.ZipFile(io.BytesIO(gh_bytes(f"repos/{repo}/actions/artifacts/{art['id']}/zip"))) as z:
+                probe = json.loads(z.read("probe.json").decode())
+        except (KeyError, ValueError, zipfile.BadZipFile, RuntimeError) as e:
+            print(f"cloud-claim: artifact {art['id']} {art.get('name')}: no probe.json ({e})", file=sys.stderr)
+            unread += 1
+            continue
+        c = claim_of(probe)
+        if c:
+            claims.append(c)
+            ready += "ready_ms" in c
+    return claims, unread
 
 
 def main(argv=None):
@@ -149,7 +155,7 @@ def main(argv=None):
     ap.add_argument("--window-hours", type=float, default=72)
     o = ap.parse_args(argv)
     since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=o.window_hours)
-    claims = fetch_claims(o.repo, since, o.samples)
+    claims, unread = fetch_claims(o.repo, since, o.samples)
     claims.sort(key=lambda c: str(c.get("at") or ""), reverse=True)
     rows = claim_rows(claims, o.samples)
     ready = [c for c in claims if "ready_ms" in c]
@@ -160,7 +166,11 @@ def main(argv=None):
               file=sys.stderr)
     for r in rows:
         print(PERF_ROW_MARK + json.dumps(r))
-    print(json.dumps({"rows": rows}))
+    report = {"rows": rows}
+    if unread and len(ready) < o.samples:
+        # Fewer claims than asked because artifacts could not be read: the rows count, the report is incomplete.
+        report["failed"] = [{"bench": "cloud-claim", "why": f"{unread} journey artifact(s) not read"}]
+    print(json.dumps(report))
     return 0 if rows else 1
 
 
