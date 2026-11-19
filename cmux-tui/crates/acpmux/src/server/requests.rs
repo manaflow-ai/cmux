@@ -30,6 +30,9 @@ mod settled_attach_tests;
 mod successor;
 mod turn_opener;
 mod workflow_dispatch;
+#[cfg(test)]
+#[path = "requests/zst_log_tests.rs"]
+mod zst_log_tests;
 pub use workflow_dispatch::FEATURE as DURABLE_DISPATCH_FEATURE;
 #[path = "watches.rs"]
 mod watches;
