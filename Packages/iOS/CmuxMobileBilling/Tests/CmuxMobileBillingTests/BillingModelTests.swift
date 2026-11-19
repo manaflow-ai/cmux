@@ -247,6 +247,29 @@ struct BillingRig {
         rig.model.stop()
     }
 
+    /// Ask to Buy approval comes minutes or hours later, after the person
+    /// left the plans screen (whose `onDisappear` dismisses the banner). The
+    /// approval must still complete the purchase and report it.
+    @Test func pendingPurchaseApprovedAfterBannerDismissedStillCompletes() async throws {
+        let rig = await BillingRig()
+        let offer = try await rig.loadedOffer(.pro)
+        await rig.store.configure(purchaseResult: .success(.pending))
+        rig.model.start()
+
+        await rig.model.buy(offer, entryPoint: .settings)
+        #expect(rig.model.purchase == .pending(productID: offer.id))
+        rig.model.dismissResult()
+        #expect(rig.model.purchase == .idle)
+
+        rig.store.emitUpdate(.verified(BillingFixtures.transaction(12)))
+        await rig.store.waitUntilFinished(12)
+        await settle { rig.model.purchase == .completed(.pro) }
+
+        #expect(rig.model.purchase == .completed(.pro))
+        #expect(rig.analytics.names.filter { $0 == "ios_purchase_succeeded" }.count == 1)
+        rig.model.stop()
+    }
+
     @Test func ineligibleAccountLoadsNoOffersAndCannotBuy() async throws {
         let rig = await BillingRig(account: BillingFixtures.account(
             eligible: false,
