@@ -121,6 +121,10 @@ public final class HomeChiefSettingsView: NSView {
     public var onAllSettings: () -> Void = {}
     /// Reopens Home's Set Up cmux checklist after first-run setup ended.
     public var onReviewSetup: () -> Void = {}
+    /// Whether the review link is available for this launch configuration.
+    public var reviewSetupEnabled = true {
+        didSet { reviewSetupButton.isEnabled = reviewSetupEnabled }
+    }
     /// "Switch to …" under where the Chief runs: the app moves the Chief tab to the other host.
     public var onSwitchHost: () -> Void = {}
     /// The brain took a pick (harness, model or effort): the Home list reads the Chiefs' engines again.
@@ -136,6 +140,7 @@ public final class HomeChiefSettingsView: NSView {
     /// The last picture write and whether it saved (Debug: `debug.home.api edit_picture`).
     private var pictureWrite: Task<Void, Never>?
     private var pictureSaved = false
+    private let reviewSetupButton = HomeChiefLinkButton(title: "", target: nil, action: nil)
 
     /// The harness items the picker offers: the official engines (``ChiefBackend/official``:
     /// the user's own Claude login, Codex, Muse Code, and UniiChat, acpmux's built-in `unii`); the
@@ -227,9 +232,12 @@ public final class HomeChiefSettingsView: NSView {
         // The rest of the Chief's settings (the pet, the chat's look, every Chief) live in Settings.
         let allSettings = HomeChiefLinkButton(title: HomeEngineStrings.allChiefSettings, target: self, action: #selector(openAllSettings))
         allSettings.setAccessibilityIdentifier("cmux.home.chief.allSettings")
-        let reviewSetup = HomeChiefLinkButton(title: HomeEngineStrings.reviewSetup, target: self, action: #selector(openReviewSetup))
-        reviewSetup.setAccessibilityIdentifier("cmux.home.chief.reviewSetup")
-        let settingsLinks = NSStackView(views: [reviewSetup, allSettings])
+        reviewSetupButton.title = HomeEngineStrings.reviewSetup
+        reviewSetupButton.target = self
+        reviewSetupButton.action = #selector(openReviewSetup)
+        reviewSetupButton.setAccessibilityIdentifier("cmux.home.chief.reviewSetup")
+        reviewSetupButton.isEnabled = reviewSetupEnabled
+        let settingsLinks = NSStackView(views: [reviewSetupButton, allSettings])
         settingsLinks.orientation = .horizontal
         settingsLinks.spacing = Metrics.space4
         stack.addArrangedSubview(settingsLinks)

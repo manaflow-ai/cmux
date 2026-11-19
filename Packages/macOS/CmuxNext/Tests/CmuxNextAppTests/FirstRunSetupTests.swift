@@ -70,6 +70,7 @@ import Testing
 
         setup.reopen()
         #expect(setup.shows)
+        #expect(setup.isReviewing)
         #expect(defaults.string(forKey: FirstRunSetup.stateKey) == "pending")
         #expect(defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey), "reopening keeps completed rows answered")
     }
@@ -79,6 +80,7 @@ import Testing
         let setup = FirstRunSetup(defaults: defaults, skipsOnboarding: true)
         setup.reopen()
         #expect(!setup.shows)
+        #expect(!setup.isReviewing)
         #expect(defaults.string(forKey: FirstRunSetup.stateKey) == nil)
     }
 

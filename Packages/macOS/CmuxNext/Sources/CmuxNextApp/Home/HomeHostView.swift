@@ -152,6 +152,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         // All Chief Settings…: Settings > Chief, the page with every Chief setting.
         settingsView.onAllSettings = { [weak self, weak services] in self?.settings.close(); try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/chief") }
         settingsView.onReviewSetup = { [weak self, weak services] in self?.settings.close(); services?.onboarding.setup.reopen() }
+        settingsView.reviewSetupEnabled = services.onboarding.setup.canReopen
         settingsView.checkHarness = { [weak services] id in (try? await services?.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true }
         // Every harness this Mac's acpmux has (Settings > Agents' list), after the official engines.
         settingsView.listHarnesses = { [weak services] in (try? await services?.agentHarnesses.listed())?.sorted() ?? [] }

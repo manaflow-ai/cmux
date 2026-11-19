@@ -76,6 +76,14 @@ import Testing
         #expect(opened == 1)
     }
 
+    @Test func reviewSetupCanBeDisabledWhenOnboardingIsSkipped() throws {
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
+        view.reviewSetupEnabled = false
+        let link = try #require(Self.subviews(of: view).compactMap { $0 as? NSButton }
+            .first { $0.accessibilityIdentifier() == "cmux.home.chief.reviewSetup" })
+        #expect(!link.isEnabled)
+    }
+
     private static func subviews(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { subviews(of: $0) }
     }

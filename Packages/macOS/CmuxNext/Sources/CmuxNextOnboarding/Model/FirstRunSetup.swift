@@ -14,6 +14,9 @@ public final class FirstRunSetup {
     public static let stateKey = "home.firstRun.setupCard"
     /// Whether Home shows the card now.
     public private(set) var shows: Bool
+    /// Whether a person explicitly reopened the card to review completed rows. A review stays visible even when
+    /// every row is already complete; a normal first-run card still ends as soon as its rows finish.
+    public private(set) var isReviewing = false
     /// Bring your history showed, or its row was dismissed (``OnboardingWindowPresenter/historyShownKey``).
     public private(set) var historyDone: Bool
     @ObservationIgnored private let defaults: UserDefaults
@@ -29,6 +32,9 @@ public final class FirstRunSetup {
 
     @ObservationIgnored private let skipsOnboarding: Bool
     @ObservationIgnored private var agentsModel: AgentsStepModel?
+
+    /// Whether Home can offer the review link for this launch configuration.
+    public var canReopen: Bool { !skipsOnboarding }
 
     /// The card's agent installs and sign-ins, one for every card this launch: a card made again (another Home
     /// conversation, a new window) shows an install already running, starts no second one, and the install's
@@ -57,6 +63,7 @@ public final class FirstRunSetup {
               !defaults.bool(forKey: OnboardingWindowPresenter.agentsShownKey) else { return false }
         for key in [OnboardingWindowPresenter.agentsShownKey] + replacedKeys { defaults.set(true, forKey: key) }
         defaults.set("pending", forKey: Self.stateKey)
+        isReviewing = false
         shows = true
         return true
     }
@@ -77,6 +84,7 @@ public final class FirstRunSetup {
         guard defaults.string(forKey: Self.stateKey) != "ended" else { return }
         historyAnswered()
         defaults.set("ended", forKey: Self.stateKey)
+        isReviewing = false
         shows = false
     }
 
@@ -85,6 +93,7 @@ public final class FirstRunSetup {
     public func reopen() {
         guard !skipsOnboarding else { return }
         defaults.set("pending", forKey: Self.stateKey)
+        isReviewing = true
         shows = true
     }
 }
