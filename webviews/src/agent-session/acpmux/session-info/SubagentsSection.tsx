@@ -8,7 +8,7 @@
 // (App.tsx `showSubagent`), a chat beside this one (`chat.offer.open`); its hover card names it and
 // says its state and its task. The live counts sit in the section's head ("3 running · 40 done",
 // `subagentCounts`).
-import { useState } from "react";
+import { memo, useCallback, useState } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
@@ -36,6 +36,7 @@ import { heightAbove, useFoldMotion } from "./foldMotion";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { SUBAGENTS_SHOWN, NO_SESSIONS, subagentCounts } from "./subagentsSectionModel";
 import { WindowedRows } from "./WindowedRows";
+import { sameValue } from "./sameValue";
 
 /// The section head's counts on the clock the lines read, so an idle one leaves "running" in both
 /// at once; only this span re-renders on the tick.
@@ -92,7 +93,6 @@ type Line = {
   depth: number;
   /// When it ended (or, for a chat, was made): the ended list's order.
   at: number;
-  open?: () => void;
 };
 
 const live = (status: SubagentStatus) => status === "running" || status === "waiting" || status === "idle";
@@ -158,7 +158,6 @@ export function SubagentsSection({
       mark: foreignHarness(agent.harness, harness, senderBadge),
       depth,
       at: agent.endedAt ?? agent.startedAt,
-      open: onOpen && (() => onOpen(agent.id)),
     };
   };
   const sessionLine = (child: StartedSession): Line => ({
@@ -171,7 +170,6 @@ export function SubagentsSection({
     mark: child.harness,
     depth: 0,
     at: child.createdAt ?? 0,
-    open: onOpenSession && (() => onOpenSession(child.sessionId)),
     resumeRow: subsessionResumeRow(child),
   });
   // The chats waiting on the person lead, then the running subagents in the tray's order (oldest
@@ -194,25 +192,10 @@ export function SubagentsSection({
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
   ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
   const shown = moreFold.drawn ? runningLines : runningLines.slice(0, SUBAGENTS_SHOWN);
-  const line = (item: Line) => lineOf(item, item.agent ?? item.resumeRow);
-  // `resumable`: the row a stopped one's Resume reads, a subagent's or a sub-session's.
-  const lineOf = (item: Line, resumable: Subagent | undefined) => (
-    <li key={item.key}>
-      <AgentLine
-        lean
-        name={item.name}
-        status={item.status}
-        state={item.state}
-        time={item.time}
-        icon={item.icon}
-        mark={item.mark}
-        tone={agentTone(item.identity)}
-        depth={item.depth}
-        onOpen={item.open}
-        card={<AgentCard item={item} />}
-        after={resume && resumable && <ResumeControl agent={resumable} actions={resume} />}
-      />
-    </li>
+  // Each line is its own memo boundary (SubagentLineRow): a tick, a change to another subagent or a
+  // scroll draws only the lines whose words changed.
+  const line = (item: Line) => (
+    <SubagentLineRow key={item.key} item={item} onOpen={onOpen} onOpenSession={onOpenSession} resume={resume} />
   );
   return (
     <div className="acpmux-session-info-subagents">
@@ -257,6 +240,48 @@ export function SubagentsSection({
     </div>
   );
 }
+
+/// One line of the list (a subagent or a started chat), drawn again only when its own words change.
+/// Its open is the section's, which takes the line's id.
+const SubagentLineRow = memo(
+  function SubagentLineRow({
+    item,
+    onOpen,
+    onOpenSession,
+    resume,
+  }: {
+    item: Line;
+    onOpen?: (id: string) => void;
+    onOpenSession?: (sessionId: string) => void;
+    resume?: ResumeActions;
+  }) {
+    const handler = item.agent ? onOpen : onOpenSession;
+    const { identity } = item;
+    const open = useCallback(() => handler?.(identity), [handler, identity]);
+    // `resumable`: the row a stopped one's Resume reads, a subagent's or a sub-session's.
+    const resumable = item.agent ?? item.resumeRow;
+    return (
+      <li>
+        <AgentLine
+          lean
+          name={item.name}
+          status={item.status}
+          state={item.state}
+          time={item.time}
+          icon={item.icon}
+          mark={item.mark}
+          tone={agentTone(item.identity)}
+          depth={item.depth}
+          onOpen={handler ? open : undefined}
+          card={<AgentCard item={item} />}
+          after={resume && resumable && <ResumeControl agent={resumable} actions={resume} />}
+        />
+      </li>
+    );
+  },
+  // A line is built again on each render (and a stopped chat's Resume row with it): compared by value.
+  sameValue,
+);
 
 function AgentCard({ item }: { item: Line }) {
   const progress = useAgentProgress(item.agent) ?? item.progress;
