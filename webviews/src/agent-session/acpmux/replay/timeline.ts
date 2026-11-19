@@ -164,7 +164,14 @@ export function toolMark(
 
 /** The last turn finished by replay time `time`, which Continue from here forks through. */
 export function continueSeq(timeline: ReplayTimeline, time: number): number | undefined {
-  let seq: number | undefined;
-  for (const end of timeline.turnEnds) if (end.time <= time) seq = end.seq;
-  return seq;
+  // A binary search: playback asks every frame, and a long chat has thousands of turns.
+  const { turnEnds } = timeline;
+  let low = 0;
+  let high = turnEnds.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (turnEnds[middle]!.time <= time) low = middle + 1;
+    else high = middle;
+  }
+  return low === 0 ? undefined : turnEnds[low - 1]!.seq;
 }

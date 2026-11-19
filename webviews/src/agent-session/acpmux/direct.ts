@@ -1453,6 +1453,18 @@ export function spanCut(events: readonly EventRecord[], cut: number, spanningFro
   return cut;
 }
 
+/// The index of the first of `events` (seq-sorted) past `seq`: where a forward replay seek resumes.
+export function replayIndexAfter(events: readonly { seq: number }[], seq: number): number {
+  let low = 0;
+  let high = events.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (events[middle]!.seq <= seq) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
 /// Where a rebuild of `events` (held, oldest first) starts folding again: 0 to fold them all, when
 /// they fit `window` (`REBUILD_WINDOW`); else the turn start at or before both the newest `window`
 /// records and `changedFrom`, the oldest record that changed, and before `openSince` (when a
@@ -3956,16 +3968,18 @@ export class AcpmuxDirectClient {
     return client;
   }
 
-  /// Shows the replayed session through `throughSeq`. Moving forward folds only the events since;
-  /// moving back folds again from the start.
+  /// Shows the replayed session through `throughSeq`. Moving forward folds only the events since,
+  /// found by a binary search of the seq-sorted log, so a frame of playback costs the events it
+  /// adds, not the log's length; moving back folds again from the start.
   seekReplay(throughSeq: number): void {
     const from = this.replayThrough ?? 0;
     if (throughSeq === from) return;
     this.replayThrough = throughSeq;
     if (throughSeq < from) this.rebuild();
     else
-      for (const event of this.events) {
-        if (event.seq <= from || event.seq > throughSeq) continue;
+      for (let index = replayIndexAfter(this.events, from); index < this.events.length; index += 1) {
+        const event = this.events[index]!;
+        if (event.seq > throughSeq) break;
         this.lastSeq = event.seq;
         this.firstSeq ??= event.seq;
         this.reduce(event);
