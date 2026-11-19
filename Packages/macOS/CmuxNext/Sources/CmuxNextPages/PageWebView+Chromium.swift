@@ -31,14 +31,14 @@ extension PageWebView {
     /// An off-screen parking view's alpha (``PageOffscreenParking``) does not count either:
     /// a prewarmed page waits there to paint before it is adopted. Nor does any ancestor's alpha
     /// once the page lies wholly outside its window's content (``liesOutsideWindowContent``): its
-    /// child window shows nothing there, and a hidden page drew a held chat only when its paint
-    /// hold gave up (an adopted spare, HQ#5914).
+    /// child window shows nothing there, and a hidden page drew a held chat only when its paint hold gave up (an adopted spare, HQ#5914).
     public func setChromiumVisibility(_ requested: Bool) {
         let visible = requested && window != nil && !isHiddenOrHasHiddenAncestor
             && (liesOutsideWindowContent || sequence(first: self as NSView, next: \.superview).dropFirst()
                 .allSatisfy { $0.alphaValue > 0.001 || $0 is PageOffscreenParking })
-        chromiumSession?.page.setVisible(visible)
+        chromiumSession?.setVisible(visible)
     }
+    public var chromiumShows: Bool { chromiumSession?.shows == true } // what ``setChromiumVisibility(_:)`` told the Chromium page last; false on WebKit
 
     /// Whether the page is laid out wholly outside its window's content (a page held away until it
     /// drew, as an adopted New Tab spare is). A page or window not laid out yet is not.

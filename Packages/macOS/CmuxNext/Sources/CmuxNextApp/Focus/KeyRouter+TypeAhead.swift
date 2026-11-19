@@ -89,6 +89,8 @@ extension KeyRouter {
         }
         decided.add(event)
         typeAhead.append(event.characters ?? "", surface: surface, now: .now)
+        // The queue owes this text to the page's view, not to its tab: the host's mark keeps the view with its tab (`AgentPaneHostTouch`).
+        if case .agent(let view)? = controller.content?.paneController(key: pane)?.currentContent { view.model.hostTouch.mark("type-ahead") }
         typeAheadFocus = TypeAheadWait(focus: focus.resolved, page: surface)
         readiness.whenReady { [weak self, weak readiness] in readiness.map { self?.flushTypeAhead(surface, into: $0) } }
         return true

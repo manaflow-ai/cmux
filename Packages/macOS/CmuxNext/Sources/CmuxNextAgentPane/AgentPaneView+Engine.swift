@@ -39,6 +39,18 @@ extension AgentPaneView {
         return frame.contains(point)
     }
 
+    /// The agent pane in `window` whose Chromium page shows in `page` (its child window): one whose page the app told Chromium to show (``PageWebView/chromiumShows``). A pane has more agent pages at the same place: hidden views, and in a paint hold a new view at alpha 0 above the one that still shows.
+    public static func chromiumAgentPane(under page: NSWindow, in window: NSWindow) -> AgentPaneView? {
+        let center = CGPoint(x: page.frame.midX, y: page.frame.midY)
+        var stack: [NSView] = window.contentView.map { [$0] } ?? []
+        while let view = stack.popLast() {
+            if let pane = view as? AgentPaneView, pane.page?.chromiumShows == true, let content = pane.chromiumPage?.contentView, let host = content.window,
+               host.convertToScreen(content.convert(content.bounds, to: nil)).contains(center) { return pane }
+            stack.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
     private static func screenFrame(of view: NSView) -> CGRect? {
         guard let window = view.window else { return nil }
         return window.convertToScreen(view.convert(view.bounds, to: nil))
