@@ -145,17 +145,23 @@ def all_markers(body: dict) -> list[str]:
 
 
 def inbox_threads(body: dict) -> list[str]:
-    """The threads an inbox notice in the last user message names, when that message holds no tool result
-    yet: the model then reads them, as a coordinator does."""
-    msg = last_user(body)
-    if any(b.get("type") == "tool_result" for b in blocks(msg)):
+    """The next inbox thread to read: of the threads the latest inbox notice names, the first no Bash call
+    since that notice has read. One thread per call, as a coordinator reads them, keeps each read's
+    output under the size Claude Code moves to a file (about 30 KB) instead of showing the model."""
+    messages = body.get("messages") or []
+    at, threads = -1, []
+    for i, msg in enumerate(messages):
+        if msg.get("role") != "user":
+            continue
+        for b in blocks(msg):
+            t = block_text(b)
+            if b.get("type") == "text" and INBOX_NOTICE in t:
+                at, threads = i, list(dict.fromkeys(THREAD.findall(t)))
+    if at < 0:
         return []
-    threads = []
-    for b in blocks(msg):
-        t = block_text(b)
-        if INBOX_NOTICE in t:
-            threads += [x for x in THREAD.findall(t) if x not in threads]
-    return threads
+    read = " ".join(json.dumps(b.get("input")) for msg in messages[at + 1:] if msg.get("role") == "assistant"
+                    for b in blocks(msg) if b.get("type") == "tool_use")
+    return [t for t in threads if f"--thread {shlex.quote(t)} " not in read][:1]
 
 
 def make_handler(ep: Endpoint):
@@ -377,9 +383,23 @@ def main_run(a: argparse.Namespace) -> int:
         log("the daemon did not start; see", out / "daemon.log")
         server.shutdown()
         return 2
+    # A SIGTERM (a stopped task) runs the cleanup below too.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     try:
         return storm(a, out, ep, env, acpmux, version, procs, log)
     finally:
+        run([acpmux, "daemon", "shutdown"], env, 30)
+        # Agent hosts the daemon kept running for a next daemon: this run's alone, by the ACPMUX_HOME
+        # only this run uses.
+        mine = f"ACPMUX_HOME={out / 'acpmux-home'}".encode()
+        for pid_dir in Path("/proc").iterdir():
+            if not pid_dir.name.isdigit() or int(pid_dir.name) == os.getpid():
+                continue
+            try:
+                if mine in (pid_dir / "environ").read_bytes().split(b"\0"):
+                    os.kill(int(pid_dir.name), signal.SIGTERM)
+            except (OSError, ValueError):
+                pass
         for p in reversed(procs):
             if p.poll() is None:
                 try:
