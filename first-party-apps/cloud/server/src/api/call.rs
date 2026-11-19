@@ -7,6 +7,19 @@ use crate::ops::Projection;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+/// Transport provenance is kept separate from the public error code. Only
+/// credential-host refusals guaranteed to precede POST release a fresh intent.
+pub(crate) struct CallFailure {
+    pub(crate) error: CloudError,
+    pub(crate) not_sent: bool,
+}
+
+impl From<CloudError> for CallFailure {
+    fn from(error: CloudError) -> Self {
+        Self { error, not_sent: false }
+    }
+}
+
 pub(crate) struct Ctx<'a, C> {
     control_plane: &'a mut C,
     pub(crate) projection: &'a mut Projection,
@@ -51,7 +64,7 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
             expected_team: None,
             expected_revision: None,
         };
-        self.send(call)
+        self.send(call).map_err(|failure| failure.error)
     }
 
     pub(crate) fn origin(&self) -> Option<&'static str> {
@@ -70,7 +83,7 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
         params: Value,
         scope: &cmux_cloud_client::machine::Scope,
         mutation: Option<(&str, &str)>,
-    ) -> Result<WireResult, CloudError> {
+    ) -> Result<WireResult, CallFailure> {
         self.send(WireCall {
             op: op.to_owned(),
             params,
@@ -82,7 +95,7 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
         })
     }
 
-    fn send(&mut self, call: WireCall) -> Result<WireResult, CloudError> {
+    fn send(&mut self, call: WireCall) -> Result<WireResult, CallFailure> {
         let op = call.op.as_str();
         match self.control_plane.call(&call) {
             Ok(WireReply::Result(result)) => Ok(result),
@@ -90,21 +103,27 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
                 // These are credential-host refusals before POST, not new
                 // backend catalog errors. Keep their final meaning intact.
                 if error.code == "credential.scope_refused" {
-                    return Err(CloudError::new(codes::CONFLICT, error.message));
+                    return Err(CallFailure {
+                        error: CloudError::new(codes::CONFLICT, error.message),
+                        not_sent: true,
+                    });
                 }
                 if error.code == "credential.fence_invalid" {
-                    return Err(CloudError::new(codes::INVALID_ARGS, error.message));
+                    return Err(CallFailure {
+                        error: CloudError::new(codes::INVALID_ARGS, error.message),
+                        not_sent: true,
+                    });
                 }
                 if error.code == "credential.response_invalid" {
-                    return Err(CloudError::new(codes::BAD_RESPONSE, error.message));
+                    return Err(CloudError::new(codes::BAD_RESPONSE, error.message).into());
                 }
                 let error = CloudError::from_wire_for(op, &error);
                 if error.code == codes::AUTH_REQUIRED {
                     self.projection.clear();
                 }
-                Err(error)
+                Err(error.into())
             }
-            Err(e) => Err(self.relay_error(e)),
+            Err(e) => Err(self.relay_error(e).into()),
         }
     }
 

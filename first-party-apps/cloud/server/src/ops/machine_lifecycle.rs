@@ -69,6 +69,7 @@ impl Ledger {
         let team =
             session.team.as_deref().ok_or_else(|| bad("credential relay omitted team identity"))?;
         let scope = Scope::new(backend, Some(team)).map_err(|e| bad(e.to_string()))?;
+        let first_attempt = !self.entries.contains_key(&key);
         if let Some(entry) = self.entries.get(&key) {
             if entry.scope != scope
                 || entry.op != op
@@ -96,35 +97,36 @@ impl Ledger {
             }
             // Always observe authoritatively for a new intent. A cached
             // projection may predate a backend switch or an accepted mutation.
-            let answer =
-                match ctx.fenced_wire("cloud.machine.get", json!({"machine": id}), &scope, None) {
-                    Ok(answer) => answer,
-                    Err(error)
-                        if op == "cloud.machine.delete"
-                            && error.code == codes::NOT_FOUND
-                            && error.upstream_code.as_deref()
-                                == Some("cloud.machine.not_found") =>
-                    {
-                        // Scoped authoritative absence satisfies idempotent cleanup.
-                        // No VM capability or new mutation is fabricated.
-                        ctx.projection.remove(id);
-                        let result = json!({"deleted": true});
-                        self.entries.insert(
-                            key.clone(),
-                            Entry {
-                                scope,
-                                op: op.to_owned(),
-                                machine: id.to_owned(),
-                                origin: ctx.origin(),
-                                pending: None,
-                                result: Some(result.clone()),
-                            },
-                        );
-                        self.completed.push_back(key);
-                        return Ok(result);
-                    }
-                    Err(error) => return Err(error),
-                };
+            let answer = match ctx
+                .fenced_wire("cloud.machine.get", json!({"machine": id}), &scope, None)
+                .map_err(|failure| failure.error)
+            {
+                Ok(answer) => answer,
+                Err(error)
+                    if op == "cloud.machine.delete"
+                        && error.code == codes::NOT_FOUND
+                        && error.upstream_code.as_deref() == Some("cloud.machine.not_found") =>
+                {
+                    // Scoped authoritative absence satisfies idempotent cleanup.
+                    // No VM capability or new mutation is fabricated.
+                    ctx.projection.remove(id);
+                    let result = json!({"deleted": true});
+                    self.entries.insert(
+                        key.clone(),
+                        Entry {
+                            scope,
+                            op: op.to_owned(),
+                            machine: id.to_owned(),
+                            origin: ctx.origin(),
+                            pending: None,
+                            result: Some(result.clone()),
+                        },
+                    );
+                    self.completed.push_back(key);
+                    return Ok(result);
+                }
+                Err(error) => return Err(error),
+            };
             let machine: Machine = decode_answer("cloud.machine.get", answer.value)?;
             if machine.id() != id {
                 return Err(bad("lifecycle observation named another machine"));
@@ -147,12 +149,22 @@ impl Ledger {
         }
         let entry = self.entries.get_mut(&key).expect("inserted lifecycle intent");
         let pending = entry.pending.as_ref().expect("unresolved lifecycle intent");
-        let answer = ctx.fenced_wire(
+        let answer = match ctx.fenced_wire(
             pending.op(),
             pending.params(),
             pending.scope(),
             Some((pending.key(), pending.revision())),
-        )?;
+        ) {
+            Ok(answer) => answer,
+            Err(failure) => {
+                // A local refusal cannot undo an earlier uncertain POST. Only
+                // a first attempt proven not sent may release this capacity.
+                if first_attempt && failure.not_sent {
+                    self.entries.remove(&key);
+                }
+                return Err(failure.error);
+            }
+        };
         let revision = answer.revision.ok_or_else(|| bad("lifecycle mutation omitted revision"))?;
         pending.validate(&answer.value, &revision).map_err(|e| bad(e.to_string()))?;
         // Validate extra fields before consuming the owned request as well.
