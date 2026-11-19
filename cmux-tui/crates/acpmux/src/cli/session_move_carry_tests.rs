@@ -415,7 +415,7 @@ fn worktree_apply_failure_preserves_the_original_index() {
     let before = std::fs::read(dst.path().join(".git/index")).unwrap();
     // Inject a failure only at the final write, after both real preflights and the index apply.
     let failing = APPLY_SCRIPT.replace(
-        "if ! git -c core.fsmonitor=false -C \"$top\" apply --binary --whitespace=nowarn \"$s/patch\"; then",
+        "if ! git -c core.fsmonitor=false -c core.symlinks=true -C \"$top\" apply --binary --whitespace=nowarn \"$s/patch\"; then",
         "if ! false; then",
     );
     assert_ne!(failing, APPLY_SCRIPT);

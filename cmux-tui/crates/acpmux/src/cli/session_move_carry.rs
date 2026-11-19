@@ -318,10 +318,10 @@ if [ -s "$s/intent" ]; then
   fi
 fi
 if [ -s "$s/patch" ]; then
-  git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn --check "$s/patch" || exit 5
+  git -c core.fsmonitor=false -c core.symlinks=true -C "$top" apply --binary --whitespace=nowarn --check "$s/patch" || exit 5
 fi
 if [ -s "$s/staged" ]; then
-  git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn --cached "$s/staged" || exit 5
+  git -c core.fsmonitor=false -c core.symlinks=true -C "$top" apply --binary --whitespace=nowarn --cached "$s/staged" || exit 5
 fi
 if [ -s "$s/intent" ]; then
   # Recreate flags against a scratch worktree with the original modes. The safe
@@ -336,7 +336,7 @@ fi
 # is then a rename on the same filesystem, with no allocation after the worktree changes.
 cp -- "$s/index" "$real.lock" || exit 2
 if [ -s "$s/patch" ]; then
-  if ! git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn "$s/patch"; then
+  if ! git -c core.fsmonitor=false -c core.symlinks=true -C "$top" apply --binary --whitespace=nowarn "$s/patch"; then
     exit 5
   fi
 fi
@@ -345,7 +345,7 @@ trap 'rm -rf -- "$s"' EXIT
 if ! mv -- "$real.lock" "$real"; then
   rm -f -- "$real.lock"
   if [ -s "$s/patch" ]; then
-    git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn --reverse "$s/patch" || exit 6
+    git -c core.fsmonitor=false -c core.symlinks=true -C "$top" apply --binary --whitespace=nowarn --reverse "$s/patch" || exit 6
   fi
   exit 5
 fi"#;
