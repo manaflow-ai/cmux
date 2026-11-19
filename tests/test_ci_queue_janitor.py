@@ -1792,6 +1792,76 @@ class OrphanSweepTests(unittest.TestCase):
         self.assertEqual(fake.posts(), [[str(ghost["id"]), "cancel"]])
 
 
+class LinuxOrphanSweepTests(unittest.TestCase):
+    """Runs of linux-only workflows are never listed for the macOS pools (needs_jobs()); the Linux orphan pass reads
+    the oldest of them past the orphan age and cancels their lost assignments (2026-11-19: feat-cmux-next PR runs'
+    `rust workspaces` jobs sat queued 14 to 24 h on Linux labels that served newer jobs, and no sweep saw them)."""
+
+    def sweep(self, *args, env=None):
+        lost = make_run(age=340, branch="lost", path=".github/workflows/rust.yml", name="Rust")
+        newer = make_run(age=200, branch="newer", path=".github/workflows/rust.yml", name="Rust")
+        young = make_run(age=60, branch="young", path=".github/workflows/rust.yml", name="Rust")
+        nightly = make_run(event="schedule", age=400, branch="main", path=".github/workflows/cmux-tui-nightly.yml",
+                           name="cmux-tui nightly")
+        runs = {r["id"]: dict(r) for r in (lost, newer, young, nightly)}
+        jobs = {lost["id"]: [orphan_job(age=330, name="rust workspaces")], newer["id"]: [served_job(age=150)],
+                young["id"]: [served_job(age=50)], nightly["id"]: [orphan_job(age=390, name="build")]}
+        fake = FakeGitHub(runs, jobs)
+        with tempfile.TemporaryDirectory() as temp:
+            workflows = Path(temp) / "workflows"
+            workflows.mkdir()
+            for name in ("rust.yml", "cmux-tui-nightly.yml"):
+                (workflows / name).write_text("jobs:\n  build:\n    runs-on: ubuntu-24.04\n")
+            summary = Path(temp) / "summary.md"
+            argv = ["--repo", "manaflow-ai/cmux", "--summary", str(summary), "--workflows-dir", str(workflows),
+                    "--max-cancels", "0", *args]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t", **(env or {})}), \
+                    mock.patch.object(janitor.time, "sleep", lambda _: None), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print"):
+                code = janitor.main(argv)
+            return code, fake, summary.read_text(), (lost, newer, young, nightly)
+
+    def read(self, fake, runs):
+        """Which of `runs` had their jobs listed (the superseded-delivery pass reads a few delivery runs itself)."""
+        paths = [path.split("?", 1)[0] for method, path in fake.log if method == "GET"]
+        listed = {int(path.split("/")[-2]) for path in paths if path.endswith("/jobs")}
+        return {run["id"] for run in runs} & listed
+
+    def test_a_lost_linux_assignment_is_cancelled_and_a_delivery_run_never_read(self):
+        code, fake, text, (lost, newer, young, nightly) = self.sweep()
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.posts(), [[str(lost["id"]), "cancel"]])
+        # Past the orphan age only; a nightly, DEV or promote run is counted protected, never a candidate.
+        self.assertEqual(self.read(fake, (lost, newer, young)), {lost["id"], newer["id"]})
+        self.assertIn("Linux orphans", text)
+        self.assertIn(lost["html_url"], text)
+        self.assertIn("1 protected", text)
+
+    def test_a_dry_run_reports_the_linux_orphan_and_cancels_nothing(self):
+        code, fake, text, (lost, *_) = self.sweep("--dry-run")
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.posts(), [])
+        self.assertIn(lost["html_url"], text)
+        self.assertIn("would cancel", text)
+
+    def test_the_reads_and_cancels_have_their_own_caps(self):
+        code, fake, text, (lost, newer, *_) = self.sweep(env={"LINUX_JOB_READS": "1"})
+        # Oldest first: the lost run is read, the newer run that holds the evidence is not, so nothing is cancelled.
+        self.assertEqual(self.read(fake, (lost, newer)), {lost["id"]})
+        self.assertEqual(fake.posts(), [])
+        code, fake, text, _ = self.sweep("--max-linux-orphan-cancels", "0")
+        self.assertEqual(fake.posts(), [])
+        self.assertEqual(janitor.DEFAULT_MAX_LINUX_ORPHAN_CANCELS, 40)
+
+    def test_the_cancel_cap_keeps_a_budget_floor(self):
+        limits = {"core": {"remaining": janitor.LINUX_CANCEL_BUDGET_FLOOR + 3 * janitor.ORPHAN_CANCEL_CALLS}}
+        self.assertEqual(janitor.linux_cancel_cap(40, limits), 3)
+        self.assertEqual(janitor.linux_cancel_cap(40, {"core": {"remaining": 100}}), 0)
+        self.assertEqual(janitor.linux_cancel_cap(40, {}), 40)
+
+
 class StarvedLabelSnapshotTests(unittest.TestCase):
     """The starved-label alert reads jobs main's linux-only filter skips when the run uses another branch's copy."""
 
@@ -5179,6 +5249,19 @@ class OpenHeadFailoverSweepTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             self.sweep(fake, temp)
         self.assertEqual(fake.posts(), [])
+
+    def test_a_linux_only_run_at_the_open_head_fails_over_too(self):
+        # needs_jobs() never lists a linux-only workflow's jobs; the Linux orphan pass reads them, and its lost job
+        # at an open head gets category e's cancel and re-run, never the orphan pass's bare cancel.
+        stuck, fake = self.world(age=150, label=LINUX, path=".github/workflows/rust.yml", name="Rust")
+        with tempfile.TemporaryDirectory() as temp:
+            workflows = Path(temp) / "workflows"
+            workflows.mkdir()
+            (workflows / "rust.yml").write_text("jobs:\n  build:\n    runs-on: ubuntu-24.04\n")
+            code, text = self.sweep(fake, temp, "--workflows-dir", str(workflows))
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"], [str(stuck["id"]), "rerun-failed-jobs"]])
+        self.assertIn("1 lost assignments (category e)", text)
 
     def test_a_sweep_whose_token_is_not_cmux_bots_leaves_the_open_head_alone(self):
         stuck, fake = self.world()
