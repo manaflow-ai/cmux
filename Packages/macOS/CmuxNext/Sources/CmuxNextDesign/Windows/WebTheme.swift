@@ -39,8 +39,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// `off` the bootstrap stylesheet makes every CSS transition and animation instant
     /// (`ui.animations.web` or the master switch `ui.animations.enabled` off).
     public let motion: String
-    /// `lens`, `plain` or `spectrum` (``GlassLensMode/current``, already `plain` under Reduce
-    /// Transparency and Low Power Mode): `data-glass` on `<html>`, which `.ui-glass` reads.
+    /// `lens`, `plain`, `spectrum` or `engine` (``GlassLensMode/current``, already `plain` under Reduce
+    /// Transparency and Low Power Mode): `data-glass` on `<html>`, which `.ui-glass` reads (`engine`
+    /// is `lens` there, plus `data-glass-engine`).
     public let glass: String
     /// `auto`, `antialiased` or `subpixel` (`appearance.fontSmoothing`, ``FontSmoothing``):
     /// `data-cmux-font-smoothing` on `<html>`. Under `antialiased` and `subpixel` the bootstrap
@@ -380,7 +381,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.statusIndicators) root.setAttribute('data-status-indicators', payload.statusIndicators);
           if (payload.workingLook) root.setAttribute('data-working-look', payload.workingLook);
           if (payload.motion) root.setAttribute('data-cmux-motion', payload.motion);
-          if (payload.glass) root.setAttribute('data-glass', payload.glass);
+          if (payload.glass) {
+            // The glass engine (GlassLensMode.engine) is the lens to every glass rule, with its own renderer.
+            root.setAttribute('data-glass', payload.glass === 'engine' ? 'lens' : payload.glass);
+            if (payload.glass === 'engine') root.setAttribute('data-glass-engine', '');
+            else root.removeAttribute('data-glass-engine');
+          }
           if (payload.fontSmoothing) root.setAttribute('data-cmux-font-smoothing', payload.fontSmoothing);
           // The filled personality slots (ThemeDecorations): one attribute per slot; a slot the
           // last theme filled and this one leaves empty loses its attribute.

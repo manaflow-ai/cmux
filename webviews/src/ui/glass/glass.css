@@ -457,6 +457,19 @@
   --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge) !important;
 }
 
+/* GLASS ENGINE (ui/glass/engine/, opt-in: the Debug choice Liquid Glass > Glass Engine, or the
+   glass-engine experiment). While it draws (data-glass-engine-draws, set with data-glass-lens), the
+   canvas adds the theme surface under each glass only where the wallpaper under it would fight the
+   text (its adaptive veil), so the fixed tint every glass lays on top comes down: clear glass over a
+   calm wallpaper, a denser one over a busy or text-colored one. Its rim light comes from the canvas,
+   brighter, and the middle zooms the wallpaper a little. Reduce Transparency never reaches here (no
+   lens), and with the engine off nothing below applies. */
+:root[data-glass-engine-draws][data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) {
+  --ds-glass-lens-tint: 26%;
+  --glass-gloss: 0.85;
+  --glass-magnify: 0.025;
+}
+
 /* surface-roles:begin. Follows schemas/surface-roles/surface-roles.json (scripts/cmux-next/check-surface-roles.py checks it). */
 /* The overlay surface roles (CmuxNextDesign SurfaceRole): a card, toast or sheet reads its radius,
    veil and rim here; popovers and menus are .ui-popup.ui-glass (--ui-popup-radius, the tint above).
