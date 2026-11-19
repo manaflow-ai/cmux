@@ -8,14 +8,15 @@ use crate::text::t;
 const GROUP: &str = "WindowActionCatalog";
 
 /// The rank of Customize… in each element's menu: last of its View group, before the menu's own
-/// Customize Menu… row.
+/// Customize Menu… row. The two sidebar menus are at their 12-row top-level cap, so there it sits
+/// in their Options folder (`menus_keep_a_short_top_level`).
 const CUSTOMIZE_RANK: i64 = 990;
 
 #[rustfmt::skip]
 const CUSTOMIZE_MENUS: &[Placement] = &[
-    Placement::at("sidebarBackground", "view", CUSTOMIZE_RANK),
+    Placement::at("sidebarBackground", "view", CUSTOMIZE_RANK).folder("options"),
     Placement::at("sidebarFooter", "view", CUSTOMIZE_RANK),
-    Placement::at("sidebarSection", "view", CUSTOMIZE_RANK),
+    Placement::at("sidebarSection", "view", CUSTOMIZE_RANK).folder("options"),
     Placement::at("machineSection", "view", CUSTOMIZE_RANK),
     Placement::at("workspaceRow", "view", CUSTOMIZE_RANK),
     Placement::at("tabStrip", "view", CUSTOMIZE_RANK),
@@ -31,7 +32,10 @@ const CUSTOMIZE_MENUS: &[Placement] = &[
 const CUSTOMIZE_ELEMENT: Argument = Argument { name: "element", title: t("ActionCatalog", "argument.customize.element", "Element"), kind: ArgKind::Enumeration(crate::customize_elements::ELEMENT_CASES), required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 
 /// `CUSTOMIZE_ELEMENT` where the action needs one (Reset).
-const CUSTOMIZE_ELEMENT_REQUIRED: Argument = Argument { required: true, ..CUSTOMIZE_ELEMENT };
+const CUSTOMIZE_ELEMENT_REQUIRED: Argument = Argument {
+    required: true,
+    ..CUSTOMIZE_ELEMENT
+};
 
 /// The new chat's first composer text in place of `/customize ` (Settings search's "Ask cmux to do
 /// this" passes `/customize WORDS`). Shown, never sent by itself.

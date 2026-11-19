@@ -25463,10 +25463,10 @@
     "ar": "التطبيق",
     "bs": "Aplikacija",
     "da": "App",
-    "de": "App",
+    "de": "Anwendung",
     "en": "App",
-    "es": "App",
-    "fr": "App",
+    "es": "Aplicación",
+    "fr": "Application",
     "it": "App",
     "ja": "アプリ",
     "km": "កម្មវិធី",
@@ -25480,7 +25480,7 @@
     "uk": "Програма",
     "vi": "Ứng dụng",
     "zh-Hans": "应用",
-    "zh-Hant": "App"
+    "zh-Hant": "應用程式"
    },
    "argument.computerUse.approval.decision": {
     "ar": "دائمًا أو أبدًا",
