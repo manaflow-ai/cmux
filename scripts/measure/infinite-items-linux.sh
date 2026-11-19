@@ -48,8 +48,11 @@ echo "infinite-items-linux.sh: tools ready in $SECONDS s"
 cd "$root/cmux-tui"
 build_from=$SECONDS
 # cmux-tui-host: the slim terminal host the daemon runs its hosts from when it sits beside it (host_exe.rs).
-cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 3
-echo "infinite-items-linux.sh: release build in $((SECONDS - build_from)) s"
+timings=()
+[ -z "${FAST_CHECKS_OUT:-}" ] || timings=(--timings)
+cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host ${timings[@]+"${timings[@]}"} 2>&1 | tail -n 3
+echo "infinite-items-linux.sh: release build in $((SECONDS - build_from)) s on $(nproc) CPUs"
+[ -z "${FAST_CHECKS_OUT:-}" ] || cp -r target/cargo-timings "$FAST_CHECKS_OUT/" 2>/dev/null || true
 # build-only: the perf cron builds in a step of its own, so the build and the run each get its 30-minute cap.
 [[ "$build_only" == 1 ]] && exit 0
 target="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
