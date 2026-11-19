@@ -43,3 +43,8 @@ Unsupported lifecycle state fails preparation; the live attach must then report
 idle, no queued prompts and no active turn. This prevents recovered work from
 being misattributed to history size. The helper's idempotence/prefix tests and
 `initialStateError` rejection are the detectors.
+
+Each timed page also reports original-history record counts. It fails when fixture
+completion records are the majority, so an idle seed cannot pass by replacing the
+newest transcript with preparation bookkeeping. `historyEndSeq` distinguishes the
+original generated prefix from the completion suffix.

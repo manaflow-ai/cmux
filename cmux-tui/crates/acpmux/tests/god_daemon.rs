@@ -1700,16 +1700,28 @@ fn free_bytes(path: &Path) -> u64 {
     st.f_bavail as u64 * st.f_frsize as u64
 }
 
+/// Completion suffix records must not become the measured workload of a newest page.
+fn original_page_records(reply: &Value, history_end: u64) -> usize {
+    reply["events"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|e| e["seq"].as_u64().is_some_and(|seq| seq > 0 && seq <= history_end))
+        .count()
+}
+
 /// `rounds` calls of `method`, the params of each from its round: their times, how many records
 /// the last returned, and the first error.
 fn timed_rounds(
     rpc: &mut Rpc,
     method: &str,
     rounds: u64,
+    history_end: u64,
     params: impl Fn(u64) -> Value,
 ) -> (Value, Value, Value) {
     let (mut times, mut records, mut error) = (vec![], Value::Null, Value::Null);
     let mut returned_records = vec![];
+    let mut original_records = vec![];
     for round in 0..rounds {
         let asked = Instant::now();
         let reply = rpc.call_until(method, params(round), Some(asked + STEP));
@@ -1718,13 +1730,17 @@ fn timed_rounds(
         match reply {
             Ok(reply) => {
                 let count = reply["events"].as_array().map_or(0, Vec::len);
-                if count == 0 {
-                    error = json!({"method": method, "round": round, "reason": "empty page"});
+                let original = original_page_records(&reply, history_end);
+                if count == 0 || original * 2 < count {
+                    error = json!({"method": method, "round": round,
+                        "reason": "page is empty or dominated by fixture completions",
+                        "records": count, "originalRecords": original, "historyEndSeq": history_end});
                     break;
                 }
                 times.push(us);
                 records = json!(count);
                 returned_records.push(count);
+                original_records.push(original);
             }
             Err(e) => {
                 error = e;
@@ -1735,6 +1751,7 @@ fn timed_rounds(
     let mut timing = spread(&times);
     if let Some(timing) = timing.as_object_mut() {
         timing.insert("returnedRecords".into(), json!(returned_records));
+        timing.insert("originalRecords".into(), json!(original_records));
     }
     (timing, records, error)
 }
@@ -1837,7 +1854,8 @@ fn write_size_chat(
     let home = out.join("acpmux-home");
     let settled = chat_size_seed::settle(&home, &id).expect("settle generated offline seed");
     let preparation = json!({
-        "appended": settled.appended, "removedPrompts": settled.removed_prompts,
+        "appended": settled.appended, "historyEndSeq": settled.last_seq - settled.appended,
+        "removedPrompts": settled.removed_prompts,
         "removedInbox": settled.removed_inbox, "settledTurns": settled.settled_turns,
         "transcriptSeq": settled.transcript_seq,
     });
@@ -1868,6 +1886,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let written_at = Instant::now();
     let (home, w, source, preparation) = write_size_chat(&scratch, bytes);
     let write_ms = ms(written_at);
+    let history_end = preparation["historyEndSeq"].as_u64().unwrap_or(w.last_seq);
     write_config(&home, json!({}));
     let id = w.id.clone();
     let segments =
@@ -1910,32 +1929,40 @@ fn size_run(label: &str, bytes: u64) -> Value {
     // Settled: the log is read; what a long chat costs on its own.
     let rounds = ROUNDS as u64;
     let (attach_us, attach_records, attach_error) =
-        timed_rounds(&mut rpc, "_acpmux/attach", rounds, |_| app_attach(&id));
+        timed_rounds(&mut rpc, "_acpmux/attach", rounds, history_end, |_| app_attach(&id));
     let (rss_idle, _) = daemon.rss();
     let (newest_us, newest_records, newest_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, |_| older_params(&id, last + 1));
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, history_end, |_| {
+            older_params(&id, last + 1)
+        });
     // Warm pages at fixed proportional depths, as the repeated newest/attach reads above.
     // Moving 2,000 raw sequences every round exhausted the 1 MB baseline (empty pages and
     // future forward cursors) while large chats still returned content. Keep each workload
     // nonempty and report its returned record counts alongside its latency distribution.
-    let (recent_us, _, recent_error) = timed_rounds(&mut rpc, "_acpmux/events", rounds, |_| {
-        older_params(&id, (last * 9 / 10).max(2))
-    });
+    let (recent_us, _, recent_error) =
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, history_end, |_| {
+            older_params(&id, (last * 9 / 10).max(2))
+        });
     let (mid_us, _, mid_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, |_| older_params(&id, (last / 2).max(2)));
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, history_end, |_| {
+            older_params(&id, (last / 2).max(2))
+        });
     let (deep_us, _, deep_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, |_| older_params(&id, (last / 20).max(2)));
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, history_end, |_| {
+            older_params(&id, (last / 20).max(2))
+        });
     // The rail's prompt index (direct.ts `readPromptIndex`).
     let (prompt_index_us, prompt_index_rows, prompt_index_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, |_| {
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, history_end, |_| {
             json!({"sessionId": id, "beforeSeq": last + 1, "promptIndex": true,
                    "kinds": ["user_message"], "limit": 5000, "maxBytes": 256 << 10})
         });
     // A forward read from the middle (a reconnect's catch-up, a rail jump's `loadThrough`).
-    let (forward_us, _, forward_error) = timed_rounds(&mut rpc, "_acpmux/events", rounds, |_| {
-        json!({"sessionId": id, "afterSeq": last / 2,
+    let (forward_us, _, forward_error) =
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, history_end, |_| {
+            json!({"sessionId": id, "afterSeq": last / 2,
                "limit": OLDER_PAGE_LIMIT, "maxBytes": OLDER_PAGE_BYTES})
-    });
+        });
     let (rss_after_reads, _) = daemon.rss();
 
     // Typing: a prompt to its first token; the first starts the agent host.
@@ -2197,4 +2224,12 @@ fn chat_size_ratios_use_the_same_metric_and_baseline() {
     assert_eq!(ratios["/attachUs/p50"], 1.5);
     assert_eq!(ratios["/attachUs/p95"], 1.05);
     assert_eq!(max, Some(("/rssIdle".into(), 2.0)));
+}
+
+#[test]
+fn chat_size_page_coverage_excludes_preparation_and_missing_sequences() {
+    let reply = json!({"events": [{"seq": 99}, {"seq": 100}, {"seq": 101}, {}, {"seq": 0}]});
+    assert_eq!(original_page_records(&reply, 100), 2);
+    assert_eq!(original_page_records(&json!({"events": [{"seq": 101}]}), 100), 0);
+    assert_eq!(original_page_records(&json!({}), 100), 0);
 }
