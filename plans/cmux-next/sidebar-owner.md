@@ -1,5 +1,18 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-19 (lane/look-tab-shapes, look polish part 2): Sidebar-Look: Leo, 2026-11-18: "the blockiness of tabs both
+  horizontal the the vertical ones in the sidebar should be customized/customizable too. like the "gooey" is each tab
+  looking like it's morphing into the visible pane. the two tone thing." `appearance.tabShape` (a look setting, theme
+  files too): `block`, the default, draws today's rows unchanged; `rounded` makes every row fill a capsule (half the
+  row's height, capped at half a tab's, `TabShape.fillCornerRadius`); `gooey` runs the selected row into the content
+  card as the selected tab does: the window's shade (`CornerFlushChrome.sidebarFolderPath`) leaves out the row's shape
+  out to the card with a concave fillet above and below at the card's edge, and the row paints the content's fill
+  (`Palette.folderTabFill`) square on the card's side, on two tones (gooey tones the frame under One Color too). Only a
+  row whole in the viewport and clear of the card's rounded corners runs in; others keep their own fill. The list
+  reports the selected row after an apply, a selection patch and a scroll (`SidebarListView.reportGooeySelection`), so
+  the flare moves with the selection in that pass and no row moves. Regression: `TabShapeTests`,
+  `AATabShapeGalleryTests.switchingUnderGooeyMovesNoTabOrRow`; gallery `AATabShapeGalleryTests.renderGallery`.
+
 - 2026-11-18 (lane/sidebar-customize-stress, ask-2b329124aa): Sidebar-Look: no visual change. Sidebar customization
   (`sidebar.sections`, `sidebar.workspaces`) under stress. A selection change re-projects the sidebar only when it shows
   or hides a row (the old selection was kept only for being selected, Rust's `selection_spared`, or the new one is a
@@ -1327,6 +1340,7 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | Group header | The `group` surface role: its veil tinted by the group's color (chroma x1.3, 44% dark / 34% light) and its rim; the name in the theme's ink at the rows' title size, regular weight (Lawrence 2026-11-05: "group fonts should not be bold"). Debug `sidebar.groupGlass`: `vivid` (default), `glass`, `frost`, `solid`. | Leo 2026-11-05 ("just make it glassier"; "Why does it not have any sort of rim at all?") |
 | Group with no color | The `group` surface role untinted behind the header and its members (its veil and rim), the header's width, no hue and no indent; rows' hover and selection draw over it. Debug `sidebar.noColorGroup`: `glass` (default), `tray`, `lit`, `plain`. | Leo 2026-11-05 ("a grouped up thing"; "we're not necessarily into that indentation thing") |
 | Left bar: an even capsule | The group rail beside member rows (`GroupLineView`, every place it draws: the list's lines, a no-color group's block and a lifted group's card): both ends the same round cap, the layer's corner clip (half the bar's width), so it follows the rows' spring; the body a plain bar; a `joined` rail keeps its top square where it leaves the bar. Under the band it sits centred in its lane, half the rail's gap in from the header bar's left edge, on the rows' half-point grid. A no-color group's rail is its header bar's own pane (`GroupGlassPaint`, the solid band's neutral without glass). In light and dark, at every density and text size, in the line look and the connected (Chrome-Style Groups) look. Neither end is clipped by the row, the scroll edge or a neighbour row. | Lawrence 2026-11-17 ("group left bar is not pixel perfect, it needs proper even roundness, and have slight padding on left as well, and identical color/texture to the workspace group"; replaces Leo's 2026-11-08 katana tip); Lawrence msg 19775 (the bottom cap); SidebarGroupRailKatanaTests, GroupRailPolishTests |
+| Row shape (`appearance.tabShape`) | block (default): the fill's corner is the tab's. rounded: a capsule. gooey: the selected row runs into the content card with fillets, in the content's fill, on two tones; the other rows as block. | Leo 2026-11-18 ("the blockiness of tabs both horizontal the the vertical ones in the sidebar should be customized/customizable too") |
 | Row text | As far left as it originally was. A row with no icon starts its title at the row inset; no empty icon slot pushes it right. A top-level group's rows keep the ungrouped rows' left edge. Only nested groups step in. | Lawrence 11405 ("text needs to be as left as possible (how it originally was)"); #23975 |
 | Row title ink | Every workspace row's title draws in the sidebar title ink (`Palette.sidebarTitle`), named or not: "workspace-1", "workspace-2" and a shell at "~" read like a named row, idle or busy. Takes back the secondary ink #22840 gave idle unnamed rows. | Lucas 2026-11-12 ("we also need to make "workspace-1" "workspace-2" (unnamed workspaces) be white colour text on the left sidebar"); SidebarUnnamedRowInkTests |
 | Home unread | A blue dot, the same dot as other unread rows. No count badge. | Lawrence 11384 |

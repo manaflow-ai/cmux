@@ -87,7 +87,7 @@ extension SettingsSchema {
         "appearance.glassTransparency", "appearance.hue", "appearance.saturation", "appearance.density",
         "appearance.customDensity", "appearance.customDensities", "appearance.metrics.chromeFontSize",
         "appearance.fontSmoothing", "appearance.interfaceScale", "appearance.borders", "appearance.sidebarSurface",
-        "appearance.chromeStyle", "appearance.titleAreaTone", "appearance.titleAreaContrast",
+        "appearance.chromeStyle", "appearance.titleAreaTone", "appearance.tabShape", "appearance.titleAreaContrast",
         "appearance.focusIndicator", "focus.inactiveTabStyle", "ui.animationSpeed", "ui.animations.newTab",
         "ui.animations.newWorkspace", "ui.animations.enabled", "ui.animations.sidebar", "ui.animations.tabs",
         "ui.animations.panes", "ui.animations.overlays", "ui.animations.hoverCards", "ui.animations.home",

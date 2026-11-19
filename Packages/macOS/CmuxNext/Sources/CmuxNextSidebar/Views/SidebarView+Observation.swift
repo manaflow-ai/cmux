@@ -59,6 +59,8 @@ extension SidebarViewComponents {
         var pinnedRowLeading: SidebarPinnedRowLeading
         /// The Sidebar Row Tuner's overrides (`SidebarRowTuning`): a change lays every row out again, live.
         var rowTuning: [String]
+        /// `appearance.tabShape`: a row's corners (rounded) and its run into the card (gooey); every row lays out again.
+        var tabShape: TabShape
         /// Every token the titlebar row's width reads past the view's own inputs (the reserve, the accessory, the
         /// Priority bell, which refresh it themselves): the button, the +'s trailing inset (the trailing column at
         /// the app and sidebar density), the toolbar band's button (the reserve's source), the traffic lights'
@@ -106,6 +108,7 @@ extension SidebarViewComponents {
             leadingColumn = SidebarLeadingColumnLook.tunable.value
             pinnedRowLeading = SidebarPinnedRowLeading.tunable.value
             rowTuning = SidebarRowTuning.signature
+            tabShape = design.tabShape
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
                            Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
             switcherTokens = [Metrics.roomDotSlot, Metrics.roomDotDiameter, Metrics.smallIconSize]
@@ -161,7 +164,7 @@ extension SidebarViewComponents {
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
             || lastState?.titlebarHeight != state.titlebarHeight || lastState?.leadingColumn != state.leadingColumn
             || lastState?.pinnedRowLeading != state.pinnedRowLeading
-            || lastState?.rowTuning != state.rowTuning
+            || lastState?.rowTuning != state.rowTuning || lastState?.tabShape != state.tabShape
         if lastState?.titlebarRow != state.titlebarRow {
             // The window root sets the reserve from the toolbar band, whose width follows the same tokens.
             window?.contentView?.needsLayout = true

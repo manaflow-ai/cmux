@@ -406,3 +406,23 @@ fn with_no_theme_file_nothing_changes() {
     assert_eq!(state.effective().root, plain.root);
     assert!(state.theme_file().is_none());
 }
+
+/// `appearance.tabShape` (block, rounded, gooey) is a look a theme file sets; any other value is refused by the
+/// schema's choices, as `cmux settings set` refuses it.
+#[test]
+fn a_theme_file_sets_the_tab_shape() {
+    for shape in ["block", "rounded", "gooey"] {
+        let file = overlay(&format!(r#"{{ "appearance.tabShape": "{shape}" }}"#));
+        assert!(file.diagnostics.is_empty(), "{shape}: {:?}", file.diagnostics);
+        let root = file.applied(&json!({}), &none());
+        assert_eq!(at(&root, "appearance.tabShape"), Some(&json!(shape)));
+    }
+    let wobbly = overlay(r#"{ "appearance.tabShape": "wobbly" }"#);
+    assert!(wobbly.keys().is_empty());
+    let refused = wobbly
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "appearance.tabShape")
+        .expect("wobbly refused");
+    assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
+}

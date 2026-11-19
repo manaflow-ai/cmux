@@ -250,6 +250,12 @@ extension TitleAreaContrastSetting {
     public nonisolated static let placeholder: Double = 1
 }
 
+extension TabShapeSetting {
+    /// `appearance.tabShape`: The shape of the selected tab in the tab bar and of the selected row in the sidebar. block (the default) draws today's tabs and rows unchanged. rounded draws the selected tab and the sidebar's rows as capsules that stay on the strip. gooey shares the pane's fill: the selected tab and the selected sidebar row run into the content card and flare their corners into it through concave fillets, on two tones (the strip's and the pane's), so gooey shades the title area with Subtle Tone's share even under One Color. gooey applies on the default window style with tabs on top; compact density keeps the pill. Leo 2026-11-18: the blockiness of tabs, horizontal and vertical in the sidebar, should be customizable, with gooey (each tab morphing into the visible pane, two tones) as one option.
+    public nonisolated static let configPath = ["appearance", "tabShape"]
+    public nonisolated static let fallback: TabShape = .block
+}
+
 extension PaneAnimationsSetting {
     /// `ui.paneAnimations`.
     public nonisolated static let configPath = ["ui", "paneAnimations"]

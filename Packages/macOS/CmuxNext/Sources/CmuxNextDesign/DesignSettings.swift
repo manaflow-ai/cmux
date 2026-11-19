@@ -322,6 +322,11 @@ public final class DesignSettings {
     public var titleAreaTone: TitleAreaTone = .oneColor {
         didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.tabShape`: the selected tab's and sidebar row's shape (``TabShape``): block (the default), rounded or
+    /// gooey; a change repaints, as the tone does (gooey brings its own tone, ``Metrics/titleAreaShadeScale``).
+    public var tabShape: TabShape = .block {
+        didSet { if tabShape != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
