@@ -348,7 +348,7 @@ class WorkspaceScaleTests(unittest.TestCase):
     def test_latency_rows_have_no_absolute_budget(self):
         rows, _ = self.rows()
         self.assertIsNone(rows["workspace_scale.switch.5000"]["budget"])
-        self.assertEqual(rows["workspace_scale.sidebar_scroll.5000"]["p95"], 16.36)
+        self.assertEqual(rows["workspace_scale.sidebar_scroll.5000.frame"]["p95"], 16.36)
 
     def test_a_complete_run_is_not_incomplete(self):
         _, result = self.rows()

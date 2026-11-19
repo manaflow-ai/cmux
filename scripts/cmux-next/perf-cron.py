@@ -845,10 +845,6 @@ def target_of(name, row, refresh_ms):
         # Scaling rows are judged only by their 1000-vs-baseline ratio. Their absolute
         # latency is intentionally advisory and must not inherit the generic 10 ms target.
         return None
-    if name.startswith("workspace_scale."):
-        # Its ratio rows (x, 1.10) and sidebar CPU rows (%, 10) carry their budget; a latency row at one count has
-        # none (its ratio judges it), so it is compared with its own reference only.
-        return row.get("budget")
     if name.startswith(("diff.", "launch.", "webui.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):

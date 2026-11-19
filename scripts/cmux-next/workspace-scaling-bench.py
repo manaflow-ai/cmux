@@ -499,6 +499,12 @@ def scale_values(instant, sidebar):
     return values
 
 
+def count_row_name(interaction, count):
+    """A count row's name. The scroll row is a frame interval, so it ends in `.frame`: the cron judges it against one
+    display refresh and compares it only with values measured at the same refresh (perf-cron.py frame_sensitive)."""
+    return f"workspace_scale.{interaction}.{count}" + (".frame" if interaction == "sidebar_scroll" else "")
+
+
 def scale_rows(values):
     """The workspace_scale rows (pure): each interaction's p95 at each count (ms, or % for the CPU rows, which carry
     SIDEBAR_CPU_MAX), and its ratio_<count> row at 1,000 and 5,000 (count p95 / baseline p95, budget SCALE_RATIO_MAX)."""
@@ -507,7 +513,7 @@ def scale_rows(values):
         by_count = values[interaction]
         cpu = interaction.startswith("sidebar_cpu_")
         for count in sorted(by_count):
-            rows.append({"name": f"workspace_scale.{interaction}.{count}", "interaction": interaction,
+            rows.append({"name": count_row_name(interaction, count), "interaction": interaction,
                          "workspaces": count, "unit": "%" if cpu else "ms",
                          "budget": SIDEBAR_CPU_MAX if cpu else None, "floor": 1.0, **by_count[count]})
         base_count = SCALE_BASELINE.get(interaction)
@@ -532,10 +538,9 @@ def scale_rows(values):
 def scale_coverage(rows):
     """The judged rows a scale run did not produce: each interaction's p95 and ratio at 1,000 and 5,000."""
     names = {row.get("name") for row in rows}
-    missing = [f"workspace_scale.{interaction}.{kind}"
-               for interaction in sorted(SCALE_BASELINE) for count in SCALE_COUNTS
-               for kind in (str(count), f"ratio_{count}")
-               if f"workspace_scale.{interaction}.{kind}" not in names]
+    missing = [name for interaction in sorted(SCALE_BASELINE) for count in SCALE_COUNTS
+               for name in (count_row_name(interaction, count), f"workspace_scale.{interaction}.ratio_{count}")
+               if name not in names]
     return [{"probe": "scale", "missing": missing, "incomplete": "missing_rows"}] if missing else []
 
 

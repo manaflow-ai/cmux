@@ -672,7 +672,7 @@ class WebUiTests(unittest.TestCase):
 
     def test_the_workspace_scale_part_judges_its_ratio_and_cpu_rows(self):
         """1,000 and 5,000 workspaces (workspace-scaling-bench.py --scale): a ratio row over 1.10 and a sidebar CPU row
-        over 10 % miss their target; a latency row at one count has none (the generic 10 ms does not apply)."""
+        over 10 % miss their target; a latency row at one count keeps the 10 ms action target."""
         self.assertIn("workspace-scale", FLEET, "a Mac part on the measure host")
         part = cron.PART_BY_NAME["workspace-scale"]
         self.assertEqual(part["run_seconds"], 3600)
@@ -695,8 +695,13 @@ class WebUiTests(unittest.TestCase):
                                           rows["workspace_scale.new_workspace.ratio_1000"], 8.33))
         self.assertEqual(cron.target_of("workspace_scale.sidebar_cpu_active.5000@cmux20-bench",
                                         rows["workspace_scale.sidebar_cpu_active.5000"], 8.33), 10.0)
-        self.assertIsNone(cron.target_of("workspace_scale.switch.5000@cmux20-bench",
-                                         rows["workspace_scale.switch.5000"], 8.33))
+        self.assertEqual(cron.target_of("workspace_scale.switch.5000@cmux20-bench",
+                                         rows["workspace_scale.switch.5000"], 8.33), cron.LATENCY_TARGET_MS,
+                         "a latency row at one count keeps the 10 ms action budget")
+        scroll = {"unit": "ms", "p50": 8.3, "p95": 8.4, "budget": None, "floor": 1.0}
+        self.assertEqual(cron.target_of("workspace_scale.sidebar_scroll.5000.frame@cmux20-bench", scroll, 8.33),
+                         round(8.33 * 1.25, 2), "the scroll row is a frame interval: one refresh, not 10 ms")
+        self.assertTrue(cron.frame_sensitive("workspace_scale.sidebar_scroll.5000.frame@cmux20-bench", scroll))
         self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("workspace_scale.switch.ratio_5000"), "judged, not shown only")
 
     def test_the_memory_agents_part_measures_the_optimized_app(self):
