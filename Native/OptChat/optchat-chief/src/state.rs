@@ -325,6 +325,14 @@ impl SubRecord {
         matches!(self.status, SubStatus::Starting | SubStatus::Running) && !self.cancelled
     }
 
+    /// Its task goes on: it runs, or has a report that starts a turn, or it
+    /// waits on its own background work.
+    fn still_works(&self) -> bool {
+        self.waiting()
+            || (self.status != SubStatus::Reported
+                && !(self.status == SubStatus::Done && self.stopped))
+    }
+
     /// Its last run ended only to wait on its own background work: its task
     /// goes on (the Chief's "at work" line names it) and its quiet report is
     /// no outcome. It holds no live slot while it waits.
@@ -338,9 +346,7 @@ impl SubRecord {
 impl SpawnRecord {
     /// A subagent still works or has a report waiting that starts a turn.
     pub fn working(&self) -> bool {
-        self.subs
-            .iter()
-            .any(|s| s.status != SubStatus::Reported && !(s.status == SubStatus::Done && s.stopped))
+        self.subs.iter().any(|s| s.still_works())
     }
 
     /// A subagent still works for user message `id`: its own `answers` (a
@@ -352,7 +358,7 @@ impl SpawnRecord {
             } else {
                 s.answers.iter().any(|a| a == id)
             };
-            for_it && s.status != SubStatus::Reported && !(s.status == SubStatus::Done && s.stopped)
+            for_it && s.still_works()
         })
     }
 }
