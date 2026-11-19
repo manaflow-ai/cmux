@@ -14,6 +14,9 @@ use serde_json::{Value, json};
 
 use crate::rpc::{Notification, RpcClient, RpcError};
 
+/// Longest wait for one steer withdraw (`withdraw_steer`).
+const WITHDRAW_WAIT: Duration = Duration::from_secs(5);
+
 /// A new acpmux session.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SessionSpec {
@@ -664,6 +667,11 @@ impl Acpmux {
         // No timeout: acpmux answers when the harness took the message,
         // however long the running tool (or the codex turn) takes.
         Ok(Box::new(move || match answer.recv() {
+            // Taken back unread (the person's X in the pane, or the Chief's
+            // own withdraw): not delivered.
+            Ok(Ok(v)) if v.get("stopReason").and_then(Value::as_str) == Some("withdrawn") => {
+                Err("steer: withdrawn before the agent read it".into())
+            }
             // Claude Code: `steered` at its echo; codex-acp: its own answer.
             Ok(Ok(_)) => Ok(()),
             Ok(Err(e)) => Err(format!("steer: {e}")),
@@ -1488,10 +1496,13 @@ impl AgentPort for Acpmux {
     }
 
     fn withdraw_steer(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        // Bounded: the person's message is back in the Chief's queue already,
+        // and a drop that answers later is safe (the session is then not kept).
         self.client()?
-            .request(
+            .request_within(
                 "_acpmux/queue_edit",
                 json!({"sessionId": session, "promptId": prompt_id, "op": "withdraw"}),
+                WITHDRAW_WAIT,
             )
             .map(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
             .map_err(|e| format!("withdraw steer: {e}"))
