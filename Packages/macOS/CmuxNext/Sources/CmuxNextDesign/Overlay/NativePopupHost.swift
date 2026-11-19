@@ -41,6 +41,10 @@ public final class NativePopupHost {
     /// The menus AppKit tracks while the popup shows (``MenuTracking``), for ``childMenus``.
     private var menus: MenuTracking?
     private var monitors: [Any] = []
+    /// A popup of ``PopupRowView`` rows that a page opens on a press (``DeclarativePopupHost``,
+    /// ``WebPopupHost``): opened under a held press, it follows that press to its release
+    /// (``PopupPressRelease``). Glass menus follow their own press (GlassMenu).
+    public var followsOpeningPress = false
     /// The held press the popup opened under, followed to its release (``PopupPressRelease``).
     private var press: PopupPressRelease?
     private var pressMonitor: Any?
@@ -194,7 +198,7 @@ public final class NativePopupHost {
             if tooltipEntrance { panel.openTooltipWithEntrance(pivot: pivot) } else { panel.openPopup(pivot: pivot) }
         }
         watch(dismissalWindow ?? window)
-        if opening { followHeldPress(buttons: NSEvent.pressedMouseButtons) }
+        if opening, followsOpeningPress { followHeldPress(buttons: NSEvent.pressedMouseButtons) }
         return (frame, side)
     }
 
