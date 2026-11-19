@@ -326,8 +326,10 @@ def stills_facts(trace, at_start, names):
     that ran through it (`trace`: the reply of `debug.motion` trace_stop), `samples_at_record_start` (the samples of
     `at_start`, the trace read directly after the recorder's start: the first frame is the next sample or the one
     after it; None when it was not read), `presentation_rects` (each pane row of the trace has 22 numbers or more: a
-    build with a sampler that says where a pane is in each sample, not only where it ends) and `problem`: None, or what is
-    missing (2 frames at the least, the index, a pane in each sample)."""
+    build with a sampler that says where a pane is in each sample, not only where it ends), `samples_in_a_move` (the
+    samples in which a pane is not where it ends by more than 0.5 pt: 0 = the trace followed no move, and a reader
+    has only where each pane ends) and `problem`: None, or what is missing (2 frames at the least, the index, a pane
+    in each sample)."""
     frames = sum(1 for name in names if name.startswith("frame-") and name.endswith(".jpg"))
     samples = trace.get("samples") if isinstance(trace, dict) and isinstance(trace.get("samples"), list) else []
     rows = [row for sample in samples if isinstance(sample, dict) for row in sample.get("panes") or []]
@@ -338,10 +340,13 @@ def stills_facts(trace, at_start, names):
         missing.append(f"no sample in the pane trace: {trace!r}"[:200])
     elif with_panes != len(samples):
         missing.append(f"{with_panes} of {len(samples)} samples have a pane")
+    def moves(row):  # the pane IS not where it ends: its last 4 numbers against its first rect
+        return isinstance(row, list) and len(row) >= 22 and any(abs(now - end) > 0.5 for now, end in zip(row[-4:], row[1:5]))
+    in_a_move = sum(1 for sample in samples if isinstance(sample, dict) and any(moves(row) for row in sample.get("panes") or []))
     return {"frames": frames, "index": "frames.json" in names, "samples": len(samples), "samples_with_panes": with_panes,
             "samples_at_record_start": len(first) if isinstance(first, list) else None,
             "presentation_rects": bool(rows) and all(isinstance(row, list) and len(row) >= 22 for row in rows),
-            "problem": "; ".join(missing) or None}
+            "samples_in_a_move": in_a_move, "problem": "; ".join(missing) or None}
 
 
 def stills_clock(index, trace):
@@ -349,7 +354,9 @@ def stills_clock(index, trace):
     its `t0_s` is the first frame's host time, and a frame's host time is `t0_s` + its entry of `times`. `trace`:
     the reply of trace_stop; its `t0_s` is its first sample's host time and each sample's `t` the ms after it. The
     recorder starts after the trace and ends before it, so a `t0_s` on the trace's clock is from the trace's first
-    sample to its last one. `clock_problem`: None, or why a reader cannot place the frames in the trace by time."""
+    sample to its last one, and not farther from the trace's `t0_s` than the recording is long (the suite starts
+    the recorder 0.1 s after the trace). `clock_problem`: None, or why a reader cannot place the frames in the
+    trace by time."""
     def number(value):
         return isinstance(value, (int, float)) and not isinstance(value, bool)
     first = index.get("t0_s") if isinstance(index, dict) and number(index.get("t0_s")) else None
@@ -371,9 +378,28 @@ def stills_clock(index, trace):
     else:
         end = round(start + max(stamps) / 1000, 6)
         inside = round((first - start) * 1000, 2)
+        length = max(value for value in times if number(value))
         if not start <= first <= end:
             problem = f"t0_s {first} is not inside the trace ({start} to {end}): not the trace's clock"
+        elif first - start > length:
+            problem = (f"t0_s {first} is {round(first - start, 3)} s after the trace's t0_s {start}, more than the "
+                       f"recording's length {round(length, 3)} s: 2 clocks")
     return {"first_frame_t0_s": first, "trace_t0_s": start, "first_frame_in_trace_ms": inside, "clock_problem": problem}
+
+
+def stills_cost(recorded, rounds):
+    """The missed refreshes of one recorded act (the pane trace and the recorder run through it) beside those of
+    the timed rounds of the same act with the motion on (no trace, no recorder), each from the same probe over the
+    same 1.2 s after the act. A trace that makes the motion late shows here: `more_than_each_round` (None when
+    one side has no count). No time of a recorded act is a number of the suite."""
+    known = [value for value in rounds if isinstance(value, (int, float))]
+    counted = isinstance(recorded, (int, float))
+    more = recorded > max(known) if counted and known else None
+    text = (f"{recorded} missed refreshes with the trace and the recorder" if counted
+            else "the missed refreshes of the recorded act were not counted")
+    text += f"; the timed rounds of the same act: {known}" if known else "; no timed round of the same act with the motion on"
+    return {"missed_refreshes": recorded if counted else None, "rounds_missed_refreshes": known, "more_than_each_round": more,
+            "text": text + (" = MORE THAN EACH ROUND" if more else "")}
 
 
 MARKER = []  # --record: the marker line's colour, one time, after the app said what its window shows (main)
@@ -1085,12 +1111,15 @@ def steps():
     return names
 
 
-def record(name, label):
+def record(name, label, rounds=()):
     """One recording of `name` (an untimed pass): the window's frames (`debug.window_record`), and through them the
     pane trace (`debug.motion` trace: where each pane is at each display tick), kept beside the frames as
     trace.json. A reader compares the stills of the move with the stills at rest before and after it. The row fails
     when the frames, their index or the trace are not there. A second row fails when the recorder's index does not
-    say its first frame's host time, or says one that is not inside the trace (`stills_clock`)."""
+    say its first frame's host time, or says one that is not inside the trace (`stills_clock`). `rounds`: the missed
+    refreshes of the timed rounds of the same act with the motion on; the recorded act's own count (the frame probe
+    over the same 1.2 s after the act) is printed beside them (`stills_cost`). Returns what trace.json keeps, less
+    the trace."""
     folder = os.path.join(opts.out, "frames", label.replace(" ", "-"))
     rpc("debug.motion", {"action": "trace_start", "targets": ["panes", "window"]})  # the window's size: a still's scale
     time.sleep(0.1)  # test harness: the trace has samples at rest before the recorder starts
@@ -1099,8 +1128,12 @@ def record(name, label):
     if isinstance(reply, dict) and reply.get("error"):
         print(f"  (no recording of {label}: {reply['error']})", flush=True)
     time.sleep(0.2)  # test harness: the recorder takes its first frame at rest
+    rpc("debug.frames", {"action": "start"})
+    action_s = time.monotonic()  # the uptime clock, as in a timed round (measure)
     error = perform(name)
-    time.sleep(opts.record_seconds + 0.2)  # test harness: the recording stops by itself
+    time.sleep(1.2)  # test harness: the same time after the act as a timed round has (measure)
+    late = late_frames(rpc("debug.frames", {"action": "stop", "raw": True}) or {}, action_s)
+    time.sleep(max(0.0, opts.record_seconds - 1.2) + 0.2)  # test harness: the recording stops by itself
     trace = rpc("debug.motion", {"action": "trace_stop"})
     deadline = time.monotonic() + 10
     while not os.path.exists(os.path.join(folder, "frames.json")) and time.monotonic() < deadline:
@@ -1111,14 +1144,17 @@ def record(name, label):
     except (OSError, ValueError):
         index = None
     clock = stills_clock(index, trace)
+    cost = stills_cost(late["missed_refreshes"], rounds)
+    kept = {"act": name, "label": label, "error": error, "seconds": opts.record_seconds, **facts, **clock, "cost": cost}
+    print(f"  {label}: recorded: {cost['text']}", flush=True)
     if os.path.isdir(folder):
-        json.dump({"act": name, "label": label, "error": error, "seconds": opts.record_seconds, **facts, **clock, "trace": trace},
-                  open(os.path.join(folder, "trace.json"), "w"))
+        json.dump({**kept, "trace": trace}, open(os.path.join(folder, "trace.json"), "w"))
     seen = ", ".join(f"{key.replace('_', ' ')} {value}" for key, value in facts.items() if key != "problem")
     row(f"{label}: the recording has its frames, its index and a pane trace", "2 frames or more, frames.json, a pane in each sample",
         f"{facts['problem'] or 'each is there'} ({seen})" + (f"; the act: {error}" if error else ""), not facts["problem"] and not error)
     row(f"{label}: the recording's first frame has a host time inside the pane trace", "frames.json's t0_s from the trace's first sample to its last",
         clock["clock_problem"] or f"{clock['first_frame_in_trace_ms']} ms after the trace's first sample", not clock["clock_problem"])
+    return kept
 
 
 def profile(name, label):
@@ -1402,9 +1438,11 @@ def main():
             if where == name and not not_applicable(what, columns if name != "stress" else None):
                 profile(what, f"{name}-{what}")
         if opts.record and (not opts.record_layouts or name in opts.record_layouts.split(",")):
+            moved = tags.get("on", tags.get(None))  # the rows of the rounds with the motion on (the record pass has it on)
             for step in sequence:
                 if not not_applicable(step, columns if name != "stress" else None):
-                    record(step, f"{name}-{step}")
+                    rounds = [run.get("missed_refreshes") for run in report["runs"] if run.get("layout") == moved and run.get("action") == step]
+                    conditions["stills"].setdefault("acts", {})[f"{name}-{step}"] = record(step, f"{name}-{step}", rounds)
     print("\n== summary (median over rounds)")
     browser_keys = BROWSER_KEYS if opts.browser else []
     wide = max([13] + [len(step) for step in sequence])  # sidepanel-close
