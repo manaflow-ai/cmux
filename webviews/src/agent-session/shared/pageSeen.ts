@@ -43,7 +43,9 @@ export function installPageSeen(win: Window | undefined = typeof window === "und
     const before = doc.visibilityState;
     state.seen = seen;
     // Only a change the page can read: an unseen page in a tab already hidden reads the same.
-    if (doc.visibilityState !== before) doc.dispatchEvent(new (win.Event ?? Event)("visibilitychange"));
+    // The window's own Event (a test's JSDOM window differs from the global one).
+    const WinEvent = (win as unknown as { Event?: typeof Event }).Event ?? Event;
+    if (doc.visibilityState !== before) doc.dispatchEvent(new WinEvent("visibilitychange"));
   };
   (win as { cmuxPageSeen?: (seen: boolean) => void }).cmuxPageSeen = set;
   return set;

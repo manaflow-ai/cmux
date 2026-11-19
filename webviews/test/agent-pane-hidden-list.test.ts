@@ -88,6 +88,8 @@ class FakeAcpmux {
   at = new Map<string, number>();
   listSeq = 1;
   shown = true;
+  /// The connection's list watch (acpmux `Conn::watch_all`): `{enabled: false}` turns it off.
+  watching = true;
   /// The last position sent while shown (acpmux `Conn::list_sent`).
   sent = 1;
   /// `session_changed` notices the page was sent.
@@ -127,6 +129,8 @@ class FakeAcpmux {
   /// acpmux server/list_reply.rs `watch` with list_shown.rs.
   private watch(params: Record<string, any>): Record<string, unknown> {
     this.watches.push(params);
+    this.watching = params.enabled !== false;
+    if (!this.watching) return {};
     let after: number | undefined = typeof params.afterSeq === "number" ? params.afterSeq : undefined;
     if (params.shown === false) this.shown = false;
     else if (params.shown === true && !this.shown) {
@@ -148,6 +152,7 @@ class FakeAcpmux {
     const row = summary(n, status, 2_000_000 + this.listSeq);
     this.rows.set(row.sessionId, row);
     this.at.set(row.sessionId, this.listSeq);
+    if (!this.watching) return;
     if (!this.shown && row.sessionId !== SELECTED) return;
     if (this.shown) this.sent = this.listSeq;
     this.delivered += 1;
