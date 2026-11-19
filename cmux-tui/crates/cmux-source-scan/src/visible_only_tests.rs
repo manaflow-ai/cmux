@@ -48,6 +48,11 @@ fn judge_row(args: &str, source: &str) -> Option<String> {
     })
 }
 
+/// A row's `flags LINE KIND [& LINE KIND]` names each hit it expects once: `flags 2 walk` is one
+/// walk on line 2. A walk inside another walk's closure is that walk's per-item work, not a second
+/// hit (visible_only_rows.txt "a walk nested in a draw fn's closure ..."). A review read that row as
+/// two walks and could not run cargo; fleet job 795d2a78cba04f7bf9bad48b ran this at 833109a0:
+/// 27 passed, `visible-only: ok`.
 #[test]
 fn every_row_is_judged_as_it_says() {
     let rows = rows();
