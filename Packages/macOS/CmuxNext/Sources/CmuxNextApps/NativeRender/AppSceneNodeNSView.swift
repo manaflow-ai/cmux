@@ -16,13 +16,31 @@ class AppSceneNodeNSView: NSView {
     weak var model: AppSceneModel?
     /// A container's laid-out children, in order (set by the reconciler).
     private(set) var childViews: [AppSceneNodeNSView] = []
+    /// The container drew its children once: a child added after this moves in by its `transition`.
+    private(set) var hasDrawnChildren = false
+    /// The node left its parent and its `transition` moves it out.
+    var isLeaving = false
     /// The app bundle's folder (an `Image` node's `src` is inside it), set by the reconciler.
     var bundleDirectory: URL?
+    /// The node draws in a widget tile (``AppSceneNativeView/fillsBounds``). Only there do spacers
+    /// take a tall stack's slack and `transition` / `contentTransition` run: every other app scene
+    /// (a sidebar section, a hover card, a pane) draws as it did before widgets
+    /// (AppSceneDefaultUnchangedTests).
+    var drawsInWidgetTile: Bool {
+        var view = superview
+        while let current = view {
+            if let native = current as? AppSceneNativeView { return native.fillsBounds }
+            view = current.superview
+        }
+        return false
+    }
     private var isPressed = false
     /// Tracks the pointer while the node has a `hoverBackground` (a local wash, no script round trip).
     var decorationHover: PointerHover?
     /// Whether the pointer is over a node with a `hoverBackground`.
     var isDecorationHovered = false
+    /// Draws a gradient `background` under the node's content; made the first time a node asks for one.
+    var decorationGradient: CAGradientLayer?
 
     init(id: String, node: AppSceneNode) {
         nodeID = id
@@ -62,9 +80,35 @@ class AppSceneNodeNSView: NSView {
     func setChildren(_ views: [AppSceneNodeNSView]) {
         guard views.map(ObjectIdentifier.init) != childViews.map(ObjectIdentifier.init) else { return }
         let keep = Set(views.map(ObjectIdentifier.init))
-        for old in childViews where !keep.contains(ObjectIdentifier(old)) && old.superview === childHost { old.removeFromSuperview() }
-        for view in views where view.superview !== childHost { childHost.addSubview(view) }
+        // After the first frame a child's `transition` moves it in and out (AppSceneNodeNSView+Transition),
+        // in a widget tile only.
+        let transitions = hasDrawnChildren && window != nil && drawsInWidgetTile
+        // The new children first: an exit that ends at once (a window with no screen, motion off) asks
+        // them whether the node came back, and must find it gone.
+        let previous = childViews
         childViews = views
+        for old in previous where !keep.contains(ObjectIdentifier(old)) && old.superview === childHost {
+            guard transitions, old.sceneTransition != nil else {
+                old.removeFromSuperview()
+                continue
+            }
+            old.transitionOut { [weak self, weak old] in
+                // Back in the tree before its exit ended: it stays.
+                guard let self, let old, !self.childViews.contains(where: { $0 === old }) else { return }
+                old.removeFromSuperview()
+            }
+        }
+        for view in views where view.superview !== childHost || view.isLeaving {
+            if view.superview !== childHost { childHost.addSubview(view) }
+            if transitions, view.sceneTransition != nil {
+                view.transitionIn()
+            } else if view.isLeaving {
+                // Back before its exit ended, with no entrance to run: at rest now, and the exit's
+                // completion finds it no longer leaving.
+                view.settleAtRest()
+            }
+        }
+        hasDrawnChildren = true
         needsLayout = true
     }
 
