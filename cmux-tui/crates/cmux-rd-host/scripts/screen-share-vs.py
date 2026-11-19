@@ -1355,6 +1355,18 @@ class SpoolProc:
     kill = terminate
 
 
+TAILNET_UDP = ("UDP over the tailnet got no answer between the wired fleet pair (2026-11-19, cmux20 to cmux17: "
+               "\"no clock replies\" while ping answered); pass the shared Mac's LAN address as --host-ip.")
+
+
+def tailnet(addr):
+    """Whether ADDR is a tailnet (CGNAT 100.64.0.0/10) address."""
+    try:
+        return ipaddress.ip_address(addr) in ipaddress.ip_network("100.64.0.0/10")
+    except ValueError:
+        return False
+
+
 def readline(proc, deadline):
     """The next stdout line of a Remote.popen process, or None at EOF or the deadline. A spool
     process's lines arrive by polling through the relay, so its deadline gets the relay's lag."""
@@ -1476,8 +1488,13 @@ class Orchestrator:
             port = json.loads(line or "{}").get("listening")
             if not port:
                 raise RuntimeError(f"clock-serve on {self.a.host} did not start: {line!r}")
-            out = self.viewer.run(f"{self.py} {self.me} clock-probe --addr {self.a.host_ip}:{port} "
-                                  f"--count {self.a.clock_count}", timeout=60)
+            try:
+                out = self.viewer.run(f"{self.py} {self.me} clock-probe --addr {self.a.host_ip}:{port} "
+                                      f"--count {self.a.clock_count}", timeout=60)
+            except RuntimeError as e:
+                if tailnet(self.a.host_ip):
+                    raise RuntimeError(f"{e}\n{TAILNET_UDP}") from None
+                raise
         finally:
             srv.terminate()
         return json.loads(out.strip().splitlines()[-1])
@@ -1870,6 +1887,9 @@ class Orchestrator:
         return firsts, g2g, fps
 
     def main(self):
+        if tailnet(self.a.host_ip):
+            print(f"warning: --host-ip {self.a.host_ip} is a tailnet address. {TAILNET_UDP}",
+                  file=sys.stderr, flush=True)
         self.setup()
         clock0 = self.clock()
         self.log({"clock": clock0, "host": self.a.host, "viewer": self.a.viewer,

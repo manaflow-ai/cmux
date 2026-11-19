@@ -419,6 +419,40 @@ class RfbLeg(unittest.TestCase):
             b.close()
 
 
+class TailnetHostIpTests(unittest.TestCase):
+    def test_only_cgnat_addresses_count_as_tailnet(self):
+        self.assertTrue(vs.tailnet("100.64.0.1"))
+        self.assertTrue(vs.tailnet("100.127.255.254"))
+        self.assertFalse(vs.tailnet("100.128.0.1"))
+        self.assertFalse(vs.tailnet("172.20.21.250"))
+        self.assertFalse(vs.tailnet("cmux20"))
+
+    def clock_failure(self, host_ip):
+        import queue
+        import types
+        srv = types.SimpleNamespace(lines=queue.Queue(), terminate=lambda: None)
+        srv.lines.put('{"listening": 4000}')
+
+        def fail(cmd, timeout=120):
+            raise RuntimeError("viewer: clock-probe: exit 1: no clock replies")
+        me = types.SimpleNamespace(
+            a=types.SimpleNamespace(host="mac-a", host_ip=host_ip, clock_count=5),
+            py="python3", me="screen-share-vs.py",
+            host=types.SimpleNamespace(popen=lambda cmd: srv),
+            viewer=types.SimpleNamespace(run=fail))
+        with self.assertRaises(RuntimeError) as cm:
+            vs.Orchestrator.clock(me)
+        return str(cm.exception)
+
+    def test_a_clock_failure_on_a_tailnet_host_ip_names_the_cause(self):
+        msg = self.clock_failure("100.101.102.103")
+        self.assertIn("no clock replies", msg)
+        self.assertIn("LAN address", msg)
+
+    def test_a_clock_failure_on_a_lan_host_ip_is_left_as_is(self):
+        self.assertNotIn("LAN address", self.clock_failure("172.20.21.250"))
+
+
 class BudgetInputTests(unittest.TestCase):
     def test_budget_names_the_input_kind_and_pair(self):
         b = vs.build_budget({"rows": [breakdown_row()]}, None, cmux_input="scroll", host="mac-a", viewer="mac-b")
