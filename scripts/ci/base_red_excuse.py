@@ -1064,7 +1064,9 @@ BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
 # list is the record, so every host shares one dedupe and nothing waits here. A host whose gh cannot dispatch (a lane
 # VM's broker) refuses with the reason; the next check from a host that can starts it. Keep this list to workflows
 # whose base verdict cannot come from a push: each dispatch is a Mac job.
-BASE_DISPATCH = frozenset({("feat-cmux-next", "nightly-next-cua-signed-host.yml")})
+# cmux#37003 (b6fff4f6f105) deleted nightly-next-cua-signed-host.yml, so no workflow needs a base dispatch now; the
+# mechanism stays for the next one (BaseDispatchForPullRequestOnlyWorkflows runs it with that entry).
+BASE_DISPATCH: frozenset[tuple[str, str]] = frozenset()
 BASE_DISPATCH_EVERY = timedelta(minutes=60)
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
@@ -5990,6 +5992,13 @@ JOURNEY_STEP = "Cloud journey (staging, this pull request's CLI)"
 JOURNEY_STEP_LINE = re.compile(r"^(PASS|FAIL|SKIP) (\S.*?) \d+ ms ::(?: (.*))?$")
 JOURNEY_SUMMARY = re.compile(r"^(PASS|FAIL) [\w.-]+: (\d+) passed, (\d+) failed, (\d+) skipped\b")
 JOURNEY_RETRIED = re.compile(r"^##\[warning\].* failed once; running it again\b")
+# The only lines the step prints outside a journey run (before its first step line, between a summary and the next
+# run's first step line, after its last summary): the runner's own header block, cloud-journey-ci.sh's retry warning,
+# its closing verdict notice and the runner's exit line. Anything else there is a run that died before its first step
+# line (a second team's, PRODUCT_TEAM, cloud-journey-ci.sh's second `run`), whose red no summary counts
+# (cmux#45546's review F1).
+JOURNEY_OUTSIDE_OK = re.compile(r"^(?:##\[(?:group|endgroup)\].*|##\[notice\]target=\S+ result=\S+"
+                                r"|##\[error\]Process completed with exit code \d+\.)$")
 # The journey's own files: they decide its steps, their checks and the detail each prints, so a PR that changes one
 # owns every step's line, whatever the base prints.
 JOURNEY_OWN_FILES = ("scripts/cmux-next/cloud-journey", ".github/workflows/cloud-journey-pr.yml")
@@ -6006,34 +6015,48 @@ def journey_reds(text: str) -> tuple[Counter, str | None]:
     """(Counter of (step, its detail with ids and numbers masked) for each FAIL line of the judged runs in TEXT, a
     journey job's failed_view text; None, or why TEXT is no finished journey). A judged run is one closed by its
     summary line and not followed by the retry warning; its FAIL lines must be as many as its summary counts. Step
-    lines after the last summary are a run cut short."""
+    lines after the last summary are a run cut short, and any line outside a run but JOURNEY_OUTSIDE_OK's is a run
+    that died before its first step line. A retry line names the failed first attempt just closed; one after a
+    retry's own run (cloud-journey-ci.sh retries each run once) is a later run that died printing nothing."""
     lines = test_reds.log_lines(text)
     skip = test_reds.echoed(lines)
-    runs: list[list] = []  # [FAIL keys, summary match, retried]
+    runs: list[list] = []  # [FAIL keys, summary match, retried, a retry's own run]
     current: list[tuple[str, str]] = []
-    pending = False
+    pending = grouped = False
     for n, line in enumerate(lines):
         if n in skip:
             continue
         if match := JOURNEY_STEP_LINE.match(line):
-            pending = True
+            # The runner's header block ends before the step's own output, closed or not.
+            pending, grouped = True, False
             if match[1] == "FAIL":
                 current.append((match[2], normalise_error(JOURNEY_ID.sub("<id>", match[3] or ""))))
         elif match := JOURNEY_SUMMARY.match(line):
-            runs.append([current, match, False])
+            runs.append([current, match, False, bool(runs) and runs[-1][2]])
             current, pending = [], False
         elif JOURNEY_RETRIED.match(line):
-            # It names the run just closed: a failed one, not already retried. After a run cut short (step lines
-            # with no summary) or anything else, which run it retries is unknown, and so is which run is judged.
-            if pending or not runs or runs[-1][1][1] != "FAIL" or runs[-1][2]:
-                return Counter(), f"a retry line that follows no closed failed run ({line[:200]})"
+            # It names the run just closed: a failed first attempt, not already retried. After a run cut short (step
+            # lines with no summary), a retry's own run or anything else, which run it retries is unknown, and so is
+            # which run is judged.
+            if pending or not runs or runs[-1][1][1] != "FAIL" or runs[-1][2] or runs[-1][3]:
+                return Counter(), (f"a retry line that follows no closed failed run that was a first attempt "
+                                   f"({line[:200]})")
             runs[-1][2] = True
+        elif pending or not line.strip():
+            continue  # a run's own output, or a blank line
+        elif line.startswith("##[group]"):
+            grouped = True
+        elif line.startswith("##[endgroup]"):
+            grouped = False
+        elif not grouped and not JOURNEY_OUTSIDE_OK.match(line):
+            return Counter(), (f"a line outside any journey run ({line[:200]}): a run that died before its first "
+                               "step line, which no summary counts")
     if pending:
         return Counter(), "journey step lines after its last closing summary (a run cut short)"
     if not runs:
         return Counter(), "no journey run with a closing summary"
     found: Counter = Counter()
-    for fails, summary, retried in runs:
+    for fails, summary, retried, _ in runs:
         if len(fails) != int(summary[3]):
             return Counter(), (f"a journey summary counts {summary[3]} failed and its run printed {len(fails)} FAIL "
                                f"step lines ({summary[0][:200]})")
@@ -6671,27 +6694,33 @@ def unittest_failures(section: list[str]) -> list[tuple[str, list[str]]]:
 # judges and posts the ws-check status from that log, linking the cancelled run, and keeps it beside the run's record
 # in its state folder (ci/JID.json, ci/JID.fleet-log). Read only as GitHub's job, every fleet-route ws-check was "no
 # result", never excusable. A broker land's merge_hold runs on the broker host, so this reads the kept log there:
-# the record must name this run as the one it moved (fleet.from_run), be settled done with the status's verdict, and
-# the log's receipt must name the run again (ws_check_verdict). Elsewhere, or once the record is pruned (the broker
+# the record must name this run as the one it moved (fleet.from_run) and this head (cmux#46667, leo-workspace#5376 at
+# b2b09e79: a record of another head's run is never read), be settled done with the status's verdict, and the log's
+# receipt must name the run again (ws_check_verdict). The standby broker's state is read too, after the primary's. Elsewhere, or once the record is pruned (the broker
 # keeps settled records CI_RECORD_RETENTION_S, 6 h), it is "no result" as before: run ws-check again.
 FLEET_RECORDS_ENV = "BASE_RED_FLEET_RECORDS"  # the broker's ci records folder; default its state's (cfg "state")
 FLEET_RECORDS_DEFAULT = Path(".local") / "state" / "lane-gh-broker" / "ci"
+FLEET_RECORDS_STANDBY = Path(".local") / "state" / "lane-gh-broker-standby" / "ci"
 FLEET_VERDICTS = {"failure": "failure", "success": "success"}  # status state: the record's conclusion
 
 
-def fleet_records_dir(env=os.environ) -> Path:
+def fleet_records_dirs(env=os.environ) -> list[Path]:
     named = env.get(FLEET_RECORDS_ENV)
-    return Path(named) if named else Path(env.get("HOME") or Path.home()) / FLEET_RECORDS_DEFAULT
+    if named:
+        return [Path(named)]
+    home = Path(env.get("HOME") or Path.home())
+    return [home / FLEET_RECORDS_DEFAULT, home / FLEET_RECORDS_STANDBY]
 
 
-def fleet_kept_log(repo: str, host: str, run: str, state: str, env=os.environ) -> str | None:
-    """The build-fleet log this host's lane-gh broker kept for REPO's ws-check run RUN (in HOST), the run it cancelled
-    and moved to the fleet, when its record is settled done with the verdict STATE names; else None."""
-    folder = fleet_records_dir(env)
-    try:
-        records = sorted(folder.glob("*.json"))
-    except OSError:
-        return None
+def fleet_kept_log(repo: str, host: str, run: str, sha: str, state: str, env=os.environ) -> str | None:
+    """The build-fleet log this host's lane-gh broker kept for REPO's ws-check run RUN (in HOST) of head SHA, the run
+    it cancelled and moved to the fleet, when its record is settled done with the verdict STATE names; else None."""
+    records = []
+    for folder in fleet_records_dirs(env):
+        try:
+            records += sorted(folder.glob("*.json"))
+        except OSError:
+            continue
     for path in records:
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
@@ -6701,8 +6730,8 @@ def fleet_kept_log(repo: str, host: str, run: str, state: str, env=os.environ) -
         if not isinstance(fleet, dict) or str(fleet.get("from_run")) != str(run):
             continue
         if (fleet.get("state") != "done" or record.get("repo") != repo or record.get("dispatch") != host
-                or str(record.get("run_id")) != str(run) or record.get("conclusion") != FLEET_VERDICTS.get(state)
-                or record.get("mismatch")):
+                or str(record.get("run_id")) != str(run) or record.get("head") != sha
+                or record.get("conclusion") != FLEET_VERDICTS.get(state) or record.get("mismatch")):
             return None
         try:
             text = path.with_name(f"{path.stem}.fleet-log").read_text(encoding="utf-8", errors="replace")
@@ -6747,7 +6776,7 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     fleet = None
     if job.get("status") == "completed" and job.get("conclusion") == "cancelled":
         # The broker cancelled it and the build fleet ran its snapshot (fleet_kept_log): that log is the run's.
-        fleet = fleet_kept_log(repo, host, link[1], state)
+        fleet = fleet_kept_log(repo, host, link[1], sha, state)
     if fleet is None and (job.get("status") != "completed" or job.get("conclusion") not in ("success", "failure")):
         # No verdict (startup_failure, cancelled, still running): no result, skipped on the base (cmux#36219 F2).
         return "none", dict(found, why=f"job '{job.get('name')}' in run {link[1]} is {job.get('status')}/"

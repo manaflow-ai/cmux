@@ -225,7 +225,10 @@ public final class GlassParityPlayground {
     /// is attached, and waits until both pages painted (and, in host mode, the App drew their glass).
     /// Answers what it shows.
     func show(_ scenario: Scenario, scale: CGFloat?) async -> JSONValue {
-        let reload = window == nil || scenario.mode != self.scenario.mode || scenario.row != self.scenario.row
+        // Every scenario starts from new glass, native and host alike: Liquid Glass keeps an adaptive look with
+        // memory (over the same backdrop the tooltip's glass settled on two or three looks, by the backdrops it
+        // saw before: fleet step 368e35ec), so glass views with different pasts drifted apart by up to 12 levels.
+        // New views have the same (no) past. The pages reload so each reports its surfaces to new host glass.
         self.scenario = scenario
         let window = window ?? makeWindow()
         self.window = window
@@ -242,26 +245,33 @@ public final class GlassParityPlayground {
             view.offset = scenario.offset
             view.needsDisplay = true
         }
-        menuRowView?.state = scenario.row
-        if reload {
-            ready = []
-            for host in hosts.values { host.apply([]) }
-            for page in pages.values { page.reload() }
+        if let native = nativeLayer {
+            for view in native.subviews { view.removeFromSuperview() } // visible-only: the seven fixed test surfaces, all on screen
+            for kind in Kind.allCases { native.addSubview(nativeSurface(kind)) }
         }
+        ready = []
+        for host in hosts.values { host.apply([]) }
+        for page in pages.values { page.reload() }
         // Every page loads and reports while shown; the capture solos one renderer at a time after.
         solo(nil)
-        // Active: the app active and the window key (the harness launches the app without the no-activate
-        // switch for these cells; under it macOS may refuse, and `status().key` says so). Inactive: another
-        // app active, so the window shows its inactive look, as behind any other app's window.
+        // Active: the app active and the playground key (the harness launches the app without the no-activate switch
+        // for these cells; under it macOS may refuse, and `status().key` says so). Activation lands a few frames
+        // later and the app's own main window takes key as it does, so the playground asks for key again once the
+        // app is active. Inactive: the harness hands activation to another app (`open -a Finder`, before this
+        // call); here the playground only comes to the front without asking for it.
         if scenario.active {
-            NSRunningApplication.current.activate(options: [])
             NSApp.activate()
             window.makeKeyAndOrderFront(nil)
+            await poll(until: { NSApp.isActive }, limit: .seconds(3))
+            // The app's own main window may take key as activation lands, after this asked: ask again until key.
+            await poll(until: {
+                if !window.isKeyWindow { window.makeKeyAndOrderFront(nil) }
+                return window.isKeyWindow
+            }, limit: .seconds(4))
         } else {
-            NSApp.deactivate()
             window.orderFrontRegardless()
+            await poll(until: { !NSApp.isActive }, limit: .seconds(3))
         }
-        await wait(until: { scenario.active ? window.isKeyWindow : !NSApp.isActive }, limit: .seconds(3))
         await wait(until: { self.ready.count >= self.pages.count }, limit: .seconds(15))
         if scenario.mode == .host {
             await wait(until: { !self.hosts.values.contains { $0.count < Kind.allCases.count } }, limit: .seconds(4))
@@ -324,7 +334,17 @@ public final class GlassParityPlayground {
             "ready": .array(ready.map { .string($0.rawValue) }.sorted { ($0.stringValue ?? "") < ($1.stringValue ?? "") }),
             "liquid_glass": .bool(Glass.isLiquidGlassAvailable),
             "desktop_picture": .bool(picture != nil),
+            "page_windows": pageWindows(in: window),
         ]
+    }
+
+    /// Each page's view rect on screen beside its child windows' frames (a Chromium page draws in a child window
+    /// the Chromium fork places), so a page drawn off its view's pixels names the offset.
+    func pageWindows(in window: NSWindow) -> JSONValue {
+        func rect(_ r: CGRect) -> JSONValue { .array([r.minX, r.minY, r.width, r.height].map { .number($0) }) }
+        var views: [String: JSONValue] = [:]
+        for (column, page) in pages { views[column.rawValue] = rect(window.convertToScreen(page.convert(page.bounds, to: nil))) }
+        return ["views": .object(views), "children": .array((window.childWindows ?? []).map { rect($0.frame) })]
     }
 
     var appearance: String {
@@ -340,11 +360,12 @@ public final class GlassParityPlayground {
         backdropView = nil
         nativeLayer = nil
         menuRowView = nil
+
         ready = []
     }
 
     /// Waits until `done` holds or `limit` passes, woken by the pages' reports and one deadline.
-    private func wait(until done: () -> Bool, limit: Duration) async {
+    func wait(until done: () -> Bool, limit: Duration) async {
         deadlinePassed = false
         deadline.schedule(after: limit) { @MainActor [weak self] in
             self?.deadlinePassed = true
@@ -354,6 +375,15 @@ public final class GlassParityPlayground {
             await withCheckedContinuation { waiters.append($0) }
         }
         deadline.cancel()
+    }
+
+    /// Waits until `done` holds or `limit` passes, checking every 50 ms: the app's activation and key state have
+    /// no report of the playground's own to wake on (a debug measure, never a person's).
+    private func poll(until done: () -> Bool, limit: Duration) async {
+        let end = ContinuousClock.now + limit
+        while !done(), ContinuousClock.now < end {
+            await wait(until: { false }, limit: .milliseconds(50))
+        }
     }
 
     private func wake() {

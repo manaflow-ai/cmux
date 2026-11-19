@@ -97,7 +97,7 @@ class Seed:
         workspace = find()
         if not workspace:
             raise RuntimeError(f"no workspace with key {key} to close")
-        self.action("closeWorkspace", target=f"workspace:{workspace}")
+        self.action("closeWorkspace", target=f"workspace:{workspace}", args={"confirm": True})  # destructive: refused without it
         if not wait(lambda: find() is None, 10):
             raise RuntimeError(f"workspace {key} ({workspace}) still listed 10 s after closeWorkspace")
         self.row.update(closed=workspace, workspaces_left=len(self.topology().get("workspaces") or []))
