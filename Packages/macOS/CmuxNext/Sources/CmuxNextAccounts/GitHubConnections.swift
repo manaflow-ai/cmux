@@ -1,4 +1,4 @@
-import CmuxNextCloud
+public import CmuxNextCloud
 public import CmuxNextSettings
 import CryptoKit
 public import Foundation
