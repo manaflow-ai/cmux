@@ -1,3 +1,4 @@
+public import CmuxVisibleRows
 public import Foundation
 public import Observation
 
@@ -14,7 +15,7 @@ public import Observation
 /// await page.reload(now: .now)
 /// ```
 @MainActor @Observable
-public final class AutomationsPage {
+public final class AutomationsPage: VisibleRowsList {
     /// One group of the list, in page order.
     public enum Section: Int, CaseIterable, Sendable {
         case needsYou, today, later, paused
@@ -22,12 +23,26 @@ public final class AutomationsPage {
 
     /// Every row, newest load.
     public private(set) var rows: [AutomationRow] = []
+    /// The enabled rows, counted once per load.
+    public private(set) var activeCount = 0
     /// The row whose detail shows.
     public var selection: AutomationRow.ID?
     /// Why a source could not load, per source: the ``AutomationsPageHost/SourceError`` code
     /// (`automation.signed_out`, `feature.disabled`, `no_cli`, `cli_failed`), else `unreachable`.
     public private(set) var problems: [AutomationRow.Target: String] = [:]
 
+    /// The list's row work (the visible-rows contract): rows configured, and rows walked by a load and a sort.
+    @ObservationIgnored public let listWork = ListWorkMeter()
+    /// List rows on screen now: each counts itself on appear and off on disappear.
+    @ObservationIgnored public internal(set) var rowViewsAlive = 0
+    /// How many times ``sections(now:calendar:)`` grouped and sorted every row (the row-count tests).
+    @ObservationIgnored private(set) var sectionBuilds = 0
+    /// Loads so far: the sections and places below hold for the load they were made in.
+    @ObservationIgnored private var loads = 0
+    /// Each row's index in ``rows`` (the first, should two share an id), made with each load.
+    @ObservationIgnored private var places: [AutomationRow.ID: Int] = [:]
+    /// The last ``sections(now:calendar:)``, kept until the next load or another time.
+    @ObservationIgnored private var arranged: (load: Int, now: Date, calendar: Calendar, sections: [(Section, [AutomationRow])])?
     @ObservationIgnored private let local: @Sendable () async throws -> Data
     @ObservationIgnored private let cloud: @Sendable () async throws -> Data
 
@@ -44,7 +59,7 @@ public final class AutomationsPage {
     /// The page with `rows` already loaded (previews, screenshots).
     public convenience init(rows: [AutomationRow], selection: AutomationRow.ID? = nil) {
         self.init(local: { Data() }, cloud: { Data() })
-        self.rows = rows
+        load(rows)
         self.selection = selection ?? rows.first?.id
     }
 
@@ -63,9 +78,18 @@ public final class AutomationsPage {
         case let .success(data): next += AutomationRow.cloud(data)
         case let .failure(error): problems[.cloud] = (error as? AutomationsPageHost.SourceError)?.code ?? "unreachable"
         }
-        rows = next
+        load(next)
         self.problems = problems
-        if selection == nil || !rows.contains(where: { $0.id == selection }) { selection = rows.first?.id }
+        if selection.flatMap({ places[$0] }) == nil { selection = rows.first?.id }
+    }
+
+    /// Shows `next`: counts its enabled rows and indexes it once, so a body reads both without a pass over the rows.
+    private func load(_ next: [AutomationRow]) {
+        rows = next
+        loads += 1
+        listWork.walked(next.count)
+        activeCount = next.filter(\.enabled).count
+        places = Dictionary(next.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// The section a row belongs to at `now`.
@@ -76,21 +100,31 @@ public final class AutomationsPage {
         return .later
     }
 
-    /// The non-empty sections at `now`, each with its rows ordered by next run.
+    /// The non-empty sections at `now`, each with its rows ordered by next run. Grouped and sorted once per
+    /// load and time: a body that reads them again (a new selection) gets the same sections.
     public func sections(now: Date, calendar: Calendar = .current) -> [(Section, [AutomationRow])] {
-        Section.allCases.compactMap { section in
+        let rows = rows // read here, so a body that shows the sections follows a load
+        if let arranged, arranged.load == loads, arranged.now == now, arranged.calendar == calendar { return arranged.sections }
+        sectionBuilds += 1
+        listWork.walked(rows.count)
+        let sections: [(Section, [AutomationRow])] = Section.allCases.compactMap { section in
             let members = rows
                 .filter { Self.section(of: $0, now: now, calendar: calendar) == section }
                 .sorted { ($0.nextRun ?? .distantFuture, $0.name) < ($1.nextRun ?? .distantFuture, $1.name) }
             return members.isEmpty ? nil : (section, members)
         }
+        arranged = (loads, now, calendar, sections)
+        return sections
     }
 
     /// The badge on the sidebar row: failures only (silence is success).
     public var badgeCount: Int { rows.filter(\.needsYou).count }
 
     /// The selected row.
-    public var selected: AutomationRow? { rows.first { $0.id == selection } }
+    public var selected: AutomationRow? {
+        let rows = rows
+        return selection.flatMap { places[$0] }.map { rows[$0] }
+    }
 }
 
 /// One source's load, its error kept instead of thrown.

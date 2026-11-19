@@ -21,11 +21,11 @@ struct WorkspaceTodoPageView: View {
                     Text(WorkspaceChecklistStrings.empty).foregroundStyle(.secondary)
                 } else {
                     let editing = model.editing
-                    let actions = rowActions
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(items) { item in
-                                WorkspaceTodoRow(item: item, isEditing: editing == item.id, actions: actions)
+                                WorkspaceTodoRow(item: item, isEditing: editing == item.id, actions: rowActions, work: model.listWork)
+                                    .equatable()
                             }
                         }
                         .thinScrollers()
@@ -40,17 +40,13 @@ struct WorkspaceTodoPageView: View {
     }
 
     private var rowActions: WorkspaceTodoRowActions {
-        let model = model
-        return WorkspaceTodoRowActions(
-            toggle: { model.toggle($0) },
-            setState: { model.setState($0, $1) },
-            beginEdit: { model.editing = $0 },
-            commitEdit: { item, text in
-                model.editing = nil
-                model.edit(item, text: text)
-            },
-            cancelEdit: { model.editing = nil },
-            attachImages: { model.attachImages($0) },
-            remove: { model.remove($0) })
+        WorkspaceTodoRowActions(
+            toggle: { [model] in model.toggle($0) },
+            setState: { [model] in model.setState($0, $1) },
+            beginEdit: { [model] in model.editing = $0 },
+            commitEdit: { [model] in model.editing = nil; model.edit($0, text: $1) },
+            cancelEdit: { [model] in model.editing = nil },
+            attachImages: { [model] in model.attachImages($0) },
+            remove: { [model] in model.remove($0) })
     }
 }

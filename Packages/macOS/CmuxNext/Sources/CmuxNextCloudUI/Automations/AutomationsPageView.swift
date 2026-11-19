@@ -72,7 +72,7 @@ public struct AutomationsPageView: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text(strings.title).font(palette.header).foregroundStyle(palette.text)
-            AutomationChip(text: strings.active(page.rows.filter(\.enabled).count), palette: palette)
+            AutomationChip(text: strings.active(page.activeCount), palette: palette)
             Spacer()
             if let new = actions.new {
                 Button(strings.new) { new() }.buttonStyle(.borderedProminent).controlSize(.small)
@@ -101,16 +101,20 @@ public struct AutomationsPageView: View {
         target == .cloud && code == "automation.signed_out" ? actions.signIn : nil
     }
 
+    /// Rows are equatable values with the selection as a Bool, so a new selection draws the old and the new row only.
     private var list: some View {
-        ScrollView {
+        let (page, selection) = (page, page.selection)
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(page.sections(now: now), id: \.0) { section, rows in
                     Text(strings.section(section).uppercased()).font(palette.caption).foregroundStyle(palette.tertiary)
                         .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 4)
                     ForEach(rows) { row in
-                        AutomationListRow(row: row, selected: row.id == page.selection, palette: palette, strings: strings, now: now) {
-                            page.selection = row.id
-                        }
+                        AutomationListRow(row: row, selected: row.id == selection, palette: palette, strings: strings, now: now,
+                                          work: page.listWork) { page.selection = row.id }
+                            .equatable()
+                            .onAppear { page.rowViewsAlive += 1 }
+                            .onDisappear { page.rowViewsAlive -= 1 }
                     }
                 }
             }

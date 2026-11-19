@@ -20,7 +20,8 @@
     "CmuxSentryTelemetry": "Packages/Shared/CmuxSentryTelemetry",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
     "CmuxUpdater": "Packages/macOS/CmuxUpdater",
-    "CmuxVNC": "Packages/Shared/CmuxVNC"
+    "CmuxVNC": "Packages/Shared/CmuxVNC",
+    "CmuxVisibleRows": "Packages/Shared/CmuxVisibleRows"
   },
   "targets": {
     "CCmuxAppFFI": {
@@ -385,7 +386,8 @@
         "CmuxAppAttest",
         "CmuxFeedPushCore",
         "CmuxHomeCore",
-        "CmuxHomeRender"
+        "CmuxHomeRender",
+        "CmuxVisibleRows"
       ]
     },
     "CmuxNextAppCore": {
@@ -521,7 +523,8 @@
         "CmuxMessagesLab",
         "CmuxTheme",
         "CmuxUpdater",
-        "CmuxVNC"
+        "CmuxVNC",
+        "CmuxVisibleRows"
       ],
       "reads": [
         "Native/OptChat/optchat-chief/inspector/index.html",
@@ -762,7 +765,9 @@
       "targets": [
         "CmuxNextDesign"
       ],
-      "packages": []
+      "packages": [
+        "CmuxVisibleRows"
+      ]
     },
     "CmuxNextChiefMemoryTests": {
       "kind": "test",
@@ -913,7 +918,9 @@
         "CmuxNextPalette",
         "CmuxNextSettings"
       ],
-      "packages": []
+      "packages": [
+        "CmuxVisibleRows"
+      ]
     },
     "CmuxNextCloudUITests": {
       "kind": "test",
@@ -1798,8 +1805,7 @@
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",
         "CmuxNextSettings",
-        "CmuxNextTestSupport",
-        "CmuxNextWakeupsTestSupport"
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": [
@@ -2134,7 +2140,8 @@
         "CmuxNextWakeups"
       ],
       "packages": [
-        "CmuxAgentBrands"
+        "CmuxAgentBrands",
+        "CmuxVisibleRows"
       ]
     },
     "CmuxNextSidebarActions": {

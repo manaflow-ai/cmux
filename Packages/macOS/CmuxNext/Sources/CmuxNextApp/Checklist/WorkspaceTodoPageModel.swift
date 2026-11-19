@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxVisibleRows
 import Foundation
 import Observation
 
@@ -14,6 +15,8 @@ final class WorkspaceTodoPageModel {
     var draft = ""
     /// The item whose text is being edited, if any.
     var editing: String?
+    /// The list's row work (the row-count tests).
+    @ObservationIgnored let listWork = ListWorkMeter()
 
     private let workspace: @MainActor (String) -> WorkspaceModel?
     private let perform: @MainActor (ActionID, ActionInvocation) -> Void

@@ -1,3 +1,4 @@
+public import CmuxVisibleRows
 public import Foundation
 public import Observation
 
@@ -20,7 +21,11 @@ public import Observation
 /// await model.saveEdit()
 /// ```
 @MainActor @Observable
-public final class ChiefMemoryInspectorModel {
+public final class ChiefMemoryInspectorModel: VisibleRowsList {
+    /// The line lists' row work (the visible-rows contract): rows configured, and lines walked by a read of the view.
+    @ObservationIgnored public let listWork = ListWorkMeter()
+    /// View and search rows on screen now: each counts itself on appear and off on disappear.
+    @ObservationIgnored public internal(set) var rowViewsAlive = 0
     /// The counts at the top; nil before the first read.
     public private(set) var status: ChiefMemoryStatus?
     /// The Chief's view: the lines the next turn reads, oldest first.
@@ -66,6 +71,7 @@ public final class ChiefMemoryInspectorModel {
         await run {
             status = try await get("/api/status", as: ChiefMemoryStatus.self)
             lines = try await get("/api/view", as: ViewBody.self).lines
+            listWork.walked(lines.count)
             changes = try await get("/api/memory/changes", as: ChangesBody.self).changes
             if let name = trail.last {
                 detail = try await get("/api/node", ["name": name], as: ChiefMemoryNode.self)

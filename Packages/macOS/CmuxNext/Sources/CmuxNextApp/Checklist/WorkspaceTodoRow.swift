@@ -1,18 +1,24 @@
 import CmuxNextChecklist
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxVisibleRows
 import SwiftUI
 
 /// One checklist item on the Todo page: its state mark (click toggles complete), its text
 /// (double-click edits), how many images it has, and a menu of its actions.
-struct WorkspaceTodoRow: View {
+struct WorkspaceTodoRow: View, Equatable {
     let item: WorkspaceChecklistItem
     let isEditing: Bool
     let actions: WorkspaceTodoRowActions
     @State private var text = ""
+    let work: ListWorkMeter // the page's ``WorkspaceTodoPageModel/listWork``: each body counts one row configured
+
+    /// Equal when the item and its edit state are: the page makes `actions` again with each body.
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.item == rhs.item && lhs.isEditing == rhs.isEditing }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        work.configured()
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
             Button { actions.toggle(item.id) } label: {
                 Image(systemName: Self.symbol(item.state))
                     .foregroundStyle(item.state == .done ? Color(nsColor: Palette.litGlyph) : Color.secondary)
