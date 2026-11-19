@@ -48,7 +48,9 @@ await requireBrowserLane("composer-buttons-bottom.test.ts", async () => {
   });
 
   async function newChat(width: number, look: "claude" | "codex"): Promise<Page> {
-    const page = await browser.newPage({ viewport: { width, height: 760 } });
+    // Tall enough for a new chat with a draft at its cap (12 lines): a shorter pane runs the capped box
+    // past its own bottom edge, a separate case this file does not measure.
+    const page = await browser.newPage({ viewport: { width, height: 1000 } });
     await page.addInitScript((look) => {
       try {
         localStorage.setItem("cmux.composer.look", look);
@@ -67,7 +69,8 @@ await requireBrowserLane("composer-buttons-bottom.test.ts", async () => {
     return page;
   }
 
-  /** Starts reading every painted frame: the box, each control and the first attachment tile. */
+  /** Starts reading every painted frame: the box, + and the trailing actions (the mic, and Send once
+   *  there is a draft), and the first attachment tile. */
   const record = (page: Page) =>
     page.evaluate(() => {
       const edge = (el: Element | null | undefined) => {
@@ -80,7 +83,7 @@ await requireBrowserLane("composer-buttons-bottom.test.ts", async () => {
         const box = document.querySelector(".acpmux-composer-box")!;
         frames.push({
           box: edge(box),
-          controls: [...box.querySelectorAll(".acpmux-composer-plus button, .acpmux-mic, .acpmux-send")]
+          controls: [...box.querySelectorAll(".acpmux-composer-plus button, .acpmux-composer-actions")]
             .map(edge)
             .filter(Boolean),
           tile: edge(box.querySelector(".acpmux-md-inline-chip, .acpmux-attachments .acpmux-attachment")),
