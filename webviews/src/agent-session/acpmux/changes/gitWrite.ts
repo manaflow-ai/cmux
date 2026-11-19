@@ -128,6 +128,8 @@ export type WriteFailure = {
   reason?: string;
   /// What git, its hooks and the remote printed, at most 16 KiB.
   output?: string;
+  /// git's own error, trimmed to one line by the session host, for a `git_failed` it explained.
+  gitError?: string;
 };
 
 export function readWriteFailure(error: unknown): WriteFailure {
@@ -137,7 +139,13 @@ export function readWriteFailure(error: unknown): WriteFailure {
   const extra = record(details?.extra);
   if (code === "operation.failed" || (code && !code.startsWith("native.") && raw?.origin !== "native")) {
     const output = text(extra?.output);
-    return { kind: "refused", reason: text(details?.reason) ?? code, ...(output ? { output } : {}) };
+    const gitError = text(extra?.git_error);
+    return {
+      kind: "refused",
+      reason: text(details?.reason) ?? code,
+      ...(output ? { output } : {}),
+      ...(gitError ? { gitError } : {}),
+    };
   }
   if (code === "native.timed_out" || code === "native.failed") return { kind: "uncertain" };
   return { kind: "notSent", ...(code ? { reason: code } : {}) };
@@ -197,9 +205,7 @@ const COMMIT_REASONS: Record<string, StringKey> = {
 };
 const PUSH_REASONS: Record<string, StringKey> = {
   no_remote: "git.push.noRemote",
-  push_refspec_configured: "git.push.refspecConfigured",
   mirror_remote: "git.push.mirrorRemote",
-  upstream_mismatch: "git.push.upstreamMismatch",
   detached_head: "git.push.detachedHead",
   branch_not_found: "git.push.branchNotFound",
   head_moved: "git.headMoved",
@@ -237,6 +243,8 @@ export function failureText(op: GitWriteOp, failure: WriteFailure): string {
   if (failure.kind === "uncertain") return translate(op === "commit" ? "git.commit.uncertain" : "git.push.uncertain");
   if (failure.kind === "notSent") return translate(NATIVE_REASONS[failure.reason ?? ""] ?? "git.notSent");
   const reason = failure.reason ?? "";
+  // A failure git explained reads in git's own words.
+  if (reason === "git_failed" && failure.gitError) return failure.gitError;
   const key = (op === "commit" ? COMMIT_REASONS : PUSH_REASONS)[reason] ?? SHARED_REASONS[reason];
   return translate(key ?? (op === "commit" ? "git.commit.failed" : "git.push.failed"));
 }

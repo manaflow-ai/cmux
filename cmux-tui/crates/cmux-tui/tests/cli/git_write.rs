@@ -128,8 +128,9 @@ fn git_commit_and_push_run_in_the_repository_through_a_real_daemon() {
         git(&repo, &["rev-parse", "HEAD"])
     );
 
-    // A differently named upstream is ambiguous: it may be a renamed branch,
-    // or the base a fresh feature branched from. Never update it implicitly.
+    // A differently named upstream pushes as `git push` would: push.default
+    // decides. simple refuses in git's own words and updates nothing.
+    git(&repo, &["config", "push.default", "simple"]);
     git(&repo, &["push", "publish", "feature:published"]);
     git(&repo, &["checkout", "-q", "-b", "local-feature", "feature"]);
     git(&repo, &["branch", "--set-upstream-to=publish/published"]);
@@ -137,15 +138,24 @@ fn git_commit_and_push_run_in_the_repository_through_a_real_daemon() {
     git(&repo, &["commit", "-q", "-am", "local change"]);
     let published = git_cli(&server, &repo, &["push"]);
     assert!(!published.status.success());
-    assert!(String::from_utf8_lossy(&published.stderr).contains("upstream_mismatch"));
+    let stderr = String::from_utf8_lossy(&published.stderr).to_string();
+    assert!(stderr.contains("git_failed") && stderr.contains("does not match"), "{stderr}");
     assert_eq!(
         git(&remote, &["rev-parse", "refs/heads/published"]),
         git(&repo, &["rev-parse", "feature"])
+    );
+    // push.default=upstream sends it to the branch it tracks.
+    git(&repo, &["config", "push.default", "upstream"]);
+    assert_success(&git_cli(&server, &repo, &["push"]));
+    assert_eq!(
+        git(&remote, &["rev-parse", "refs/heads/published"]),
+        git(&repo, &["rev-parse", "local-feature"])
     );
     assert_eq!(
         git(&repo, &["rev-parse", "--abbrev-ref", "local-feature@{upstream}"]),
         "publish/published"
     );
+    assert_eq!(git(&remote, &["branch", "--list", "local-feature"]), "");
 
     git(&repo, &["checkout", "-q", "-b", "fresh-from-main", "publish/main"]);
     git(&repo, &["config", "push.default", "simple"]);
@@ -153,7 +163,7 @@ fn git_commit_and_push_run_in_the_repository_through_a_real_daemon() {
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "feature work"]);
     let refused = git_cli(&server, &repo, &["push"]);
     assert!(!refused.status.success());
-    assert!(String::from_utf8_lossy(&refused.stderr).contains("upstream_mismatch"));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("git_failed"));
     assert_eq!(git(&remote, &["rev-parse", "refs/heads/main"]), base);
     assert_eq!(git(&remote, &["branch", "--list", "fresh-from-main"]), "");
     // Explicitly choosing the same-named destination creates the feature
@@ -181,6 +191,35 @@ fn git_commit_and_push_run_in_the_repository_through_a_real_daemon() {
     assert_eq!(git(&fork, &["branch", "--list", "main"]), "");
     assert_eq!(
         git(&fork, &["rev-parse", "refs/heads/fork-feature"]),
+        git(&repo, &["rev-parse", "HEAD"])
+    );
+    // A remote's own push refspecs decide where the branch goes, as with
+    // `git push`.
+    git(&repo, &["config", "remote.fork.push", "refs/heads/fork-feature:refs/heads/review/one"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "review work"]);
+    let routed = git_cli(&server, &repo, &["push"]);
+    assert_success(&routed);
+    assert_eq!(json_output(&routed)["value"]["upstream"], "fork/review/one");
+    assert_eq!(
+        json_output(&routed)["value"]["pushed_commit"],
+        git(&repo, &["rev-parse", "HEAD"]).as_str()
+    );
+    assert_eq!(
+        git(&fork, &["rev-parse", "refs/heads/review/one"]),
+        git(&repo, &["rev-parse", "HEAD"])
+    );
+    assert_ne!(
+        git(&fork, &["rev-parse", "refs/heads/fork-feature"]),
+        git(&repo, &["rev-parse", "HEAD"])
+    );
+    // A mirror remote stays refused: a push to it deletes its other branches.
+    git(&repo, &["config", "--unset-all", "remote.fork.push"]);
+    git(&repo, &["config", "remote.fork.mirror", "true"]);
+    let mirror = git_cli(&server, &repo, &["push"]);
+    assert!(!mirror.status.success());
+    assert!(String::from_utf8_lossy(&mirror.stderr).contains("mirror_remote"));
+    assert_eq!(
+        git(&fork, &["rev-parse", "refs/heads/review/one"]),
         git(&repo, &["rev-parse", "HEAD"])
     );
     let _ = fs::remove_dir_all(root);

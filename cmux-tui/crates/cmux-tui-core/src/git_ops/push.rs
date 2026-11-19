@@ -8,7 +8,10 @@
 //! The remote is the given one, else where `git push` would go (the
 //! branch's `pushRemote`, `remote.pushDefault`, the branch's upstream remote),
 //! else the only remote or `origin`; it must be a configured remote, never a URL,
-//! and must not mirror or configure refspecs that push a different branch. The exact commit read (and
+//! and not a mirror. When the remote has push refspecs of its own, or the
+//! branch tracks a branch with another name there, the push is the one `git
+//! push` would make and git's config decides where it goes (or refuses it, in
+//! its own words). Otherwise the exact commit read (and
 //! checked against `expected_head`) is what is pushed; the attempt journal
 //! keeps it, so a retry after a lost reply pushes that commit again (a
 //! no-op the remote reports as up to date) even when the branch moved. With
@@ -146,55 +149,65 @@ fn push(
         };
         return Err(refused(OPERATION, "no_remote", message, json!({"remote": remote})));
     }
-    refuse_special_remote(git, &remote, branch)?;
+    refuse_mirror(git, &remote)?;
     let upstream_merge = config(format!("branch.{branch}.merge"));
     let tracked = upstream_remote.is_some() && upstream_merge.is_some();
     let set_upstream = fields.get("set_upstream").and_then(Value::as_bool).unwrap_or(!tracked);
-    let destination_branch = branch;
-    let destination = format!("refs/heads/{destination_branch}");
-    // Match push.default=simple's name safeguard. A branch tracking origin/main
-    // may be fresh feature work, not a renamed published branch. Never infer
-    // permission to update that differently named branch. A triangular push to
-    // another remote still uses the local name; explicit set_upstream does too.
-    if tracked
+    let own_ref = format!("refs/heads/{branch}");
+    // Where the push goes is git's call, as with `git push` in a terminal, when
+    // the remote has push refspecs of its own or the branch tracks a branch
+    // with another name there (push.default decides: simple refuses, upstream
+    // pushes to it). Otherwise the exact commit read goes to the same name.
+    let renamed_upstream = tracked
         && !set_upstream
         && upstream_remote.as_deref() == Some(remote.as_str())
-        && upstream_merge.as_deref() != Some(destination.as_str())
-    {
-        let upstream = format!(
-            "{remote}/{}",
-            upstream_merge.as_deref().unwrap_or_default().trim_start_matches("refs/heads/")
-        );
-        return Err(refused(
-            OPERATION,
-            "upstream_mismatch",
-            format!(
-                "{branch} tracks {upstream}; choose the destination with git push --set-upstream {remote} {branch} in a terminal, then try again"
-            ),
-            json!({"branch": branch, "upstream": upstream, "remote": remote}),
-        ));
-    }
-    let refspec = format!("{tip}:{destination}");
-    let command = ["push", "--porcelain", "--", remote.as_str(), refspec.as_str()];
+        && upstream_merge.as_deref() != Some(own_ref.as_str());
+    let git_decides = renamed_upstream || has_own_refspecs(git, &remote, branch);
+    let refspec = if git_decides {
+        // The current branch goes as plain `git push <remote>` sends it; another
+        // branch as a bare source, which the remote's push refspecs map.
+        (current_branch(repository).as_deref() != Some(branch.as_str())).then(|| own_ref.clone())
+    } else {
+        Some(format!("{tip}:{own_ref}"))
+    };
+    let mut command = vec!["push", "--porcelain", "--", remote.as_str()];
+    command.extend(refspec.as_deref());
     let run = git.run(&command).map_err(|failure| run_failed(OPERATION, &failure))?;
     let stdout = String::from_utf8_lossy(&run.stdout).into_owned();
-    let suffix = format!(":{destination}");
-    let line = stdout
-        .lines()
-        .find(|line| line.split('\t').nth(1).is_some_and(|spec| spec.ends_with(&suffix)));
+    let line = if git_decides {
+        routed_line(&stdout, &own_ref)
+    } else {
+        let suffix = format!(":{own_ref}");
+        ref_lines(&stdout)
+            .find(|line| line.split('\t').nth(1).is_some_and(|spec| spec.ends_with(&suffix)))
+    };
     let Some(line) = line.filter(|line| run.success && !line.starts_with('!')) else {
         return Err(classified(&git.for_classification(), line, &run));
     };
     let mut parts = line.split('\t');
     let flag = parts.next().unwrap_or_default();
-    let summary = parts.nth(1).unwrap_or_default();
-    let created_upstream = set_upstream && track(git, branch, &remote, &destination)?;
+    let spec = parts.next().unwrap_or_default();
+    let summary = parts.next().unwrap_or_default();
+    let destination = spec.rsplit_once(':').map_or(own_ref.as_str(), |(_, to)| to);
+    let destination_branch = destination.strip_prefix("refs/heads/");
+    let created_upstream =
+        set_upstream && destination_branch.is_some() && track(git, branch, &remote, destination)?;
+    // git sends the branch's tip when it routes the push; else the commit read.
+    let pushed_commit = if git_decides {
+        summary
+            .split_once("..")
+            .and_then(|(_, new)| repository.commit(new.trim_start_matches('.')))
+            .or_else(|| repository.commit(&own_ref))
+            .unwrap_or_else(|| tip.clone())
+    } else {
+        tip.clone()
+    };
     let mut value = json!({
         "root": repository.root.to_string_lossy(),
         "remote": remote,
         "branch": branch,
-        "upstream": format!("{remote}/{destination_branch}"),
-        "pushed_commit": tip,
+        "upstream": format!("{remote}/{}", destination_branch.unwrap_or(destination)),
+        "pushed_commit": pushed_commit,
         "created_upstream": created_upstream,
         "up_to_date": flag == "=",
     });
@@ -206,20 +219,34 @@ fn push(
     Ok(value)
 }
 
-/// Refuses a remote whose config changes what a push sends: its own push
-/// refspecs, or mirroring.
-fn refuse_special_remote(
-    git: &UserGit<'_>,
-    remote: &str,
-    branch: &str,
-) -> Result<(), ResourceError> {
+/// The ref lines of `git push --porcelain`: flag, `from:to`, summary.
+fn ref_lines(stdout: &str) -> impl Iterator<Item = &str> {
+    stdout.lines().filter(|line| line.split('\t').count() >= 3)
+}
+
+/// The line for `own_ref` in a push git routed: the one from that branch, else
+/// the only ref git pushed.
+fn routed_line<'a>(stdout: &'a str, own_ref: &str) -> Option<&'a str> {
+    let from = format!("{own_ref}:");
+    ref_lines(stdout)
+        .find(|line| line.split('\t').nth(1).is_some_and(|spec| spec.starts_with(&from)))
+        .or_else(|| {
+            let mut lines = ref_lines(stdout);
+            let only = lines.next();
+            lines.next().is_none().then_some(only).flatten()
+        })
+}
+
+/// Whether the remote has push refspecs other than this branch to itself.
+fn has_own_refspecs(git: &UserGit<'_>, remote: &str, branch: &str) -> bool {
     let refspecs = config_lines(git, &["config", "--get-all", &format!("remote.{remote}.push")]);
     let same_branch = format!("refs/heads/{branch}:refs/heads/{branch}");
-    if !refspecs.is_empty() && refspecs.iter().any(|refspec| refspec != &same_branch) {
-        let message = format!("remote {remote} has its own push refspecs; push it in a terminal");
-        let extra = json!({"remote": remote, "refspecs": refspecs});
-        return Err(refused(OPERATION, "push_refspec_configured", message, extra));
-    }
+    refspecs.iter().any(|refspec| refspec != &same_branch)
+}
+
+/// Refuses a mirror remote: `git push` to one deletes every remote branch that
+/// is not local.
+fn refuse_mirror(git: &UserGit<'_>, remote: &str) -> Result<(), ResourceError> {
     let mirror =
         config_lines(git, &["config", "--type=bool", "--get", &format!("remote.{remote}.mirror")]);
     if mirror.first().is_some_and(|value| value == "true") {
@@ -375,7 +402,40 @@ fn classified(git: &UserGit<'_>, line: Option<&str>, run: &UserRun) -> ResourceE
     if !summary.is_empty() {
         extra.set("ref_status", json!(summary));
     }
+    if reason == "git_failed"
+        && let Some(error) = git_error(&run.stderr)
+    {
+        extra.set("git_error", json!(error));
+        return refused(OPERATION, reason, error, extra);
+    }
     refused(OPERATION, reason, message, extra)
+}
+
+/// git's own error, trimmed for one line: the first sentence of its first
+/// `fatal:` or `error:` paragraph.
+fn git_error(stderr: &str) -> Option<String> {
+    const MAX_CHARS: usize = 240;
+    let mut lines = stderr.lines().map(str::trim);
+    let first = lines.find_map(|line| {
+        line.strip_prefix("fatal:").or_else(|| line.strip_prefix("error:")).map(str::trim)
+    })?;
+    let paragraph = std::iter::once(first)
+        .chain(lines.take_while(|line| {
+            !line.is_empty()
+                && !["fatal:", "error:", "hint:"].iter().any(|prefix| line.starts_with(prefix))
+        }))
+        .flat_map(str::split_whitespace)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let sentence = match paragraph.find(". ") {
+        Some(end) => &paragraph[..=end],
+        None => paragraph.as_str(),
+    };
+    let trimmed = match sentence.char_indices().nth(MAX_CHARS) {
+        Some((end, _)) => format!("{}…", sentence[..end].trim_end()),
+        None => sentence.to_string(),
+    };
+    (!trimmed.is_empty()).then_some(trimmed)
 }
 
 #[cfg(test)]
@@ -422,5 +482,45 @@ mod tests {
             assert_eq!(error.details["reason"], reason);
             assert!(error.details["extra"]["message"].as_str().unwrap().contains(action));
         }
+    }
+
+    #[test]
+    fn a_failure_git_explains_shows_git_s_own_first_sentence() {
+        let git = UserGit { root: std::path::Path::new("."), deadline: deadline() };
+        let stderr = "fatal: The upstream branch of your current branch does not match\n\
+                      the name of your current branch.  To push to the upstream branch\n\
+                      on the remote, use\n\n    git push origin HEAD:main\n";
+        let run = UserRun {
+            success: false,
+            code: Some(FATAL_EXIT),
+            stdout: vec![],
+            stderr: stderr.into(),
+        };
+        let error = classified(&git, None, &run);
+        let sentence = "The upstream branch of your current branch does not match the name of \
+                        your current branch.";
+        assert_eq!(error.details["reason"], "git_failed");
+        assert_eq!(error.details["extra"]["git_error"], sentence);
+        assert_eq!(error.details["extra"]["message"], sentence);
+        assert!(error.details["extra"]["output"].as_str().unwrap().contains("HEAD:main"));
+
+        assert_eq!(git_error("hint: nothing\n"), None);
+        assert_eq!(
+            git_error("error: src refspec nope does not match any\nerror: failed to push")
+                .as_deref(),
+            Some("src refspec nope does not match any")
+        );
+    }
+
+    #[test]
+    fn a_routed_push_reads_its_branch_or_its_only_ref() {
+        let stdout = "To ../remote.git\n\
+                      *\trefs/heads/main:refs/heads/main\t[new branch]\n\
+                      \trefs/heads/feature:refs/heads/review/feature\tabc..def\nDone\n";
+        let line = routed_line(stdout, "refs/heads/feature").unwrap();
+        assert!(line.contains("refs/heads/review/feature"));
+        let only = "To r\n=\trefs/heads/x:refs/for/main\t[up to date]\nDone\n";
+        assert!(routed_line(only, "refs/heads/feature").unwrap().contains("refs/for/main"));
+        assert_eq!(routed_line(stdout, "refs/heads/other"), None);
     }
 }
