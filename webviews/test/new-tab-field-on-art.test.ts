@@ -137,8 +137,9 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
         const menuRow = await metrics("#item", "#menu");
         expect(tokens.height).toBe(menuRow.height);
         // The suggestions take the New Tab box's corner (CMUX-652: "match the border radius of the composer
-        // palette with the text input"), and a row is concentric with it: the list's padding is 7 of the corner's
-        // 20 and the row's corner the rest, never a capsule (POLISH.md). The row's height stays the popup row's.
+        // palette with the text input"), and a row is concentric with it with the least padding: the list's padding
+        // is 6 of the corner's 20 and the row's corner the rest, half the row, a pill (Lucas 2026-11-20). The row's
+        // height stays the popup row's.
         const corner = (id: string) => page.$eval(id, (node) => getComputedStyle(node).borderTopLeftRadius);
         const suggestion = await metrics("#row", "#rows");
         expect(suggestion.height).toBe(tokens.height);
@@ -150,9 +151,9 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
         const row = parseFloat(suggestion.height);
         const rowCorner = parseFloat(suggestion.radius);
         const inset = parseFloat(suggestion.inset);
-        expect(inset, "the list's padding is 7 of the corner's 20").toBeCloseTo((popoverCorner * 7) / 20, 1);
+        expect(inset, "the list's padding is 6 of the corner's 20").toBeCloseTo((popoverCorner * 6) / 20, 1);
         expect(inset + rowCorner, "padding and row corner make the popover's corner").toBeCloseTo(popoverCorner, 1);
-        expect(rowCorner, "a suggestion row is not a capsule").toBeLessThan(row / 2);
+        expect(rowCorner, "the row's corner is half the row, a pill").toBeCloseTo(row / 2, 1);
         // The classic template's suggestions (NewTabPage's omnibar) are menu rows (batch 2).
         expect(await metrics("#omni-row", "#omni")).toEqual(tokens);
         expect(await corner("#omni")).toBe(await corner("#menu"));

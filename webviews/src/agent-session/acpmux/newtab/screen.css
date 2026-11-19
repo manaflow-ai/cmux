@@ -29,11 +29,12 @@
 /* Suggestions share the composer's surface. The list scrolls inside its anchored popover. */
 /* The suggestions are the composer's: its row height, glyph and type steps at its density (composerLocation.css
    scopes them here), so the list never reads bigger than the box it serves (Lucas 2026-11-13). Its corner is the box's
-   (--nt-box-radius) at every density, and a row is concentric with it: the list's padding is 7 of the corner's 20 and
-   the row's corner the other 13, so padding plus row corner is the box's corner. A larger prompt text grows the corner,
-   so the row's corner stops a pixel under half its height and a 28 px row is never a capsule (POLISH.md) (CMUX-652; standup 2026-11-18: "match the border radius of the
-   composer palette with the text input"; Lucas: "we need to make it concentric"). */
-.nt-popover{--ui-row-height:var(--acpmux-composer-control,28px);--nt-row-text:calc(13px * var(--nt-base-text-scale,1));--nt-row-detail:calc(12px * var(--nt-base-text-scale,1));--ui-popup-radius:var(--nt-box-radius);--ui-popup-padding:calc(var(--nt-box-radius) * 7 / 20);--ui-row-radius:min(calc(var(--nt-box-radius) - var(--ui-popup-padding) + var(--cmux-composer-row-radius-extra,0px)),calc(var(--ui-row-height) / 2 - 1px));--ui-row-padding-inline:calc(var(--ds-space-2) * var(--nt-density,1));box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,var(--ds-radius-popup));color:var(--agent-text);font-family:var(--font-ui);-webkit-font-smoothing:antialiased;}
+   (--nt-box-radius) at every density, and a row is concentric with it with the least padding: the list's padding is 6
+   of the corner's 20 and the row's corner the other 14, half the 28 px row, so a selected row is a pill (Lucas
+   2026-11-20: "concentric but also the minimum amount of padding"). A larger prompt text grows the corner, so the
+   row's corner stops at half its height (CMUX-652; standup 2026-11-18: "match the border radius of the composer
+   palette with the text input"; Lucas: "we need to make it concentric"). */
+.nt-popover{--ui-row-height:var(--acpmux-composer-control,28px);--nt-row-text:calc(13px * var(--nt-base-text-scale,1));--nt-row-detail:calc(12px * var(--nt-base-text-scale,1));--ui-popup-radius:var(--nt-box-radius);--ui-popup-padding:calc(var(--nt-box-radius) * 6 / 20);--ui-row-radius:min(calc(var(--nt-box-radius) - var(--ui-popup-padding) + var(--cmux-composer-row-radius-extra,0px)),calc(var(--ui-row-height) / 2));--ui-row-padding-inline:calc(var(--ds-space-2) * var(--nt-density,1));box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,var(--ds-radius-popup));color:var(--agent-text);font-family:var(--font-ui);-webkit-font-smoothing:antialiased;}
 /* The suggestions belong to the field: a menu the composer opens (model, reasoning, access: the dropdown layer) covers them, whichever opened last, as Codex desktop's composer menus do (Leo 10-15: the model menu opened under them). A dialog's scrim, on the same layer and portaled later, still dims them. */
 .ui-positioner:has(>.nt-popover){z-index:var(--layer-overlay)}
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:var(--ui-popup-padding);max-height:min(48vh,360px,var(--available-height,360px));overflow:auto;overscroll-behavior:contain}
@@ -1323,7 +1324,7 @@
     --ui-popup-padding: calc(
       round(
           nearest,
-          var(--nt-box-radius) * 7 / 20 * var(--cmux-composer-zoom, 1),
+          var(--nt-box-radius) * 6 / 20 * var(--cmux-composer-zoom, 1),
           1px
         ) /
         var(--cmux-composer-zoom, 1)
