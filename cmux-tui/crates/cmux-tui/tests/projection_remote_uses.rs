@@ -161,10 +161,17 @@ struct Machine {
     side: Side,
     socket: PathBuf,
     session: String,
+    /// A Cloud host (its records in `CMUX_TEST_CLOUD_ETC`); else a machine of the person's own
+    /// reached over the carrier.
+    cloud: bool,
 }
 
 impl Machine {
     fn start(at: &Path, id: &str) -> Self {
+        Self::start_as(at, id, true)
+    }
+
+    fn start_as(at: &Path, id: &str, cloud: bool) -> Self {
         let side = Side::make(at);
         let acpmux = at.join("acpmux");
         fs::create_dir_all(&acpmux).unwrap();
@@ -173,6 +180,7 @@ impl Machine {
             side,
             socket: at.join("m.sock"),
             session: format!("projection-uses-{id}-{}", std::process::id()),
+            cloud,
         };
         let ensure = machine.server("ensure", id).output().unwrap();
         assert!(ensure.status.success(), "ensure: {}", String::from_utf8_lossy(&ensure.stderr));
@@ -193,11 +201,14 @@ impl Machine {
 
     fn server(&self, action: &str, id: &str) -> Command {
         let mut command = self.side.cmux();
+        command.env("ACPMUX_HOME", self.side.home.parent().unwrap().join("acpmux"));
+        if self.cloud {
+            command
+                .env("CMUX_TEST_CLOUD_ETC", self.cloud_etc())
+                .env("CMUX_VM_ID", format!("vm-projection-uses-{id}"))
+                .env("CMUX_CODEROUTER_URL", "http://127.0.0.1:9");
+        }
         command
-            .env("ACPMUX_HOME", self.side.home.parent().unwrap().join("acpmux"))
-            .env("CMUX_TEST_CLOUD_ETC", self.cloud_etc())
-            .env("CMUX_VM_ID", format!("vm-projection-uses-{id}"))
-            .env("CMUX_CODEROUTER_URL", "http://127.0.0.1:9")
             .args(["server", action, "--json", "--session", &self.session, "--socket"])
             .arg(&self.socket);
         command
@@ -505,4 +516,44 @@ fn move_to_cloud_round_trips_and_is_timed_beside_the_projection() {
         "since_last_ms": delta_ms, "bring_back_ms": back_ms,
         "note": format!("push {pushed} delta {delta} back {back}")}));
     assert!(correct, "push {pushed}\ndelta {delta}\nback {back}");
+}
+
+/// A Linux machine of the person's own (not a Cloud host) reached over the carrier: what a chat
+/// started there on a Mac folder gets today. Only a Cloud host serves `fs-v1` and `projection-v1`
+/// (`link/cloud_fs.rs`, decision D4), so neither the projection nor the copy reaches it.
+#[test]
+fn a_machine_that_is_not_a_cloud_host_gets_no_projection() {
+    let Some(w) = world("own-machine", 40) else { return };
+    let own = Machine::start_as(&w.root.join("vm-own"), "own", false);
+    let started = Instant::now();
+    let (socket, local, work) = (
+        own.socket.to_string_lossy().into_owned(),
+        w.local.to_string_lossy().into_owned(),
+        own.work().to_string_lossy().into_owned(),
+    );
+    let key = new_key();
+    let answer = w.mac.run(&[
+        "link",
+        "start-chat",
+        "copy",
+        "--key",
+        &key,
+        "--account",
+        "leo",
+        "--machine",
+        "own",
+        "--socket",
+        &socket,
+        "--local",
+        &local,
+        "--work-root",
+        &work,
+    ]);
+    let projected = answer["mode"] == "projected";
+    cell(json!({"use": "remote-machine", "repo": "git", "direction": "local->remote",
+        "fault": "none", "correct": false, "projected": projected, "start_ms": ms(started),
+        "note": answer.to_string(),
+        "pr": "blocker: design call (fs-v1 and projection-v1 are Cloud-host only, D4)"}));
+    assert!(!projected, "{answer}");
+    assert_ne!(answer["ok"], true, "a machine without fs-v1 took a copy: {answer}");
 }
