@@ -113,10 +113,22 @@ pub struct LookColors {
     pub window_opacity: Option<f64>,
     /// `appearance.statusIndicator.color`.
     pub status_color: Option<Rgb>,
+    /// Ghostty's `minimum-contrast` (1 to 21; Ghostty's default and cmux's is 1, no change).
+    pub minimum_contrast: f64,
 }
 
 fn hex(color: Rgb) -> String {
     format!("#{:06x}", color.to_hex())
+}
+
+/// The ink Ghostty's text shader draws for `ink` on `ground` under `minimum-contrast`
+/// (`contrasted_color` in `shaders.metal`): under the minimum, white or black, whichever reads
+/// better on the ground; else the ink itself. At the default 1 it never changes the ink.
+pub fn ghostty_ink(ink: Rgb, ground: Rgb, minimum_contrast: f64) -> Rgb {
+    if minimum_contrast <= 1.0 || ink.contrast(ground) >= minimum_contrast {
+        return ink;
+    }
+    if Rgb::WHITE.contrast(ground) > Rgb::BLACK.contrast(ground) { Rgb::WHITE } else { Rgb::BLACK }
 }
 
 impl LookColors {
@@ -183,15 +195,20 @@ impl LookColors {
         // The terminal: Ghostty draws the terminal theme's own foreground (not the derived ink)
         // over the terminal's surface, and selected text in `selection-foreground`, else in the
         // background color (renderer `rebuildRow`: `selection_foreground ... else
-        // state.colors.background`). A look that edits only the selection keeps its theme's
-        // selection ink: Builtin Dark's black stays black on a dark selection.
+        // state.colors.background`), on the selection drawn opaque. The text shader then swaps an
+        // ink under `minimum-contrast` for white or black ([`ghostty_ink`]); at cmux's default of
+        // 1 it swaps nothing, so a look that edits only the selection keeps its theme's selection
+        // ink (Builtin Dark's and Synthwave's black, Green Phosphor CRT's gray). Mac captures of
+        // Charcoal, Arcade, Leo Neon, Classic Desktop and Phosphor draw exactly these inks.
         let bg = self.terminal.background.with_alpha(1.0);
         let terminal = self.ground("terminal", window, bg);
         let foreground = self.terminal.foreground.with_alpha(1.0);
-        add("terminal text", foreground, terminal, TEXT);
+        let minimum = self.minimum_contrast;
+        add("terminal text", ghostty_ink(foreground, terminal, minimum), terminal, TEXT);
         if let Some(selection) = self.terminal.selection_background {
+            let selection = selection.with_alpha(1.0);
             let ink = self.terminal.selection_foreground.unwrap_or(bg).with_alpha(1.0);
-            add("terminal selected text", ink, selection.composited(terminal), TEXT);
+            add("terminal selected text", ghostty_ink(ink, selection, minimum), selection, TEXT);
         }
 
         // The agent chat (`AgentPaneTheme`): text, muted and soft text, links, the prompt bubble,
@@ -303,6 +320,7 @@ pub fn look_colors(root: &Value, terminal: ThemeInput, chrome: ThemeInput) -> Lo
         window_opacity: value_at(root, &key_path("appearance.backgroundOpacity"))
             .and_then(Value::as_f64),
         status_color: color_at(root, "appearance.statusIndicator.color"),
+        minimum_contrast: 1.0,
     }
 }
 

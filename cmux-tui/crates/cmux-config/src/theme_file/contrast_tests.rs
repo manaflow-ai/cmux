@@ -309,3 +309,26 @@ fn the_chrome_follows_a_named_app_theme() {
     );
     assert!(!found.iter().any(|f| f.contains("terminal text")), "{found:#?}");
 }
+
+#[test]
+fn ghostty_swaps_an_ink_only_under_a_minimum_contrast_above_one() {
+    use super::contrast::ghostty_ink;
+    let (black, gray) = (Rgb::hex(0x000000), Rgb::hex(0x424242));
+    // cmux's default (Ghostty's): black stays black on a dark selection, as the Mac draws it.
+    assert_eq!(ghostty_ink(black, gray, 1.0), black);
+    // Under `minimum-contrast = 3`, the shader draws white there instead.
+    assert_eq!(ghostty_ink(black, gray, 3.0), Rgb::WHITE);
+    assert_eq!(ghostty_ink(Rgb::WHITE, gray, 3.0), Rgb::WHITE);
+    let mut look = contrast::look_colors(
+        &json!({}),
+        ThemeInput {
+            selection_background: Some(gray),
+            selection_foreground: Some(black),
+            ..Default::default()
+        },
+        ThemeInput::default(),
+    );
+    assert!(look.failures("t").iter().any(|f| f.element == "terminal selected text"));
+    look.minimum_contrast = 4.5;
+    assert!(!look.failures("t").iter().any(|f| f.element == "terminal selected text"));
+}
