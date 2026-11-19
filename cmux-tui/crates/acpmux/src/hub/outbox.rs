@@ -282,6 +282,50 @@ pub struct Outbox {
     /// (`server/outbox.rs` `redeliver_open`): the next link goes on after it, so none waits
     /// behind the others for good.
     pub(crate) redelivered_to: StdMutex<HashMap<String, (u64, String)>>,
+    /// What the outbox's work costs, for tests (`Stats`).
+    pub(crate) stats: Stats,
+}
+
+/// Counts of the outbox's work, read by tests: what a change's bookkeeping reads, what a change
+/// wakes, and how many attempts run at once for each target (`server/outbox.rs` `deliver`).
+#[derive(Default)]
+pub(crate) struct Stats {
+    /// `send_status` waits that started, and wake-ups they had (`server/outbox.rs`).
+    pub status_waits: std::sync::atomic::AtomicU64,
+    pub status_wakes: std::sync::atomic::AtomicU64,
+    /// Attempts that opened a connection to this daemon (`server/outbox.rs` `attempt_once`).
+    pub connections: std::sync::atomic::AtomicU64,
+    /// Attempts running now, by target, and the most there ever were for one target.
+    in_flight: StdMutex<HashMap<String, u64>>,
+    pub most_in_flight: std::sync::atomic::AtomicU64,
+}
+
+impl Stats {
+    pub(crate) fn count(counter: &std::sync::atomic::AtomicU64, n: u64) {
+        counter.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn read(counter: &std::sync::atomic::AtomicU64) -> u64 {
+        counter.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// An attempt to `target` starts; [`Self::attempt_ended`] when it ends.
+    pub(crate) fn attempt_started(&self, target: &str) {
+        let mut in_flight = self.in_flight.lock().unwrap_or_else(|e| e.into_inner());
+        let n = in_flight.entry(target.to_owned()).or_default();
+        *n += 1;
+        self.most_in_flight.fetch_max(*n, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn attempt_ended(&self, target: &str) {
+        let mut in_flight = self.in_flight.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(n) = in_flight.get_mut(target) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                in_flight.remove(target);
+            }
+        }
+    }
 }
 
 /// The deliveries and the number of changes made to them.
@@ -291,6 +335,9 @@ struct Book {
     changes: u64,
     /// The deliveries changed since the last write: the next one journals them.
     dirty: BTreeSet<String>,
+    /// Deliveries read by the bookkeeping of changes and sends (`changed`, `add_scoped`), for
+    /// tests (`Outbox::visits`).
+    visits: u64,
 }
 
 /// What the files hold.
@@ -388,6 +435,12 @@ impl Outbox {
         self.save(change);
     }
 
+    /// Deliveries read by the bookkeeping of every change and send so far (`Book::visits`).
+    #[cfg(test)]
+    pub(crate) fn visits(&self) -> u64 {
+        self.book().visits
+    }
+
     fn book(&self) -> std::sync::MutexGuard<'_, Book> {
         self.deliveries.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -432,6 +485,7 @@ impl Outbox {
     fn add_scoped(&self, delivery: Delivery, scoped: bool) -> (Delivery, u64, bool) {
         let mut book = self.book();
         let prompt_id = delivery.prompt_id().to_owned();
+        book.visits += book.deliveries.len() as u64;
         if let Some(first) = book.deliveries.values().find(|d| {
             !d.is_team_receipt()
                 && d.prompt_id() == prompt_id
@@ -889,6 +943,7 @@ impl Book {
     /// Counts a change and drops what settled long ago; returns the change's number.
     fn changed(&mut self) -> u64 {
         let now = crate::store::now_ms();
+        self.visits += 2 * self.deliveries.len() as u64;
         for d in self.deliveries.values_mut().filter(|d| d.open_lapsed(now)) {
             tracing::warn!(delivery = %d.id, target = %d.target, "an open delivery lapsed; failed");
             d.fail_open(OPEN_LAPSED.to_owned());
@@ -1036,6 +1091,45 @@ mod tests {
             created_at: now,
             updated_at: now,
         }
+    }
+
+    /// What a change's and a send's bookkeeping read, each, with `n` messages waiting for a peer
+    /// that is down.
+    fn visits_per_change(n: usize) -> u64 {
+        let outbox = Outbox::default();
+        let to_gone = |i: usize| {
+            let mut d = delivery(i);
+            d.target = format!("gone/lane-{:03}", i % 32);
+            d.request["sessionId"] = json!(d.target);
+            d
+        };
+        for i in 0..n {
+            outbox.add(to_gone(i)).unwrap();
+        }
+        let before = outbox.visits();
+        for i in 0..50 {
+            // An attempt's life: delivering, then queued again for its retry; and a new send.
+            outbox.update(&format!("d-{i}"), |d| (d.state, d.attempts) = (State::Delivering, 1));
+            outbox.update(&format!("d-{i}"), |d| d.state = State::Queued);
+            outbox.add(to_gone(n + i)).unwrap();
+        }
+        (outbox.visits() - before) / 150
+    }
+
+    /// The daemon at 110% CPU with lanes reporting to coordinators on flaky peers: every change
+    /// (an attempt starting, its failure, a send) walked every delivery kept, twice, and a send
+    /// once more for its prompt id, so with 4,000 waiting for a peer that is down each attempt
+    /// cost 4,000 times what it did with none, and the attempts grow with them. The bookkeeping
+    /// of a change reads what it changed (and what is due to go), not what is kept: the same
+    /// with 100 or 4,000 waiting.
+    #[test]
+    fn a_changes_bookkeeping_does_not_grow_with_the_deliveries_waiting() {
+        let (small, large) = (visits_per_change(100), visits_per_change(4_000));
+        eprintln!("deliveries read per change: {small} with 100 waiting, {large} with 4000");
+        assert!(
+            large <= 4,
+            "{large} deliveries read per change with 4000 waiting ({small} with 100)"
+        );
     }
 
     /// An open delivery past [`OPEN_ON_PEER_FOR_MS`] is not dropped: it fails, saying why, and

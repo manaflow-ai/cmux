@@ -32,7 +32,7 @@ use std::time::Duration;
 
 use super::*;
 use crate::hub::no_session::NO_SESSION_PREFIX;
-use crate::hub::outbox::{Delivery, RETRY_DELAYS_SECS, RETRY_FOR_MS, State};
+use crate::hub::outbox::{Delivery, RETRY_DELAYS_SECS, RETRY_FOR_MS, State, Stats};
 
 /// What an attempt that did not deliver leaves the delivery as.
 #[derive(Debug, PartialEq)]
@@ -485,6 +485,8 @@ async fn outbox_status(hub: &Arc<Hub>, id: &str, params: &Value) -> Result<Value
     // peer that is down): the sender learns nothing more by waiting (`acpmux send`'s quick wait).
     let first = params.get("firstAttempt").and_then(Value::as_bool) == Some(true);
     let deadline = tokio::time::Instant::now() + Duration::from_millis(wait);
+    let stats = &hub.outbox.stats;
+    Stats::count(&stats.status_waits, 1);
     loop {
         let changed = hub.outbox.changed.notified();
         let delivery = hub.outbox.get(id).ok_or_else(|| {
@@ -495,7 +497,9 @@ async fn outbox_status(hub: &Arc<Hub>, id: &str, params: &Value) -> Result<Value
         if delivery.settled() || retrying || tokio::time::Instant::now() >= deadline {
             return Ok(delivery.status());
         }
-        let _ = tokio::time::timeout_at(deadline, changed).await;
+        if tokio::time::timeout_at(deadline, changed).await.is_ok() {
+            Stats::count(&stats.status_wakes, 1);
+        }
     }
 }
 
@@ -632,6 +636,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         if fresh_pin && pin.is_some() {
             saved &= hub.outbox.update_saved(id, |d| d.pin.clone_from(&pin));
         }
+        hub.outbox.stats.attempt_started(&delivery.target);
         let outcome = if !saved {
             // Nothing went on the link.
             Err(("the outbox could not be saved; tried again".to_owned(), Next::Retry))
@@ -668,6 +673,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 outcome => outcome,
             }
         };
+        hub.outbox.stats.attempt_ended(&delivery.target);
         match outcome {
             Ok(accepted) => {
                 // A peer's session may lose it with the machine's disk until the owner's copy of
@@ -1050,6 +1056,7 @@ pub(super) async fn attempt_once(
         .to_owned();
     let (in_tx, in_rx) = mpsc::channel(16);
     let (out_tx, mut out_rx) = mpsc::channel(1024);
+    Stats::count(&hub.outbox.stats.connections, 1);
     tokio::spawn(super::serve_outbox_connection(hub.clone(), in_rx, out_tx, origin));
     let mut hello = json!({
         "protocolVersion": 1,
@@ -1581,3 +1588,7 @@ mod forward_projection_tests {
 #[cfg(test)]
 #[path = "outbox_relay_tests.rs"]
 mod relay_tests;
+
+#[cfg(test)]
+#[path = "outbox_cost_tests.rs"]
+mod cost_tests;
