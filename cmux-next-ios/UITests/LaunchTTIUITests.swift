@@ -68,8 +68,15 @@ class LaunchTTIUITests: XCTestCase {
     @MainActor
     func run(_ flow: Flow, app: XCUIApplication) throws -> [String: Double] {
         let row = app.buttons[flow == .chat ? Self.chatWorkspace : Self.terminalWorkspace]
-        XCTAssertTrue(row.waitForExistence(timeout: 60), "\(row) in the list\n\(app.debugDescription)")
+        // The stress list replaces the mock one: wait for its first row, then the list's frame mark.
+        XCTAssertTrue(app.buttons[Self.chatWorkspace].waitForExistence(timeout: 60), "the stress list\n\(app.debugDescription)")
         XCTAssertTrue(waitForMark("workspaces_list_frame", in: app), "the list's first frame mark")
+        // The terminal workspace sits below the ones that need the person: scroll to it
+        // (outside the app's timed spans, which start at the tap).
+        for _ in 0 ..< 12 where !(row.exists && row.isHittable) {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(row.exists && row.isHittable, "\(row) in the list\n\(app.debugDescription)")
         row.tap()
         switch flow {
         case .chat:
@@ -79,7 +86,8 @@ class LaunchTTIUITests: XCTestCase {
             XCTAssertTrue(field.waitForExistence(timeout: 30), "the terminal composer\n\(app.debugDescription)")
             XCTAssertTrue(waitForMark("terminal_ready", in: app), "the terminal's attached frame mark")
             field.tap()
-            field.typeText("x")
+            // `~`: probe a printable byte (the prompt, already drawn at terminal_ready, has one too).
+            field.typeText("~")
             app.buttons["terminal.composer.send"].tap()
             XCTAssertTrue(waitForMark("terminal_echo_presented", in: app), "the echo's mark\n\(app.debugDescription)")
         }
@@ -126,7 +134,8 @@ class LaunchTTIUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_LIST_SCREEN"] = "workspaces"
         app.launchEnvironment["CMUX_MOBILE_LIST_COUNT"] = String(workspaceCount)
         app.launchEnvironment["CMUX_MOBILE_LIST_PASSES"] = "0"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore"]
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore",
+                                "-cmux-mobile-term-no-intro"]
         return app
     }
 
