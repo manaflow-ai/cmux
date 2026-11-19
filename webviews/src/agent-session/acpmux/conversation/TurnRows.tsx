@@ -725,10 +725,7 @@ function TurnFailure({
     </button>
   );
   return (
-    <div
-      className={`cv-turn-note cv-turn-error ui-transient-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""}`}
-      data-failure-kind={kind}
-    >
+    <div className={`cv-turn-note cv-turn-error cv-turn-error--${arm}`} data-failure-kind={kind}>
       <span className="cv-turn-error__cause">
         {arm !== "note" && <AlertCircle size={arm === "card" ? 16 : 14} className="cv-turn-error__icon" />}
         <span className="text-fg">

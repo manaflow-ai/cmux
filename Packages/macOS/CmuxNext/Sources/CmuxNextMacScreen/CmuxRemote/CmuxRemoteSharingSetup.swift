@@ -7,8 +7,10 @@ import CmuxNextDesign
 @MainActor
 struct CmuxRemoteSharingSetup {
     var refresh: () async -> (screen: Bool, control: Bool)
-    var requestScreen: () -> Void
-    var requestControl: () -> Void
+    /// macOS's own request for one grant; returns once macOS's prompt (or System Settings opened
+    /// from it) is done with the person, so the guide's next sheet never stacks on macOS's prompt.
+    var requestScreen: () async -> Void
+    var requestControl: () async -> Void
     var enable: () async throws -> Void
 
     init(host: MacScreenHubHost) {
@@ -16,8 +18,8 @@ struct CmuxRemoteSharingSetup {
             await host.share.refreshPermissions()
             return (host.share.screenRecordingGranted, host.share.accessibilityGranted)
         }
-        requestScreen = { host.share.requestScreenRecording() }
-        requestControl = { host.share.requestAccessibility() }
+        requestScreen = { await host.share.requestAndWait(screenRecording: true) }
+        requestControl = { await host.share.requestAndWait(screenRecording: false) }
         enable = { try await host.setSharing(true, requestPermissions: false) }
     }
 
@@ -89,8 +91,11 @@ struct CmuxRemoteSharingSetup {
             guard !Task.isCancelled else { return false }
             switch answer {
             case "allow":
-                if needsScreen { requestScreen(); screenRequested = true }
-                else { requestControl(); controlRequested = true }
+                // One prompt at a time: no sheet of ours while macOS's prompt is up; then a fresh
+                // read, so a grant made in macOS's prompt or System Settings skips Check Again.
+                if needsScreen { await requestScreen(); screenRequested = true }
+                else { await requestControl(); controlRequested = true }
+                permissions = await refresh()
             case "check": permissions = await refresh()
             case "view" where !needsScreen:
                 viewOnly = true
