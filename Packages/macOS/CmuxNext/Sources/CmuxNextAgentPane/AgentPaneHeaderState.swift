@@ -74,8 +74,7 @@ public struct AgentPaneHeaderWorkspace: Equatable, Sendable {
 
     /// `workspace`'s shown name and its agent chat tabs (a walk of that workspace's tabs only).
     @MainActor public init(_ workspace: WorkspaceModel) {
-        let tabs = workspace.screens.flatMap { $0.panes.flatMap(\.tabs) }
-        self.init(title: workspace.displayName, chats: tabs.count(where: { $0.agentSession != nil }))
+        self.init(title: workspace.displayName, chats: workspace.agentChatCount)
     }
 
     var json: JSONValue { ["title": .string(title), "chats": JSONValue(chats)] }
