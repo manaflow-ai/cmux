@@ -440,6 +440,76 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
     return result
 
 
+def daemon_socket_of(app_pid: int, bundle: str) -> str | None:
+    """The app's terminal daemon's control socket: the unix socket its tui-daemon process holds (`lsof`),
+    named cmux-app-<tag>.sock (attention-ring-clear-live.py finds the same one by name)."""
+    for pid, (kind, _) in owned(app_pid, bundle).items():
+        if kind != "tui-daemon":
+            continue
+        out = subprocess.run(["lsof", "-a", "-U", "-p", str(pid), "-F", "n"], capture_output=True, text=True,
+                             timeout=30).stdout
+        for line in out.splitlines():
+            path = line[1:].split(" ")[0] if line.startswith("n") else ""
+            if path.endswith(".sock") and os.path.basename(path).startswith("cmux-app-") and os.path.exists(path):
+                return path
+    return None
+
+
+def daemon_call(path: str, cmd: str, params: dict | None = None, timeout: float = 30) -> dict:
+    """One raw daemon command (JSON Lines, `cmd`), skipping the events the connection carries."""
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+        conn.settimeout(timeout)
+        conn.connect(path)
+        conn.sendall((json.dumps(dict(params or {}, id=1, cmd=cmd)) + "\n").encode())
+        buffer = b""
+        while True:
+            while b"\n" not in buffer:
+                chunk = conn.recv(1 << 20)
+                if not chunk:
+                    raise ConnectionError(f"the daemon closed the connection on {cmd}")
+                buffer += chunk
+            line, buffer = buffer.split(b"\n", 1)
+            message = json.loads(line)
+            if "event" in message and "id" not in message:
+                continue
+            return message
+
+
+def report_agent_state(app_pid: int, bundle: str, state: str) -> dict:
+    """--agent-report: the launch workspace's first terminal says it has an agent in `state` (the daemon's
+    `report-agent`, source socket, as a poller reports), so the windows measure the app with a terminal agent
+    working or waiting on the person. Returns what it did and the daemon's `list-agents` after it."""
+    deadline = time.monotonic() + 60
+    path = None
+    while path is None and time.monotonic() < deadline:
+        path = daemon_socket_of(app_pid, bundle)
+        if path is None:
+            time.sleep(1)  # test script: the app starts its daemon after launch
+    if path is None:
+        return {"error": "no daemon socket (no tui-daemon process holding a cmux-app-*.sock)"}
+    surfaces = []
+
+    def walk(node, under_tabs=False):
+        if isinstance(node, dict):
+            if under_tabs and node.get("id") is not None and str(node.get("kind", "terminal")) == "terminal":
+                surfaces.append(node)
+            for key, value in node.items():
+                walk(value, key == "tabs")
+        elif isinstance(node, list):
+            for value in node:
+                walk(value, under_tabs)
+
+    listed = daemon_call(path, "list-workspaces")
+    walk(listed.get("data") or listed.get("result") or listed)
+    if not surfaces:
+        return {"error": "no terminal tab in list-workspaces", "socket": path, "listed": json.dumps(listed)[:1500]}
+    surface = surfaces[0]["id"]
+    reply = daemon_call(path, "report-agent", {"surface": surface, "state": state, "source": "socket",
+                                               "session": "bench-memory-agent-report"})
+    return {"socket": path, "surface": surface, "state": state, "reply": reply,
+            "agents": daemon_call(path, "list-agents")}
+
+
 IO_KEYS = ("disk_read_mb_per_h", "disk_write_mb_per_h", "logical_write_mb_per_h")
 # --gpu: each measured window also samples the GPU's own counters (GpuSampler).
 SAMPLE_GPU = False
@@ -1587,6 +1657,12 @@ def main():
                              "and release timers, 30 s and 60 s) and sample again as settled-N")
     parser.add_argument("--gpu", action="store_true",
                         help="each measured window also samples the GPU's counters (ioreg IOAccelerator)")
+    parser.add_argument("--agent-report", choices=("working", "blocked"),
+                        help="before the first window, the launch workspace's first terminal reports an agent in this "
+                             "state (daemon report-agent, source socket); each sample keeps the daemon's list-agents")
+    parser.add_argument("--window-snapshot", metavar="DIR",
+                        help="after each sample, the main window as composited (debug.window_snapshot) to "
+                             "DIR/window-<label>.png")
     parser.add_argument("--out")
     args = parser.parse_args()
     global SAMPLE_GPU
@@ -1646,7 +1722,13 @@ def main():
     if child_check is not None:
         report["child_time_check"] = child_check
 
+    agent_report = {}
+
     def settle_and_sample(label, diff_tab=None):
+        if args.agent_report and not agent_report:
+            agent_report.update(report_agent_state(app_pid, bundle, args.agent_report))
+            report["agent_report"] = agent_report
+            print(f"== agent report: {json.dumps(agent_report)[:2000]}", flush=True)
         time.sleep(args.settle)  # test script: let the app and its helpers go idle
         measure, scroller = args.measure, None
         if diff_tab is not None:
@@ -1701,6 +1783,18 @@ def main():
                 result["app_vm"]["pages"] = {"error": str(e)[:300]}
             print(f"APP-VM {label} pages: {json.dumps(result['app_vm']['pages'])[:3000]}", flush=True)
             print_app_vm(label, result["app_vm"])
+        if args.agent_report and agent_report.get("socket"):
+            # After the window, so the read costs it nothing: is the agent still in the reported state?
+            result["agents_after"] = daemon_call(agent_report["socket"], "list-agents")
+            print(f"== agents after {label}: {json.dumps(result['agents_after'])[:1500]}", flush=True)
+        if args.window_snapshot:
+            os.makedirs(args.window_snapshot, exist_ok=True)
+            shot = os.path.join(os.path.realpath(args.window_snapshot), f"window-{label}.png")
+            try:
+                result["window_snapshot"] = app.call("debug.window_snapshot", {"kind": "main", "path": shot}, timeout=60)
+            except Exception as e:  # noqa: BLE001 - a build without the debug op still gets its numbers
+                result["window_snapshot"] = {"error": str(e)[:300]}
+            print(f"== window snapshot {label}: {json.dumps(result['window_snapshot'])[:600]}", flush=True)
         result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
         report["pane_failures"] = PANE_FAILURES[:20]
