@@ -55,7 +55,6 @@ Needs a bench or DEBUG build (the debug.* control methods). Kills only what it s
 (bench_memory.end_bundle of its bundle) and the seeding daemon.
 """
 import argparse
-import fnmatch
 import importlib.util
 import json
 import os
@@ -108,9 +107,10 @@ parser.add_argument("--vdisplay", type=float, default=0,
                     help="a 1920 x 1200 virtual main display at this rate (perf-stress-session's helper); "
                          "0 measures on the host's display (split-spring.sh --vdisplay makes its own)")
 parser.add_argument("--keep-frames", default="",
-                    help="comma-separated fnmatch patterns of round labels (CELL-TRANSITION-ROUND, such as "
-                         "'s1-browser-w30-bottom_open-0'): those rounds' frames, frame times and trace go to "
-                         "--out/frames.tar.gz, with an mp4 at the frames' own times when ffmpeg is on PATH")
+                    help="comma-separated prefixes of round labels (CELL-TRANSITION-ROUND, such as "
+                         "'s1-browser-w30-bottom_open' or 's9'; 's1,s4,s9' is every round): those rounds' frames, "
+                         "frame times and trace go to --out/frames.tar.gz, with an mp4 at the frames' own times when "
+                         "ffmpeg is on PATH (prefixes, not globs: a fleet step's args take no '*')")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts, _unknown = parser.parse_known_args()
@@ -424,7 +424,7 @@ KEEP = [p.strip() for p in opts.keep_frames.split(",") if p.strip()]
 def keep(label, folder, strip):
     """A --keep-frames round: its frames, the strip's per-frame times (strip.json) and the trace, kept under
     --out/frames/LABEL, with frames.mp4 showing each frame for as long as the screen held it."""
-    if not opts.out or not any(fnmatch.fnmatch(label, p) for p in KEEP):
+    if not opts.out or not any(label.startswith(p) for p in KEEP):
         return
     dest = os.path.join(opts.out, "frames", label)
     shutil.rmtree(dest, ignore_errors=True)
