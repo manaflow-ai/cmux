@@ -78,8 +78,8 @@ EDIT_READS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
         "a title or base edit is unchanged since the budget landed"),
     ("gallery-advisory.yml", "pull_request"): (frozenset({"body"}), "reads the `Gallery:` and `Visual-change:` "
         "lines; advisory"),
-    ("language-boundaries.yml", "pull_request_target"): (frozenset({"base"}), "reads the changed files, labels "
-        "and base, never the title or body; main's copy, the one that runs, is advisory"),
+    ("language-boundaries.yml", "pull_request_target"): (ALL, "keeps its old edit behavior: it runs on every "
+        "edit until a change carrying Leo's label gates it (only his label lets this check change)"),
     ("pr-body-checks.yml", "pull_request"): (ALL, "the description lints read the body, the perf section the "
         "title too"),
     ("pr-checks.yml", "pull_request"): (frozenset({"body"}), "PR size reads the `Size:` line and UI review its "
