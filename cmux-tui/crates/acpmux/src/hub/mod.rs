@@ -1791,13 +1791,14 @@ impl Hub {
         hosted: bool,
         saved: bool,
     ) {
+        // The digest of the value as read, before the repairs below; taken before the lock.
+        let saved_digest = saved.then(|| meta_save::MetaDigest::of(&meta));
         // An on-demand read may already have installed and updated this chat. Never replace it
         // with the snapshot the background list read earlier.
         let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if sessions.contains_key(&meta.id) {
             return;
         }
-        let saved_meta = saved.then(|| meta.clone());
         let mut meta = meta;
         // An agent whose host still runs keeps its saved status until adoption reaches it:
         // it works on meanwhile, never shown idle (claude-sr2, 2026-10-26).
@@ -1820,8 +1821,8 @@ impl Hub {
             self.subsessions.note_status(&link.started_by, &meta.id, meta.status);
         }
         let session = self.make_session(meta);
-        if let Some(meta) = saved_meta {
-            session.meta_writer.note_saved(meta);
+        if let Some(saved) = saved_digest {
+            session.meta_writer.note_saved(saved);
         }
         session.caught_up.store(false, Ordering::SeqCst);
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
