@@ -3,7 +3,7 @@
 # the seeded UI fuzz, or the replay of a saved repro. Run it ON a Tart host, never on a laptop.
 # Agents start it on the fleet with os-matrix.sh (a cmux-ci step of class vm).
 #
-# Usage: vm.sh [--majors 14,15,26,27] [--suite smoke|fuzz|repro|exec|onboarding] [--seed N] [--steps N] [--minutes N]
+# Usage: vm.sh [--majors 14,15,26,27] [--suite smoke|fuzz|repro|exec|onboarding|rollback-drill] [--seed N] [--steps N] [--minutes N]
 #              [--repro NAME | --replay STEPS.jsonl | --probe NAME] [--work DIR] [--results FILE] [--keep-vm] BUILD
 #   BUILD      a cmux-next .app, a .zip with one, or a .dmg (a shipped nightly). The word `nightly`
 #              downloads the NIGHTLY feed's newest DMG (onboarding/nightly.py), `nightly:N` feed build N.
@@ -20,6 +20,13 @@
 #              the System Settings prompts it opens, all over VNC (the person's part), then a
 #              scripted agent clicks, types and drags in background apps. A video and a still per
 #              step. Needs a NIGHTLY (a signed helper): a DEV build has none.
+#              rollback-drill: rollback/drill.py, the Mac half of the weekly release rollback
+#              drill (cmuxterm-hq goal release-rollback-drilled). BUILD is `nightly` or
+#              `nightly:N` and nothing is downloaded on the host: the drill reads this week's
+#              publish on files-next.cmux.com/nightly-next/drill/ (refused when already pulled
+#              or stale), installs its kept build K in the guest's /Applications, points the app
+#              at the drill feed, updates to the bad canary N and rolls back to K. result.json
+#              has the hq probe's steps (with nightly:N, N must be the drill's bad build).
 #              The probe never runs on the host. It tests the OS, not the build (BUILD is still
 #              copied into the guest, so a probe may use it).
 #   --minutes  fuzz: stop each major's walk after N minutes (the run's time bound). Without
@@ -58,20 +65,28 @@ while [[ $# -gt 0 ]]; do
     --probe) PROBE=$2; shift 2 ;;
     --results) RESULTS=$2; shift 2 ;;
     --keep-vm) KEEP_VM=1; shift ;;
-    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,49p' "$0"; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) BUILD=$1; shift ;;
   esac
 done
-if [[ "${BUILD:-}" == nightly || "${BUILD:-}" =~ ^nightly:[0-9]{1,20}$ ]]; then
+# rollback-drill installs its own builds from the drill feed: BUILD only names it (nightly:N pins N).
+DRILL_BAD=""
+if [[ "$SUITE" == rollback-drill ]]; then
+  [[ "${BUILD:-}" == nightly || "${BUILD:-}" =~ ^nightly:[0-9]{1,20}$ ]] || {
+    echo "--suite rollback-drill takes BUILD nightly or nightly:N" >&2; exit 2; }
+  [[ "$BUILD" == nightly:* ]] && DRILL_BAD=${BUILD#nightly:}
+  BUILD=rollback-drill-skip
+elif [[ "${BUILD:-}" == nightly || "${BUILD:-}" =~ ^nightly:[0-9]{1,20}$ ]]; then
   mkdir -p "$WORK/nightly"; pin=(); [[ "$BUILD" == nightly:* ]] && pin=(--build "${BUILD#nightly:}")
   read -r NIGHTLY_BUILD _ BUILD < <(python3 -I "$HERE/onboarding/nightly.py" "$WORK/nightly" ${pin[@]+"${pin[@]}"}) || { echo "no NIGHTLY download" >&2; exit 2; }
   echo "NIGHTLY build $NIGHTLY_BUILD: $BUILD" >&2
 fi
-[[ -n "${BUILD:-}" && -e "$BUILD" ]] || { echo "usage: vm.sh [--majors 14,15,26] [--suite smoke|fuzz|repro] BUILD" >&2; exit 2; }
+[[ "${BUILD:-}" == rollback-drill-skip || -n "${BUILD:-}" && -e "$BUILD" ]] || { echo "usage: vm.sh [--majors 14,15,26] [--suite smoke|fuzz|repro] BUILD" >&2; exit 2; }
 [[ -z "$PROBE" || "$SUITE" == exec ]] || { echo "--probe needs --suite exec" >&2; exit 2; }
 case "$SUITE" in
   smoke|fuzz) [[ -z "$REPRO" ]] || { echo "--repro needs --suite repro" >&2; exit 2; } ;;
+  rollback-drill) [[ -z "$REPRO" ]] || { echo "--repro needs --suite repro" >&2; exit 2; } ;;
   onboarding) [[ -z "$REPRO" && "$BUILD" == *.dmg ]] || { echo "--suite onboarding needs a .dmg (or nightly)" >&2; exit 2; } ;;
   exec)
     # NAME is a plain name (no separator, no ..), probes/ is a real folder of this runner and
@@ -83,7 +98,7 @@ case "$SUITE" in
     [[ "$REPRO" =~ ^[a-z0-9][a-z0-9-]{0,63}$ && -f "$HERE/repros/$REPRO.jsonl" ]] || {
       echo "--suite repro needs --repro NAME of a file in $HERE/repros (without .jsonl)" >&2; exit 2; }
     REPLAY="$HERE/repros/$REPRO.jsonl" ;;
-  *) echo "--suite must be smoke, fuzz, repro, exec or onboarding" >&2; exit 2 ;;
+  *) echo "--suite must be smoke, fuzz, repro, exec, onboarding or rollback-drill" >&2; exit 2 ;;
 esac
 # The results file is created new at the end (O_EXCL): refuse an existing one before the run.
 [[ -z "$RESULTS" || ! -e "$RESULTS" && ! -L "$RESULTS" ]] || { echo "--results $RESULTS exists" >&2; exit 2; }
@@ -111,8 +126,15 @@ for i in json.load(open(sys.argv[1]))["images"]:
     if i["major"] == sys.argv[2]: print(i["ref"] + "@" + i["digest"]); break
 else: sys.exit("major %s is not in images.json" % sys.argv[2])' "$IMAGES" "$1"; }
 
+# rollback-drill: the worker bounds each major at 25 min (1500 s). The drill gets DRILL_BUDGET_S less what the
+# clone and boot took (the boot waits at most 600 s: tart ip 300, ssh 300), and drill.py cuts every step to what
+# is left of it. Step limits (s): feed/pick 2x15, app/install-kept 240 (download, verify) + 120 (open until
+# identify), drill/serve 30, app/sees-bad 30 (check) + 120 (until update_available), app/install-bad 360 (install)
+# + 180 (relaunch), app/restore 120 (rollback-update) + 180 (relaunch), the OS read 10: 1420 in all, cut to the
+# budget. The 120 s left of 1500 is the stop (30 s) and the delete.
+DRILL_BUDGET_S=1380
 cycle() {  # cycle MAJOR OUT
-  local major=$1 out=$2 vm="fuzz-$1-$$" tart_pid="" ip=""
+  local major=$1 out=$2 vm="fuzz-$1-$$" tart_pid="" ip="" started=$SECONDS
   local ref; ref=$(image_ref "$major")
   # A macOS guest needs a host of at least its major (Virtualization.framework): 27 needs a 27 host.
   local host_min; host_min=$(python3 -I -c 'import json,sys
@@ -157,6 +179,19 @@ print(next((i.get("host_os_min", "") for i in json.load(open(sys.argv[1]))["imag
       --ssh-opt=-oPreferredAuthentications=password,keyboard-interactive --ssh-opt=-oNumberOfPasswordPrompts=1 \
       >"$out/onboarding.log" 2>&1 || echo "onboarding exit $?" >"$out/failure"
     grep -E '^(ONBOARDING|TCC |[a-z_]+ +(ok|FAIL)) ' "$out/onboarding.log" | cut -c1-400 >&2 || true
+    return 0
+  fi
+  if [[ "$SUITE" == rollback-drill ]]; then
+    # The app runs in the guest's own home (its update and rollback relaunch through LaunchServices with no
+    # environment), and the whole guest is thrown away after: no build.zip, the drill installs its own builds.
+    ssh "${SSHB[@]}" "admin@$ip" "$GUEST_QUIT_FIRST_LOGIN_APPS" </dev/null || true
+    # No floor past the bound: a boot that left under 60 s of the budget is a failure, not an overrun.
+    local budget=$(( DRILL_BUDGET_S - (SECONDS - started) ))
+    (( budget >= 60 )) || { echo "the boot left ${budget} s of the drill's ${DRILL_BUDGET_S} s budget" >"$out/failure"; return 0; }
+    python3 -I "$HERE/rollback/drill.py" --ssh "admin@$ip" --out "$out" --budget-s "$budget" ${DRILL_BAD:+--bad "$DRILL_BAD"} \
+      --ssh-opt=-oPubkeyAuthentication=no --ssh-opt=-oPreferredAuthentications=password,keyboard-interactive \
+      --ssh-opt=-oNumberOfPasswordPrompts=1 >"$out/rollback-drill.log" 2>&1 || echo "rollback-drill exit $?" >"$out/failure"
+    grep -E '^(ROLLBACK-DRILL| *(ok|fail|skip) [a-z]+/)' "$out/rollback-drill.log" | cut -c1-400 >&2 || true
     return 0
   fi
   scp "${SSHB[@]}" -q "$BUILD_ZIP" "admin@$ip:/Users/admin/build.zip" </dev/null
@@ -284,7 +319,7 @@ BUILD_DMG=""
 # The onboarding suite never opens the DMG on the host: it goes into the guest as downloaded.
 [[ "$SUITE" == onboarding ]] && BUILD=onboarding-skip
 case "$BUILD" in
-  onboarding-skip) BUILD_ZIP="" ;;
+  onboarding-skip|rollback-drill-skip) BUILD_ZIP="" ;;
   *.zip) BUILD_ZIP=$(cd "$(dirname "$BUILD")" && pwd)/$(basename "$BUILD") ;;
   *.app|*.app/) BUILD_ZIP="$RUN/build.zip"; ditto -c -k --keepParent "$BUILD" "$BUILD_ZIP" ;;
   *.dmg) mnt=$(mktemp -d); hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$BUILD" >/dev/null
@@ -343,6 +378,13 @@ for m in majors:
             m, s.get("os", "?"), verdict, s.get("nightly_build") or "-", ",".join(s.get("failed_steps", [])) or "-",
             s.get("person_actions_to_ready", "-"), s.get("reference_actions_to_ready", "-"), len(s.get("findings", [])),
             (s.get("tcc") or {}).get("cmux_grant_prompt_count", "-"), fail)
+    elif suite == "rollback-drill":
+        s = load("result.json")
+        verdict = "NO-VERDICT" if not s else ("PASS" if s.get("ok") and not fail else "FAIL")
+        line = "%-4s %-8s rollback-drill %-10s bad=%s kept=%s seen_s=%s restore_s=%s by=%s failed=%s %s" % (
+            m, s.get("os") or "?", verdict, s.get("bad_build") or "-", s.get("kept_build") or "-", s.get("seen_s"),
+            s.get("restore_s"), s.get("restored_by") or "-", ",".join(s.get("failed_steps", [])) or "-",
+            (fail + " " + (s.get("failure") or "")).strip()[:300])
     elif suite == "smoke":
         s = load("result.json")
         verdict = "NO-VERDICT" if not s else ("PASS" if s.get("ok") and not fail else "FAIL")
