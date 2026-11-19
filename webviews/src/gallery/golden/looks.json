@@ -117,7 +117,7 @@
       "title": "Sakura",
       "note": "A flagship theme file. Cherry blossom: blush glass over a blossoming plum garden, petal pink and plum ink. Drawn in light; the other scheme keeps the default.",
       "settings": {
-        "agentPane.display.font.ui": "cmux-sans"
+        "agentPane.display.font.ui": "hanken"
       },
       "schemes": {
         "light": {
@@ -131,7 +131,7 @@
       "title": "Sakura Yoru",
       "note": "A flagship theme file. Cherry blossom at night: plum-black glass, lantern pink and moonlit teal. Drawn in dark; the other scheme keeps the default.",
       "settings": {
-        "agentPane.display.font.ui": "cmux-sans"
+        "agentPane.display.font.ui": "hanken"
       },
       "schemes": {
         "light": {},
@@ -145,7 +145,7 @@
       "title": "Sumi",
       "note": "A flagship theme file. Ink on washi over Hokusai's Fuji: one seal-red accent, serif reading, stillness. Drawn in light; the other scheme keeps the default.",
       "settings": {
-        "agentPane.display.font.ui": "cmux-sans",
+        "agentPane.display.font.ui": "hanken",
         "agentPane.display.font.preset": "serif"
       },
       "schemes": {
@@ -160,7 +160,7 @@
       "title": "Frutiger Aero 2027",
       "note": "A flagship theme file. Clear glass over a bright sky: sky blue, aqua and leaf green, glossy and quick. Drawn in light; the other scheme keeps the default.",
       "settings": {
-        "agentPane.display.font.ui": "cmux-sans"
+        "agentPane.display.font.ui": "hanken"
       },
       "schemes": {
         "light": {
@@ -174,7 +174,7 @@
       "title": "1-Bit",
       "note": "A flagship theme file. Ultra minimal: black, white and one grey, no picture, no glass, monospace, still. Drawn in dark; the other scheme keeps the default.",
       "settings": {
-        "agentPane.display.font.ui": "cmux-sans",
+        "agentPane.display.font.ui": "hanken",
         "agentPane.display.font.preset": "mono"
       },
       "schemes": {
@@ -189,7 +189,7 @@
       "title": "Earthly Delights",
       "note": "A flagship theme file. Ultra maximal: Bosch's garden behind jade glass, candy pink and lime, everything moving. Drawn in dark; the other scheme keeps the default.",
       "settings": {
-        "agentPane.display.font.ui": "cmux-sans",
+        "agentPane.display.font.ui": "hanken",
         "sidebar.density": "expanded"
       },
       "schemes": {

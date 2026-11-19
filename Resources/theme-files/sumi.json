@@ -53,8 +53,8 @@
   "appearance.surfaces.newTabPage.opacity": 0.6,
   "appearance.borders": "none",
 
-  // Type: cmux Sans in the chrome, serif for reading, the chat and Markdown both.
-  "agentPane.display.font.ui": "cmux-sans",
+  // Type: Folio's Hanken Grotesk in the chrome, serif for reading, the chat and Markdown both.
+  "agentPane.display.font.ui": "hanken",
   "agentPane.display.font.preset": "serif",
   "markdown.font.preset": "serif",
   "terminal.fontFamily": "Menlo",

@@ -56,7 +56,7 @@
   "appearance.focusIndicator": "border",
 
   // Type: monospace for reading too.
-  "agentPane.display.font.ui": "cmux-sans",
+  "agentPane.display.font.ui": "hanken",
   "agentPane.display.font.preset": "mono",
   "markdown.font.preset": "mono",
   "terminal.fontFamily": "Menlo",

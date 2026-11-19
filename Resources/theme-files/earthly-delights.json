@@ -64,8 +64,8 @@
   "appearance.focusIndicator": "both",
   "browser.omnibar.glass": "transparent",
 
-  // Type: cmux Sans, larger chrome.
-  "agentPane.display.font.ui": "cmux-sans",
+  // Type: Folio's Hanken Grotesk, larger chrome.
+  "agentPane.display.font.ui": "hanken",
   "terminal.fontFamily": "Menlo",
   "terminal.fontSize": 14,
   "appearance.metrics.chromeFontSize": 14,

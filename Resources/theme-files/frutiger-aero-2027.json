@@ -59,8 +59,8 @@
   "appearance.surfaces.home.opacity": 0.4,
   "browser.omnibar.glass": "clear",
 
-  // Type: cmux Sans, Menlo in the terminals.
-  "agentPane.display.font.ui": "cmux-sans",
+  // Type: Folio's Hanken Grotesk, Menlo in the terminals.
+  "agentPane.display.font.ui": "hanken",
   "terminal.fontFamily": "Menlo",
   "terminal.fontSize": 13,
 
