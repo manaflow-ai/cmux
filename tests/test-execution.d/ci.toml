@@ -14,6 +14,10 @@ path = "tests/test_ci_admission_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_affected_jobs.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_affected_tests.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/affected_tests.py's plans (dependent closure, the Rust step, guards, registry and unregistered tests) and the rust-check prune scope; run python3 tests/test_ci_affected_tests.py yourself after changing affected_tests.py, cargo_affected.py, focused_tests.py or cmux-tui-rust-check.sh (about 30 s, no build)."
@@ -101,7 +105,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_cmux_tui_fat_warm_target.py"
 lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23). Checks that the shipped fat-LTO cmux-tui legs of cmux-tui-build-package.yml mount their own warm sticky disks (keys apart from the thin ones) and wrap their builds in machine-channel-warm-target.sh restore/record, and that the script empties a disk whose toolchain stamp changed; run python3 tests/test_ci_cmux_tui_fat_warm_target.py yourself after changing those steps, macos-cross.sh all or the script (about 2 s, no build)."
+reason = "No new CI tests (Lawrence 2026-10-23). Checks that the shipped fat-LTO cmux-tui legs of cmux-tui-build-package.yml mount their own warm sticky disks (keys apart from the thin ones), restore before their builds and record (prune) only in the Record the warm target step after Stage binary, that the warm bound stays above measured use, and that the script empties a disk whose toolchain stamp changed; run python3 tests/test_ci_cmux_tui_fat_warm_target.py yourself after changing those steps, macos-cross.sh all or the script (about 2 s, no build)."
 
 [[test]]
 path = "tests/test_ci_cmux_tui_latest_acpmux.py"
@@ -134,6 +138,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_kernel_free.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Checks fast-checks.yml's setup=kernel-free Mac job: its owned label, trust boundary and receipt; run python3 tests/test_ci_fast_checks_kernel_free.py yourself after changing that job (about 2 s, no build)."
 
 [[test]]
 path = "tests/test_ci_fast_checks_runner.py"
@@ -338,6 +347,10 @@ path = "tests/test_ci_no_github_token_polling.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_no_run_scoped_cache_keys.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_no_shallow_dev_fetch.py"
 lane = "linux-guard"
 
@@ -497,6 +510,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_r2_storage_census.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_rd_host_macos_route.py"
 lane = "linux-guard"
 
 [[test]]
