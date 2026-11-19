@@ -1106,7 +1106,8 @@ mod repositories {
     fn without(status: &str, name: &str) -> String {
         status
             .lines()
-            .filter(|line| !line.ends_with(name))
+            // A name with a space stays in quotes.
+            .filter(|line| !line.trim_end_matches('"').ends_with(name))
             .map(|line| format!("{line}\n"))
             .collect()
     }
