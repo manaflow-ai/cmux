@@ -52,7 +52,7 @@ impl View {
 
     /// A rect of `src` (origin at `src`'s corner) as the rect of the picture it lands in,
     /// grown to whole even pixels.
-    pub fn to_out(&self, r: Rect) -> Rect {
+    pub fn to_out(self, r: Rect) -> Rect {
         let (ow, oh) = self.out;
         let x0 = (u64::from(r.x) * u64::from(ow) / u64::from(self.src.w)) as u32;
         let y0 = (u64::from(r.y) * u64::from(oh) / u64::from(self.src.h)) as u32;
@@ -63,7 +63,7 @@ impl View {
 
     /// A rect of the picture as the rect of `src` it is made from (origin at `src`'s corner),
     /// grown to whole even pixels.
-    pub fn to_src(&self, r: Rect) -> Rect {
+    pub fn to_src(self, r: Rect) -> Rect {
         let (ow, oh) = self.out;
         let (sw, sh) = (self.src.w, self.src.h);
         let x0 = (u64::from(r.x) * u64::from(sw) / u64::from(ow)) as u32;
@@ -222,7 +222,7 @@ mod tests {
         let v = View::new(HD, Some(1280));
         let small = Rect { x: 101, y: 51, w: 3, h: 3 };
         let out = v.to_out(small);
-        assert!(out.w >= 2 && out.h >= 2 && out.x % 2 == 0 && out.y % 2 == 0);
+        assert!(out.w >= 2 && out.h >= 2 && out.x.is_multiple_of(2) && out.y.is_multiple_of(2));
         let back = v.to_src(out);
         assert!(back.x <= small.x && back.y <= small.y);
         assert!(back.x + back.w >= small.x + small.w && back.y + back.h >= small.y + small.h);
