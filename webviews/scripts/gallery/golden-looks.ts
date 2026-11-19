@@ -5,7 +5,12 @@
 // from the base and its head.
 //
 //   bun run golden:looks [--looks cmux,claude] [--schemes light,dark] [--out DIR] [--window 1280x2000]
-//     [--setup DIR ...] [--native DIR]
+//     [--setup DIR ...] [--native DIR] [--shapes all|ID,...]
+//
+// --shapes draws golden/shapes.json's options instead (the tabs and sidebar rows, the sidebar's width, Session Info,
+// the top right buttons, Home cards) over the first look (cmux unless --looks names one), in a window --window high
+// (the chat's top), and writes shapes/<id>-<scheme>.png and one sheet per area, shapes-<area>.png, plus
+// shapes-before.png: the same window with no shape.
 //
 // --setup adds a look from any setup folder (a look's own repo, ~/src/my-look), beside the built-in ones.
 // --native adds the native sidebar and tab bar captures (Swift AAGoldenLookGalleryTests, its
@@ -27,6 +32,7 @@ const { values } = parseArgs({
     window: { type: "string", default: "1280x2000" },
     setup: { type: "string", multiple: true, default: [] },
     native: { type: "string" },
+    shapes: { type: "string" },
     scale: { type: "string", default: "1" },
   },
 });
@@ -82,12 +88,18 @@ const shots: { look: string; title: string; note: string; scheme: string; file: 
 const page = await browser.newPage({ viewport: { width: width + 64, height: height + 96 }, deviceScaleFactor });
 
 /** Loads one look in a window `tall` px high; answers how much taller the chat is than its pane. */
-async function load(look: (typeof looks)[number], scheme: "light" | "dark", tall: number): Promise<number> {
+async function load(
+  look: (typeof looks)[number],
+  scheme: "light" | "dark",
+  tall: number,
+  shape?: string,
+): Promise<number> {
   const query = new URLSearchParams({
     fixture: `looks.golden/${look.id}`,
     colorScheme: scheme,
     window: `${width}x${tall}`,
     zoom: "1",
+    ...(shape && { shape }),
   });
   // The look's density (its theme file's appearance.density): the window's metrics and the pane's.
   const density = look.schemes[scheme].density;
@@ -109,6 +121,83 @@ async function load(look: (typeof looks)[number], scheme: "light" | "dark", tall
     const scroll = document.querySelector(".acpmux-scroll");
     return scroll ? Math.max(0, scroll.scrollHeight - scroll.clientHeight) : 0;
   });
+}
+
+// --shapes: each option of golden/shapes.json on the same window, one sheet per area (the file's header).
+if (values.shapes) {
+  const shapesFile = JSON.parse(readFileSync(path.join(webviews, "src/gallery/golden/shapes.json"), "utf8")) as {
+    areas: { id: string; title: string; note: string }[];
+    shapes: { id: string; area: string; title: string; note: string; theme?: object; proposed?: object }[];
+  };
+  const wantedShapes = values.shapes === "all" ? undefined : values.shapes.split(",");
+  const shapes = shapesFile.shapes.filter((shape) => !wantedShapes || wantedShapes.includes(shape.id));
+  const look = looks[0]!;
+  const dir = path.join(out, "shapes");
+  mkdirSync(dir, { recursive: true });
+  const shot = async (shape: string | undefined, scheme: "light" | "dark") => {
+    await load(look, scheme, height, shape);
+    const file = path.join(dir, `${shape ?? "before"}-${scheme}.png`);
+    await page.locator(".app-window").first().screenshot({ path: file, animations: "disabled" });
+    console.log(`golden: ${file}`);
+    return file;
+  };
+  const html = (text: string) => text.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+  const image = (file: string) => `data:image/png;base64,${readFileSync(file).toString("base64")}`;
+  const keysOf = (shape: (typeof shapes)[number]) =>
+    [
+      ...Object.entries(shape.theme ?? {}).map(([key, value]) => `"${key}": ${JSON.stringify(value)}`),
+      ...Object.entries(shape.proposed ?? {}).map(([key, value]) => `"${key}": ${JSON.stringify(value)} (proposed)`),
+    ].join(", ") || "no keys";
+  const sheetOf = async (
+    name: string,
+    title: string,
+    note: string,
+    rows: { title: string; note: string; keys: string; files: string[] }[],
+  ) => {
+    const body = rows
+      .map(
+        (row) =>
+          `<section><h2>${html(row.title)}</h2><p>${html(row.note)}</p><code>${html(row.keys)}</code><div class=row>${row.files
+            .map(
+              (file, index) => `<figure><figcaption>${schemes[index]}</figcaption><img src="${image(file)}"></figure>`,
+            )
+            .join("")}</div></section>`,
+      )
+      .join("");
+    const sheet = `<!doctype html><meta charset=utf-8><style>
+  body { margin: 0; padding: 24px; background: #8a8a8a; font: 14px -apple-system, system-ui, sans-serif; color: #111; }
+  h1 { margin: 0 0 4px; font-size: 24px; } h1 + p { margin: 0 0 20px; }
+  section { margin-bottom: 24px; } h2 { margin: 0 0 2px; font-size: 20px; } p { margin: 0 0 4px; color: #222; }
+  code { display: block; margin: 0 0 8px; font: 12px ui-monospace, monospace; color: #1a1a1a; }
+  .row { display: grid; grid-template-columns: repeat(${schemes.length}, auto); gap: 16px; justify-content: start; }
+  figure { margin: 0; } figcaption { font-size: 12px; margin-bottom: 4px; }
+  img { display: block; width: ${Math.round(width / 2)}px; height: auto; border-radius: 10px; }
+</style><h1>${html(title)}</h1><p>${html(note)}</p>${body}`;
+    const sheetPage = await browser.newPage({ viewport: { width: 1200, height: 800 }, deviceScaleFactor: 1 });
+    await sheetPage.setContent(sheet, { waitUntil: "load" });
+    await sheetPage.screenshot({ path: path.join(out, `${name}.png`), fullPage: true });
+    await sheetPage.close();
+    console.log(`golden: ${path.join(out, `${name}.png`)}`);
+  };
+  const before = [];
+  for (const scheme of schemes) before.push(await shot(undefined, scheme));
+  await sheetOf("shapes-before", "Before: the golden window today", `The ${look.title} look, no shape.`, [
+    { title: "Today", note: "Today's tabs, sidebar and strip.", keys: "no keys", files: before },
+  ]);
+  for (const area of shapesFile.areas) {
+    const options = shapes.filter((shape) => shape.area === area.id);
+    if (options.length === 0) continue;
+    const rows = [];
+    for (const shape of options) {
+      const files = [];
+      for (const scheme of schemes) files.push(await shot(shape.id, scheme));
+      rows.push({ title: shape.title, note: shape.note, keys: keysOf(shape), files });
+    }
+    await sheetOf(`shapes-${area.id}`, area.title, area.note, rows);
+  }
+  await browser.close();
+  await vite.close();
+  process.exit(0);
 }
 
 for (const look of looks)

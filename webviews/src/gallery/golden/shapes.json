@@ -1,0 +1,146 @@
+{
+  "$comment": "Shape overlays on the golden window (mock-app.html `shape=ID`, `bun run golden:looks --shapes`): each one is drawn over a look (cmux's by default) and changes only the chrome's shapes, so the options of one area compare in the same window as every look. `theme` is what a theme file says to ship it: `appearance.*` and other look keys, and `density` with Density Playground tokens (DensityTokenCatalog). `proposed` holds keys that do not exist yet; the window draws them and the sheet names them as proposed. `area` groups the options into one sheet each.",
+  "areas": [
+    {
+      "id": "tabs",
+      "title": "Tabs and sidebar rows",
+      "note": "The selected tab and the selected sidebar row, one shape for both (appearance.tabShape, then the square corner from the density tokens)."
+    },
+    {
+      "id": "sidebar",
+      "title": "Sidebar width",
+      "note": "The sidebar's width (density token sidebarWidth); its rows grow with it."
+    },
+    {
+      "id": "session-info",
+      "title": "Session Info",
+      "note": "Where Session Info sits beside the chat (agentPane.display.sessionInfo.placement); text is never covered."
+    },
+    {
+      "id": "buttons",
+      "title": "Top right buttons",
+      "note": "The buttons at the right of a pane's tab strip (tabs.toolbarButtons) and their style."
+    },
+    { "id": "home", "title": "Home cards", "note": "The cards on Home and their material." }
+  ],
+  "shapes": [
+    {
+      "id": "tabs-block",
+      "area": "tabs",
+      "title": "Block",
+      "note": "Today's tabs and rows (the default).",
+      "theme": { "appearance.tabShape": "block" }
+    },
+    {
+      "id": "tabs-rounded",
+      "area": "tabs",
+      "title": "Rounded",
+      "note": "Capsule tabs and rows that stay on the strip.",
+      "theme": { "appearance.tabShape": "rounded" }
+    },
+    {
+      "id": "tabs-gooey",
+      "area": "tabs",
+      "title": "Gooey",
+      "note": "The selected tab and row run into the pane on two tones, flaring into it through concave corners.",
+      "theme": { "appearance.tabShape": "gooey" }
+    },
+    {
+      "id": "tabs-square",
+      "area": "tabs",
+      "title": "Square",
+      "note": "Block tabs with 2 pt corners: the blocky look, from the density tokens.",
+      "theme": {
+        "appearance.tabShape": "block",
+        "density": { "tokens": { "tabCornerRadius": 2, "sidebarCornerRadius": 2, "verticalTabCornerRadius": 2 } }
+      }
+    },
+    {
+      "id": "sidebar-240",
+      "area": "sidebar",
+      "title": "240 pt",
+      "note": "Today's width.",
+      "theme": { "density": { "tokens": { "sidebarWidth": 240 } } }
+    },
+    {
+      "id": "sidebar-280",
+      "area": "sidebar",
+      "title": "280 pt",
+      "note": "Room for longer titles.",
+      "theme": { "density": { "tokens": { "sidebarWidth": 280 } } }
+    },
+    {
+      "id": "sidebar-320",
+      "area": "sidebar",
+      "title": "320 pt",
+      "note": "A wide list.",
+      "theme": { "density": { "tokens": { "sidebarWidth": 320 } } }
+    },
+    {
+      "id": "session-push",
+      "area": "session-info",
+      "title": "Docked",
+      "note": "Session Info pushes the chat aside, full height, behind a divider.",
+      "theme": { "agentPane.display.sessionInfo.placement": "push" }
+    },
+    {
+      "id": "session-overlay",
+      "area": "session-info",
+      "title": "Floating card",
+      "note": "Session Info floats as a card; the chat keeps a lane free for it, so no text sits under it.",
+      "theme": { "agentPane.display.sessionInfo.placement": "overlay" }
+    },
+    {
+      "id": "session-inline",
+      "area": "session-info",
+      "title": "Inline",
+      "note": "Session Info as one band of facts over the chat.",
+      "proposed": { "agentPane.display.sessionInfo.placement": "inline" }
+    },
+    {
+      "id": "buttons-plain",
+      "area": "buttons",
+      "title": "Plain icons",
+      "note": "Bare glyphs; a fill only on hover.",
+      "theme": { "tabs.toolbarButtons": ["splitRight", "openDiffViewer", "agentPane.searchChats"] },
+      "proposed": { "tabs.toolbarButtonStyle": "plain" }
+    },
+    {
+      "id": "buttons-grouped",
+      "area": "buttons",
+      "title": "Grouped pill",
+      "note": "One filled pill holds the buttons.",
+      "theme": { "tabs.toolbarButtons": ["splitRight", "openDiffViewer", "agentPane.searchChats"] },
+      "proposed": { "tabs.toolbarButtonStyle": "grouped" }
+    },
+    {
+      "id": "buttons-glass",
+      "area": "buttons",
+      "title": "Glass capsule",
+      "note": "A glass capsule with a rim over the strip.",
+      "theme": { "tabs.toolbarButtons": ["splitRight", "openDiffViewer", "agentPane.searchChats"] },
+      "proposed": { "tabs.toolbarButtonStyle": "glass" }
+    },
+    {
+      "id": "home-flat",
+      "area": "home",
+      "title": "Flat",
+      "note": "Tonal fill, no edge, no shade.",
+      "proposed": { "home.cardStyle": "flat" }
+    },
+    {
+      "id": "home-raised",
+      "area": "home",
+      "title": "Raised",
+      "note": "A card with a hairline and a soft shadow.",
+      "proposed": { "home.cardStyle": "raised" }
+    },
+    {
+      "id": "home-glass",
+      "area": "home",
+      "title": "Glass",
+      "note": "See-through cards with a rim.",
+      "proposed": { "home.cardStyle": "glass" }
+    }
+  ]
+}

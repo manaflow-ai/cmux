@@ -21,6 +21,16 @@ import { css, mixed, type ThemeTokens } from "../theme/tokens";
 import { chromeFills } from "./chrome";
 import { fitScale, windowGeometry, windowSize, type PaneLayout, type WindowGeometry } from "../window";
 import { appAxis, paneFrameQuery, parseFixture } from "./axes";
+import {
+  applyShape,
+  homePane,
+  sessionInfo,
+  shapeMetrics,
+  shapeState,
+  SESSION_BAND,
+  SESSION_GAP,
+  SESSION_WIDTH,
+} from "./shapes";
 import { createFrameEntryStore } from "../registry";
 import type { AgentPaneVariant } from "../format";
 import { GALLERY_NOW } from "../clock";
@@ -193,6 +203,10 @@ function drawWindow(
   const sidebarShown = appAxis(params, "sidebar") !== "hidden";
   const frame = el("div", "app-window");
   frame.dataset.density = env.density;
+  // `shape=ID`: one option of golden/shapes.json drawn on this window (shapes.ts).
+  const shape = shapeState(appAxis(params, "shape"));
+  const windowMetrics = shapeMetrics(metrics, shape);
+  if (shape) applyShape(frame, shape);
   if (overPicture(env)) frame.dataset.glass = "";
   const sidebar = el("aside", "app-sidebar");
   const lights = el("div", "app-lights");
@@ -202,7 +216,7 @@ function drawWindow(
   if (sidebarShown) frame.append(sidebar);
 
   const fixtures = [appAxis(params, "fixture"), appAxis(params, "fixture2")];
-  const initial = windowGeometry(windowSize(spec.size), spec.layout, env.density, metrics);
+  const initial = windowGeometry(windowSize(spec.size), spec.layout, env.density, windowMetrics);
   const paneCount = initial.panes.length;
   const boxes = Array.from({ length: paneCount }, (_, index) => {
     const fixture = fixtures[index] ?? fixtures[0]!;
@@ -239,6 +253,16 @@ function drawWindow(
       });
     return { box, strip, tab, iframe };
   });
+  // A shape adds Home at the right (its strip holds the top right buttons) and, when it places Session
+  // Info, Session Info beside the main pane's chat.
+  const home = shape ? homePane(initial.tabHeight) : undefined;
+  if (home) frame.append(home.box);
+  const session = shape?.sessionInfo ? sessionInfo(shape.sessionInfo) : undefined;
+  if (session) {
+    const main = boxes[0]!;
+    if (shape?.sessionInfo === "inline") main.box.insertBefore(session, main.iframe);
+    else main.box.append(session);
+  }
   // The stage says when it is ready (frame/main.ts markReady).
   // Each pane counts once, however often it reports (a live reload of one stage reports again).
   const reported = new Set<MessageEventSource>();
@@ -255,7 +279,7 @@ function drawWindow(
   window.addEventListener("message", onMessage);
 
   const layout = (size: { width: number; height: number }) => {
-    const geometry: WindowGeometry = windowGeometry(size, spec.layout, env.density, metrics);
+    const geometry: WindowGeometry = windowGeometry(size, spec.layout, env.density, windowMetrics);
     Object.assign(frame.style, {
       width: `${geometry.width}px`,
       height: `${geometry.height}px`,
@@ -283,6 +307,31 @@ function drawWindow(
       for (const tab of parts.strip.querySelectorAll<HTMLElement>(".app-tab"))
         tab.style.height = `${geometry.tabHeight}px`;
       parts.iframe.style.height = `${pane.content.height}px`;
+      if (index !== 0 || !home) return;
+      // Home takes the right third; the chat keeps the rest.
+      const gap = windowMetrics.columnGap?.[env.density] ?? 8;
+      const homeWidth = Math.round(pane.frame.width * 0.34);
+      const chatWidth = pane.frame.width - homeWidth - gap;
+      place(parts.box, { ...pane.frame, width: chatWidth });
+      place(home.box, { ...pane.frame, x: pane.frame.x + chatWidth + gap, width: homeWidth });
+      home.strip.style.height = `${geometry.tabStripHeight}px`;
+      if (!session) return;
+      const top = geometry.tabStripHeight;
+      if (shape?.sessionInfo === "inline") {
+        parts.iframe.style.height = `${pane.content.height - SESSION_BAND}px`;
+        session.style.height = `${SESSION_BAND}px`;
+      } else if (shape?.sessionInfo === "push") {
+        parts.iframe.style.width = `${chatWidth - SESSION_WIDTH}px`;
+        place(session, { x: chatWidth - SESSION_WIDTH, y: top, width: SESSION_WIDTH, height: pane.content.height });
+      } else {
+        // Floating: the card keeps a lane of its own, so no line of the chat runs under it.
+        parts.iframe.style.width = `${chatWidth - SESSION_WIDTH - SESSION_GAP * 2}px`;
+        Object.assign(session.style, {
+          left: `${chatWidth - SESSION_WIDTH - SESSION_GAP}px`,
+          top: `${top + SESSION_GAP}px`,
+          width: `${SESSION_WIDTH}px`,
+        });
+      }
     });
   };
   layout(windowSize(spec.size));

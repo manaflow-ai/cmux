@@ -91,7 +91,7 @@ body {
   align-items: center;
   height: 28px;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: var(--app-row-radius, 6px);
   color: var(--app-text-2);
 }
 [data-density="compact"] .app-sidebar-row {
@@ -169,7 +169,7 @@ body {
   align-items: center;
   max-width: 240px;
   padding: 0 12px;
-  border-radius: 6px;
+  border-radius: var(--app-tab-radius, 6px);
   background: var(--app-tab);
   color: var(--app-text);
 }
@@ -213,4 +213,275 @@ body {
 }
 [data-chrome="native"] .app-sidebar {
   background: transparent;
+}
+
+/* Shape overlays (shapes.ts, `shape=ID`): one option of golden/shapes.json on this window. */
+[data-tab-shape="rounded"] .app-tab,
+[data-tab-shape="rounded"] .app-sidebar-row {
+  border-radius: 999px;
+}
+/* Gooey (appearance.tabShape): the selected tab and row take the pane's fill and run into it on two
+   tones, flaring into it through concave corners. */
+[data-tab-shape="gooey"] {
+  --app-goo: 9px;
+}
+[data-tab-shape="gooey"] .app-strip {
+  background: color-mix(in srgb, var(--app-content), var(--app-text) 7%);
+  overflow: visible;
+}
+[data-tab-shape="gooey"] .app-tab[data-selected] {
+  position: relative;
+  align-self: stretch;
+  height: auto !important;
+  margin-top: 6px;
+  border-radius: var(--app-goo) var(--app-goo) 0 0;
+  background: var(--app-content);
+}
+[data-tab-shape="gooey"] .app-tab[data-selected]::before,
+[data-tab-shape="gooey"] .app-tab[data-selected]::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: var(--app-goo);
+  height: var(--app-goo);
+}
+[data-tab-shape="gooey"] .app-tab[data-selected]::before {
+  left: calc(-1 * var(--app-goo));
+  background: radial-gradient(circle at 0 0, transparent calc(var(--app-goo) - 0.5px), var(--app-content) var(--app-goo));
+}
+[data-tab-shape="gooey"] .app-tab[data-selected]::after {
+  right: calc(-1 * var(--app-goo));
+  background: radial-gradient(circle at 100% 0, transparent calc(var(--app-goo) - 0.5px), var(--app-content) var(--app-goo));
+}
+[data-tab-shape="gooey"] .app-sidebar,
+[data-tab-shape="gooey"] .app-sidebar-list {
+  overflow: visible;
+}
+[data-tab-shape="gooey"] .app-sidebar-row[data-selected] {
+  position: relative;
+  margin-right: -16px;
+  border-radius: var(--app-goo) 0 0 var(--app-goo);
+  background: var(--app-content);
+}
+[data-tab-shape="gooey"] .app-sidebar-row[data-selected]::before,
+[data-tab-shape="gooey"] .app-sidebar-row[data-selected]::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  width: var(--app-goo);
+  height: var(--app-goo);
+}
+[data-tab-shape="gooey"] .app-sidebar-row[data-selected]::before {
+  top: calc(-1 * var(--app-goo));
+  background: radial-gradient(circle at 0 0, transparent calc(var(--app-goo) - 0.5px), var(--app-content) var(--app-goo));
+}
+[data-tab-shape="gooey"] .app-sidebar-row[data-selected]::after {
+  bottom: calc(-1 * var(--app-goo));
+  background: radial-gradient(circle at 0 100%, transparent calc(var(--app-goo) - 0.5px), var(--app-content) var(--app-goo));
+}
+
+.app-shape-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.app-shape-spacer {
+  flex: 1;
+}
+/* Top right buttons: plain, grouped or glass (tabs.toolbarButtonStyle, proposed). */
+.app-shape-buttons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--app-text-2);
+}
+.app-shape-button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--app-tab-radius, 6px);
+}
+[data-buttons="plain"] .app-shape-button:first-child {
+  background: var(--app-hover);
+  color: var(--app-text);
+}
+[data-buttons="grouped"] .app-shape-buttons {
+  gap: 0;
+  padding: 0 2px;
+  border-radius: var(--app-tab-radius, 6px);
+  background: var(--app-tab);
+}
+[data-buttons="grouped"] .app-shape-button + .app-shape-button {
+  border-left: 1px solid var(--app-separator);
+  border-radius: 0;
+}
+[data-buttons="glass"] .app-shape-buttons {
+  gap: 0;
+  padding: 0 4px;
+  border-radius: 999px;
+  color: var(--app-text);
+  background: color-mix(in srgb, var(--app-content) 55%, transparent);
+  backdrop-filter: blur(18px) saturate(1.6);
+  box-shadow:
+    inset 0 0 0 0.5px color-mix(in srgb, white 30%, transparent),
+    0 0 0 0.5px var(--app-separator),
+    0 4px 14px rgb(0 0 0 / 14%);
+}
+[data-buttons="glass"] .app-shape-button {
+  border-radius: 999px;
+}
+/* Session Info: docked (push), floating (overlay) or a band (inline, proposed). */
+.app-shape-session {
+  font-size: var(--text-caption);
+  color: var(--app-text-2);
+}
+.app-shape-session b {
+  color: var(--app-text);
+  font-weight: 600;
+}
+.app-shape-session[data-placement="push"],
+.app-shape-session[data-placement="overlay"] {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+.app-shape-session[data-placement="push"] {
+  border-left: 0.5px solid var(--app-separator);
+  background: var(--app-content);
+}
+.app-shape-session[data-placement="push"] .app-shape-section {
+  padding: 10px 12px;
+  border-radius: var(--app-radius, 8px);
+  background: var(--app-hover);
+}
+.app-shape-session[data-placement="overlay"] {
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--app-content) 82%, transparent);
+  backdrop-filter: blur(22px) saturate(1.6);
+  box-shadow:
+    0 0 0 0.5px var(--app-separator),
+    0 8px 24px rgb(0 0 0 / 16%);
+}
+.app-shape-session[data-placement="overlay"] .app-shape-section + .app-shape-section {
+  padding-top: 10px;
+  border-top: 0.5px solid var(--app-separator);
+}
+.app-shape-session[data-placement="inline"] {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  align-items: center;
+  padding: 0 12px;
+  border-bottom: 0.5px solid var(--app-separator);
+}
+.app-shape-chip {
+  padding: 2px 8px;
+  border-radius: var(--app-tab-radius, 6px);
+  background: var(--app-hover);
+}
+.app-shape-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.app-shape-head,
+.app-shape-row {
+  display: flex;
+  justify-content: space-between;
+}
+.app-shape-row > span {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.app-shape-bar {
+  display: flex;
+  gap: 2px;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+}
+.app-shape-bar i,
+.app-shape-swatch {
+  background: var(--app-accent);
+}
+.app-shape-bar i:nth-child(2),
+.app-shape-row:nth-child(4) .app-shape-swatch {
+  background: var(--app-attention);
+}
+.app-shape-bar i:nth-child(3),
+.app-shape-row:nth-child(5) .app-shape-swatch {
+  background: var(--app-danger);
+}
+.app-shape-bar i:nth-child(4) {
+  background: var(--app-hover);
+}
+.app-shape-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+/* Home, in its own pane at the right, and its cards: flat, raised or glass (home.cardStyle, proposed). */
+.app-shape-home-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px 18px;
+}
+.app-shape-home-body h3 {
+  margin: 0;
+  font-size: var(--text-title, 20px);
+  color: var(--app-text);
+}
+.app-shape-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.app-shape-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 92px;
+  padding: 14px;
+  border-radius: 12px;
+  color: var(--app-text);
+}
+.app-shape-card .app-shape-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--app-accent);
+}
+.app-shape-card span {
+  font-size: var(--text-caption);
+  color: var(--app-text-2);
+}
+[data-cards="flat"] .app-shape-card {
+  background: var(--app-hover);
+}
+[data-cards="raised"] .app-shape-card {
+  background: var(--app-content);
+  box-shadow:
+    0 0 0 0.5px var(--app-separator),
+    0 1px 2px rgb(0 0 0 / 8%),
+    0 6px 18px rgb(0 0 0 / 12%);
+}
+[data-cards="glass"] .app-shape-home {
+  background: color-mix(in srgb, var(--app-content) 45%, var(--app-accent) 8%);
+}
+[data-cards="glass"] .app-shape-card {
+  background: color-mix(in srgb, var(--app-content) 50%, transparent);
+  backdrop-filter: blur(20px) saturate(1.6);
+  box-shadow:
+    inset 0 0 0 0.5px color-mix(in srgb, white 34%, transparent),
+    0 0 0 0.5px var(--app-separator),
+    0 6px 18px rgb(0 0 0 / 12%);
 }
