@@ -1026,6 +1026,34 @@ class TruncatedSnapshot(unittest.TestCase):
         self.assertEqual((dead, started), (set(), set()))
         self.assertTrue(any("truncated" in note for note in notes))
 
+    def test_a_truncated_snapshot_still_supplies_its_recent_starts(self) -> None:
+        # 2026-11-18 14:14Z: the snapshot was truncated (the queue outgrew one sweep), the writer dropped all of it,
+        # and with the probes alone (every x64 size but 2 vCPU stalled under the vCPU cap) every Linux pool went
+        # to the 2 vCPU release valve, while its label_started showed 4 and 8 vCPU starting jobs minutes before.
+        four, eight = "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"
+        sixteen, thirty_two = "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"
+        two = "blacksmith-2vcpu-ubuntu-2404"
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["generated_at"] = runner_pools.iso(NOW - dt.timedelta(minutes=1))
+        snapshot["truncated"] = True
+        # Its counts are partial: a queue they show must not mark anything dead.
+        snapshot["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, running=0, oldest_queued_minutes=30)
+        snapshot["label_started"] = {four: runner_pools.iso(NOW - dt.timedelta(minutes=2)),
+                                     eight: runner_pools.iso(NOW - dt.timedelta(minutes=1))}
+        probes = health({two: "started", four: "stalled", eight: "stalled", sixteen: "stalled",
+                         thirty_two: "stalled"})
+        dead, started, _ = runner_pools.label_evidence(probes, snapshot, now=NOW)
+        self.assertEqual(dead, {sixteen, thirty_two})
+        self.assertTrue({four, eight} <= started)
+        self.assertNotIn("blacksmith-6vcpu-macos-26", dead)
+        pools = runner_pools.load_pools()
+        covered = runner_pools.evidence_covers(probes, snapshot, pools, now=NOW)
+        current = {"_dead": {four: runner_pools.iso(NOW - dt.timedelta(minutes=10)),
+                             eight: runner_pools.iso(NOW - dt.timedelta(minutes=10))}}
+        value, _ = runner_pools.reconcile(current, pools, dead_now=dead, served_now=started, now=NOW, covered=covered)
+        self.assertEqual((value["linux"], value["linux_8"], value["linux_16"]), (four, eight, eight))
+        self.assertNotEqual(value["linux_32"], two)
+
 
 class CapBound(unittest.TestCase):
     """Blacksmith caps the org on vCPUs at once. A size that keeps starting jobs is serving however long a probe

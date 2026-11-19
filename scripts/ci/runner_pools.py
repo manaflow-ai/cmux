@@ -34,7 +34,8 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
     pool members, so they are not read;
   - a label whose `label_started` is within RECENT_START is serving and never dead, whatever the
     probe saw (recently_started()): under Blacksmith's org vCPU cap a probe can wait out its
-    minutes on a size that keeps starting jobs;
+    minutes on a size that keeps starting jobs. This holds for a truncated snapshot too (the queue
+    outgrew one sweep): its queue counts are partial and decide nothing, but its starts are starts;
 - marks dead labels in RUNNER_POOLS' `_dead` (label -> when last seen dead). A mark expires after
   DEAD_TTL unless seen again; evidence that the label started a job clears it at once. A mark expires
   only on a pass whose evidence covers its label (evidence_covers()): the probe's health for the sizes
@@ -614,7 +615,10 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         notes.append(f"the janitor snapshot is from {iso(generated)}, outside the last {SNAPSHOT_MAX_AGE}; "
                      "no snapshot evidence")
     elif generated is not None and pr_runner_pool.snapshot_truncated(snapshot):
-        notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; no snapshot evidence")
+        # Its queue counts are partial, so they decide nothing; its starts are still starts. On 2026-11-18 at 14:14Z
+        # dropping them sent every Linux pool to the 2 vCPU release valve while 4 and 8 vCPU kept starting jobs.
+        started |= recently_started(snapshot, now=now)
+        notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; only its recent starts count")
     elif generated is not None:
         age = max(0.0, (now - generated).total_seconds() / 60)
         started |= recently_started(snapshot, now=now)
@@ -659,10 +663,12 @@ def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any
                 dt.timedelta(minutes=-1) <= now - checked <= HEALTH_MAX_AGE:
             covered |= {str(label) for label in labels}
     generated = parse_time(snapshot.get("generated_at")) if isinstance(snapshot, Mapping) else None
-    if generated is not None and dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE \
-            and not pr_runner_pool.snapshot_truncated(snapshot):
+    fresh = generated is not None and dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE
+    if fresh and not pr_runner_pool.snapshot_truncated(snapshot):
         covered |= {label for spec in pools.values() for label in members(spec)} - probed
-        # A probed size the janitor saw start a job recently is covered too: label_evidence() calls it started.
+    if fresh:
+        # A size the janitor saw start a job recently is covered too, truncated or not: label_evidence() calls it
+        # started.
         covered |= recently_started(snapshot, now=now)
     return covered
 
