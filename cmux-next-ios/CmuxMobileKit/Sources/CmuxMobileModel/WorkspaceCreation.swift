@@ -975,9 +975,13 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     /// Agents can start from the phone (off: no agent entries, so no New Task).
     public var offersAgents = true
+    /// Agent chats (acpmux, the `""` entry) can start, as a live Mac offers them, beside the named
+    /// harnesses: New Workspace's New Agent Chat ▸ (its captures).
+    public var offersAgentChats = false
 
     public func options(on macID: String) -> WorkspaceCreationOptions {
-        WorkspaceCreationOptions(directories: true, agents: offersAgents ? ["claude", "codex"] : [], browser: true, cloneFromGit: false)
+        let agents = offersAgents ? (offersAgentChats ? ["", "claude", "codex"] : ["claude", "codex"]) : []
+        return WorkspaceCreationOptions(directories: true, agents: agents, browser: true, cloneFromGit: false)
     }
 
     public func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace {

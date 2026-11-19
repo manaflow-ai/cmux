@@ -11,8 +11,8 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
     @MainActor
     private static func openComposer(_ app: XCUIApplication) -> String? {
         steps([
-            { longPress(any(app, "workspaces.new"), "New Workspace button") },
-            { tap(any(app, "workspaces.newTask"), "New Task…") },
+            // The floating New Task button above the tab bar (2026-11-18), not a menu row.
+            { tap(any(app, "workspaces.newTask"), "New Task button") },
             { any(app, "taskComposer.prompt").waitForExistence(timeout: 10) ? nil : "composer did not open" },
             { dismissKeyboardTip(app); return nil },
         ])
@@ -192,8 +192,16 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                 C.steps([{ C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
                          { app.swipeUp(); C.pause(0.8); return nil }])
             },
+            // The floating New Task button, bottom trailing above the tab bar.
+            Scene(group: g, id: "new-task-button", args: Self.list) { app in
+                Self.check(C.any(app, "workspaces.newTask").isHittable, "no New Task button")
+            },
+            Scene(group: g, id: "new-task-button-large-type", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"]) { app in
+                Self.check(C.any(app, "workspaces.newTask").isHittable, "no New Task button")
+            },
             Scene(group: g, id: "entry-hidden-no-agents", args: Self.list + ["-cmux-mobile-no-agents"]) { app in
-                C.steps([{ C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
+                C.steps([{ Self.check(!C.any(app, "workspaces.newTask").exists, "New Task button shown with no agents") },
+                         { C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
                          { Self.check(!C.any(app, "workspaces.newTask").exists, "New Task is offered") }])
             },
             // A plain tap opens an agent chat in the latest project folder (2026-11-17); with no
