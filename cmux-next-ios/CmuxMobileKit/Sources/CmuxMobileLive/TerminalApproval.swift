@@ -88,15 +88,18 @@ public enum TerminalApprovalKeys {
         [Data((option.kind == .allowOnce ? "1" : escape).utf8)]
     }
 
-    /// What the approval dialog shows of this approval, to tell it from another one: the start
-    /// of the command's first line, or the file name of the path it touches (Claude Code shows
-    /// a path relative to the folder, "Do you want to create todo.txt?"). Nil when it names
-    /// neither: such an approval keeps "Answer in Terminal" (any approval dialog would pass).
+    /// The longest part of a command matched on its dialog (characters, whitespace dropped).
+    static let commandMatch = 400
+
+    /// What the approval dialog shows of this approval, to tell it from another one: its
+    /// command with every space and line break dropped (a long command wraps on a narrow
+    /// terminal, in the middle of a word), or the file name of the path it touches (Claude Code
+    /// asks "Do you want to create todo.txt?"). Nil when it names neither: such an approval keeps
+    /// "Answer in Terminal" (any approval dialog would pass).
     static func subject(_ approval: TerminalApproval) -> String? {
         if let command = approval.command {
-            let first = command.split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) ?? command
-            let start = compact(String(first.prefix(40)))
-            return start.isEmpty ? nil : start
+            let bare = String(dense(command).prefix(commandMatch))
+            return bare.isEmpty ? nil : bare
         }
         guard let target = approval.target, !target.contains("://") else { return nil }
         let name = (target as NSString).lastPathComponent
@@ -104,12 +107,15 @@ public enum TerminalApprovalKeys {
     }
 
     static func compact(_ text: String) -> String { text.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+    static func dense(_ text: String) -> String { String(text.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) }) }
 
     /// Whether `screen` (the terminal's text now) shows this approval waiting: Claude Code's
-    /// approval dialog, the last block that starts at a horizontal rule above its "Do you want
-    /// to" line, with its "1. Yes" row and this approval's `subject`. Only the dialog counts:
-    /// the transcript above it can still show an earlier command, whose stale card must never
-    /// answer a newer approval. Keys go out only then, so a `1` never lands in another prompt.
+    /// approval dialog at the bottom of the screen, from the last horizontal rule above its
+    /// "Do you want to" line down to "Esc to cancel" (the screen's last line), with "1. Yes" as
+    /// the row under the question. A command must show in full above the question, a file in
+    /// the question itself. The transcript above the dialog never counts (it can show an
+    /// earlier command, whose stale card must never answer a newer approval), nor does text the
+    /// agent wrote that merely looks like one. Keys go out only then.
     public static func screenShows(_ screen: String, approval: TerminalApproval) -> Bool {
         guard let subject = subject(approval) else { return false }
         let lines = screen.components(separatedBy: "\n")
@@ -118,7 +124,12 @@ public enum TerminalApprovalKeys {
                   let rule = line.trimmingCharacters(in: .whitespaces)
                   return rule.count >= 8 && rule.allSatisfy { $0 == "\u{2500}" }
               }) else { return false }
-        let dialog = compact(lines[(top + 1)...].joined(separator: " "))
-        return dialog.contains("1. Yes") && dialog.contains(subject)
+        let below = lines[(ask + 1)...].map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard let first = below.first, first.contains("1. Yes"),
+              let last = below.last, last.hasPrefix("Esc to cancel") else { return false }
+        if approval.command != nil {
+            return dense(lines[(top + 1)..<ask].joined()).contains(subject)
+        }
+        return compact(lines[ask]).contains(subject)
     }
 }

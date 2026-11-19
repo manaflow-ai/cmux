@@ -805,16 +805,23 @@ extension TerminalFeed {
     /// Answers a terminal agent's approval (Allow once or Deny) by typing it on its approval
     /// screen (`TerminalApprovalKeys`), only while that terminal shows this approval.
     public func respond(_ item: FeedItem, request permission: ACPPermissionRequest, option: ACPPermissionOption) async throws {
-        guard request != nil, type != nil, connection != nil else { throw QuestionRefused(message: FeedStore.notConnectedMessage) }
-        // The Mac's ledger now, not this phone's last read: the row must still carry this very
-        // approval (its agent still blocked on it), or a newer one may be on screen.
-        await refresh()
-        guard let entry = entries.first(where: { Self.itemID(macID: macID, entry: $0.id) == item.id }),
+        guard let request, let type, let connection else { throw QuestionRefused(message: FeedStore.notConnectedMessage) }
+        // The Mac's ledger now, read for this answer alone (never this phone's last read, nor a
+        // coalesced read that may not run): the row must still carry this very approval (its
+        // agent still blocked on it), or a newer one may be on screen. A failed read types nothing.
+        let ledger: [String: Any]
+        do {
+            ledger = try WorkspaceSync.check(try await request("list-notifications", ["limit": Self.limit], connection))
+        } catch {
+            log.error("terminal approval \(item.id, privacy: .public): ledger read failed; nothing typed")
+            throw QuestionRefused(message: String(localized: "Couldn't check the approval on the Mac. Nothing was typed."))
+        }
+        let rows = ((ledger["data"] as? [String: Any])?["notifications"] as? [[String: Any]]) ?? []
+        guard let entry = rows.lazy.compactMap(Entry.init(json:)).first(where: { Self.itemID(macID: macID, entry: $0.id) == item.id }),
               let approval = entry.approval, let surface = entry.surface, permission.id == entry.id,
               approval.request(ledgerID: entry.id, surface: surface).toolCall.rawInput == permission.toolCall.rawInput else {
             throw QuestionRefused(message: String(localized: "The agent isn't waiting on this anymore. Nothing was typed."))
         }
-        guard let request, let type, let connection else { throw QuestionRefused(message: FeedStore.notConnectedMessage) }
         let reply = try WorkspaceSync.check(try await request("read-screen", ["surface": surface], connection))
         let screen = (reply["data"] as? [String: Any])?["text"] as? String ?? ""
         guard TerminalApprovalKeys.screenShows(screen, approval: approval) else {

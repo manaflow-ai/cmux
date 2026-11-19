@@ -116,4 +116,46 @@ import Testing
         #expect(TerminalApprovalKeys.subject(write) == "todo.txt")
         #expect(TerminalApprovalKeys.subject(TerminalApproval(tool: "WebFetch", target: "https://example.com/a")) == nil)
     }
+
+    /// The ledger read made for the answer fails (or would have been coalesced into another read
+    /// still in flight): nothing is typed on the strength of this phone's last read.
+    @Test func aFailedLedgerReadTypesNothing() async {
+        let (store, feed, daemon) = Self.make(rows: [Self.row()])
+        feed.treeChanged(TerminalFeedTests.tree(), macID: "mac", connection: TerminalFeedTests.connection)
+        await TerminalFeedTests.settle { store.items.count == 1 }
+        guard let item = store.item(id: "term-mac-ntf_7"), case .permission(let request) = item.kind else {
+            Issue.record("no permission card")
+            return
+        }
+        struct Down: Error {}
+        feed.request = { command, params, _ in
+            if command == "list-notifications" { throw Down() }
+            return daemon.respond(command, params)
+        }
+        await #expect(throws: TerminalFeed.QuestionRefused.self) {
+            try await feed.respond(item, request: request, option: TerminalApproval.allowOnce)
+        }
+        #expect(daemon.typed.isEmpty)
+        #expect(daemon.reads == 0)
+    }
+
+    /// Only this approval's own dialog, at the bottom of the screen, passes: not a newer command
+    /// that starts the same way, not a Bash dialog that mentions a stale Write card's file, not
+    /// text the agent wrote that looks like a dialog.
+    @Test func onlyThisApprovalsOwnDialogPasses() {
+        let build = TerminalApproval(tool: "Bash", command: "cd /Users/me/projects/website && npm run build")
+        func dialog(_ head: String, ask: String = "Do you want to proceed?") -> String {
+            "\(Self.rule)\n Bash command\n \(head)\n \(ask)\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend"
+        }
+        #expect(TerminalApprovalKeys.screenShows(dialog("cd /Users/me/projects/website && npm run build"), approval: build))
+        // Wrapped mid-word on a narrow terminal: still this command.
+        #expect(TerminalApprovalKeys.screenShows(dialog("cd /Users/me/projects/web\n site && npm run build"), approval: build))
+        #expect(!TerminalApprovalKeys.screenShows(dialog("cd /Users/me/projects/website && npm run deploy"), approval: build))
+        let write = TerminalApproval(tool: "Write", target: "/Users/me/src/README.md")
+        #expect(TerminalApprovalKeys.screenShows(dialog("README.md", ask: "Do you want to create README.md?"), approval: write))
+        #expect(!TerminalApprovalKeys.screenShows(dialog("cat README.md"), approval: write))
+        // The agent's own words above its prompt, not a dialog: no "Esc to cancel" at the bottom.
+        let lookalike = dialog("cd /Users/me/projects/website && npm run build") + "\n\n⏺ Done.\n❯ "
+        #expect(!TerminalApprovalKeys.screenShows(lookalike, approval: build))
+    }
 }

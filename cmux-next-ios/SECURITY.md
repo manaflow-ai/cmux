@@ -742,7 +742,10 @@ bytes}`, which its own keyboard already uses on the person's terminals.
   command?, target?, description?}` beside the journal event
   (`live_approval`); the daemon keeps it in memory only, on the
   notification's `list-notifications` row, while the agent is blocked on it
-  (never the journal, the ledger, the database or a log). It leaves when the
+  (never the journal, the ledger, the database or a log). While the daemon
+  cannot be reached, the hook's private per-agent queue (`hook-spool/`,
+  owner-only, deleted once the daemon answers) holds the request line with it,
+  as it already does for `live_prompt`, `live_reply` and `live_question`. It leaves when the
   agent works, idles or ends (`an_approval_leaves_the_ledger_row_once_the_agent_moves_on`).
   Only Claude Code's (`claude`, `claude-code`) and never for AskUserQuestion
   (its own card) or ExitPlanMode (a plan review keeps "Answer in Terminal").
@@ -750,17 +753,22 @@ bytes}`, which its own keyboard already uses on the person's terminals.
   Escape (its "No" / "Esc to cancel"). A lasting grant ("Yes, and don't ask
   again", "switch to auto mode") is never offered from a phone, as for agent
   chats (`ACPPermissionRequest.phoneOptions`).
-- Which approval: right before typing, the phone reads the Mac's ledger again
-  and goes on only while this very row still carries this very approval (the
-  agent still blocked on it), never on its own last read.
+- Which approval: right before typing, the phone makes its own
+  `list-notifications` request for this answer (never its last read, nor a
+  coalesced read that may not run) and goes on only while this very row still
+  carries this very approval (the agent still blocked on it). A failed read
+  types nothing.
 - Where it is typed: only while `read-screen` shows Claude Code's approval
-  dialog (the block from the last horizontal rule above "Do you want to")
-  with its "1. Yes" row and this approval's command (the start of its first
-  line) or file name. Only the dialog counts: the transcript above it may
-  still show an earlier command, so a stale card can never answer a newer
-  approval. An approval the dialog cannot be told by (no command and no
-  file: an MCP tool, a URL) gets no buttons and keeps "Answer in Terminal". A
-  terminal that moved on gets nothing, and the card says so.
+  dialog at the bottom of the screen: from the last horizontal rule above
+  "Do you want to" down to "Esc to cancel" as the last line, with "1. Yes" as
+  the row under the question. A command must show in full above the question
+  (spaces and line breaks ignored, so a wrapped command still matches; the
+  first 400 characters of a longer one); a file's name must be in the question
+  ("Do you want to create todo.txt?"). The transcript above the dialog never
+  counts, so a stale card can never answer a newer approval, even one whose
+  command starts the same way. An approval the dialog cannot be told by (no
+  command and no file: an MCP tool, a URL) gets no buttons and keeps "Answer
+  in Terminal". A terminal that moved on gets nothing, and the card says so.
 - Who: the paired owner's phone only, over its approved link (the same
   admission as the terminal keyboard and the Feed reply).
 - Residual: as for questions, the screen check reads text, so an agent that

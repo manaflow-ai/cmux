@@ -1352,8 +1352,8 @@ row carries `approval` `{harness: "claude", tool, command?, target?,
 description?}` while the agent waits on it (memory only; cmux-tui
 `agent_hook_live_approval`, `session.journal.append` `live_approval`). The
 Feed shows it as a permission card with Allow once (types `1`) and Deny
-(Escape), sent only after a fresh `list-notifications` still carries it and
-`read-screen` shows its dialog; see SECURITY.md "Answering a terminal agent's
+(Escape), sent only after its own `list-notifications` request still carries
+it and `read-screen` shows its dialog at the bottom of the screen; see SECURITY.md "Answering a terminal agent's
 approval from the phone".
 
 ### Phone actions
