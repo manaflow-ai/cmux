@@ -22,7 +22,9 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   - the overflow probe's per-label health, CI_CLOUD_LABEL_HEALTH (`labels`: label -> "started"
     or "stalled"; the switch probes every x64 Linux size a pool can point at, cloud_overflow_switch.HEALTH_LABELS),
     read live through the API so it is this run's and not the job's start value;
-    used while its `checked` is at most HEALTH_MAX_AGE old;
+    used while its `checked` is at most HEALTH_MAX_AGE old. A "stalled" counts only beside a fresh, complete
+    janitor snapshot (below), which tells a dead size from one the vCPU cap keeps full; without one a stall
+    adds no mark (2026-11-18 11:37Z: a 403 snapshot read and four sizes falsely marked dead);
   - the queue janitor's snapshot (macos-pool-load), only while its `generated_at` is at most
     SNAPSHOT_MAX_AGE old: a Blacksmith label in `pools` whose oldest
     queued job has waited BLACKSMITH_STALL_MINUTES (simple_pool_picker.blacksmith_stalled()) while
@@ -591,9 +593,16 @@ def started_nothing_while_queued(snapshot: Mapping[str, Any], label: str, load: 
 
 def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None, *,
                    now: dt.datetime) -> tuple[set[str], set[str], list[str]]:
-    """(dead, started, notes): the labels seen starting nothing, the labels seen starting a job."""
+    """(dead, started, notes): the labels seen starting nothing, the labels seen starting a job.
+
+    A probe's stall counts only beside a fresh, complete janitor snapshot, whose `label_started` tells a dead size
+    from one the org's vCPU cap keeps full (recently_started()). Without one a stall decides nothing and the marks
+    keep their state: in run 44296348389 (2026-11-18 11:37Z) the snapshot read returned 403 with the cmux-bot App's
+    budget spent, the 4, 8, 16 and 32 vCPU probes waited behind the cap while 2,618 jobs were queued, and all four
+    were marked dead, which squeezed every Linux pool onto 2 vCPU. A probe's start always counts."""
     dead: set[str] = set()
     started: set[str] = set()
+    stalls: set[str] = set()
     notes: list[str] = []
     if isinstance(health, Mapping):
         checked = parse_time(health.get("checked"))
@@ -605,7 +614,7 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         else:
             for label, state in labels.items():
                 if state == "stalled":
-                    dead.add(str(label))
+                    stalls.add(str(label))
                 elif state == "started":
                     started.add(str(label))
     generated = parse_time(snapshot.get("generated_at")) if isinstance(snapshot, Mapping) else None
@@ -620,6 +629,8 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         started |= recently_started(snapshot, now=now)
         notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; only its recent starts count")
     elif generated is not None:
+        dead |= stalls
+        stalls = set()
         age = max(0.0, (now - generated).total_seconds() / 60)
         started |= recently_started(snapshot, now=now)
         for label, load in (snapshot.get("pools") or {}).items():
@@ -644,6 +655,9 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 live = entry.get("live")
                 if isinstance(live, list):
                     started |= {str(label) for label in live if isinstance(label, str)}
+    if stalls - started:
+        notes.append(f"probe stalled on {', '.join(sorted(stalls - started))} with no fresh janitor snapshot to tell a "
+                     "dead size from a full vCPU cap; no new dead mark")
     # A label both started and stalled in one pass (two probes, or a probe and a stale queue) started.
     return dead - started, started, notes
 
