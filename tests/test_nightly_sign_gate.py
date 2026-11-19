@@ -122,6 +122,20 @@ class SignGateDecisionTest(unittest.TestCase):
                 self.assertTrue(superseded)
 
 
+class SignGateCliTest(unittest.TestCase):
+    def test_the_cli_writes_superseded_and_always_exits_0(self):
+        import os
+        import tempfile
+        from unittest import mock
+        for answer in ((True, "newer"), (False, "none")):
+            with self.subTest(answer=answer), tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "out"
+                with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}), \
+                        mock.patch.object(gate, "decide", lambda *_a, **_k: answer):
+                    self.assertEqual(gate.main(), 0)
+                self.assertEqual(out.read_text(), f"superseded={'true' if answer[0] else 'false'}\n")
+
+
 class SignGateWorkflowTest(unittest.TestCase):
     def test_resolve_runs_the_gate_after_the_slot_check_and_exports_it(self):
         job = resolve_job()
@@ -144,18 +158,12 @@ class SignGateWorkflowTest(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertIn("needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'", jobs[name]["if"])
 
-    def test_the_output_reads_true_for_the_gate_and_keeps_the_older_steps_answers(self):
+    def test_the_gate_wins_only_with_true_since_the_slot_steps_false_is_a_truthy_string(self):
+        # GitHub's || returns its first truthy operand and 'false' is truthy, so the gate's answer must be compared
+        # to 'true' first; the slot step's own answer (true or false) and the sign stage's follow, as before.
         expr = resolve_job()["outputs"]["superseded"][3:-2].strip()
-
-        def value(gate_out, slot, stage):
-            # GitHub's && and || return an operand; '' is falsy.
-            a = "true" if gate_out == "true" else ""
-            return a or slot or stage
-        self.assertTrue(expr.startswith("steps.sign-gate.outputs.superseded == 'true' && 'true' || steps.superseded"))
-        self.assertEqual(value("true", "false", ""), "true")
-        self.assertEqual(value("false", "true", ""), "true")
-        self.assertEqual(value("false", "false", ""), "false")
-        self.assertEqual(value("", "", "true"), "true")
+        self.assertEqual(expr, "steps.sign-gate.outputs.superseded == 'true' && 'true' || "
+                               "steps.superseded.outputs.superseded || steps.sign-superseded.outputs.superseded")
 
 
 if __name__ == "__main__":
