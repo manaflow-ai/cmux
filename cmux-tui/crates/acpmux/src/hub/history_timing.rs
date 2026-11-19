@@ -113,6 +113,69 @@ impl Timing {
     }
 }
 
+/// The field of a `turn_result` that carries its turn's timing, as [`TurnClock`] saw it written:
+/// `toAgentMs`, `firstModelMs` and, on a chat's first turn, `agentStart`.
+pub(super) const RECEIPT: &str = "timing";
+
+/// Whether [`TurnClock`] reads record `dir`/`kind`; every other record skips its lock.
+pub(super) fn times(dir: &str, kind: &str) -> bool {
+    (dir == "mux" && matches!(kind, "user_message" | "turn_result"))
+        || (dir == "in" && kind == "tool_call")
+        || KINDS.contains(&kind)
+}
+
+/// The running turn's timing as its records are written (`Hub::write_record_locked`): the fold
+/// `history` runs over the log, run once as the log grows, so the turn's `turn_result` carries it
+/// ([`RECEIPT`]). A transcript holds that record but none of the protocol records the times come
+/// from, so this daemon's copy of a peer chat (`peer_snapshot.rs`) reads the same times as the
+/// peer's own log (cmuxterm-hq finding of 2026-11-19 on first visible token latency: no turn of a
+/// peer chat could be read once its peer was down).
+#[derive(Default)]
+pub(super) struct TurnClock {
+    timing: Timing,
+    turn: Option<serde_json::Map<String, Value>>,
+}
+
+impl TurnClock {
+    /// Notes record `e` before it is stored; a `turn_result` takes the receipt of the turn it
+    /// ends, unless it has one already (a fork's copy of its parent's turn).
+    pub(super) fn note(&mut self, e: &mut EventRecord) {
+        if e.dir == "mux" && e.kind == "turn_result" {
+            let Some(turn) = self.turn.take() else { return };
+            let receipt: serde_json::Map<String, Value> = turn
+                .into_iter()
+                .filter(|(k, _)| matches!(k.as_str(), "toAgentMs" | "firstModelMs" | "agentStart"))
+                .collect();
+            if let Some(msg) = e.msg.as_object_mut()
+                && !receipt.is_empty()
+                && !msg.contains_key(RECEIPT)
+            {
+                msg.insert(RECEIPT.into(), Value::Object(receipt));
+            }
+            return;
+        }
+        let opened = e.dir == "mux"
+            && e.kind == "user_message"
+            && e.msg.get("steer").and_then(Value::as_bool) != Some(true);
+        if opened {
+            let mut t = serde_json::Map::new();
+            t.insert("startedAt".into(), json!(e.at));
+            self.turn = Some(t);
+        }
+        self.timing.note(e, self.turn.as_mut(), opened);
+    }
+}
+
+/// Fills the times `turn`'s own records did not give from its `turn_result`'s [`RECEIPT`].
+pub(super) fn fill_from_receipt(turn: &mut serde_json::Map<String, Value>, result: &Value) {
+    let Some(receipt) = result.get(RECEIPT).and_then(Value::as_object) else { return };
+    for (k, v) in receipt {
+        if !turn.contains_key(k) {
+            turn.insert(k.clone(), v.clone());
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "history_timing_tests.rs"]
 mod tests;

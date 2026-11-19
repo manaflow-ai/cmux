@@ -725,6 +725,13 @@ pub(crate) async fn history(
         println!("no turns yet");
         return Ok(());
     }
+    // Its peer did not answer: the turns this machine kept of the chat.
+    if v.get("stale").and_then(Value::as_bool) == Some(true) {
+        println!(
+            "peer {} did not answer: turns from this machine's copy of the chat",
+            v.get("peer").and_then(Value::as_str).unwrap_or("?")
+        );
+    }
     let secs = |t: &Value, k: &str| {
         t.get(k)
             .and_then(Value::as_u64)

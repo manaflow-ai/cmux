@@ -264,3 +264,81 @@ fn a_loss_not_sent_yet_goes_before_a_read_of_its_peer() {
     assert!(seqs(&got).is_empty(), "the loss went first: {got}");
     assert!(hub.peer_snapshots.dropped().unsent.is_empty());
 }
+
+/// A peer chat's turns read with the same times as on the peer itself once its peer is down
+/// (cmuxterm-hq finding of 2026-11-19, first visible token latency: `acpmux history` read no
+/// turn of a peer chat). The copy holds the chat's transcript only, none of the protocol records
+/// the times come from: they ride on each `turn_result` (`history_timing.rs`).
+#[test]
+fn a_down_peers_chat_reads_its_turns_with_the_times_the_peer_reads() {
+    // The peer's side: a chat whose agent starts, takes its prompt and answers.
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "m1", "name": "lane", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 42, "updatedAt": 42
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    let there = Hub::new(cfg, store);
+    let session = there.resolve("m1").unwrap();
+    for (at, dir, kind, msg) in [
+        (1_000, "mux", "created", json!({})),
+        (1_010, "out", method::INITIALIZE, json!({"id": 1})),
+        (1_900, "in", "response", json!({"id": 1, "result": {}})),
+        (2_000, "mux", "user_message", json!({"text": "hi"})),
+        (2_250, "out", method::SESSION_PROMPT, json!({"id": 2})),
+        (5_750, "in", "claude.stream_event", json!({})),
+        (9_000, "mux", "turn_result", json!({"turnId": "t1", "status": "completed"})),
+        (10_000, "mux", "user_message", json!({"text": "again"})),
+        (10_005, "out", method::SESSION_PROMPT, json!({"id": 3})),
+        (10_805, "in", "tool_call", json!({})),
+        (12_000, "mux", "turn_result", json!({"turnId": "t2", "status": "completed"})),
+    ] {
+        there.append_at(&session, dir, kind, msg, None, Some(at));
+    }
+    let local = there.history(&session, 20);
+    assert_eq!(local.len(), 2);
+    // What this daemon keeps of it: the transcript's records.
+    let mut events = Vec::new();
+    there
+        .store
+        .scan_kinds("m1", &["user_message", "turn_result"], &mut |e| {
+            let mut e = serde_json::to_value(e).unwrap();
+            e["sessionId"] = json!("m1");
+            events.push(e);
+            true
+        })
+        .unwrap();
+    let dir = cmux_unix_socket::short_test_dir("acpmux-psr-hist");
+    let hub = hub_at(dir.path());
+    let peer = add_idle_peer(&hub, "huge-blue");
+    hub.apply_peer_notice(
+        "huge-blue",
+        peer.generation,
+        PeerNotice::sessions_from_values(vec![row(42)]),
+    );
+    let last = events.last().unwrap()["seq"].clone();
+    capture(
+        &hub,
+        &peer,
+        &json!({"session": {"createdAt": 42}, "events": events, "hasMore": false, "lastSeq": last}),
+    );
+    let kept = hub.peer_history_kept(&json!({"sessionId": "huge-blue/lane"})).expect("its turns");
+    assert_eq!(kept["stale"], json!(true), "{kept}");
+    let turns = kept["turns"].as_array().unwrap();
+    assert_eq!(turns.len(), 2, "{kept}");
+    for (here, there) in turns.iter().zip(&local) {
+        for k in ["toAgentMs", "firstModelMs", "agentStart"] {
+            assert_eq!(here.get(k), there.get(k), "{k}: {here} vs {there}");
+        }
+    }
+    assert_eq!(turns[0]["toAgentMs"], json!(250));
+    assert_eq!(turns[0]["firstModelMs"], json!(3_500));
+    assert_eq!(turns[0]["agentStart"]["firstPromptMs"], json!(1_000));
+    assert_eq!(turns[1]["toAgentMs"], json!(5));
+    assert_eq!(turns[1]["firstModelMs"], json!(800));
+    // A chat it keeps nothing of reads none: the caller keeps the peer's refusal.
+    assert!(hub.peer_history_kept(&json!({"sessionId": "huge-blue/other"})).is_none());
+}
