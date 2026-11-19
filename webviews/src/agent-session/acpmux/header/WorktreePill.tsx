@@ -12,7 +12,8 @@ import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import { WorktreeApply } from "./WorktreeApply";
 import { WorktreeRemove } from "./WorktreeRemove";
 import { useWorktreeOps, type WorktreeOps } from "./worktreeOps";
-import type { HeaderWorktree } from "./worktreePillModel";
+import { worktreeFolderActions, type HeaderWorktree } from "./worktreePillModel";
+import { useEditors, useFolderHost } from "../folderActions";
 
 export function WorktreePill({
   worktree,
@@ -36,6 +37,10 @@ export function WorktreePill({
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const trigger = usePopoverTrigger(open, setOpen);
+  // The worktree folder in the editor, Finder, a terminal, or copied (folderActions.ts): a folder on this Mac.
+  const folderHost = useFolderHost();
+  const editors = useEditors();
+  const folderRows = folderHost ? worktreeFolderActions(folderHost, editors, t) : [];
   const title = worktree.base
     ? t("header.worktreeFrom", { main: worktree.mainRoot, base: worktree.base })
     : t("header.worktreeOf", { main: worktree.mainRoot });
@@ -69,6 +74,24 @@ export function WorktreePill({
       >
         <div className="acpmux-pr-title">{worktree.branch}</div>
         <div className="acpmux-pr-facts">{title}</div>
+        {folderRows.length > 0 && (
+          <div className="acpmux-worktree-open">
+            {folderRows.map((row) => (
+              <button
+                key={row.key}
+                type="button"
+                className="acpmux-worktree-open-row"
+                onClick={() => {
+                  row.run?.();
+                  setOpen(false);
+                }}
+              >
+                <Icon name={row.icon} size={14} />
+                <span className="acpmux-worktree-open-label">{row.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {ops.apply && <WorktreeApply ops={ops} />}
         {ops.canRemove && <WorktreeRemove ops={ops} />}
       </Popover>

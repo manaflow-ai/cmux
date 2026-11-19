@@ -29,6 +29,8 @@ export default agentPaneEntry({
       native: { "project.instructions": { nativeError: { code: "transport.path_outside_roots" } } },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Chat actions" });
+        // Edit CLAUDE.md is in the Folder submenu (header/folderRow.ts).
+        await ctx.click({ role: "menuitem", name: "Folder" });
         await ctx.click({ role: "menuitem", name: "Edit CLAUDE.md" });
         await ctx.waitFor(() =>
           ctx.document.querySelector('[role="alert"]')?.textContent?.includes("outside the folders this chat can open"),

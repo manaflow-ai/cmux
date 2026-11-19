@@ -254,6 +254,7 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
         const page = await open();
         // An error card: the browser host refuses to open CLAUDE.md.
         await page.getByRole("button", { name: "Chat actions" }).click();
+        await page.getByRole("menuitem", { name: "Folder", exact: true }).click();
         await page.locator(".acpmux-chat-menu-item", { hasText: "Edit CLAUDE.md" }).click();
         await page.locator(".acpmux-dock > .acpmux-instructions-notice").waitFor({ timeout: 10_000 });
         await page.mouse.move(450, 80);

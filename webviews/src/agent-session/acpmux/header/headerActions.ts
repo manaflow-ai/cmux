@@ -8,6 +8,8 @@ export const HEADER_ACTIONS = {
   files: "files",
   /// Not an app action: its own `pane.action` (CmuxNextAgentPane AgentPaneModel.previewAction).
   preview: "preview",
+  /// The chat folder in the default editor (folderActions.ts), through `action.run`.
+  openInEditor: "agentPane.openCwdInEditor",
   rename: "renameTab",
   pin: "palette.toggleTabPin",
   moveRight: "moveSurfaceToPaneRight",

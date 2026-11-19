@@ -650,6 +650,8 @@ import { agentAvatarChanged, removeAgentAvatar, setAgentAvatar, useAgentAvatar }
 import { copyRow } from "./header/copyRow";
 import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
+import { folderRow } from "./header/folderRow";
+import { FolderHostContext, editorList, folderActions, refreshEditors, type FolderHost } from "./folderActions";
 import { opensBesideRows, sideChatPlace, sideChatRefusal, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
@@ -7667,6 +7669,35 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Never in a tab on another machine (SSH, Cloud): its chat stays on that machine, and the host
   /// refuses `cloud.startChat` from it. A fresh connection has its origin before any summary.
   const onOtherMachine = remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer";
+  /// The chat folder's Open in Editor, Open In, Reveal in Finder, Open Terminal Here and Copy Path on
+  /// every surface (folderActions.ts): a folder on this Mac, inside the app; none for a peer's, an SSH
+  /// host's or a Cloud machine's chat, where the app cannot run them. A refusal says why in a toast.
+  const folderSession = snapshot.sessionId;
+  const folderHost = useMemo<FolderHost | undefined>(
+    () =>
+      localCwd && !onOtherMachine && hasNativeHost()
+        ? {
+            folder: localCwd,
+            session: folderSession,
+            run: (id, session, app) =>
+              void callNative("action.run", {
+                id,
+                ...(session ? { session } : {}),
+                ...(app ? { app } : {}),
+              }).catch(sayActionRefusal(notices.transient)),
+            openFile: (path, where) =>
+              void callNative("file.open", { path, where }).catch(sayActionRefusal(notices.transient)),
+            copy: (text) => void copyText(text).catch(() => undefined),
+          }
+        : undefined,
+    [localCwd, onOtherMachine, folderSession, notices],
+  );
+  // The installed editors, read once the app hosts a local chat folder; every menu that lists them
+  // reads them again as it opens.
+  const readsEditors = folderHost !== undefined;
+  useEffect(() => {
+    if (readsEditors) void refreshEditors(() => callNative("editors.list"));
+  }, [readsEditors]);
   /// The person's last pick of where a new chat starts (lastNewChatPlace.ts), read again for each new
   /// chat here: a pick on another workspace's page since counts.
   const lastPlace = useMemo(
@@ -11084,6 +11115,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       : projectFilesRow({ cwd: localCwd, family: summary?.family || summary?.harness }, (cwd, name) =>
           ignoreFailure(callNative("project.addFiles", { cwd, name })),
         );
+    // Folder ▸ (header/folderRow.ts): Open in Editor, Open In ▸, Reveal in Finder, Open Terminal Here
+    // and Copy Path for a project folder on this Mac, then the two rows above, in one row's place.
+    const folder = quick
+      ? undefined
+      : folderRow(
+          folderHost && !isAgentHome(folderHost.folder) ? folderActions(folderHost, editorList(), t) : undefined,
+          [instructions, projectFiles],
+          t,
+        );
     const display = {
       key: "display",
       label: t("chatDisplay.menu"),
@@ -11102,8 +11142,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       transcriptView ?? { ...display, icon: "site.permission.localfonts" },
       ...replay,
       ...steerQueueRow,
-      ...(instructions ? [instructions] : []),
-      ...(projectFiles ? [projectFiles] : []),
+      ...(folder ? [folder] : []),
       {
         key: "inspector",
         label: t("inspector.title"),
@@ -14154,7 +14193,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       }
                       summary={sessionInfo.on ? null : (native) => <SummaryButton card={summaryCard} native={native} />}
                       menu={chatMenu}
-                      onMenuOpen={() => Promise.all([readTabState(), readChatMini()])}
+                      onMenuOpen={() =>
+                        Promise.all([
+                          readTabState(),
+                          readChatMini(),
+                          ...(folderHost ? [refreshEditors(() => callNative("editors.list"))] : []),
+                        ])
+                      }
                       expand={continuing && canContinue ? "continue" : undefined}
                       onExpanded={stopContinuing}
                     />
@@ -14503,7 +14548,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             <AgentProgressContext.Provider value={progressStore}>
               <OpenBackgroundTasks.Provider value={quick ? undefined : openBackgroundTask}>
                 <ClaudeConnectContext.Provider value={modelConnect}>
-                  <NoticeSlot>{pane}</NoticeSlot>
+                  <FolderHostContext.Provider value={folderHost}>
+                    <NoticeSlot>{pane}</NoticeSlot>
+                  </FolderHostContext.Provider>
                 </ClaudeConnectContext.Provider>
               </OpenBackgroundTasks.Provider>
             </AgentProgressContext.Provider>

@@ -53,6 +53,8 @@ import { PullRequestChip } from "./PullRequestChip";
 import { WorktreePill } from "./WorktreePill";
 import { useWorktree } from "./worktreePillModel";
 import { useWorktreeOps } from "./worktreeOps";
+import { FOLDER_ACTIONS, editorList, openInEditorLabel, useEditors, useFolderHost } from "../folderActions";
+import { isAgentHome } from "../sessionList";
 import { usePullRequestOps } from "./pullRequestOps";
 import type { MergeResult } from "./PullRequestMerge";
 import {
@@ -208,6 +210,12 @@ function ChatHeaderToolsView({
   const worktree = useWorktree(folder, readStatus, statusKey);
   const worktreeOps = useWorktreeOps(worktree, folder, onApplyWorktree, onRemoveWorktree);
   const pullRequestOps = usePullRequestOps(pullRequest, onMergePullRequest);
+  // Open in Editor (folderActions.ts): a project folder on this Mac, in "..." until a person pins it.
+  const folderHost = useFolderHost();
+  const editors = useEditors();
+  const editorHost = folderHost && !isAgentHome(folderHost.folder) ? folderHost : undefined;
+  const onOpenInEditor = editorHost ? () => editorHost.run(FOLDER_ACTIONS.openInEditor, editorHost.session) : undefined;
+  const editorLabel = openInEditorLabel(editors, t);
   const nativeNeedsYouMenu = nativeNeedsYou?.nativeMenu === true;
   const [needsYouFailure, setNeedsYouFailure] = useState<NativeRowNeedsYou["failure"]>();
   const nativeNeedsYouForTools = nativeNeedsYouMenu
@@ -251,6 +259,7 @@ function ChatHeaderToolsView({
     onSideTabs,
     onFiles,
     onSplitDown,
+    onOpenInEditor,
     overflow: [] as HeaderQuickTool[],
   });
   live.current = {
@@ -264,6 +273,7 @@ function ChatHeaderToolsView({
     onSideTabs,
     onFiles,
     onSplitDown,
+    onOpenInEditor,
     overflow: live.current.overflow,
   };
   const foldedRows = (): ChatMenuItem[] => {
@@ -278,6 +288,7 @@ function ChatHeaderToolsView({
       onSideTabs,
       onFiles,
       onSplitDown,
+      onOpenInEditor,
       overflow,
     } = live.current;
     if (!tabTools) return [];
@@ -338,6 +349,15 @@ function ChatHeaderToolsView({
         shortcutAction: HEADER_ACTIONS.splitDown,
         onSelect: () => onSplitDown("toggle"),
       });
+    // Named for the editor as the menu opens: the App reads the editors again then.
+    if (onOpenInEditor && !shownIds.has("openInEditor"))
+      folded.push({
+        key: "quick-openInEditor",
+        label: openInEditorLabel(editorList(), t),
+        icon: "code",
+        shortcutAction: HEADER_ACTIONS.openInEditor,
+        onSelect: onOpenInEditor,
+      });
     return folded;
   };
   const rows = () => menuGroups(foldedRows(), menu());
@@ -355,6 +375,8 @@ function ChatHeaderToolsView({
     onFiles,
     onPreview,
     onSideTabs,
+    onOpenInEditor,
+    openInEditorLabel: editorLabel,
     t,
   });
   const customize = onCustomize
@@ -568,6 +590,7 @@ const QUICK_ACTION_NAMES: Record<QuickActionId, StringKey> = {
   files: "header.files",
   preview: "header.preview",
   newTab: "header.newTab",
+  openInEditor: "folderMenu.openInEditor",
 };
 
 /// The header's right-click menu (cx-00n1, Claude Code desktop's toolbar customization): for the
@@ -821,6 +844,21 @@ function childRows(children: readonly ChatMenuChild[]): ReactNode[] {
   for (let index = 0; index < children.length;) {
     const child = children[index]!;
     if (child.separatorBefore && index > 0) nodes.push(<MenuSeparator key={`separator-${child.key}`} />);
+    if (child.children) {
+      nodes.push(
+        <Submenu
+          key={child.key}
+          className="acpmux-chat-menu-item"
+          popupClassName="acpmux-chat-menu-popover"
+          disabled={child.disabled || child.children.length === 0}
+          label={<span className="acpmux-chat-menu-label">{child.label}</span>}
+        >
+          {childRows(child.children)}
+        </Submenu>,
+      );
+      index += 1;
+      continue;
+    }
     if (child.on !== undefined) {
       nodes.push(<ChatMenuToggleRow key={child.key} child={child} />);
       index += 1;

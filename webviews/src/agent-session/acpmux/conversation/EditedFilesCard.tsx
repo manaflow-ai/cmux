@@ -10,7 +10,7 @@
 // cmux.json `agentPane.editedFiles.*` (turnChanges/settings.ts): `show` always, collapsed (the
 // header only, a chevron shows the rows) or never (the plain tool rows); `maxRows` rows before
 // "Show N more"; `scope` turn, or session (one card, at the session's latest edit).
-import { useContext, useMemo, useState } from "react";
+import { useContext, useMemo, useState, type ReactElement } from "react";
 import { commonDirectory, turnFiles, turnPathsOnly, type PathRef, type TurnFile } from "../diff";
 import { ChevronDown } from "../changeIcons";
 import { Counts } from "../changes/Counts";
@@ -26,6 +26,15 @@ import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import { DiffFile, Undo } from "./icons";
 import { Icon } from "../icons/Icon";
+import { ContextMenu } from "../../../ui/ContextMenu";
+import {
+  FOLDER_ACTIONS,
+  absolutePath,
+  fileMenuItems,
+  openInEditorLabel,
+  useEditors,
+  useFolderHost,
+} from "../folderActions";
 import { ToolRows } from "./TurnRows";
 import { useTranscriptReadOnly } from "./readOnly";
 import "./EditedFilesCard.css";
@@ -91,6 +100,18 @@ function Card({
   // the Codex app lists them: a watched or checkpointless chat no longer shows /Users/... paths.
   const cwd = useContext(SessionCwdContext);
   const fromRoot = (path: string) => shownPath(path, [counts.root, cwd]);
+  // A file row's right-click menu and the card's Open in Editor row (folderActions.ts): a chat folder on this Mac.
+  const folderHost = useFolderHost();
+  const editors = useEditors();
+  const withFileMenu = (path: string | undefined, node: ReactElement, key?: string) => {
+    const absolute = path && folderHost ? absolutePath(path, [counts.root, cwd, folderHost.folder]) : undefined;
+    if (!absolute || !folderHost) return node;
+    return (
+      <ContextMenu key={key} items={fileMenuItems(absolute, folderHost, editors, t)} asChild>
+        {node}
+      </ContextMenu>
+    );
+  };
   // Undo works from the tool calls' full texts, by the paths the agent wrote.
   const changes = useMemo(() => turnChanges(row.id, rows, toolFiles), [row.id, rows, toolFiles]);
   const undoState = useUndoState(row.id);
@@ -242,7 +263,8 @@ function Card({
           const path = entry.path;
           const display = path ? fromRoot(path) : "";
           const cut = display.replace(/\/+$/, "").lastIndexOf("/");
-          return (
+          return withFileMenu(
+            entry.failed ? undefined : path,
             <div className="acpmux-edited-file" key={entry.key}>
               {path ? (
                 <span className="acpmux-edited-path" data-path={path}>
@@ -253,7 +275,8 @@ function Card({
                 <span className="acpmux-edited-path">{t("edited.unknownFile")}</span>
               )}
               {entry.failed && <span className="acpmux-edited-failed">{t("tools.failed")}</span>}
-            </div>
+            </div>,
+            entry.key,
           );
         }
         const file = entry.file;
@@ -271,16 +294,19 @@ function Card({
         const done = undoState.phase === "done" ? status(file) : undefined;
         return (
           <div className="acpmux-edited-entry" key={entry.key}>
-            {onOpenDiff ? (
-              <button
-                type="button"
-                className="acpmux-edited-file"
-                onClick={(event) => onOpenDiff(row.id, file.path, event.currentTarget)}
-              >
-                {label}
-              </button>
-            ) : (
-              <div className="acpmux-edited-file">{label}</div>
+            {withFileMenu(
+              file.path,
+              onOpenDiff ? (
+                <button
+                  type="button"
+                  className="acpmux-edited-file"
+                  onClick={(event) => onOpenDiff(row.id, file.path, event.currentTarget)}
+                >
+                  {label}
+                </button>
+              ) : (
+                <div className="acpmux-edited-file">{label}</div>
+              ),
             )}
             {done && <FileStatus status={done} path={file.path} rowId={row.id} onOpenDiff={onOpenDiff} t={t} />}
           </div>
@@ -295,6 +321,17 @@ function Card({
         >
           {showAll ? t("edited.fewer") : more === 1 ? t("edited.more.one") : t("edited.more.other", { n: more })}
           <ChevronDown width={12} height={12} style={showAll ? { transform: "rotate(180deg)" } : undefined} />
+        </button>
+      )}
+      {/* The chat folder in the default editor, on the chat's latest card. */}
+      {folderHost && !earlier && (
+        <button
+          type="button"
+          className="acpmux-edited-more acpmux-edited-folder"
+          onClick={() => folderHost.run(FOLDER_ACTIONS.openInEditor, folderHost.session)}
+        >
+          <Icon name="code" size={14} />
+          {openInEditorLabel(editors, t)}
         </button>
       )}
     </div>

@@ -22,6 +22,8 @@ import { chatProject } from "./chatFolders";
 import { Counts } from "../changes/Counts";
 import { openCloudEnvironment } from "../cloudEnvironment";
 import { Switch } from "../../../ui/Switch";
+import { Menu, MenuButton, MenuItem, MenuPopup, Submenu } from "../../../ui/Menu";
+import { folderActions, useEditors, useFolderHost, type FolderHost } from "../folderActions";
 import "../../../ui/controls.css";
 import { CloudRepositoryPicker } from "./CloudRepositoryPicker";
 import { loadAttachedCloudRepos, type AttachedCloudRepo, type PendingCloudRepo } from "./cloudRepositoryPickerModel";
@@ -48,12 +50,15 @@ function Row({
   title,
   onClick,
   href,
+  trailing,
   children,
 }: {
   icon: string;
   title?: string;
   onClick?: () => void;
   href?: string;
+  /// A control after the row (the project's ⋯ folder menu), revealed on hover.
+  trailing?: ReactNode;
   children: ReactNode;
 }) {
   const content = (
@@ -62,6 +67,28 @@ function Row({
       {children}
     </>
   );
+  if (trailing)
+    return (
+      <li className="acpmux-session-info-folder">
+        {onClick ? (
+          <button
+            type="button"
+            className="acpmux-session-info-row acpmux-session-info-row--button"
+            // tooltip-allow: a folder row shows the folder's name; its full path appears nowhere else.
+            title={title}
+            onClick={onClick}
+          >
+            {content}
+          </button>
+        ) : (
+          // tooltip-allow: a folder row shows the folder's name; its full path appears nowhere else.
+          <span className="acpmux-session-info-row" title={title}>
+            {content}
+          </span>
+        )}
+        {trailing}
+      </li>
+    );
   if (href)
     return (
       <li>
@@ -90,6 +117,48 @@ function Row({
         {content}
       </button>
     </li>
+  );
+}
+
+/// The project row's ⋯ (folderActions.ts): Open in Editor, Open In ▸, Reveal in Finder, Open Terminal
+/// Here and Copy Path for the chat's folder on this Mac. Shown on the row you point at or tab into,
+/// and lit while its menu is open.
+function FolderMenu({ host, name }: { host: FolderHost; name: string }) {
+  const t = useT();
+  const editors = useEditors();
+  const rows = folderActions(host, editors, t);
+  return (
+    <Menu>
+      <MenuButton
+        className="acpmux-session-info-icon-button acpmux-session-info-folder__more"
+        label={t("folderMenu.actions", { folder: name })}
+        aria-haspopup="menu"
+      >
+        <Icon name="action.more" size={14} />
+      </MenuButton>
+      <MenuPopup className="acpmux-session-info-menu" label={t("folderMenu.actions", { folder: name })} align="end">
+        {rows.map((row) =>
+          row.editors ? (
+            <Submenu
+              key={row.key}
+              className="acpmux-session-info-menu__item"
+              popupClassName="acpmux-session-info-menu"
+              label={row.label}
+            >
+              {row.editors.map((editor) => (
+                <MenuItem key={editor.key} className="acpmux-session-info-menu__item" onSelect={editor.run}>
+                  {editor.label}
+                </MenuItem>
+              ))}
+            </Submenu>
+          ) : (
+            <MenuItem key={row.key} className="acpmux-session-info-menu__item" onSelect={row.run}>
+              {row.label}
+            </MenuItem>
+          ),
+        )}
+      </MenuPopup>
+    </Menu>
   );
 }
 
@@ -137,6 +206,8 @@ export function EnvironmentSection({
 }) {
   const t = useT();
   const machine = chatMachine(summary, machineName, peerKinds, place);
+  // The project row's ⋯ folder menu: only for a chat whose folder is on this Mac (folderActions.ts).
+  const folderHost = useFolderHost();
   const screenSharing = useScreenSharing(summary?.sessionId, screenSharingKind(machine));
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -313,7 +384,12 @@ export function EnvironmentSection({
         </li>
       )}
       {project && (
-        <Row icon="folder" title={project.path} onClick={onOpenFolder && (() => onOpenFolder(project.path))}>
+        <Row
+          icon="folder"
+          title={project.path}
+          onClick={onOpenFolder && (() => onOpenFolder(project.path))}
+          trailing={folderHost && <FolderMenu host={folderHost} name={project.name} />}
+        >
           <span className="acpmux-session-info-row__name">{project.name}</span>
           {projectLook === "parent" && parent && <span className="acpmux-session-info-row__detail">{parent}</span>}
           {projectLook === "branch" && branch && (

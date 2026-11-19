@@ -8,6 +8,7 @@ export const HEADER_SYMBOLS: Readonly<Record<string, string>> = {
   "action.add": "plus",
   "tunable.sidebar": "sidebar.right",
   folder: "folder",
+  code: "chevron.left.forwardslash.chevron.right",
   "media.play": "play",
   "pane.split.down": "rectangle.split.1x2",
   inbox: "tray",

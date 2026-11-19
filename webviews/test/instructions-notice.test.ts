@@ -66,8 +66,8 @@ await requireBrowserLane("instructions-notice.test.ts", async () => {
       JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
     );
     await page.close();
-    // The play checks the behavior: the alert says why, Retry asks the host again, Dismiss clears it.
+    // The play checks the behavior (Chat actions, Folder, Edit CLAUDE.md, Retry, Dismiss): the alert says why, Retry asks the host again, Dismiss clears it.
     expect(playFailures(report)).toEqual([]);
-    expect((JSON.parse(report ?? "{}") as { steps?: unknown[] }).steps?.length, report).toBe(4);
+    expect((JSON.parse(report ?? "{}") as { steps?: unknown[] }).steps?.length, report).toBe(5);
   });
 });

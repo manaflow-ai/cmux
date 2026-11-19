@@ -1828,3 +1828,36 @@ ul > li.acpmux-session-info-rows-rest {
   border: 0;
   pointer-events: none;
 }
+/* The project row's ⋯ folder menu (EnvironmentSection.tsx FolderMenu): Open in Editor, Open In,
+   Reveal in Finder, Open Terminal Here, Copy Path. Shown as a pull request source's ⋯ is: on the
+   row you point at or tab into, lit while its menu is open, always on touch screens. */
+.acpmux-session-info-folder {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.acpmux-session-info-folder > .acpmux-session-info-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.acpmux-session-info-folder .acpmux-session-info-folder__more {
+  opacity: 0;
+  transition: var(--cmux-hover-reveal-out-transition);
+}
+.acpmux-session-info-folder:is(:hover, :focus-within) .acpmux-session-info-folder__more,
+.acpmux-session-info-folder:is(:has([data-popup-open]), :focus-within) .acpmux-session-info-folder__more,
+.acpmux-session-info-folder__more:is([data-popup-open], [aria-expanded="true"]) {
+  opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+.acpmux-session-info-folder:has(:focus-visible) .acpmux-session-info-folder__more {
+  transition: none;
+}
+.acpmux-session-info-folder__more[data-popup-open] {
+  color: var(--agent-text);
+}
+@media (hover: none) {
+  .acpmux-session-info-folder .acpmux-session-info-folder__more {
+    opacity: 1;
+  }
+}

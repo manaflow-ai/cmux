@@ -31,6 +31,15 @@ export function agentPaneFontCSS(font: string, size: number): string {
   return rules.length ? `:root { ${rules.join(" ")} }` : "";
 }
 
+/** `editors.list` for a variant that names none: Zed by default, then two others (folderActions.ts). */
+export const GALLERY_EDITORS = {
+  default: { id: "zed", name: "Zed" },
+  others: [
+    { id: "vscode", name: "Visual Studio Code" },
+    { id: "cursor", name: "Cursor" },
+  ],
+};
+
 const UPLOAD_STEPS = new Set(["chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel"]);
 
 export async function mountAgentPane(state: AgentPaneVariant, context: StageContext): Promise<void> {
@@ -167,6 +176,9 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       case "file.search":
         return answer(state.native?.[message.method] ?? []);
       default: {
+        // The editors this Mac has (folderActions.ts): a variant's own list, else three installed.
+        if (message.method === "editors.list" && !Object.hasOwn(state.native ?? {}, message.method))
+          return answer(GALLERY_EDITORS);
         const staged = stageUpload(message);
         if (staged !== undefined) return answer(staged);
         const fixture = state.native?.[message.method ?? ""];
