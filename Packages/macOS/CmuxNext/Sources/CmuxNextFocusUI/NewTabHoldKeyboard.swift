@@ -57,9 +57,12 @@ public final class NewTabHoldKeyboard {
     /// that is the new tab. The hold has no owner from now on, so an end with no field ready drops no key, and that
     /// view gets each of them. The owner is in `view` when it is a view of it (a page's web view), or a page window
     /// that draws it (`drawn`: the view that a window draws, for a page in Chromium, whose keys are in a child window).
+    /// The hold's own window is the owner when no view had the keyboard at the opening: it is no page window, it
+    /// stays the owner, and `drawn` is not asked for it.
     public func newTabTook(_ view: NSView, drawn: (NSWindow) -> NSView?) {
         guard let owner else { return }
-        if (owner as? NSView)?.isDescendant(of: view) == true || (owner as? NSWindow).flatMap(drawn) === view { self.owner = nil }
+        let pageWindow = (owner as? NSWindow).flatMap { $0 === window ? nil : $0 }
+        if (owner as? NSView)?.isDescendant(of: view) == true || pageWindow.flatMap(drawn) === view { self.owner = nil }
     }
 
     /// Whether a held key that `responder` would get is dropped. It counts the key.
