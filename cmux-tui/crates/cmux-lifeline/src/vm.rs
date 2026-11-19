@@ -27,6 +27,11 @@
 //! use cmux_lifeline::vm::{Vm, Unallocated};
 //! Vm::<Unallocated, _>::new("vm").provision().delete().deleted().pause();
 //! ```
+//! An uncertain response cannot grant a second live operation:
+//! ```compile_fail
+//! use cmux_lifeline::vm::Vm;
+//! Vm::observed_running("vm").uncertain().pause();
+//! ```
 //! A transition consumes the old capability:
 //! ```compile_fail
 //! use cmux_lifeline::vm::{Vm, Unallocated};
@@ -221,6 +226,14 @@ edge!(Running, pause, Pausing, "Pause was accepted; it has not completed yet.");
 edge!(Ready, pause, Pausing, "Pause was accepted; readiness is consumed.");
 edge!(Attached, pause, Pausing, "Pause was accepted; the attachment is no longer usable.");
 edge!(Pausing, paused, Paused, "The provider confirmed that the VM is paused.");
+edge!(Pausing, running, Running, "The provider confirmed running after a refused or failed pause.");
+edge!(Starting, paused, Paused, "The provider confirmed paused after a refused or failed resume.");
+edge!(
+    Starting,
+    stopped,
+    Stopped,
+    "The provider confirmed stopped after a refused or failed start."
+);
 edge!(Paused, resume, Starting, "Resume was accepted; readiness must be established again.");
 edge!(Stopped, start, Starting, "Start was accepted; readiness must be established again.");
 edge!(Deleting, deleted, Deleted, "The provider confirmed deletion.");
@@ -248,11 +261,40 @@ deletable!(
 
 macro_rules! fallible {
     ($($state:ident),+ $(,)?) => {$(
-        edge!($state, failed, Failed, "The operation failed authoritatively; retain the allocation for cleanup.");
+        edge!($state, failed, Failed, "The provider reported VM failure; retain the allocation for cleanup.");
     )+};
 }
 
 fallible!(Provisioning, Preclaimed, Claimed, Running, Ready, Attached, Pausing, Starting, Deleting);
+
+macro_rules! uncertain {
+    ($($state:ident),+ $(,)?) => {$(
+        edge!($state, uncertain, Unknown, "The outcome is unknown; reconcile before another live operation.");
+    )+};
+}
+
+uncertain!(
+    Provisioning,
+    Preclaimed,
+    Claimed,
+    Running,
+    Ready,
+    Attached,
+    Pausing,
+    Paused,
+    Starting,
+    Stopped,
+    Deleting,
+    Failed
+);
+
+impl<T> Vm<Unknown, T> {
+    /// Reconcile the same subject using an authoritative observation. This does
+    /// not infer the result of an unanswered request or manufacture readiness.
+    pub fn observed(self, status: Status) -> Observed<T> {
+        status.bind(self.payload)
+    }
+}
 
 /// A parsed observation. Match once at the boundary to obtain a typed handle;
 /// subsequent steps accept only the capability they can operate on.
