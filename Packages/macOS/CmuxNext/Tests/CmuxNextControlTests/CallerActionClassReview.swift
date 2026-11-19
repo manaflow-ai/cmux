@@ -7,10 +7,10 @@
 /// A new action of the catalog is in neither list, and the test fails until someone decides: a closing action goes
 /// to `ControlRouter.closingActions` (or is destructive in the catalog), one that closes a window's workspaces or
 /// windows to `ControlRouter.windowClosingActions`, one whose handler places a new tab beside an agent to
-/// `ControlRouter.besideCallerActions`; any other goes into the list below that `ControlRouter.callerClass(of:)`
+/// `ControlRouter.besideCallerActions` (a browser tab: `profileBrowserActions`); any other goes into the list below that `ControlRouter.callerClass(of:)`
 /// gives it. An action whose target kinds change moves between the lists the same way.
 struct CallerActionClassReview {
-    /// Reviewed 2026-11-18 (652 actions).
+    /// Reviewed 2026-11-18 (650 actions).
     static let ownPlace = ids("""
         agent.openSessionTab agent.share agent.share.invite agent.share.list agent.share.uninvite agentChat.copyAcpmuxSessionFile
         agentChat.copyConversation agentChat.copyHarnessConfigFile agentChat.copyHarnessSessionID agentChat.copyHarnessSettingsFile
@@ -40,28 +40,27 @@ struct CallerActionClassReview {
         browser.pageInfo.siteSettings browser.profile.choose browser.prompt.allow browser.prompt.block browser.resetPinnedTab browser.savePageAs
         browser.selection.copy browser.selection.lookUp browser.selection.search browser.translate browserBack browserDevice browserFit
         browserFitDesktop browserFitDesktop1280 browserForward browserHardReload browserLinkHints browserLinkHintsNewSplit browserPrint
-        browserProfile.clearWorkspaceDefault browserProfile.duplicateTab browserProfile.moveTab browserProfile.newTab browserProfile.openLink
-        browserProfile.openLinkInNew browserProfile.setWorkspaceDefault browserReload browserScreenshotPage browserScreenshotSection
-        browserScrollDown browserScrollToBottom browserScrollToTop browserScrollUp browserStop browserTheme browserZoomIn browserZoomOut
-        browserZoomReset canvasAlignBottom canvasAlignLeft canvasAlignRight canvasAlignTop canvasDistributeHorizontally canvasDistributeVertically
-        canvasEqualizeHeights canvasEqualizeWidths canvasOverview canvasRevealFocusedPane canvasTidy canvasZoomIn canvasZoomOut canvasZoomReset
-        checklistAttachImages checklistCompleteItem checklistEditItem checklistMarkInProgress checklistOpenAsPane checklistRemoveItem
-        clearScreenKeepScrollback clearWorkspaceNotifications cloud.team.copyLink cloud.team.follow cloud.team.reassign cloud.team.session
-        cloud.team.unfollow cloudBringBack cloudMove cloudMoveToMachine cloudTransferLocal column.center column.cycleWidth column.cycleWidthBack
-        column.dock column.dockBottom column.dockLeft column.dockRight column.dockTop column.float column.focusLeft column.focusRight
-        column.moveLeft column.moveRight column.undock column.widthFull column.widthHalf column.widthOneThird column.widthTwoThirds
-        copyWorkspaceSSHError cycleTextBoxSubmitAction cycleWorkspaceStatus decreaseWorkspaceTerminalFontSize devtools.captureFullPageScreenshot
-        devtools.captureNodeScreenshot devtools.captureScreenshot devtools.clearConsole devtools.close devtools.copyConsoleLog
-        devtools.emptyCacheAndHardReload devtools.openDocked devtools.openDockedLeft devtools.openDockedRight devtools.openInWindow
-        devtools.pauseScript devtools.resumeScript devtools.showAnimations devtools.showApplication devtools.showElements devtools.showLayers
-        devtools.showLighthouse devtools.showMemory devtools.showNetwork devtools.showPerformance devtools.showRendering devtools.showSecurity
-        devtools.showSensors devtools.showSources devtools.takeHeapSnapshot devtools.throttleFast3G devtools.throttleOff devtools.throttleOffline
-        devtools.throttleSlow3G devtools.toggleCSS devtools.toggleCache devtools.toggleFPSMeter devtools.toggleFocusEmulation
-        devtools.toggleJavaScript devtools.toggleLayerBorders devtools.toggleLayoutShiftRegions devtools.togglePaintFlashing
-        devtools.togglePerformanceRecording devtools.toggleReducedMotion devtools.viewPageSource diffViewerGoToBottom diffViewerGoToTop
-        diffViewerHalfPageDown diffViewerHalfPageUp diffViewerNextFile diffViewerNextHunk diffViewerNextLine diffViewerPreviousFile
-        diffViewerPreviousHunk diffViewerPreviousLine diffViewerSearch divider.hide divider.insertNew divider.show duplicateTab
-        editWorkspaceDescription equalizeSplits file.openAsPage fileEditorAction fileEditorGotoLine fileEditorReplace fileEditorZoomIn
+        browserProfile.clearWorkspaceDefault browserProfile.duplicateTab browserProfile.moveTab browserProfile.openLinkInNew
+        browserProfile.setWorkspaceDefault browserReload browserScreenshotPage browserScreenshotSection browserScrollDown browserScrollToBottom
+        browserScrollToTop browserScrollUp browserStop browserTheme browserZoomIn browserZoomOut browserZoomReset canvasAlignBottom canvasAlignLeft
+        canvasAlignRight canvasAlignTop canvasDistributeHorizontally canvasDistributeVertically canvasEqualizeHeights canvasEqualizeWidths
+        canvasOverview canvasRevealFocusedPane canvasTidy canvasZoomIn canvasZoomOut canvasZoomReset checklistAttachImages checklistCompleteItem
+        checklistEditItem checklistMarkInProgress checklistOpenAsPane checklistRemoveItem clearScreenKeepScrollback clearWorkspaceNotifications
+        cloud.team.copyLink cloud.team.follow cloud.team.reassign cloud.team.session cloud.team.unfollow cloudBringBack cloudMove cloudMoveToMachine
+        cloudTransferLocal column.center column.cycleWidth column.cycleWidthBack column.dock column.dockBottom column.dockLeft column.dockRight
+        column.dockTop column.float column.focusLeft column.focusRight column.moveLeft column.moveRight column.undock column.widthFull
+        column.widthHalf column.widthOneThird column.widthTwoThirds copyWorkspaceSSHError cycleTextBoxSubmitAction cycleWorkspaceStatus
+        decreaseWorkspaceTerminalFontSize devtools.captureFullPageScreenshot devtools.captureNodeScreenshot devtools.captureScreenshot
+        devtools.clearConsole devtools.close devtools.copyConsoleLog devtools.emptyCacheAndHardReload devtools.openDocked devtools.openDockedLeft
+        devtools.openDockedRight devtools.openInWindow devtools.pauseScript devtools.resumeScript devtools.showAnimations devtools.showApplication
+        devtools.showElements devtools.showLayers devtools.showLighthouse devtools.showMemory devtools.showNetwork devtools.showPerformance
+        devtools.showRendering devtools.showSecurity devtools.showSensors devtools.showSources devtools.takeHeapSnapshot devtools.throttleFast3G
+        devtools.throttleOff devtools.throttleOffline devtools.throttleSlow3G devtools.toggleCSS devtools.toggleCache devtools.toggleFPSMeter
+        devtools.toggleFocusEmulation devtools.toggleJavaScript devtools.toggleLayerBorders devtools.toggleLayoutShiftRegions
+        devtools.togglePaintFlashing devtools.togglePerformanceRecording devtools.toggleReducedMotion devtools.viewPageSource diffViewerGoToBottom
+        diffViewerGoToTop diffViewerHalfPageDown diffViewerHalfPageUp diffViewerNextFile diffViewerNextHunk diffViewerNextLine
+        diffViewerPreviousFile diffViewerPreviousHunk diffViewerPreviousLine diffViewerSearch divider.hide divider.insertNew divider.show
+        duplicateTab editWorkspaceDescription equalizeSplits file.openAsPage fileEditorAction fileEditorGotoLine fileEditorReplace fileEditorZoomIn
         fileEditorZoomOut fileEditorZoomReset filePreviewOpenExternally filePreviewOpenWith filePreviewRevealInFiles filePreviewRevealInFinder find
         findInDirectory findNext findPrevious focusBrowserAddressBar focusDown focusLeft focusLocation focusNextPane focusPaneByNumber
         focusPreviousPane focusRight focusTextBoxInput focusUp git.checkpoint.create git.worktree.apply git.worktree.create groupSelectedWorkspaces

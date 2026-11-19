@@ -17,7 +17,9 @@ import Foundation
 ///   browser, and the wrong guess ends the agent or loses the person's work. A closing run is never aimed at an
 ///   agent's own place, and one named by its argument is not aimed at all. A person's shell keeps its own tab,
 ///   pane, screen or workspace, which is what its focused run meant.
-/// - A browser from a terminal is aimed at the terminal's own tab; the app sends it where a Cmd-click's goes.
+/// - A browser from a terminal, an agent's or a person's shell, opens right of the terminal: aimed at the
+///   terminal's own tab while a window shows it (the app measures, as a Cmd-click's), placed from the topology
+///   as an agent's is while none does. A run aimed at the caller's own terminal tab is that same request.
 /// - An agent whose chat no tab shows stands in the workspace its session runs in (`caller.workspace`): what it
 ///   opens is placed from there and a workspace run is that workspace; it has no tab or pane of its own, so any
 ///   other run is refused. An agent cmux cannot place at all is refused (`caller_unavailable`), never run on the
@@ -29,7 +31,7 @@ import Foundation
 ///
 /// Existing-browser actions are aimed first, at the browser nearest the caller (``aimBrowserActionAtCaller``).
 extension ControlRouter {
-    /// The actions, with the browser (``opensBrowser(_:)``), whose handlers place the new tab beside an agent
+    /// The actions, with the browser (``opensBrowserTab(_:)``), whose handlers place the new tab beside an agent
     /// caller (AgentBesidePlacement): selected in its helper column, or moved into a new column right of it.
     static let besideCallerActions: Set<String> = [
         "openDiffViewer", "file.open", "openMarkdownFile", "newSurface", "newTab.default", "newTab.ofKind",
@@ -38,11 +40,17 @@ extension ControlRouter {
     /// `openBrowser` and its engine variants (`openBrowser.webkit`, `openBrowser.chromium`).
     static func opensBrowser(_ id: String) -> Bool { id == "openBrowser" || id.hasPrefix("openBrowser.") }
 
+    /// A new tab or a link in a browser profile: for a caller their handlers open it through `openBrowser`'s path.
+    static let profileBrowserActions: Set<String> = ["browserProfile.newTab", "browserProfile.openLink"]
+
+    /// Whether `id` opens a browser tab: ``opensBrowser(_:)`` and ``profileBrowserActions``.
+    static func opensBrowserTab(_ id: String) -> Bool { opensBrowser(id) || profileBrowserActions.contains(id) }
+
     /// Whether `id` opens a tab that goes beside an agent caller.
-    static func opensBeside(_ id: String) -> Bool { opensBrowser(id) || besideCallerActions.contains(id) }
+    static func opensBeside(_ id: String) -> Bool { opensBrowserTab(id) || besideCallerActions.contains(id) }
 
     /// The kind the same-kind rule reads for what `id` opens (`browser`, `terminal`); nil: no kind.
-    static func besideKind(_ id: String) -> String? { opensBrowser(id) ? "browser" : id == "newSurface" ? "terminal" : nil }
+    static func besideKind(_ id: String) -> String? { opensBrowserTab(id) ? "browser" : id == "newSurface" ? "terminal" : nil }
 
     /// The other actions that open a new tab or page where their target is: run by an agent with
     /// no target they open in the agent's own place, never in the focused pane. A new workspace or
@@ -64,13 +72,13 @@ extension ControlRouter {
     /// is another session's, and its run is left as it is.
     static func placeAtCaller(_ request: inout ControlActionRequest, action: ControlActionInfo, topology: ControlTopology) throws {
         guard let caller = request.caller else { return }
-        guard request.target == nil else {
-            // An explicit target wins. A terminal's browser aimed at its own tab (an older CLI's `browser open`)
-            // still goes where a Cmd-click's would (TabLifecycle): it is told which panes are another agent's.
-            if opensBrowser(action.id), caller.terminalID != nil, let location = ControlCallerLocation.resolve(caller, in: topology) {
-                request.besideAgentHomes = ControlCallerPlacement(location).agentHomes
-            }
-            return
+        if let target = request.target {
+            // An explicit target wins, but for one: a terminal's browser aimed at that terminal's own tab is how
+            // the CLI's `browser open` says "from this terminal". It is placed as that terminal's browser.
+            guard opensBrowser(action.id), caller.terminalID != nil, normalizedKind(target.kind) == "tab",
+                  let location = ControlCallerLocation.resolve(caller, in: topology), location.isOwnTab,
+                  (try? PublicIDTargetResolver.resolve(target, in: topology))?.id == location.tab.id else { return }
+            request.target = nil
         }
         // Open in the editor app opens nothing in cmux: there is no place to choose.
         if action.id == "file.open", request.arguments["where"] == .string("editor") { return }
@@ -90,14 +98,19 @@ extension ControlRouter {
             guard topology.isLoaded, !workspaceCreatingActions.contains(action.id) else { return }
             throw Self.callerNotLocated(caller, action: action)
         }
-        let placement = ControlCallerPlacement(location)
+        // A browser from a terminal, an agent's or a person's, opens right of the terminal (Lawrence 2026-11-15).
+        let terminalBrowser = opensBrowserTab(action.id) && location.isOwnTab && caller.terminalID != nil && location.tab.kind == "terminal"
+        let placement = ControlCallerPlacement(location, browserFromTerminal: terminalBrowser)
         request.besideAgentHomes = placement.agentHomes
-        // A browser from a terminal a window shows, an agent's or a person's, goes where a Cmd-click's would
-        // (TabLifecycle, Lawrence 2026-11-15): the run is aimed at the terminal's own tab, and the app picks the
-        // pane on its right, else a new pane beside it, never one of another agent (`besideAgentHomes`).
-        let fromShownTerminal = opensBrowser(action.id) && location.isOwnTab && caller.terminalID != nil
-            && location.tab.kind == "terminal" && location.isShown(in: topology)
-        if beside, placement.isBeside, !fromShownTerminal {
+        if terminalBrowser, location.isShown(in: topology) {
+            // A window shows the terminal: the app measures as a Cmd-click's from it (TabLifecycle): the pane on
+            // its right, else a new pane beside it, never one of another agent (`besideAgentHomes`). The run is
+            // aimed at the terminal's own tab, which is how that rule knows its caller.
+            request.target = ControlTargetRef(kind: "tab", id: location.tab.id)
+            return
+        }
+        // No window shows it (the person looks at another workspace): the topology decides, as for an agent's chat.
+        if beside, placement.isBeside {
             return placeBeside(&request, action: action, placement: placement, topology: topology)
         }
         // An agent that stands in its session's workspace has no tab, pane or screen of its own to run anything else on.

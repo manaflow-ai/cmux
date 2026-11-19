@@ -64,6 +64,7 @@ import Testing
         // The hand lists name real actions only (a renamed action is not silently unguarded), and each id has one decision.
         let ids = Set(actions.map(\.id))
         let byHand = ControlRouter.closingActions.union(ControlRouter.windowClosingActions).union(ControlRouter.besideCallerActions)
+            .union(ControlRouter.profileBrowserActions)
         #expect(byHand.subtracting(ids).isEmpty, "\(byHand.subtracting(ids).sorted())")
         #expect(byHand.isDisjoint(with: CallerActionClassReview.ownPlace.union(CallerActionClassReview.unaffected)))
         #expect(CallerActionClassReview.ownPlace.isDisjoint(with: CallerActionClassReview.unaffected))
