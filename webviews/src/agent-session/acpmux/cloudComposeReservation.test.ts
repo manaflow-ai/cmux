@@ -356,6 +356,36 @@ test("a key the platform says is over is not retried: the next intent reserves w
   expect(h.calls.some(([method]) => method === "cloud.releaseReservation")).toBe(false);
 });
 
+test("a new key's reserve waits for a reserve of the ended key that is still out", async () => {
+  // The native pane takes one key at a time: a new key sent while the old key's reserve is out is refused.
+  const out: { resolve: (value: unknown) => void; reject: (error: unknown) => void }[] = [];
+  const h = harness(() => new Promise((resolve, reject) => out.push({ resolve, reject })));
+  h.reservation.selected();
+  await settle();
+  out[0]!.reject({ code: "unavailable" });
+  await settle();
+  h.advance(RESERVATION_RETRY_MS);
+  h.reservation.typed("x");
+  await settle();
+  // A second retry of the same key is queued behind the first, which then says the key is over.
+  h.advance(RESERVATION_RETRY_MS);
+  h.reservation.typed("xy");
+  await settle();
+  expect(h.calls).toHaveLength(2);
+  out[1]!.reject({ code: "reservation.terminal" });
+  await settle();
+  expect(h.calls).toHaveLength(3);
+  h.advance(RESERVATION_RETRY_MS * 2);
+  h.reservation.typed("xyz");
+  await settle();
+  expect(h.calls).toHaveLength(3);
+  out[2]!.reject({ code: "reservation.terminal" });
+  await settle();
+  expect(h.calls.map(([, params]) => params.composeKey)).toEqual(["compose-1", "compose-1", "compose-1", "compose-2"]);
+  out[3]!.resolve({});
+  expect(await h.reservation.ready("compose-2")).toBe(true);
+});
+
 test("a renewal that failed keeps the Send off the key: it goes as an ordinary one", async () => {
   let fail = false;
   const h = harness(async () => {
