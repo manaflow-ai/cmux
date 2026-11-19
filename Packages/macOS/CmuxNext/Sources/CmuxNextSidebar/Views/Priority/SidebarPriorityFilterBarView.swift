@@ -8,9 +8,10 @@ import CmuxNextDesign
 final class SidebarPriorityFilterBarView: NSView {
     var onAction: ((SidebarPriorityAction) -> Void)?
     private(set) var bar = SidebarPriorityFilterBar(selected: .all)
-    private(set) var chips: [Chip] = SidebarPriorityFilter.allCases.map(Chip.init)
+    let chips: [Chip]
 
     override init(frame: NSRect) {
+        chips = SidebarPriorityFilter.allCases.map { Chip($0) }
         super.init(frame: frame)
         for chip in chips {
             chip.onPress = { [weak self] filter in self?.onAction?(.setFilter(filter)) }
