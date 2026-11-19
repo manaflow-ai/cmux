@@ -11,7 +11,7 @@
 // gallery `agent-pane.subagents` / `own-pane-chat`, switched here from the chat to its subagent as
 // the app does (a subagent: reveal):
 // - the subagent's box has the chat box's place, size, radius, padding and font, and the same slots;
-// - the routing note is in the quiet row under the box, clear of the placeholder, which is short;
+// - the routing note is in the quiet row, under the prompt and clear of its placeholder, which is short;
 // - sampled every frame through the switch, the box never stands anywhere but its one place.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -143,8 +143,8 @@ await requireBrowserLane("subagent-composer-via-line.test.ts", async () => {
         expect(layout.caption).toBe(false);
         expect(layout.plusDisabled).toBe(true);
         expect(layout.placeholderText).toBe("Message subagent");
-        // Under the box, not over its bottom, and no pixel row holds both texts.
-        expect(layout.via.top).toBeGreaterThanOrEqual(layout.box.bottom - 0.5);
+        // The quiet row is under the prompt (in the box in the compact footer, under it in the plain
+        // one, as the chat's): no pixel row holds both texts.
         expect(layout.via.top).toBeGreaterThanOrEqual(layout.placeholder.bottom - 0.5);
       } finally {
         await page.close();
