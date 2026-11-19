@@ -944,6 +944,9 @@ fn a_kind_scan_past_a_seq_reads_only_the_copies_past_it() {
             store.scan_kinds_after("c", after, &kinds, &mut visit).unwrap();
         }
         let tail = read_bytes() - tail;
+        eprintln!(
+            "kind scan past {after} (strict {strict}): read {tail} bytes; whole scan {whole}"
+        );
         assert_eq!(got, expected, "strict: {strict}");
         assert!(
             tail * 10 < whole,
