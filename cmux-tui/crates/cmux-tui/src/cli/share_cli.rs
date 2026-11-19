@@ -8,6 +8,30 @@
 
 use serde_json::Value;
 
+/// The acpmux words for `share screens|start|stop|move …` and `share list --screens`: the screen
+/// shares this machine's daemon device reads and changes at the device hub (acpmux
+/// `share-host`, cmuxterm-hq docs/design/screen-share-under-100ms.md D9), not the app's chat links.
+/// None for every other `share` command.
+pub(crate) fn screen_verb(raw_args: &[String]) -> Option<Vec<String>> {
+    let [scope, verb, rest @ ..] = raw_args else { return None };
+    if scope != "share" {
+        return None;
+    }
+    let mut words = vec!["share-host".to_owned()];
+    match verb.as_str() {
+        "screens" | "start" | "stop" | "move" => {
+            words.push(verb.clone());
+            words.extend(rest.iter().cloned());
+        }
+        "list" if rest.iter().any(|word| word == "--screens") => {
+            words.push("screens".to_owned());
+            words.extend(rest.iter().filter(|word| *word != "--screens").cloned());
+        }
+        _ => return None,
+    }
+    Some(words)
+}
+
 /// The app action and its arguments for `share revoke|kick <ids…> [flags]`, or None for other words.
 /// The ids are the words right after the verb. They are base64url and may start with `-`, so a word
 /// counts as a flag only when it names one of these commands' own flags. An id given more than once,
@@ -220,6 +244,29 @@ mod tests {
 
     fn words(text: &str) -> Vec<String> {
         text.split_whitespace().map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn screen_verbs_go_to_the_share_host_and_chat_links_stay_the_apps() {
+        assert_eq!(
+            screen_verb(&words("share move 5e55 --to Studio --json")),
+            Some(words("share-host move 5e55 --to Studio --json"))
+        );
+        assert_eq!(screen_verb(&words("share screens")), Some(words("share-host screens")));
+        assert_eq!(
+            screen_verb(&words("share list --screens --json")),
+            Some(words("share-host screens --json"))
+        );
+        assert_eq!(
+            screen_verb(&words("share start --to Laptop --view-only")),
+            Some(words("share-host start --to Laptop --view-only"))
+        );
+        assert_eq!(screen_verb(&words("share stop 5e55")), Some(words("share-host stop 5e55")));
+        // The chat-link verbs are untouched.
+        assert_eq!(screen_verb(&words("share list --json")), None);
+        assert_eq!(screen_verb(&words("share chat")), None);
+        assert_eq!(screen_verb(&words("share revoke s1")), None);
+        assert_eq!(screen_verb(&words("host share move")), None);
     }
 
     #[test]

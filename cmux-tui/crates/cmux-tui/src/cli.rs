@@ -672,6 +672,13 @@ pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
     raw_args.iter().skip(skip).map(std::ffi::OsString::from).collect()
 }
 
+/// `cmux share screens|start|stop|move …` (and `share list --screens`) as acpmux's
+/// `share-host` words; None for the other `share` commands, which are the app's chat links.
+#[cfg(unix)]
+pub(crate) fn share_screen_args(raw_args: &[String]) -> Option<Vec<std::ffi::OsString>> {
+    share_cli::screen_verb(raw_args).map(|words| words.into_iter().map(Into::into).collect())
+}
+
 /// The agent-caller refusal of a plan that writes a Chief by the raw or
 /// typed protocol path (`cmux raw operation chief.profile.update`, a
 /// `cmux raw command` frame naming one): the same refusal as
