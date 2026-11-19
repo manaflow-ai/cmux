@@ -5,7 +5,7 @@ viewer, in two network namespaces joined by a veth whose ends carry `tc netem`.
   sudo screen-share-netem.py BIN --rtt MS --loss PCT [--attempts N] [--samples S]
                              [--blip-at S --blip-s S]
                              [--drop-seconds S --drop-seconds S]
-                             [--workload marker|motion]
+                             [--workload marker|motion] [--size WxH]
                              [--out FILE.jsonl]
 
 It is the connectivity harness's netem leg (cmuxterm-hq docs/architecture/connectivity-harness)
@@ -55,7 +55,7 @@ def setup(args):
     netem(args.rtt, args.loss)
     disp = args.display
     xvfb = subprocess.Popen(["ip", "netns", "exec", HOST_NS, "Xvfb", disp, "-screen", "0",
-                             "1920x1080x24", "-nolisten", "tcp"],
+                             f"{args.size}x24", "-nolisten", "tcp"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(1.0)
     app = subprocess.Popen(["ip", "netns", "exec", HOST_NS, args.bin, "testapp", "--display", disp,
@@ -296,6 +296,8 @@ def main():
     ap.add_argument("--samples", type=int, default=20)
     ap.add_argument("--workload", default="marker")
     ap.add_argument("--display", default=":173")
+    ap.add_argument("--size", default="1920x1080", help="the host display, WxH: a smaller one keeps "
+                    "the encode off the critical path when the run measures the transport")
     ap.add_argument("--blip-at", type=float, default=None)
     ap.add_argument("--blip-s", type=float, default=2)
     ap.add_argument(
