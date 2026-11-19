@@ -1,4 +1,4 @@
-import CmuxNextAgentActivity
+public import CmuxNextAgentActivity
 import CmuxNextCompat
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
