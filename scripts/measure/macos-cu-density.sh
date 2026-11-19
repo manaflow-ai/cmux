@@ -283,8 +283,11 @@ if [[ $booted != 1 ]]; then
   } >"$out/guest-unreachable.txt" 2>&1
   tail -20 "$out/run.log"
   cat "$out/guest-unreachable.txt"
+  # The probe of our own lume run (its recorded PID) stays apart from the count of the host's VM processes, which is
+  # only read, never signalled.
+  run_state=$(kill -0 "$run_pid" 2>/dev/null && echo alive || echo exited)
   vms=$(pgrep -f com.apple.Virtualization.VirtualMachine 2>/dev/null | wc -l | tr -d ' ')
-  finish "the guest's SSH never answered: lume run $(kill -0 "$run_pid" 2>/dev/null && echo alive || echo exited), $vms VM process(es) on the host (guest-unreachable.txt, run.log)"
+  finish "the guest's SSH never answered: lume run $run_state, $vms VM process(es) on the host (guest-unreachable.txt, run.log)"
   exit 4
 fi
 note "guest $vm answered lume ssh $(( $(date +%s) - t0 )) s after clone"

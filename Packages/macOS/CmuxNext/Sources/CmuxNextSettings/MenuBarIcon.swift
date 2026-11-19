@@ -21,15 +21,37 @@ nonisolated public struct MenuBarIcon: Sendable {
     /// Makes the icon value; it holds no state.
     public init() {}
 
+    /// The Computer Use dot: a filled circle at the image's top right, in the space the chevron's
+    /// right half leaves (classic drew its unread badge in the same corner).
+    static let dotRect = NSRect(x: 12.2, y: 11.2, width: 5.6, height: 5.6)
+    /// The clear ring cut around the dot, so it reads apart from the chevron on any menu bar.
+    static let dotGap: CGFloat = 1.2
+
     /// A new template image of the icon (each caller may set its own accessibility label).
-    public func image() -> NSImage {
+    /// `badged` adds the Computer Use dot (an agent acts through Computer Use now).
+    public func image(badged: Bool = false) -> NSImage {
         let image = NSImage(size: Self.size, flipped: false) { _ in
             NSColor.black.setFill()
             chevronPath(in: Self.glyphRect).fill()
+            if badged {
+                // A template image is one ink: the gap is cleared out of the chevron, then the dot drawn.
+                NSGraphicsContext.current?.compositingOperation = .clear
+                NSBezierPath(ovalIn: Self.dotRect.insetBy(dx: -Self.dotGap, dy: -Self.dotGap)).fill()
+                NSGraphicsContext.current?.compositingOperation = .sourceOver
+                NSBezierPath(ovalIn: Self.dotRect).fill()
+            }
             return true
         }
         image.isTemplate = true
         return image
+    }
+}
+
+/// The menu bar item's own strings.
+nonisolated enum MenuBarExtraStrings {
+    /// The icon's accessibility label while an agent acts through Computer Use.
+    static func computerUseActive(_ app: String) -> String {
+        String(localized: "menuBar.computerUseActive", defaultValue: "\(app), an agent is using Computer Use", bundle: .module)
     }
 }
 

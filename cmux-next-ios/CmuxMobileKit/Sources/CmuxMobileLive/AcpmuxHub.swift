@@ -659,6 +659,22 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             restore(entry)
             return
         }
+        // The newest kept turns from the head file in this turn, so the reopened chat's first
+        // frame draws them; the whole kept copy is read off the main thread only to keep saving
+        // it whole (its older turns come from the Mac as the reader scrolls up, as for any page).
+        if let head = cache.firstScreen(key) {
+            restore(head)
+            guard head.earlier, keptRestored else { return }
+            let headSeq = head.lastSeq
+            Task { [weak self] in
+                guard let whole = await cache.load(key), let self, self.keptRestored, whole.sessionID == self.sessionID,
+                      whole.lastSeq == headSeq, whole.records.count > head.records.count else { return }
+                let newer = self.kept.filter { Int($0["seq"]?.numberValue ?? 0) > headSeq }
+                self.kept = whole.records + newer
+                self.keptEarlier = whole.earlier
+            }
+            return
+        }
         restoring = true
         Task { [weak self] in
             let entry = await cache.load(key)
