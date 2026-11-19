@@ -84,10 +84,13 @@ pub(crate) const COMMIT_WRITERS: [CommitWriter; 16] = [
 // or an arm that moves alone does not compile. A new writer does not compile
 // before it has an arm in `row`; its row goes into the table at that index.
 // A writer with an arm and no row compiles: its commits count as `other`.
+// The loop takes the rows by a slice pattern: it has no index into the table.
 const _: () = {
+    let mut rows: &[CommitWriter] = &COMMIT_WRITERS;
     let mut index = 0;
-    while index < COMMIT_WRITERS.len() {
-        assert!(COMMIT_WRITERS[index].row() == index);
+    while let [writer, rest @ ..] = rows {
+        assert!(writer.row() == index);
+        rows = rest;
         index += 1;
     }
 };

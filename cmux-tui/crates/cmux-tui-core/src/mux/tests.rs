@@ -110,6 +110,8 @@ mod workspace_materialize;
 #[cfg(unix)]
 mod workspace_registry_stress;
 mod workspaces;
+// Its rows seed a running terminal, which is a unix-only test helper.
+#[cfg(unix)]
 mod write_path_commits_by_writer;
 mod writer_lock_order;
 
