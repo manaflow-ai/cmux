@@ -9,12 +9,16 @@ struct ControlAuthorizer: Sendable {
     let peer: ControlSocketServer.Peer
     /// Answers `auth.session.handoff` with its own peer checks, ahead of the access mode (NIGHTLY only).
     let handoff: SessionHandoffResponder?
+    /// Answers `auth.session.request` with its own peer checks and the person's consent, ahead of the access
+    /// mode (NIGHTLY only).
+    let consent: SessionConsentResponder?
 
     init(configuration: ControlSocketServer.Configuration, peer: ControlSocketServer.Peer,
-         handoff: SessionHandoffResponder? = nil) {
+         handoff: SessionHandoffResponder? = nil, consent: SessionConsentResponder? = nil) {
         self.configuration = configuration
         self.peer = peer
         self.handoff = handoff
+        self.consent = consent
     }
 
     static let accessDenied = "ERROR: Access denied - only processes started inside cmux can connect"
@@ -28,6 +32,10 @@ struct ControlAuthorizer: Sendable {
         // after its one answer, whatever the access mode admits.
         if configuration.accessMode != .off, let handoff, let request = handoff.request(in: line) {
             return (await handoff.respond(to: request, peer: peer.handoff), false)
+        }
+        // The consent request checks its peer the same way (any valid signature, then the person's answer).
+        if configuration.accessMode != .off, let consent, let request = consent.request(in: line) {
+            return (await consent.respond(to: request, peer: peer.handoff), false)
         }
         guard isPeerAdmitted else { return (Self.accessDenied, false) }
 

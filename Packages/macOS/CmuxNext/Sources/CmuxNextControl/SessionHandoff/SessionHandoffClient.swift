@@ -78,8 +78,34 @@ public struct SessionHandoffClient: Sendable {
         }
     }
 
-    /// Connects, checks the server, sends the request and reads one answer line. Blocking.
+    /// A NEW session for this build, minted by NIGHTLY after the person says yes there
+    /// (`auth.session.request`, ``SessionConsentResponder``), as plain tokens; nil for no NIGHTLY, a refusal,
+    /// a deny, a timeout or anything malformed. Build the client with a ``timeout`` that covers the person's
+    /// answer (Rust's `CLIENT_TIMEOUT`, 150 s).
+    public func requestTokens(bundleID: String, tag: String?, stackProjectID: String,
+                              apiOrigin: String) async -> (accessToken: String?, refreshToken: String)? {
+        struct Params: Encodable { var bundleId: String, tag: String?, stackProjectId: String, apiOrigin: String }
+        struct Request: Encodable { var id = 1, method = SessionConsentResponder.method, params: Params }
+        let params = Params(bundleId: bundleID, tag: tag, stackProjectId: stackProjectID, apiOrigin: apiOrigin)
+        guard let line = try? JSONEncoder().encode(Request(params: params)) else { return nil }
+        let client = self
+        let pair = await withCheckedContinuation { continuation in
+            // concurrency-allow: one bounded exchange of blocking socket calls (SO_SNDTIMEO/SO_RCVTIMEO cap each
+            // at `timeout`) runs on a global utility queue, never the caller's executor or the main thread.
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: client.exchange(request: line + Data([0x0A])))
+            }
+        }
+        return pair.map { (accessToken: $0.accessToken, refreshToken: $0.refreshToken) }
+    }
+
+    /// Connects, checks the server, sends the handoff request and reads one answer line. Blocking.
     func exchange() -> SessionHandoffPair? {
+        exchange(request: Data(#"{"id":1,"method":"\#(SessionHandoffPolicy.method)","params":{}}"#.utf8) + Data([0x0A]))
+    }
+
+    /// Connects, checks the server, sends `request` (one line) and reads one answer line. Blocking.
+    func exchange(request: Data) -> SessionHandoffPair? {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { return nil }
         defer { close(descriptor) }
@@ -92,7 +118,6 @@ public struct SessionHandoffClient: Sendable {
         setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &bound, socklen_t(MemoryLayout<timeval>.size))
         guard connect(descriptor, to: socketPath) else { return nil }
         guard policy.admitsServer(SessionHandoffPeer(connection: descriptor)) else { return nil }
-        let request = Data(#"{"id":1,"method":"\#(SessionHandoffPolicy.method)","params":{}}"#.utf8) + Data([0x0A])
         guard send(descriptor, request) else { return nil }
         guard let line = readLine(descriptor) else { return nil }
         return Self.pair(fromResponse: line)

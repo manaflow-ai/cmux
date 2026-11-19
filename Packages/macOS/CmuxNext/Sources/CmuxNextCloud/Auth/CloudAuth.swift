@@ -170,10 +170,16 @@ public final class CloudAuth {
     /// Asks a running cmux NIGHTLY for its session (`auth.session.handoff`); nil when there is none.
     public typealias NightlySession = @Sendable () async -> (accessToken: String?, refreshToken: String)?
 
+    /// Asks a running cmux NIGHTLY for a NEW session of this build's own (`auth.session.request`: the person
+    /// says yes in NIGHTLY), waiting at most the given time; nil when there is none.
+    public typealias ConsentSession = @Sendable (Duration) async -> (accessToken: String?, refreshToken: String)?
+
     /// `environment` nil reads this process's environment plus the captured auth launch keys.
-    /// `nightlySession` is where a build that ``CloudConfiguration/adoptsNightlySession`` gets its session.
+    /// `nightlySession` is where a build that ``CloudConfiguration/adoptsNightlySession`` gets its session;
+    /// `consentSession` is where any other build that starts signed out asks for one (Rust's `client_asks`).
     public init(configuration: CloudConfiguration, environment explicitEnvironment: [String: String]? = nil,
-                defaults: UserDefaults = .standard, captureFixture: Bool = false, nightlySession: NightlySession? = nil) {
+                defaults: UserDefaults = .standard, captureFixture: Bool = false, nightlySession: NightlySession? = nil,
+                consentSession: ConsentSession? = nil) {
         #if DEBUG
         let useCaptureFixture = captureFixture && configuration.isDebugBuild
         #else
@@ -198,6 +204,7 @@ public final class CloudAuth {
             authDefaults = CaptureFixtureKeyValueStore()
         } else {
             let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession,
+                                                  consentSession: consentSession, autoLogin: signIn.autoLogin,
                                                   memoryOnly: signIn.memoryOnly)
             let fencedStore = CaptureFencedTokenStore(base: productionStore)
             captureTokenStore = fencedStore
@@ -207,6 +214,7 @@ public final class CloudAuth {
         }
         #else
         let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession,
+                                              consentSession: consentSession, autoLogin: signIn.autoLogin,
                                               memoryOnly: signIn.memoryOnly)
         let fencedStore = CaptureFencedTokenStore(base: productionStore)
         captureTokenStore = fencedStore
@@ -294,7 +302,12 @@ public final class CloudAuth {
     /// build starts signed out.
     /// `memoryOnly` (a launch that signs in from an explicit file, ``LaunchSignIn/memoryOnly``) keeps the session
     /// in memory and never opens the Keychain or the file fallback.
+    /// Any other build that Rust says asks (``asksNightlyForConsent(configuration:autoLogin:memoryOnly:storeReadFailed:)``)
+    /// and finds its own store empty at its first read asks a running NIGHTLY for a NEW session (`consentSession`,
+    /// after the person says yes there) and keeps it in this own store, so later launches stay signed in and a
+    /// sign-out revokes it like any session of its own. A store that could not be read is not empty: no ask.
     static func tokenStore(configuration: CloudConfiguration, nightlySession: NightlySession?,
+                           consentSession: ConsentSession? = nil, autoLogin: Bool = false,
                            memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
         if memoryOnly { return MemoryStackTokenStore() }
         guard configuration.adoptsNightlySession else {
@@ -302,21 +315,61 @@ public final class CloudAuth {
                 primary: KeychainStackTokenStore(service: configuration.keychainService),
                 fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
             )
+            var sources: [ImportingTokenStore.Source] = []
+            var forget: (@Sendable () async -> Void)?
+            var failures: (@Sendable () async -> UInt64)?
             let home = FileManager.default.homeDirectoryForCurrentUser
-            guard let previous = configuration.namespacedLegacyStorage(homeDirectory: home) else { return own }
-            // A session signed in while the update read the namespaced store is this app's own: adopted once,
-            // and cleared with a sign-out so the next launch does not sign the person back in.
-            let earlier = FallbackTokenStore(primary: KeychainStackTokenStore(service: previous.keychainService),
-                                             fallback: FileStackTokenStore(directory: previous.credentialsDirectory))
-            return ImportingTokenStore(primary: own, sources: [{
-                ImportedTokenPair(accessToken: await earlier.getStoredAccessToken(), refreshToken: await earlier.getStoredRefreshToken())
-            }], sharesSessions: false, forgetSources: { await earlier.clearTokens() },
-               sourceReadFailures: { await earlier.tokenReadFailureCount() })
+            if let previous = configuration.namespacedLegacyStorage(homeDirectory: home) {
+                // A session signed in while the update read the namespaced store is this app's own: adopted once,
+                // and cleared with a sign-out so the next launch does not sign the person back in.
+                let earlier = FallbackTokenStore(primary: KeychainStackTokenStore(service: previous.keychainService),
+                                                 fallback: FileStackTokenStore(directory: previous.credentialsDirectory))
+                sources.append {
+                    ImportedTokenPair(accessToken: await earlier.getStoredAccessToken(), refreshToken: await earlier.getStoredRefreshToken())
+                }
+                forget = { await earlier.clearTokens() }
+                failures = { await earlier.tokenReadFailureCount() }
+            }
+            if let consentSession,
+               let timeout = asksNightlyForConsent(configuration: configuration, autoLogin: autoLogin, memoryOnly: memoryOnly,
+                                                   storeReadFailed: false) {
+                // Asked only when the own store read cleanly empty (the import runs on an empty primary).
+                sources.append {
+                    let failed = await own.tokenReadFailureCount() > 0
+                    guard asksNightlyForConsent(configuration: configuration, autoLogin: autoLogin, memoryOnly: memoryOnly,
+                                                storeReadFailed: failed) != nil else { return nil }
+                    return await consentSession(timeout).flatMap {
+                        ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken)
+                    }
+                }
+            }
+            guard !sources.isEmpty else { return own }
+            // Every source is this app's own session (the consent one is minted for this build), so a sign-out
+            // revokes it on the server.
+            return ImportingTokenStore(primary: own, sources: sources, sharesSessions: false, forgetSources: forget,
+                                       sourceReadFailures: failures)
         }
         let sources: [ImportingTokenStore.Source] = nightlySession.map { fetch in
             [{ await fetch().flatMap { ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) } }]
         } ?? []
         return ImportingTokenStore(primary: MemoryStackTokenStore(), sources: sources)
+    }
+
+    /// How long to wait for NIGHTLY's answer when this signed-out launch asks it for a session (Rust's
+    /// `client_asks` and `CLIENT_TIMEOUT`, cmux-cloud-config `handoff`); nil when it does not ask. An FFI that does
+    /// not answer never asks.
+    nonisolated static func asksNightlyForConsent(configuration: CloudConfiguration, autoLogin: Bool, memoryOnly: Bool,
+                                                  storeReadFailed: Bool) -> Duration? {
+        struct Facts: Encodable {
+            var bundleId: String?, isProductionAuth: Bool, signedIn = false, storeReadFailed: Bool, memoryOnly: Bool
+            var autoLogin: Bool, captureFixture = false, adoptsNightlySession: Bool
+        }
+        struct Reply: Decodable { var asks: Bool, timeoutSeconds: Int }
+        let facts = Facts(bundleId: configuration.bundleID, isProductionAuth: configuration.isProductionAuth,
+                          storeReadFailed: storeReadFailed, memoryOnly: memoryOnly, autoLogin: autoLogin,
+                          adoptsNightlySession: configuration.adoptsNightlySession)
+        guard let reply = CloudStartCore().call("cloud_handoff_client_asks", facts, as: Reply.self), reply.asks else { return nil }
+        return .seconds(reply.timeoutSeconds)
     }
 
     private static func stackClient(configuration: CloudConfiguration,
