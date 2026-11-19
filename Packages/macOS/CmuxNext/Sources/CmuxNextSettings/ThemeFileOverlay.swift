@@ -49,9 +49,11 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     ]
     static let lookPrefixes = ["appearance.", "ui.animation", "ui.calm", "ui.paneAnimations", "ui.reducedBackgrounds",
                                "browser.omnibar.glass", "app.uiScale"]
-    /// Look keys outside those prefixes: the terminal font and the sidebar's shape and edges.
-    static let lookKeys: Set<String> = ["terminal.fontFamily", "terminal.fontSize", "sidebar.style", "sidebar.border",
-                                        "sidebar.borderWidth", "sidebar.sectionLook"]
+    /// Look keys outside those prefixes: the terminal font, the chat's and Markdown's faces, and the sidebar's shape,
+    /// edges and density. Mirrors cmux-config's `LOOK_KEYS`.
+    static let lookKeys: Set<String> = ["terminal.fontFamily", "terminal.fontSize", "agentPane.display.font.ui",
+                                        "agentPane.display.font.preset", "markdown.font.preset", "sidebar.style",
+                                        "sidebar.border", "sidebar.borderWidth", "sidebar.sectionLook", "sidebar.density"]
 
     /// Whether a theme file may set `descriptor`: a look setting an agent may set too.
     public static func isLook(_ descriptor: SettingDescriptor) -> Bool {

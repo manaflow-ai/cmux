@@ -1,0 +1,74 @@
+// 1-Bit: ultra minimal. Black and white and one grey, no picture, no glass, square edges, monospace
+// everywhere, nothing that moves. Copy it to ~/.config/cmux/themes/one-bit.json (yours wins over
+// this one), edit and save: the running app repaints at once, no relaunch.
+{
+  "name": "1-Bit",
+  "description": "Black, white and one grey. No picture, no glass, monospace, still.",
+
+  // The terminal theme and its colors: greys only, so the danger, success and warning tones show as
+  // weight, not hue.
+  "appearance.theme": "Sequoia Monochrome Dark",
+  "colors": {
+    "background": "#131313",
+    "foreground": "#fcfcfc",
+    "cursor": "#fcfcfc",
+    "selection": "#3a3a3a",
+    "accent": "#fcfcfc",
+    "0": "#131313",
+    "1": "#fcfcfc",
+    "2": "#c8c8c8",
+    "3": "#e0e0e0",
+    "4": "#a8a8a8",
+    "5": "#d0d0d0",
+    "6": "#b8b8b8",
+    "7": "#e8e8e8",
+    "8": "#606060",
+    "9": "#ffffff",
+    "10": "#dcdcdc",
+    "11": "#f0f0f0",
+    "12": "#c0c0c0",
+    "13": "#e4e4e4",
+    "14": "#d4d4d4",
+    "15": "#ffffff"
+  },
+  "appearance.accent": "theme",
+  "appearance.saturation": 0,
+
+  // Nothing behind the window.
+  "appearance.background": "none",
+  "appearance.backgroundOpacity": 1,
+  "appearance.backgroundBlur": "none",
+  "appearance.glassTransparency": 0,
+
+  // Bare chrome, one rail of icons, hairlines between sections.
+  "appearance.chromeStyle": "bare",
+  "appearance.sidebarSurface": "same",
+  "appearance.surfaces.sidebar.color": "#131313",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "sidebar.border": true,
+  "sidebar.borderWidth": 1,
+  "sidebar.sectionLook": "lines",
+  "sidebar.density": "compact",
+  "appearance.surfaces.terminal.color": "#131313",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#131313",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.focusIndicator": "border",
+
+  // Type: monospace for reading too.
+  "agentPane.display.font.ui": "cmux-sans",
+  "agentPane.display.font.preset": "mono",
+  "markdown.font.preset": "mono",
+  "terminal.fontFamily": "Menlo",
+  "terminal.fontSize": 12,
+  "appearance.metrics.chromeFontSize": 12,
+
+  // Still: no animation, a static white dot for work.
+  "ui.calm": "still",
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.animation": "static",
+  "appearance.statusIndicator.color": "#fcfcfc",
+  "appearance.colorTransition.duration": 0,
+
+  "appearance.density": "compact"
+}

@@ -1,0 +1,70 @@
+// Sumi: ink on washi. Warm paper glass over Hokusai's Mount Fuji, sumi-black text, one seal-red
+// accent, a serif reading face and almost no motion. Copy it to ~/.config/cmux/themes/sumi.json
+// (yours wins over this one), edit and save: the running app repaints at once, no relaunch.
+{
+  "name": "Sumi",
+  "description": "Ink on washi paper over Hokusai's Fuji; one seal-red accent, serif reading, stillness.",
+
+  // The terminal theme and its colors: ink tones, with the seal's red as the only loud color.
+  "appearance.theme": "Kanagawa Lotus",
+  "colors": {
+    "background": "#f4eee1",
+    "foreground": "#1f1c18",
+    "cursor": "#b8322a",
+    "selection": "#e3d9c3",
+    "accent": "#b8322a",
+    "0": "#1f1c18",
+    "1": "#b8322a",
+    "2": "#5b6e3a",
+    "3": "#9a6a1f",
+    "4": "#3a5577",
+    "5": "#7b4a6e",
+    "6": "#3f6f6a",
+    "7": "#d8cfbb",
+    "8": "#6b6458",
+    "9": "#d2463b",
+    "10": "#76894f",
+    "11": "#b78630",
+    "12": "#52719a",
+    "13": "#98618a",
+    "14": "#568c86",
+    "15": "#fbf8f0"
+  },
+  "appearance.accent": "theme",
+
+  // The print behind paper: mostly paper.
+  "appearance.background": "hokusai-umezawa",
+  "appearance.backgroundOpacity": 0.86,
+  "appearance.backgroundBlur": "frosted",
+  "appearance.glassTransparency": 0.2,
+  "appearance.wallpaperTint": false,
+
+  // One sheet of paper: no borders, a slightly darker sidebar, quiet sections in lines.
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#ebe3d1",
+  "appearance.surfaces.sidebar.opacity": 0.9,
+  "sidebar.sectionLook": "lines",
+  "appearance.surfaces.terminal.color": "#f4eee1",
+  "appearance.surfaces.terminal.opacity": 0.92,
+  "appearance.surfaces.agentPane.color": "#f4eee1",
+  "appearance.surfaces.agentPane.opacity": 0.94,
+  "appearance.surfaces.newTabPage.color": "#f4eee1",
+  "appearance.surfaces.newTabPage.opacity": 0.6,
+  "appearance.borders": "none",
+
+  // Type: cmux Sans in the chrome, serif for reading, the chat and Markdown both.
+  "agentPane.display.font.ui": "cmux-sans",
+  "agentPane.display.font.preset": "serif",
+  "markdown.font.preset": "serif",
+  "terminal.fontFamily": "Menlo",
+  "terminal.fontSize": 13,
+
+  // Stillness: calm motion, a static red seal for work.
+  "ui.calm": "calm",
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.animation": "static",
+  "appearance.statusIndicator.color": "#b8322a",
+
+  "appearance.density": "spacious"
+}

@@ -1,0 +1,74 @@
+// Frutiger Aero 2027: the glossy sky-and-water optimism of the late 2000s, rebuilt on liquid glass.
+// Clear glass panes over a cloud study, sky-blue accent, aqua and leaf-green tones, fast springy
+// motion. Copy it to ~/.config/cmux/themes/frutiger-aero-2027.json (yours wins over this one), edit
+// and save: the running app repaints at once, no relaunch.
+{
+  "name": "Frutiger Aero 2027",
+  "description": "Clear glass over a bright sky; sky blue, aqua and leaf green, glossy and quick.",
+
+  // The terminal theme and its colors.
+  "appearance.theme": "TokyoNight Day",
+  "colors": {
+    "background": "#eef7ff",
+    "foreground": "#0b2a44",
+    "cursor": "#007fc4",
+    "selection": "#c6e3fa",
+    "accent": "#007fc4",
+    "0": "#0b2a44",
+    "1": "#d6334a",
+    "2": "#2f9e2f",
+    "3": "#c98a00",
+    "4": "#007fc4",
+    "5": "#8a55c9",
+    "6": "#00a3b4",
+    "7": "#d3e6f5",
+    "8": "#5a7a94",
+    "9": "#f0566a",
+    "10": "#5cc23a",
+    "11": "#f0b31e",
+    "12": "#36a9f0",
+    "13": "#b07ae8",
+    "14": "#22c8d8",
+    "15": "#ffffff"
+  },
+  "appearance.accent": "theme",
+  "appearance.saturation": 1.15,
+
+  // The sky behind clear glass: the most see-through of the flagships.
+  "appearance.background": "dahl-cloud-study",
+  "appearance.backgroundOpacity": 0.62,
+  "appearance.backgroundBlur": "glass-clear",
+  "appearance.glassTransparency": 0.55,
+  "appearance.wallpaperTint": true,
+
+  // Floating glass panes; an icy-blue sidebar of cards.
+  "appearance.chromeStyle": "floating",
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#d9ecfb",
+  "appearance.surfaces.sidebar.opacity": 0.62,
+  "sidebar.sectionLook": "card",
+  "appearance.surfaces.tabBar.color": "#d9ecfb",
+  "appearance.surfaces.tabBar.opacity": 0.55,
+  "appearance.surfaces.terminal.color": "#eef7ff",
+  "appearance.surfaces.terminal.opacity": 0.8,
+  "appearance.surfaces.agentPane.color": "#eef7ff",
+  "appearance.surfaces.agentPane.opacity": 0.84,
+  "appearance.surfaces.newTabPage.color": "#eef7ff",
+  "appearance.surfaces.newTabPage.opacity": 0.4,
+  "appearance.surfaces.home.color": "#eef7ff",
+  "appearance.surfaces.home.opacity": 0.4,
+  "browser.omnibar.glass": "clear",
+
+  // Type: cmux Sans, Menlo in the terminals.
+  "agentPane.display.font.ui": "cmux-sans",
+  "terminal.fontFamily": "Menlo",
+  "terminal.fontSize": 13,
+
+  // Motion: springy color changes and a sky-blue arc.
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.color": "#007fc4",
+  "appearance.colorTransition.curve": "spring",
+  "appearance.colorTransition.duration": 350,
+
+  "appearance.density": "comfortable"
+}

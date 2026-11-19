@@ -68,11 +68,7 @@ blob plans/cmux-next/spec-proposals/visuals/design-tokens.json
 blob schemas/theme/theme-ink-vectors.json
 # cmux-config embeds the shipped theme files (theme_file::shipped): the daemon
 # and the cmux CLI read them.
-blob Resources/theme-files/charcoal.json
-blob Resources/theme-files/classic-desktop.json
-blob Resources/theme-files/claude-desktop.json
-blob Resources/theme-files/harbor.json
-blob Resources/theme-files/phosphor.json
+tree Resources/theme-files
 blob schemas/chief-home/vectors.json
 blob schemas/agent-url-policy/vectors.json
 blob schemas/chief-cmux-target/vectors.json

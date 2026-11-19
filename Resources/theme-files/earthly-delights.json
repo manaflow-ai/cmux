@@ -1,0 +1,83 @@
+// Earthly Delights: ultra maximal. Bosch's garden at full saturation behind see-through jade glass,
+// candy pinks and limes in every terminal, every animation on, cat icons, a lime braille spinner.
+// Copy it to ~/.config/cmux/themes/earthly-delights.json (yours wins over this one), edit and save:
+// the running app repaints at once, no relaunch.
+{
+  "name": "Earthly Delights",
+  "description": "Bosch's garden behind jade glass; candy pink and lime, everything on, everything moving.",
+
+  // The terminal theme and its colors: loud and saturated.
+  "appearance.theme": "Cyberpunk",
+  "colors": {
+    "background": "#06231a",
+    "foreground": "#f2ffe6",
+    "cursor": "#b6f23a",
+    "selection": "#1f5a3f",
+    "accent": "#b6f23a",
+    "0": "#0b2e22",
+    "1": "#ff4f8b",
+    "2": "#90c81f",
+    "3": "#ffcc33",
+    "4": "#49b6ff",
+    "5": "#ff6fd8",
+    "6": "#3ff2c8",
+    "7": "#d8f5c8",
+    "8": "#4f8a6c",
+    "9": "#ff7aa8",
+    "10": "#b6f23a",
+    "11": "#ffe066",
+    "12": "#7ccbff",
+    "13": "#ff9ae6",
+    "14": "#7affdf",
+    "15": "#ffffff"
+  },
+  "appearance.accent": "theme",
+  "appearance.saturation": 1.4,
+
+  // The garden behind glass, the most of it showing.
+  "appearance.background": "bosch-garden-central",
+  "appearance.backgroundOpacity": 0.66,
+  "appearance.backgroundBlur": "glass",
+  "appearance.glassTransparency": 0.5,
+  "appearance.wallpaperTint": true,
+
+  // Outlined cards everywhere, a jade sidebar of icon lines, cat icons.
+  "appearance.chromeStyle": "card-outlined",
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#03170f",
+  "appearance.surfaces.sidebar.opacity": 0.7,
+  "sidebar.border": true,
+  "sidebar.borderWidth": 2,
+  "sidebar.sectionLook": "linesIcons",
+  "sidebar.density": "expanded",
+  "appearance.surfaces.tabBar.color": "#03170f",
+  "appearance.surfaces.tabBar.opacity": 0.66,
+  "appearance.surfaces.terminal.color": "#06231a",
+  "appearance.surfaces.terminal.opacity": 0.78,
+  "appearance.surfaces.agentPane.color": "#06231a",
+  "appearance.surfaces.agentPane.opacity": 0.82,
+  "appearance.surfaces.newTabPage.color": "#06231a",
+  "appearance.surfaces.newTabPage.opacity": 0.35,
+  "appearance.surfaces.home.color": "#06231a",
+  "appearance.surfaces.home.opacity": 0.35,
+  "appearance.iconTheme": "neko",
+  "appearance.focusIndicator": "both",
+  "browser.omnibar.glass": "transparent",
+
+  // Type: cmux Sans, larger chrome.
+  "agentPane.display.font.ui": "cmux-sans",
+  "terminal.fontFamily": "Menlo",
+  "terminal.fontSize": 14,
+  "appearance.metrics.chromeFontSize": 14,
+
+  // Motion: everything on, springy, a big lime braille spinner.
+  "ui.calm": "off",
+  "ui.animations.enabled": true,
+  "appearance.statusIndicator.style": "braille",
+  "appearance.statusIndicator.size": 1.4,
+  "appearance.statusIndicator.color": "#b6f23a",
+  "appearance.colorTransition.curve": "spring",
+  "appearance.colorTransition.duration": 300,
+
+  "appearance.density": "spacious"
+}

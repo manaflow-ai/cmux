@@ -1,0 +1,69 @@
+// Sakura Yoru: cherry blossom at night. Plum-black glass over almond blossom against the sky,
+// lantern-pink accent and a night-garden palette in every terminal. Copy it to
+// ~/.config/cmux/themes/sakura-yoru.json (yours wins over this one), edit and save: the running app
+// repaints at once, no relaunch.
+{
+  "name": "Sakura Yoru",
+  "description": "Plum-black glass over blossom against the sky; lantern pink and moonlit teal.",
+
+  // The terminal theme and its colors.
+  "appearance.theme": "Rose Pine",
+  "colors": {
+    "background": "#1a0f17",
+    "foreground": "#f6e3ec",
+    "cursor": "#ff8fb8",
+    "selection": "#4a2440",
+    "accent": "#ff8fb8",
+    "0": "#24141f",
+    "1": "#ff5f87",
+    "2": "#8fd19e",
+    "3": "#f2c46d",
+    "4": "#8fb3ff",
+    "5": "#ff8fb8",
+    "6": "#7fd6d0",
+    "7": "#e8d2dc",
+    "8": "#6e4f63",
+    "9": "#ff87a5",
+    "10": "#ade3b8",
+    "11": "#f7d796",
+    "12": "#b0c9ff",
+    "13": "#ffb3cf",
+    "14": "#a5e6e1",
+    "15": "#fff5f9"
+  },
+  "appearance.accent": "theme",
+
+  // The blossoms behind dark glass.
+  "appearance.background": "van-gogh-almond-blossom",
+  "appearance.backgroundOpacity": 0.8,
+  "appearance.backgroundBlur": "glass",
+  "appearance.glassTransparency": 0.3,
+
+  // A plum sidebar with a hairline edge, its sections as lines with icons.
+  "appearance.chromeStyle": "card-outlined",
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#12090f",
+  "appearance.surfaces.sidebar.opacity": 0.8,
+  "sidebar.border": true,
+  "sidebar.sectionLook": "linesIcons",
+  "appearance.surfaces.terminal.color": "#1a0f17",
+  "appearance.surfaces.terminal.opacity": 0.86,
+  "appearance.surfaces.agentPane.color": "#1a0f17",
+  "appearance.surfaces.agentPane.opacity": 0.9,
+  "appearance.surfaces.newTabPage.color": "#1a0f17",
+  "appearance.surfaces.newTabPage.opacity": 0.55,
+  "browser.omnibar.glass": "regular",
+
+  // Type: cmux Sans in the chat, Menlo in the terminals.
+  "agentPane.display.font.ui": "cmux-sans",
+  "terminal.fontFamily": "Menlo",
+  "terminal.fontSize": 13,
+
+  // Motion: a lantern-pink braille spinner, slow color drift.
+  "appearance.statusIndicator.style": "braille",
+  "appearance.statusIndicator.color": "#ff8fb8",
+  "appearance.colorTransition.curve": "easeInOut",
+  "appearance.colorTransition.duration": 450,
+
+  "appearance.density": "cozy"
+}
