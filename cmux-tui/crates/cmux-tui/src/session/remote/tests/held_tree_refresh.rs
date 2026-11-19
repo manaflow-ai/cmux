@@ -263,7 +263,9 @@ fn an_unchanged_answer_that_names_another_tree_is_refused_and_keeps_the_cached_t
         daemon.unchanged_to_any_known = true;
     }
 
-    let error = session.refresh_tree().unwrap_err();
+    let Err(error) = session.refresh_tree() else {
+        panic!("an unchanged answer naming another tree was accepted");
+    };
 
     assert!(error.to_string().contains("unchanged"), "{error}");
     assert_eq!(tab_titles(&session.cached_tree()), tab_titles(&first));
