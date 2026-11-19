@@ -3,6 +3,13 @@
 and no window capture in Packages/macOS/CmuxNext/Sources outside the capture helpers, the
 screenshot actions and the debug tools. A theme change captures no window and forces no commit.
 
+And no file URL made only to read a path's name: `URL(fileURLWithPath: path).lastPathComponent` (or
+`.pathExtension`) asks the disk whether `path` is a folder before it answers from the string. For another
+machine's folder (`/home/...` in a session row, a remote tab's cwd) that lstat goes through macOS's
+automounter: 7 ms blocked plus 4 ms of automountd and opendirectoryd CPU per call, measured on a Mac whose
+session list had 341 such rows (cmux#46416). `(path as NSString).lastPathComponent` reads the same name
+from the string alone.
+
 A reviewed exception carries `// perf-gate-ok: <reason>` on the line or the line above it.
 
 This is the perf gate's source guard (scripts/cmux-next/perf-gate.py), here on its own so it runs
@@ -36,6 +43,8 @@ CAPTURE_FILES = re.compile(
     r"|/CmuxNextApp/Control/Debug[^/]*\.swift$|/CmuxNextApp/Focus/DebugPaletteCapture\.swift$"
     r"|/CmuxNextApp/Popups/DebugPopups\.swift$")
 FLUSH = re.compile(r"\bCATransaction\.flush\(")
+# A file URL whose only use is its name: the initializer stats the path first.
+NAME_BY_STAT = re.compile(r"\bURL\(fileURLWithPath:[^()]*\)\.(lastPathComponent|pathExtension)\b")
 
 
 def scan_file(rel: str, text: str) -> list[str]:
@@ -49,6 +58,8 @@ def scan_file(rel: str, text: str) -> list[str]:
             rule = "CATransaction.flush forces a commit"
         elif CAPTURE.search(code) and not CAPTURE_FILES.search("/" + rel):
             rule = "window capture outside the capture helpers, screenshot actions and debug tools"
+        elif NAME_BY_STAT.search(code):
+            rule = "a file URL made to read a path's name stats the path; read it from the string ((path as NSString).lastPathComponent)"
         if rule and not (ALLOW.search(line) or (i and ALLOW.search(lines[i - 1]))):
             hits.append(f"{rel}:{i + 1}: {rule}: {line.strip()[:120]}")
     return hits

@@ -169,7 +169,7 @@ public final class WebProjection {
 
     /// The name of a projection window's first workspace.
     public static func workspaceName(_ worktree: String?) -> String {
-        let folder = worktree.map { URL(fileURLWithPath: $0).lastPathComponent }.flatMap { $0.isEmpty || $0 == "/" ? nil : $0 }
+        let folder = worktree.map { ($0 as NSString).lastPathComponent }.flatMap { $0.isEmpty || $0 == "/" ? nil : $0 }
         return folder.map { String(format: t("projection.workspace.named", "Projection: %@"), $0) } ?? t("projection.workspace", "Projection")
     }
 

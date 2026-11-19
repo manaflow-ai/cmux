@@ -45,7 +45,7 @@ public struct SidebarMapping {
               tab.kind == .pty || tab.kind == .remoteTerminal, tab.name?.isEmpty ?? true,
               tab.titleText.isEmpty || TerminalTitle.isBareShell(tab.titleText) || Self.trimmingSlash(tab.titleText) == cwd,
               tab.agent == nil, tab.agentSession == nil else { return false }
-        return label == URL(fileURLWithPath: cwd).lastPathComponent || Self.trimmingSlash(label) == cwd
+        return label == (cwd as NSString).lastPathComponent || Self.trimmingSlash(label) == cwd
     }
 
     /// `title` when `workspace` is unnamed and `label`, the name its face tab `face` gives it, is only its shell's home
