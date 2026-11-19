@@ -107,30 +107,30 @@ impl Options {
                 "--json" => options.json = true,
                 "--keep-terminal" => options.keep_terminal = true,
                 "--cols" => {
-                    options.cols = number("--cols", value("--cols")?)?.clamp(40, 500) as u16
+                    options.cols = number("--cols", value("--cols")?)?.clamp(40, 500) as u16;
                 }
                 "--rows" => {
-                    options.rows = number("--rows", value("--rows")?)?.clamp(10, 200) as u16
+                    options.rows = number("--rows", value("--rows")?)?.clamp(10, 200) as u16;
                 }
                 "--scroll-up" => {
-                    options.scroll_up = number("--scroll-up", value("--scroll-up")?)? as i64
+                    options.scroll_up = number("--scroll-up", value("--scroll-up")?)? as i64;
                 }
                 "--fill" => options.fill = number("--fill", value("--fill")?)?,
                 "--bursts" => options.bursts = number("--bursts", value("--bursts")?)?,
                 "--burst-lines" => {
-                    options.burst_lines = number("--burst-lines", value("--burst-lines")?)?
+                    options.burst_lines = number("--burst-lines", value("--burst-lines")?)?;
                 }
                 "--tui-batches" => {
-                    options.tui_batches = number("--tui-batches", value("--tui-batches")?)?
+                    options.tui_batches = number("--tui-batches", value("--tui-batches")?)?;
                 }
                 "--summary-lines" => {
-                    options.summary_lines = number("--summary-lines", value("--summary-lines")?)?
+                    options.summary_lines = number("--summary-lines", value("--summary-lines")?)?;
                 }
                 "--timeout-seconds" => {
                     options.timeout = Duration::from_secs(number(
                         "--timeout-seconds",
                         value("--timeout-seconds")?,
-                    )?)
+                    )?);
                 }
                 "-h" | "--help" => return Err(USAGE.into()),
                 other => return Err(format!("unknown argument {other}\n{USAGE}")),
@@ -226,6 +226,7 @@ return o}}"#,
     // batch moves up over the block, erases to the end of the screen, prints
     // three numbered lines where it was and draws the block again below
     // them, inside a synchronized update (DEC 2026), as an agent CLI does.
+    let h = STATUS_ROWS;
     let tui = format!(
         "awk -v a=\"$1\" -v b=\"$2\" '{awk_line}\nBEGIN{{drawn=0;for(n=a;n<b;n+=3){{\
 if(drawn)printf \"\\033[{h}A\\r\\033[J\";printf \"\\033[?2026h\";\
@@ -233,7 +234,6 @@ for(i=n;i<n+3&&i<b;i++)print line(i);\
 for(j=0;j<{h};j++)printf \"STATUS %d/{h} working on line %d %s\\n\",j+1,n,substr(\"|/-\\\\\",n%4+1,1);\
 printf \"\\033[?2026l\";drawn=1;fflush();system(\"sleep 0.01\")}}\
 printf \"\\033[{h}A\\r\\033[J\"}}'",
-        h = STATUS_ROWS,
     );
     let fill_end = 1 + o.fill;
     let mut next = fill_end;
@@ -715,7 +715,7 @@ impl<'s, 'e> Probe<'s, 'e> {
         // The fill: wait until the mirror's bottom shows the fill's last line.
         let fill_last =
             expected_row(self.o.fill, segments(self.o.fill) - 1, u64::from(self.o.cols));
-        self.pump_until(deadline, |p| p.mirror_rows().iter().any(|r| *r == fill_last))?;
+        self.pump_until(deadline, |p| p.mirror_rows().contains(&fill_last))?;
         // Start the stream, then scroll both views up before it begins (the
         // generator sleeps 1 s after `go`). Input snaps the daemon viewport to
         // the bottom, so it goes first.
@@ -741,7 +741,7 @@ impl<'s, 'e> Probe<'s, 'e> {
             self.pump_for(Duration::from_millis(16))?;
             step += 1;
             // Scroll while streaming: 3 rows up, then 3 down, staying back.
-            if step % 25 == 0 {
+            if step.is_multiple_of(25) {
                 let delta = if (step / 25) % 2 == 1 { -3 } else { 3 };
                 self.scroll_mirror(delta);
                 self.scroll_daemon(delta as i64)?;
@@ -1033,10 +1033,8 @@ impl<'s, 'e> Probe<'s, 'e> {
             }
         }
         m.last_rows = rows;
-        if !moved_by_probe {
-            if !at_bottom {
-                m.top = top.or(m.top);
-            }
+        if !moved_by_probe && !at_bottom {
+            m.top = top.or(m.top);
         }
         top
     }
@@ -1078,12 +1076,12 @@ impl<'s, 'e> Probe<'s, 'e> {
         if top == self.daemon.top {
             return;
         }
-        if let Some(expected) = self.daemon.expect_top {
-            if top == Some(expected) {
-                self.daemon.expect_top = None;
-                self.daemon.top = top;
-                return;
-            }
+        if let Some(expected) = self.daemon.expect_top
+            && top == Some(expected)
+        {
+            self.daemon.expect_top = None;
+            self.daemon.top = top;
+            return;
         }
         if self.daemon.expect_snap && at_bottom {
             self.daemon.top = top;
