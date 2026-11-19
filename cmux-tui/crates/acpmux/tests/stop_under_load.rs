@@ -247,7 +247,6 @@ impl Drop for Busy {
 fn write_config(home: &Path) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let config = json!({
-        "peers": [],
         "harnesses": {"claude": {"argv": ["python3", fake]}},
         "defaultHarness": "claude",
         "permissionPolicy": "approve-all",
