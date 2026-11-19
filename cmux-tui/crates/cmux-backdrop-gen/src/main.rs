@@ -8,7 +8,7 @@ use std::process::ExitCode;
 
 use cmux_backdrop_gen::{Mood, SHIPPED, SHIPPED_SIZE, encode_png, render};
 
-const USAGE: &str = "usage: cmux-backdrop-gen --mood aero-sky|aero-lagoon|aero-aurora|aero-meadow --seed N [--size WxH] --out FILE.png\n       cmux-backdrop-gen --shipped OUT_DIR";
+const USAGE: &str = "usage: cmux-backdrop-gen --mood aero-sky|aero-lagoon|aero-aurora|aero-meadow|aero-orchid --seed N [--size WxH] --out FILE.png\n       cmux-backdrop-gen --shipped OUT_DIR";
 
 fn write(mood: Mood, seed: u64, (width, height): (usize, usize), out: &Path) -> Result<(), String> {
     let canvas = render(mood, seed, width, height);

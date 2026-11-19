@@ -47,6 +47,22 @@
   "trim": false,
   "quality": 72
  },
+ "aero-orchid": {
+  "mode": "crop",
+  "box": [
+   0,
+   0,
+   1,
+   1
+  ],
+  "focal": [
+   0.72,
+   0.45
+  ],
+  "quiet": "left",
+  "trim": false,
+  "quality": 72
+ },
  "aero-sky": {
   "mode": "crop",
   "box": [

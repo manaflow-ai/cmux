@@ -151,6 +151,7 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case aeroLagoon = "aero-lagoon"
     case aeroAurora = "aero-aurora"
     case aeroMeadow = "aero-meadow"
+    case aeroOrchid = "aero-orchid"
     case doreFallOfSatan = "dore-fall-of-satan"
     case doreWolvesSheep = "dore-wolves-sheep"
     case doreLeviathan = "dore-leviathan"
@@ -305,6 +306,7 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
         case .aeroLagoon: String(localized: "backdrop.aero-lagoon.title", defaultValue: "Aero Lagoon", bundle: .module)
         case .aeroAurora: String(localized: "backdrop.aero-aurora.title", defaultValue: "Aero Aurora", bundle: .module)
         case .aeroMeadow: String(localized: "backdrop.aero-meadow.title", defaultValue: "Aero Meadow", bundle: .module)
+        case .aeroOrchid: String(localized: "backdrop.aero-orchid.title", defaultValue: "Aero Orchid", bundle: .module)
         case .doreFallOfSatan: String(localized: "backdrop.dore-fall-of-satan.title", defaultValue: "The Fall of Satan", bundle: .module)
         case .doreWolvesSheep: String(localized: "backdrop.dore-wolves-sheep.title", defaultValue: "The Wolves and the Sheep", bundle: .module)
         case .doreLeviathan: String(localized: "backdrop.dore-leviathan.title", defaultValue: "The Destruction of Leviathan", bundle: .module)

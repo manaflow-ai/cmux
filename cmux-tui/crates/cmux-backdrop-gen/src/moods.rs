@@ -1,4 +1,4 @@
-//! The four moods: which layers each draws, in what colours, and how a seed varies them.
+//! The moods: which layers each draws, in what colours, and how a seed varies them.
 
 use crate::canvas::{Canvas, Rgb};
 use crate::glass::{OrbPlan, bloom, bokeh_field, orb, plan_orbs, sparkle, vignette};
@@ -37,47 +37,83 @@ fn finish(canvas: &mut Canvas, rng: &mut Rng, glints: usize, bloom_at: f32) {
     vignette(canvas, 0.10);
 }
 
-/// A clear Aero sky: deep blue to pale, cloud wisps, rays, white swooshes and a drift of glass.
-pub fn sky_mood(canvas: &mut Canvas, rng: &mut Rng) {
+/// The colours of an open-sky scene: the sky by height, the sun, the swooshes, bokeh and glass.
+struct SkyLook {
+    stops: [(f32, Rgb); 4],
+    sun: Rgb,
+    clouds: f32,
+    ribbon: Rgb,
+    bokeh: [Rgb; 3],
+    tints: Vec<Rgb>,
+}
+
+/// An open sky: gradient and sun, cloud wisps, rays and streaks, glossy swooshes and glass.
+fn open_sky(canvas: &mut Canvas, rng: &mut Rng, look: &SkyLook) {
     let aspect = canvas.width as f32 / canvas.unit();
     let height = canvas.height as f32 / canvas.unit();
     let sun = Sun {
         x: rng.range(0.12, 0.4),
         y: rng.range(-0.08, 0.06),
-        color: hex(0xFFF8E6),
+        color: look.sun,
         core: 0.9,
         halo: 0.35,
     };
-    let stops =
-        [(0.0, hex(0x005A9E)), (0.4, hex(SKY_DEEP)), (0.82, hex(SKY_PALE)), (1.0, hex(0xD2E8FA))];
-    sky(canvas, &stops, sun);
-    clouds(canvas, rng.next_u64(), 0.8, 0.95, 1.0);
+    sky(canvas, &look.stops, sun);
+    clouds(canvas, rng.next_u64(), look.clouds, 0.95, 1.0);
     rays(canvas, sun, rng.next_u64(), 0.22);
     streaks(canvas, sun, rng, 4, 0.18);
     for (base, thick, alpha) in [(0.78, 0.09, 1.0), (0.87, 0.06, 0.85), (0.70, 0.035, 0.7)] {
-        ribbon(canvas, Ribbon::random(rng, base * height, thick, Rgb::WHITE, alpha, aspect));
+        ribbon(canvas, Ribbon::random(rng, base * height, thick, look.ribbon, alpha, aspect));
     }
-    bokeh_field(
-        canvas,
-        rng,
-        18,
-        &[Rgb::WHITE, hex(0xBDF3FF), hex(0xD7FFF0)],
-        (0.01, 0.05),
-        (0.05, 0.18),
-        aspect * 0.3,
-    );
+    bokeh_field(canvas, rng, 18, &look.bokeh, (0.01, 0.05), (0.05, 0.18), aspect * 0.3);
     let plan = OrbPlan {
         hero_x: aspect * rng.range(0.68, 0.78),
         hero_y: height * rng.range(0.4, 0.5),
         hero_r: rng.range(0.17, 0.21),
         companions: 4,
         bubbles: 34,
-        tints: vec![hex(0x7FE3FF), hex(0xBFEFFF), hex(0x5BC8F5), hex(0xC9FF8A)],
+        tints: look.tints.clone(),
         aspect,
         floor: height * 0.97,
     };
     glass(canvas, rng, &plan);
     finish(canvas, rng, 5, 0.72);
+}
+
+/// A clear Aero sky: deep blue to pale, cloud wisps, rays, white swooshes and a drift of glass.
+pub fn sky_mood(canvas: &mut Canvas, rng: &mut Rng) {
+    let look = SkyLook {
+        stops: [
+            (0.0, hex(0x005A9E)),
+            (0.4, hex(SKY_DEEP)),
+            (0.82, hex(SKY_PALE)),
+            (1.0, hex(0xD2E8FA)),
+        ],
+        sun: hex(0xFFF8E6),
+        clouds: 0.8,
+        ribbon: Rgb::WHITE,
+        bokeh: [Rgb::WHITE, hex(0xBDF3FF), hex(0xD7FFF0)],
+        tints: vec![hex(0x7FE3FF), hex(0xBFEFFF), hex(0x5BC8F5), hex(0xC9FF8A)],
+    };
+    open_sky(canvas, rng, &look);
+}
+
+/// The maximal Aero dusk: violet to magenta to blush pink, pink-white swooshes, lilac glass.
+pub fn orchid_mood(canvas: &mut Canvas, rng: &mut Rng) {
+    let look = SkyLook {
+        stops: [
+            (0.0, hex(0x2A1260)),
+            (0.38, hex(0x7A2E9E)),
+            (0.75, hex(0xD263B4)),
+            (1.0, hex(0xFFC2DF)),
+        ],
+        sun: hex(0xFFE6F4),
+        clouds: 0.3,
+        ribbon: hex(0xFFE3F3),
+        bokeh: [Rgb::WHITE, hex(0xFFB8E6), hex(0xC9B8FF)],
+        tints: vec![hex(0xFF9BDC), hex(0xC7A6FF), hex(0x8FE6FF), hex(0xFFD1F0)],
+    };
+    open_sky(canvas, rng, &look);
 }
 
 /// A tropical lagoon: aqua sky over turquoise water, caustics in the shallows, the sun's glitter.

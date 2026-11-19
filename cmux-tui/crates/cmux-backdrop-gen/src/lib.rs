@@ -1,13 +1,13 @@
 //! Frutiger Aero 2027: seeded, procedural window backdrops in the spirit of the glossy
 //! mid-2000s desktop, made modern with liquid glass (Leo, 2026-11-19: "make our own generatable
-//! Frutiger Aero type stuff ... like Windows 7, but Windows 2027").
+//! Frutiger Aero type stuff ... but 2027").
 //!
 //! Everything is drawn on the CPU from a seed: sky gradients, clouds, rays and light streaks,
 //! glossy ribbons, lagoon water with caustics, aurora curtains, rolling hills and grass, bokeh,
 //! and glass orbs that refract what is behind them. No stock image is used. A mood and a seed
 //! always give the same picture at a given size.
 //!
-//! The shipped backdrops (`art/manifest.json`, ids in ``SHIPPED``) are rendered with
+//! The shipped backdrops (`art/manifest.json`, ids in `SHIPPED`) are rendered with
 //! `cargo run -p cmux-backdrop-gen --release -- --shipped OUT_DIR`; any other seed with
 //! `cargo run -p cmux-backdrop-gen --release -- --mood aero-lagoon --seed 7 --out lagoon.png`.
 
@@ -31,10 +31,12 @@ pub enum Mood {
     Aurora,
     /// Blue sky over glossy lime-green hills, grass and leaf bokeh.
     Meadow,
+    /// The maximal Aero dusk: violet to magenta to blush pink, pink swooshes and lilac glass.
+    Orchid,
 }
 
 impl Mood {
-    pub const ALL: [Mood; 4] = [Mood::Sky, Mood::Lagoon, Mood::Aurora, Mood::Meadow];
+    pub const ALL: [Mood; 5] = [Mood::Sky, Mood::Lagoon, Mood::Aurora, Mood::Meadow, Mood::Orchid];
 
     /// The backdrop id (`appearance.background`) the shipped render of this mood carries.
     pub fn id(self) -> &'static str {
@@ -43,6 +45,7 @@ impl Mood {
             Mood::Lagoon => "aero-lagoon",
             Mood::Aurora => "aero-aurora",
             Mood::Meadow => "aero-meadow",
+            Mood::Orchid => "aero-orchid",
         }
     }
 
@@ -54,8 +57,13 @@ impl Mood {
 }
 
 /// The seed each shipped backdrop was rendered with (`art/manifest.json` records it too).
-pub const SHIPPED: [(Mood, u64); 4] =
-    [(Mood::Sky, 2027), (Mood::Lagoon, 7), (Mood::Aurora, 3), (Mood::Meadow, 2009)];
+pub const SHIPPED: [(Mood, u64); 5] = [
+    (Mood::Sky, 2027),
+    (Mood::Lagoon, 7),
+    (Mood::Aurora, 3),
+    (Mood::Meadow, 2009),
+    (Mood::Orchid, 2007),
+];
 
 /// The size the shipped backdrops are rendered at (the art pipeline's full image).
 pub const SHIPPED_SIZE: (usize, usize) = (1600, 1000);
@@ -69,6 +77,7 @@ pub fn render(mood: Mood, seed: u64, width: usize, height: usize) -> Canvas {
         Mood::Lagoon => moods::lagoon_mood(&mut canvas, &mut rng),
         Mood::Aurora => moods::aurora_mood(&mut canvas, &mut rng),
         Mood::Meadow => moods::meadow_mood(&mut canvas, &mut rng),
+        Mood::Orchid => moods::orchid_mood(&mut canvas, &mut rng),
     }
     canvas
 }
