@@ -23,9 +23,22 @@ import CmuxNextDesign
 ///     tint in a change) has no ground that a pane can show: the pane gets none.
 /// - A pane of a column in the `overlay` mode: the opaque ground of the column's backdrop, a colour, in each window.
 /// - A floating pane: its card's colour when the card is one opaque colour; with a see-through look or a tint, none.
+///
+/// Where the ground is. In a chrome style with a card for each pane the window shows a shade in the gaps between the
+/// panes, and that shade leaves out each pane's card. A pane's clip is its card there (`PaneHostView.wholeCard`), with
+/// the card's corners. So the ground is the clip's lowest layer: it covers the card and nothing of the gaps. A colour
+/// of the clip's own (the user's colour for the docks) shows over it, as 1 layer of the ground. In each other style
+/// the window's sheet is under the pane's whole cell, and the ground is on the cell: on the layer of the pane's host.
+///
+/// Limits. A plain colour is read at the pass of each act, not at each frame: a change of the window's colour, or of
+/// the clip's own colour, shows in a move at the next act or at the motion's end. With a card for each pane, a pane
+/// that a move keeps under the others shows in the gaps between the cards over it, under the shade, as with no
+/// motion's ground; and a pane that gets smaller has no ground in the room that it gives up, outside its card.
 extension PaneCommitMotion {
     /// The name of the layer that shows the window's picture under a pane that moves.
     static let pictureName = "pane.commit.picture"
+    /// The name of the layer that is a plain ground inside a pane's card.
+    static let cardName = "pane.commit.card"
 
     /// What a window shows under its panes, when a pane can show the same under its own content.
     enum Sheet {
@@ -63,11 +76,11 @@ extension PaneCommitMotion {
         return (false, nil)
     }
 
-    /// The colour of what is under `host` at rest on `screen`, whose window's sheet is the colour `sheet`. Nil: no
-    /// plain colour.
-    static func ground(under host: PaneHostView, on screen: ScreenContentView, sheet: CGColor?) -> CGColor? {
+    /// What is under `host` at rest on `screen`, whose window shows `sheet` under its panes: the plain colour of
+    /// what holds the pane, or with no holder the window's sheet. Nil: nothing that a pane can show.
+    static func ground(under host: PaneHostView, on screen: ScreenContentView, sheet: Sheet?) -> Sheet? {
         let holder = Self.holder(of: host, on: screen)
-        return holder.holds ? holder.color : sheet
+        return holder.holds ? holder.color.map { .color($0) } : sheet
     }
 
     /// Each pane of `changes` shows its ground under its content from this pass to the motion's end
@@ -77,61 +90,89 @@ extension PaneCommitMotion {
     /// in this motion before with no copy of the picture gets none in a later act: a copy is at its place only with
     /// each move of its pane from the start.
     func showSheet(under changes: [Change], on screen: ScreenContentView) {
-        var plain: CGColor?, still: WindowStillPicture?
-        switch Self.sheet(under: screen) {
-        case .color(let color)?: plain = color
-        case .picture(let picture)?: still = picture
-        case nil: break
-        }
+        let sheet = Self.sheet(under: screen)
         for change in changes where change.host.layer != nil && !sheets.contains(where: { $0.host === change.host }) {
-            sheets.append((host: change.host, color: change.host.layer?.backgroundColor, picture: nil))
+            sheets.append((host: change.host, color: change.host.layer?.backgroundColor, picture: nil, plain: nil))
         }
-        var shown: [(host: PaneHostView, color: CGColor?, picture: CALayer?)] = []
+        var shown: [(host: PaneHostView, color: CGColor?, picture: CALayer?, plain: CALayer?)] = []
         for var entry in sheets {
             guard let layer = entry.host.layer else { continue }
-            let holder = Self.holder(of: entry.host, on: screen)
-            let ground = holder.holds ? holder.color : plain
-            let color = ground ?? entry.color
-            if layer.backgroundColor != color { layer.backgroundColor = color }
-            if let still, !holder.holds {
+            // Where the pane's clip is its card, the ground is in the clip: the gaps beside the card keep their shade.
+            let card = entry.host.wholeCard ? entry.host.clipView.layer : nil
+            var color: CGColor?, still: WindowStillPicture?
+            switch Self.ground(under: entry.host, on: screen, sheet: sheet) {
+            case .color(let read)?: color = read
+            case .picture(let read)?: still = read
+            case nil: break
+            }
+            let onCell = card == nil ? color ?? entry.color : entry.color
+            if layer.backgroundColor != onCell { layer.backgroundColor = onCell }
+            if let card, let color {
+                let plain = entry.plain ?? Self.addPlain(to: card, size: screen.bounds.size)
+                if plain.backgroundColor != color { plain.backgroundColor = color }
+                entry.plain = plain
+            } else if let plain = entry.plain {
+                plain.removeFromSuperlayer()
+                entry.plain = nil
+            }
+            if let still {
                 if entry.picture == nil, !moved.contains(where: { $0.layer === layer }) {
-                    entry.picture = Self.addCopy(of: still, to: layer)
+                    entry.picture = Self.addCopy(of: still, to: card ?? layer, own: card?.backgroundColor)
                 }
             } else if let copy = entry.picture {
                 copy.removeFromSuperlayer()
                 entry.picture = nil
             }
-            if ground != nil || entry.picture != nil { shown.append(entry) }
+            if color != nil || entry.picture != nil { shown.append(entry) }
         }
         sheets = shown
         // The picture is kept only with a pane that shows it: the motion's end then takes both away.
-        let pictures = sheets.contains { $0.picture != nil }
-        shownPicture = pictures ? still : nil
-        pictured = pictures ? screen : nil
+        if sheets.contains(where: { $0.picture != nil }), case .picture(let still)? = sheet {
+            shownPicture = still
+            pictured = screen
+        } else {
+            shownPicture = nil
+            pictured = nil
+        }
         placePictures()
     }
 
-    /// A copy of the window's picture as the lowest layer of `layer`, with the window's tint over it: the picture's
-    /// own image, fitted as the window fits it. It has no clip and no transform of its own.
-    static func addCopy(of picture: WindowStillPicture, to layer: CALayer) -> CALayer {
+    /// A copy of the window's picture as the lowest layer of `layer` (a pane host's, or a pane's clip's that is its
+    /// card), with the window's tint over it: the picture's own image, fitted as the window fits it. It has no clip
+    /// and no transform of its own. `own`: the clip's own colour, over the tint.
+    static func addCopy(of picture: WindowStillPicture, to layer: CALayer, own: CGColor? = nil) -> CALayer {
         let copy = CALayer()
         copy.name = pictureName
         copy.contents = picture.contents
         copy.contentsGravity = picture.gravity
         copy.contentsScale = picture.scale
         copy.zPosition = -1
-        if let tint = picture.tint {
-            let over = CALayer()
-            over.backgroundColor = tint
-            copy.addSublayer(over)
-        }
+        cover(copy, with: picture.tint)
+        cover(copy, with: own)
         layer.insertSublayer(copy, at: 0)
         return copy
     }
 
-    /// The copy of the window's picture on a pane host's layer.
-    static func picture(on layer: CALayer) -> CALayer? {
-        (layer.sublayers ?? []).first { $0.name == pictureName }
+    /// A plain ground as the lowest layer of `card`, the layer of a pane's clip that is its card. The clip cuts it
+    /// to the card with the card's corners, so it has the size of the screen: it covers the clip at each size that
+    /// the clip has in the move. The clip's own colour is over it.
+    static func addPlain(to card: CALayer, size: CGSize) -> CALayer {
+        let plain = CALayer()
+        plain.name = cardName
+        plain.zPosition = -1
+        plain.frame = CGRect(origin: card.bounds.origin, size: size)
+        cover(plain, with: card.backgroundColor)
+        card.insertSublayer(plain, at: 0)
+        return plain
+    }
+
+    /// One layer of `color` over all of `ground`, as its top layer. Nil: none.
+    static func cover(_ ground: CALayer, with color: CGColor?) {
+        guard let color else { return }
+        let over = CALayer()
+        over.backgroundColor = color
+        over.frame = ground.bounds
+        ground.addSublayer(over)
     }
 
     /// Puts each copy where the window has the picture, in its pane's own coordinates. Each pass that places the
@@ -143,7 +184,8 @@ extension PaneCommitMotion {
         CATransaction.setDisableActions(true)
         for entry in sheets {
             guard let copy = entry.picture else { continue }
-            let frame = entry.host.convert(picture.frame, from: nil)
+            let inCard: Bool = copy.superlayer != nil && copy.superlayer === entry.host.clipView.layer
+            let frame = (inCard ? entry.host.clipView : entry.host).convert(picture.frame, from: nil)
             copy.bounds = CGRect(origin: .zero, size: frame.size)
             copy.position = CGPoint(x: frame.midX, y: frame.midY)
             for tint in copy.sublayers ?? [] { tint.frame = copy.bounds }
@@ -159,11 +201,12 @@ extension PaneCommitMotion {
         return now.isSame(as: shown)
     }
 
-    /// Each copy of the window's picture goes, and each pane host's layer gets back the colour that it had before
-    /// the motion.
+    /// Each copy of the window's picture and each plain ground in a card goes, and each pane host's layer gets back
+    /// the colour that it had before the motion.
     func hideSheets() {
         for entry in sheets {
             entry.picture?.removeFromSuperlayer()
+            entry.plain?.removeFromSuperlayer()
             entry.host.layer?.backgroundColor = entry.color
         }
         sheets = []

@@ -96,10 +96,15 @@ extension PaneCommitMotionTests {
     }
 
     /// `count` panes in halves over a window's picture at rest, then the act of `scene` (``pictureScenes``).
-    static func overPicture(_ scene: String, panes count: Int, gap: String? = nil) throws -> OverPicture {
+    /// `speed`: the motion's springs have this speed, not the app's setting. `padding`: the model has its own style
+    /// with this padding around each pane's content, and each pane's content has a header.
+    static func overPicture(_ scene: String, panes count: Int, gap: String? = nil, speed: MotionSpeed? = nil, padding: CGFloat = 0) throws -> OverPicture {
         let more = scene == "second close" || scene == "resize"
-        let harness = Commit.Harness(Commit.screen(tree(more ? count + 1 : count)), focused: "p", holds: false) { model in
+        let harness = Commit.Harness(Commit.screen(tree(more ? count + 1 : count)), focused: "p", holds: false, headed: padding > 0) { model in
             if scene != "resize" { model.splitSizingOverride = .even }
+            guard padding > 0 else { return }
+            model.followsDesignMetrics = false
+            model.baseStyle.panePadding = padding
         }
         var begun = false
         defer { if !begun { harness.window.closeAfterTest() } }
@@ -107,6 +112,7 @@ extension PaneCommitMotionTests {
         movePanes(harness)
         Commit.rest(harness)
         let screen = try #require(harness.screen)
+        screen.zoomDim.motion.speed = speed
         let rest = paneHosts(screen).filter { !$0.isHidden }
         let far = try #require(rest.max { $0.frame.minX + $0.frame.minY < $1.frame.minX + $1.frame.minY }, "SETUP: the screen shows no pane at rest")
         func show() {
@@ -235,8 +241,11 @@ extension PaneCommitMotionTests {
         #expect(Self.rgba(tints.first?.backgroundColor) == Self.rgba(tint),
                 "the copy's tint is \(String(describing: Self.rgba(tints.first?.backgroundColor))); the window shows \(String(describing: Self.rgba(tint)))")
         #expect(tints.first?.frame == copy.bounds, "the tint covers \(String(describing: tints.first?.frame)) of the copy's \(copy.bounds)")
+        // The layers of a view's subviews come into the view's layer at a display, and this window has none: the
+        // row reads the copy's own place in the order, and each other layer that is there.
         let others = (host.layer?.sublayers ?? []).filter { $0 !== copy }
-        #expect(!others.isEmpty && others.allSatisfy { $0.zPosition > copy.zPosition }, "the copy is not under each other layer of its pane")
+        let lowest: Bool = host.layer?.sublayers?.first === copy
+        #expect(lowest && copy.zPosition < 0 && others.allSatisfy { $0.zPosition > copy.zPosition }, "the copy is not under each other layer of its pane")
         #expect(host.layer?.masksToBounds == true && host.layer?.backgroundColor == nil, "the pane's layer does not clip the copy, or it has a colour")
         // The system turns a layer's image itself where the geometry is flipped: the copy needs no turn of its own.
         let flips = [art, host.layer, copy].map { $0?.contentsAreFlipped() }

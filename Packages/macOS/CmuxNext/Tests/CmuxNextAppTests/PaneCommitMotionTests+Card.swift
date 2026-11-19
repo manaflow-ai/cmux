@@ -91,8 +91,11 @@ extension PaneCommitMotionTests {
                     "\(what), the pane that moves has \(has); it must have the window's colour \(String(describing: sheet)) on its cell")
         }
         if cards, let ground = inCard.first {
+            // The layer of the pane's content comes into the clip's layer at a display, and this window has none:
+            // the row reads the ground's own place in the order, and each other layer that is there.
             let others = (clip.sublayers ?? []).filter { $0 !== ground }
-            #expect(!others.isEmpty && others.allSatisfy { $0.zPosition > ground.zPosition }, "\(what): the ground is not under each other layer of the pane's clip")
+            let lowest: Bool = clip.sublayers?.first === ground
+            #expect(lowest && ground.zPosition < 0 && others.allSatisfy { $0.zPosition > ground.zPosition }, "\(what): the ground is not under each other layer of the pane's clip")
             let radius = PaneChromeGeometry.cornerRadius(for: host.contentRect, style: scene.harness.root.context.style)
             #expect(clip.masksToBounds && radius > 0 && abs(clip.cornerRadius - radius) < 0.01,
                     "\(what): the pane's clip has the corner radius \(clip.cornerRadius) and cuts its layers: \(clip.masksToBounds); the card's radius is \(radius)")
