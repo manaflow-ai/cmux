@@ -109,13 +109,26 @@
 #                          head, on the one simulator: a same-harness before/after
 #             reps=N       repetitions of every case (1-5, default 2)
 #             cases=A,B    cases by label (default ws-200-live4, chat-40-stream,
-#                          chat-40, diff-2400, tabs-30-stream); the labels are
-#                          final.sh's: ws-200 ws-200-live4 ws-500-live8 home-300
+#                          chat-40, diff-2400, tabs-30-stream); the labels (a
+#                          branch's verify/listperf/final.sh runs the same):
+#                          ws-200 ws-200-live4 ws-500-live8 home-300
 #                          home-25-live (300 rows, 25 live Chiefs: 60 typing or
 #                          new-message changes a second through MacHomeFeed's event
-#                          path) home-5000 (5000 rows, idle)
+#                          path) home-5000 (5000 rows, idle; one pass at 4000 pt/s,
+#                          so both windows fit the 300 s launch bound)
 #                          chat-40 chat-200 chat-40-stream tabs-30 tabs-30-stream
 #                          tabs-80 diff-2400 diff-2400-pan artifacts-40 feed-ref
+#                          subagent-200 (a finished subagent, 200 transcript items)
+#                          subagent-stream (a running subagent, 40 items, a token
+#                          every 20 ms, 5 siblings changing state)
+#                          subagent-2000 (2000 items; one pass, for the 300 s bound)
+#                          subagents-list-60 (60 subagents 3 deep, 10 changing 4 Hz)
+#                          events-500 (Event Inspector, 500 records, some ~160 KB)
+#                          events-burst (events-500, then 2000 records in 1 s)
+#                          events-filter (events-500 at 20 records/s while "tool_call"
+#                          is typed into Filter and cleared, repeating)
+#                          A row's rig knobs may exist only on a feature branch's
+#                          app; the table is data.
 #           SUMMARY.md gets one row per window; the artifact keeps listperf/.
 #   energy
 #           build, plus the battery and memory bench (cmux-next-ios/verify/energy.md):
@@ -247,7 +260,7 @@ listperf_table=(
   "ws-500-live8    workspaces  LIST_COUNT=500 LIST_LIVE_HZ=8"
   "home-300        home        LIST_COUNT=300"
   "home-25-live    home        LIST_COUNT=300 LIST_LIVE_HZ=20 LIST_LIVE_ROWS=3"
-  "home-5000       home        LIST_COUNT=5000"
+  "home-5000       home        LIST_COUNT=5000 LIST_PASSES=1 LIST_SPEED=4000"
   "chat-40         chat        LIST_COUNT=40"
   "chat-200        chat        LIST_COUNT=200"
   "chat-40-stream  chat        LIST_COUNT=40 LIST_STREAM=1"
@@ -258,6 +271,13 @@ listperf_table=(
   "diff-2400-pan   diff        LIST_COUNT=3 LIST_PAN=1 LIST_PASSES=4 LIST_SPEED=800"
   "artifacts-40    artifacts   LIST_COUNT=40"
   "feed-ref        feed        FEED_STRESS=320"
+  "subagent-200       subagent    LIST_COUNT=200"
+  "subagent-stream    subagent    LIST_COUNT=40 LIST_STREAM=1"
+  "subagent-2000      subagent    LIST_COUNT=2000 LIST_PASSES=1"
+  "subagents-list-60  subagents   LIST_COUNT=60 LIST_LIVE_HZ=4"
+  "events-500         inspector   LIST_COUNT=500"
+  "events-burst       inspector   LIST_COUNT=500 LIST_STREAM=1"
+  "events-filter      inspector   LIST_COUNT=500 LIST_LIVE_HZ=20 LIST_FILTER=tool_call"
 )
 listperf_base="" listperf_reps=2
 listperf_cases=(ws-200-live4 chat-40-stream chat-40 diff-2400 tabs-30-stream)
