@@ -128,6 +128,8 @@ async function openPage(page: Page, port: number, size: number, newTab: boolean,
       // The list's row log, as acpmux follows it (hub/row_log.rs): a watch from a position reads the
       // rows changed since.
       (mock as { cmuxAcpmuxMockCapabilities?: string[] }).cmuxAcpmuxMockCapabilities = ["session-list-follow-v1"];
+      // The `session_changed` notices the page's daemon sends it, counted (mock.ts `deliver`).
+      (mock as { cmuxAcpmuxMockNotices?: number }).cmuxAcpmuxMockNotices = 0;
       // A New Tab page as the app opens one (a tab's New Tab, or the prewarmed spare): the host
       // injects its context before the page's first render (newtab/adoption.ts).
       if (newTab) mock.__cmuxNewTabContext = {};

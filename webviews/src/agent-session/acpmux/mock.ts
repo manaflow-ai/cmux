@@ -1368,8 +1368,9 @@ export class MockAcpmuxSocket {
     return { follow: true, sessions, gone, more: false, ...at };
   }
 
-  /// Every `session_changed` the mock sends, counted (`cmuxAcpmuxMockNotices`, bench/session-scale-scroll.bench.ts),
-  /// stamped with its list position when the list follows, and kept from a connection whose watch is off.
+  /// Every `session_changed` the mock sends, counted when a bench set `cmuxAcpmuxMockNotices` up
+  /// (bench/session-scale-scroll.bench.ts; a test that never asks gets no new global), stamped with its
+  /// list position when the list follows, and kept from a connection whose watch is off.
   private deliver(message: unknown): void {
     const notice = message as { method?: string; params?: { kind?: string; session?: { sessionId?: unknown } } };
     if (notice.method === "_acpmux/session_changed") {
@@ -1384,7 +1385,7 @@ export class MockAcpmuxSocket {
       }
       if (!this.watching) return;
       const globals = globalThis as { cmuxAcpmuxMockNotices?: number };
-      globals.cmuxAcpmuxMockNotices = (globals.cmuxAcpmuxMockNotices ?? 0) + 1;
+      if (typeof globals.cmuxAcpmuxMockNotices === "number") globals.cmuxAcpmuxMockNotices += 1;
     }
     queueMicrotask(() => {
       if (this.readyState === 1) this.onmessage?.({ data: JSON.stringify(message) });
