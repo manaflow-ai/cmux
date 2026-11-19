@@ -82,7 +82,7 @@ impl Hub {
             // A background subagent, which the harness's exit would end too.
             || session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
             // A sub-session or background subagent at work (`work_below.rs`).
-            || session.work_below_since.lock().map_or(false, |v| *v != 0)
+            || session.work_below_since.lock().is_ok_and(|v| *v != 0)
     }
 
     pub(super) fn idle_eligible(&self, session: &Session) -> bool {
