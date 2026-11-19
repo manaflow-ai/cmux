@@ -182,7 +182,9 @@ public final class MacScreenPane {
         let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
             presenter.present(frame)
             // The stats and the first picture, without a main-actor hop per frame.
-            guard counter.tick(frame: frame.frame, decodedAtNanos: frame.decodedAtNanos) else { return }
+            let tells = counter.tick(frame: frame.frame, decodedAtNanos: frame.decodedAtNanos)
+            counter.probe(frame.pixelBuffer)
+            guard tells else { return }
             Task { @MainActor [weak self] in self?.framesShown(counter) }
         }
         let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver)

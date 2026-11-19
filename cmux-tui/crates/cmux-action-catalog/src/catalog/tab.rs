@@ -195,7 +195,9 @@ pub static ACTIONS: &[Action] = &[
         symbol: "display",
         surfaces: PALETTE | MENU | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("newTab", "create", 3), Placement::at("pane", "create", 10), Placement::at("tab", "create", 7)], ..SurfacePlan::DEFAULT },
-        arguments: &[args::DEVICE.optional()],
+        // `--scope view` connects at once to one of the account's own devices (the CLI, an agent, an
+        // end-to-end check); without it a non-person open waits at the Connect card. No scope controls.
+        arguments: &[args::DEVICE.optional(), args::MAC_SCREEN_SCOPE.optional()],
         targets: &["pane"],
         cli_name: "tab new-mac-screen",
         main_menu: Some("file"),

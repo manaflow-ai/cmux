@@ -1,6 +1,7 @@
 @testable import CmuxNextMacScreen
 import CmuxNextSettings
 import CmuxNextWakeups
+import CoreVideo
 import Foundation
 import Testing
 
@@ -52,6 +53,60 @@ struct MacScreenFrameTimingsTests {
         let timings = counter.timings
         #expect(timings.total == 500 && timings.dropped == 0)
         #expect(timings.intervals.count == MacScreenFrameTimings.window)
+    }
+}
+
+/// `luma_mean` and `luma_variance`: an end-to-end check tells a real picture from a black or flat grey
+/// one by these, since a window screenshot paints the pane's child window grey (hq#13721 item 4).
+struct MacScreenFrameProbeTests {
+    /// An NV12 frame whose luma is `value(x, y)`.
+    private func frame(width: Int = 256, height: Int = 128, fullRange: Bool = true, _ value: (Int, Int) -> UInt8) throws -> CVPixelBuffer {
+        var made: CVPixelBuffer?
+        let format = fullRange ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        #expect(CVPixelBufferCreate(kCFAllocatorDefault, width, height, format, nil, &made) == kCVReturnSuccess)
+        let buffer = try #require(made)
+        CVPixelBufferLockBaseAddress(buffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+        let base = try #require(CVPixelBufferGetBaseAddressOfPlane(buffer, 0)).assumingMemoryBound(to: UInt8.self)
+        let stride = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+        for y in 0 ..< height { for x in 0 ..< width { base[y * stride + x] = value(x, y) } }
+        return buffer
+    }
+
+    @Test func aFlatFrameHasNoVarianceAndAPictureHasMuch() throws {
+        let black = try #require(MacScreenFrameProbe.measure(try frame { _, _ in 0 }))
+        #expect(black == MacScreenFrameProbe(mean: 0, variance: 0))
+        let grey = try #require(MacScreenFrameProbe.measure(try frame(fullRange: false) { _, _ in 128 }))
+        #expect(grey.mean == 128 && grey.variance == 0)
+        // Half black, half white: every sample is 0 or 255, half each.
+        let split = try #require(MacScreenFrameProbe.measure(try frame { x, _ in x < 128 ? 0 : 255 }))
+        #expect(split.mean == 127.5)
+        #expect(abs(split.variance - 127.5 * 127.5) < 0.001)
+    }
+
+    @Test func anotherPixelFormatIsNotMeasured() throws {
+        var made: CVPixelBuffer?
+        #expect(CVPixelBufferCreate(kCFAllocatorDefault, 64, 64, kCVPixelFormatType_32BGRA, nil, &made) == kCVReturnSuccess)
+        #expect(MacScreenFrameProbe.measure(try #require(made)) == nil)
+        #expect(MacScreenFrameProbe.of([]) == nil)
+    }
+
+    /// The counter measures the first frame and every `probeEvery`th, keeping the latest.
+    @Test func theCounterMeasuresTheFirstFrameAndThenEveryFewFrames() throws {
+        let counter = MacScreenFrameCounter()
+        #expect(counter.latestProbe == nil)
+        let black = try frame { _, _ in 0 }, white = try frame { _, _ in 255 }
+        _ = counter.tick(frame: 1)
+        counter.probe(black)
+        #expect(counter.latestProbe?.mean == 0)
+        for number in UInt32(2) ..< UInt32(MacScreenFrameCounter.probeEvery) {
+            _ = counter.tick(frame: number)
+            counter.probe(white)
+        }
+        #expect(counter.latestProbe?.mean == 0, "frames 2 to 29 are not measured")
+        _ = counter.tick(frame: UInt32(MacScreenFrameCounter.probeEvery))
+        counter.probe(white)
+        #expect(counter.latestProbe?.mean == 255)
     }
 }
 
@@ -107,6 +162,10 @@ struct MacScreenStateControlTests {
         #expect(idle["connected"]?.boolValue == false && idle["has_frame"]?.boolValue == false)
         #expect(idle["first_frame_ms"] == CmuxNextSettings.JSONValue.null && idle["connect_started_at"] == CmuxNextSettings.JSONValue.null)
         #expect(idle["frame_interval_ms"] == CmuxNextSettings.JSONValue.null)
+        // Opened by automation without a scope: the Connect card, and no frame measured yet.
+        #expect(idle["hub_phase"]?.stringValue == "idle")
+        #expect(idle["hub_reason"] == CmuxNextSettings.JSONValue.null)
+        #expect(idle["luma_variance"] == CmuxNextSettings.JSONValue.null && idle["luma_mean"] == CmuxNextSettings.JSONValue.null)
 
         let start = ContinuousClock.now
         session.timings.connectStarted(at: Date(timeIntervalSince1970: 1_700_000_000), start)

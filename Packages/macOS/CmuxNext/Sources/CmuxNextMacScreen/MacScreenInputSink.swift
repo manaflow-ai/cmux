@@ -1,6 +1,7 @@
 import CmuxNextRemoteView
 import CmuxNextCompat
 import CoreGraphics
+import CoreVideo
 import Foundation
 
 /// The pane's input events, sent as they are on the session's cmux.rd/1
@@ -23,7 +24,19 @@ final class MacScreenInputSink: RemoteViewInputSink {
 /// first) tells the pane, which updates the stats and the picture state.
 /// It also keeps the stream's frame timings (`mac_screen.state`), bounded.
 nonisolated final class MacScreenFrameCounter: Sendable {
-    private let state = Mutex((pending: 0, timings: MacScreenFrameTimings()))
+    /// Frames between two ``MacScreenFrameProbe`` measurements (about twice a second at 60 fps).
+    static let probeEvery = 30
+    private let state = Mutex((pending: 0, timings: MacScreenFrameTimings(), probe: MacScreenFrameProbe?.none))
+
+    /// Measures the frame just counted (``MacScreenFrameProbe``) when it is the first or a ``probeEvery``th one.
+    func probe(_ buffer: CVPixelBuffer) {
+        let total = state.withLock { $0.timings.total }
+        guard total == 1 || total % Self.probeEvery == 0, let probe = MacScreenFrameProbe.measure(buffer) else { return }
+        state.withLock { $0.probe = probe }
+    }
+
+    /// The latest frame's probe; nil before the first frame (or for a buffer it cannot read).
+    var latestProbe: MacScreenFrameProbe? { state.withLock { $0.probe } }
 
     /// Counts one frame (the host's `frame` number, decoded at `decodedAtNanos`, `DispatchTime`
     /// uptime) as it reaches the presenter; true when the pane should hear now.

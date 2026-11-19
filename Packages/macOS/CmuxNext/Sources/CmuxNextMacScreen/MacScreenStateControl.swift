@@ -12,7 +12,12 @@ import CmuxNextSettings
 /// - `fps`, `target_fps`, `rtt_ms` (latest), `frames_decoded`, `frames_dropped` (frames the other
 ///   Mac numbered that never showed here), `frame` (the stream's pixel size);
 /// - `rtt_ms_window`, `frame_interval_ms` and `present_ms` (decoded to shown): {count, p50, p95,
-///   max} over the last 60 round trips and 120 frames; null before the first sample.
+///   max} over the last 60 round trips and 120 frames; null before the first sample;
+/// - `hub_phase` (`idle` is the Connect card, then `requesting`, `waiting_for_approval`, `approved`,
+///   `streaming`, or `stream_failed`, `declined`, `refused`, `revoked`, `ended`) and `hub_reason`;
+/// - `luma_mean` and `luma_variance` (0-255 luma over a 32 x 32 grid of the latest measured frame,
+///   ``MacScreenFrameProbe``): a real picture varies (hundreds or more), a black or flat grey one
+///   is near 0; null before the first frame. An end-to-end check reads these, never a window screenshot.
 /// No credential, no device address, no pixel of the screen. Nothing here connects, disconnects or
 /// sends input: those stay the person's clicks in the pane (and `debug.mac_screen` in DEV builds).
 extension MacScreenPages {
@@ -56,6 +61,10 @@ extension MacScreenPages {
         ]
         guard let pane = tab.pane else { return .object(row) }
         row["has_frame"] = .bool(pane.model.hasFrame)
+        if let hub = pane.model.hub {
+            row["hub_phase"] = .string(hubPhaseName(hub.phase))
+            row["hub_reason"] = hubReason(hub.phase).map(JSONValue.string) ?? .null
+        }
         guard let session = pane.session else { return .object(row) }
         row["phase"] = .string(phaseName(session.phase))
         row["connected"] = .bool(session.phase == .connected)
@@ -74,6 +83,9 @@ extension MacScreenPages {
         let frames = session.frameCounter?.timings
         row["frame_interval_ms"] = frames.map { summary($0.intervals) } ?? .null
         row["present_ms"] = frames.map { summary($0.present) } ?? .null
+        let probe = session.frameCounter?.latestProbe
+        row["luma_mean"] = probe.map { .number(($0.mean * 10).rounded() / 10) } ?? .null
+        row["luma_variance"] = probe.map { .number(($0.variance * 10).rounded() / 10) } ?? .null
         return .object(row)
     }
 
@@ -81,6 +93,30 @@ extension MacScreenPages {
         guard let summary = samples.summary else { return .null }
         func ms(_ value: Double) -> JSONValue { .number((value * 10).rounded() / 10) }
         return ["count": .number(Double(summary.count)), "p50": ms(summary.p50), "p95": ms(summary.p95), "max": ms(summary.max)]
+    }
+
+    /// The device hub's side of the tab: how far the request got before (and around) the stream.
+    static func hubPhaseName(_ phase: MacScreenHubPhase) -> String {
+        switch phase {
+        case .idle: "idle"
+        case .requesting: "requesting"
+        case .waitingForApproval: "waiting_for_approval"
+        case .approved: "approved"
+        case .streaming: "streaming"
+        case .streamFailed: "stream_failed"
+        case .declined: "declined"
+        case .refused: "refused"
+        case .revoked: "revoked"
+        case .ended: "ended"
+        }
+    }
+
+    /// The hub's reason a session ended or was revoked, when it gave one.
+    static func hubReason(_ phase: MacScreenHubPhase) -> String? {
+        switch phase {
+        case let .revoked(reason), let .ended(reason): reason
+        default: nil
+        }
     }
 
     static func phaseName(_ phase: MacScreenSession.Phase) -> String {

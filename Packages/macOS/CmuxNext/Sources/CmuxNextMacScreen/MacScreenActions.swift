@@ -33,7 +33,8 @@ public struct MacScreenActions {
         paletteRows?(pages.paletteProvider(registry: registry))
         registry.bindEffect("macScreen.open", effect: { invocation in
             if let target = invocation.target, target.kind != .pane && target.kind != .tab { return .refused(Self.noPane) }
-            do { try open({ try Self.record(invocation, pages: pages) }, invocation, Self.isPerson(invocation)) }
+            // `--scope` is checked in `record`, before a tab opens; an open that asks for one connects at once.
+            do { try open({ try Self.record(invocation, pages: pages) }, invocation, Self.connectsAtOnce(invocation)) }
             catch { refusal(error) }
             return .done
         })
@@ -81,10 +82,38 @@ public struct MacScreenActions {
     /// `devices`, the devices the home page lists. Names resolve here, at the action boundary: records and
     /// `MacScreenPages.record(forDevice:)` take only ids. No `device` opens the home page.
     static func record(_ invocation: ActionInvocation, pages: MacScreenPages, devices: [HubDevice]) throws -> MacScreenRecord {
-        guard let value = invocation["device"] else { return MacScreenRecord(macID: nil) }
+        guard let value = invocation["device"] else {
+            if invocation["scope"] != nil { throw ActionFailure(message: missingDevice(among: devices)) }
+            return MacScreenRecord(macID: nil)
+        }
         guard let text = value.stringValue else { throw ActionFailure(message: missingDevice(among: devices)) }
         let id = try deviceID(named: text, among: devices)
-        return pages.record(forDevice: id, requesting: isPerson(invocation) ? .view : nil)
+        return pages.record(forDevice: id, requesting: try requestedScope(invocation, deviceID: id, among: devices))
+    }
+
+    /// The scope an open asks the hub for at once, else nil (the tab waits at Connect). A person's open asks to view.
+    /// `--scope view` (`cmux tab new-mac-screen --device X --scope view`: the CLI, an agent, an end-to-end check) asks
+    /// the same, for one of the signed-in account's own devices only, the ones Screen Sharing lists in `devices`; any
+    /// other device fails. Control stays a person's choice on the Connect card: no invocation asks for `full`.
+    /// The host still decides: its sharing switch and Allow prompt are unchanged.
+    static func requestedScope(_ invocation: ActionInvocation, deviceID id: String, among devices: [HubDevice]) throws -> SessionScope? {
+        guard let value = invocation["scope"] else { return isPerson(invocation) ? .view : nil }
+        // SECURITY: another client (a phone, another Mac) or a web page never connects this Mac's viewer by itself.
+        guard invocation.origin != .remote && invocation.origin != .page else {
+            throw ActionFailure(message: L.t("macScreen.actions.scopeLocalOnly", "--scope view runs only from this Mac: its cmux command or an agent here."))
+        }
+        guard value.stringValue == SessionScope.view.rawValue else {
+            throw ActionFailure(message: L.t("macScreen.actions.scopeOnlyView", "Only --scope view opens a screen from here. To control a device, choose Control on its Connect card."))
+        }
+        guard devices.contains(where: { $0.id.lowercased() == id }) else {
+            throw ActionFailure(message: notOwnDevice(id, among: devices))
+        }
+        return .view
+    }
+
+    /// Whether the tab connects as soon as it shows: a person's open, or one that asks for a scope (``requestedScope``).
+    static func connectsAtOnce(_ invocation: ActionInvocation) -> Bool {
+        isPerson(invocation) || invocation["scope"] != nil
     }
 
     /// The hub id `text` names: an id as is (listed or not, as before names resolved), else the one device whose
@@ -123,6 +152,12 @@ public struct MacScreenActions {
             return String(format: L.t("macScreen.actions.unknownDeviceNoneListed", "No device is named “%@”, and no devices are listed: sign in to cmux on both Macs and turn on Allow Mac Screen on the other Mac."), name)
         }
         return String(format: L.t("macScreen.actions.unknownDevice", "No device is named “%@”. Your devices: %@."), name, listed(devices))
+    }
+    private static func notOwnDevice(_ id: String, among devices: [HubDevice]) -> String {
+        guard !devices.isEmpty else {
+            return String(format: L.t("macScreen.actions.scopeNotOwnDeviceNoneListed", "--scope view opens only your own devices, and none are listed: sign in to cmux on both Macs. “%@” is not one of them."), id)
+        }
+        return String(format: L.t("macScreen.actions.scopeNotOwnDevice", "--scope view opens only your own devices. “%@” is not one of them. Your devices: %@."), id, listed(devices))
     }
     private static func missingDevice(among devices: [HubDevice]) -> String {
         guard !devices.isEmpty else {

@@ -112,6 +112,56 @@ struct MacScreenActionRoutingTests {
         #expect(pages.pendingScopes.isEmpty)
     }
 
+    /// `cmux tab new-mac-screen --device mac-mini --scope view`: the CLI (a socket invocation, never the person's)
+    /// opens one of the account's own devices and connects at once to view, so an automated check reaches the real
+    /// flow instead of stopping at the Connect card (hq#13721 item 5).
+    @Test func scopeViewConnectsAnOwnDeviceFromTheCLI() throws {
+        let pages = pages()
+        let devices = [HubDevice(id: device, name: "Mac Mini"), HubDevice(id: other, name: "Studio")]
+        for name in ["mac-mini", device.uppercased()] {
+            var invocation = ActionInvocation(arguments: ["device": .string(name), "scope": .string("view")], origin: .cli)
+            invocation.viaControlSocket = true
+            #expect(MacScreenActions.connectsAtOnce(invocation))
+            let record = try MacScreenActions.record(invocation, pages: pages, devices: devices)
+            #expect(record.deviceID == device, "\(name)")
+            #expect(pages.pendingScopes[device] == .view, "\(name)")
+            pages.pendingScopes = [:]
+        }
+        // Without --scope the CLI still waits at Connect.
+        var plain = ActionInvocation(arguments: ["device": .string("mac-mini")], origin: .cli)
+        plain.viaControlSocket = true
+        #expect(!MacScreenActions.connectsAtOnce(plain))
+        _ = try MacScreenActions.record(plain, pages: pages, devices: devices)
+        #expect(pages.pendingScopes.isEmpty)
+    }
+
+    /// `--scope view` opens only a device Screen Sharing lists for this account, never asks to control, and needs a
+    /// device; each refusal names the devices it could open and leaves no pending scope.
+    @Test func scopeViewRefusesAnotherDeviceControlAndNoDevice() {
+        let pages = pages()
+        let devices = [HubDevice(id: device, name: "Mac Mini")]
+        func run(_ arguments: [String: ActionValue]) -> String? {
+            var invocation = ActionInvocation(arguments: arguments, origin: .cli)
+            invocation.viaControlSocket = true
+            return failure { _ = try MacScreenActions.record(invocation, pages: pages, devices: devices) }
+        }
+        let notOwn = run(["device": .string(other), "scope": .string("view")])
+        #expect(notOwn?.contains("only your own devices") == true)
+        #expect(notOwn?.contains("Mac Mini (\(device))") == true)
+        #expect(failure {
+            _ = try MacScreenActions.record(ActionInvocation(arguments: ["device": .string(device), "scope": .string("view")], origin: .cli), pages: pages, devices: [])
+        }?.contains("none are listed") == true)
+        for scope in ["full", "control", "VIEW", ""] {
+            #expect(run(["device": .string(device), "scope": .string(scope)])?.contains("Only --scope view") == true, "\(scope)")
+        }
+        #expect(run(["scope": .string("view")])?.contains("Pass a device name or id") == true)
+        for origin in [ActionOrigin.remote, .page] {
+            let invocation = ActionInvocation(arguments: ["device": .string(device), "scope": .string("view")], origin: origin)
+            #expect(failure { _ = try MacScreenActions.record(invocation, pages: pages, devices: devices) }?.contains("only from this Mac") == true, "\(origin)")
+        }
+        #expect(pages.pendingScopes.isEmpty)
+    }
+
     @Test func noDeviceStillOpensTheHomePage() throws {
         let record = try MacScreenActions.record(ActionInvocation(), pages: pages(), devices: [HubDevice(id: device, name: "Mac Mini")])
         #expect(record.isHome)

@@ -39171,6 +39171,530 @@
         }
       }
     },
+    "macScreen.actions.scopeLocalOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view يعمل من هذا الـ Mac فقط: أمر cmux عليه أو وكيل هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view radi samo s ovog Maca: njegovom cmux naredbom ili agentom ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view kører kun fra denne Mac: dens cmux-kommando eller en agent her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view läuft nur auf diesem Mac: über seinen cmux-Befehl oder einen Agenten hier."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view runs only from this Mac: its cmux command or an agent here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view solo funciona desde este Mac: su comando cmux o un agente aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view ne fonctionne que depuis ce Mac : sa commande cmux ou un agent ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view funziona solo da questo Mac: il suo comando cmux o un agente qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view はこの Mac からのみ実行できます（この Mac の cmux コマンド、またはここのエージェント）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view ដំណើរការតែពី Mac នេះប៉ុណ្ណោះ៖ ពាក្យបញ្ជា cmux របស់វា ឬភ្នាក់ងារនៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view는 이 Mac에서만 실행됩니다. 이 Mac의 cmux 명령이나 여기의 에이전트만 사용할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view kjører bare fra denne Macen: cmux-kommandoen dens eller en agent her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view działa tylko z tego Maca: przez jego polecenie cmux lub agenta tutaj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view só funciona a partir deste Mac: o comando cmux dele ou um agente aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view работает только с этого Mac: через его команду cmux или агента здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view ทำงานได้จาก Mac เครื่องนี้เท่านั้น: คำสั่ง cmux ของเครื่องนี้หรือเอเจนต์ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view yalnızca bu Mac'ten çalışır: onun cmux komutuyla veya buradaki bir aracıyla."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view працює лише з цього Mac: через його команду cmux або агента тут."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view chỉ chạy từ máy Mac này: lệnh cmux của nó hoặc một tác tử tại đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view 只能在这台 Mac 上运行：通过它的 cmux 命令或这里的智能体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view 只能在這台 Mac 上執行：透過它的 cmux 命令或這裡的代理。"
+          }
+        }
+      }
+    },
+    "macScreen.actions.scopeNotOwnDevice": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view يفتح أجهزتك فقط. “%@” ليس منها. أجهزتك: %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view otvara samo vaše uređaje. “%@” nije jedan od njih. Vaši uređaji: %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view åbner kun dine egne enheder. “%@” er ikke en af dem. Dine enheder: %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view öffnet nur deine eigenen Geräte. „%@“ gehört nicht dazu. Deine Geräte: %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view opens only your own devices. “%@” is not one of them. Your devices: %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view solo abre tus propios dispositivos. “%@” no es uno de ellos. Tus dispositivos: %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view n’ouvre que vos propres appareils. « %@ » n’en fait pas partie. Vos appareils : %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view apre solo i tuoi dispositivi. “%@” non è uno di questi. I tuoi dispositivi: %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view で開けるのは自分のデバイスだけです。“%@” はその中にありません。あなたのデバイス: %@。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view បើកតែឧបករណ៍របស់អ្នកប៉ុណ្ណោះ។ “%@” មិនមែនជាឧបករណ៍មួយក្នុងចំណោមនោះទេ។ ឧបករណ៍របស់អ្នក៖ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view는 내 기기만 엽니다. “%@”은(는) 내 기기가 아닙니다. 내 기기: %@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view åpner bare dine egne enheter. «%@» er ikke en av dem. Enhetene dine: %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view otwiera tylko Twoje urządzenia. „%@” do nich nie należy. Twoje urządzenia: %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view abre só os seus dispositivos. “%@” não é um deles. Seus dispositivos: %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view открывает только ваши устройства. «%@» не из их числа. Ваши устройства: %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view เปิดได้เฉพาะอุปกรณ์ของคุณเอง “%@” ไม่ใช่หนึ่งในนั้น อุปกรณ์ของคุณ: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view yalnızca kendi cihazlarınızı açar. “%@” bunlardan biri değil. Cihazlarınız: %@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view відкриває лише ваші пристрої. «%@» серед них немає. Ваші пристрої: %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view chỉ mở thiết bị của chính bạn. “%@” không thuộc số đó. Thiết bị của bạn: %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view 只能打开你自己的设备。“%@”不在其中。你的设备：%@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view 只能開啟你自己的裝置。「%@」不在其中。你的裝置：%@。"
+          }
+        }
+      }
+    },
+    "macScreen.actions.scopeNotOwnDeviceNoneListed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view يفتح أجهزتك فقط، ولا توجد أجهزة مدرجة: سجّل الدخول إلى cmux على جهازي Mac. “%@” ليس منها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view otvara samo vaše uređaje, a nijedan nije naveden: prijavite se u cmux na oba Maca. “%@” nije jedan od njih."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view åbner kun dine egne enheder, og ingen er på listen: log ind i cmux på begge Macs. “%@” er ikke en af dem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view öffnet nur deine eigenen Geräte, und keins ist aufgeführt: Melde dich auf beiden Macs bei cmux an. „%@“ gehört nicht dazu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view opens only your own devices, and none are listed: sign in to cmux on both Macs. “%@” is not one of them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view solo abre tus propios dispositivos y no hay ninguno en la lista: inicia sesión en cmux en ambos Mac. “%@” no es uno de ellos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view n’ouvre que vos propres appareils, et aucun n’est listé : connectez-vous à cmux sur les deux Mac. « %@ » n’en fait pas partie."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view apre solo i tuoi dispositivi e nessuno è elencato: accedi a cmux su entrambi i Mac. “%@” non è uno di questi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view で開けるのは自分のデバイスだけですが、一覧にデバイスがありません。両方の Mac で cmux にサインインしてください。“%@” はその中にありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view បើកតែឧបករណ៍របស់អ្នកប៉ុណ្ណោះ ហើយគ្មានឧបករណ៍ក្នុងបញ្ជីទេ៖ សូមចូល cmux នៅលើ Mac ទាំងពីរ។ “%@” មិនមែនជាឧបករណ៍មួយក្នុងចំណោមនោះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view는 내 기기만 여는데, 표시된 기기가 없습니다. 두 Mac 모두에서 cmux에 로그인하세요. “%@”은(는) 내 기기가 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view åpner bare dine egne enheter, og ingen er oppført: logg på cmux på begge Macene. «%@» er ikke en av dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view otwiera tylko Twoje urządzenia, a żadne nie jest na liście: zaloguj się do cmux na obu Macach. „%@” do nich nie należy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view abre só os seus dispositivos, e nenhum está na lista: entre no cmux nos dois Macs. “%@” não é um deles."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view открывает только ваши устройства, а в списке их нет: войдите в cmux на обоих Mac. «%@» не из их числа."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view เปิดได้เฉพาะอุปกรณ์ของคุณเอง และไม่มีอุปกรณ์ในรายการ: ลงชื่อเข้าใช้ cmux บน Mac ทั้งสองเครื่อง “%@” ไม่ใช่หนึ่งในนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view yalnızca kendi cihazlarınızı açar ve listede hiç cihaz yok: iki Mac'te de cmux'a giriş yapın. “%@” bunlardan biri değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view відкриває лише ваші пристрої, а в списку їх немає: увійдіть у cmux на обох Mac. «%@» серед них немає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view chỉ mở thiết bị của chính bạn và không có thiết bị nào trong danh sách: hãy đăng nhập cmux trên cả hai máy Mac. “%@” không thuộc số đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view 只能打开你自己的设备，但列表中没有设备：请在两台 Mac 上都登录 cmux。“%@”不在其中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view 只能開啟你自己的裝置，但清單中沒有裝置：請在兩台 Mac 上都登入 cmux。「%@」不在其中。"
+          }
+        }
+      }
+    },
+    "macScreen.actions.scopeOnlyView": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--scope view وحده يفتح شاشة من هنا. للتحكم في جهاز، اختر التحكم في بطاقة الاتصال الخاصة به."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odavde ekran otvara samo --scope view. Da upravljate uređajem, odaberite Upravljanje na njegovoj kartici Poveži."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun --scope view åbner en skærm herfra. Vælg Styr på enhedens Forbind-kort for at styre den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von hier öffnet nur --scope view einen Bildschirm. Um ein Gerät zu steuern, wähle auf seiner Verbinden-Karte Steuern."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only --scope view opens a screen from here. To control a device, choose Control on its Connect card."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desde aquí solo --scope view abre una pantalla. Para controlar un dispositivo, elige Controlar en su tarjeta Conectar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "D’ici, seul --scope view ouvre un écran. Pour contrôler un appareil, choisissez Contrôler sur sa carte Se connecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Da qui solo --scope view apre uno schermo. Per controllare un dispositivo, scegli Controlla nella sua scheda Connetti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここから画面を開けるのは --scope view だけです。デバイスを操作するには、その接続カードで「操作」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានតែ --scope view ទេដែលបើកអេក្រង់ពីទីនេះ។ ដើម្បីគ្រប់គ្រងឧបករណ៍ សូមជ្រើសរើស គ្រប់គ្រង នៅលើកាតភ្ជាប់របស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기서는 --scope view만 화면을 엽니다. 기기를 제어하려면 해당 연결 카드에서 제어를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herfra åpner bare --scope view en skjerm. Velg Styr på enhetens Koble til-kort for å styre den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stąd ekran otwiera tylko --scope view. Aby sterować urządzeniem, wybierz Steruj na jego karcie Połącz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daqui, só --scope view abre uma tela. Para controlar um dispositivo, escolha Controlar no cartão Conectar dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отсюда экран открывает только --scope view. Чтобы управлять устройством, выберите «Управлять» на его карточке подключения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จากที่นี่ มีเพียง --scope view ที่เปิดหน้าจอได้ หากต้องการควบคุมอุปกรณ์ ให้เลือก ควบคุม บนการ์ดเชื่อมต่อของอุปกรณ์นั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buradan yalnızca --scope view bir ekran açar. Bir cihazı denetlemek için Bağlan kartında Denetle'yi seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звідси екран відкриває лише --scope view. Щоб керувати пристроєм, виберіть «Керувати» на його картці підключення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Từ đây chỉ --scope view mở được màn hình. Để điều khiển thiết bị, hãy chọn Điều khiển trên thẻ Kết nối của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在这里只有 --scope view 能打开屏幕。要控制设备，请在它的连接卡片上选择“控制”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在這裡只有 --scope view 能開啟螢幕。要控制裝置，請在它的連線卡片上選擇「控制」。"
+          }
+        }
+      }
+    },
     "macScreen.actions.unknownDevice": {
       "extractionState": "manual",
       "localizations": {

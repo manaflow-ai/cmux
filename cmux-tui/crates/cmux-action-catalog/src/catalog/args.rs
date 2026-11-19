@@ -305,6 +305,10 @@ pub const URL_2: Argument = Argument { name: "url", title: t("Localizable", "arg
 #[rustfmt::skip]
 pub const THEME_2: Argument = Argument { name: "theme", title: t("Localizable", "argument.theme", "Theme"), kind: ArgKind::Enumeration(CASES_SYSTEM_LIGHT), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
+pub const CASES_MAC_SCREEN_VIEW: &[EnumCase] = &[EnumCase { value: "view", title: t("ActionCatalog", "argument.macScreen.scope.view", "View only") }];
+#[rustfmt::skip]
+pub const MAC_SCREEN_SCOPE: Argument = Argument { name: "scope", title: t("ActionCatalog", "argument.macScreen.scope", "Connect As"), kind: ArgKind::Enumeration(CASES_MAC_SCREEN_VIEW), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
 pub const DEVICE: Argument = Argument { name: "device", title: t("Localizable", "argument.device", "Device"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const ORIENTATION: Argument = Argument { name: "orientation", title: t("Localizable", "argument.orientation", "Orientation"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
