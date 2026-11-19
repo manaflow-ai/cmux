@@ -228225,6 +228225,399 @@
           }
         }
       }
+    },
+    "settings.group.experiments": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التجارب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksperimenti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksperimenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experimente"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experiments"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experimentos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expériences"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperimenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実験"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការពិសោធន៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실험"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksperimenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksperymenty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experimentos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эксперименты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การทดลอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deneyler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Експерименти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thử nghiệm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实验"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "實驗"
+          }
+        }
+      }
+    },
+    "settings.experiments.glassToolbarGroups": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجموعات شريط الأدوات الزجاجية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staklene grupe alatne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glasgrupper i værktøjslinjen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glas-Symbolleistengruppen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass Toolbar Groups"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupos de barra de herramientas de cristal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Groupes de barre d'outils en verre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppi della barra degli strumenti in vetro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ガラスのツールバーグループ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្រុមរបារឧបករណ៍កញ្ចក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유리 도구 막대 그룹"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glassgrupper i verktøylinjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szklane grupy paska narzędzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupos de barra de ferramentas de vidro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стеклянные группы панели инструментов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กลุ่มแถบเครื่องมือกระจก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cam araç çubuğu grupları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скляні групи панелі інструментів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhóm thanh công cụ kính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃工具栏分组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃工具列分組"
+          }
+        }
+      }
+    },
+    "settings.experiments.glassToolbarGroups.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصبح أزرار ترويسة المحادثة أزرارًا زجاجية مستديرة، وتتشارك الإجراءات المترابطة كبسولة زجاجية واحدة، مع شريحة بحث ومفاتيح اختصار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dugmad u zaglavlju razgovora postaju okrugla staklena dugmad, povezane radnje dijele jednu staklenu kapsulu, uz čip za pretragu i tipke prečica."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knapperne i chattens overskrift bliver runde glasknapper, hvor relaterede handlinger deler én glaskapsel, med en søgechip og genvejstaster."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Schaltflächen der Chat-Kopfzeile werden zu runden Glasschaltflächen; zusammengehörige Aktionen teilen sich eine Glaskapsel, dazu ein Suchfeld und Kurzbefehl-Tasten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los botones del encabezado del chat se vuelven botones redondos de cristal; las acciones relacionadas comparten una cápsula de cristal, con un chip de búsqueda y teclas de atajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les boutons de l'en-tête du chat deviennent des boutons ronds en verre ; les actions liées partagent une même capsule de verre, avec une puce de recherche et des touches de raccourci."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I pulsanti dell'intestazione della chat diventano pulsanti rotondi in vetro; le azioni correlate condividono una capsula di vetro, con un chip di ricerca e tasti di scelta rapida."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのヘッダーのボタンが丸いガラスのボタンになり、関連する操作は1つのガラスのカプセルにまとまります。検索チップとショートカットのキーキャップも表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប៊ូតុងនៅក្បាលការជជែកក្លាយជាប៊ូតុងកញ្ចក់មូល ដោយសកម្មភាពពាក់ព័ន្ធចែករំលែកកន្សោមកញ្ចក់តែមួយ ជាមួយបន្ទះស្វែងរក និងគ្រាប់ចុចផ្លូវកាត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 헤더의 버튼이 둥근 유리 버튼이 되고, 관련 동작은 하나의 유리 캡슐을 함께 쓰며, 검색 칩과 단축키 키캡이 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knappene i chattens topptekst blir runde glassknapper, der relaterte handlinger deler én glasskapsel, med en søkebrikke og snarveistaster."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przyciski w nagłówku czatu stają się okrągłymi szklanymi przyciskami, powiązane działania dzielą jedną szklaną kapsułę, z polem wyszukiwania i klawiszami skrótów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os botões do cabeçalho do chat viram botões redondos de vidro; ações relacionadas compartilham uma cápsula de vidro, com um chip de busca e teclas de atalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки в заголовке чата становятся круглыми стеклянными кнопками, связанные действия делят одну стеклянную капсулу, а также появляются поле поиска и клавиши сочетаний."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปุ่มในส่วนหัวของแชทจะเป็นปุ่มกระจกทรงกลม การทำงานที่เกี่ยวข้องจะอยู่ในแคปซูลกระจกเดียวกัน พร้อมชิปค้นหาและปุ่มลัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet başlığının düğmeleri yuvarlak cam düğmelere dönüşür; ilgili eylemler tek bir cam kapsülü paylaşır, bir arama çipi ve kısayol tuşları eklenir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки в заголовку чату стають круглими скляними кнопками, пов'язані дії ділять одну скляну капсулу, а також з'являються поле пошуку й клавіші скорочень."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các nút trên tiêu đề cuộc trò chuyện trở thành nút kính tròn, các thao tác liên quan dùng chung một viên nang kính, kèm ô tìm kiếm và phím tắt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天标题栏的按钮变为圆形玻璃按钮，相关操作共用一个玻璃胶囊，并显示搜索标签和快捷键键帽。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天標題列的按鈕變為圓形玻璃按鈕，相關操作共用一個玻璃膠囊，並顯示搜尋標籤和快速鍵鍵帽。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -27,6 +27,8 @@ final class AgentPanePageSettings {
     private var reasoningSliderObservation: Task<Void, Never>?
     private var sidebarPreviewVariantObservation: Task<Void, Never>?
     private var diffColorsObservation: Task<Void, Never>?
+    /// `experiments.*`, kept in ``AgentPaneExperiments/shared``.
+    private var experimentsObservation: Task<Void, Never>?
     /// Where the composer's Hide or Show Context Usage writes (``setComposer(_:_:)``).
     private weak var settings: SettingsController?
 
@@ -75,6 +77,30 @@ final class AgentPanePageSettings {
             }
         }
         followDisplay(settings, push: push)
+        followExperiments(settings, push: push)
+    }
+
+    /// Every `experiments.*` toggle of the schema (Settings > Advanced > Experiments), so a new
+    /// prototype needs only its row in schemas/settings/source/experiments.json.
+    static let experimentToggles: [SettingDescriptor] = SettingsSchema.all.filter {
+        $0.path.count == 2 && $0.path[0] == "experiments" && $0.kind == .toggle
+    }
+
+    /// The Experiments switches in `root` by name (`glassToolbarGroups`): a bool value, else the row's default.
+    static func experimentSwitches(_ root: JSONValue) -> [String: Bool] {
+        var switches: [String: Bool] = [:]
+        for row in experimentToggles {
+            switches[row.path[1]] = root.value(at: row.path)?.boolValue ?? row.defaultValue?.boolValue ?? false
+        }
+        return switches
+    }
+
+    /// Follows the Experiments switches; split from ``follow(_:push:)``, which is at its size limit.
+    private func followExperiments(_ settings: SettingsController, push: @escaping () -> Void) {
+        experimentsObservation?.cancel()  // a new controller replaces, never adds
+        experimentsObservation = observe({ Self.experimentSwitches(settings.snapshot.root) }, push: push) { _, value in
+            _ = AgentPaneExperiments.shared.set(value)
+        }
     }
 
     /// Follows the chat's look; split from ``follow(_:push:)``, which is at its size limit.
@@ -133,5 +159,6 @@ final class AgentPanePageSettings {
         // `sessions.allowFullAccess`, read per frame by the transport: a change applies at the next mode switch.
         view.model.transport.allowsFullAccess = { [weak self] in self?.settings?.snapshot.sessions.allowsFullAccess ?? true }
         view.pushDisplay(display)
+        AgentPaneExperiments.shared.push(to: view)
     }
 }

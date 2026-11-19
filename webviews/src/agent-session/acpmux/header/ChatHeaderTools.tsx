@@ -75,6 +75,15 @@ import {
   menuItemForShortcut,
 } from "./chatHeaderToolsModel";
 import { tooltipProps } from "../shortcuts";
+import { experimentArm } from "../../../experiments/experiment";
+import { useExperimentSwitch } from "../../../experiments/switches";
+import {
+  GLASS_CAPSULE_ACTIONS,
+  GLASS_TOOLBAR_SWITCH,
+  glassToolbarLook,
+  SEARCH_CHATS_ACTION,
+  type GlassToolbarLook,
+} from "./glassToolbar.experiment";
 
 /// The header's tools, drawn again only when what the pane hands them changes. The pane renders on
 /// every snapshot it draws and builds the header's callbacks, its native row's options, the Needs you
@@ -127,6 +136,8 @@ function ChatHeaderToolsView({
   nativeNeedsYou,
   working = false,
   motion,
+  glass,
+  onSearch,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -194,6 +205,11 @@ function ChatHeaderToolsView({
   working?: boolean;
   /// The motion style, when the gallery picks one; else the App's (`agentChat.headerMotion`).
   motion?: HeaderMotionStyle;
+  /// The glass toolbar's look, when the gallery picks one; else the person's switch
+  /// (Settings > Advanced > Experiments, `experiments.glassToolbarGroups`, off by default) and its arm.
+  glass?: GlassToolbarLook | "off";
+  /// The glass toolbar's search chip: the command palette's chats page (`agentPane.searchChats`, ⌘K).
+  onSearch?: () => void;
 }) {
   // Debug measurement (acpmuxPerf): the header's committed renders (perf.ts `renders`).
   useCountedRender("header");
@@ -202,6 +218,11 @@ function ChatHeaderToolsView({
   const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
+  const searchKey = useShortcut(SEARCH_CHATS_ACTION);
+  // The glass toolbar (glassToolbar.experiment.ts): only with its switch on, or a gallery's pick. It
+  // draws on the web row, so the native row's tools stay off while it shows.
+  const glassSwitch = useExperimentSwitch(GLASS_TOOLBAR_SWITCH);
+  const glassLook = glass ?? (glassSwitch ? experimentArm(glassToolbarLook) : "off");
   const { lit, pullRequest, headerControls, headerMotion } = useHeaderState();
   const style = motion ?? headerMotion;
   const actions = useQuickActions();
@@ -362,7 +383,7 @@ function ChatHeaderToolsView({
     : undefined;
   const chatRows = rows();
   const chatMenu = nativeChatMenu(chatRows);
-  const native = useNativeRowTools(nativeRowTools, tools, {
+  const native = useNativeRowTools(glassLook === "off" ? nativeRowTools : undefined, tools, {
     customize,
     extra: chatMenu
       ? [
@@ -396,7 +417,8 @@ function ChatHeaderToolsView({
   };
   // The three controls (headerTrio.ts): "...", the panel toggle and New, on the web row only. The quick
   // actions wait in "..."; Terminal, Browser and [+] are New's.
-  const trio = (controls ?? headerControls) === "trio" && !native && tabTools && newButton !== undefined;
+  const trio =
+    glassLook === "off" && (controls ?? headerControls) === "trio" && !native && tabTools && newButton !== undefined;
   // A pane too narrow for every button folds the trailing ones into "..." instead of cutting them off.
   const toolsRef = useRef<HTMLDivElement>(null);
   const webButtons = !native && !trio && tabTools && actions.length > 0;
@@ -420,56 +442,63 @@ function ChatHeaderToolsView({
     setPreview(undefined);
   };
   // With every quick action folded the group is not rendered: an empty group still took a gap in the row.
-  const buttons =
-    webButtons &&
-    shown.length > 0 &&
-    shown.map((tool) => {
-      const shortcut = tool.title ? undefined : shortcuts[tool.id];
-      return (
-        <button
-          key={tool.id}
-          data-quick-action={tool.id}
-          type="button"
-          className="acpmux-header-tool"
-          aria-label={tool.label}
-          aria-pressed={tool.pressed}
-          // The morph's hover preview stands in for the tooltip, so the two never stack.
-          {...(morphs ? {} : tooltipProps(tool.title ?? tool.label, shortcut))}
-          onPointerEnter={
-            morphs
-              ? (event) => {
-                  const box = event.currentTarget.getBoundingClientRect();
-                  clearTimeout(intent.current);
-                  intent.current = setTimeout(
-                    () =>
-                      setPreview({
-                        id: tool.id,
-                        icon: tool.icon,
-                        label: tool.label,
-                        title: tool.title,
-                        shortcut: shortcuts[tool.id],
-                        pressed: tool.pressed,
-                        box: { left: box.left, right: box.right, bottom: box.bottom },
-                      }),
-                    PREVIEW_INTENT_DELAY,
-                  );
-                }
-              : undefined
+  const renderTool = (tool: HeaderQuickTool) => {
+    const shortcut = tool.title ? undefined : shortcuts[tool.id];
+    // The glass capsule's buttons may carry their name and keycap (glassToolbar.experiment.ts arms).
+    const inCapsule = glassLook !== "off" && GLASS_CAPSULE_ACTIONS.has(tool.id);
+    const keycap = inCapsule && glassLook !== "groups" ? shortcut : undefined;
+    return (
+      <button
+        key={tool.id}
+        data-quick-action={tool.id}
+        type="button"
+        className="acpmux-header-tool"
+        aria-label={tool.label}
+        aria-pressed={tool.pressed}
+        // The morph's hover preview stands in for the tooltip, so the two never stack.
+        {...(morphs ? {} : tooltipProps(tool.title ?? tool.label, shortcut))}
+        onPointerEnter={
+          morphs
+            ? (event) => {
+                const box = event.currentTarget.getBoundingClientRect();
+                clearTimeout(intent.current);
+                intent.current = setTimeout(
+                  () =>
+                    setPreview({
+                      id: tool.id,
+                      icon: tool.icon,
+                      label: tool.label,
+                      title: tool.title,
+                      shortcut: shortcuts[tool.id],
+                      pressed: tool.pressed,
+                      box: { left: box.left, right: box.right, bottom: box.bottom },
+                    }),
+                  PREVIEW_INTENT_DELAY,
+                );
+              }
+            : undefined
+        }
+        onPointerLeave={morphs ? endPreview : undefined}
+        onClick={(event) => {
+          if (morphs) {
+            endPreview();
+            // Opening (not closing) sends the glyph to where its panel lands.
+            if (!tool.pressed && tool.id !== "newTab") morphIntoTab(event.currentTarget, tool.label);
           }
-          onPointerLeave={morphs ? endPreview : undefined}
-          onClick={(event) => {
-            if (morphs) {
-              endPreview();
-              // Opening (not closing) sends the glyph to where its panel lands.
-              if (!tool.pressed && tool.id !== "newTab") morphIntoTab(event.currentTarget, tool.label);
-            }
-            tool.run?.();
-          }}
-        >
-          <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
-        </button>
-      );
-    });
+          tool.run?.();
+        }}
+      >
+        <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
+        {inCapsule && glassLook === "labels" && <span className="acpmux-glass-label">{tool.label}</span>}
+        {keycap && (
+          <kbd className="acpmux-glass-keycap" aria-hidden="true">
+            {keycap}
+          </kbd>
+        )}
+      </button>
+    );
+  };
+  const buttons = webButtons && shown.length > 0 && shown.map(renderTool);
   const chatMenuButton = (
     <ChatMenu
       items={rows}
@@ -488,6 +517,55 @@ function ChatHeaderToolsView({
       onExpanded={onExpanded}
     />
   );
+  // The glass toolbar: the leading singles (the panel toggle, the summary, Needs You, Changes, Files,
+  // Preview) as round glass buttons, the split actions in one glass capsule, "..." round, and the
+  // search chip last, as a window toolbar's search sits at its end. The fold above still applies:
+  // a narrow pane folds the trailing buttons into "...", and header.css drops labels and keycaps first.
+  if (glassLook !== "off") {
+    const singles = shown.filter((tool) => !GLASS_CAPSULE_ACTIONS.has(tool.id));
+    const grouped = shown.filter((tool) => GLASS_CAPSULE_ACTIONS.has(tool.id));
+    return (
+      <div
+        ref={toolsRef}
+        className="acpmux-header-tools"
+        data-glass-toolbar={glassLook}
+        onPointerEnter={onPointerEnter}
+      >
+        {worktree && (
+          <WorktreePill ops={worktreeOps} worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />
+        )}
+        {pullRequest && pullRequestChip !== false && (
+          <PullRequestChip ops={pullRequestOps} pullRequest={pullRequest} onMerge={onMergePullRequest} />
+        )}
+        {sessionInfo}
+        {typeof summary === "function" ? summary(false) : summary}
+        {inbox}
+        {webButtons && singles.map(renderTool)}
+        {webButtons && grouped.length > 0 && (
+          <div className="acpmux-header-tool-group acpmux-glass-capsule" role="group">
+            {grouped.map(renderTool)}
+          </div>
+        )}
+        {chatMenuButton}
+        {onSearch && (
+          <button
+            type="button"
+            className="acpmux-header-tool acpmux-glass-search"
+            aria-label={t("header.searchChats")}
+            {...tooltipProps(t("header.searchChats"), searchKey)}
+            onClick={onSearch}
+          >
+            <HeaderIcon name="search" size={HEADER_GLYPH} />
+            {searchKey && (
+              <kbd className="acpmux-glass-keycap" aria-hidden="true">
+                {searchKey}
+              </kbd>
+            )}
+          </button>
+        )}
+      </div>
+    );
+  }
   if (trio)
     return (
       <div ref={toolsRef} className="acpmux-header-tools" data-header-controls="trio" onPointerEnter={onPointerEnter}>

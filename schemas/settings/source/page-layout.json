@@ -548,6 +548,7 @@
           "symbol": "flask",
           "groups": [
             {"group": "settings.group.labs", "keys": ["appearance.experimentalControls"]},
+            {"group": "settings.group.experiments", "note": "Taste prototypes, each behind its own switch, all off by default."},
             {"group": "settings.group.appearanceTuning"}
           ]
         },

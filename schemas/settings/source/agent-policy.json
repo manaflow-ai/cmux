@@ -456,6 +456,13 @@
     },
     {
       "agent": "settable",
+      "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
+      "keys": [
+        "experiments.glassToolbarGroups"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).",
       "keys": [
         "home.channelsEnabled"

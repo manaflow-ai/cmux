@@ -132,7 +132,8 @@ final class AgentChatSplitToggles {
     /// for a chat whose folder is not on this Mac.
     func headerState(chat: String, store: DaemonStore?, pullRequest: AgentChatPullRequest? = nil) -> AgentPaneHeaderState {
         guard let store else { return AgentPaneHeaderState() }
-        let tabs = Self.workspaceTabs(of: chat, in: store) ?? []
+        let workspace = store.workspace(holdingTab: chat)
+        let tabs = workspace.map(Self.tabs(in:)) ?? []
         let splits = splits(in: tabs, chat: chat)
         let lit = AgentChatTerminalAdds().lit(Self.panels.filter { id in
             opened.lastIndex { $0.id == id }.flatMap { splits[$0] } != nil
@@ -141,6 +142,9 @@ final class AgentChatSplitToggles {
                                          sideTabs: Self.sideTabs(of: chat, in: store) == .shown, lit: lit,
                                          floatingChat: QuickComposerTunables.floatingChat.value)
         state.pullRequest = pullRequest?.badge(cwd: store.tab(id: chat)?.cwd)
+        // The glass toolbar's title (experiments.glassToolbarGroups): the workspace and its agent
+        // chats, counted over the tabs read above (that workspace's only).
+        state.workspace = workspace.map { AgentPaneHeaderWorkspace(title: $0.displayName, chats: tabs.count(where: { $0.agentSession != nil })) }
         return state
     }
 
@@ -186,7 +190,10 @@ final class AgentChatSplitToggles {
 
     /// Every tab of the workspace that shows chat tab `chat`; nil when the store does not list it.
     private static func workspaceTabs(of chat: String, in store: DaemonStore) -> [TabModel]? {
-        guard let workspace = store.workspace(holdingTab: chat) else { return nil }
-        return workspace.screens.flatMap { $0.panes.flatMap(\.tabs) }
+        store.workspace(holdingTab: chat).map(tabs(in:))
+    }
+
+    private static func tabs(in workspace: WorkspaceModel) -> [TabModel] {
+        workspace.screens.flatMap { $0.panes.flatMap(\.tabs) }
     }
 }
