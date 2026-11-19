@@ -4478,7 +4478,7 @@ dependencies = [
  "cfg-if",
  "crunchy",
  "num-traits",
- "zerocopy",
+ "zerocopy 0.8.62",
 ]
 
 [[package]]
