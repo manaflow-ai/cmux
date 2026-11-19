@@ -100,6 +100,9 @@ class DecideTests(unittest.TestCase):
         self.assertIsNone(cron.linux_wait_of(None, {"started_at": cron.iso(at(7))}))
         self.assertIsNone(cron.linux_wait_of(cron.iso(T0), None))
         self.assertIsNone(cron.linux_wait_of(cron.iso(at(1)), {"started_at": cron.iso(T0)}))
+        # A job cancelled while it waited for a runner left no result: it waited until the report.
+        self.assertEqual(cron.linux_wait_of(cron.iso(T0), dict(cron.NO_RESULT), at(2))["minutes"], 120.0)
+        self.assertIsNone(cron.linux_wait_of(cron.iso(T0), {"state": "failed"}, at(2)))
 
     def test_a_measurement_held_by_a_busy_fleet_gives_its_runner_host_up_for_the_bench_host(self):
         # Nightly runs start about every 25 minutes, so a job of one is queued at most ticks: a pinned measurement
@@ -1041,6 +1044,16 @@ class MissingResultTests(unittest.TestCase):
             self.assertEqual(state["linux_wait"], {"at": cron.iso(at(0.75)), "minutes": 45.0})
             self.assertNotIn("linux_asked_at", state)
             self.assertTrue(cron.linux_backlog(state, at(1)))
+            # A re-run reads attempt 1's plan: its wait would count the hours before the re-run, so it is not recorded.
+            state.pop("linux_wait")
+            state["linux_asked_at"] = cron.iso(T0)
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.dict(os.environ, {"GITHUB_RUN_ATTEMPT": "2"}):
+                cron.cmd_report(argparse.Namespace(repo="o/r", dir=d, result=[f"diff-viewer={part_dir}"], run_url="u",
+                                                   finish=False, issues=False, output=os.path.join(d, "report.out")))
+            with open(os.path.join(d, "state.json")) as f:
+                self.assertNotIn("linux_wait", json.load(f))
 
     def test_a_job_that_left_no_result_is_one_attempt(self):
         with tempfile.TemporaryDirectory() as d:
@@ -2233,7 +2246,7 @@ class RateLimitTests(unittest.TestCase):
         self.assertEqual([c for c in called if c not in known], [])
 
     def test_the_control_jobs_take_our_own_linux_runners_on_attempt_one(self):
-        # A control job queued on the shared Blacksmith pool holds every tick (run 44346891004 waited 16 h).
+        # A control job queued on the shared Blacksmith pool holds every tick (run 44346891004 was created 16 h before its plan started; the plan job itself waited 7 h).
         import re
         root = os.path.join(HERE, "..", "..", "..")
         workflow = open(os.path.join(root, ".github", "workflows", "cmux-next-perf-budgets.yml")).read()

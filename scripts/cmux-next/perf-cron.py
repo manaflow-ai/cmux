@@ -1315,10 +1315,14 @@ def linux_backlog(state, t):
     return f"the last Linux part waited {round(minutes)} min for a runner (at {iso(seen)})"
 
 
-def linux_wait_of(asked_at, result):
-    """{'at', 'minutes'}: how long the Linux part waited for its runner, from the plan's ask to its start, or None."""
+def linux_wait_of(asked_at, result, t=None):
+    """{'at', 'minutes'}: how long the Linux part waited for its runner, from the plan's ask to its start, or None.
+    A job that left no result (NO_RESULT: cancelled, often while it still waited for a runner) waited at most until
+    the report, t, and is counted so: the worst queue is the one that never starts the job."""
     asked = parse_iso(asked_at) if isinstance(asked_at, str) else None
     started = parse_iso(result.get("started_at")) if isinstance(result, dict) and isinstance(result.get("started_at"), str) else None
+    if started is None and isinstance(result, dict) and result.get("no_result"):
+        started = t
     if not asked or not started or started < asked:
         return None
     return {"at": iso(started), "minutes": round((started - asked).total_seconds() / 60, 1)}
@@ -3658,8 +3662,10 @@ def report(o):
             note_bench_host(state, reason, t)
             note_host_offline(state, worker, reason, t)
             continue
-        if is_linux_part(part):
-            wait = linux_wait_of(state.pop("linux_asked_at", None), result)
+        if is_linux_part(part) and os.environ.get("GITHUB_RUN_ATTEMPT", "1") == "1":
+            # Only attempt 1: a re-run's Linux job reads attempt 1's plan, so its wait would count the hours before
+            # the re-run.
+            wait = linux_wait_of(state.pop("linux_asked_at", None), result, t)
             if wait:
                 state["linux_wait"] = wait  # linux_backlog reads it
                 changed = True
