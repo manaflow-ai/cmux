@@ -121,15 +121,19 @@ export async function intakeFiles(
     files.map(async (file, index) => {
       const path = (await known)?.[index];
       if (path) {
-        once(index, ({ image, videoShape }) => {
-          if (!image)
-            link(index, {
-              ...linkAttachment(path.path, path.folder),
-              mimeType: file.type || "application/octet-stream",
-              size: file.size,
-              ...(videoShape ? { videoShape } : {}),
-            });
+        const reference = (videoShape?: number): ComposerAttachment => ({
+          ...linkAttachment(path.path, path.folder),
+          mimeType: file.type || "application/octet-stream",
+          size: file.size,
+          ...(videoShape ? { videoShape } : {}),
         });
+        // A file where it is, on this Mac: its chip is its path the moment the host says it, never
+        // after its header (a video's shape fills in on its own, attachmentIntakeModel.ts `shaped`).
+        if (!isImageFile(file)) link(index, reference());
+        else
+          once(index, ({ image, videoShape }) => {
+            if (!image) link(index, reference(videoShape));
+          });
       } else if (options.upload) {
         // WebKit exposes folders as unreadable zero-byte Files. Do not let one prevent real files
         // in the batch from uploading. Files with bytes are left unread here for the streaming host.
