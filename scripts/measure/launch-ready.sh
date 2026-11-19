@@ -7,6 +7,8 @@
 #   dmg=nightly  the newest build the NIGHTLY feed offers (default); dmg=https://... one DMG
 #   dmg=build    this checkout built as nightly-fresh-launch.sh builds it (a tagged Release app, ad-hoc signed)
 #   base=SHA     with dmg=build: SHA built too, its runs interleaved with this checkout's (base 1, head 1, ...)
+#                A base that is the head's commit is dropped: the head runs alone (a second copy of the same build
+#                in its own home never got a loaded topology at its first launch, so it measured an unseeded app)
 #   head=SHA     with dmg=build: build SHA as the head instead of this checkout (a pull request's head: the controller
 #                runs this script only at a commit of feat-cmux-next, so an A/B of a PR names it here)
 #   dmg=swap     each side a clone of ONE signed nightly with only its executable and resource bundles built Release at
@@ -189,6 +191,10 @@ main() {
       git cat-file -e "$want^{commit}" 2>/dev/null \
         || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$want" || { echo "LR cannot fetch $want"; exit 3; }
     done
+    if [[ -n "$base" && "$LR_CASE" != update && "$(git rev-parse "$base^{commit}")" == "$(git rev-parse "$head^{commit}")" ]]; then
+      echo "LR one build: base is head ($head), so the head runs alone"
+      base=""
+    fi
     if [[ -n "$base" ]]; then
       git -c advice.detachedHead=false checkout --quiet --detach "$base" || exit 3
       build_dmg "$out" base "$config"; rc=$?
