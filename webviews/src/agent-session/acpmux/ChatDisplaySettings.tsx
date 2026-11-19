@@ -55,6 +55,7 @@ const UI_FONT_LABEL: Record<ChatUiFont, StringKey> = {
   "cmux-sans": "chatDisplay.uiFontCmuxSans",
   "cmux-sans-squat": "chatDisplay.uiFontCmuxSansSquat",
   "cmux-sans-candy": "chatDisplay.uiFontCmuxSansCandy",
+  "cmux-sans-open": "chatDisplay.uiFontCmuxSansOpen",
   hanken: "chatDisplay.uiFontHanken",
   atkinson: "chatDisplay.uiFontAtkinson",
   "system-ui": "chatDisplay.uiFontSystemUi",

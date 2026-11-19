@@ -7314,6 +7314,10 @@
     "class": "brand",
     "source": "cmux Sans Candy"
   },
+  "chatDisplay.uiFontCmuxSansOpen": {
+    "class": "brand",
+    "source": "cmux Sans Open"
+  },
   "settings.choice.agentChatUiFontGeist": {
     "class": "brand",
     "source": "Geist"
@@ -7337,6 +7341,10 @@
   "settings.choice.agentChatUiFontCmuxSansCandy": {
     "class": "brand",
     "source": "cmux Sans Candy"
+  },
+  "settings.choice.agentChatUiFontCmuxSansOpen": {
+    "class": "brand",
+    "source": "cmux Sans Open"
   },
   "chatDisplay.uiFontSystemUi": {
     "source": "System",
