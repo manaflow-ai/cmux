@@ -226,6 +226,18 @@ async fn rows_built_from_patches_equal_the_whole_rows() {
         Watcher::open(&hub, json!({"enabled": true, "limit": 1, "rowPatch": true})).await;
     let mut held = Held::default();
     let mut patches = 0;
+    // The rows of the chats just made, told when a watch read the list, reached only the watchers
+    // already on: both start after a change of a marker chat, past every one of them.
+    hub.list_cursor();
+    command_update(&hub, &sessions[3], 0);
+    while plain.rows(1).await[0].1["params"]["sessionId"] != "rp-0003" {}
+    loop {
+        let (_, msg) = patched.rows(1).await.remove(0);
+        held.take(&msg);
+        if msg["params"]["sessionId"] == "rp-0003" {
+            break;
+        }
+    }
     let (a, b) = (&sessions[0], &sessions[1]);
     command_update(&hub, a, 1);
     command_update(&hub, b, 1);

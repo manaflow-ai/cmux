@@ -64,9 +64,13 @@ pub(super) fn start(
                     loop {
                         match rx.try_recv() {
                             Ok(ev) => send_event(&hub, &conn, ev),
-                            Err(broadcast::error::TryRecvError::Lagged(n)) => conn.send(
-                                &Message::notification("_acpmux/lagged", json!({"dropped": n})),
-                            ),
+                            Err(broadcast::error::TryRecvError::Lagged(n)) => {
+                                conn.row_patches.clear();
+                                conn.send(&Message::notification(
+                                    "_acpmux/lagged",
+                                    json!({"dropped": n}),
+                                ))
+                            }
                             Err(_) => break,
                         }
                     }
@@ -137,6 +141,8 @@ pub(super) fn start(
             match ev {
                 Ok(ev) => send_event(&hub, &conn, ev),
                 Err(broadcast::error::RecvError::Lagged(n)) => {
+                    // The client reads the list again: every row's next change goes whole.
+                    conn.row_patches.clear();
                     conn.controls.resync(&conn, "lagged");
                     conn.send(&Message::notification("_acpmux/lagged", json!({"dropped": n})));
                 }

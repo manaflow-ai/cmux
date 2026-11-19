@@ -243,7 +243,15 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     crate::hub::session_pages::refuse_watch_filters(params)?;
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
     let tools = with_tools(params)?;
+    let patches = match params.get("rowPatch") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(value)) => *value,
+        Some(_) => return Err(RpcError::invalid_params("rowPatch must be a boolean")),
+    };
     conn.watch_tools.store(on && tools, Ordering::SeqCst);
+    // Before the watch is on, so no row of it goes against a base this client may not hold. A
+    // peer daemon's link masks and redacts per row (`send_replying`): it gets whole rows.
+    conn.row_patches.watch(on && patches && conn.origin != super::Origin::Peer);
     conn.watch_all.store(on, Ordering::SeqCst);
     // The position the reply is current to, read once the watch is on: every change after it is
     // a notice on this connection (`row_log.rs`).

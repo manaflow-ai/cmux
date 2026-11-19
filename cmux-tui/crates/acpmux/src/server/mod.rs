@@ -197,6 +197,8 @@ pub struct Conn {
     created: StdMutex<std::collections::VecDeque<String>>,
     watch_all: AtomicBool,
     watch_tools: AtomicBool,
+    /// The last row sent of each chat, when the watch asked for row patches (`row_patch.rs`).
+    row_patches: row_patch::RowPatches,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -630,6 +632,8 @@ impl Conn {
     /// reads again from its last record.
     fn left_out_too_large(&self, method: Option<&str>, bytes: usize) {
         tracing::debug!(conn = %self.id, method = ?method, bytes, "left out a notification too large to send");
+        // A row patch's base may be the row left out: every row's next change goes whole.
+        self.row_patches.clear();
         self.out.push(
             Message::notification(
                 "_acpmux/lagged",
@@ -1685,6 +1689,7 @@ async fn serve_connection_from(
         created: StdMutex::default(),
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
+        row_patches: Default::default(),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -2141,9 +2146,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             } else {
                 hub.session_list_summary(&s)
             };
-            conn.send(&Message::notification(
-                method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": session, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq}),
+            conn.send(&conn.row_patches.notice(
+                row_patch::Row::Owned(Arc::new(session)),
+                json!({"sessionId": ev.session_id, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq}),
             ));
         }
         return;
@@ -2292,9 +2297,14 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                     .get("sessionId")
                     .cloned()
                     .unwrap_or_else(|| Value::String(ev.session_id.clone()));
-                conn.send(&Message::notification(
-                    method::MUX_SESSION_CHANGED,
-                    json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": if attached || conn.watch_tools.load(Ordering::SeqCst) { remote.summary.clone() } else { crate::hub::views::without_summary_tools(remote.summary.clone()) }, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
+                let session = if attached || conn.watch_tools.load(Ordering::SeqCst) {
+                    remote.summary.clone()
+                } else {
+                    crate::hub::views::without_summary_tools(remote.summary.clone())
+                };
+                conn.send(&conn.row_patches.notice(
+                    row_patch::Row::Owned(Arc::new(session)),
+                    json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
                 ));
             }
             return;
@@ -2317,20 +2327,19 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
-        let [list_row, full_row] = &*ev.row;
-        let row = if full { full_row } else { list_row };
-        let summary = match row.get() {
-            Some(summary) => Some(summary),
-            None => hub.resolve(&ev.session_id).ok().map(|s| {
+        let slot = usize::from(full);
+        let row = &ev.row[slot];
+        let built = row.get().is_some()
+            || hub.resolve(&ev.session_id).ok().is_some_and(|s| {
                 row.get_or_init(|| {
                     if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) }
-                })
-            }),
-        };
-        if let Some(summary) = summary {
-            conn.send(&Message::notification(
-                method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
+                });
+                true
+            });
+        if built {
+            conn.send(&conn.row_patches.notice(
+                row_patch::Row::Shared(ev.row.clone(), slot),
+                json!({"sessionId": ev.session_id, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
             ));
         }
         // A watcher that is not attached still learns a permission is waiting.
@@ -2548,6 +2557,8 @@ mod update_cost_bench;
 #[path = "chat_window_activity_tests.rs"]
 mod chat_window_activity_tests;
 // A watch that asked for row patches hears only a row's changed fields (`row_patch.rs`).
+mod row_patch;
+pub(crate) use row_patch::CAPABILITY as ROW_PATCH_CAPABILITY;
 #[cfg(test)]
 #[path = "row_patch_tests.rs"]
 mod row_patch_tests;

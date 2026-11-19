@@ -941,6 +941,10 @@ pub mod method {
     /// incoming and outgoing bubbles without decoding the generic event stream.
     pub const MUX_MESSAGE: &str = "_acpmux/message";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
+    /// A row change to a watch that asked `rowPatch: true`, as only its changed fields against the
+    /// last row the connection sent of that chat: `{sessionId, peer?, patch, unset?, kind,
+    /// recordKind, seq, listSeq}` (`server/row_patch.rs`).
+    pub const MUX_SESSION_PATCH: &str = "_acpmux/session_patch";
     pub const MUX_PERMISSION_PENDING: &str = "_acpmux/permission_pending";
     /// To watchers when a harness profile source changed and the catalog
     /// reloaded: `{harnesses: string[], diagnostics}`.

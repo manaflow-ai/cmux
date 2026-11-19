@@ -174,7 +174,15 @@ import { errorMessage, startCancelled, knownRefusalText, switchFailedText } from
 import { failedSendText, heldSendNotice, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
-import { SessionPageError, SessionPager, type SessionPage, withUsage, LIST_FOLLOW_CAPABILITY } from "./sessionPages";
+import {
+  SessionPageError,
+  SessionPager,
+  type SessionPage,
+  withUsage,
+  LIST_FOLLOW_CAPABILITY,
+  ROW_PATCH_CAPABILITY,
+} from "./sessionPages";
+import { RowPatchBook } from "./rowPatch";
 import { isWarmableCwd } from "./warmFolders";
 import {
   isCodexSleep,
@@ -3170,6 +3178,9 @@ export class AcpmuxDirectClient {
     (method, params) => this.request(method, params),
     () => this.sessions,
   );
+  /// The last row this connection received of each chat: what acpmux's `_acpmux/session_patch`
+  /// is laid over (`rowPatch.ts`). Empty on each new socket, as acpmux's book for it is.
+  private readonly rowPatches = new RowPatchBook();
   private sessionReread: ReturnType<typeof setTimeout> | undefined;
   /// The pending reread follows a watch lag: once it sets the list, Needs you's asks resync too.
   private sessionRereadResyncsAsks = false;
@@ -4233,6 +4244,7 @@ export class AcpmuxDirectClient {
     const openingSocket = await new Promise<WebSocket>((resolve, reject) => {
       const socket = this.openSocket(url, protocols);
       this.socket = socket;
+      this.rowPatches.reset();
       // A new connection starts the daemon's count anew.
       this.budget.reset();
       let opened = false;
@@ -4304,6 +4316,7 @@ export class AcpmuxDirectClient {
       const capabilities = initialized?._meta?.acpmux?.capabilities;
       this.capabilities = Array.isArray(capabilities) ? new Set(capabilities.map(String)) : undefined;
       this.sessionPages.follows = this.capabilities?.has(LIST_FOLLOW_CAPABILITY) === true;
+      this.sessionPages.rowPatch = this.capabilities?.has(ROW_PATCH_CAPABILITY) === true;
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
@@ -5545,8 +5558,17 @@ export class AcpmuxDirectClient {
         msg: { method: "session/update", params: { update: notification.params?.update } },
       });
       if (arrived >= 0) chatPerfCapture.arrived(kind, arrived);
-    } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
-    else if (isNotification(notification, "_acpmux/permission_pending")) {
+    } else if (isNotification(notification, "_acpmux/session_changed")) {
+      // The base of this chat's next patch, whether or not the list takes this change.
+      this.rowPatches.whole(notification.params as Record<string, unknown>);
+      this.sessionChanged(notification.params);
+    } else if (notification.method === "_acpmux/session_patch") {
+      const built = this.rowPatches.patch(notification.params ?? {});
+      // No row held to lay it on (never expected): read the list again, which makes acpmux send
+      // every row's next change whole.
+      if ("missing" in built) this.rereadSessionsLater();
+      else this.sessionChanged(built.params as unknown as SessionChanged);
+    } else if (isNotification(notification, "_acpmux/permission_pending")) {
       this.asks.pending(notification.params);
       this.applyPermission(notification.params);
     } else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);

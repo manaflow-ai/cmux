@@ -249,4 +249,9 @@ pub struct WatchParams {
     /// The `listEpoch` that `afterSeq` came with: a cursor of another daemon run is reset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub list_epoch: Option<String>,
+    /// Row changes as only their changed fields (`_acpmux/session_patch`) against the last row
+    /// this connection sent of the chat; a row goes whole (`session_changed`) on first sight and
+    /// after every watch or lag (capability `session-row-patch-v1`, `server/row_patch.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_patch: Option<bool>,
 }

@@ -54,6 +54,8 @@ export type SessionPage<S extends Summary> = { sessions: S[]; next?: string; run
 /** The `initialize` capability of an acpmux that stamps `listSeq` and follows a watch from
  *  `afterSeq` (acpmux hub/row_log.rs). */
 export const LIST_FOLLOW_CAPABILITY = "session-list-follow-v1";
+/** acpmux answers `_acpmux/watch {rowPatch: true}` with `_acpmux/session_patch` (server/row_patch.rs). */
+export const ROW_PATCH_CAPABILITY = "session-row-patch-v1";
 
 /** A list position: the daemon run's `listEpoch` and a `listSeq` in it. */
 type Cursor = { epoch: string; seq: number };
@@ -138,6 +140,9 @@ export class SessionPager<S extends Summary> {
    * notice below it is older than the row held (`fresh`).
    */
   follows = false;
+  /** This connection's acpmux has `ROW_PATCH_CAPABILITY`: every watch asks for row patches
+   *  (`rowPatch.ts`), and each watch makes acpmux send every row's next change whole. */
+  rowPatch = false;
   private cursor?: Cursor;
   private reading?: Cursor;
   private listedAt = 0;
@@ -163,7 +168,12 @@ export class SessionPager<S extends Summary> {
     this.listedAt = 0;
     const from = this.follows ? this.cursor : undefined;
     const params = from ? { enabled: true, afterSeq: from.seq, listEpoch: from.epoch } : {};
-    let reply = await this.request("_acpmux/watch", { enabled: true, limit: SESSION_PAGE, ...params });
+    let reply = await this.request("_acpmux/watch", {
+      enabled: true,
+      limit: SESSION_PAGE,
+      ...params,
+      ...this.patchParam(),
+    });
     if (run !== this.run) return undefined;
     if (reply?.follow !== true) {
       this.listedFrom(reply);
@@ -180,6 +190,7 @@ export class SessionPager<S extends Summary> {
         limit: SESSION_PAGE,
         afterSeq: at.seq,
         listEpoch: at.epoch,
+        ...this.patchParam(),
       });
       if (run !== this.run) return undefined;
       // One acpmux cannot follow from its own position (it restarted between the two): its first page.
@@ -189,6 +200,11 @@ export class SessionPager<S extends Summary> {
       }
     }
     return { sessions: list, run };
+  }
+
+  /** Every watch on this connection asks the same: a watch without it turns row patches off. */
+  private patchParam(): { rowPatch?: true } {
+    return this.rowPatch ? { rowPatch: true } : {};
   }
 
   /** `list` with a follow's rows put in place of the ones held (or added) and its `gone` rows
@@ -250,7 +266,7 @@ export class SessionPager<S extends Summary> {
    * comes as its first rows and a `nextCursor`; the rest is read by `_acpmux/sessions` from it.
    */
   async whole(): Promise<S[]> {
-    const reply = await this.pacedRequest("_acpmux/watch", { enabled: true });
+    const reply = await this.pacedRequest("_acpmux/watch", { enabled: true, ...this.patchParam() });
     let page = wholePageOf<S>(reply);
     this.listedFrom(reply);
     const sessions = page.sessions;
