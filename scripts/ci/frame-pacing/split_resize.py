@@ -80,7 +80,10 @@ from pathlib import Path
 
 import browser_resize
 
-DRAGS = (-160, 160, -160, 160)
+# The divider's drags (points), each from where the divider is then. 60, not 160: a split beside a docked chat leaves
+# the divider about 75 points each way before a pane's minimum width, and on 2026-11-19 a 160-point drag stopped at
+# that limit after 74 points, so the next drags pressed beside the divider and moved nothing.
+DRAGS = (-60, 60, -60, 60)
 PANES = ("browser", "chat", "terminal")
 # The terminal's transcript: turns when `seed` is 0 (about the chat's 2800 seeded rows), and its words.
 TRANSCRIPT_TURNS = 700
@@ -93,7 +96,7 @@ TRANSCRIPT_WORDS = ("the", "pane", "layout", "reflow", "width", "frame", "divide
 TERMINAL_TOLERANCE = 1.0
 GESTURES = ("divider", "divider-pause", "sidebar", "window-edge")
 # `divider-pause`: each move's points, then the rest after it, with the mouse held down throughout.
-PAUSED_DRAG = ((-80, 0.25), (-80, 0.25), (-80, 0.25), (120, 0.25), (120, 0.0))
+PAUSED_DRAG = ((-30, 0.25), (-30, 0.25), (60, 0.25), (30, 0.25), (-30, 0.0))
 # The window corner's moves (points, window-local): in, out, in, out.
 EDGE_DRAGS = ((-200, -100), (200, 100), (-200, -100), (200, 100))
 TARGETS = ["dividers", "panes", "page", "window"]
@@ -346,14 +349,20 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
         beside = chat_pane
         target = {"pane": chat_pane} if chat_pane else {}
         seeded = None
-        # A cold page's first seed can outlast the page call's 5 s (it loads the fixtures first): seed again, which
-        # replaces the rows, at most twice more.
-        for _ in range(3 if seed > 0 else 0):
-            seeded = driver.call("debug.agent_pane", {"action": "seed_rows", "count": seed, **target}, timeout=120)
-            if "error" not in seeded:
-                break
-            time.sleep(2.0)
-        if seeded is not None:
+        if seed > 0:
+            # The seed answers when the rows have committed, which can outlast the page call's 5 s on a fleet Mac
+            # (all three tries timed out on 2026-11-19); the page goes on seeding. Seeding again only starts over,
+            # so the chat's own row count (`chat_state`) says when it holds the seed, for up to 60 s.
+            seeded = {"sent": driver.call("debug.agent_pane", {"action": "seed_rows", "count": seed, **target},
+                                          timeout=120)}
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline:
+                rows = driver.call("debug.agent_pane", {"action": "chat_state", **target}, timeout=20).get("rows")
+                seeded["rows"] = rows
+                if isinstance(rows, int) and rows >= seed:
+                    break
+                time.sleep(1.0)
+            seeded["waited_s"] = round(60 - max(0.0, deadline - time.monotonic()), 1)
             opened = {"opened": opened, "seeded": seeded}
             time.sleep(2.0)
 
@@ -451,19 +460,14 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
             point = divider_point()
             if point is None:
                 return []
-            # Each drag ends 40 points right of where it began: the next starts from the divider's new place.
+            # Each drag starts from the divider's place then (PAUSED_DRAG's moves add up to none).
             return [lambda: (lambda p: paused_drag(*p) if p else {"error": "no divider"})(divider_point())
                     for _ in range(4)]
         if gesture == "divider":
-            point = divider_point()
-            if point is None:
+            if divider_point() is None:
                 return []
-            x, y = point
-            moves = []
-            for dx in DRAGS:
-                moves.append(lambda x=x, dx=dx: drag_path(x, y, dx, 0))
-                x += dx
-            return moves
+            return [lambda dx=dx: (lambda p: drag_path(p[0], p[1], dx, 0) if p else {"error": "no divider"})(
+                divider_point()) for dx in DRAGS]
         if gesture == "sidebar":
             return [lambda: driver.call("action.run", {"action": "toggleSidebar"}) for _ in range(4)]
         sample = at_rest()
