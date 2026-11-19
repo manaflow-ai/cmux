@@ -341,6 +341,12 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private var pendingAdjustment: CGFloat = 0
     /// The offset moves since the last sample and how the measure read each (the probe's detail).
     private var trail: [String] = []
+    /// The previous sample's interval as the detail shows it (its source, trail and the correction
+    /// UIKit still owed when it was taken): a shift can start in one interval and land in the next.
+    private var previousInterval = ""
+    /// Depth of the controller's own reads of the layout outside a pass (an anchor, the measure):
+    /// UIKit may apply layout work it deferred inside one.
+    private var querying = 0
     private var scrollDepth = 0
     /// Rows that arrived at the newest end under a resting finger: they slide in when it lifts, or
     /// count on the indicator when a drag starts instead.
@@ -441,7 +447,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             guard let known = self?.heights[id], known.width == width else { return nil }
             return known.height
         }
-        cell.measured = { [weak self] width, height in self?.heights[id] = (width, height) }
+        cell.measured = { [weak self] width, height in
+            self?.heights[id] = (width, height)
+            self?.note("m", height)
+        }
     }
 
     /// The newest row's id (the top of a `.down` list, the bottom of an `.up` one).
@@ -456,6 +465,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         var seen = Set<Item.ID>()
         let newItems = given.filter { seen.insert($0.id).inserted }
         let newOrder = newItems.map(\.id)
+        querying += 1
+        var stillQuerying = true
+        defer { if stillQuerying { querying -= 1 } }
         var changed: [CellID] = []
         var next: [Item.ID: Item] = [:]
         next.reserveCapacity(newItems.count)
@@ -533,6 +545,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // The new rows' move to the newest end is the slide (or, without motion, the jump) below,
         // the list's own: the layout pass doesn't pin them first.
         arriving = direction == .up && follows && arrivals > 0
+        note(anchor == nil ? "@n" : "@a\(changed.count)", 0)
+        stillQuerying = false
+        querying -= 1
         updating = true
         // No diff animation: a page lands out of view, or under a reader who stays put; rows that
         // arrive at the newest end slide in on the list's spring below.
@@ -599,6 +614,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// The rows on screen whose bottom is below the reader's top edge (the first is the one being read),
     /// or, `fromBottom`, those whose top is above the bottom edge, lowest first, by their bottoms.
     private func captureAnchor(fromBottom: Bool = false) -> Anchor? {
+        querying += 1
+        defer { querying -= 1 }
         if fromBottom {
             let bottom = bottomEdgeY
             var rows: [Anchor.Row] = []
@@ -654,6 +671,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         guard let pick = survivors.indices.first(where: stable).map({ survivors[$0].0 }),
               let now = windowY(of: pick.id, bottom: anchor.fromBottom) else { return nil }
         let delta = now - (pick.windowY + shift)
+        note(pick.id == anchor.rows.first?.id ? "r" : "r'", delta)
         guard abs(delta) > 0.25 else { return pick }
         if deliberate { moveOffset(to: collectionView.contentOffset.y + delta) } else { correctOffset(by: delta) }
         return pick
@@ -889,10 +907,15 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private func sampleShift(from source: String) {
         guard !updating, let report = probe?.frameShift, loaded, collectionView.window != nil else { return }
         let width = collectionView.bounds.width
+        querying += 1
         let current = referenceRow()
+        querying -= 1
         let offsetY = collectionView.contentOffset.y
         defer {
             shiftSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY, width: width, offsetY: offsetY) }
+            if probe?.shiftDetail != nil {
+                previousInterval = "\(source):\(trail.joined(separator: ","))/pending=\(pendingAdjustment)"
+            }
             explained = 0
             pendingAdjustment = 0
             trail.removeAll(keepingCapacity: true)
@@ -910,7 +933,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                 + "pending=\(pendingAdjustment) follows=\(followsNewest) tracking=\(collectionView.isTracking) "
                 + "decelerating=\(collectionView.isDecelerating) spring=\(spring.isRunning) arriving=\(arriving) "
                 + "insetTop=\(insets.top) insetBottom=\(insets.bottom) gap=\(bottomGap) rows=\(order.count) "
-                + "trail=\(trail.joined(separator: ","))")
+                + "trail=\(trail.joined(separator: ",")) prev=\(previousInterval)")
         }
     }
 
@@ -1046,7 +1069,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             note("p", delta)
         } else if userMove {
             explainedMoves += 1
-            let kind = scrollView.isDragging ? "d" : scrollView.isTracking ? "t" : "u"
+            let kind = (querying > 0 ? "Q" : "") + (scrollView.isDragging ? "d" : scrollView.isTracking ? "t" : "u")
             if let request = collectionView.offsetRequest {
                 // The set asked for the finger's or the fling's step; what it moved beyond that is
                 // UIKit's (once per set: a callback nested in the same set is all UIKit's).
