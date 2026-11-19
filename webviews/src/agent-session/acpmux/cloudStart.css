@@ -265,9 +265,9 @@
    one is in the normal ink with a filled mark, the rest are muted. `count` is one caption; `list` a row per step. */
 .acpmux-cloud-steps { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-2); margin: 0 0 var(--ds-space-1); padding: 0; list-style: none; color: var(--agent-muted); font-size: var(--text-caption); line-height: var(--text-caption--line-height); }
 .acpmux-cloud-steps[data-look="list"] { flex-direction: column; align-items: flex-start; gap: var(--ds-space-1); }
-.acpmux-cloud-steps__step { display: inline-flex; align-items: center; gap: 6px; }
-.acpmux-cloud-steps[data-look="rail"] .acpmux-cloud-steps__step + .acpmux-cloud-steps__step::before { content: ""; width: 12px; height: 1px; margin-right: 2px; background: currentColor; opacity: 0.4; }
-.acpmux-cloud-steps__mark { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; border: 1px solid currentColor; line-height: 1; font-variant-numeric: tabular-nums; }
+.acpmux-cloud-steps__step { display: inline-flex; align-items: center; gap: calc(var(--ds-space-1) + var(--grid-half-step)); }
+.acpmux-cloud-steps[data-look="rail"] .acpmux-cloud-steps__step + .acpmux-cloud-steps__step::before { content: ""; width: var(--ds-space-3); height: var(--cmux-hairline); margin-right: var(--grid-half-step); background: currentColor; opacity: 0.4; }
+.acpmux-cloud-steps__mark { display: inline-flex; align-items: center; justify-content: center; width: var(--ds-icon-16); height: var(--ds-icon-16); border-radius: 50%; border: var(--cmux-hairline-ring) solid currentColor; line-height: 1; font-variant-numeric: tabular-nums; }
 .acpmux-cloud-steps__step[data-step="done"] .acpmux-cloud-steps__mark { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 10%, transparent); color: var(--agent-soft); }
 .acpmux-cloud-steps__step[data-step="current"] { color: var(--agent-text); font-weight: 600; }
 .acpmux-cloud-steps__step[data-step="current"] .acpmux-cloud-steps__mark { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 24%, transparent); color: var(--agent-text); }
