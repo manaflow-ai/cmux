@@ -172,7 +172,9 @@ impl ConfigStore {
         }
         match (change, kept) {
             (Some(change), Some(mut kept)) => {
-                kept.keys.extend(change.keys.into_iter().filter(|key| !kept.keys.contains(key)));
+                let new: Vec<String> =
+                    change.keys.into_iter().filter(|key| !kept.keys.contains(key)).collect();
+                kept.keys.extend(new);
                 Some(kept)
             }
             (change, kept) => kept.or(change),
