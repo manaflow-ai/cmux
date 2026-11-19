@@ -126,9 +126,28 @@ enum AgentHandlers {
                 return nil
             }))
         })
+        // Settings › Computer Use › Saved Approvals (the page's own buttons and the CLI): the worker's
+        // approvals, through the daemon's `computer-use-approvals` on this verified app's connection.
+        for id in ["computerUse.approval.forget", "computerUse.approval.set"] as [ActionID] {
+            registry.bindEffect(id, effect: { invocation in
+                guard let app = (invocation["appId"] ?? invocation["app_id"])?.stringValue, !app.isEmpty else { return .refused(ComputerUseSessionStrings.noApp) }
+                let decision = invocation["decision"]?.stringValue
+                if id == "computerUse.approval.set", decision != "always", decision != "never" {
+                    return .refused(ComputerUseSessionStrings.noDecision)
+                }
+                let remote = context.services.cmuxRemote
+                // action-wait-allow: the saved approvals live in cmux Remote's Computer Use worker, another process.
+                return .waiting(.externalProcess) {
+                    do { try await remote.editComputerUseApproval(appID: app, decision: id == "computerUse.approval.set" ? decision : nil) } catch {
+                        return ActionWorkFailure(String(describing: error))
+                    }
+                    return nil
+                }
+            })
+        }
         registry.bind("palette.computerUse.accessibility", run: { _ in context.services.onboarding.computerUseSetup.open(.accessibility) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
-        registry.bindAgentPane { invocation in
+        registry.bindAgentPane(customizeRows: { context.services.settings?.snapshot.customizeFromTheApp == true }) { invocation in
             if openOnHost(invocation, context: context) { return }
             openLocalChat(invocation, context: context)
         }
@@ -278,12 +297,12 @@ enum AgentHandlers {
         AgentShareActions(host: context.services).bind(into: registry)
         AgentTeamsLaunch.bind(into: registry, context: context)
         let services = context.services
-        let helper = ComputerUseHelperDaemon.shared
         ComputerUseHandlers.bind(
             into: registry,
-            sessions: CuaComputerUseSessions(configuration: { helper.configuration },
-                                             phase: { [weak services] in services?.onboarding.computerUseSetup.phase ?? .off },
-                                             confirmRunning: { helper.confirmRunning() }),
+            sessions: CmuxRemoteComputerUseSessions(remote: services.cmuxRemote, ready: { [weak services] in
+                let now = services?.onboarding.computerUseSetup.phase ?? .off
+                guard now == .ready || now == .starting else { throw ComputerUseSessionError.notRunning(ComputerUseSessionStrings.notRunning(now)) }
+            }, refused: { ComputerUseSessionError.failed(ComputerUseSessionStrings.hostRefused("\($0)")) }),
             focus: AppComputerUseFocus(services: services))
     }
 
