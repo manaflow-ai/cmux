@@ -3,6 +3,7 @@ import React, { Fragment, useCallback, useContext, useId, useLayoutEffect, useMe
 import { AgentMark } from "../shared/AgentMark";
 import type { ChatAccountList } from "./chatAccounts";
 import { AddAccountDialog } from "./AddAccountDialog";
+import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import { isModelRouterKind } from "./routerKinds";
 import { SearchIcon } from "./ComposerPickers";
 import { reasoningChoices } from "./composerPickerModel";
@@ -818,6 +819,20 @@ export function QuickModelMenu({
         modelRows
       ) : (
         <>
+          {shown?.connect && (
+            // The Claude section's Connect row (ClaudeConnectRow.tsx): the whole row opens the dialog.
+            <MenuItem
+              className="acpmux-quick-item acpmux-quick-connect"
+              disabled={shown.connect.connected}
+              onSelect={() => shown.connect?.onConnect()}
+            >
+              <ClaudeConnectRow
+                name={shown.name}
+                {...(shown.mark ? { mark: shown.mark } : {})}
+                connected={shown.connect.connected}
+              />
+            </MenuItem>
+          )}
           {modelRows}
           {inlineMore && shown && shown.more.length > 0 && (
             <MenuItem

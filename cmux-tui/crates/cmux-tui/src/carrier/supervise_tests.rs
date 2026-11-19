@@ -408,6 +408,10 @@ fn every_link_error_round_trips_on_the_wire() {
         LinkError::InvalidAnswer("y".to_owned()),
         LinkError::NotUp { state: "parked_timeout".to_owned() },
         LinkError::Failed { code: "ticket".to_owned(), message: "ticket: no".to_owned() },
+        LinkError::HelperRefused {
+            code: "handshake".to_owned(),
+            message: "handshake: no key".to_owned(),
+        },
         LinkError::Unsupported,
     ];
     for error in errors {

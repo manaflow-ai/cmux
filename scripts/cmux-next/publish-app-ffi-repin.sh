@@ -115,8 +115,17 @@ fi
 pending_max_min="${REPIN_PENDING_MAX_MIN:-60}"
 read_runs() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the release runs}" gh api "$@"; }
 pending_newer() {
-  local runs id head age jobs pin_time pin_age
+  local runs id head age jobs pin_time pin_age oldest
+  # The clock is the base's oldest unpinned FFI commit, not only this release's: a release run holds for the next one
+  # while every release's own commit is young, so with FFI pushes under REPIN_PENDING_MAX_MIN apart each run held for
+  # the next and nothing pinned (2026-11-18: 44262749842, 44269219861 and 44272641346 each held, 07:56Z to 09:48Z,
+  # and the pin trailed past the 120 min grace). A failed read keeps this release's commit time.
   if pin_time="$(git show -s --format=%ct "$pin_sha" 2>/dev/null)" && [[ "$pin_time" =~ ^[0-9]+$ ]]; then
+    if [[ "$current" =~ ^[0-9a-f]{40}$ && ${#input_paths[@]} -gt 0 ]] &&
+        oldest="$(git log --format=%ct "$current..$pin_sha" -- "${input_paths[@]}" 2>/dev/null | tail -n 1)" &&
+        [[ "$oldest" =~ ^[0-9]+$ ]] && (( oldest < pin_time )); then
+      pin_time="$oldest"
+    fi
     pin_age=$(( ($(date +%s) - pin_time) / 60 ))
     if (( pin_age > pending_max_min )); then
       echo "$TAG's commit is $pin_age min old (bound $pending_max_min min): no newer run holds its re-pin" >&2
@@ -236,12 +245,18 @@ held_pr() {
   # (2026-11-16) had about 200 check runs and the cmux-next checks job red on base reds, so every publish moved it
   # (6f1d36c1, fe47e481, a30893db, c5a8aa57) and no head finished its CI. A failed base read counts every failure.
   # One bounded page per call (scripts/ci/gh_pages.py): the gh quota wrapper refuses an unbounded paginating call.
+  # A cancelled check run is not a failure of the head. This script's own PR edit (the title and body below) starts a
+  # pull_request `edited` run, and a workflow whose group cancels in progress (cmux-next-size-budget.yml) cancels the
+  # head's run with it: on 2026-11-17 #45149's head df6ee657 had its size budget checks cancelled at 08:01Z, a minute
+  # after its push, and at 08:53Z re-pin run 44042861860 moved it for "8 failed check(s) of its own" while its Mac jobs
+  # had been queued 47 minutes. The move cancelled those, the CI started over, and feat-cmux-next stayed red on "Check
+  # the app FFI pin". A head whose cancelled check never runs again is still moved once it is older than the hold.
   failed_names() {
     local runs
     runs="$(GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
       python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$1/check-runs")" || return 1
     jq -r '.[] | select(.conclusion as $c
-      | ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"] | index($c)) | .name' <<<"$runs"
+      | ["failure", "timed_out", "action_required", "startup_failure", "stale"] | index($c)) | .name' <<<"$runs"
   }
   local head_failed base_failed="" staged_on
   head_failed="$(failed_names "$previous")" || return 2

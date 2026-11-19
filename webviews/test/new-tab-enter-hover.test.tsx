@@ -115,7 +115,7 @@ async function type(text: string) {
 const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="option"]')];
 const title = (row: HTMLElement) => row.querySelector(".nt-row-title")?.textContent ?? "";
 const row = (name: string) => rows().find((option) => title(option) === name)!;
-const browserButton = () => host.querySelector<HTMLButtonElement>('.nt-create button[data-create="browser"]')!;
+const browserRow = () => row("New browser tab");
 const returnTarget = () =>
   rows()
     .filter((option) => option.getAttribute("aria-selected") === "true")
@@ -136,19 +136,20 @@ async function press(field: HTMLElement, key: string, init: KeyboardEventInit = 
 }
 
 for (const order of [undefined, "chat"] as const) {
-  for (const target of ["create button", "palette row"] as const) {
+  for (const target of ["create row", "palette row"] as const) {
     test(`Return sends the prompt to Claude while the pointer rests on another ${target} (${order ?? "intent"})`, async () => {
       const calls: unknown[][] = [];
       await render(calls, order);
-      const field = await type("helo");
+      const text = target === "create row" ? "new browser" : "helo";
+      const field = await type(text);
       expect(title(rows()[0]!)).toBe("Ask Claude Code");
-      await hover(target === "create button" ? browserButton() : row("Search the web for helo"));
+      await hover(target === "create row" ? browserRow() : row("Search the web for helo"));
       // Hover leaves the Ask row as the keyboard's Return target.
       expect(returnTarget()).toEqual(["Ask Claude Code"]);
       expect(field.getAttribute("aria-activedescendant")).toBe(rows()[0]!.id);
       const enter = await press(field, "Enter");
       expect(enter.defaultPrevented).toBe(true);
-      expect(calls).toEqual([ASK_HELO]);
+      expect(calls).toEqual([["ask", "claude", text, undefined, "claude-opus-5-5"]]);
     });
   }
 }
@@ -232,14 +233,14 @@ test("a click still runs the row it presses", async () => {
   expect(calls).toEqual([["search", "helo"]]);
 });
 
-test("a click on a create button still runs its action with suggestions open", async () => {
+test("a click on a create row still runs its action with suggestions open", async () => {
   const calls: unknown[][] = [];
   await render(calls, "chat");
-  await type("helo");
-  const browser = browserButton();
+  await type("new browser");
+  const browser = browserRow();
   await hover(browser);
   expect(returnTarget()).toEqual(["Ask Claude Code"]);
-  await act(async () => browser.click());
+  await act(async () => browser.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true })));
   expect(calls).toEqual([["create", "browser"]]);
 });
 

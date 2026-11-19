@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1423,
+    "entries": 1430,
     "shortcuts": 193
   },
   "sections": [
@@ -7006,6 +7006,12 @@
           "command": "cmux cloud apply-machine-config"
         },
         {
+          "id": "cloud.team.archive",
+          "title": "Archive Cloud Session",
+          "shortcut": null,
+          "command": "cmux cloud archive-session"
+        },
+        {
           "id": "cloudTunnelAttach",
           "title": "Attach Cloud Tunnel Network",
           "shortcut": null,
@@ -7066,6 +7072,12 @@
           "command": "cmux accounts github-connect"
         },
         {
+          "id": "cloud.team.copyLink",
+          "title": "Copy Cloud Session Link",
+          "shortcut": null,
+          "command": "cmux cloud copy-session-link"
+        },
+        {
           "id": "cloudCopyMachineID",
           "title": "Copy Machine ID",
           "shortcut": null,
@@ -7118,6 +7130,12 @@
           "title": "Detach Cloud Tunnel Network",
           "shortcut": null,
           "command": "cmux cloud tunnel-detach"
+        },
+        {
+          "id": "cloud.team.follow",
+          "title": "Follow",
+          "shortcut": null,
+          "command": "cmux cloud follow"
         },
         {
           "id": "palette.cloud.fork",
@@ -7312,6 +7330,12 @@
           "command": "cmux cloud file-read"
         },
         {
+          "id": "cloud.team.reassign",
+          "title": "Reassign to…",
+          "shortcut": null,
+          "command": "cmux cloud reassign"
+        },
+        {
           "id": "accounts.refresh",
           "title": "Refresh Accounts",
           "shortcut": null,
@@ -7390,6 +7414,12 @@
           "command": "cmux cloud preview-share"
         },
         {
+          "id": "cloud.team.showSection",
+          "title": "Show Team Section",
+          "shortcut": null,
+          "command": "cmux cloud show-team-section"
+        },
+        {
           "id": "palette.auth.signIn",
           "title": "Sign In",
           "shortcut": null,
@@ -7424,6 +7454,18 @@
           "title": "Switch Active Team…",
           "shortcut": "⌥⇧⌘T",
           "command": null
+        },
+        {
+          "id": "cloudTransferLocal",
+          "title": "Transfer to This Mac",
+          "shortcut": null,
+          "command": "cmux cloud transfer-local"
+        },
+        {
+          "id": "cloud.team.unfollow",
+          "title": "Unfollow",
+          "shortcut": null,
+          "command": "cmux cloud unfollow"
         },
         {
           "id": "cloudFileWrite",

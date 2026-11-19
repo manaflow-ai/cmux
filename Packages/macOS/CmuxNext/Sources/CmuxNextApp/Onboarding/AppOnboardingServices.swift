@@ -123,9 +123,9 @@ final class AppOnboardingServices: OnboardingServices {
     private lazy var computerUseSource: any ComputerUsePermissionSource = {
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
-            // The NIGHTLY's helper path, so the window and panel show its icon and name when it is installed.
-            let helper = CuaHelperIdentity.installedCandidates(isDevBuild: true).first
-            return MockComputerUsePermissionSource(helperAppURL: helper ?? URL(fileURLWithPath: "/Applications/cmux Computer Use.app"))
+            // This build's cmux Remote, so the window and panel show its icon and name when it is embedded.
+            let remote = ComputerUseRemoteBundle.embedded()?.appURL
+            return MockComputerUsePermissionSource(helperAppURL: remote ?? URL(fileURLWithPath: "/Applications/cmux.app/Contents/Library/cmux Remote.app"))
         }
         #endif
         return AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup)

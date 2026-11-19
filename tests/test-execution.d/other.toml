@@ -14,6 +14,10 @@ path = "tests/test_appcast_minimum_system_version.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_appcast_require_arm64.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_asc_developer_id_app.py"
 lane = "linux-guard"
 
@@ -140,10 +144,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_compose_stable_appcast.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_computer_use_helper_icon_depth.py"
 lane = "linux-guard"
 
 [[test]]
@@ -340,6 +340,11 @@ path = "tests/test_language_boundaries.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_launch_tti_check.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_launch_tti_check.py"
+
+[[test]]
 path = "tests/test_layout_grid.py"
 lane = "linux-guard"
 
@@ -475,10 +480,6 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_normalize_pbxproj.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_notarize_computer_use_helper.py"
-lane = "legacy"
 
 [[test]]
 path = "tests/test_notary_submit_retry.py"
@@ -747,6 +748,11 @@ lane = "manual"
 reason = "Run by the lane that changes side-instance.sh (no new CI tests): python3 tests/test_side_instance_remake_clears_old_identity.py; needs only bash and python3."
 
 [[test]]
+path = "tests/test_side_instance_stale_default.py"
+lane = "manual"
+reason = "Run by the lane that changes side-instance.sh (no new CI tests): python3 tests/test_side_instance_stale_default.py; needs only bash and python3."
+
+[[test]]
 path = "tests/test_sidebar_row_oracle.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Synthetic films for scripts/cmux-next/sidebar_row_oracle.py, the independent judge of sidebar row insert and remove (cmux-ad m23); run python3 -I tests/test_sidebar_row_oracle.py yourself after changing the oracle (under 2 s, no app, no build)."
@@ -867,6 +873,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ui_review_advisory.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_unittest_shard.py"
+lane = "manual"
+reason = "Run by the lane that changes tests/unittest_shard.py (no new CI tests): python3 -I tests/test_unittest_shard.py; needs only python3."
 
 [[test]]
 path = "tests/test_update_release_tag.py"

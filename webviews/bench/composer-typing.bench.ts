@@ -17,15 +17,25 @@
 //   stream    with --modes idle,stream: the same keys while the chat streams a reply (60 deltas/s, a tool call every
 //             30), and, with no typing, the composer's renders per streamed event (reply text and tool calls, then a
 //             tool's output ticking while another chat changes: debug loadRun and loadTick). A stream event the
-//             composer does not show should render it 0 times.
+//             composer does not show should render it 0 times. The same run reports the transcript's and its rows'
+//             renders per streamed event (transcript_per_stream_event, rows_per_stream_event): the per-key columns
+//             divide the window's renders by the key count, so only these separate the stream's own draw cost from
+//             anything a keypress causes. One render per event is a coalesced draw; more is a frame it will redraw.
+//             STREAM-SPANS lines carry that run's spans (perf.ts `span`), which name the work each streamed frame
+//             spends its time in (flush.scroll, flush.drawn, vt.body, row.renders) where a render count cannot.
 // Every length and mode is a fresh browser process and page. With `--arms A=DIR,B=DIR` it measures two webviews
 // trees in one run, interleaved A B B A for `--rounds` rounds (default 6) with a base-against-base noise floor, and
 // prints each arm's median and spread (composer-arms.ts).
 //   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream] [--dev] [--profile]
-//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor]
+//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--queue 10] [--engine webkit] [--cold]
+// With --queue N the chat has N prompts waiting in its queue above the composer (ComposerQueue), which a key
+// should neither render nor lay out.
+// `--engine webkit` types the same keys in Playwright's WebKit, the engine the Mac app ships: the page's own typing
+// rows (to_listener, to_work, to_frame) and the render counts only, since the layout, style, script and task columns,
+// --profile and --trace read Chromium's DevTools protocol.
 /// <reference types="bun" />
 import path from "node:path";
-import { chromium } from "./browsers";
+import { chromium, webkit } from "./browsers";
 import { requireProductionReact, installReactWatch } from "./support/benchPage";
 import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
@@ -53,6 +63,13 @@ const webviews = path.resolve(import.meta.dir, "..");
 const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
 const FLOOR = !argv.includes("--no-floor");
+const COLD = argv.includes("--cold");
+const ENGINE = flag("--engine") ?? "chromium";
+if (ENGINE !== "chromium" && ENGINE !== "webkit") throw new Error(`--engine must be chromium or webkit, not ${ENGINE}`);
+if (ENGINE === "webkit" && (PROFILE || TRACE))
+  throw new Error("--profile and --trace read Chromium's DevTools protocol");
+/// Prompts waiting in the chat's queue while the keys are typed (0: none).
+const QUEUED = Number(flag("--queue") ?? 0);
 /// What an A/B of arms summarizes: key to frame, key to listener and the long tasks.
 const ARM_METRICS = [
   "to_frame_p50",
@@ -83,11 +100,12 @@ async function openChat(page: Page, port: number, turns: number) {
   // right after `goto` read as "no react-dom on this page" (bench/support/benchPage.ts).
   await requireProductionReact(page, { dev: DEV });
   const seeded = (await page.evaluate(
-    (count) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true }),
-    turns,
+    ([count, queued]) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true, queued }),
+    [turns, QUEUED] as const,
   )) as Record<string, any>;
   if (seeded.error) throw new Error(`loadSeed: ${seeded.error}`);
   await page.locator(PROMPT).first().waitFor({ timeout: 20_000 });
+  if (QUEUED > 0) await page.locator(".acpmux-composer-queue .acpmux-queued").first().waitFor({ timeout: 20_000 });
   return seeded.rows as number;
 }
 
@@ -162,14 +180,15 @@ const serveOptions = {
 
 /// One length in one mode on the pane served at `port`: a fresh browser process and page, the keys typed, its row.
 async function measure(port: number, length: number, mode: "idle" | "stream"): Promise<Record<string, unknown>> {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await (ENGINE === "webkit" ? webkit : chromium).launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
     await page.addInitScript(longTaskProbe);
     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
-    const cdp = await page.context().newCDPSession(page);
-    await cdp.send("Performance.enable");
-    const metrics = async () => {
+    const cdp = ENGINE === "webkit" ? undefined : await page.context().newCDPSession(page);
+    await cdp?.send("Performance.enable");
+    const metrics = async (): Promise<Record<string, number>> => {
+      if (!cdp) return {};
       const { metrics: list } = (await cdp.send("Performance.getMetrics")) as {
         metrics: { name: string; value: number }[];
       };
@@ -178,17 +197,20 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       );
     };
     await page.locator(PROMPT).first().click();
-    // Warm-up: the first keys load the composer's lazy parts (emoji data, the mention index).
-    for (const key of "warm") await page.keyboard.press(key);
-    await page.waitForTimeout(500);
-    for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
+    // Warm-up: the first keys load the composer's lazy parts (emoji data, the mention index). With --cold the
+    // measured keys are the chat's first, as the perf cron's chat-anim part types them (agent-engine-bench.py).
+    if (!COLD) {
+      for (const key of "warm") await page.keyboard.press(key);
+      await page.waitForTimeout(500);
+      for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
+    }
     await page.waitForTimeout(500);
     await page.evaluate(() => {
       const debug = (window as any).cmuxAcpmuxDebug;
       debug.resetTyping();
       debug.renders();
     });
-    if (PROFILE) {
+    if (PROFILE && cdp) {
       await cdp.send("Profiler.enable");
       await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
       await cdp.send("Profiler.start");
@@ -230,7 +252,7 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
         () => (window as unknown as { __longTasks?: { at: number; ms: number }[] }).__longTasks ?? [],
       )) as { at: number; ms: number }[]
     ).filter((task) => task.at + task.ms >= since && task.at <= until);
-    if (PROFILE) {
+    if (PROFILE && cdp) {
       const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
       printProfile(length, profile);
     }
@@ -239,14 +261,14 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       return { renders: debug.renders(), typing: debug.typingStats() };
     })) as { renders: Record<string, number>; typing: Record<string, any> };
     await streaming;
-    if (typedEvents) {
+    if (typedEvents && cdp) {
       await cdp.send("DOM.getDocument", { depth: 0 });
       await reportTrace(`${mode}-typing ${rows}rows`, typedEvents, { keys: KEYS }, mapUrl, cdp);
       console.log(
         `STYLE-TRACE ${mode}-typing ${rows}rows WINDOW ${JSON.stringify({ keys: KEYS, window_ms: Math.round(typedMs) })}`,
       );
     }
-    if (TRACE && mode === "stream") {
+    if (TRACE && cdp && mode === "stream") {
       let run: Record<string, any> = {};
       const events = await traceWindow(browser, page, async () => {
         run = (await page.evaluate(() =>
@@ -264,11 +286,32 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
     // (loadRun), then while a tool's output ticks and another chat changes (loadTick).
     let composerPerEvent: number | undefined;
     let composerPerTick: number | undefined;
+    /// The transcript's and its rows' renders per streamed event with nobody typing: the stream's own
+    /// draw cost, which the per-key columns above divide by the key count and so cannot separate. One
+    /// render per event is a coalesced draw; more than one is the stream drawing a frame it will redraw.
+    let transcriptPerEvent: number | undefined;
+    let rowsPerEvent: number | undefined;
     if (mode === "stream") {
       const run = (await page.evaluate(() =>
         (window as any).cmuxAcpmuxDebug.loadRun({ seconds: 3, chunk_ms: 16, tool_every: 10, scroll_speed: 0 }),
-      )) as { renders: Record<string, number>; deltas: number; tools: number };
-      composerPerEvent = Math.round(((run.renders.composer ?? 0) / Math.max(1, run.deltas + run.tools)) * 1000) / 1000;
+      )) as {
+        renders: Record<string, number>;
+        deltas: number;
+        tools: number;
+        spans?: Record<string, { p50_ms?: number; p95_ms?: number; max_ms?: number }>;
+      };
+      const runEvents = Math.max(1, run.deltas + run.tools);
+      // Which work each streamed frame spends its time in, with nobody typing: the spans name the
+      // update that draws the transcript again (perf.ts `span`), which a render count cannot.
+      console.log(
+        `STREAM-SPANS ${rows}rows ${JSON.stringify({ events: runEvents, spans: run.spans, renders: run.renders })}`,
+      );
+      composerPerEvent = Math.round(((run.renders.composer ?? 0) / runEvents) * 1000) / 1000;
+      transcriptPerEvent = Math.round(((run.renders.transcript ?? 0) / runEvents) * 1000) / 1000;
+      const runRows = Object.entries(run.renders)
+        .filter(([name]) => name.startsWith("row:") || name.startsWith("content:"))
+        .reduce((total, [, value]) => total + value, 0);
+      rowsPerEvent = Math.round((runRows / runEvents) * 1000) / 1000;
       const tick = (await page.evaluate(() =>
         (window as any).cmuxAcpmuxDebug.loadTick({ seconds: 3, tick_ms: 50, sidebar_ms: 100, scroll_speed: 0 }),
       )) as { renders: Record<string, number>; ticks?: number; sidebar?: number };
@@ -289,6 +332,8 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       pane: per(renders.pane ?? 0),
       transcript: per(renders.transcript ?? 0),
       composer: per(renders.composer ?? 0),
+      queue: per(renders["composer:queue"] ?? 0),
+      queued: QUEUED,
       rowRenders: per(sum("row:") + sum("content:")),
       rowFrames: per(sum("frame:")),
       layouts: per(delta("LayoutCount")),
@@ -306,6 +351,8 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       long_tasks: long.length,
       composer_per_stream_event: composerPerEvent,
       composer_per_tick_event: composerPerTick,
+      transcript_per_stream_event: transcriptPerEvent,
+      rows_per_stream_event: rowsPerEvent,
       nativePosts: JSON.stringify(typing.native_posts ?? {}),
       busiest: Object.entries(renders)
         .sort((a, b) => b[1] - a[1])

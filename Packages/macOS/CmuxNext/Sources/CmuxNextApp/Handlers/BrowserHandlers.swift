@@ -222,7 +222,7 @@ enum BrowserHandlers {
 
     /// `j`, `k`, `gg`, Shift-G in either engine (``BrowserPageScroll``): from a page's unhandled letters or the palette.
     private static func bindScroll(into registry: ActionRegistry, context: AppActionContext) {
-        for scroll in BrowserPageScroll.allCases { _ = registry.bindEffect(ActionID(rawValue: scroll.actionID), requires: nil, effect: { try context.page($0).tab.scroll(scroll); return .done }) }
+        for scroll in BrowserPageScroll.allCases { _ = registry.bindEffect(ActionID(rawValue: scroll.actionID), requires: nil, effect: { context.services.linkHints.scrollKeys.run(scroll, on: try context.page($0).tab); return .done }) }
     }
 
     /// `f` and `F` in a page of either engine (`LinkHintController`).
