@@ -22,6 +22,9 @@ final class NextDisplayFrame: NSObject {
         }
         let frame = NextDisplayFrame(work)
         let link = CADisplayLink(target: frame, selector: #selector(tick(_:)))
+        frame.link = link
+        waiting.append(frame)
+        observeBackground()
         link.add(to: .main, forMode: .common)
         #else
         Task { @MainActor in work() }
@@ -35,9 +38,33 @@ final class NextDisplayFrame: NSObject {
     }
 
     #if os(iOS)
+    /// Frames scheduled and not yet run: going to the background runs them, since their links
+    /// stop ticking until the app is active again.
+    private static var waiting: [NextDisplayFrame] = []
+    private static var backgroundObserver: (any NSObjectProtocol)?
+    private var link: CADisplayLink?
+
+    private static func observeBackground() {
+        guard backgroundObserver == nil else { return }
+        backgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                let frames = waiting
+                for frame in frames { frame.run() }
+            }
+        }
+    }
+
     /// The link holds its target until invalidated: one tick, then both go.
     @objc private func tick(_ link: CADisplayLink) {
-        link.invalidate()
+        run()
+    }
+
+    private func run() {
+        link?.invalidate()
+        link = nil
+        Self.waiting.removeAll { $0 === self }
         let work = work
         self.work = nil
         work?()
