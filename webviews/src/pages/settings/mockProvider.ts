@@ -64,6 +64,9 @@ import {
   type LibraryRun,
   type ModelsRun,
   type ModelsState,
+  type AgentConfigAgent,
+  type AgentConfigRun,
+  type AgentConfigState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -72,6 +75,7 @@ import { MockAgents } from "./mockAgents";
 import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
 import { mockLibrary, runLibrary } from "./mockLibrary";
+import { mockAgentConfig, runAgentConfigMock } from "./mockAgentConfig";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
 
@@ -745,6 +749,18 @@ export class MockSettingsProvider {
         };
         return {};
       },
+      "cmux.settings.agentConfig": (params) => {
+        const run = params as AgentConfigRun;
+        // Like the host while labs.agentCustomization is off there.
+        if (this.agentConfigDisabled) return { enabled: false };
+        // Like the host: changes and opens are the person's; a get only reads.
+        if (run.verb !== "get") this.agentConfigRuns.push(run);
+        const current = this.agentConfig[run.agent];
+        if (!current) throw new ProtocolError("cmux.settings.invalid", "agent is claude or codex");
+        const { state, answer } = runAgentConfigMock(current, run);
+        this.agentConfig[run.agent] = state;
+        return answer;
+      },
       "cmux.app.clipboard.write": (params) => {
         this.clipboard = String(params.text);
         return {};
@@ -818,6 +834,7 @@ export class MockSettingsProvider {
       "cmux.settings.agentTools.run",
       "cmux.settings.mcp.state",
       "cmux.settings.mcp.run",
+      "cmux.settings.agentConfig",
       "cmux.settings.theme.set",
       "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
@@ -1490,6 +1507,13 @@ export class MockSettingsProvider {
       },
     ],
   };
+  /** Settings > Agents > Claude Code & Codex: each agent's settings as `agent-config settings get`
+   * answers them (mockAgentConfig.ts); `set` and `unset` change them in memory. */
+  agentConfig: Record<AgentConfigAgent, AgentConfigState> = mockAgentConfig();
+  /** Every Claude Code & Codex change and open the page sent (a get is not recorded). */
+  readonly agentConfigRuns: AgentConfigRun[] = [];
+  /** The host's lab is off: every call answers `{enabled: false}`. */
+  agentConfigDisabled = false;
   /** MCP Servers gestures the page sent (sign in, remove). */
   readonly mcpServerRuns: McpServersRun[] = [];
   /** Agent integrations gestures the page sent (install, repair, remove). */

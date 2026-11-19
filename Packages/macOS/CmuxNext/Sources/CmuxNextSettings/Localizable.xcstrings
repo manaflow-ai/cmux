@@ -228225,6 +228225,270 @@
           }
         }
       }
+    },
+    "settings.labs.agentCustomization": {
+      "comment": "Settings > Advanced > Labs: the switch that shows Claude Code's and Codex's own settings in Settings (product names stay as is)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code and Codex Customization"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تخصيص Claude Code و Codex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prilagođavanje za Claude Code i Codex"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpasning af Claude Code og Codex"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anpassung von Claude Code und Codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalización de Claude Code y Codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personnalisation de Claude Code et Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizzazione di Claude Code e Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code と Codex のカスタマイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការប្ដូរតាមបំណង Claude Code និង Codex"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code 및 Codex 사용자화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpasning av Claude Code og Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostosowanie Claude Code i Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalização do Claude Code e do Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройка Claude Code и Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การปรับแต่ง Claude Code และ Codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code ve Codex özelleştirme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштування Claude Code і Codex"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tùy chỉnh Claude Code và Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code 和 Codex 自定义"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code 與 Codex 自訂"
+          }
+        }
+      }
+    },
+    "settings.labs.agentCustomization.help": {
+      "comment": "Settings > Advanced > Labs: what the Claude Code and Codex Customization switch shows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows and edits Claude Code's and Codex's own settings in Settings > Agents."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض إعدادات Claude Code و Codex ويحرّرها في الإعدادات > الوكلاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazuje i uređuje postavke za Claude Code i Codex u Postavke > Agenti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser og redigerer Claude Codes og Codex' egne indstillinger i Indstillinger > Agenter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt und bearbeitet die eigenen Einstellungen von Claude Code und Codex unter Einstellungen > Agenten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra y edita la configuración propia de Claude Code y Codex en Configuración > Agentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche et modifie les réglages de Claude Code et Codex dans Réglages > Agents."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra e modifica le impostazioni di Claude Code e Codex in Impostazioni > Agenti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定 > エージェント で Claude Code と Codex 自身の設定を表示・編集します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញ និងកែការកំណត់ផ្ទាល់របស់ Claude Code និង Codex ក្នុង ការកំណត់ > ភ្នាក់ងារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설정 > 에이전트에서 Claude Code와 Codex의 자체 설정을 보여 주고 편집합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser og redigerer Claude Codes og Codex' egne innstillinger i Innstillinger > Agenter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuje i edytuje ustawienia Claude Code i Codex w Ustawienia > Agenci."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra e edita as configurações do Claude Code e do Codex em Configurações > Agentes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает и изменяет настройки Claude Code и Codex в разделе Настройки > Агенты."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงและแก้ไขการตั้งค่าของ Claude Code และ Codex ใน การตั้งค่า > เอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code ve Codex'in kendi ayarlarını Ayarlar > Ajanlar'da gösterir ve düzenler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показує та змінює налаштування Claude Code і Codex у Налаштування > Агенти."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị và chỉnh sửa cài đặt riêng của Claude Code và Codex trong Cài đặt > Tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在“设置 > 智能体”中显示并编辑 Claude Code 和 Codex 自己的设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在「設定 > 代理程式」中顯示並編輯 Claude Code 與 Codex 自己的設定。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

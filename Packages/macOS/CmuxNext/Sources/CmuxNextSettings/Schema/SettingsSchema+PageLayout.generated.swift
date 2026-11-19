@@ -68,6 +68,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case worktreeSetup
         /// Settings > Cloud > Models for Cloud: whether Claude, ChatGPT and an API key are set up for Cloud chats (a connection with serves_cloud), each with its Set up way in (Settings > Models' Add a Connection steps) and a plain note when only a This Mac only login exists (cmux-tui/docs/model-connections.md Revision 2); deep links #/settings/cloud?focus=cloud.claude, cloud.chatgpt, cloud.apiKey.
         case cloudModels
+        /// Settings > Agents > Claude Code & Codex (labs.agentCustomization, off by default: the card draws nothing): each agent's effective settings with the scope each comes from, the curated keys to edit and Open file per config file (Settings section), with sibling sections for MCP servers, skills and hooks; `cmux.settings.agentConfig`, which the app runs through the bundled `cmux --json agent-config`.
+        case agentCustomization
         /// Settings > Models: the person's connections (Mac logins, ChatGPT plan, API keys) in the order a thread uses them, Spread usage, the organization's shared keys, and the members policy (cmux-tui/docs/model-connections.md); `cmux.settings.models.*`.
         case models
     }

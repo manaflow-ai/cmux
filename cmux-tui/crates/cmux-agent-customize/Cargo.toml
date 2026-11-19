@@ -1,0 +1,23 @@
+[package]
+name = "cmux-agent-customize"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Claude Code and Codex customization from cmux: read and edit each agent's own config (skills and slash commands, MCP servers, hooks, settings) in the agent's own files, round-tripping what cmux does not know"
+
+[lints]
+workspace = true
+
+[dependencies]
+# settings.json edits in place, byte for byte outside the edited value (cmux-config jsonc).
+cmux-config.workspace = true
+# The codex config.toml lock every cmux writer of it takes.
+cmux-tui-platform.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+toml_edit.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

@@ -98,6 +98,7 @@ cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
 cmux-customize.workspace = true
+cmux-agent-customize.workspace = true
 cmux-customize-recipes.workspace = true
 cmux-usage-patterns.workspace = true
 # `cmux ext dev`: the manifest validator the daemon runs, and the folder watch.

@@ -6,6 +6,8 @@
 
 #[cfg(unix)]
 mod action_hint;
+#[cfg(unix)]
+mod agent_config;
 mod agent_input_hint;
 mod agent_message;
 #[cfg(unix)]
@@ -534,6 +536,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "chat",
     "vm",
     "customize",
+    "agent-config",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -876,6 +879,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
+        .or_else(|| agent_config::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))

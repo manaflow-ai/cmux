@@ -94,6 +94,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var machineJoin = CmuxConfigSnapshot.machineJoinDefault
     /// `labs.liveCode`: a live code build applies Swift patches from ~/Library/Caches/cmux-next/live-code (read at launch); off when unset.
     public var liveCode = CmuxConfigSnapshot.liveCodeDefault
+    /// `labs.agentCustomization`: Settings > Agents > Claude Code & Codex (its card and `cmux.settings.agentConfig`); off when unset.
+    public var agentCustomization = CmuxConfigSnapshot.agentCustomizationDefault
     /// `customize.fromTheApp`: the Customize Inspector (hold Option) and right-click Customize…; off when unset.
     public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
@@ -376,6 +378,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
         snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
         snapshot.take(Self.parseLabsToggle(root, path: liveCodePath, fallback: liveCodeDefault), \.liveCode)
+        snapshot.take(Self.parseLabsToggle(root, path: agentCustomizationPath, fallback: agentCustomizationDefault), \.agentCustomization)
         snapshot.take(Self.parseLabsToggle(root, path: customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
