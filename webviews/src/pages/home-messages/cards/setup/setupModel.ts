@@ -187,7 +187,7 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
     detail: state.account.signedIn ? (state.account.email ?? t("home.setup.signedIn")) : t("home.setup.account.detail"),
     ...(!state.account.signedIn && {
       action: { label: t("home.setup.signIn"), run: { kind: "signInAccount" } as const },
-      ...(state.account.signInBackend && { note: state.account.signInBackend }),
+      ...(state.account.signInBackend ? { note: state.account.signInBackend } : {}),
     }),
   });
   steps.push({
