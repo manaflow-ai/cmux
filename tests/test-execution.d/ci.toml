@@ -112,6 +112,11 @@ path = "tests/test_ci_cmux_tui_latest_acpmux.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cmux_tui_mac_legs_cargo_groups.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Runs the Mac build steps of cmux-tui-build-package.yml (Build cmux-tui (native), Build cmux-tui (macOS cross)) with a fake cargo and a fake sysctl hw.memsize and checks their cargo builds run at once through cargo-groups.sh at 40 GiB or more and one after another below, and every binary and .dSYM lands in target/<triple>/release; run python3 tests/test_ci_cmux_tui_mac_legs_cargo_groups.py yourself after changing those steps, scripts/ci/cmux-tui-mac-cargo-builds.sh or cargo-groups.sh (about 17 s, no build)."
+
+[[test]]
 path = "tests/test_ci_cmux_tui_tree_targets.py"
 lane = "linux-guard"
 
