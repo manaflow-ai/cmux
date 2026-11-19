@@ -66,7 +66,7 @@ class EmbedPhaseTests(unittest.TestCase):
         (bundle / "cmux-files-host").write_text("#!/bin/sh\nexit 0\n")
         self.zip = self.tmp / "helper.zip"
         subprocess.run(["ditto", "-c", "-k", "--keepParent", str(self.tmp / "asset" / NAME), str(self.zip)], check=True)
-        stub = scripts / "ensure-cua-pinned-asset.sh"
+        stub = scripts / "ensure-signed-pinned-asset.sh"
         stub.write_text(f"#!/bin/sh\necho '{self.zip}'\n")
         stub.chmod(0o755)
         self.script = scripts / EMBED.name
@@ -139,10 +139,14 @@ class AppGateTests(unittest.TestCase):
 
     def test_the_embed_phase_reruns_when_the_configuration_or_bundle_id_changes(self) -> None:
         text = PBXPROJ.read_text()
-        phase = text[text.index("/* Embed Computer Use helper (dev) */ = {"):]
-        phase = phase[:phase.index("runOnlyForDeploymentPostprocessing")]
+        phase = text[text.index("/* Embed cmux Remote (dev) */ = {"):]
+        phase = phase[:phase.index("\n\t\t};")]
+        inputs = phase[:phase.index("runOnlyForDeploymentPostprocessing")]
         for key in ["$(CONFIGURATION)", "$(PRODUCT_BUNDLE_IDENTIFIER)", "embed-files-host-dev.sh", "files-host-dev.pin.json"]:
-            self.assertIn(key, phase)
+            self.assertIn(key, inputs)
+        # The phase runs it, before cmux Remote's script (which ends the phase with exec).
+        script = phase[phase.index("shellScript = "):]
+        self.assertLess(script.index("embed-files-host-dev.sh"), script.index("embed-cmux-remote-dev.sh"))
 
     def test_release_and_nightly_workflows_never_mention_it(self) -> None:
         workflows = ROOT / ".github/workflows"

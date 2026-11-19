@@ -38,7 +38,11 @@ extension UpdaterService {
             actions = [.check]
         case .ready(let version):
             json["status"] = .string(UpdaterStrings.readyToInstall)
-            json["detail"] = .string(version.map(UpdaterStrings.foundVersion) ?? UpdaterStrings.restartKeepsSessions)
+            if let held = relaunchHold, held.surfaced {
+                json["detail"] = .string(UpdaterStrings.heldHeadline(held.reason))
+            } else {
+                json["detail"] = .string(version.map(UpdaterStrings.foundVersion) ?? UpdaterStrings.restartKeepsSessions)
+            }
             actions = [.install]
         case .card(let shown):
             let card = Self.settingsQuantized(shown)
