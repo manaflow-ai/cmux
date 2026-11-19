@@ -73,6 +73,10 @@ UNWIRED: set[str] = {
     # No new CI tests (CLAUDE.md): #44697 added it with no step. It reads test-ios.yml only as data (a bot's re-run
     # on a cmux-next lane takes the picker's Blacksmith route); run it by hand when that route changes. Exit: as below.
     "tests/test_ci_ios_bot_rerun_route.py",
+    # lane = "manual": no new CI tests (AGENTS.md:214, Lawrence 2026-10-23). It reads the fast-check workflows only
+    # as data (each routed job's needs and if, and its declared inputs in scripts/ci/fast-check-inputs.json); run
+    # it by hand when fast_check_route.py, that map or a routed workflow changes. Exit: as below.
+    "tests/test_ci_fast_check_route.py",
     # Both are lane = "manual" in tests/test-execution.toml: CLAUDE.md forbids adding CI tests (Lawrence
     # 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"). Each reads a workflow
     # only as data (a fixture nightly.yml; cmux-next.yml for stamp readers). Exit: wire it here if that
