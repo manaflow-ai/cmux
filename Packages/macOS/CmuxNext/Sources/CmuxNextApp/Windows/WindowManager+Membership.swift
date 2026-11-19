@@ -261,7 +261,7 @@ extension WindowManager {
     /// through the usual ephemeral placement. An incognito `windowID` takes none of them: closing it
     /// would discard them, so reconcile gives them to a normal window.
     func fileOpenedMachine(of workspaceID: String, into windowID: String) {
-        guard !fillingOpenedMachine, let daemon = services.machines.daemon(forWorkspace: workspaceID),
+        guard !fillingOpenedMachine, opensMachine(workspaceID), let daemon = services.machines.daemon(forWorkspace: workspaceID),
               services.machines.session(daemon.machineID) != nil else { return }
         fillingOpenedMachine = true
         defer { fillingOpenedMachine = false }
@@ -340,7 +340,7 @@ extension WindowManager {
         // Every Cloud machine the batch opens, once each (a drag can carry several).
         var machines = Set<String>()
         for workspace in workspaces {
-            guard let machine = services.machines.daemon(forWorkspace: workspace)?.machineID, machines.insert(machine).inserted else { continue }
+            guard opensMachine(workspace), let machine = services.machines.daemon(forWorkspace: workspace)?.machineID, machines.insert(machine).inserted else { continue }
             fileOpenedMachine(of: workspace, into: id)
         }
         guard let controller = controller(for: id) else { return nil }
@@ -489,7 +489,7 @@ extension WindowManager {
         // Before the ephemeral placements: one there is not the person opening the machine, and an
         // unopened machine's ephemeral workspace opens no incognito window either.
         claims.background.formIntersection(claims.pending.keys)
-        let unopened = Self.unopenedCloudWorkspaces(cloud) { registered.owner(of: $0) != nil || (placements[$0] != nil && !claims.background.contains($0)) }
+        let unopened = Self.unopenedCloudWorkspaces(cloud, opensMachine: opensMachine) { registered.owner(of: $0) != nil || (placements[$0] != nil && !claims.background.contains($0)) }
         // A background create's claim never places a held workspace (#28609): opening its machine does.
         for id in unopened where claims.background.remove(id) != nil { (claims.pending[id], placements[id]) = (nil, nil); claims.quiet.remove(id) }
         placements.merge(EphemeralWorkspaces.placements(self, live: live.filter { !unopened.contains($0) }, placements: placements)) { claimed, _ in claimed }
@@ -541,12 +541,12 @@ extension WindowManager {
     /// person opened that machine here: one of its workspaces is in a window (open or closed) or
     /// claimed for one (Open Machine, New Cloud Workspace, a run with focus). Until then reconcile
     /// holds them, in no sidebar. Returns the workspaces of each Cloud machine in `machines` (its
-    /// live workspace ids) that has none `opened` says is in a window or claimed for one.
-    static func unopenedCloudWorkspaces(_ machines: [[String]], opened: (String) -> Bool) -> Set<String> {
-        var held = Set<String>()
-        for workspaces in machines where !workspaces.contains(where: opened) { held.formUnion(workspaces) }
-        return held
+    /// live workspace ids) that has none `opened` and `opensMachine` (not only agent chats: a Cloud chat's own joins alone; cmux#45947).
+    static func unopenedCloudWorkspaces(_ machines: [[String]], opensMachine: (String) -> Bool = { _ in true }, opened: (String) -> Bool) -> Set<String> {
+        Set(machines.filter { !$0.contains { opened($0) && opensMachine($0) } }.joined().filter { !opened($0) })
     }
+
+    func opensMachine(_ id: String) -> Bool { services.machines.workspace(id: id)?.0.holdsOnlyAgentChats != true }
 
     private func installWorkspaceListHook(on daemon: DaemonService) {
         guard daemon.store.onWorkspaceListChanged == nil else { return }

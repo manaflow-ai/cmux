@@ -5,7 +5,7 @@ normal in-app update installs the cmux-next release candidate. Nobody else is af
 feed is not touched, and no shipped build reads the test feed.
 
 Test feed: `https://github.com/manaflow-ai/cmux-next-handoff-test/releases/latest/download/appcast.xml`
-(release `rc7-b114`: cmux-next 1.0.0, build 114, Developer ID signed and notarized).
+(release `rc9-b116`: cmux-next 1.0.0, build 116, Developer ID signed and notarized; Apple silicon only).
 
 ## Switch on
 
@@ -37,12 +37,12 @@ work, and macOS may ask once for keychain access or a permission. Your data is n
 
 ## What to check after the update
 
-1. About cmux shows version 1.0.0 (build 114). The app is still `/Applications/cmux.app`.
+1. About cmux shows version 1.0.0 (build 116). The app is still `/Applications/cmux.app`.
 2. cmux asks "Import your classic cmux workspaces?" with the count of workspaces and browser tabs. After
    Import, a toast says "Workspaces from classic cmux are open." Check your windows, workspaces, groups
    (name, color, collapsed), pins, colors, splits and tab names; terminals open in their folders.
-3. Known problem (B14 in the runbook): the sidebar may show no workspace rows. Say if you see it, with a
-   screenshot.
+3. The sidebar lists your workspaces. If it shows none, check `"sidebar": {"showProjects": false}` in
+   `~/.config/cmux/cmux-next.json` (an earlier nightly-next can leave it; B14 in the runbook).
 4. Quit and open again: nothing is made twice.
 5. Settings: shortcuts you changed in classic, and keys from `~/.config/cmux/cmux.json` (copied to
    `cmux-next.json` only when that file did not exist yet). Theme and font choices made in classic's
@@ -51,10 +51,12 @@ work, and macOS may ask once for keychain access or a permission. Your data is n
 7. CLI: `cmux` in a terminal is now the cmux-next CLI; classic verbs print a hint (known gap).
 8. Permissions: Accessibility, Screen Recording, notifications. Note any macOS prompt, for example
    "Data Access Blocked" (seen on macOS 27).
-9. Socket: if you set classic's socket mode (Settings > Automation), cmux-next keeps it (build 114 has
-   this fix; the lab runs did not check it).
+9. Socket: if you set classic's socket mode (Settings > Automation), cmux-next keeps it (the lab runs
+   did not check it).
 10. Updates: cmux > Check for Updates says you are up to date. cmux-next reads the production feed again,
     which has only classic 0.65.2.2 (a lower build), so it never offers a downgrade.
 
 Recordings of the lab runs are on the
-[rc7-b114 release](https://github.com/manaflow-ai/cmux-next-handoff-test/releases/tag/rc7-b114).
+[rc7-b114](https://github.com/manaflow-ai/cmux-next-handoff-test/releases/tag/rc7-b114),
+[rc8-b115](https://github.com/manaflow-ai/cmux-next-handoff-test/releases/tag/rc8-b115) and
+[rc9-b116](https://github.com/manaflow-ai/cmux-next-handoff-test/releases/tag/rc9-b116) releases.

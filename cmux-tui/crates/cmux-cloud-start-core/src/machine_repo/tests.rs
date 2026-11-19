@@ -374,14 +374,19 @@ impl Machine {
         let url = format!("file://{}", self.0.join("src").display());
         let repo = Repo { r#ref: r#ref.map(str::to_owned), ..Repo::new("o", "r") };
         let step = repo.step().replace("https://github.com/o/r.git", &url);
+        let inherited = std::env::var("PATH").unwrap_or_default();
+        let path = format!("{}:{inherited}", self.0.join("bin").display());
+        self.run_step(&step, script, &path)
+    }
+
+    /// Runs `step` as the runner does (beside the bootstrap script `script`) on `path`.
+    fn run_step(&self, step: &str, script: &str, path: &str) -> (i32, serde_json::Value) {
         std::fs::write(self.0.join("boot/script"), script).unwrap();
         let file = self.0.join("boot/repo");
         std::fs::write(&file, step).unwrap();
         // As the bootstrap writes it (0o700): the fill runs the step again by its path.
         use std::os::unix::fs::PermissionsExt as _;
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let inherited = std::env::var("PATH").unwrap_or_default();
-        let path = format!("{}:{inherited}", self.0.join("bin").display());
         let status = std::process::Command::new("sh")
             .arg(&file)
             .env("HOME", self.0.join("home"))
@@ -457,6 +462,43 @@ fn without_a_hold_the_whole_repository_is_cloned() {
         .output()
         .unwrap();
     assert_eq!(String::from_utf8_lossy(&shallow.stdout).trim(), "false");
+}
+
+#[cfg(unix)]
+/// The bootstrap runner runs the step on systemd's default PATH, which has no store folder: a
+/// machine whose `cmux` is only the store's (`/opt/cmux/current/bin/cmux`, as on the Cloud image)
+/// still clones through the cmux GitHub App and keeps that path for push. Before, the step looked
+/// only on the PATH and cloned anonymously, so a private repository ended `needs_github` on a
+/// machine whose team had GitHub connected.
+#[test]
+fn a_store_cmux_off_the_path_is_the_github_path() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let Some(machine) = Machine::new(false) else { return };
+    let store = machine.0.join("store/cmux");
+    std::fs::create_dir_all(machine.0.join("store")).unwrap();
+    std::fs::write(&store, "#!/bin/sh\nexit 2\n").unwrap();
+    std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let socket = machine.0.join("agent.sock");
+    let Ok(_listener) = std::os::unix::net::UnixListener::bind(&socket) else { return };
+    let url = format!("file://{}", machine.0.join("src").display());
+    let step = Repo::new("o", "r")
+        .step()
+        .replace("https://github.com/o/r.git", &url)
+        .replace("/opt/cmux/current/bin/cmux", &store.display().to_string())
+        .replace("/run/cmux-vm-agent/agent.sock", &socket.display().to_string());
+    // Only the machine's shims and the system's own tools: no `cmux` or `cmux-tui` on the PATH.
+    let path = format!("{}:/usr/bin:/bin", machine.0.join("bin").display());
+    let (code, record) = machine.run_step(&step, crate::machine_bootstrap::NO_SCRIPT, &path);
+    assert_eq!(code, 0, "{record}");
+    assert_eq!(
+        (record["status"].as_str(), record["credential"].as_str()),
+        (Some("cloned"), Some("cmux-github"))
+    );
+    assert_eq!(
+        machine.git(&["config", "--local", "--get-all", "credential.https://github.com.helper"]),
+        format!("!'{}' github credential", store.display()),
+        "the checkout keeps the store's helper for push"
+    );
 }
 
 #[cfg(unix)]

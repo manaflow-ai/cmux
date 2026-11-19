@@ -136,6 +136,7 @@ public final class HoverCardCoordinator {
                      NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
             let ended = name != NSWindow.didMoveNotification && name != NSWindow.didResizeNotification
             observers.append(MainActorObservation(name, center: center, read: { ($0.object as? NSWindow)?.windowNumber }) { [weak self] number in
+                self?.topWindowCache = nil // a window moved: another may be on top under the pointer now
                 self?.windowGeometryChanged(number, liveResizeEnded: ended)
             })
         }
@@ -149,6 +150,9 @@ public final class HoverCardCoordinator {
             timer.cancel()
         }
     }
+
+    /// A window of this app came front (it became key): the top window cached under the pointer may be under it now.
+    public func windowOrderChanged() { topWindowCache = nil }
 
     // MARK: Sources
 
@@ -447,7 +451,8 @@ public final class HoverCardCoordinator {
             MotionTrace.measure("hoverCard.present") {
                 panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
                               themeAnchor: body.themeAnchor, sliding: sliding, interactive: body.interactive,
-                              cornerRadius: body.cornerRadius, entrance: body.entrance, applyTheme: body.applyTheme)
+                              cornerRadius: body.cornerRadius, entrance: body.entrance, retarget: body.retarget,
+                              applyTheme: body.applyTheme)
             }
             // `present` lets an interactive card take the mouse; off the card it gives it back now.
             updateCardMouse()
@@ -598,6 +603,26 @@ public final class HoverCardCoordinator {
         if owned != nil, machine.shownTarget != nil { bad.append("an owner's card and \(machine.shownTarget?.id.rawValue ?? "-") share the window") }
         if !showing, let shown = machine.shownTarget, panel?.isVisible != true { bad.append("the machine shows \(shown.id) but no card is on screen") }
         return bad
+    }
+
+    /// Presses the button named `label` (its accessibility label: "Show details") in the shown card, as a click
+    /// would (`debug.hover_cards {press: ...}`: live recordings of the card's resize). False: no such button shows.
+    public func pressShownButton(_ label: String) -> Bool {
+        func find(_ view: NSView) -> NSView? {
+            if !view.isHidden, view.accessibilityRole() == .button, view.accessibilityLabel() == label { return view }
+            for sub in view.subviews { if let hit = find(sub) { return hit } }
+            return nil
+        }
+        guard let body = panel?.body, let button = find(body) else { return false }
+        return button.accessibilityPerformPress()
+    }
+
+    /// `debug.hover_cards`' commands, run before its report: `dismiss` dismisses the shown card as an app action
+    /// would; `press` presses that button in it (``pressShownButton(_:)``). Returns an error to answer, or nil.
+    public func debugCommand(dismiss: Bool, press: String?) -> String? {
+        if dismiss { self.dismiss(.action) }
+        if let press, !pressShownButton(press) { return "no shown card has a \(press) button" }
+        return nil
     }
 
     /// State for `debug.hover_cards`.

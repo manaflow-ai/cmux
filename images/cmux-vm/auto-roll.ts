@@ -13,6 +13,10 @@
 //       --run <roll run id> --attempt <roll run attempt> [--wrangler <path>] [--lock <path>]
 //     Puts the baked, gated image first in production's VM_BOOT_IMAGES and last in staging's, trims the
 //     oldest auto-rolled entries, and refuses when the lock no longer hashes to what was baked.
+//   bun images/cmux-vm/auto-roll.ts behind --pin <40-hex> [--lock <path>] [--repo <checkout>]
+//     Exits 3 when the pin is older than the cmux-tui the lock pins (a newer roll landed while this one baked),
+//     0 when it may roll; fails closed on a shallow checkout or a commit it lacks. image-roll-push.sh asks before
+//     it writes the pin onto the tip.
 //   bun images/cmux-vm/auto-roll.ts rollback --image <id> [--wrangler <path>]
 //     Removes an auto-rolled image from both lists wherever it is, so it can never be first again (when it was
 //     first, the entry before it boots again). Prints what it did; never removes a hand-approved image.
@@ -127,13 +131,46 @@ export function trimAuto(images: BootImage[], newestFirst: boolean): BootImage[]
 
 export type Candidate = { snapshot_id: string; lock_sha256: string; run: number; source_sha?: string; smoke?: { detail?: string }; cmux_tui?: { commit?: string }; inputs_sha256?: string };
 
+/**
+ * cmux-platform's fallback image (fallback-image.json): what its CLOUD_VM_API_IMAGE pin names in every environment, the
+ * image a create boots before that isolate has read cmux-vm's list, and the image a create that recorded the pin boots
+ * after. It must stay listed (a recorded pin the list no longer names fails as cloud.provider.image_withdrawn) and must
+ * connect and update itself on the current channel. An auto-rolled entry leaves the lists within KEEP_AUTO rolls, and
+ * the newest hand-approved one was cloud-native-bd31f93-rd022 (11-07), whose cmux-host ran the session host binary as the
+ * relay ticket command (#37770) and whose updater refuses the channel's machine/ URLs (#42308): a machine booted from it
+ * never connects (cmuxterm-hq probe cloud-chat-replies-staging, 2026-11-17T14:03:17Z). So every roll writes this entry
+ * into both lists when it is missing, under a hand-approved id that trimAuto and rollback never take out. Moving the
+ * fallback: a newer smoked roll's entry here (a new id), then cmux-platform's pin once a roll has listed it.
+ */
+export const FALLBACK_FILE = path.join(ROOT, "images/cmux-vm/fallback-image.json");
+
+export function fallbackImage(file = FALLBACK_FILE): Omit<BootImage, "services"> {
+  const fallback = JSON.parse(readFileSync(file, "utf8")) as Omit<BootImage, "services">;
+  if (fallback.id.startsWith(AUTO_PREFIX)) throw new Error(`${fallback.id}: the fallback needs a hand-approved id, never ${AUTO_PREFIX}*`);
+  validate([{ ...fallback, services: [...SERVICES.production] }], "fallback");
+  return fallback;
+}
+
+/**
+ * `images` with the fallback entry, when it is missing, where the hand-approved entries meet the auto-rolled ones: after
+ * production's rolls (it boots its first entry) and before staging's (it boots its last), so no environment boots it.
+ */
+export function withFallback(images: BootImage[], env: Env, fallback = fallbackImage()): BootImage[] {
+  if (images.some((i) => i.id === fallback.id)) return images;
+  const auto = (i: BootImage) => i.id.startsWith(AUTO_PREFIX);
+  const found = env === "production" ? images.findIndex((i) => !auto(i)) : images.findIndex(auto);
+  const at = found < 0 ? images.length : found;
+  return [...images.slice(0, at), { ...fallback, services: [...SERVICES[env]] }, ...images.slice(at)];
+}
+
 /** The approved entry for a baked candidate: production first, staging last (its order is append-only). */
 export function approve(text: string, entry: BootImage): { text: string; previousFirst: string } {
   const prod = locate(text, "production").images;
   const staging = locate(text, "staging").images;
   if (prod.some((i) => i.id === entry.id) || staging.some((i) => i.id === entry.id)) throw new Error(`${entry.id} is already approved`);
-  const nextProd = trimAuto([{ ...entry, services: [...SERVICES.production] }, ...prod], true);
-  const nextStaging = trimAuto([...staging, { ...entry, services: [...SERVICES.staging] }], false);
+  const fallback = fallbackImage();
+  const nextProd = withFallback(trimAuto([{ ...entry, services: [...SERVICES.production] }, ...prod], true), "production", fallback);
+  const nextStaging = withFallback(trimAuto([...staging, { ...entry, services: [...SERVICES.staging] }], false), "staging", fallback);
   let out = replaceList(text, "production", nextProd);
   out = replaceList(out, "staging", nextStaging);
   return { text: out, previousFirst: prod[0]?.id ?? "" };
@@ -316,6 +353,24 @@ function pinnedCmuxTui(lockText: string): string {
   return version;
 }
 
+/**
+ * Why PIN must not roll onto the tip whose lock pins PINNED ("" when it may): PIN is older. plan() refuses an older
+ * build only against the pin at plan time, and a newer roll can land while this one bakes. Roll 44191283358's
+ * re-run (attempt 2, 2026-11-18) promoted cmux-tui 6c776483 at 04:53Z, 23 min after roll 44224051230 had put
+ * ecd5f536 first: image-roll-push.sh wrote the older pin over the tip's newer one and approve() put it first in
+ * production. Fails closed like plan(): a shallow checkout or a commit the checkout lacks throws.
+ */
+function behindTip(pin: string, pinned: string): string {
+  if (!/^[0-9a-f]{40}$/u.test(pin)) throw new Error("--pin must be 40 hex");
+  if (pin === pinned) return "";
+  if (gitOut(["rev-parse", "--is-shallow-repository"]) !== "false") throw new Error("behind needs full history; the checkout is shallow (fetch-depth: 0)");
+  for (const commit of [pin, pinned]) {
+    if (!gitOk(["cat-file", "-e", `${commit}^{commit}`])) throw new Error(`cmux-tui ${commit.slice(0, 12)} is not in this checkout; fetch it first`);
+  }
+  if (!gitOk(["merge-base", "--is-ancestor", pin, pinned])) return "";
+  return `cmux-tui ${pin.slice(0, 12)} is older than the tip's pinned ${pinned.slice(0, 12)}: a newer roll landed while this one baked`;
+}
+
 async function plan(opts: { event: string; commit: string; before: string; dryRun: string; tip: string; lock: string }): Promise<Plan> {
   const mode = modeOf(readFileSync(MODE_FILE, "utf8"));
   const dryRun = opts.dryRun === "true" ? true : opts.dryRun === "false" ? false : mode !== "live";
@@ -390,6 +445,12 @@ async function main(argv: string[]): Promise<number> {
     });
     console.log(JSON.stringify(result, null, 2));
     return 0;
+  }
+  if (command === "behind") {
+    gitCwd = path.resolve(arg(rest, "--repo", ROOT));
+    const reason = behindTip(arg(rest, "--pin"), pinnedCmuxTui(readFileSync(lock, "utf8")));
+    console.log(JSON.stringify({ behind: reason !== "", reason }, null, 2));
+    return reason ? 3 : 0;
   }
   if (command === "approve") {
     const candidate = JSON.parse(readFileSync(arg(rest, "--candidate"), "utf8")) as Candidate;
