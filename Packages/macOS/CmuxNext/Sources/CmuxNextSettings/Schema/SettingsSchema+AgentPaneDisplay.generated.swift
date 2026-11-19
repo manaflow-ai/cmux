@@ -26,6 +26,10 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let trayHandlePath = ["agentPane", "display", "trayHandle"]
     nonisolated static let trayHandleDefault = "middle"
     nonisolated static let trayHandleValues = ["left", "middle", "right"]
+    /// `agentPane.display.subagents`: Where a chat's subagents draw (webviews subagents/runningTray.ts useSubagentTray, chatDisplay.ts SUBAGENTS_DISPLAY_KEY). `tray`, the default, keeps the running tray over the composer and a finished line in the transcript. `transcript` draws each subagent as a card where it started (subagents/SubagentGroup.tsx), running, done or failed, as Claude's desktop app nests them under the parent chat (Leo: "Claude Code (and the Claude desktop app's Code tab) shows subagents and sub-sessions nested under the parent chat."). Debug Settings agentPane.debug.subagentTray off still wins.
+    nonisolated static let subagentsPath = ["agentPane", "display", "subagents"]
+    nonisolated static let subagentsDefault = "tray"
+    nonisolated static let subagentsValues = ["tray", "transcript"]
     /// `agentPane.display.unreadBanner`: How the floating unread banner shows at the transcript's top start while the "New" line is off screen (webviews conversation/SinceDivider.tsx UnreadBanner, design/transcript-overlays.md; Leo, 2026-11-10: "you can have the collapsed view. You can have the expanded view. You can have, like, right click to just hide it completely. You can right click to bring it back"). The banner's chevron and the right-click menus of the banner and the line write it.
     nonisolated static let unreadBannerPath = ["agentPane", "display", "unreadBanner"]
     nonisolated static let unreadBannerDefault = "off"

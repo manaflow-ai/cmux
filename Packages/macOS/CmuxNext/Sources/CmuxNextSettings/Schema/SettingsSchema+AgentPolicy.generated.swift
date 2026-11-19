@@ -227,10 +227,11 @@ extension SettingsSchema {
         // The agent chat's fonts, sizes and width (looks only).
         "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan", "agentPane.display.finishSound", "agentPane.display.trayTucked",
-        "agentPane.display.trayHandle", "agentPane.display.unreadBanner", "agentPane.display.senderIcon.lead",
-        "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.font.preset",
-        "agentPane.display.font.ui", "agentPane.display.font.size", "agentPane.display.font.lineHeight",
-        "agentPane.display.code.family", "agentPane.display.code.scale", "agentPane.display.sessionInfo.placement",
+        "agentPane.display.trayHandle", "agentPane.display.subagents", "agentPane.display.unreadBanner",
+        "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge",
+        "agentPane.display.senderIcon.corner", "agentPane.display.font.preset", "agentPane.display.font.ui",
+        "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family",
+        "agentPane.display.code.scale", "agentPane.display.sessionInfo.placement",
         "agentPane.display.environment.placement", "agentPane.display.minimap", "agentPane.display.transcriptView",
         "agentPane.display.presentation", "agentPane.display.promptCoach", "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom", "agentPane.display.harnessPlacement", "agentPane.display.rail.side",
@@ -276,6 +277,8 @@ extension SettingsSchema {
         "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
         "browser.openPullRequestsInGitHubPage",
+        // Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.
+        "models.spreadUsage",
     ]
 
     /// True when an agent may change `descriptor`, false when it may not, nil

@@ -302,6 +302,7 @@ export const ROW_LEVELS: {
     "agentPane.display.environment.placement": "hidden",
     "agentPane.display.pinnedPlan": "more",
     "agentPane.display.trayTucked": "more",
+    "agentPane.display.subagents": "more",
     "agentPane.display.rail.side": "more",
     "agentPane.display.sessionInfo.placement": "more",
     "agentPane.display.font.ui": "more",

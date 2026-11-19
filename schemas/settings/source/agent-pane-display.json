@@ -246,6 +246,52 @@
           ]
         },
         {
+          "key": "agentPane.display.subagents",
+          "note": "Where a chat's subagents draw (webviews subagents/runningTray.ts useSubagentTray, chatDisplay.ts SUBAGENTS_DISPLAY_KEY). `tray`, the default, keeps the running tray over the composer and a finished line in the transcript. `transcript` draws each subagent as a card where it started (subagents/SubagentGroup.tsx), running, done or failed, as Claude's desktop app nests them under the parent chat (Leo: \"Claude Code (and the Claude desktop app's Code tab) shows subagents and sub-sessions nested under the parent chat.\"). Debug Settings agentPane.debug.subagentTray off still wins.",
+          "title": {
+            "key": "settings.agentPane.display.subagents",
+            "text": "Subagents"
+          },
+          "help": {
+            "key": "settings.agentPane.display.subagents.help",
+            "text": "Where the agent's subagents show while they run."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "tray",
+              "title": {
+                "key": "settings.choice.inRunningTray",
+                "text": "In the Running Tray"
+              }
+            },
+            {
+              "value": "transcript",
+              "title": {
+                "key": "settings.choice.inTranscript",
+                "text": "In the Transcript"
+              }
+            }
+          ],
+          "default": "tray",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "subagent",
+            "subagents",
+            "task",
+            "nested",
+            "tray",
+            "transcript",
+            "card",
+            "running",
+            "background"
+          ]
+        },
+        {
           "key": "agentPane.display.unreadBanner",
           "note": "How the floating unread banner shows at the transcript's top start while the \"New\" line is off screen (webviews conversation/SinceDivider.tsx UnreadBanner, design/transcript-overlays.md; Leo, 2026-11-10: \"you can have the collapsed view. You can have the expanded view. You can have, like, right click to just hide it completely. You can right click to bring it back\"). The banner's chevron and the right-click menus of the banner and the line write it.",
           "title": {
