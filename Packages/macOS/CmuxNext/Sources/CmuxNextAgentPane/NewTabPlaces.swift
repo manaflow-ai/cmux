@@ -1,4 +1,3 @@
-import CmuxNextCompat
 public import CmuxNextDaemon
 
 /// The places a New Tab page's bar suggests: the open tabs and other workspaces a jump lands
@@ -114,14 +113,43 @@ public struct NewTabPlaces {
     ///   - workspace: One workspace.
     ///   - machine: The machine that holds it.
     public func rows(_ workspace: Source, machine: String? = nil) -> Rows {
+        rows(workspace, machine: machine, parts: workspace.tabs.map(part))
+    }
+
+    /// What one tab gives to its workspace's rows: its place and its folder. It is made from the tab's own record
+    /// only, so a holder keeps it until that tab changes (``NewTabPlacesKept``).
+    public nonisolated struct TabPart: Sendable {
+        /// The tab's id.
+        public var id: String
+        /// The tab's kind in the bar; nil for a tab that is no place.
+        public var kind: AgentPaneTabKind?
+        /// The place's title.
+        public var title: String
+        /// The line under the place's title.
+        public var detail: String?
+        /// The tab's folder.
+        public var folder: String?
+    }
+
+    /// `tab`'s part of its workspace's rows.
+    public func part(_ tab: TabModel) -> TabPart {
+        let found = place(tab)
+        return TabPart(id: tab.id, kind: found?.kind, title: found?.title ?? "", detail: found?.detail, folder: tab.cwd)
+    }
+
+    /// `workspace`'s rows from one part for each of its tabs, in the tabs' order: ``rows(_:machine:)`` with the
+    /// parts given. It reads no tab.
+    /// - Parameters:
+    ///   - workspace: One workspace.
+    ///   - machine: The machine that holds it.
+    ///   - parts: ``part(_:)`` of each of the workspace's tabs, in order.
+    public func rows(_ workspace: Source, machine: String?, parts: [TabPart]) -> Rows {
         var folders: [String] = []
-        for folder in workspace.tabs.compactMap(\.cwd) where folder != home && !folders.contains(folder) { folders.append(folder) }
-        let tabs = ObservationWork.counted(workspace.tabs, "NewTabPlaces.tabParts").compactMap { tab in
-            place(tab).map { place in
-                AgentPaneOmnibar.Tab(id: tab.id, kind: place.kind, title: place.title, detail: place.detail, workspace: workspace.name)
-            }
+        for folder in parts.compactMap(\.folder) where folder != home && !folders.contains(folder) { folders.append(folder) }
+        let tabs = parts.compactMap { part in
+            part.kind.map { AgentPaneOmnibar.Tab(id: part.id, kind: $0, title: part.title, detail: part.detail, workspace: workspace.name) }
         }
-        let detail = workspace.tabs.lazy.compactMap(\.cwd).first.map(abbreviated)
+        let detail = parts.lazy.compactMap(\.folder).first.map(abbreviated)
         return Rows(id: workspace.id, name: workspace.name, tabs: tabs, detail: detail, folders: folders, machine: machine)
     }
 

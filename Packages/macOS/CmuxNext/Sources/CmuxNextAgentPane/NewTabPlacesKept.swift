@@ -28,6 +28,9 @@ public final class NewTabPlacesKept {
     public static let maximumIcons = 512
 
     private var feed: ObservedItemsFeed<WorkspaceModel, NewTabPlaces.Rows>?
+    /// Each tab's part of its workspace's rows, kept until that tab changes: a tab that comes, goes or changes
+    /// in a workspace makes its own part, and the workspace's rows are joined from the kept parts of the others.
+    private let tabParts = KeptParts<WorkspaceModel, TabModel, NewTabPlaces.TabPart>(step: "NewTabPlaces.tabParts")
     /// The call of `changed` that waits for its turn: the changes of one turn make one call.
     private var announcing: Task<Void, Never>?
 
@@ -49,7 +52,9 @@ public final class NewTabPlacesKept {
     ///   - workspace: One workspace of the store.
     ///   - machine: The machine that holds it; the icon of a listed row is looked up there.
     public func mapped(_ workspace: WorkspaceModel, machine: String?) -> NewTabPlaces.Rows {
-        NewTabPlaces(home: home).rows(source(workspace), machine: machine)
+        let places = NewTabPlaces(home: home)
+        let read = source(workspace)
+        return places.rows(read, machine: machine, parts: tabParts.parts(of: workspace, read.tabs) { places.part($0) })
     }
 
     /// Starts following the workspaces (once), for the app's life: their rows are kept from the first ones on.
