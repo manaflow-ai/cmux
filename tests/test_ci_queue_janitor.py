@@ -850,7 +850,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn("  sweep:\n    permissions:\n      actions: write\n      pull-requests: read\n      contents: read\n", text)
         # It mints GLAEDA_ROUTE_APP_KEY and CMUX_BOT_APP_KEY and follows RUNNER_POOLS.linux, then
         # LINUX_RUNNER, owned runners included (Leo 2026-11-18 removed the ephemeral-only rule).
-        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS || '{}').linux || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
+        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS || '{}').linux || !startsWith(vars.LINUX_RUNNER, 'cmux-fleet-linux-') && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
         self.assertIn("concurrency:\n  group: ${{ (github.event_name == 'workflow_run'", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
         self.assertIn("ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}", text)
@@ -941,6 +941,11 @@ class SweepRunnerTests(unittest.TestCase):
                 for key in (node[3].lstrip(".").split(".") if len(node) > 3 and node[3] else ()):
                     parsed = parsed.get(key, "") if isinstance(parsed, dict) else ""
                 return parsed
+            if kind == "not":
+                return not value(node[1])
+            if kind == "call" and node[1] == "startsWith":
+                haystack, needle = (str(value(arg)).lower() for arg in node[2])
+                return haystack.startswith(needle)
             if kind == "call" and node[1] == "contains":
                 haystack, needle = (value(arg) for arg in node[2])
                 return any(str(item).lower() == str(needle).lower() for item in haystack)
@@ -963,9 +968,11 @@ class SweepRunnerTests(unittest.TestCase):
     def test_falls_back_to_linux_runner_then_four_vcpu(self):
         self.assertEqual(self.runner({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}), "blacksmith-32vcpu-ubuntu-2404")
         # An owned runner is followed too (Leo 2026-11-18): the pool member first, then LINUX_RUNNER.
-        self.assertEqual(self.runner({"RUNNER_POOLS": json.dumps({"linux": "cmux-gcp-lane-x64"}),
-                                      "LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}), "cmux-gcp-lane-x64")
-        self.assertEqual(self.runner({"LINUX_RUNNER": "cmux-gcp-lane-x64"}), "cmux-gcp-lane-x64")
+        self.assertEqual(self.runner({"RUNNER_POOLS": json.dumps({"linux": "cmux-gcp-lane-build-x64"}),
+                                      "LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}), "cmux-gcp-lane-build-x64")
+        self.assertEqual(self.runner({"LINUX_RUNNER": "cmux-gcp-lane-build-x64"}), "cmux-gcp-lane-build-x64")
+        # cmux-fleet-linux-x64 boots no runners (it held every Linux job queued on 2026-11-19): skipped for the fallback.
+        self.assertEqual(self.runner({"LINUX_RUNNER": "cmux-fleet-linux-x64"}), "blacksmith-4vcpu-ubuntu-2404")
         self.assertEqual(self.runner({}), "blacksmith-4vcpu-ubuntu-2404")
 
 
