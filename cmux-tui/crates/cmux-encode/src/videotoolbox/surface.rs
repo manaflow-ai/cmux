@@ -24,8 +24,9 @@ pub enum SurfaceFormat {
 }
 
 /// The color space the surface's pixels are in. The session tags its output
-/// with BT.709 transfer and YCbCr matrix and these primaries (sRGB: BT.709;
-/// Display P3: P3 D65), so the viewer's decoder presents it correctly.
+/// with sRGB transfer (H.264 13; both spaces use the sRGB curve), the BT.709 YCbCr
+/// matrix and these primaries (sRGB: BT.709; Display P3: P3 D65), so the viewer's
+/// decoder presents it correctly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorTag {
     Srgb,
