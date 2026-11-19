@@ -1,26 +1,30 @@
 import { useSyncExternalStore } from "react";
-import { experimentArm, type Experiment } from "./experiment";
+import { EXPERIMENTS_STORAGE_KEY, experimentArm, type Experiment } from "./experiment";
 import { subscribeExperimentSettings } from "./hostSettings";
 
-// One arm per experiment id, read once and kept until a switch or the debug key changes, so a page
-// with many menu hosts parses no localStorage per render.
+// One arm per experiment id, kept while its sources are the same objects and the same stored text, so a
+// page with many menu hosts parses no localStorage per render; any change of a source reads them again.
 const cached = new Map<string, string>();
-let listening = false;
+let sources: [unknown, unknown, string | null | undefined] | undefined;
 
-function forget(): void {
-  cached.clear();
-}
-
-function subscribe(listener: () => void): () => void {
-  if (!listening) {
-    listening = true;
-    subscribeExperimentSettings(forget);
-    globalThis.window?.addEventListener?.("storage", forget);
+function storedText(): string | null | undefined {
+  try {
+    return globalThis.localStorage?.getItem(EXPERIMENTS_STORAGE_KEY);
+  } catch {
+    return undefined;
   }
-  return subscribeExperimentSettings(listener);
 }
 
 function cachedArm<Arm extends string>(experiment: Experiment<Arm>): Arm {
+  const now: [unknown, unknown, string | null | undefined] = [
+    globalThis.cmuxExperiments,
+    globalThis.cmuxExperimentSettings,
+    storedText(),
+  ];
+  if (!sources || sources.some((value, index) => value !== now[index])) {
+    cached.clear();
+    sources = now;
+  }
   let arm = cached.get(experiment.id);
   if (arm === undefined) {
     arm = experimentArm(experiment);
@@ -32,5 +36,5 @@ function cachedArm<Arm extends string>(experiment: Experiment<Arm>): Arm {
 /** `experimentArm(experiment)` that re-renders when a Settings switch (`experiments.*`) changes, with no reload. */
 export function useExperimentArm<Arm extends string>(experiment: Experiment<Arm>): Arm {
   const arm = () => cachedArm(experiment);
-  return useSyncExternalStore(subscribe, arm, arm);
+  return useSyncExternalStore(subscribeExperimentSettings, arm, arm);
 }
