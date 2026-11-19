@@ -177,10 +177,11 @@ const RETURN_HINT = "(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}"
  * `cmux-nightly`, `cmux-rc`, and `cmux-dev[-<tag>]` (development builds; dropped on production). Nothing else:
  * no web origin, no other scheme, no other query key.
  *
- * One more form, `<scheme>://integration/complete` (#46018): the app that started the connect finishes it. The
- * provider's redirect page hands the provider's `code`, `installation_id` and this `state` to that link, and the app
- * sends `integration.complete` with its own sign-in, so the person needs no web session. The API still finishes only
- * a state signed for that same user and team.
+ * One more form, `<scheme>://integration/complete` (#46018): the app that started the connect finishes it. It goes
+ * with `attempt_hash` (the hash of a secret only that app holds). The console's callback verifies the state and hands
+ * the provider's answer to the API over HTTPS (`/v1/integrations/handoff`); the browser then opens this link with only
+ * the connection id and a single-use handoff value, and the app finishes the connection with its own sign-in and its
+ * secret (`integration.complete` with `handoff` and `attempt`). The provider's code never reaches the link.
  */
 export const CONNECT_RETURN_TO = new RegExp(
   `^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?)://(?:` +
@@ -190,13 +191,15 @@ export const CONNECT_RETURN_TO = new RegExp(
     `|integration/complete` +
     `)$`
 )
+/** An app attempt's secret, its hash and a handoff value: 32 bytes, base64url without padding. */
+export const INTEGRATION_ATTEMPT_PATTERN = /^[A-Za-z0-9_-]{43}$/
 /** Is `s` a return link a connect may carry (the dashboard checks it again before it redirects)? */
 export const isConnectReturnTo = (s: unknown): s is string => typeof s === "string" && s.length <= CONNECT_RETURN_TO_MAX && CONNECT_RETURN_TO.test(s)
-/** A development build's link (`cmux-dev`, `cmux-dev-<tag>`): never followed on production. */
+/** A development build's link (`cmux-dev`, `cmux-dev-<tag>`): never followed on production, the completion link included. */
 export const isDevReturnTo = (s: string): boolean => s.startsWith("cmux-dev")
 /**
  * Is `s` the app's own completion link (`<scheme>://integration/complete`)? It carries no chat and is never a page
- * to show: it only hands the redirect back to the app that holds the person's session, a development build's too.
+ * to show: it only tells the app that started the connect that its connection is ready to finish.
  */
 export const isIntegrationCompleteReturnTo = (s: string): boolean => isConnectReturnTo(s) && s.endsWith("://integration/complete")
 
@@ -214,7 +217,12 @@ export const IntegrationConnect = def({
     /** GitHub: the repository the person needs (OWNER/REPO). A connection that already covers it is reused. */
     repo: Schema.optionalKey(Schema.String.check(isPattern(/^(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,100}\/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/))),
     /** A cmux deep link to the chat that asked; the callback page opens it after linking (`CONNECT_RETURN_TO`). */
-    return_to: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(CONNECT_RETURN_TO_MAX), isPattern(CONNECT_RETURN_TO)))
+    return_to: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(CONNECT_RETURN_TO_MAX), isPattern(CONNECT_RETURN_TO))),
+    /**
+     * A connect the app finishes itself (`return_to` is its `<scheme>://integration/complete`): base64url SHA-256 of a
+     * random secret the app keeps. The state carries only this hash; `integration.complete` must present the secret.
+     */
+    attempt_hash: Schema.optionalKey(Schema.String.check(isPattern(INTEGRATION_ATTEMPT_PATTERN)))
   }),
   /**
    * `connected: true` (no `authorize_url`): a connection this person may use already covers `repo`; nothing to open.
@@ -240,7 +248,14 @@ export const IntegrationComplete = def({
     state: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4000)),
     code: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2000))),
     installation_id: Schema.optionalKey(Schema.String.check(isPattern(/^[0-9]{1,20}$/))),
-    setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40)))
+    setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40))),
+    /**
+     * A connect the app started (its state carries `attempt_hash`): the single-use value the console's handoff gave the
+     * app's completion link, and the app's own secret. Such a state never completes with a `code` sent here: the code
+     * stays with the API, handed over by the console's callback.
+     */
+    handoff: Schema.optionalKey(Schema.String.check(isPattern(INTEGRATION_ATTEMPT_PATTERN))),
+    attempt: Schema.optionalKey(Schema.String.check(isPattern(INTEGRATION_ATTEMPT_PATTERN)))
   }),
   /**
    * From the verified state, never the redirect's query: `return_to`, the connect's return link; `configure_url`,
@@ -248,7 +263,7 @@ export const IntegrationComplete = def({
    */
   result: Schema.Struct({ ...Connection.fields, return_to: Schema.optionalKey(Schema.String), configure_url: Schema.optionalKey(Schema.String) }),
   errors: [...mutationErrors, "integration.not_configured", "integration.state_invalid", "mutation.indeterminate"],
-  docs: "Finish a connection from the provider's redirect (the signed-in user must be the one who started it).",
+  docs: "Finish a connection from the provider's redirect (the signed-in user must be the one who started it; an app-started connect also needs its handoff and secret).",
   cli: { path: "", visible: false },
   mcp: { expose: "never", group: "integration" }
 })

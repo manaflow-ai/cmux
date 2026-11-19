@@ -110,11 +110,15 @@ extension CloudOwnerAPIClient {
 
     /// `integration.connect {provider: "github"}` on `/v1/ops`, as the person, in ``teamID``'s team (`x-cmux-team`), under
     /// `key`: a replay of the key answers the same pending connection and page.
-    /// `returnTo` is the app's completion link (``CloudGitHubCompletion/link(scheme:)``): GitHub's redirect comes back
-    /// to this app, which finishes the connection with its own sign-in (#46018).
-    public func gitHubConnect(key: String, returnTo: String? = nil) async -> CloudGitHubConnects.Answer {
+    /// `returnTo` is the app's completion link (``CloudGitHubCompletion/link(scheme:)``) and `attemptHash` the hash of this
+    /// app's secret for the attempt (``CloudGitHubAttempts``): the console hands GitHub's answer to the API and this app
+    /// finishes the connection with its own sign-in and that secret (#46018). Both or neither.
+    public func gitHubConnect(key: String, returnTo: String? = nil, attemptHash: String? = nil) async -> CloudGitHubConnects.Answer {
         var params = ["provider": "github"]
-        if let returnTo { params["return_to"] = returnTo }
+        if let returnTo, let attemptHash {
+            params["return_to"] = returnTo
+            params["attempt_hash"] = attemptHash
+        }
         let body: [String: Any] = ["op": "integration.connect", "params": params, "origin": "user", "idempotency_key": key]
         guard let json = try? JSONSerialization.data(withJSONObject: body), let answer = await person("/v1/ops", post: json) else {
             CloudGitHubConnects.logger.notice("github connect: no answer (return link \(returnTo != nil, privacy: .public))")
@@ -357,11 +361,15 @@ public struct CloudGitHubPicker {
             }
         }
         let returnTo = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
-        // An API from before the completion link refuses its params (`validation.invalid`): ask again without it, and the
+        let attempts = auth.gitHubAttempts
+        // An API from before the app attempt refuses its params (`validation.invalid`): ask again without them, and the
         // console finishes the connection as before. Under its own key, derived so a retry of it is the same ask: the API
-        // keeps the first key, and the same key with other params is an `idempotency.conflict`.
+        // keeps the first key, and the same key with other params is an `idempotency.conflict`. The secret is the same
+        // on every retry of a key, so its hash (a param) is too.
         guard let page = await connects.page(team: owner.team, now: Date(), ask: { key in
-            let answer = await client.gitHubConnect(key: key, returnTo: returnTo)
+            let secret = attempts.secret(forKey: key, now: Date())
+            let answer = await client.gitHubConnect(key: key, returnTo: returnTo, attemptHash: CloudGitHubAttempts.hash(secret))
+            if case .page(let url) = answer { attempts.record(page: url, key: key, now: Date()) }
             guard case .refused = answer else { return answer }
             return await client.gitHubConnect(key: key + ":plain")
         }) else { return .failed }

@@ -18,6 +18,8 @@ import * as ghTokens from "./integrations/github-tokens.ts"
 import { createConfigurePageTable, githubConnectTarget, installationConfigureUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, listeners, removeListener, type IntegrationChangedFrame } from "./integrations/github-push.ts"
 import { github, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
+import { attemptHashOf, createHandoffTables, dropHandoff, markStateUsed, pruneHandoffs, readHandoff, stashHandoff, stateUsed, type CompletionState, type HandoffAnswer, type HandoffReply } from "./integrations/handoff.ts"
+import { STATE_TTL_SECONDS } from "./integrations/state.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import { isAgentGatewayPrincipal, resolveConnectionPrincipal } from "./agent-gateway-principal.ts"
@@ -69,6 +71,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     ghTokens.createGithubTokenTable(sql)
     createListenerTable(sql)
     createConfigurePageTable(sql)
+    createHandoffTables(sql)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
@@ -345,7 +348,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
    * The Worker authenticated the principal and, for complete, verified the
    * signed state and that it names this principal.
    */
-  async external(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string; redirect_uri?: string; state?: { conn: string; provider: string } }): Promise<ExternalReply> {
+  async external(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string; redirect_uri?: string; state?: CompletionState }): Promise<ExternalReply> {
     const engine = this.bind(entity)
     const identity = principal.identity
     const key = frame.idempotency_key
@@ -387,34 +390,90 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   }
 
   /** The external-effect ledger (integrations/external-ledger.ts) around one provider call or OAuth completion. */
-  private runLedgered(principal: Principal, frame: { op: string; redirect_uri?: string; state?: { conn: string; provider: string } }, params: Record<string, unknown>, identity: string, key: string): Promise<ExternalReply> {
+  private runLedgered(principal: Principal, frame: { op: string; redirect_uri?: string; state?: CompletionState }, params: Record<string, unknown>, identity: string, key: string): Promise<ExternalReply> {
     return runLedgered(this.ctx.storage.sql, this.boundEngine!, frame.op, params, identity, key, () => (frame.op === "integration.complete" ? this.complete(principal, params, frame) : this.callProvider(principal, frame.op, params)))
   }
 
-  private async complete(principal: Principal, params: Record<string, unknown>, frame: { redirect_uri?: string; state?: { conn: string; provider: string } }): Promise<Connection> {
+  /**
+   * Why a verified state for `c` may not finish it now, or undefined when it may: the state names another person or
+   * provider, the connection was revoked or expired, or it is already active and the state was signed before that
+   * (a re-authorization needs a fresh state from Connect).
+   */
+  private attemptRefusal(c: Connection | undefined, st: { user: string | undefined; provider: string; issued_at: number }, now: number): string | undefined {
+    if (!c || c.provider !== st.provider || !st.user || c.created_by !== st.user) return "this connection attempt is not yours"
+    if (c.status === "revoked") return "this connection was revoked"
+    // Expired, or past its lifetime with the expiry alarm not yet run: refuse before calling the provider.
+    if (c.status === "expired" || (c.status === "pending" && now >= c.created_at + PENDING_CONNECTION_TTL_MS)) return "the connection link expired; start again from Connect"
+    if (c.status !== "pending" && (st.issued_at + 1) * 1000 <= c.updated_at) return "this connection is already connected; start again from Connect to change it"
+    return undefined
+  }
+
+  /**
+   * RPC from the Worker's `/v1/integrations/handoff` (integrations/handoff.ts): the console hands over the provider's
+   * answer for an app-started connect, verified state already checked. Keeps it sealed for the app to finish and
+   * answers the single-use handoff value; redeems nothing.
+   */
+  async handoff(entity: string, st: { conn: string; user: string; provider: string; issued_at: number; state_hash: string }, answer: HandoffAnswer): Promise<HandoffReply> {
+    // An object never bound to this team holds no connection the state could name.
+    if (!this.boundTo(entity)) return { ok: false, code: "integration.state_invalid", message: "this connection attempt is not yours" }
+    const engine = this.bind(entity)
+    const sql = this.ctx.storage.sql
+    const now = Date.now()
+    pruneHandoffs(sql, now)
+    const refused = this.attemptRefusal(engine.currentState.connections[st.conn], st, now)
+    if (refused) return { ok: false, code: "integration.state_invalid", message: refused }
+    if (stateUsed(sql, st.state_hash)) return { ok: false, code: "integration.state_invalid", message: "this connection link was already used; start again from Connect" }
+    if (!this.env.INTEGRATIONS_KEK) return { ok: false, code: "integration.not_configured", message: "integrations are not configured on this deployment" }
+    const kept = await stashHandoff(sql, this.env.INTEGRATIONS_KEK, { owner: entity, conn: st.conn, stateHash: st.state_hash, expiresAt: (st.issued_at + STATE_TTL_SECONDS) * 1000 }, answer)
+    return kept.ok ? kept : { ok: false, code: "integration.state_invalid", message: kept.message }
+  }
+
+  private async complete(principal: Principal, params: Record<string, unknown>, frame: { redirect_uri?: string; state?: CompletionState }): Promise<Connection> {
     const st = frame.state
     if (!st || !frame.redirect_uri) throw new ProviderError("integration.state_invalid", "missing verified state")
-    const c = this.boundEngine!.currentState.connections[st.conn]
-    if (!c || c.provider !== st.provider || c.created_by !== principal.user) throw new ProviderError("integration.state_invalid", "this connection attempt is not yours")
-    if (c.status === "revoked") throw new ProviderError("integration.state_invalid", "this connection was revoked")
-    // Expired, or past its lifetime with the expiry alarm not yet run: refuse before calling the provider.
-    if (c.status === "expired" || (c.status === "pending" && Date.now() >= c.created_at + PENDING_CONNECTION_TTL_MS)) {
-      throw new ProviderError("integration.state_invalid", "the connection link expired; start again from Connect")
-    }
+    const sql = this.ctx.storage.sql
+    const stateHash = attemptHashOf(String(params.state))
+    // A state finishes once: a second completion (another session, the app and the console both) is refused.
+    if (stateUsed(sql, stateHash)) throw new ProviderError("integration.state_invalid", "this connection link was already used; start again from Connect")
+    const found = this.boundEngine!.currentState.connections[st.conn]
+    const refused = this.attemptRefusal(found, { user: principal.user, provider: st.provider, issued_at: st.issued_at }, Date.now())
+    if (refused) throw new ProviderError("integration.state_invalid", refused)
+    const c = found!
     const impl = providers[c.provider]
     if (!impl.configured(this.env) || !this.env.INTEGRATIONS_KEK) throw new ProviderError("integration.unavailable", `${c.provider} is not configured`)
     const policy = policyOf(this.boundEngine!.currentState)
     if (!providerAllowed(policy, c.provider)) throw new ProviderError("policy.denied", `the team policy does not allow ${c.provider}`)
-    const approved = await impl.complete(this.env, this.http, {
-      policy: { githubScope: policy.github.scope, requireOrgAdmin: policy.github.require_org_admin },
+    // An app-started connect: the provider's answer is the one the console handed over for this state, never the request's.
+    let answer: HandoffAnswer = {
       ...(typeof params.code === "string" ? { code: params.code } : {}),
       ...(typeof params.installation_id === "string" ? { installation_id: params.installation_id } : {}),
-      ...(typeof params.setup_action === "string" ? { setup_action: params.setup_action } : {}),
-      redirectUri: frame.redirect_uri,
-      connection: c.id,
-      state: String(params.state),
-      scopes_requested: scopesToRequest(this.env, impl, c.scopes_requested)
-    })
+      ...(typeof params.setup_action === "string" ? { setup_action: params.setup_action } : {})
+    }
+    if (st.handoff !== undefined) {
+      const handed = await readHandoff(sql, this.env.INTEGRATIONS_KEK, { owner: c.owner, conn: c.id, stateHash }, st.handoff, Date.now())
+      if (!handed) throw new ProviderError("integration.state_invalid", "this connection was not handed to this app, or the link expired; start again from Connect")
+      // The state's own installation (the Worker put it in params) wins over the one the redirect named.
+      answer = { ...handed, ...(answer.installation_id ? { installation_id: answer.installation_id } : {}) }
+      if (stateUsed(sql, stateHash)) throw new ProviderError("integration.state_invalid", "this connection link was already used; start again from Connect")
+    }
+    const used = markStateUsed(sql, stateHash, c.id, Date.now())
+    let approved: Awaited<ReturnType<typeof impl.complete>>
+    try {
+      approved = await impl.complete(this.env, this.http, {
+        policy: { githubScope: policy.github.scope, requireOrgAdmin: policy.github.require_org_admin },
+        ...answer,
+        redirectUri: frame.redirect_uri,
+        connection: c.id,
+        state: String(params.state),
+        scopes_requested: scopesToRequest(this.env, impl, c.scopes_requested)
+      })
+    } catch (e) {
+      // A retryable failure (the provider was unavailable) may run again with the same state; anything else spent it.
+      if (e instanceof ProviderError && e.retryable && e.code !== "mutation.indeterminate") used.release()
+      else dropHandoff(sql, stateHash)
+      throw e
+    }
+    dropHandoff(sql, stateHash)
     if (c.account && c.account.key !== approved.account.key) throw new ProviderError("integration.state_invalid", "re-authorization must use the same provider account")
     // A disconnect may have committed while we waited on the provider.
     const now = this.boundEngine!.currentState.connections[c.id]?.status

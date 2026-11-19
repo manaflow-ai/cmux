@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAccounts
+import CmuxNextCloud
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -52,20 +53,34 @@ import Testing
         #expect(opened.count == 2)
     }
 
-    /// #46018: Settings' Connect asks GitHub's redirect to come back to this app, which finishes it with its sign-in.
-    @Test func connectAsksForTheAppsCompletionLinkWhenSet() async {
+    /// A state payload naming `conn_0123456789abcdefghij`, expiring in 2100, with the attempt hash `hash`.
+    private static func statePage(hash: String) -> String {
+        let claims = #"{"conn":"conn_0123456789abcdefghij","exp":4102444800,"anh":"\#(hash)"}"#
+        let payload = Data(claims.utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        return "https://github.com/apps/cmux/installations/new?state=a.\(payload).b"
+    }
+
+    /// #46018: Settings' Connect asks GitHub's redirect to come back to this app with the hash of a secret it keeps,
+    /// and records the answered attempt, so only this connect's hand-off finishes here (once).
+    @Test func connectAsksForTheAppsCompletionLinkWithAnAttemptAndRecordsIt() async {
         var asked: [JSONValue] = []
+        let attempts = CloudGitHubAttempts(newSecret: { "s".padding(toLength: 43, withPad: "s", startingAt: 0) })
+        let hash = CloudGitHubAttempts.hash("s".padding(toLength: 43, withPad: "s", startingAt: 0))
         let model = GitHubConnections(scope: { self.scope }, call: { _, op, params, _ in
             if op == "integration.connect" {
                 asked.append(params)
-                return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
+                return ["connection": ["id": "conn_0123456789abcdefghij"], "authorize_url": .string(Self.statePage(hash: hash))]
             }
             return self.listing
         }, open: { _ in })
         model.completionLink = "cmux-dev-x://integration/complete"
+        model.attempts = attempts
         await model.perform("githubRefresh")
         await model.perform("githubConnect")
-        #expect(asked == [["provider": "github", "return_to": "cmux-dev-x://integration/complete"]])
+        #expect(asked == [["provider": "github", "return_to": "cmux-dev-x://integration/complete", "attempt_hash": .string(hash)]])
+        let recorded = attempts.take(connection: "conn_0123456789abcdefghij", now: Date())
+        #expect(recorded?.secret == "s".padding(toLength: 43, withPad: "s", startingAt: 0))
+        #expect(attempts.take(connection: "conn_0123456789abcdefghij", now: Date()) == nil)
     }
 
     /// An API from before the completion link refuses `return_to`: the connect asks again without it, under a derived key
@@ -76,15 +91,17 @@ import Testing
         let model = GitHubConnections(scope: { self.scope }, call: { _, op, params, key in
             if op == "integration.connect" {
                 asked.append((params, key))
-                if params["return_to"] != nil { throw GitHubConnections.GitHubFailure.refused }
+                if params["attempt_hash"] != nil { throw GitHubConnections.GitHubFailure.refused }
                 return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
             }
             return self.listing
         }, open: { opened.append($0) })
         model.completionLink = "cmux-dev-x://integration/complete"
+        model.attempts = CloudGitHubAttempts(newSecret: { "t".padding(toLength: 43, withPad: "t", startingAt: 0) })
         await model.perform("githubRefresh")
         await model.perform("githubConnect")
-        #expect(asked.map(\.0) == [["provider": "github", "return_to": "cmux-dev-x://integration/complete"], ["provider": "github"]])
+        let hash = CloudGitHubAttempts.hash("t".padding(toLength: 43, withPad: "t", startingAt: 0))
+        #expect(asked.map(\.0) == [["provider": "github", "return_to": "cmux-dev-x://integration/complete", "attempt_hash": .string(hash)], ["provider": "github"]])
         #expect(asked[0].1 != nil && asked[1].1 == asked[0].1.map { $0 + ":plain" })
         #expect(opened.count == 1)
         #expect(!model.error)

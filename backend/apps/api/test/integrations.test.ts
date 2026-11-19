@@ -7,7 +7,8 @@ import { aadFor, open, seal } from "../src/integrations/crypto.ts"
 import { github, installationToken, linear, slack, type Http } from "../src/integrations/providers.ts"
 import { GITHUB_CONFIGURE_URL } from "../src/integrations/github-connect.ts"
 import { CONNECT_RETURN_TO } from "@cmux/protocol"
-import { CONFIGURE_URL_PATTERN, integrationAppHandoff, integrationConfigureLink, integrationReturnLink, RETURN_TO_PATTERN } from "../../dashboard/src/lib/integration-callback.ts"
+import { connectAsk, INTEGRATION_HANDOFF_PATH } from "../src/integrations/handoff.ts"
+import { CONFIGURE_URL_PATTERN, integrationConfigureLink, integrationReturnLink, RETURN_TO_PATTERN } from "../../dashboard/src/lib/integration-callback.ts"
 
 const testEnv = env as unknown as Record<string, any>
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -473,46 +474,146 @@ describe("connections end to end (workerd)", () => {
     for (const bad of ["https://github.com.evil.example/settings/installations/42", "https://evil.example/settings/installations/42", "javascript:alert(1)"]) expect(integrationConfigureLink({ configure_url: bad })).toBeUndefined()
   })
 
-  // #46018: the app finishes its own connect. The state carries the app's completion link; the dashboard callback hands the
-  // provider's redirect straight to it (no page, no web session); the app completes with its own session, and the
-  // completion answers no return link (the app is already where the person is).
-  it("a connect the app started carries its completion link, and the app's own session completes it", async () => {
-    const { token, team } = await signedIn("conn-gh-app-complete")
-    const fake = fakeHttp({
-      "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_user" }),
-      "https://api.github.com/user/installations": () => ok({ installations: [{ id: 55, account: { login: "acme", type: "Organization" }, permissions: { contents: "write" } }] }),
-      "https://api.github.com/user/installations/55/repositories": () => ok({ repositories: [{ full_name: "acme/web" }] })
-    })
-    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
-    await inDO(connections, async (instance) => { instance.http = fake.http })
+  // #46018: the app finishes its own connect, and the provider's code never leaves HTTPS. The console's callback hands
+  // the provider's answer to the API (no session); the browser opens the app's link with only the connection and a
+  // single-use handoff value; the app finishes with its own session and the secret whose hash the state carries.
+  describe("an app-started connect", () => {
+    const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+    const secret = () => b64url(crypto.getRandomValues(new Uint8Array(32)))
+    const hashOf = async (s: string) => b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))))
     const claims = (state: string) => JSON.parse(atob(state.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown>
     const back = "cmux-dev-gh-check://integration/complete"
-    const started = await op(token, "integration.connect", { provider: "github", return_to: back })
-    const url = new URL(started.json.value.authorize_url)
-    const state = url.searchParams.get("state")!
-    expect(claims(state).ret).toBe(back)
-    // GitHub redirects to the dashboard callback, which sends the browser on to the app with everything it needs.
-    const handoff = integrationAppHandoff({ state, code: "c", installation_id: "55", setup_action: "install" })
-    expect(handoff).toBe(`${back}?${new URLSearchParams({ state, code: "c", installation_id: "55", setup_action: "install" }).toString()}`)
-    // The app completes with the person's own token: active, and no return link to follow.
-    const done = await op(token, "integration.complete", { state, code: "c", installation_id: "55" })
-    expect(done.json).toMatchObject({ ok: true, value: { status: "active" } })
-    expect(done.json.value.return_to).toBeUndefined()
-    // Someone else's session cannot finish it.
-    const other = await signedIn("conn-gh-app-complete-other")
-    const again = await op(token, "integration.connect", { provider: "github", return_to: back })
-    const otherState = new URL(again.json.value.authorize_url).searchParams.get("state")!
-    expect((await op(other.token, "integration.complete", { state: otherState, code: "c", installation_id: "55" })).json).toMatchObject({ ok: false, error: { code: "integration.state_invalid" } })
+    const handOff = async (body: Record<string, unknown>) => {
+      const res = await worker.fetch(`https://api.test${INTEGRATION_HANDOFF_PATH}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+      return { status: res.status, json: (await res.json()) as any }
+    }
+    const githubAs = (user: string, installation = 55) =>
+      fakeHttp({
+        "https://github.com/login/oauth/access_token": async (req) => ok({ access_token: `ghu_${new URLSearchParams(await req.text()).get("code")}` }),
+        "https://api.github.com/user/installations": (req) =>
+          req.headers.get("authorization") === `Bearer ghu_${user}` ? ok({ installations: [{ id: installation, account: { login: "acme", type: "Organization" }, permissions: { contents: "write" } }] }) : ok({ installations: [] }),
+        [`https://api.github.com/user/installations/${installation}/repositories`]: () => ok({ repositories: [{ full_name: "acme/web" }] })
+      })
+    const start = async (token: string) => {
+      const attempt = secret()
+      const started = await op(token, "integration.connect", { provider: "github", return_to: back, attempt_hash: await hashOf(attempt) })
+      const state = new URL(started.json.value.authorize_url).searchParams.get("state")!
+      return { attempt, state, conn: started.json.value.connection.id as string }
+    }
+
+    it("finishes only from the app that started it, with the code the console handed over", async () => {
+      const { token, team } = await signedIn("conn-gh-app-complete")
+      const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
+      const fake = githubAs("c")
+      await inDO(connections, async (instance) => { instance.http = fake.http })
+      const { attempt, state, conn } = await start(token)
+      expect(claims(state)).toMatchObject({ ret: back, anh: await hashOf(attempt) })
+      expect(JSON.stringify(claims(state))).not.toContain(attempt)
+      // The console hands GitHub's answer over; the answer names the app's link, the connection and a handoff value.
+      const handed = await handOff({ state, code: "c", installation_id: "55", setup_action: "install" })
+      expect(handed.json).toMatchObject({ ok: true, value: { connection: conn, return_to: back } })
+      const handoff = handed.json.value.handoff as string
+      expect(handoff).toMatch(/^[A-Za-z0-9_-]{43}$/)
+      // A reload of the callback answers the same value; another answer for the same state is refused.
+      expect((await handOff({ state, code: "c", installation_id: "55", setup_action: "install" })).json.value.handoff).toBe(handoff)
+      expect((await handOff({ state, code: "someone-elses", installation_id: "55" })).json).toMatchObject({ ok: false, error: { code: "integration.state_invalid" } })
+      // Nothing was redeemed at GitHub yet, and the code is stored sealed only.
+      expect(fake.calls).toHaveLength(0)
+      await inDO(connections, async (_i, s) => {
+        expect(JSON.stringify(s.storage.sql.exec("SELECT * FROM integration_handoffs").toArray())).not.toContain(handoff)
+      })
+      // The state cannot be finished with a code sent by a session, nor without the app's secret and handoff value.
+      const refused = async (params: Record<string, unknown>, t = token) => expect((await op(t, "integration.complete", { state, ...params })).json).toMatchObject({ ok: false, error: { code: "integration.state_invalid" } })
+      await refused({ code: "c", installation_id: "55" })
+      await refused({ handoff, attempt: secret() })
+      await refused({ handoff: secret(), attempt })
+      await refused({ handoff, attempt, code: "c" })
+      // Another person's session with both secrets: the state is not theirs.
+      await refused({ handoff, attempt }, (await signedIn("conn-gh-app-complete-other")).token)
+      expect(fake.calls).toHaveLength(0)
+      // The app's own session, secret and handoff value: GitHub redeems the handed-over code now.
+      const done = await op(token, "integration.complete", { state, handoff, attempt })
+      expect(done.json).toMatchObject({ ok: true, value: { id: conn, status: "active", account: { key: "github:installation:55" } } })
+      expect(done.json.value.return_to).toBeUndefined()
+      expect(new URLSearchParams(fake.calls[0]!.body).get("code")).toBe("c")
+      // The same request replays; any other completion of this state is refused (single use), and so is a new handoff.
+      expect((await op(token, "integration.complete", { state, handoff, attempt }, done.json.idempotency_key)).json).toMatchObject({ ok: true, replayed: true })
+      await refused({ handoff, attempt })
+      expect((await handOff({ state, code: "c", installation_id: "55", setup_action: "install" })).json.ok).toBe(false)
+      await inDO(connections, async (_i, s) => { expect(s.storage.sql.exec("SELECT * FROM integration_handoffs").toArray()).toHaveLength(0) })
+    })
+
+    it("a handoff value from another attempt, or a code redeemed under someone else's state, binds nothing", async () => {
+      const me = await signedIn("conn-gh-app-swap-me")
+      const them = await signedIn("conn-gh-app-swap-them")
+      const mine = await start(me.token)
+      const theirs = await start(them.token)
+      // Their redirect handed over under their state; my app cannot use that value for my state, nor theirs.
+      const theirHandoff = (await handOff({ state: theirs.state, code: "victim", installation_id: "55" })).json.value.handoff as string
+      const myHandoff = (await handOff({ state: mine.state, code: "mine", installation_id: "55" })).json.value.handoff as string
+      expect((await op(me.token, "integration.complete", { state: mine.state, handoff: theirHandoff, attempt: mine.attempt })).json.error.code).toBe("integration.state_invalid")
+      expect((await op(me.token, "integration.complete", { state: theirs.state, handoff: theirHandoff, attempt: mine.attempt })).json.error.code).toBe("integration.state_invalid")
+      // A swapped secret is refused too: each state finishes only with its own app's secret.
+      expect((await op(me.token, "integration.complete", { state: mine.state, handoff: myHandoff, attempt: theirs.attempt })).json.error.code).toBe("integration.state_invalid")
+    })
+
+    it("the handoff route refuses a state that is not an app attempt, altered, or naming another installation", async () => {
+      const { token } = await signedIn("conn-gh-app-route")
+      const plain = await op(token, "integration.connect", { provider: "github" })
+      const plainState = new URL(plain.json.value.authorize_url).searchParams.get("state")!
+      expect((await handOff({ state: plainState, code: "c" })).json).toMatchObject({ ok: false, error: { code: "integration.state_invalid" } })
+      // The completion link without the app's attempt hash is not kept: the console finishes that connect.
+      const noHash = await op(token, "integration.connect", { provider: "github", return_to: back })
+      expect(claims(new URL(noHash.json.value.authorize_url).searchParams.get("state")!).ret).toBeUndefined()
+      const { state } = await start(token)
+      const [h, , s] = state.split(".")
+      const altered = `${h}.${btoa(JSON.stringify({ ...claims(state), user: "user_x" })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}.${s}`
+      expect((await handOff({ state: altered, code: "c" })).json.error.code).toBe("integration.state_invalid")
+      expect((await handOff({ state, code: "c", installation_id: "not-a-number" })).json.error.code).toBe("validation.invalid")
+      expect((await handOff({})).json.error.code).toBe("validation.invalid")
+    })
   })
 
-  it("the callback hands only the app's completion link a redirect, and only from a state that names it", () => {
-    const state = (claims: Record<string, unknown>) => `e30.${btoa(JSON.stringify(claims)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}.sig`
-    expect(integrationAppHandoff({ state: state({ ret: "cmux://integration/complete" }), code: "c", installation_id: "7" })).toMatch(/^cmux:\/\/integration\/complete\?state=.+&code=c&installation_id=7$/)
-    // A chat link, another scheme, a web origin or no return link: the page finishes it as before (no handoff).
-    for (const ret of [undefined, "cmux-nightly://session/ses-01", "https://evil.example/integration/complete", "javascript://integration/complete", "cmux://integration/complete/x", "cmux://integration/complete?next=x"])
-      expect(integrationAppHandoff({ state: state(ret ? { ret } : {}), code: "c" })).toBeUndefined()
-    expect(integrationAppHandoff({ code: "c" })).toBeUndefined()
-    expect(integrationAppHandoff({ state: "not-a-jwt", code: "c" })).toBeUndefined()
+  it("connect keeps the app's completion link only with its attempt hash, and drops cmux-dev links on production", () => {
+    const hash = "A".repeat(43)
+    expect(connectAsk("staging", { return_to: "cmux-dev-x://integration/complete", attempt_hash: hash })).toEqual({ return_to: "cmux-dev-x://integration/complete", attempt_hash: hash })
+    expect(connectAsk("production", { return_to: "cmux://integration/complete", attempt_hash: hash })).toEqual({ return_to: "cmux://integration/complete", attempt_hash: hash })
+    // A development build's links never ride a production state, the completion link included.
+    expect(connectAsk("production", { return_to: "cmux-dev-x://integration/complete", attempt_hash: hash })).toEqual({})
+    expect(connectAsk("production", { return_to: "cmux-dev-x://session/ses-01" })).toEqual({})
+    expect(connectAsk("development", { return_to: "cmux-dev-x://session/ses-01" })).toEqual({ return_to: "cmux-dev-x://session/ses-01" })
+    // The completion link without a hash, and a hash without the completion link, are dropped.
+    expect(connectAsk("staging", { return_to: "cmux://integration/complete" })).toEqual({})
+    expect(connectAsk("staging", { return_to: "cmux://session/ses-01", attempt_hash: hash })).toEqual({ return_to: "cmux://session/ses-01" })
+    expect(connectAsk("staging", { return_to: "cmux://integration/complete", attempt_hash: "short" })).toEqual({})
+  })
+
+  it("a state finishes once, and an active connection needs a state signed after it turned active", async () => {
+    const { token, team, user } = await signedIn("conn-single-use")
+    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
+    await inDO(connections, async (instance) => {
+      instance.http = fakeHttp({ "https://slack.com/api/oauth.v2.access": () => ok({ ok: true, access_token: "xoxb-once", scope: "chat:write", team: { id: "TONCE", name: "Once" } }) }).http
+    })
+    const c = await op(token, "integration.connect", { provider: "slack" })
+    const conn = c.json.value.connection.id as string
+    const state = new URL(c.json.value.authorize_url).searchParams.get("state")!
+    expect((await op(token, "integration.complete", { state, code: "c" })).json.value.status).toBe("active")
+    const again = await op(token, "integration.complete", { state, code: "c" })
+    expect(again.json).toMatchObject({ ok: false, error: { code: "integration.state_invalid" } })
+    expect(again.json.error.message).toMatch(/already used/)
+    // A genuine state for the same connection, signed before it turned active (never used): refused.
+    const key = await importJWK(JSON.parse(testEnv.JWT_PRIVATE_JWK) as JWK, "ES256")
+    const older = await new SignJWT({ conn, team, provider: "slack" })
+      .setProtectedHeader({ alg: "ES256", typ: "JWT" })
+      .setIssuer(`https://cmux-api/${testEnv.ENVIRONMENT}`)
+      .setAudience("cmux-integration-state")
+      .setSubject(user)
+      .setIssuedAt(Math.floor(Date.now() / 1000) - 120)
+      .setExpirationTime("10m")
+      .sign(key)
+    const stale = await op(token, "integration.complete", { state: older, code: "c2" })
+    expect(stale.json).toMatchObject({ ok: false, error: { code: "integration.state_invalid" } })
+    expect(stale.json.error.message).toMatch(/already connected/)
   })
 
   it("GitHub Connect refuses a return link that is not a cmux chat link, and repo on another provider", async () => {

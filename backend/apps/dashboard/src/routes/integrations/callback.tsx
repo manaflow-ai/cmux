@@ -1,24 +1,30 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router"
 import { useEffect, useRef } from "react"
 import { useLoad } from "../../lib/hooks"
-import { integrationAppHandoff, integrationCompletionRequest, integrationConfigureLink, integrationReturnLink } from "../../lib/integration-callback"
+import { integrationAppAttemptHint, integrationCompletionRequest, integrationConfigureLink, integrationReturnLink } from "../../lib/integration-callback"
 import { callbackSearch } from "../../lib/search"
-import { completeIntegration } from "../../lib/server"
+import { type AppHandoff, completeIntegration, handOffIntegration } from "../../lib/server"
 import { setSignedIn, useSignedIn } from "../../lib/session"
 import { INTEGRATION_RETURN_TEAM_KEY, integrationReturnPath, integrationReturnTeamKey } from "./-return"
 
 /**
  * Where GitHub (Setup URL), Linear and Slack redirect after approval. A connect
- * the cmux app started goes straight back to the app (`integrationAppHandoff`),
- * before anything renders and with no sign-in here: the app finishes it with its
- * own session (#46018). Any other connect is finished here by the signed-in
- * user's own session; the API refuses a state that belongs to someone else.
+ * the cmux app started (#46018) is verified and handed over on the server before
+ * anything renders (`handOffIntegration`): the provider's answer goes to the API,
+ * and the browser opens the app's link with only the connection id and a
+ * single-use handoff value; the app finishes it with its own session and secret,
+ * no sign-in here. Any other connect is finished here by the signed-in user's own
+ * session; the API refuses a state that belongs to someone else.
  */
 export const Route = createFileRoute("/integrations/callback")({
   validateSearch: callbackSearch,
-  beforeLoad: ({ search }) => {
-    const handoff = integrationAppHandoff(search)
-    if (handoff) throw redirect({ href: handoff, reloadDocument: true })
+  loaderDeps: ({ search }) => ({ state: search.state, code: search.code, installation_id: search.installation_id, setup_action: search.setup_action, error: search.error }),
+  loader: async ({ deps }): Promise<{ appHandoff?: AppHandoff }> => {
+    // The unverified hint only picks this path; handOffIntegration verifies the state before any link is made.
+    if (!deps.state || deps.error || !integrationAppAttemptHint(deps.state)) return {}
+    const appHandoff = await handOffIntegration({ data: { state: deps.state, ...(deps.code ? { code: deps.code } : {}), ...(deps.installation_id ? { installation_id: deps.installation_id } : {}), ...(deps.setup_action ? { setup_action: deps.setup_action } : {}) } })
+    if ("href" in appHandoff) throw redirect({ href: appHandoff.href, reloadDocument: true })
+    return { appHandoff }
   },
   component: Callback
 })
@@ -26,10 +32,11 @@ export const Route = createFileRoute("/integrations/callback")({
 function Callback() {
   const signedIn = useSignedIn()
   const search = Route.useSearch()
+  const { appHandoff } = Route.useLoaderData()
   const redirectScheduled = useRef(false)
-  // A connect the app started is the app's to finish (beforeLoad sent the browser there); never finish it here too.
-  const handoff = integrationAppHandoff(search)
-  const result = useLoad<{ ok: boolean; message: string; returnTo?: string; configure?: string; development?: boolean }>(signedIn && search.state && !search.error && !handoff ? `complete:${search.state}` : null, async () => {
+  // A connect the app started is the app's to finish (the loader handed it over); never finish it here too.
+  const appAttempt = integrationAppAttemptHint(search.state)
+  const result = useLoad<{ ok: boolean; message: string; returnTo?: string; configure?: string; development?: boolean }>(signedIn && search.state && !search.error && !appAttempt ? `complete:${search.state}` : null, async () => {
     // The key is derived from the state, so a reload of this page replays instead of exchanging the code twice.
     const r = await completeIntegration({ data: integrationCompletionRequest(search.state!, search) })
     if (r.status === 401) setSignedIn(false)
@@ -69,11 +76,18 @@ function Callback() {
     const timer = window.setTimeout(() => window.location.replace(integrationReturnPath(team)), 350)
     return () => window.clearTimeout(timer)
   }, [result.data?.ok])
-  if (handoff)
+  if (appAttempt)
     return (
-      <p>
-        <a href={handoff}>Open cmux</a> to finish connecting GitHub.
-      </p>
+      <>
+        <h2>Connecting</h2>
+        {search.error ? <p className="error">The provider reported: {search.error}</p> : null}
+        {appHandoff && "refused" in appHandoff ? <p className="error">{appHandoff.refused}</p> : null}
+        {appHandoff && "href" in appHandoff ? (
+          <p>
+            <a href={appHandoff.href}>Open cmux</a> to finish connecting.
+          </p>
+        ) : null}
+      </>
     )
   if (signedIn === false)
     return (

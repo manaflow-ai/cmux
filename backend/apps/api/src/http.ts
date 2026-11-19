@@ -11,7 +11,6 @@ import {
   PolicyRefused,
   googleProviderOpNames,
   googleReadOpNames,
-  isConnectReturnTo,
   isDevReturnTo,
   isIntegrationCompleteReturnTo,
   OwnerUnreachable,
@@ -35,6 +34,7 @@ import type { CodeStorageError } from "./code-storage.ts"
 import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
 import { integrationCallbackUrl, signState, verifyState, type ConnectState } from "./integrations/state.ts"
 import { configureAfterLink, githubConnectUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
+import { attemptHashOf, connectAsk, type CompletionState } from "./integrations/handoff.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
@@ -155,15 +155,24 @@ const externalOp = (principalIn: Principal, frameIn: { op: string; params: unkno
     let returnTo: string | undefined
     let verified: ConnectState | undefined
     const principal = yield* principalFor("cloud:ConnectionDO", principalIn)
-    let extra: { redirect_uri?: string; state?: { conn: string; provider: string } } = {}
+    let extra: { redirect_uri?: string; state?: CompletionState } = {}
     if (frame.op === "integration.complete") {
-      const token = (frame.params as { state?: unknown } | null)?.state
+      const p = (frame.params ?? {}) as { state?: unknown; code?: unknown; installation_id?: unknown; setup_action?: unknown; handoff?: unknown; attempt?: unknown }
+      const token = p.state
       const st = typeof token === "string" ? yield* Effect.promise(() => verifyState(env, token)) : undefined
+      const invalid = (message: string) => ({ ok: false, op: frame.op, error: { code: "integration.state_invalid", message, retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 })
       // The state must name this user and team: a link from someone else cannot finish their connection under this session.
-      if (!st || st.user !== principal.user || st.team !== principal.team) {
-        return { ok: false, op: frame.op, error: { code: "integration.state_invalid", message: "the connection link expired or belongs to someone else", retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
+      if (!st || st.user !== principal.user || st.team !== principal.team) return invalid("the connection link expired or belongs to someone else")
+      // A connect the app started finishes only from that app: the code the console handed to the API (never one sent
+      // here), the single-use handoff value the app's completion link carried, and the secret whose hash the state holds.
+      if (st.attempt_hash !== undefined) {
+        if (p.code !== undefined || p.installation_id !== undefined || p.setup_action !== undefined) return invalid("this connection is finished by the cmux app that started it")
+        if (typeof p.handoff !== "string" || typeof p.attempt !== "string" || attemptHashOf(p.attempt) !== st.attempt_hash) return invalid("this connection is finished by the cmux app that started it")
+        if (env.ENVIRONMENT === "production" && st.return_to !== undefined && isDevReturnTo(st.return_to)) return invalid("a development build cannot finish a production connection")
+      } else if (p.handoff !== undefined || p.attempt !== undefined) {
+        return invalid("this connection was not started by the cmux app")
       }
-      extra = { redirect_uri: callbackUrl(), state: { conn: st.conn, provider: st.provider } }
+      extra = { redirect_uri: callbackUrl(), state: { conn: st.conn, provider: st.provider, issued_at: st.issued_at, ...(st.attempt_hash !== undefined ? { handoff: p.handoff as string } : {}) } }
       // The OAuth authorize path (an installation that already covers the repo) brings back a code and no installation_id:
       // the installation comes from the signed state, and a redirect naming another one is refused.
       if (st.installation !== undefined) {
@@ -187,16 +196,6 @@ const externalOp = (principalIn: Principal, frameIn: { op: string; params: unkno
     return returnTo || configureUrl ? { ...reply, value: { ...linked, ...(returnTo ? { return_to: returnTo } : {}), ...(configureUrl ? { configure_url: configureUrl } : {}) } } : reply
   })
 
-/** integration.connect's optional repo and return link (the op's schema already checked their shape). */
-const connectAsk = (params: unknown): { repo?: string; return_to?: string } => {
-  const p = (params ?? {}) as { repo?: unknown; return_to?: unknown }
-  return {
-    ...(typeof p.repo === "string" ? { repo: p.repo } : {}),
-    // cmux-dev links are for development builds: dropped on production, except the app's own completion link, which
-    // shows nothing and only hands the redirect to the app holding the person's session (the state still binds it).
-    ...(isConnectReturnTo(p.return_to) && !(env.ENVIRONMENT === "production" && isDevReturnTo(p.return_to) && !isIntegrationCompleteReturnTo(p.return_to)) ? { return_to: p.return_to } : {})
-  }
-}
 
 /** Folds the requester frames (result|reject, request-settled) into one HTTP response. */
 const toResponse = (op: string, frames: ReadonlyArray<OwnerFrame>) => {
@@ -451,13 +450,13 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         if (payload.op === "integration.connect" && response.ok) {
           const c = response.value as Connection
           const impl = providers[c.provider]
-          const asked = connectAsk(payload.params)
+          const asked = connectAsk(env.ENVIRONMENT, payload.params)
           // Reuse before asking: the owner answered an active connection that already covers the repository.
           if (asked.repo && c.status === "active") return { ...response, value: { connection: c, connected: true as const } }
           const target = asked.repo && c.provider === "github"
             ? yield* Effect.tryPromise({ try: () => rpc<GithubConnectTarget>(env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(c.owner)).githubConnectTarget(c.owner, principal, asked.repo!)), catch: unreachable })
             : undefined
-          const state = yield* Effect.promise(() => signState(env, { conn: c.id, team: c.owner, user: c.created_by, provider: c.provider, ...(asked.return_to ? { return_to: asked.return_to } : {}), ...(target?.kind === "installed" ? { installation: target.installation, repo: asked.repo!, configure_url: target.configure_url } : {}) }))
+          const state = yield* Effect.promise(() => signState(env, { conn: c.id, team: c.owner, user: c.created_by, provider: c.provider, ...(asked.return_to ? { return_to: asked.return_to } : {}), ...(asked.attempt_hash ? { attempt_hash: asked.attempt_hash } : {}), ...(target?.kind === "installed" ? { installation: target.installation, repo: asked.repo!, configure_url: target.configure_url } : {}) }))
           const scopes = scopesToRequest(env, impl, c.scopes_requested)
           const authorizeUrl = target ? githubConnectUrl(env, target, state, callbackUrl()) : yield* Effect.promise(() => Promise.resolve(impl.authorizeUrl(env, state, scopes, callbackUrl(), c.id)))
           return { ...response, value: { connection: c, authorize_url: authorizeUrl } }

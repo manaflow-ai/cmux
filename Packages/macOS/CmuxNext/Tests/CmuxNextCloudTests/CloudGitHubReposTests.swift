@@ -189,32 +189,62 @@ struct CloudGitHubReposTests {
         #expect(listed.repos.map(\.sizeKb) == [2048, nil, nil])
     }
 
-    /// #46018: GitHub's install redirect comes back to this build's own link, and the app completes it with its sign-in.
-    @Test func theInstallRedirectHandedBackToTheAppIsACompletionForThisBuildOnly() throws {
-        let state = "h.\(Self.statePayload).s"
+    /// #46018: the console's hand-off link carries only the connection and a single-use handoff value, for this build only.
+    @Test func theHandOffLinkIsACompletionForThisBuildOnlyAndCarriesNoCode() throws {
         let link = CloudGitHubCompletion.link(scheme: "cmux-dev-x")
         #expect(link == "cmux-dev-x://integration/complete")
-        let url = try #require(URL(string: "\(link)?state=\(state)&code=abc&installation_id=42&setup_action=install"))
+        let handoff = String(repeating: "k", count: 43)
+        let url = try #require(URL(string: "\(link)?connection=conn_0123456789abcdefghij&handoff=\(handoff)"))
         let completion = try #require(CloudGitHubCompletion(url: url, scheme: "cmux-dev-x"))
-        #expect(completion.params == ["state": state, "code": "abc", "installation_id": "42", "setup_action": "install"])
-        #expect(completion.team == "team_0123456789abcdef0123")
-        #expect(completion.idempotencyKey == "complete:" + String(state.suffix(40)))
-        #expect(completion.error == nil)
-        // Another build's scheme, another path, no signed state: not a completion.
+        #expect(completion.connection == "conn_0123456789abcdefghij")
+        #expect(completion.handoff == handoff)
+        let attempt = CloudGitHubAttempts.Attempt(state: "h.\(Self.statePayload).s", secret: "secret", expires: .distantFuture)
+        #expect(completion.params(attempt) == ["state": attempt.state, "handoff": handoff, "attempt": "secret"])
+        #expect(CloudGitHubCompletion.team(ofState: attempt.state) == "team_0123456789abcdef0123")
+        // Another build's scheme, another path, the old link with a code, a bad connection or handoff value: not a completion.
         #expect(CloudGitHubCompletion(url: url, scheme: "cmux") == nil)
-        let otherPath = try #require(URL(string: "cmux-dev-x://integration/other?state=\(state)"))
-        let noState = try #require(URL(string: "cmux-dev-x://integration/complete?code=abc"))
-        #expect(CloudGitHubCompletion(url: otherPath, scheme: "cmux-dev-x") == nil)
-        #expect(CloudGitHubCompletion(url: noState, scheme: "cmux-dev-x") == nil)
-        // A cancel on GitHub carries its error; an installation id that is not a number is not sent.
-        let cancelURL = try #require(URL(string: "\(link)?state=\(state)&error=access_denied&installation_id=1;x"))
-        let cancelled = try #require(CloudGitHubCompletion(url: cancelURL, scheme: "cmux-dev-x"))
-        #expect(cancelled.error == "access_denied")
-        #expect(cancelled.params == ["state": state])
-        // A state whose team claim is not a team id routes nowhere.
-        let opaqueURL = try #require(URL(string: "\(link)?state=a.b.c"))
-        let opaque = try #require(CloudGitHubCompletion(url: opaqueURL, scheme: "cmux-dev-x"))
-        #expect(opaque.team == nil)
+        #expect(!CloudGitHubCompletion.isLink(url, scheme: "cmux"))
+        for raw in ["cmux-dev-x://integration/other?connection=conn_0123456789abcdefghij&handoff=\(handoff)",
+                    "\(link)?state=a.b.c&code=abc&installation_id=42",
+                    "\(link)?connection=conn_X&handoff=\(handoff)",
+                    "\(link)?connection=conn_0123456789abcdefghij&handoff=short",
+                    "\(link)?connection=conn_0123456789abcdefghij&connection=conn_ffffffffffffffffffff&handoff=\(handoff)"] {
+            #expect(CloudGitHubCompletion(url: try #require(URL(string: raw)), scheme: "cmux-dev-x") == nil)
+        }
+        #expect(CloudGitHubCompletion.isLink(try #require(URL(string: "\(link)?state=a.b.c&code=abc")), scheme: "cmux-dev-x"))
+    }
+
+    /// The app finishes only a connect it recorded: once, before its state expires, and only with the secret it asked.
+    @MainActor @Test func onlyARecordedAttemptFinishesAndOnlyOnce() throws {
+        var made = 0
+        let attempts = CloudGitHubAttempts(newSecret: { made += 1; return "secret-\(made)" })
+        let now = Date(timeIntervalSince1970: 4_000_000_000)
+        let secret = attempts.secret(forKey: "key-1", now: now)
+        // A retry of the same key asks with the same secret (its params must not change); another key gets another.
+        #expect(attempts.secret(forKey: "key-1", now: now) == secret)
+        #expect(attempts.secret(forKey: "key-2", now: now) != secret)
+        let page = try #require(URL(string: "https://github.com/apps/cmux/installations/new?state=\(Self.state(hash: CloudGitHubAttempts.hash(secret), exp: 4_000_000_600))"))
+        // An answer under a key that asked no secret, or whose state names another hash, records nothing.
+        attempts.record(page: page, key: "key-unknown", now: now)
+        attempts.record(page: page, key: "key-2", now: now)
+        #expect(attempts.take(connection: "conn_0123456789abcdefghij", now: now) == nil)
+        attempts.record(page: page, key: "key-1", now: now)
+        // Unsolicited: another connection. Expired: past the state's exp. Then the real one, once.
+        #expect(attempts.take(connection: "conn_ffffffffffffffffffff", now: now) == nil)
+        #expect(attempts.take(connection: "conn_0123456789abcdefghij", now: Date(timeIntervalSince1970: 4_000_000_601)) == nil)
+        attempts.record(page: page, key: "key-1", now: now)
+        let taken = try #require(attempts.take(connection: "conn_0123456789abcdefghij", now: now))
+        #expect(taken.secret == secret)
+        #expect(attempts.take(connection: "conn_0123456789abcdefghij", now: now) == nil)
+        // The hash is base64url SHA-256 without padding, the API's attempt_hash form.
+        #expect(CloudGitHubAttempts.hash("abc") == "ungWv48Bz-pBQUDeXa4iI7ADYaOWF3qctBD_YfIAFa0")
+        #expect(CloudGitHubAttempts.randomSecret().range(of: #"^[A-Za-z0-9_-]{43}$"#, options: .regularExpression) != nil)
+    }
+
+    static func state(hash: String, exp: Int) -> String {
+        let claims = #"{"conn":"conn_0123456789abcdefghij","team":"team_0123456789abcdef0123","exp":\#(exp),"anh":"\#(hash)"}"#
+        let payload = Data(claims.utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        return "h.\(payload).s"
     }
 
     @Test func aCompletionIsConnectedOnlyWhenTheAPISaysOk() {

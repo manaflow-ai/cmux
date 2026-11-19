@@ -1,6 +1,6 @@
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start"
 import { deleteCookie, getCookie, getRequestHeader, setCookie } from "@tanstack/react-start/server"
-import { accessTokenSubject, apiUserId, DEVELOPMENT_API_URL, DEVELOPMENT_STATE_ISSUER, developmentRefusal, integrationCompletionApi, integrationStateSignedBy } from "./integration-callback"
+import { accessTokenSubject, apiUserId, DEVELOPMENT_API_URL, DEVELOPMENT_STATE_ISSUER, developmentRefusal, integrationAppHandoffLink, integrationCompletionApi, integrationStateSignedBy, verifiedIntegrationState } from "./integration-callback"
 import { teamHeaders } from "./team-scope"
 
 /**
@@ -194,14 +194,51 @@ export const completeIntegration = createServerFn({ method: "POST" })
   })
 
 /** The development API's published signing keys (/.well-known/jwks.json, no session sent); undefined when it does not answer in time. */
-const developmentJwks = async (): Promise<unknown> => {
+const developmentJwks = (): Promise<unknown> => apiJwks(DEVELOPMENT_API_URL)
+
+/** An API's published signing keys (/.well-known/jwks.json, no session sent); undefined when it does not answer in time. */
+const apiJwks = async (api: string): Promise<unknown> => {
   try {
-    const res = await fetch(`${DEVELOPMENT_API_URL}/.well-known/jwks.json`, { signal: AbortSignal.timeout(5_000) })
+    const res = await fetch(`${api}/.well-known/jwks.json`, { signal: AbortSignal.timeout(5_000) })
     return res.ok ? await res.json() : undefined
   } catch {
     return undefined
   }
 }
+
+/** What the callback does with an app-started connect: open the app's link, or say why it cannot. */
+export type AppHandoff = { readonly href: string } | { readonly refused: string }
+
+/**
+ * A connect the cmux app started (#46018), for the callback before anything renders. The state is verified here
+ * first (the keys of the API that signed it, its audience and expiry); then the provider's answer goes to that API
+ * over HTTPS (`/v1/integrations/handoff`), which keeps it for the app, and the browser gets only the app's link with
+ * the connection id and a single-use handoff value. The provider's code never leaves this server. No console
+ * session is used or needed: the app finishes the connection with its own sign-in and secret.
+ */
+export const handOffIntegration = createServerFn({ method: "POST" })
+  .validator((d: { state: string; code?: string; installation_id?: string; setup_action?: string }) => d)
+  .handler(async ({ data }): Promise<AppHandoff> => {
+    const refused = (message: string): AppHandoff => ({ refused: message })
+    const api = integrationCompletionApi({ api: apiUrl(), host: getRequestHeader("x-forwarded-host") ?? getRequestHeader("host") }, data.state)
+    const claims = await verifiedIntegrationState(data.state, await apiJwks(api.url))
+    if (!claims) return refused("This link expired or was not issued by cmux. Start the connection again from cmux.")
+    let answer: { status: number; body: { ok?: boolean; value?: unknown; error?: { message?: string } } }
+    try {
+      const res = await fetch(`${api.url}/v1/integrations/handoff`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ state: data.state, ...(data.code ? { code: data.code } : {}), ...(data.installation_id ? { installation_id: data.installation_id } : {}), ...(data.setup_action ? { setup_action: data.setup_action } : {}) }),
+        signal: AbortSignal.timeout(10_000)
+      })
+      answer = { status: res.status, body: (await res.json().catch(() => ({}))) as typeof answer.body }
+    } catch {
+      return refused("cmux did not answer. Open the link again in a moment.")
+    }
+    if (!answer.body.ok) return refused(answer.body.error?.message ?? `cmux refused this connection (${answer.status}). Start it again from cmux.`)
+    const href = integrationAppHandoffLink(claims, answer.body.value)
+    return href ? { href } : refused("cmux answered a link this page will not open. Start the connection again from cmux.")
+  })
 
 /**
  * team_vm.retired.export (cx-lyvg): sends the op with the session, then answers the absolute

@@ -23,6 +23,9 @@ public final class GitHubConnections {
     /// The link a connect asks GitHub's redirect to come back to: this app's `<scheme>://integration/complete`, where
     /// the app finishes the connection with its own sign-in (#46018). The live model sets it; unset, a connect asks none.
     @ObservationIgnored public var completionLink: String?
+    /// The connects this app may finish itself (``CloudGitHubAttempts``): a connect with ``completionLink`` asks with the
+    /// hash of a secret kept here, and records its answer so the app's completion link finishes only that connect.
+    @ObservationIgnored public var attempts: CloudGitHubAttempts?
     /// The live model's watch of ``CloudGitHubChanges`` (a finished install re-reads the connections).
     @ObservationIgnored public var changes: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     @ObservationIgnored private let now: () -> Date
@@ -47,10 +50,14 @@ public final class GitHubConnections {
     public var scopeIsSignedOut: Bool { scope() == nil }
     public var busy: Bool { workingScope != nil && workingScope == scope() }
     public var currentConnections: [JSONValue] { loadedScope == scope() ? connections : [] }
-    /// `integration.connect`'s params: GitHub, and the app's completion link when one is set (``completionLink``).
-    func connectParams(returning: Bool) -> JSONValue {
+    /// `integration.connect`'s params: GitHub, and with `attemptKey` the app's completion link and the hash of this
+    /// app's secret for the connect asked under that key (``completionLink``, ``attempts``; both or neither).
+    func connectParams(attemptKey: String?) -> JSONValue {
         var params: [String: JSONValue] = ["provider": "github"]
-        if returning, let completionLink { params["return_to"] = .string(completionLink) }
+        if let attemptKey, let completionLink, let attempts {
+            params["return_to"] = .string(completionLink)
+            params["attempt_hash"] = .string(CloudGitHubAttempts.hash(attempts.secret(forKey: attemptKey, now: now())))
+        }
         return .object(params)
     }
     public var connected: Bool { currentConnections.contains { $0["status"]?.stringValue == "active" && (canDisconnect($0) || $0["sharing"]?.stringValue == "team") } }
@@ -104,13 +111,16 @@ public final class GitHubConnections {
                     // An API from before the completion link refuses its params: the console finishes it. The retry has its
                     // own key, derived so its own retry is the same ask (the same key with other params is a conflict).
                     let value: JSONValue
-                    do { value = try await call(bound, "integration.connect", connectParams(returning: true), connectKeys[bound]) } catch GitHubFailure.refused where completionLink != nil {
-                        value = try await call(bound, "integration.connect", connectParams(returning: false), connectKeys[bound].map { $0 + ":plain" })
+                    let key = connectKeys[bound]
+                    let returning = completionLink != nil && attempts != nil
+                    do { value = try await call(bound, "integration.connect", connectParams(attemptKey: returning ? key : nil), key) } catch GitHubFailure.refused where returning {
+                        value = try await call(bound, "integration.connect", connectParams(attemptKey: nil), key.map { $0 + ":plain" })
                     }
                     guard scope() == bound, generation == ticket else { return }
                     guard let raw = value["authorize_url"]?.stringValue, let url = Self.installationURL(raw),
                           let id = value["connection"]?["id"]?.stringValue, !id.isEmpty else { throw GitHubFailure.invalidReply }
                     authorizations[bound] = (id, url, Self.authorizationExpiration(url) ?? now())
+                    if let key { attempts?.record(page: url, key: key, now: now()) }
                     open(url)
                 }
             case "githubReconfigure":

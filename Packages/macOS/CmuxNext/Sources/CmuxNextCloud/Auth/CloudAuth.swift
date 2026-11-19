@@ -28,8 +28,10 @@ public final class CloudAuth {
     /// absent. Existing token readers are joined before deletion.
     @ObservationIgnored private var captureCleanupActive = false
     @ObservationIgnored private var activeTokenReads = 0
-    /// The GitHub installs this sign-in finished this launch (``CloudGitHubCompletion/handle(_:auth:)``, #46018).
+    /// The GitHub installs this sign-in finished this launch (``CloudGitHubCompletion/handle(_:auth:now:)``, #46018).
     @ObservationIgnored public let gitHubChanges = CloudGitHubChanges()
+    /// The GitHub connects this app started this launch and may finish itself (``CloudGitHubAttempts``).
+    @ObservationIgnored public let gitHubAttempts = CloudGitHubAttempts()
     @ObservationIgnored private var captureCleanupWaiters: [CheckedContinuation<Void, Never>] = []
     /// This build's stored session (refresh token, and the access token when one is stored), read off the
     /// main actor: what cmux NIGHTLY hands to another local cmux build (`auth.session.handoff`). Nil when
