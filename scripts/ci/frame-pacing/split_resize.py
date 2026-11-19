@@ -129,7 +129,9 @@ def _divider(sample: dict, pane: str | None = None) -> list | None:
     def distance(divider: list) -> float:
         middle = float(divider[1]) + float(divider[3]) / 2
         return min(abs(middle - left), abs(middle - right))
-    return min(rows, key=distance)
+    # A tie goes to the leftmost: a chat docked at the window's right edge has a divider on both sides, and the
+    # one at the window's edge doesn't move (the chat run on 2026-11-18 dragged it: no drag moved its pane).
+    return min(rows, key=lambda divider: (round(distance(divider)), float(divider[1])))
 
 
 def _page(sample: dict) -> list | None:
@@ -343,8 +345,14 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
         chat_pane = ready.get("pane") if "error" not in ready else None
         beside = chat_pane
         target = {"pane": chat_pane} if chat_pane else {}
-        seeded = (driver.call("debug.agent_pane", {"action": "seed_rows", "count": seed, **target}, timeout=120)
-                  if seed > 0 else None)
+        seeded = None
+        # A cold page's first seed can outlast the page call's 5 s (it loads the fixtures first): seed again, which
+        # replaces the rows, at most twice more.
+        for _ in range(3 if seed > 0 else 0):
+            seeded = driver.call("debug.agent_pane", {"action": "seed_rows", "count": seed, **target}, timeout=120)
+            if "error" not in seeded:
+                break
+            time.sleep(2.0)
         if seeded is not None:
             opened = {"opened": opened, "seeded": seeded}
             time.sleep(2.0)
