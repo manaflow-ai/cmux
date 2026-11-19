@@ -722,6 +722,116 @@
           ]
         },
         {
+          "key": "agentPane.display.font.uiWeight",
+          "name": "uiWeight",
+          "note": "A font pack's weight for the chat's text that draws at the normal weight (webviews chatDisplay.ts --cv-ui-weight on the page root); bold, headings and controls keep their own. 100 to 900, clamped, whole numbers; null is the face's normal. A variable face draws any weight; a static one snaps to its nearest.",
+          "title": {
+            "key": "settings.agentPane.display.uiWeight",
+            "text": "Chat Interface Font Weight"
+          },
+          "help": {
+            "key": "settings.agentPane.display.uiWeight.help",
+            "text": "The weight of the chat's regular text, from 100 (thin) to 900 (black). Empty uses the font's normal weight."
+          },
+          "kind": "number",
+          "range": {
+            "min": 100,
+            "max": 900,
+            "step": 10,
+            "unit": "count",
+            "placeholder": 400
+          },
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "font",
+            "interface",
+            "ui",
+            "weight",
+            "thickness",
+            "bold",
+            "light",
+            "typeface",
+            "custom"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.proseWeight",
+          "name": "proseWeight",
+          "note": "The weight of the agent's reply prose (webviews chatDisplay.ts --cv-reply-weight on .cv-reply); null follows agentPane.display.font.uiWeight. 100 to 900, clamped, whole numbers.",
+          "title": {
+            "key": "settings.agentPane.display.proseWeight",
+            "text": "Chat Reply Font Weight"
+          },
+          "help": {
+            "key": "settings.agentPane.display.proseWeight.help",
+            "text": "The weight of the agent's replies, from 100 (thin) to 900 (black). Empty uses the Chat Interface Font Weight."
+          },
+          "kind": "number",
+          "range": {
+            "min": 100,
+            "max": 900,
+            "step": 10,
+            "unit": "count",
+            "placeholder": 400
+          },
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "font",
+            "reply",
+            "prose",
+            "weight",
+            "thickness",
+            "bold",
+            "light",
+            "custom"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.proseScale",
+          "name": "proseScale",
+          "note": "The agent's reply prose size as a share of agentPane.display.font.size (webviews chatDisplay.ts --cv-reply-font-size and --cv-reply-line-height on .cv-reply; model.ts measures reply rows at it). A font pack matches its face's x-height to a reference look with it: the Claude look's sans at 1.095 has the reference's 0.540 em x-height. Headings scale with the prose; code, tables, prompts and the composer keep their sizes. 0.8 to 1.4, clamped; null is 1.",
+          "title": {
+            "key": "settings.agentPane.display.proseScale",
+            "text": "Chat Reply Text Scale"
+          },
+          "help": {
+            "key": "settings.agentPane.display.proseScale.help",
+            "text": "The size of the agent's replies as a share of the Chat Font Size. Code, tables and your own messages keep their size. Empty keeps replies at the Chat Font Size."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0.8,
+            "max": 1.4,
+            "step": 0.005,
+            "unit": "fraction",
+            "placeholder": 1
+          },
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "font",
+            "reply",
+            "prose",
+            "scale",
+            "size",
+            "x-height",
+            "custom"
+          ]
+        },
+        {
           "key": "agentPane.display.font.size",
           "name": "fontSize",
           "title": {

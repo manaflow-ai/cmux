@@ -460,6 +460,38 @@ fn a_theme_file_sets_the_chat_typography_and_its_faces_resolve_against_the_theme
 }
 
 #[test]
+fn a_theme_file_sets_the_chat_font_weights_and_reply_scale() {
+    // The Claude look: its sans at 430, replies at 1.095 (the reference's 0.540 em x-height).
+    let file = overlay(
+        r#"{
+            "agentPane.display.font.uiWeight": 430,
+            "agentPane.display.font.proseWeight": 450,
+            "agentPane.display.font.proseScale": 1.095
+        }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(
+        file.keys(),
+        [
+            "agentPane.display.font.proseScale",
+            "agentPane.display.font.proseWeight",
+            "agentPane.display.font.uiWeight",
+        ]
+    );
+    let applied = file.applied(&json!({}), &none());
+    assert_eq!(at(&applied, "agentPane.display.font.uiWeight"), Some(&json!(430)));
+    assert_eq!(at(&applied, "agentPane.display.font.proseScale"), Some(&json!(1.095)));
+
+    // A value that is no number is the file's error, not the chat's.
+    let bad = overlay(r#"{ "agentPane.display.font.uiWeight": "bold" }"#);
+    assert!(bad.keys().is_empty(), "{:?}", bad.keys());
+    assert_eq!(
+        bad.diagnostics.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
+        ["agentPane.display.font.uiWeight"]
+    );
+}
+
+#[test]
 fn a_theme_file_still_refuses_chat_keys_that_are_no_look() {
     let file =
         overlay(r#"{ "agentPane.display.font.size": 15, "agentPane.display.minimap": "off" }"#);

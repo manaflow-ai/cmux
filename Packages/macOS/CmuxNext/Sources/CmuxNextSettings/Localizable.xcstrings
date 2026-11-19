@@ -165101,6 +165101,798 @@
         }
       }
     },
+    "settings.agentPane.display.uiWeight": {
+      "comment": "Settings > Agent Chat: title of the chat interface font weight row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Interface Font Weight"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سُمك خط واجهة الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Debljina fonta sučelja chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttykkelse for chatgrænsefladen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schriftstärke der Chat-Oberfläche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grosor de la fuente de la interfaz del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Graisse de la police de l’interface du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Peso del font dell’interfaccia della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットのインターフェイスフォントの太さ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្រាស់ពុម្ពអក្សរចំណុចប្រទាក់ជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 인터페이스 글꼴 두께"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttykkelse for chatgrensesnittet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grubość czcionki interfejsu czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Peso da fonte da interface do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Насыщенность шрифта интерфейса чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "น้ำหนักแบบอักษรอินเทอร์เฟซแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet Arayüzü Yazı Tipi Kalınlığı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Насиченість шрифту інтерфейсу чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ đậm phông chữ giao diện trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天界面字重"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天介面字重"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.uiWeight.help": {
+      "comment": "Settings > Agent Chat: help for the chat interface font weight row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The weight of the chat's regular text, from 100 (thin) to 900 (black). Empty uses the font's normal weight."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سُمك النص العادي في الدردشة، من 100 (رفيع) إلى 900 (أسود). القيمة الفارغة تستخدم السُمك العادي للخط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Debljina običnog teksta u chatu, od 100 (tanko) do 900 (crno). Prazno koristi normalnu debljinu fonta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tykkelsen af chattens almindelige tekst, fra 100 (tynd) til 900 (sort). Tom bruger skrifttypens normale tykkelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Stärke des normalen Chat-Textes, von 100 (dünn) bis 900 (schwarz). Leer verwendet die normale Stärke der Schrift."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El grosor del texto normal del chat, de 100 (fino) a 900 (negro). Vacío usa el grosor normal de la fuente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La graisse du texte normal du chat, de 100 (fin) à 900 (noir). Vide utilise la graisse normale de la police."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il peso del testo normale della chat, da 100 (sottile) a 900 (nero). Vuoto usa il peso normale del font."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットの通常テキストの太さ。100（細い）から900（極太）まで。空欄の場合はフォントの標準の太さを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្រាស់អត្ថបទធម្មតារបស់ការជជែក ពី 100 (ស្តើង) ដល់ 900 (ខ្មៅ)។ ទទេប្រើកម្រាស់ធម្មតារបស់ពុម្ពអក្សរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 일반 텍스트의 두께입니다. 100(가늘게)부터 900(아주 굵게)까지. 비워 두면 글꼴의 기본 두께를 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tykkelsen på chattens vanlige tekst, fra 100 (tynn) til 900 (svart). Tom bruker skriftens normale tykkelse."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grubość zwykłego tekstu czatu, od 100 (cienka) do 900 (czarna). Puste używa normalnej grubości czcionki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O peso do texto normal do chat, de 100 (fino) a 900 (preto). Vazio usa o peso normal da fonte."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Насыщенность обычного текста чата, от 100 (тонкий) до 900 (чёрный). Пусто: обычная насыщенность шрифта."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "น้ำหนักของข้อความปกติในแชท ตั้งแต่ 100 (บาง) ถึง 900 (ดำ) เว้นว่างไว้เพื่อใช้น้ำหนักปกติของแบบอักษร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbetteki normal metnin kalınlığı, 100 (ince) ile 900 (siyah) arası. Boş bırakılırsa yazı tipinin normal kalınlığı kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Насиченість звичайного тексту чату, від 100 (тонкий) до 900 (чорний). Порожнє: звичайна насиченість шрифту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ đậm của văn bản thường trong trò chuyện, từ 100 (mảnh) đến 900 (đen). Để trống sẽ dùng độ đậm bình thường của phông chữ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天常规文字的字重，从 100（极细）到 900（特粗）。留空则使用字体的常规字重。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天一般文字的字重，從 100（極細）到 900（特粗）。留空則使用字型的一般字重。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.proseWeight": {
+      "comment": "Settings > Agent Chat: title of the chat reply font weight row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Reply Font Weight"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سُمك خط ردود الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Debljina fonta odgovora u chatu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttykkelse for chatsvar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schriftstärke der Chat-Antworten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grosor de la fuente de las respuestas del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Graisse de la police des réponses du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Peso del font delle risposte della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットの返信フォントの太さ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្រាស់ពុម្ពអក្សរចម្លើយជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 답변 글꼴 두께"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttykkelse for chatsvar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grubość czcionki odpowiedzi w czacie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Peso da fonte das respostas do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Насыщенность шрифта ответов в чате"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "น้ำหนักแบบอักษรคำตอบในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet Yanıtı Yazı Tipi Kalınlığı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Насиченість шрифту відповідей у чаті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ đậm phông chữ câu trả lời trong trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天回复字重"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天回覆字重"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.proseWeight.help": {
+      "comment": "Settings > Agent Chat: help for the chat reply font weight row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The weight of the agent's replies, from 100 (thin) to 900 (black). Empty uses the Chat Interface Font Weight."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سُمك ردود الوكيل، من 100 (رفيع) إلى 900 (أسود). القيمة الفارغة تستخدم سُمك خط واجهة الدردشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Debljina odgovora agenta, od 100 (tanko) do 900 (crno). Prazno koristi debljinu fonta sučelja chata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tykkelsen af agentens svar, fra 100 (tynd) til 900 (sort). Tom bruger skrifttykkelsen for chatgrænsefladen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Stärke der Antworten des Agenten, von 100 (dünn) bis 900 (schwarz). Leer verwendet die Schriftstärke der Chat-Oberfläche."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El grosor de las respuestas del agente, de 100 (fino) a 900 (negro). Vacío usa el grosor de la fuente de la interfaz del chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La graisse des réponses de l’agent, de 100 (fin) à 900 (noir). Vide utilise la graisse de la police de l’interface du chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il peso delle risposte dell’agente, da 100 (sottile) a 900 (nero). Vuoto usa il peso del font dell’interfaccia della chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントの返信の太さ。100（細い）から900（極太）まで。空欄の場合はチャットのインターフェイスフォントの太さを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្រាស់ចម្លើយរបស់ភ្នាក់ងារ ពី 100 (ស្តើង) ដល់ 900 (ខ្មៅ)។ ទទេប្រើកម្រាស់ពុម្ពអក្សរចំណុចប្រទាក់ជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 답변의 두께입니다. 100(가늘게)부터 900(아주 굵게)까지. 비워 두면 채팅 인터페이스 글꼴 두께를 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tykkelsen på agentens svar, fra 100 (tynn) til 900 (svart). Tom bruker skrifttykkelsen for chatgrensesnittet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grubość odpowiedzi agenta, od 100 (cienka) do 900 (czarna). Puste używa grubości czcionki interfejsu czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O peso das respostas do agente, de 100 (fino) a 900 (preto). Vazio usa o peso da fonte da interface do chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Насыщенность ответов агента, от 100 (тонкий) до 900 (чёрный). Пусто: насыщенность шрифта интерфейса чата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "น้ำหนักของคำตอบจากเอเจนต์ ตั้งแต่ 100 (บาง) ถึง 900 (ดำ) เว้นว่างไว้เพื่อใช้น้ำหนักแบบอักษรอินเทอร์เฟซแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan yanıtlarının kalınlığı, 100 (ince) ile 900 (siyah) arası. Boş bırakılırsa Sohbet Arayüzü Yazı Tipi Kalınlığı kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Насиченість відповідей агента, від 100 (тонкий) до 900 (чорний). Порожнє: насиченість шрифту інтерфейсу чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ đậm của câu trả lời từ tác tử, từ 100 (mảnh) đến 900 (đen). Để trống sẽ dùng độ đậm phông chữ giao diện trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "智能体回复的字重，从 100（极细）到 900（特粗）。留空则使用聊天界面字重。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理回覆的字重，從 100（極細）到 900（特粗）。留空則使用聊天介面字重。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.proseScale": {
+      "comment": "Settings > Agent Chat: title of the chat reply text scale row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Reply Text Scale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مقياس نص ردود الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veličina teksta odgovora u chatu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tekstskala for chatsvar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Textskalierung der Chat-Antworten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escala del texto de las respuestas del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Échelle du texte des réponses du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scala del testo delle risposte della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットの返信テキストの倍率"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មាត្រដ្ឋានអត្ថបទចម្លើយជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 답변 텍스트 배율"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tekstskala for chatsvar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skala tekstu odpowiedzi w czacie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escala do texto das respostas do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Масштаб текста ответов в чате"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มาตราส่วนข้อความคำตอบในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet Yanıtı Metin Ölçeği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Масштаб тексту відповідей у чаті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tỷ lệ văn bản câu trả lời trong trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天回复文字缩放"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天回覆文字縮放"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.proseScale.help": {
+      "comment": "Settings > Agent Chat: help for the chat reply text scale row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The size of the agent's replies as a share of the Chat Font Size. Code, tables and your own messages keep their size. Empty keeps replies at the Chat Font Size."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حجم ردود الوكيل كنسبة من حجم خط الدردشة. تحتفظ الشيفرة والجداول ورسائلك بحجمها. القيمة الفارغة تُبقي الردود بحجم خط الدردشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veličina odgovora agenta kao udio veličine fonta chata. Kod, tabele i vaše poruke zadržavaju svoju veličinu. Prazno ostavlja odgovore na veličini fonta chata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Størrelsen af agentens svar som en andel af chattens skriftstørrelse. Kode, tabeller og dine egne beskeder beholder deres størrelse. Tom holder svarene i chattens skriftstørrelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Größe der Antworten des Agenten als Anteil der Chat-Schriftgröße. Code, Tabellen und deine eigenen Nachrichten behalten ihre Größe. Leer belässt Antworten in der Chat-Schriftgröße."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El tamaño de las respuestas del agente como proporción del tamaño de fuente del chat. El código, las tablas y tus propios mensajes conservan su tamaño. Vacío deja las respuestas al tamaño de fuente del chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La taille des réponses de l’agent, en proportion de la taille de police du chat. Le code, les tableaux et vos propres messages gardent leur taille. Vide garde les réponses à la taille de police du chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La dimensione delle risposte dell’agente come quota della dimensione del font della chat. Codice, tabelle e i tuoi messaggi mantengono la loro dimensione. Vuoto lascia le risposte alla dimensione del font della chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントの返信のサイズを、チャットのフォントサイズに対する割合で指定します。コード、表、自分のメッセージのサイズは変わりません。空欄の場合、返信はチャットのフォントサイズのままです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំហំចម្លើយរបស់ភ្នាក់ងារ ជាសមាមាត្រនៃទំហំពុម្ពអក្សរជជែក។ កូដ តារាង និងសាររបស់អ្នករក្សាទំហំដដែល។ ទទេរក្សាចម្លើយនៅទំហំពុម្ពអក្សរជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 글꼴 크기에 대한 비율로 정하는 에이전트 답변의 크기입니다. 코드, 표, 내 메시지는 크기가 그대로입니다. 비워 두면 답변은 채팅 글꼴 크기를 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Størrelsen på agentens svar som en andel av chattens skriftstørrelse. Kode, tabeller og dine egne meldinger beholder størrelsen. Tom holder svarene i chattens skriftstørrelse."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozmiar odpowiedzi agenta jako część rozmiaru czcionki czatu. Kod, tabele i Twoje wiadomości zachowują swój rozmiar. Puste zostawia odpowiedzi w rozmiarze czcionki czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O tamanho das respostas do agente como proporção do tamanho da fonte do chat. Código, tabelas e suas próprias mensagens mantêm o tamanho. Vazio mantém as respostas no tamanho da fonte do chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размер ответов агента как доля размера шрифта чата. Код, таблицы и ваши сообщения сохраняют свой размер. Пусто: ответы остаются в размере шрифта чата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขนาดของคำตอบจากเอเจนต์เป็นสัดส่วนของขนาดแบบอักษรแชท โค้ด ตาราง และข้อความของคุณคงขนาดเดิม เว้นว่างไว้เพื่อให้คำตอบใช้ขนาดแบบอักษรแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan yanıtlarının boyutu, Sohbet Yazı Tipi Boyutunun bir oranı olarak. Kod, tablolar ve kendi mesajlarınız boyutunu korur. Boş bırakılırsa yanıtlar Sohbet Yazı Tipi Boyutunda kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмір відповідей агента як частка розміру шрифту чату. Код, таблиці та ваші повідомлення зберігають свій розмір. Порожнє: відповіді лишаються в розмірі шрифту чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kích thước câu trả lời từ tác tử theo tỷ lệ cỡ chữ trò chuyện. Mã, bảng và tin nhắn của bạn giữ nguyên kích thước. Để trống sẽ giữ câu trả lời ở cỡ chữ trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "智能体回复的大小，按聊天字号的比例设置。代码、表格和你自己的消息保持原有大小。留空则回复保持聊天字号。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理回覆的大小，依聊天字型大小的比例設定。程式碼、表格和你自己的訊息維持原有大小。留空則回覆維持聊天字型大小。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.uiFont": {
       "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui)",
       "extractionState": "manual",

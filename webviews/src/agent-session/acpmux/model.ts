@@ -1646,6 +1646,9 @@ const metrics = () => currentChatMetrics();
 let measuringReply = false;
 /// The canvas font of the text being measured: the reply's while a reply is, else the chat's.
 const proseFont = () => (measuringReply ? metrics().replyMeasureFont : metrics().measureFont);
+/// The line of the text being measured: a reply's prose line while a reply is (a pack's reply scale
+/// grows it with the text, chatDisplay.ts `replyLineHeight`), else the chat's.
+const proseLineHeight = () => (measuringReply ? metrics().replyLineHeight : metrics().lineHeight);
 /// Codex's user bubble keeps 10px padding on each side, at the chat's density text scale (`.cv-user__bubble`:
 /// the grid's Interface Size scale times the bubble's own, which together are the text scale).
 const userBubblePadding = () => 5 * gridLength("base") * chatDensityTextScale();
@@ -2597,7 +2600,7 @@ function fallbackRowHeight(
   )
     // A standalone note is one `.cv-tools` line: a grid row (conversation.css), no frame of its own.
     return finish(toolRowHeight());
-  return finish(messageBelow(beforeFooter) + chromeHeight(row, actions) + textLines * metrics().lineHeight);
+  return finish(messageBelow(beforeFooter) + chromeHeight(row, actions) + textLines * proseLineHeight());
 }
 
 /// A link target the page opens: absolute http and https only (replyHref.ts).
@@ -2709,7 +2712,7 @@ function textHeight(
   prepared: Map<string, PreparedText | null>,
   used?: Set<string>,
   /// The rows' line height when it is not the prose's (a folded note's 20px lines).
-  lineHeight = metrics().lineHeight,
+  lineHeight = proseLineHeight(),
 ): number {
   const measureFont = proseFont();
   // Keyed by font too: a new chat font measures the text again.
@@ -2758,7 +2761,7 @@ function listHeight(
       return (
         sum +
         Math.max(
-          metrics().lineHeight,
+          proseLineHeight(),
           own + nested.reduce((total, child) => total + listHeight(child, inner, prepared, used), 0),
         )
       );

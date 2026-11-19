@@ -62,6 +62,14 @@ export interface ChatDisplay {
   /// A font pack's family or stack for the agent's reply prose (PROSE_FAMILY_KEY), which wins over
   /// `font` there and only there; null for none.
   proseFamily: string | null;
+  /// A font pack's weight for the chat's text that draws at the normal weight (UI_WEIGHT_KEY, 100 to
+  /// 900), or null for the face's normal. Bold, headings and controls with a weight keep theirs.
+  uiWeight: number | null;
+  /// The weight of the agent's reply prose (PROSE_WEIGHT_KEY), or null to follow `uiWeight`.
+  proseWeight: number | null;
+  /// The reply prose's size as a share of `fontSize` (PROSE_SCALE_KEY, 0.8 to 1.4), or null for 1:
+  /// a pack matches its face's x-height to a reference with it. Code, tables and chrome keep theirs.
+  proseScale: number | null;
   fontSize: number;
   /// Unitless, times `fontSize`.
   lineHeight: number;
@@ -151,6 +159,18 @@ export const PROMPT_COACH_KEY = "agentPane.display.promptCoach";
 export const UI_FAMILY_KEY = "agentPane.display.font.uiFamily";
 export const PROSE_FAMILY_KEY = "agentPane.display.font.proseFamily";
 export { CHAT_FONT_FACES_KEY };
+/// A font pack's weights and reply size (Swift AgentPaneDisplaySettingsSchema has the same rows), not
+/// in CHAT_DISPLAY either. A pack's face differs from the reference look it copies in stroke and
+/// x-height, so the pack sets the interface weight (`--cv-ui-weight`, conversation.css `:root`), the
+/// reply prose's weight (`--cv-reply-weight`) and the reply prose's size as a share of the chat's
+/// (`--cv-reply-font-size`, `.cv-reply`). The Claude look: its sans at 430, replies at 1.095, for the
+/// reference's 0.540 em x-height.
+export const UI_WEIGHT_KEY = "agentPane.display.font.uiWeight";
+export const PROSE_WEIGHT_KEY = "agentPane.display.font.proseWeight";
+export const PROSE_SCALE_KEY = "agentPane.display.font.proseScale";
+/// What the page clamps a pack's values to.
+export const FONT_WEIGHT_RANGE = { min: 100, max: 900 } as const;
+export const PROSE_SCALE_RANGE = { min: 0.8, max: 1.4 } as const;
 
 /// Settings > Agent Chat > Transcript View (conversation/transcriptView.ts): how much of each turn a
 /// chat without a view of its own shows. Not part of ChatDisplay: a switch measures no row again by
@@ -203,6 +223,9 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   uiFont: DEFAULT_CHAT_UI_FONT,
   uiFamily: null,
   proseFamily: null,
+  uiWeight: null,
+  proseWeight: null,
+  proseScale: null,
   fontSize: CHAT_DISPLAY.fontSize.fallback,
   lineHeight: CHAT_DISPLAY.lineHeight.fallback,
   codeFamily: null,
@@ -234,6 +257,19 @@ const isEnvironmentPlacement = (value: unknown): value is EnvironmentPlacement =
   value === "left" || value === "right" || value === "off";
 const number = (value: unknown, range: { min: number; max: number }): number | null =>
   typeof value === "number" && Number.isFinite(value) ? Math.min(range.max, Math.max(range.min, value)) : null;
+/// A font weight: a whole number clamped to FONT_WEIGHT_RANGE; anything but a finite number is
+/// none (the face's normal).
+const weight = (value: unknown): number | null => {
+  const clamped = number(value, FONT_WEIGHT_RANGE);
+  return clamped === null ? null : Math.round(clamped);
+};
+/// The reply prose's scale, clamped to PROSE_SCALE_RANGE in thousandths; exactly 1 is no scale.
+const proseScale = (value: unknown): number | null => {
+  const clamped = number(value, PROSE_SCALE_RANGE);
+  if (clamped === null) return null;
+  const rounded = Math.round(clamped * 1000) / 1000;
+  return rounded === 1 ? null : rounded;
+};
 /// A font family name safe to put in a CSS value: no quotes, braces or semicolons.
 const family = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
@@ -271,6 +307,9 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
     uiFont: isChatUiFont(values[CHAT_UI_FONT_KEY]) ? values[CHAT_UI_FONT_KEY] : DEFAULT_CHAT_UI_FONT,
     uiFamily: family(values[UI_FAMILY_KEY]),
     proseFamily: family(values[PROSE_FAMILY_KEY]),
+    uiWeight: weight(values[UI_WEIGHT_KEY]),
+    proseWeight: weight(values[PROSE_WEIGHT_KEY]),
+    proseScale: proseScale(values[PROSE_SCALE_KEY]),
     fontSize: number(values[CHAT_DISPLAY.fontSize.key], CHAT_DISPLAY.fontSize) ?? DEFAULT_CHAT_DISPLAY.fontSize,
     lineHeight: number(values[CHAT_DISPLAY.lineHeight.key], CHAT_DISPLAY.lineHeight) ?? DEFAULT_CHAT_DISPLAY.lineHeight,
     codeFamily,
@@ -291,9 +330,14 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
 export interface ChatMetrics {
   /// The canvas font the estimator measures prose with.
   measureFont: string;
-  /// The canvas font of the agent's replies: `measureFont` unless a font pack's prose family is set.
+  /// The canvas font of the agent's replies: `measureFont` unless a font pack's prose family, weight
+  /// or scale is set.
   replyMeasureFont: string;
   lineHeight: number;
+  /// A reply's prose size in px: the drawn size times the pack's scale, in quarter pixels.
+  replyFontSize: number;
+  /// A reply's prose line: `lineHeight` unless a pack scales the reply (then at the same ratio).
+  replyLineHeight: number;
   inlineCodeSize: number;
   blockCodeSize: number;
   /// A code block line (20px at 12px code).
@@ -331,10 +375,17 @@ export function chatMetrics(display: ChatDisplay, density: number = densityTextS
   // A reply in a pack's prose family falls back to the chat's font (`--cv-reply-font`); its family
   // counts once its face has loaded.
   const prose = display.proseFamily ? measurableStack(display.proseFamily) : "";
+  // A pack's scale, in quarter pixels as the drawn size is, so the canvas and the page round alike.
+  const replyFontSize = display.proseScale === null ? fontSize : Math.round(fontSize * display.proseScale * 4) / 4;
+  // The canvas font shorthand takes a weight first; none is the face's normal, as before.
+  const uiWeight = display.uiWeight === null ? "" : `${display.uiWeight} `;
+  const replyWeight = display.proseWeight === null ? uiWeight : `${display.proseWeight} `;
   return {
-    measureFont: `${fontSize}px ${stack}`,
-    replyMeasureFont: `${fontSize}px ${prose ? `${prose}, ${stack}` : stack}`,
+    measureFont: `${uiWeight}${fontSize}px ${stack}`,
+    replyMeasureFont: `${replyWeight}${replyFontSize}px ${prose ? `${prose}, ${stack}` : stack}`,
     lineHeight: round(fontSize * display.lineHeight),
+    replyFontSize,
+    replyLineHeight: round(replyFontSize * display.lineHeight),
     inlineCodeSize: round(inline),
     blockCodeSize: round(block),
     codeLineHeight: round((block * 20) / 12),
@@ -359,6 +410,13 @@ export function chatDisplayVariables(
     "--cv-reply-font": display.proseFamily ? `${quoteFamilyStack(display.proseFamily)}, var(--cv-font)` : null,
     // At its designed spacing, as a pack's interface family is, whatever the Interface Font tracks.
     "--cv-reply-tracking": display.proseFamily ? "0px" : null,
+    // A pack's weights: the page's root (conversation.css `:root`), and the reply's over it.
+    "--cv-ui-weight": display.uiWeight === null ? null : String(display.uiWeight),
+    "--cv-reply-weight": display.proseWeight === null ? null : String(display.proseWeight),
+    // A pack's reply size: the reply's prose and headings (conversation.css `.cv-reply`), on lines of
+    // the same ratio; the row estimator measures reply rows at it (model.ts `proseLineHeight`).
+    "--cv-reply-font-size": display.proseScale === null ? null : `${metrics.replyFontSize}px`,
+    "--cv-reply-line-height": display.proseScale === null ? null : `${metrics.replyLineHeight}px`,
     // A pack's code face draws as typed (conversation.css `.cv-code`, `.cv-codeblock__body`).
     "--cv-code-ligatures": display.codeLigatures ? null : "none",
     "--cv-code-features": display.codeLigatures ? null : '"calt" 0, "liga" 0',

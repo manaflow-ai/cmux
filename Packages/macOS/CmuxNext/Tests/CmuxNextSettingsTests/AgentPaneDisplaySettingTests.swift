@@ -49,6 +49,13 @@ struct AgentPaneDisplaySettingTests {
                        .string("inter"), .string("inter-tuned"), .string("system-ui-tight"),
                        .string("cmux-sans"), .string("hanken"), .string("atkinson")],
             refused: [.string("comic"), .string("system"), .bool(true)]),
+        // A font pack's weights and reply size (webviews chatDisplay.ts): none unless a pack or the person sets them.
+        Row(key: "agentPane.display.font.uiWeight", fallback: nil, accepted: [.number(100), .number(430), .number(900)],
+            refused: [.number(50), .number(1000), .string("bold")]),
+        Row(key: "agentPane.display.font.proseWeight", fallback: nil, accepted: [.number(380), .number(700)],
+            refused: [.number(0), .number(950), .string("light")]),
+        Row(key: "agentPane.display.font.proseScale", fallback: nil, accepted: [.number(0.8), .number(1.095), .number(1.4)],
+            refused: [.number(0.5), .number(2), .string("large")]),
         Row(key: "agentPane.display.font.size", fallback: .number(14), accepted: [.number(10), .number(28)],
             refused: [.number(4), .number(40)]),
         Row(key: "agentPane.display.font.lineHeight", fallback: .number(1.625), accepted: [.number(1.2), .number(2.4)],
@@ -131,6 +138,18 @@ struct AgentPaneDisplaySettingTests {
             "markdown.code.scale": .number(0.9),
         ])
         #expect(AgentPaneDisplaySetting(fileRoot: .object([:])) == .fallback)
+    }
+
+    /// A font pack's weights and reply size reach the page as written (the Claude look: 430, replies at 1.095);
+    /// a value out of range never does.
+    @Test func thePageGetsAFontPacksWeightsAndReplyScale() {
+        let root: JSONValue = ["agentPane": ["display": ["font": [
+            "uiWeight": .number(430), "proseWeight": .number(1000), "proseScale": .number(1.095),
+        ]]]]
+        let values = AgentPaneDisplaySetting(fileRoot: root).values
+        #expect(values["agentPane.display.font.uiWeight"] == .number(430))
+        #expect(values["agentPane.display.font.proseScale"] == .number(1.095))
+        #expect(values["agentPane.display.font.proseWeight"] == nil)
     }
 
     /// `agentPane.display.minimap` was an on/off toggle before it was the Rail / Full Map / Off choice.

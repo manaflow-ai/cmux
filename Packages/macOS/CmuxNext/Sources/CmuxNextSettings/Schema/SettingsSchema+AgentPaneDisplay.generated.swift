@@ -56,6 +56,18 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let proseFamilyPath = ["agentPane", "display", "font", "proseFamily"]
     /// `agentPane.display.font.faces`: Font files the chat page declares as @font-face: key = family, optionally suffixed :italic; value = file:PATH (absolute or at ~; in a theme file relative to the themes folder). At most 8 faces, each a plain woff2, woff, ttf or otf file of at most 2 MiB whose extension matches its bytes (cmux-config font_faces, Swift ChatFontFaces); the page gets each as a data:font URL.
     nonisolated static let facesPath = ["agentPane", "display", "font", "faces"]
+    /// `agentPane.display.font.uiWeight`: A font pack's weight for the chat's text that draws at the normal weight (webviews chatDisplay.ts --cv-ui-weight on the page root); bold, headings and controls keep their own. 100 to 900, clamped, whole numbers; null is the face's normal. A variable face draws any weight; a static one snaps to its nearest.
+    nonisolated static let uiWeightPath = ["agentPane", "display", "font", "uiWeight"]
+    nonisolated static let uiWeightRange: ClosedRange<Double> = 100...900
+    nonisolated static let uiWeightPlaceholder: Double = 400
+    /// `agentPane.display.font.proseWeight`: The weight of the agent's reply prose (webviews chatDisplay.ts --cv-reply-weight on .cv-reply); null follows agentPane.display.font.uiWeight. 100 to 900, clamped, whole numbers.
+    nonisolated static let proseWeightPath = ["agentPane", "display", "font", "proseWeight"]
+    nonisolated static let proseWeightRange: ClosedRange<Double> = 100...900
+    nonisolated static let proseWeightPlaceholder: Double = 400
+    /// `agentPane.display.font.proseScale`: The agent's reply prose size as a share of agentPane.display.font.size (webviews chatDisplay.ts --cv-reply-font-size and --cv-reply-line-height on .cv-reply; model.ts measures reply rows at it). A font pack matches its face's x-height to a reference look with it: the Claude look's sans at 1.095 has the reference's 0.540 em x-height. Headings scale with the prose; code, tables, prompts and the composer keep their sizes. 0.8 to 1.4, clamped; null is 1.
+    nonisolated static let proseScalePath = ["agentPane", "display", "font", "proseScale"]
+    nonisolated static let proseScaleRange: ClosedRange<Double> = 0.8...1.4
+    nonisolated static let proseScalePlaceholder: Double = 1
     /// `agentPane.display.font.size`.
     nonisolated static let fontSizePath = ["agentPane", "display", "font", "size"]
     nonisolated static let fontSizeDefault: Double = 14
@@ -112,4 +124,10 @@ extension AgentPaneDisplaySettingsSchema {
     /// `agentPane.display.commandLabels`: How the chat's running tray names background commands no built-in rule knows (CommandLabelsSetting; webviews session-info/commandLabelSettings.ts): preset names and rules of one's own, edited as JSON.
     nonisolated static let commandLabelsPath = ["agentPane", "display", "commandLabels"]
     nonisolated static let commandLabelsDefault: [String] = []
+}
+
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum AgentPaneDisplaySettingsSchema {
+    /// The agent chat's look (plans/cmux-next/chat-display-settings-DESIGN.md): the chat page reads the same names and ranges (webviews/src/agent-session/acpmux/chatDisplay.ts CHAT_DISPLAY), and its ... menu's Text & Width popover writes them. The font, code font and code size have no value of their own by default: the chat then follows the Markdown viewer's, and code follows the terminal font. Sizes and width never follow the viewer.
+    static var descriptors: [SettingDescriptor] { descriptorsPart1 + descriptorsPart2 }
 }
