@@ -678,6 +678,13 @@ fn secret(parts: &[String]) -> bool {
         return true;
     }
     let last = normalized.last().map(String::as_str).unwrap_or_default();
+    // A key that sizes or places a secret (model_auto_compact_token_limit,
+    // cli_auth_credentials_store) holds a number or a choice, not the secret.
+    if last.rsplit('_').next().is_some_and(|tail| {
+        matches!(tail, "limit" | "limits" | "store" | "count" | "budget" | "ttl" | "timeout")
+    }) {
+        return false;
+    }
     [
         "token",
         "secret",

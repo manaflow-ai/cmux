@@ -88,10 +88,11 @@ mod tests {
             project_dirs(&deep, root.path()),
             vec![deep.clone(), repo.join("a"), repo.clone()]
         );
-        // Outside any repo: the folder alone.
+        // Outside any repo: the folder alone. The temp root is the home so a `.git` above the
+        // machine's temp folder (a stray /tmp/.git) cannot count.
         let loose = root.path().join("loose/x");
         std::fs::create_dir_all(&loose).unwrap();
-        assert_eq!(project_dirs(&loose, Path::new("/nonexistent-home")), vec![loose.clone()]);
+        assert_eq!(project_dirs(&loose, root.path()), vec![loose.clone()]);
         // The home folder itself is the user scope, never a project.
         assert!(project_dirs(root.path(), root.path()).is_empty());
     }

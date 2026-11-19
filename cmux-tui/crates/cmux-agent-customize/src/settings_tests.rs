@@ -84,6 +84,17 @@ fn claude_report_shows_every_key_with_its_scope_and_masks_env() {
 }
 
 #[test]
+fn secret_names_are_masked_but_their_limits_and_stores_are_not() {
+    let key = |path: &str| path.split('.').map(str::to_owned).collect::<Vec<_>>();
+    for masked in ["env.DEBUG", "github_token", "api_key", "mcp_servers.x.bearer_token_env_var"] {
+        assert!(secret(&key(masked)), "{masked} is masked");
+    }
+    for shown in ["model_auto_compact_token_limit", "cli_auth_credentials_store", "model"] {
+        assert!(!secret(&key(shown)), "{shown} is shown");
+    }
+}
+
+#[test]
 fn claude_set_and_unset_round_trip_byte_for_byte_elsewhere() {
     let f = fixture();
     let path = f.ctx.homes.claude_settings();
