@@ -773,7 +773,7 @@ impl CongestionController {
     fn recent_sent_bps(&mut self, now_us: u64) -> Option<f64> {
         self.prune_sent_window(now_us);
         let &(first, _) = self.sent_window.front()?;
-        let span = now_us.saturating_sub(first).min(RAMP_FILL_SPAN_US).max(RAMP_FILL_SPAN_US / 4);
+        let span = now_us.saturating_sub(first).clamp(RAMP_FILL_SPAN_US / 4, RAMP_FILL_SPAN_US);
         let bytes: u64 = self
             .sent_window
             .iter()
