@@ -24,7 +24,7 @@ import {
 } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { DrivenList, DrivenRow } from "../../../ui/DrivenList";
-import { IllustratedEmpty } from "../../../ui/EmptyState/IllustratedEmpty";
+import { IllustratedEmpty, type IllustratedEmptyProps } from "../../../ui/EmptyState/IllustratedEmpty";
 import { HomeIcon } from "../../home-channels/icons";
 import type { Strings } from "../../shared/i18n";
 import { lazyArt, NO_ART } from "../../shared/lazyArt";
@@ -98,7 +98,6 @@ interface Drag {
 export function ConversationList(props: ConversationListProps) {
   const { model, width, selected, query, unreadOnly, strings, canPin, look = "messages" } = props;
   const { t, format } = strings;
-  const orb = orbArt.use() ?? NO_ART;
   const metrics = useMemo(() => listMetrics(width), [width]);
   const [searchFocused, setSearchFocused] = useState(false);
   const header = headerLayout(width, searchFocused || query !== "", props.windowControls, unreadOnly);
@@ -522,8 +521,7 @@ export function ConversationList(props: ConversationListProps) {
                   </button>
                 </>
               ) : (
-                <IllustratedEmpty
-                  art={orb}
+                <NoResults
                   line={t("sidebar.noResults")}
                   action={{ label: t("sidebar.clearSearch"), onClick: () => props.onQuery("") }}
                 />
@@ -588,6 +586,12 @@ export function rowMenu(
     });
   }
   return items;
+}
+
+/** The no-results state with its orb. Its own component, so the orb's subscription lives only while it
+ * shows, never in the list's own hooks. */
+function NoResults(props: Omit<IllustratedEmptyProps, "art">) {
+  return <IllustratedEmpty {...props} art={orbArt.use() ?? NO_ART} />;
 }
 
 function box(rect: Rect) {
