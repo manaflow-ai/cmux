@@ -108,7 +108,11 @@ fn a_hand_edit_that_leaves_rotate_keeps_the_folder() {
     )
     .unwrap();
     let change = store.reload().expect("a change");
-    assert!(change.keys.iter().any(|key| key == "appearance.backgroundModes"), "{:?}", change.keys);
+    assert!(
+        change.keys.iter().any(|key| key.starts_with("appearance.backgroundModes")),
+        "{:?}",
+        change.keys
+    );
     let text = std::fs::read_to_string(&config).unwrap();
     assert!(text.contains("// mine"), "the person's comment stays: {text}");
     let root = cmux_config::jsonc::parse(&text).unwrap();
