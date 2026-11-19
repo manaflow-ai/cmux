@@ -167,7 +167,7 @@ def passes(diff):
 display = None
 if opts.vdisplay:
     out_path = os.path.join(opts.out, "vdisplay.out")
-    display = subprocess.Popen([os.path.join(opts.vdisplay, "Contents/MacOS/VDisplay"), f"{opts.hz:g}", "7200", "-", "1920x1200"]
+    display = subprocess.Popen([os.path.join(opts.vdisplay, "Contents/MacOS/VDisplay"), f"{opts.hz:g}", "7200", "main", "1920x1200"]
                                + (["hidpi"] if opts.vdisplay_hidpi else []),
                                stdout=open(out_path, "w"), stderr=subprocess.STDOUT)
     wait(lambda: open(out_path).read().startswith(("ready", "error")), 20)
