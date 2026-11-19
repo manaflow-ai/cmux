@@ -262,7 +262,7 @@ impl Hub {
                 })
                 .await;
                 if ours(&session) {
-                    session.steer_end.send_replace(Some((turn_id, answer)));
+                    session.steer_end().send_replace(Some((turn_id, answer)));
                 }
             });
         }

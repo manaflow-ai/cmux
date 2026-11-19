@@ -2,6 +2,16 @@
 
 use super::*;
 
+/// How many agent messages a chat's inbound channel holds before its agent's reader waits.
+const INBOUND_DEPTH: usize = 1024;
+
+/// A chat's inbound channel (`Session::inbound`): the sender its agent and the agent's reader
+/// clone, and the receiver its inbound loop holds while it runs (`permissions.rs`).
+pub(super) struct InboundChannel {
+    tx: mpsc::Sender<Inbound>,
+    rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
+}
+
 /// The steers of a session's running turn that Send now can hurry (`Session::steer_now`).
 #[derive(Default)]
 pub(super) struct SteerNow {
@@ -283,11 +293,13 @@ pub struct Session {
     /// new one when the turn ends (`profile_respawn.rs`). Lists say `respawn pending: profile
     /// changed` until a start runs the new profile.
     pub(super) profile_respawn: AtomicBool,
-    pub(super) inbound_tx: mpsc::Sender<Inbound>,
-    pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
+    /// What its agent sends, made at its first use (`inbound_tx`, `inbound_rx`): its agent's
+    /// start. A chat no agent ran for since it loaded holds none (CMUX-571).
+    pub(super) inbound: std::sync::OnceLock<InboundChannel>,
     /// True while the chat is closed: its inbound loop hands `inbound_rx` back and ends once
-    /// it closes, and the start that reopens it starts the loop again (`permissions.rs`).
-    pub(super) closed: tokio::sync::watch::Sender<bool>,
+    /// it closes, and the start that reopens it starts the loop again (`permissions.rs`). Made
+    /// at its first subscribe, from the chat's status then (`closed_watch`).
+    pub(super) closed: std::sync::OnceLock<tokio::sync::watch::Sender<bool>>,
     pub(super) steering: AtomicBool,
     /// Ctrl-B moves its work: decided by the harness kind it last started as
     /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
@@ -306,8 +318,9 @@ pub struct Session {
     /// step for one that waits (`queue_edit.rs`).
     pub(super) steer_now: StdMutex<SteerNow>,
     /// The answer of a steer that ended its turn, with the turn's id: the
-    /// turn's other prompts take it (`steer_end.rs`, codex-acp).
-    pub(super) steer_end: tokio::sync::watch::Sender<Option<(String, Value)>>,
+    /// turn's other prompts take it (`steer_end.rs`, codex-acp). Made at its first subscribe or
+    /// end (`steer_end()`); until then none ended (`steer_ended`).
+    pub(super) steer_end: std::sync::OnceLock<tokio::sync::watch::Sender<Option<(String, Value)>>>,
     /// Set on a freshly forked Claude session: the parent's agent session id
     /// to pass as `--resume <id> --fork-session` on first spawn.
     pub(super) fork_from: StdMutex<Option<String>>,
@@ -929,6 +942,66 @@ impl Session {
     }
     pub(super) fn status(&self) -> SessionStatus {
         self.meta.lock().unwrap().status
+    }
+
+    /// The chat's inbound channel, made at its first use. One for the session's life, as when
+    /// every session made it at load; a chat never started holds none (CMUX-571: about 5 kB
+    /// each, the channel and its first block of messages).
+    fn inbound(&self) -> &InboundChannel {
+        self.inbound.get_or_init(|| {
+            let (tx, rx) = mpsc::channel(INBOUND_DEPTH);
+            InboundChannel { tx, rx: Mutex::new(Some(rx)) }
+        })
+    }
+
+    /// The chat's own sender of its inbound channel (`producers_live` counts the others).
+    pub(super) fn inbound_tx(&self) -> &mpsc::Sender<Inbound> {
+        &self.inbound().tx
+    }
+
+    /// The receiver of the chat's inbound channel while no inbound loop holds it.
+    pub(super) fn inbound_rx(&self) -> &Mutex<Option<mpsc::Receiver<Inbound>>> {
+        &self.inbound().rx
+    }
+
+    /// Subscribes to `closed`. Its first subscribe makes it from the chat's status, read under
+    /// the meta lock the status is written under: a status written before is its value, and one
+    /// written after finds it made and sends (`note_closed`). Its current value counts: a loop
+    /// that first runs after a close sees it (#41081 F2).
+    pub(super) fn closed_watch(&self) -> tokio::sync::watch::Receiver<bool> {
+        let meta = self.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let closed = meta.status == SessionStatus::Closed;
+        self.closed.get_or_init(|| tokio::sync::watch::channel(closed).0).subscribe()
+    }
+
+    /// The chat closed or reopened (`set_status`, once the status is written). With no
+    /// subscriber made yet there is no one to tell: the first reads the status (`closed_watch`).
+    pub(super) fn note_closed(&self, closed: bool) {
+        if let Some(watch) = self.closed.get() {
+            watch.send_replace(closed);
+        }
+    }
+
+    /// `steer_end`, made at its first subscribe or end.
+    pub(super) fn steer_end(&self) -> &tokio::sync::watch::Sender<Option<(String, Value)>> {
+        self.steer_end.get_or_init(|| tokio::sync::watch::channel(None).0)
+    }
+
+    /// The turn a steer ended last, with its answer (`steer_end`); None when none did.
+    pub(super) fn steer_ended(&self) -> Option<(String, Value)> {
+        self.steer_end.get().and_then(|watch| watch.borrow().clone())
+    }
+
+    /// Which of the channels a chat makes at first use it holds (CMUX-571): its inbound
+    /// channel, `closed`, `steer_end` and its auto-resume's release watch.
+    #[cfg(test)]
+    pub(super) fn lazy_made(&self) -> [bool; 4] {
+        [
+            self.inbound.get().is_some(),
+            self.closed.get().is_some(),
+            self.steer_end.get().is_some(),
+            self.auto_resume.released_made(),
+        ]
     }
 }
 /// How many prompt ids' kept messages a session remembers (`Session::kept_messages`).

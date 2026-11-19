@@ -274,8 +274,17 @@ pub(crate) struct Pending {
     #[cfg(test)]
     take_entered: Mutex<Option<std::sync::mpsc::Sender<()>>>,
     /// Counts the times a continuation stopped being pending (`continuation_pending`): the
-    /// inbox's timer, put off while one was, looks again then (`inbox.rs`).
-    released: tokio::sync::watch::Sender<u64>,
+    /// inbox's timer, put off while one was, looks again then (`inbox.rs`). A leaf lock.
+    released: Mutex<Released>,
+}
+
+/// The count of continuations let go (`Pending::released`), and the watch a waiting inbox timer
+/// wakes on, made only once one waits (`released_since`): a chat whose inbox never arms a timer
+/// holds none (CMUX-571).
+#[derive(Default)]
+struct Released {
+    count: u64,
+    watch: Option<tokio::sync::watch::Sender<u64>>,
 }
 
 impl Default for Pending {
@@ -284,7 +293,7 @@ impl Default for Pending {
             mark: Mutex::default(),
             stopped_prompts: Mutex::default(),
             compacting: Mutex::default(),
-            released: tokio::sync::watch::channel(0).0,
+            released: Mutex::default(),
             #[cfg(test)]
             stop_locked: Mutex::default(),
             #[cfg(test)]
@@ -305,10 +314,34 @@ impl Pending {
         PendingGuard { mark, was, released: &self.released }
     }
 
-    /// Changes each time a pending continuation is let go, however it went: settled, stopped,
-    /// exhausted, refused or started.
-    pub(super) fn released(&self) -> tokio::sync::watch::Receiver<u64> {
-        self.released.subscribe()
+    fn released_lock(&self) -> std::sync::MutexGuard<'_, Released> {
+        self.released.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// How many pending continuations were let go so far, however each went: settled, stopped,
+    /// exhausted, refused or started (`released_since`).
+    pub(super) fn released_seen(&self) -> u64 {
+        self.released_lock().count
+    }
+
+    /// Changes each time a pending continuation is let go after `seen` was read
+    /// (`released_seen`); changed at once when one was let go since. Its watch is made here, at
+    /// the first wait.
+    pub(super) fn released_since(&self, seen: u64) -> tokio::sync::watch::Receiver<u64> {
+        let mut released = self.released_lock();
+        let count = released.count;
+        let watch = released.watch.get_or_insert_with(|| tokio::sync::watch::channel(count).0);
+        let mut changes = watch.subscribe();
+        if count != seen {
+            changes.mark_changed();
+        }
+        changes
+    }
+
+    /// Whether a wait made the release watch (CMUX-571).
+    #[cfg(test)]
+    pub(super) fn released_made(&self) -> bool {
+        self.released_lock().watch.is_some()
     }
 }
 
@@ -316,7 +349,7 @@ impl Pending {
 struct PendingGuard<'a> {
     mark: std::sync::MutexGuard<'a, Option<Mark>>,
     was: bool,
-    released: &'a tokio::sync::watch::Sender<u64>,
+    released: &'a Mutex<Released>,
 }
 
 impl std::ops::Deref for PendingGuard<'_> {
@@ -335,7 +368,13 @@ impl std::ops::DerefMut for PendingGuard<'_> {
 impl Drop for PendingGuard<'_> {
     fn drop(&mut self) {
         if self.was && !is_pending(self.mark.as_ref()) {
-            self.released.send_modify(|n| *n = n.wrapping_add(1));
+            let mut released =
+                self.released.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            released.count = released.count.wrapping_add(1);
+            // No watch yet: no timer waits, and the first reads the count (`released_since`).
+            if let Some(watch) = &released.watch {
+                watch.send_replace(released.count);
+            }
         }
     }
 }

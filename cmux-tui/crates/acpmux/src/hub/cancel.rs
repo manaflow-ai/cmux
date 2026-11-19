@@ -122,7 +122,7 @@ impl Hub {
             return;
         }
         tracing::warn!(session = %session.id, turn_id = %turn.turn_id, "the agent did not answer the cancel: ending its turn");
-        session.steer_end.send_replace(Some((turn.turn_id.clone(), forced_answer(false))));
+        session.steer_end().send_replace(Some((turn.turn_id.clone(), forced_answer(false))));
     }
 
     /// The person's Stop (`session/cancel` from the person's connection): the running turn's
@@ -363,7 +363,7 @@ impl Hub {
             self.end_unadopted_host(session).await;
         }
         if session.turn().is_some_and(|t| t.turn_id == turn.turn_id) {
-            session.steer_end.send_replace(Some((turn.turn_id.clone(), forced_answer(true))));
+            session.steer_end().send_replace(Some((turn.turn_id.clone(), forced_answer(true))));
         }
     }
 

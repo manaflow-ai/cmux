@@ -1528,7 +1528,8 @@ impl Hub {
         let now = now_ms();
         // Read before the inbox's lock: the retry's own lock is never taken under it.
         // Taken first: a continuation let go after `continuing` is read still wakes the timer.
-        let released = session.auto_resume.released();
+        // Only a count: the watch the timer waits on is made when one is armed (CMUX-571).
+        let released = session.auto_resume.released_seen();
         let continuing = self.continuation_pending(session);
         let next = {
             let mut inbox = session.inbox();
@@ -2007,15 +2008,16 @@ impl Hub {
     /// Arms the wake timer for `at`, aborting the one before (module docs), under the inbox's
     /// lock `inbox` the caller holds. A continuation that may still fire puts a wake off
     /// (`inbox_review`), so the timer also looks again as soon as one is let go, however it went
-    /// (`released`, `auto_resume.rs` `Pending`).
+    /// (`released`, the count `inbox_review` read first; `auto_resume.rs` `Pending`).
     fn arm_locked(
         self: &Arc<Self>,
         inbox: &mut Inbox,
         session: &Arc<Session>,
         at: u64,
         now: u64,
-        mut released: tokio::sync::watch::Receiver<u64>,
+        released: u64,
     ) {
+        let mut released = session.auto_resume.released_since(released);
         let hub = Arc::downgrade(self);
         let weak: Weak<Session> = Arc::downgrade(session);
         let task = tokio::spawn(async move {

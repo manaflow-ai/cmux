@@ -426,6 +426,8 @@ pub mod background_turn;
 #[cfg(test)]
 mod background_turn_end_tests;
 mod goal_tools;
+#[cfg(test)]
+mod lazy_channels_tests;
 pub mod plan_build;
 #[cfg(test)]
 mod refused_append_tests;
@@ -1954,7 +1956,6 @@ impl Hub {
         // Hibernated before a restart: marked again, so it draws no row; it wakes on its next
         // turn or typing, never on an open alone (`idle.rs` `wake_for`).
         let hibernated_at = if meta.hibernated_ms != 0 { self.clock_now().max(1) } else { 0 };
-        let (inbound_tx, inbound_rx) = mpsc::channel(1024);
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
         meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         let steering = meta.steering;
@@ -2055,15 +2056,16 @@ impl Hub {
             profile_respawn: AtomicBool::new(false),
             ending: StdMutex::new(None),
             detaching: AtomicBool::new(false),
-            inbound_tx,
-            inbound_rx: Mutex::new(Some(inbound_rx)),
-            closed: tokio::sync::watch::channel(false).0,
+            // Its inbound channel and its watches are made at first use (`session.rs`): a
+            // loaded chat never opened holds none (CMUX-571).
+            inbound: std::sync::OnceLock::new(),
+            closed: std::sync::OnceLock::new(),
             steering: AtomicBool::new(steering),
             backgrounds_work: AtomicBool::new(backgrounds_work),
             person: AtomicBool::new(false),
             wait_start: AtomicBool::new(wait_start),
             steer_now: Default::default(),
-            steer_end: tokio::sync::watch::channel(None).0,
+            steer_end: std::sync::OnceLock::new(),
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
             purged: Arc::new(AtomicBool::new(false)),
@@ -3165,7 +3167,7 @@ impl Hub {
         self.update_live_session_index(session);
         if was != status {
             // Its inbound loop parks once the chat closes, and a reopen starts it again.
-            session.closed.send_replace(status == SessionStatus::Closed);
+            session.note_closed(status == SessionStatus::Closed);
             // A closed snapshot partitions sessions by status. Invalidate on both sides of a
             // closed transition, including reopen before its `reopened` record is appended, so a
             // build that observed the old partition cannot publish it after the transition.

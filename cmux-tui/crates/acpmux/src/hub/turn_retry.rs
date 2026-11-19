@@ -161,7 +161,7 @@ impl Hub {
             })
             .await;
             if ours(&session) {
-                session.steer_end.send_replace(Some((turn_id, answer)));
+                session.steer_end().send_replace(Some((turn_id, answer)));
                 return;
             }
             // Not carried out (a failover keeps the turn's id): the turn's next agent gets its own
@@ -252,10 +252,10 @@ mod tests {
         let (hub, session) = running_turn().await;
         hub.end_sign_in_refused(&session, &refused(1));
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        assert!(session.steer_end.borrow().is_none(), "the first refused retry ends nothing");
+        assert!(session.steer_ended().is_none(), "the first refused retry ends nothing");
         hub.end_sign_in_refused(&session, &refused(2));
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        let ended = session.steer_end.borrow().clone();
+        let ended = session.steer_ended();
         let (_, answer) = ended.expect("the second refused retry ends the turn");
         assert_eq!(answer.pointer("/_meta/acpmux/signInRefused/attempt"), Some(&json!(2)));
     }
@@ -267,7 +267,7 @@ mod tests {
         hub.end_sign_in_refused(&session, &refused(3));
         hub.end_sign_in_refused(&session, &refused(4));
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        let ended = session.steer_end.borrow().clone();
+        let ended = session.steer_ended();
         let (turn, answer) = ended.expect("the turn ends");
         assert_eq!(turn, "turn-1");
         assert_eq!(answer.pointer("/_meta/acpmux/signInRefused/attempt"), Some(&json!(3)));
@@ -281,11 +281,11 @@ mod tests {
         hub.end_sign_in_refused(&session, &refused(3));
         hub.hold_stalled_count(&session);
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        assert!(session.steer_end.borrow().is_none(), "the next agent's turn is not ended");
+        assert!(session.steer_ended().is_none(), "the next agent's turn is not ended");
         // That agent's own refused retries still end the turn.
         hub.end_sign_in_refused(&session, &refused(3));
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        let end = session.steer_end.borrow().clone();
+        let end = session.steer_ended();
         assert_eq!(
             end.map(|(turn, _)| turn).as_deref(),
             Some("turn-1"),

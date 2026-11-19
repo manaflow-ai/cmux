@@ -2117,7 +2117,7 @@ impl Hub {
         let (done, handled) = tokio::sync::oneshot::channel();
         let queued = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            session.inbound_tx.send(crate::agent::Inbound::Barrier(done)),
+            session.inbound_tx().send(crate::agent::Inbound::Barrier(done)),
         )
         .await;
         if matches!(queued, Ok(Ok(()))) {

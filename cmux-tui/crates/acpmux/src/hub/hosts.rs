@@ -669,7 +669,7 @@ impl Hub {
             record,
             resume_after,
             Vec::new(),
-            session.inbound_tx.clone(),
+            session.inbound_tx().clone(),
             tap,
         )
         .await?;
@@ -886,7 +886,7 @@ impl Hub {
                 (Some(request_id), answer) => {
                     let outcome = super::prompt_ledger::recover(session, &prompt_id);
                     // Before anything can force its end (`turn_answer`).
-                    let ended = session.steer_end.subscribe();
+                    let ended = session.steer_end().subscribe();
                     // Its start as logged: a restart does not make it new.
                     let started_at = if work.turn_at > 0 { work.turn_at } else { now_ms() };
                     // Its line on the summary as the turn showed it (`prompt_line.rs`); an older
@@ -1636,7 +1636,7 @@ impl Hub {
             record.clone(),
             0,
             Vec::new(),
-            session.inbound_tx.clone(),
+            session.inbound_tx().clone(),
             tap,
         )
         .await;

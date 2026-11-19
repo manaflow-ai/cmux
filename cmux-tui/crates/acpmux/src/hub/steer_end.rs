@@ -81,7 +81,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     held: Option<&(dyn Fn() -> bool + Send + Sync)>,
     on_sent: F,
 ) -> Result<Value, RpcError> {
-    let mut ended = session.steer_end.subscribe();
+    let mut ended = session.steer_end().subscribe();
     // Before transport handoff, an ordinary completion belongs only to prompts the old
     // turn actually received. An unsent steer must take the existing no-turn fallback.
     // Once delivery begins it may already have reached a translator, so do not retry it.
@@ -119,7 +119,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     let request = async {
         let input_handoff = session.input_handoff.clone().lock_owned().await;
         // The turn can settle while this prompt waits behind a Stop's handoff.
-        if let Some((turn, answer)) = session.steer_end.borrow().clone()
+        if let Some((turn, answer)) = session.steer_ended()
             && settles(&turn)
         {
             published.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -182,7 +182,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
                     && let Ok(value) = &answer
                     && ends_turn(value)
                 {
-                    session.steer_end.send_replace(Some((turn_id.to_owned(), value.clone())));
+                    session.steer_end().send_replace(Some((turn_id.to_owned(), value.clone())));
                 }
                 return answer;
             }
