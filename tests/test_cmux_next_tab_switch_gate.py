@@ -8,6 +8,8 @@ import copy
 import io
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -198,6 +200,102 @@ class ScopeTests(unittest.TestCase):
             self.assertEqual(out.getvalue().strip(), "in_scope=true")
         finally:
             os.unlink(handle.name)
+
+
+WORKFLOW = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".github", "workflows",
+                        "cmux-next-tab-switch.yml")
+
+
+def frames_script():
+    """The frames job's run script, as the runner gets it (the YAML block, dedented)."""
+    with open(WORKFLOW) as handle:
+        lines = handle.read().splitlines()
+    start = lines.index("      - name: Measure tab switches on a display Mac")
+    run = next(i for i in range(start, len(lines)) if lines[i] == "        run: |")
+    body = []
+    for line in lines[run + 1:]:
+        if line.strip() and not line.startswith(" " * 10):
+            break
+        body.append(line[10:])
+    return "\n".join(body) + "\n"
+
+
+FAKE_CLIENT = """#!/usr/bin/env bash
+echo "$*" >> "$FAKE_CLIENT_CALLS"
+[[ "$1" == run ]] || exit 1
+echo "cmux-ci: step 0123456789abcdef01234567 (exclusive, key k)"
+exit 75
+"""
+
+
+class FramesAdmissionTests(unittest.TestCase):
+    """The frames job submits its background step only when the display queue would start it within QUEUE_WAIT_S;
+    otherwise it ends in seconds (2026-11-17: 220 of 354 jobs waited out a 3600 s queue timeout behind 60 queued
+    exclusive steps, holding a gateway token, and none returned a report)."""
+
+    def run_frames(self, status):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        client, calls = os.path.join(tmp, "cmux-ci"), os.path.join(tmp, "calls")
+        with open(client, "w") as handle:
+            handle.write(FAKE_CLIENT)
+        os.chmod(client, 0o755)
+        controller = os.path.join(tmp, "controller")
+        os.makedirs(os.path.join(controller, "v1"))
+        if status is not None:
+            with open(os.path.join(controller, "v1", "status"), "w") as handle:
+                handle.write(status if isinstance(status, str) else json.dumps(status))
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, "RUNNER_TEMP": tmp, "RUNNER_NAME": "t",
+               "CMUX_CI_CLIENT": client, "FAKE_CLIENT_CALLS": calls, "FLEET_CONTROLLER": "file://" + controller,
+               "HEAD_SHA": "a" * 40, "BASE_SHA": "b" * 40, "PR": "1", "GITHUB_RUN_ATTEMPT": "1", "ROUNDS": "3",
+               "LOADS": "idle,cpu,agents", "REPORT_PATH": ".build/tab-switch/report.tgz", "QUEUE_WAIT_S": "1200"}
+        proc = subprocess.run(["bash", "-e", "-c", frames_script()], env=env, capture_output=True, text=True,
+                              timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        with open(os.path.join(tmp, "tab-switch", "step-exit")) as handle:
+            step_exit = handle.read().strip()
+        submitted = []
+        if os.path.exists(calls):
+            with open(calls) as handle:
+                submitted = [line for line in handle.read().splitlines() if line.startswith("run ")]
+        return step_exit, submitted, proc.stdout, tmp
+
+    @staticmethod
+    def hosts(queued, running, online=4):
+        rows = [{"name": f"m{i}", "online": True, "queued_eligible": queued, "other_running": 0} for i in range(online)]
+        for row in rows[:running]:
+            row["running"] = {"id": "x", "script": "scripts/measure/split-spring.sh"}
+        rows.append({"name": "off", "online": False, "queued_eligible": 999})
+        return {"measure_hosts": rows}
+
+    def test_deep_queue_skips_without_submitting(self):
+        step_exit, submitted, out, tmp = self.run_frames(self.hosts(queued=63, running=5, online=20))
+        self.assertEqual(step_exit, "skipped")
+        self.assertEqual(submitted, [])
+        with open(os.path.join(tmp, "tab-switch", "skipped")) as handle:
+            self.assertIn("63 exclusive steps queued", handle.read())
+        self.assertIn("not measured", out)
+
+    def test_short_queue_submits_with_the_queue_wait(self):
+        step_exit, submitted, _, _ = self.run_frames(self.hosts(queued=1, running=2))
+        self.assertEqual(step_exit, "75")
+        self.assertEqual(len(submitted), 1)
+        self.assertIn("--background", submitted[0])
+        self.assertIn("--queue-timeout 1200", submitted[0])
+
+    def test_empty_queue_submits_with_nothing_running(self):
+        _, submitted, _, _ = self.run_frames(self.hosts(queued=0, running=0))
+        self.assertEqual(len(submitted), 1)
+
+    def test_no_online_host_skips(self):
+        step_exit, submitted, _, _ = self.run_frames({"measure_hosts": [{"name": "off", "online": False}]})
+        self.assertEqual((step_exit, submitted), ("skipped", []))
+
+    def test_unreadable_table_submits(self):
+        for status in (None, "not json", "[]"):
+            with self.subTest(status=status):
+                _, submitted, _, _ = self.run_frames(status)
+                self.assertEqual(len(submitted), 1)
 
 
 if __name__ == "__main__":

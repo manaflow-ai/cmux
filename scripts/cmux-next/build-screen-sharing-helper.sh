@@ -7,7 +7,7 @@
 #
 # Same contract as build-mobile-host.sh: CI, fleet and nx-remote builds run Cargo on a miss; a
 # developer Mac only reuses the cache and never runs Cargo. The cache is keyed by the source of
-# cmux-tui/crates and cmux-tui/vendor (the host's path dependencies live there), so an
+# cmux-rd-host's path-dependency crates and cmux-tui/vendor, so an
 # app-only commit reuses the last build.
 set -euo pipefail
 
@@ -45,7 +45,15 @@ crate="$repo_root/cmux-tui/crates/cmux-rd-host"
 
 # The source key: the committed trees of every input, plus any uncommitted change to them (a
 # --working-tree fleet build), so a stale build is never reused. The size profile is part of it.
-inputs=(cmux-tui/crates cmux-tui/vendor cmux-tui/Cargo.toml)
+# cmux-rd-host and every crate it reaches through a path dependency (optional ones too), not all
+# of cmux-tui/crates: a daemon-only crate (acpmux, cmux-app-host) neither rebuilds the helper nor
+# routes a pull request to the app scheme compile. The Xcode phase "Bundle Screen Sharing helper"
+# lists the same crates; scripts/cmux-next/tests/test_screen_sharing_helper_inputs.py checks both
+# against Cargo.toml.
+inputs=(cmux-tui/crates/cmux-rd-host cmux-tui/crates/cmux-codecs cmux-tui/crates/cmux-encode
+  cmux-tui/crates/cmux-hub-host cmux-tui/crates/cmux-process cmux-tui/crates/cmux-rd-core
+  cmux-tui/crates/cmux-rd-engine cmux-tui/crates/cmux-rd-link cmux-tui/crates/cmux-rd-proto
+  cmux-tui/crates/cmux-transport cmux-tui/vendor cmux-tui/Cargo.toml)
 size_profile=(CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_DEBUG=0)
 features="link"
 key_material="${size_profile[*]} features=$features"$'\n'
