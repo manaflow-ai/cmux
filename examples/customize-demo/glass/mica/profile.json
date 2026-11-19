@@ -1,0 +1,7 @@
+{
+  "name": "glass-mica",
+  "description": "A Mica window: your desktop picture frosted to a wash of color under a dense graphite tint, the content one step lighter than the frame.",
+  "settings": {
+    "appearance.themeFile": "glass-mica"
+  }
+}

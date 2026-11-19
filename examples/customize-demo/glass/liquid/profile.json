@@ -1,0 +1,7 @@
+{
+  "name": "glass-liquid",
+  "description": "Clear Liquid Glass over Hokusai's wave: the painting bends through the sidebar, the tab bar and the panes, with the glass lab's dim levels keeping text readable.",
+  "settings": {
+    "appearance.themeFile": "glass-liquid"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "cockpit",
+  "description": "Mission control, redone: moonlit glass over Dahl's Dresden at night, a New Tab page with a greeting, live counters that roll when they change, launch tiles and three designed cards (what needs you, your PRs, your workspaces), a Needs You section on top of the sidebar, the session tree, Priority View and a docked Chief on the right.",
+  "settings": {
+    "appearance.themeFile": "last-demo-cockpit",
+    "tabs.newTabApp": "local/customize",
+    "sidebar.priorityView.enabled": true,
+    "sidebar.sessionTree": true,
+    "home.chiefDock.edge": "right",
+    "agentPane.display.sessionInfo.placement": "push",
+    "layout.mainPane": "agent-chats",
+    "layout.paneSeparation": "cards"
+  }
+}
