@@ -435,7 +435,11 @@ fn failed_index_publication_restores_the_worktree() {
     repo(src.path());
     sh(
         src.path(),
-        "printf 'two\\n' >> kept.txt && git add kept.txt && printf 'three\\n' >> kept.txt && git mv gone.txt renamed.txt && git rm -q empty.txt && mkdir empty.txt && printf child > empty.txt/child && git add empty.txt && ln -s kept.txt newlink",
+        "mkdir directory && printf original > directory/child && git add directory && git commit -qm directory",
+    );
+    sh(
+        src.path(),
+        "printf 'two\\n' >> kept.txt && git add kept.txt && printf 'three\\n' >> kept.txt && git mv gone.txt renamed.txt && git rm -q empty.txt && mkdir empty.txt && printf child > empty.txt/child && git add empty.txt && ln -s kept.txt newlink && git rm -qr directory && printf replacement > directory && git add directory",
     );
     let carry = snapshot(&here, src.path(), true).unwrap();
     sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));

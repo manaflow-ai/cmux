@@ -63,3 +63,9 @@ size limit on the final apply child, proves the first write occurred, and compar
 both original files and index bytes after recovery before retrying. The archive's
 temporary disk cost is the original affected file bytes plus tar headers, and it
 is removed on success or successful recovery.
+
+Publication failure also restores file-to-directory and directory-to-file
+transitions. The snapshot records affected directories without recursing into
+them; recovery removes only replacement files at those paths before unpacking
+the original children. `failed_index_publication_restores_the_worktree` checks
+both directions, renamed files and symlinks, then retries the carry.

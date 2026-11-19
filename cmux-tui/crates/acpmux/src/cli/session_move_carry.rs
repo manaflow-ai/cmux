@@ -355,6 +355,13 @@ fi
 cp -- "$s/index" "$real.lock" || exit 2
 restore_worktree() {
   restored=0
+  # A carried file may replace a directory. Remove that file before restoring
+  # the directory's original children; never remove an existing directory tree.
+  if [ -s "$s/directories" ]; then
+    xargs -0 sh -c 'for p do
+      if [ -L "$p" ] || [ -f "$p" ]; then rm -f -- "$p" || exit 1; fi
+    done' sh <"$s/directories" || restored=1
+  fi
   if [ -s "$s/absent" ]; then
     xargs -0 sh -c 'for p do
       if [ -d "$p" ] && [ ! -L "$p" ]; then rmdir -- "$p" || exit 1
@@ -377,11 +384,12 @@ restore_worktree() {
 if [ -s "$s/patch" ]; then
   # --check cannot predict disk exhaustion or a write error. Snapshot exactly the
   # affected worktree files before the first write; never recurse into submodules.
-  : >"$s/present"; : >"$s/absent"
+  : >"$s/present"; : >"$s/absent"; : >"$s/directories"
   xargs -0 sh -c 's=$1; shift; for p do
     if [ -L "$p" ] || [ -f "$p" ]; then printf "%s\000" "$p" >>"$s/present"
     elif [ ! -e "$p" ]; then printf "%s\000" "$p" >>"$s/absent"
-    elif [ ! -d "$p" ]; then exit 1; fi
+    elif [ -d "$p" ]; then printf "%s\000" "$p" >>"$s/directories"
+    else exit 1; fi
   done' sh "$s" <"$s/paths" || exit 5
   tar -cpf "$s/worktree-before.tar" --null -T "$s/present" || exit 5
   if ! git -c core.fsmonitor=false -c core.symlinks=true -C "$top" apply --binary --whitespace=nowarn "$s/patch"; then
