@@ -1128,6 +1128,7 @@ if [[ "$mode" == chief-live-perf || "$mode" == chief-live-perf-baseline ]]; then
   note "## Chief live layout ($mode): three runs, one warm-up + three samples per run"
   note "- harness sha256: $(shasum -a 256 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileChiefTests/ChiefLiveLayoutPerformanceTests.swift | awk '{print $1}')"
   perf_status=0
+  # test-repeat: three benchmark runs, and the first red one ends them (not a retry)
   for run in 1 2 3; do
     # TEST_RUNNER_ forwards this opt-in to the simulator test process. No
     # controller env allowlist change is needed: the mode owns the setting.
