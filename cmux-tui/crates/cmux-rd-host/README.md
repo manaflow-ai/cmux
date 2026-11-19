@@ -29,11 +29,14 @@ Build on a fleet Mac: `cargo build --release --no-default-features --features be
 
 For transport, encoder and controller measurements without any grant, a bench build of
 `cmux-rd host` or `cmux-rd serve` takes `--source synthetic|synthetic-still|synthetic-tick
-[--synthetic-size WxH]` (default 1920x1080, fitted to `--max-width`): it streams a generated
+[--synthetic-size WxH] [--synthetic-scene bars|text|noise|churn]` (default 1920x1080 bars, fitted to `--max-width`): it streams a generated
 NV12 picture with the marker at 0,0 through the same VideoToolbox and send path, and a
 viewer's key press, click or scroll bumps the marker instead of reaching the Mac.
 `synthetic` moves bars every frame, `synthetic-still` sends a frame only when input bumps
-the marker, and `synthetic-tick` also counts every frame (the fps probe). The two-Mac
+the marker, and `synthetic-tick` also counts every frame (the fps probe). Flat bars compress
+to almost nothing; `text` (dense glyphs scrolling 4 px a frame) and `noise` (grain-textured
+bars) translate, which an encoder predicts cheaply; `churn` (the grain at a new random
+offset every frame) is new content every frame. The two-Mac
 harness runs it over ssh with no rig and no marker app:
 `scripts/screen-share-vs.py run --source synthetic --stacks cmux --via ssh --host A --viewer B
 --host-ip IP --bin cmux-rd` (key trials use `synthetic-still`, fps trials `synthetic-tick`).
@@ -78,7 +81,8 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   it continues. `--stack-token-file PATH` (a file only this user can read, mode 0600, or `-`
   for stdin) passes a cmux access token instead. No token is stored. It creates this desktop's device keys in
   `~/.config/cmux/screen-host/` (0700; files 0600), registers it as a `linux` device, anchors
-  it and turns sharing on. The anchor lets the host renew its own session with its device key
+  it, downloads Cisco's OpenH264 into the per-user data directory (the encoder, never bundled;
+  the file `cmux-rd openh264-install` writes) and turns sharing on. The anchor lets the host renew its own session with its device key
   for 30 days; after that, `share on` again (it signs in the same way).
 - Consent: this desktop joined your own account, so your devices view and control it with no
   prompt here (the hub serves a device of the same account at once; `enable --view-only` keeps
@@ -121,6 +125,25 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   yet; its session ends with that reason.
 - Relays the person added by hand are sealed to the device's agreement key and not opened
   yet: the host uses the hub's ICE servers.
+
+## Windows PC on the device hub (lists and captures; viewing is next)
+
+A Windows PC joins the person's devices as a `windows` device with the same hub client as
+the Linux host (`src/screen_host/`). In the signed-in user's session (not a service):
+
+```powershell
+cmux-rd windows-host enable --stack-token-file $env:APPDATA\cmux\stack-token
+schtasks /Create /SC ONLOGON /TN cmux-screen-host /TR "C:\path\cmux-rd.exe windows-host run"
+cmux-rd windows-host status
+```
+
+- Keys and account in `%APPDATA%\cmux\screen-host\`, run state in
+  `%LOCALAPPDATA%\cmux\screen-host\run\`; `run` holds the hub socket (online) and records a
+  capture of this desktop (GDI) that `status` prints.
+- It serves no session yet: `cmux-rd serve` and the secure link have no Windows port, so the
+  host leaves sharing off (`share on` says why) and closes any session the hub hands it. The
+  plan, capture and input backends, and what Windows itself blocks (UAC, lock screen):
+  `docs/device-hub/windows-host.md`.
 
 ## Build
 

@@ -4,11 +4,19 @@
 //! only interprets the bounded settings overlay and returns deterministic
 //! projection mutations for the native view to apply mechanically.
 
+use crate::sidebar_row_layout::quote;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
+/// The most entries a settings list holds, and the most sections the planner
+/// reads.
 const MAX_ENTRIES: usize = 256;
+/// The most nodes per section, workspace ids per node and workspace rules the
+/// planner reads: the document's own item limit, so every sidebar the
+/// document can hold keeps its settings (at 256 every setting was dropped
+/// once one section held 257 workspaces).
+const MAX_NODES: usize = crate::sidebar_doc::model::MAX_ITEMS;
 const MAX_ID: usize = 128;
 const MAX_ORDER: i64 = 1_000_000;
 
@@ -60,6 +68,9 @@ pub struct Reply {
     /// Valid per-workspace target group ids and explicit order keys.
     pub workspace_groups: BTreeMap<String, String>,
     pub workspace_orders: BTreeMap<String, i64>,
+    /// The settings hide the selected workspace or its section, and only the selection keeps it
+    /// shown: the next selection change must plan again. Any other selection change needs no plan.
+    pub selection_spared: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -78,6 +89,7 @@ struct Plan {
     hidden_workspaces: Vec<String>,
     workspace_groups: BTreeMap<String, String>,
     workspace_orders: BTreeMap<String, i64>,
+    selection_spared: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -150,22 +162,24 @@ fn config(
 
     let mut workspaces = BTreeMap::new();
     if let Some(entries) = request.workspaces.as_object() {
-        if entries.len() > MAX_ENTRIES {
+        if entries.len() > MAX_NODES {
             problems.push(Problem {
                 path: "sidebar.workspaces".into(),
-                why: format!("ignored object with more than {MAX_ENTRIES} entries"),
+                why: format!("ignored object with more than {MAX_NODES} entries"),
             });
             return (hidden, order, workspaces);
         }
         for (id, value) in entries {
-            let path = format!("sidebar.workspaces.{id}");
             if !valid_id(id) {
+                // An id past MAX_ID can be a pasted blob: say where, quoting it short.
+                let path = format!("sidebar.workspaces.{}", quote(id));
                 problems.push(Problem {
                     path,
                     why: "expected a non-empty workspace id of at most 128 characters".into(),
                 });
                 continue;
             }
+            let path = format!("sidebar.workspaces.{id}");
             let Some(fields) = value.as_object() else {
                 problems.push(Problem { path, why: "expected an object".into() });
                 continue;
@@ -259,7 +273,7 @@ fn plan(
         }
         section_keys.insert(section.id.clone());
         section_keys.extend(section.keys.iter().cloned());
-        for (node_index, node) in section.nodes.iter().take(MAX_ENTRIES).enumerate() {
+        for (node_index, node) in section.nodes.iter().take(MAX_NODES).enumerate() {
             if node.kind == "group" {
                 group_ids.entry(section.id.clone()).or_default().insert(node.id.clone());
                 if let Some(name) = &node.name {
@@ -267,7 +281,7 @@ fn plan(
                 }
             }
             for (workspace_index, workspace) in
-                node.workspace_ids.iter().take(MAX_ENTRIES).enumerate()
+                node.workspace_ids.iter().take(MAX_NODES).enumerate()
             {
                 if section_for_workspace.contains_key(workspace) {
                     problems.push(Problem {
@@ -297,6 +311,9 @@ fn plan(
         }
     }
     let selected_section = selected.and_then(|id| section_for_workspace.get(id)).cloned();
+    let mut selection_spared = selected.is_some_and(|id| {
+        section_for_workspace.contains_key(id) && workspaces.get(id).is_some_and(|w| w.hidden)
+    });
     let hidden_sections = input
         .iter()
         .take(input_len)
@@ -305,7 +322,11 @@ fn plan(
                 section.keys.iter().any(|candidate| candidate == key) || section.id == *key
             })
         })
-        .filter(|section| selected_section.as_deref() != Some(section.id.as_str()))
+        .filter(|section| {
+            let selected_here = selected_section.as_deref() == Some(section.id.as_str());
+            selection_spared |= selected_here;
+            !selected_here
+        })
         .map(|section| section.id.clone())
         .collect::<Vec<_>>();
     let hidden_section_set: BTreeSet<_> = hidden_sections.iter().cloned().collect();
@@ -315,9 +336,9 @@ fn plan(
     let mut workspace_orders = BTreeMap::new();
     let mut workspace_group_for = BTreeMap::new();
     for section in input.iter().take(input_len) {
-        for node in section.nodes.iter().take(MAX_ENTRIES) {
+        for node in section.nodes.iter().take(MAX_NODES) {
             if node.kind == "group" {
-                for workspace in node.workspace_ids.iter().take(MAX_ENTRIES) {
+                for workspace in node.workspace_ids.iter().take(MAX_NODES) {
                     workspace_group_for
                         .insert(workspace.clone(), (section.id.clone(), node.id.clone()));
                 }
@@ -385,20 +406,29 @@ fn plan(
         section_order.extend(chunk.into_iter().map(|section| section.id.clone()));
         start = end;
     }
-    Plan { section_order, hidden_sections, hidden_workspaces, workspace_groups, workspace_orders }
+    Plan {
+        section_order,
+        hidden_sections,
+        hidden_workspaces,
+        workspace_groups,
+        workspace_orders,
+        selection_spared,
+    }
 }
 
 pub fn respond(request: &Request) -> Reply {
     let mut problems = Vec::new();
     let input_too_large = request.input.len() > MAX_ENTRIES
         || request.input.iter().any(|section| {
-            section.nodes.len() > MAX_ENTRIES
-                || section.nodes.iter().any(|node| node.workspace_ids.len() > MAX_ENTRIES)
+            section.nodes.len() > MAX_NODES
+                || section.nodes.iter().any(|node| node.workspace_ids.len() > MAX_NODES)
         });
     if input_too_large {
         problems.push(Problem {
             path: "sidebar.input".into(),
-            why: format!("ignored sidebar document larger than {MAX_ENTRIES} entries per level"),
+            why: format!(
+                "ignored sidebar document with more than {MAX_ENTRIES} sections or {MAX_NODES} entries per level"
+            ),
         });
     }
     let (hidden, order, workspaces) = config(request, &mut problems);
@@ -413,6 +443,7 @@ pub fn respond(request: &Request) -> Reply {
             hidden_workspaces: Vec::new(),
             workspace_groups: BTreeMap::new(),
             workspace_orders: BTreeMap::new(),
+            selection_spared: false,
         };
     }
     let plan = plan(
@@ -433,6 +464,7 @@ pub fn respond(request: &Request) -> Reply {
         hidden_workspaces: plan.hidden_workspaces,
         workspace_groups: plan.workspace_groups,
         workspace_orders: plan.workspace_orders,
+        selection_spared: plan.selection_spared,
     }
 }
 
@@ -502,12 +534,12 @@ mod tests {
 
     #[test]
     fn oversized_document_keeps_the_projection_unchanged() {
-        let nodes = (0..257)
-            .map(|index| json!({"id": format!("ws-{index}"), "kind": "workspace", "workspace_ids": [format!("ws-{index}")]}))
+        let sections = (0..257)
+            .map(|index| json!({"id": format!("sec-{index}"), "keys": ["projects"], "region": "middle", "nodes": []}))
             .collect::<Vec<_>>();
         let request: Request = serde_json::from_value(json!({
             "sections": {"hidden": ["projects"]},
-            "input": [{"id": "projects", "region": "middle", "nodes": nodes}]
+            "input": sections
         }))
         .unwrap();
         let reply = respond(&request);
@@ -537,3 +569,7 @@ mod tests {
         assert!(reply.problems.iter().any(|problem| problem.path.ends_with("workspace_ids[1]")));
     }
 }
+
+#[cfg(test)]
+#[path = "sidebar_section_customization_stress_tests.rs"]
+mod stress_tests;

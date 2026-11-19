@@ -182,7 +182,17 @@ The other verbs:
 - `cmux theme get [KEY]` shows what the file sets.
 - `cmux theme list` lists the files and marks the active one.
 - `cmux theme use NAME` picks a different file.
-- `cmux theme import FILE.json [--use]` installs someone else's theme file.
+- `cmux theme import FILE.json [--use]` copies someone else's theme file in; without `--use`
+  the look does not change.
+- A shared theme in a git repository (`cmux-theme.json` at its root): `cmux theme install
+  github.com/OWNER/REPO` installs it and puts it on in one step, wallpapers included. Never tell
+  the person to run commands after it: run it yourself (`--yes` once they said yes), then say
+  what changed. `cmux apps install` and `cmux theme import` of that repository do the same;
+  `cmux theme remove OWNER/REPO` puts back the earlier look. A snippet repository
+  (`cmux-snippet.json`: look settings and stylesheets, such as fonts) is `cmux snippet install`.
+- To make a repository show up for others, give it the GitHub topics `cmux-extension` (what
+  cmux.com's candidate list searches), `cmux-theme` (or `cmux-snippet`) and `cmux`, and list it
+  in manaflow-ai/cmux-extensions: [theme-recipes.md](../../docs/cmux-next/theme-recipes.md#share-a-theme-so-people-find-it).
 - `cmux theme schema --install` writes `themes/.schema.json` for editor completion.
   The exported file's `$schema` already points at it.
 - A base16, iTerm2, Windows Terminal or Ghostty color scheme is a terminal theme, not
@@ -255,6 +265,7 @@ reloads the view, and the app installs itself the first time. No restart, no
 install click.
 
 - A new view of its own (a sidebar section or a Session Info section): run `cmux ext new NAME --kind sidebar|session-info --json` in a folder, edit its `src/main.ts`, then `cmux ext dev --once --json` until ok.
+  To share it from GitHub: `cmux ext new NAME --repo OWNER/REPO`, then `cmux ext publish --json` says what is left (push, `cmux ext pack` and a release, the registry PR) ([extensions.md](references/extensions.md)).
 - `implements["cmux.section/1"]` is its one sidebar section; `options.defaultRegion`
   `top`, `middle` or `bottom` (the band under the workspace list). cmux places it
   there the first time it sees it, and the person's later move or removal wins.
