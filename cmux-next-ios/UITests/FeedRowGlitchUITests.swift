@@ -86,7 +86,9 @@ final class FeedRowGlitchUITests: XCTestCase {
         XCUIDevice.shared.appearance = .dark
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmux-mobile-tab", "feed", "-cmux-mobile-no-restore"]
+        // The app's own Dark setting as well: the fleet's UI simulator boots light, and the device
+        // appearance call does not reach it there.
+        app.launchArguments += ["-cmux-mobile-tab", "feed", "-cmux-mobile-no-restore", "-cmuxMobile.settings.appearance", "dark"]
         app.launch()
         _ = feedChipsAfterSetup(app)
         let list = app.tables["feed.list"]
@@ -113,15 +115,8 @@ final class FeedRowGlitchUITests: XCTestCase {
         pause(1.5)
         let back = brightness("back-from-home")
         XCTAssertLessThan(back, 0.2, "the bubble is dark again after the app comes back (\(Int(back * 100))% bright)")
-
-        // Light and back to dark while the app is open.
-        XCUIDevice.shared.appearance = .light
-        pause(1.5)
-        attach(XCUIScreen.main.screenshot().image, "light")
-        XCUIDevice.shared.appearance = .dark
-        pause(1.5)
-        let again = brightness("dark-again")
-        XCTAssertLessThan(again, 0.2, "the bubble is dark after light and back (\(Int(again * 100))% bright)")
+        // The light-and-back flip itself is FeedRowVisualTests' (a real cell in a window whose
+        // appearance changes); the device appearance call does not reach the fleet's simulator.
     }
 
     // MARK: Helpers
