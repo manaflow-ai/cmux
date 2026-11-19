@@ -54,6 +54,11 @@ impl Hub {
                 if let Some(start) = self.start_view(&cfg, name, p) {
                     o.insert("start".into(), start);
                 }
+                // The modes and options its chats report (`start_mode.rs` `reported_options`):
+                // a new chat's Mode and option pickers before any chat of it is open.
+                if let Some(reported) = self.reported_options(name, p) {
+                    o.insert("reported".into(), reported);
+                }
                 // A profile file's display, capability, auth and sessions data.
                 if let Some(Value::Object(meta)) =
                     cfg.profile_meta.get(name).and_then(|m| serde_json::to_value(m).ok())

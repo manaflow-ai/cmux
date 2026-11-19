@@ -23,6 +23,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case accounts
         case agentHarnesses
         case agentIntegrations
+        /// Settings > Agents > Agents on This Mac: each coding agent and whether it gets cmux's MCP server when cmux starts it (`cmux setup mcp`, which writes nothing), with Turn On, an old cmux entry in its own config with Remove (the person's click only), and the manual lines for agents started elsewhere, right under the agents.cmuxMcp choice row (the onboarding step's question); `cmux.settings.agentTools.*`.
+        case agentTools
         case chiefs
         case advancedInfo
         case advancedActions

@@ -137,7 +137,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         // OAuth popup must not get a saved password filled either).
         if services.cache.agentDrivenTabs.contains(key) {
             switch intent {
-            case .adoptTab(let child, _), .openPopup(let child, _): child.markAgentDriven()
+            case .adoptTab(let child, _), .openPopup(let child, _): child.takeOpenersAgentMark()
             default: break
             }
         }
