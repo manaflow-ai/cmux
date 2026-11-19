@@ -109,7 +109,7 @@ struct CloudGitHubConnectLatencyTests {
         return (connect, milliseconds, sent)
     }
 
-    static let scenarios = [
+    nonisolated static let scenarios = [
         Scenario(name: "production-api-refuses-return-link", refusesReturnLink: true),
         Scenario(name: "api-takes-return-link"),
         Scenario(name: "stale-pending-from-cancelled-install", stalePending: true),
