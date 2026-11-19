@@ -1403,7 +1403,9 @@ impl Brain {
         if land_followup {
             stopped = true;
         }
+        let reported_at = self.now();
         let run_ms = if let Some(sub) = self.state.sub_mut(id) {
+            sub.reported_ms = reported_at;
             sub.fleet_wait = fleet_wait;
             sub.status = SubStatus::Done;
             sub.reopened = false;
@@ -3450,7 +3452,88 @@ mod security_tests {
 /// What the at-work line adds: their tasks are not finished yet.
 const AT_WORK_NOT_DONE: &str = "Their tasks are not done until each reports: never say they are finished, and keep any reply about them to what is under way.";
 
+/// A subagent's name in `<open-items>`: its workspace title, else its task.
+fn name_of(s: &SubRecord) -> &str {
+    if s.title.trim().is_empty() {
+        s.task.as_str()
+    } else {
+        s.title.as_str()
+    }
+}
+
+/// The most rows `<open-items>` shows (the newest first); the rest are counted.
+const OPEN_ITEMS_MAX: usize = 30;
+
 impl Brain {
+    /// `<open-items>`: what the host knows is still open, so the Chief's
+    /// sleep notes need not carry it as prose (tests/open_items.rs). One row
+    /// per subagent at work or waiting: its title, state and for how long,
+    /// its last report's first words, and whether a Chief post named it
+    /// since that report; then the finished subagents no post told yet.
+    /// None when nothing is open. After the delta, never logged.
+    pub(super) fn open_items_block(&self) -> Option<String> {
+        use super::control::{minutes, one_line, state_name};
+        let now = self.now();
+        let mut open: Vec<&SubRecord> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| s.at_work() || s.waiting())
+            .collect();
+        open.sort_by_key(|s| std::cmp::Reverse(s.reported_ms.max(s.run_ms)));
+        let untold: Vec<String> = self
+            .state
+            .untold
+            .iter()
+            .filter_map(|u| {
+                let (_, s) = self.state.sub(&u.id)?;
+                (!s.at_work() && !s.waiting())
+                    .then(|| format!("{} ({})", s.id, one_line(name_of(s), 50)))
+            })
+            .collect();
+        if open.is_empty() && untold.is_empty() {
+            return None;
+        }
+        let mut lines = vec![
+            "<open-items>".to_owned(),
+            "What is still open, kept by the host (no need to repeat it in a sleep note):"
+                .to_owned(),
+        ];
+        for s in open.iter().take(OPEN_ITEMS_MAX) {
+            let since = if s.waiting() { s.waiting_ms } else { s.run_ms };
+            let state = state_name(s, now);
+            let mut row = format!("- {} · {} · {state}", s.id, one_line(name_of(s), 50));
+            if since > 0 {
+                row.push_str(&format!(" {}", minutes(now.saturating_sub(since))));
+            }
+            if let Some(report) = s.report.as_deref().filter(|_| s.reported_ms > 0) {
+                let told = if s.told_ms >= s.reported_ms {
+                    "told"
+                } else {
+                    "not told yet"
+                };
+                row.push_str(&format!(
+                    " · last report {} ago, {told}: \"{}\"",
+                    minutes(now.saturating_sub(s.reported_ms)),
+                    one_line(report, 90)
+                ));
+            }
+            lines.push(row);
+        }
+        if open.len() > OPEN_ITEMS_MAX {
+            lines.push(format!(
+                "- and {} more at work",
+                open.len() - OPEN_ITEMS_MAX
+            ));
+        }
+        if !untold.is_empty() {
+            lines.push(format!("Finished, not told yet: {}.", untold.join(", ")));
+        }
+        lines.push("</open-items>".to_owned());
+        Some(lines.join("\n"))
+    }
+
     /// `Subagents at work now: a1, a3. ...` when any runs (a turn's line
     /// after the view); None when none does. It also says their work is not
     /// done yet, so a turn never reports a task finished while the subagent

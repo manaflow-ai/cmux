@@ -565,6 +565,7 @@ impl Brain {
         // never before a cache mark: the subagents at work now (the reference
         // client's line). Never logged.
         let at_work = self.at_work_line();
+        let open_items = self.open_items_block();
         // The person's clock (weekday, time, zone): day words and sleep
         // seconds count from it. After the delta, so it never breaks a cache
         // mark.
@@ -578,6 +579,7 @@ impl Brain {
             .iter()
             .chain(memory.iter())
             .chain(at_work.iter())
+            .chain(open_items.iter())
             .chain(home.iter())
             .chain(resumes.iter())
             .cloned()
