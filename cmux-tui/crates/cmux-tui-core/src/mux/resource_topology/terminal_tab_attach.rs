@@ -61,7 +61,7 @@ impl Mux {
             let active = refused.is_none()
                 && match &landing {
                     Some(landing) => landing.active,
-                    None => spot.placed.takes_active(&state, target),
+                    None => spot.placed.takes_active(&state, target, true),
                 };
             let pane = if refused.is_some() { None } else { state.panes.get_mut(&target) };
             let delta = match pane {

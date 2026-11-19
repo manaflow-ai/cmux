@@ -66,6 +66,13 @@ UNWIRED: set[str] = {
     # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows only as data: which files exist and which
     # call a reusable declared workflow, for scripts/ci/hosted_light_rescue.py's scope. Exit: as below.
     "tests/test_ci_hosted_light_rescue.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It runs
+    # scripts/ci/swiftpm_prefetch_binary_artifacts.py against a fake cache and reads the owned-Mac workflows only as
+    # data (each SwiftPM step seeds first, #43932). Run it by hand when the seed or such a step changes. Exit: as below.
+    "tests/test_ci_swiftpm_prefetch_shared_cache.py",
+    # No new CI tests (CLAUDE.md): #44697 added it with no step. It reads test-ios.yml only as data (a bot's re-run
+    # on a cmux-next lane takes the picker's Blacksmith route); run it by hand when that route changes. Exit: as below.
+    "tests/test_ci_ios_bot_rerun_route.py",
     # Both are lane = "manual" in tests/test-execution.toml: CLAUDE.md forbids adding CI tests (Lawrence
     # 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"). Each reads a workflow
     # only as data (a fixture nightly.yml; cmux-next.yml for stamp readers). Exit: wire it here if that
@@ -133,6 +140,10 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It checks that build-nightly-deltas waits for a quiet nightly-next loop
     # before the keyed job asks for the signer Mac; run it by hand after changing the yield script or the delta jobs.
     "tests/test_nightly_deltas_yield.py",
+    # lane = "manual" for the same rule. It checks that the nightly-next delta republish ships the deltas R2 serves past
+    # one failed upload and fails red when the live feed's newest item offers none; run it by hand after changing
+    # nightly_next_delta_check.py or republish-deltas-upload-next-appcasts.sh.
+    "tests/test_nightly_next_delta_check.py",
     # lane = "manual" for the same rule. It checks that nightly-next-one's Release compile has its own step bound;
     # run it by hand after changing that step or the job's timeout.
     "tests/test_nightly_next_build_step_bound.py",
@@ -179,10 +190,34 @@ UNWIRED: set[str] = {
     # only as text (each failing step asks cargo-locks.py explain) and lists cargo --locked wrappers. Run it by hand
     # after changing cargo-locks.py or a step that runs cargo with --locked.
     "tests/test_cargo_locks_explain.py",
-    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It reads
-    # cmux-tui-build-package.yml as data: the shipped fat-LTO legs' warm sticky disks and their
-    # restore/record calls. Run it by hand after changing those steps. Exit: as above.
-    "tests/test_ci_cmux_tui_fat_warm_target.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It checks that the cmux-tui tree build legs install Debian packages
+    # through scripts/ci/apt-ensure.sh (dpkg first, no sudo when all are there; run 44363923089). It reads cmux-tui-
+    # artifacts.yml, cmux-tui-build-package.yml and cmux-tui-tree-request.yml as data. Run it by hand after changing
+    # apt-ensure.sh or those install steps. Exit: as above.
+    "tests/test_ci_apt_ensure.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It checks that fast-checks.yml's setup=kernel-free Mac job: its
+    # owned label, trust boundary and receipt (#46651). Run it by hand after changing that job. Exit: as above.
+    "tests/test_ci_fast_checks_kernel_free.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It checks that a NEXT nightly's cmux-tui tree wait in nightly.yml
+    # follows the owning cmux-tui-artifacts run and ends on a stalled or failed preflight (#46957). It runs that step's
+    # shell, which needs GNU date (Linux). Run it by hand on Linux after changing the wait. Exit: as above.
+    "tests/test_ci_nightly_tree_wait_follows_owner.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It checks that every checkout of a job that can take the owned GCP
+    # build lane repairs a reused workspace (proof run 44398113924). It reads cloud-vm-image-roll.yml and the cmux-tui
+    # workflows as data. Run it by hand after changing those checkouts. Exit: as above.
+    "tests/test_ci_owned_route_checkout_repair.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It checks that a required check of feat-cmux-next, and every job it
+    # needs, keeps its measured runner size, never the overflow upsize (#45823). Run it by hand after changing a
+    # required job's runs-on. Exit: as above.
+    "tests/test_ci_required_checks_keep_their_size.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It checks that a superseded lane-branch push of cmux-tui artifacts
+    # skips before it takes a Blacksmith runner (#45997). Run it by hand after changing cmux-tui-artifacts.yml's gate.
+    # Exit: as above.
+    "tests/test_cmux_tui_superseded_gate.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It checks that every git fetch and curl in nightly.yml's nightly-
+    # next-one job has its own bound and the ones that fail it retry (nightly run 44232805509). Run it by hand after
+    # changing a fetch or download there. Exit: as above.
+    "tests/test_nightly_next_network_bounds.py",
 }
 
 

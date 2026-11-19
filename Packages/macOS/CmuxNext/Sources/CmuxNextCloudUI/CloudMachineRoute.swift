@@ -1,0 +1,269 @@
+public import CmuxNextCloud
+import Foundation
+import os
+
+/// A Cloud start's last check before the first chat opens on its machine: once the machine runs the
+/// app's own machine software, its agents must reach models through the machine's edge with no provider
+/// login on it (plans/cmux-next/vm-coderouter-edge.md). The machine prints its model-route report
+/// (`cmux-tui acp --json machine-auth`) and Rust judges it (cmux-cloud-start-core `machine_route`, op
+/// `cloud_machine_route`); the chat's own agent is read from the same report (``Agent``), so a machine whose
+/// agent signs in by itself starts too. A refusal ends the start with its reason instead of a chat whose first
+/// turn the provider rejects.
+public struct CloudMachineRoute: Sendable {
+    /// One command on the machine (the Cloud API's exec): the command and its timeout in milliseconds.
+    public typealias Exec = @Sendable (_ command: String, _ timeoutMs: Int) async throws -> CloudExecResult
+
+    /// What Rust answered about the machine's report.
+    public enum Verdict: String, Decodable, Sendable {
+        case ready, unsupported, invalid
+        case noDaemon = "no_daemon"
+        case holdsCredential = "holds_credential"
+        case notEdge = "not_edge"
+    }
+
+    /// The start ends here: `verdict` says why.
+    public struct Refused: Error, Sendable {
+        public let verdict: Verdict
+        /// The chat's agent as the report reads it (``Agent``), when the start named one.
+        public var agent: Agent?
+        public init(verdict: Verdict, agent: Agent? = nil) { (self.verdict, self.agent) = (verdict, agent) }
+        /// The start card's text: a machine whose agent service is down says so, whatever else it holds.
+        public var message: String { CloudMachineRoute.message(agent?.daemonRunning == false ? .noDaemon : verdict) }
+    }
+
+    /// The report's bound on the machine: one exec, well under the Cloud API's 5 minutes.
+    public static let timeoutMs = 60_000
+
+    private let exec: Exec
+
+    public init(exec: @escaping Exec) {
+        self.exec = exec
+        machineID = nil
+    }
+
+    /// The route of Cloud machine `machineID`, whose commands run through the Cloud API's exec.
+    public init(api: CloudAPIClient, machineID: String) {
+        exec = { try await api.exec(machineID, command: $0, timeoutMs: $1) }
+        self.machineID = machineID
+    }
+
+    /// The machine ``init(api:machineID:)`` named; a ``prepare(_:)`` refusal retries on it.
+    private let machineID: String?
+
+    /// A Cloud start's machine before its first chat: its agents reach models through its edge, and it serves
+    /// what the start needs (`serves`: the daemon's capabilities). The machine is checked first and updated
+    /// (`update`, ``afterUpdate(within:_:)``) only when it lacks one of them: a machine whose host updater follows
+    /// its channel never takes this app's build when it is older (a DEV build of a branch), and an unconditional
+    /// update held every start for 8 minutes before going on as it was (2026-11-16). A refusal is the start's
+    /// failure, its reason as the start card shows it, with a retry on the same machine.
+    ///
+    /// A machine whose software predates the report (``Verdict/unsupported``) is not refused: the app's update
+    /// never moves a machine back, so a machine on a newer build than this app's that still lacks the report
+    /// (an image ahead of a DEV build's branch), or an app with no machine build to install, could never pass
+    /// and every start on a new machine ended here. Its chat starts on the software the image came with; a
+    /// machine that does report and is not routed is still refused. A capability the start then lacks ends it
+    /// where it is used (``CloudOutdatedMachine/requireCapability(holds:lacks:relink:within:update:missing:)``, ``tooOld``).
+    ///
+    /// `carriesConnection`: the chat's own model connection goes with its agent launch (a connection the person
+    /// set up, sent as the launch's start credentials), so the chat does not use the machine's route or login: acpmux
+    /// gives the launch that credential and removes every other (`agent_credentials.rs` `UNSET`). A machine that reports
+    /// no route (``Verdict/notEdge``) or holds a provider login (``Verdict/holdsCredential``) then starts as it is, as
+    /// `cmux chat --on vm:new` always did (2026-11-17).
+    ///
+    /// `family`: the chat's agent (``CloudSetup/family(of:)``), judged on its own (``Agent``): a machine whose Claude
+    /// signs in by itself (a `claude setup-token` token in its env, its saved sign-in, a key of its own) starts a Claude
+    /// chat with no connection and no gateway, as acpmux launches it on that sign-in (`claude_cloud_auth.rs`: a sign-in
+    /// of its own keeps own). Refusing every machine with a login on it ended those starts with "holds its own provider
+    /// sign-in" (cmux#45773). A machine whose agent service is down is still refused.
+    public func prepare(serves: @MainActor () -> Bool = { true }, carriesConnection: Bool = false, family: String? = nil,
+                        _ update: @escaping @Sendable () async -> Void) async throws {
+        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
+        if await serves(), let route = try? await read(family: family) {
+            if Self.starts(route.verdict, agent: route.agent, carriesConnection: carriesConnection) {
+                logger.info("cloud start chat: \(machineID ?? "", privacy: .public) already serves this start (\(route.verdict.rawValue, privacy: .public), \(route.agent?.summary ?? "no agent", privacy: .public)); no update")
+                return
+            }
+            // A machine that serves the start and whose agent reaches no model gets no route from an update: the route is
+            // the Cloud service's, not the machine software's. The chat needs its own connection; no update wait first.
+            if Self.needsConnection(route.verdict, agent: route.agent, carriesConnection: carriesConnection) {
+                logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model route or sign-in for the chat's agent and the chat carries no connection")
+                throw NeedsConnection()
+            }
+        }
+        logger.info("cloud start chat: bringing \(machineID ?? "", privacy: .public) to this app's machine software")
+        do {
+            try await afterUpdate(family: family, update)
+        } catch let refused as Refused {
+            if refused.verdict == .unsupported {
+                logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model-route report after its update, or the update did not end in time; starting on its own software")
+                return
+            }
+            // The update gave the machine no route, but the chat's agent reaches a model anyway: the machine's own sign-in,
+            // or the chat's own connection with its launch, to a daemon that takes one.
+            if Self.starts(refused.verdict, agent: refused.agent, carriesConnection: carriesConnection) {
+                if await serves() {
+                    logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model route; the chat's agent signs in by itself or carries its connection")
+                    return
+                }
+                // The chat's connection would reach a model, but the machine's software could not be brought to one that
+                // takes it (Codex's sign-in with ChatGPT needs a daemon from 2026-11-18): say that, not "not routed".
+                if carriesConnection { throw CloudMoveFailure(message: Self.tooOld, retry: machineID.map { .move(machineID: $0) }) }
+            }
+            if Self.needsConnection(refused.verdict, agent: refused.agent, carriesConnection: carriesConnection) { throw NeedsConnection() }
+            throw CloudMoveFailure(message: refused.message, retry: machineID.map { .move(machineID: $0) })
+        }
+    }
+
+    /// The machine reports no model route (``Verdict/notEdge``) or only a login the chat's agent does not use, and the chat
+    /// carries no connection of its own (a team's shared key, or nothing chosen): its agent could reach no model. The Cloud
+    /// service gives machines no route today (cmux-platform#1489: a create carrying the edge rule never binds), so this is
+    /// every such start, and the way on is the person setting the agent up. A Claude or Codex start shows Set up Cloud
+    /// (`cloud_setup_required`, `AgentPaneCloudStart.needsConnectionReply`), which starts again once a connection of the
+    /// person's own serves the agent; only an agent Cloud cannot set up ends with ``message`` and no Retry. Either ends at
+    /// once, not after an update wait (cmux#45773).
+    public struct NeedsConnection: Error, Sendable {
+        public init() {}
+        /// The card's text where Set up Cloud cannot be shown (an agent outside ``CloudSetup/families``).
+        public var message: String { CloudMachineRoute.message(.notEdge) }
+    }
+
+    /// What the machine's report says about one agent (`claude` or `codex`), read from the same output Rust judged
+    /// (``Verdict`` is the machine's as a whole: one login on it, for any agent, was ``Verdict/holdsCredential``). The
+    /// pinned FFI's `cloud_machine_route` answers for the whole machine only, so this reads the report's fields here.
+    public nonisolated struct Agent: Equatable, Sendable {
+        /// acpmux, which launches the agent, runs.
+        public var daemonRunning: Bool
+        /// The agent's base URL is the machine's edge with its placeholder key.
+        public var routed: Bool
+        /// The agent signs in by itself on the machine: a login file of its own (`login_files`), a credential variable of
+        /// its own in the daemon's env (`credential_env`: `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`), or a real
+        /// key of its own (`agents.<family>.key` `other`).
+        public var signsIn: Bool
+
+        public init(daemonRunning: Bool, routed: Bool, signsIn: Bool) {
+            (self.daemonRunning, self.routed, self.signsIn) = (daemonRunning, routed, signsIn)
+        }
+
+        /// The credential variables (`acpmux machine-auth` `CREDENTIAL_VARS`) each agent reads.
+        static let credentialVariables: [String: Set<String>] = [
+            "claude": ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN"],
+            "codex": ["CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "CHATGPT_ACCESS_TOKEN"],
+        ]
+
+        /// `family`'s reading of the machine's output; nil for no report (as Rust's `report`: the last JSON object line
+        /// that names `agents`) or a family the report does not name.
+        public static func read(_ stdout: String, family: String) -> Agent? {
+            let report = stdout.split(whereSeparator: \.isNewline).reversed().lazy.compactMap { line in
+                (try? JSONSerialization.jsonObject(with: Data(line.trimmingCharacters(in: .whitespaces).utf8))) as? [String: Any]
+            }.first { $0["agents"] != nil }
+            guard let report, let agents = report["agents"] as? [String: Any], let agent = agents[family] as? [String: Any] else { return nil }
+            let logins = (report["login_files"] as? [[String: Any]] ?? []).contains { $0["agent"] as? String == family }
+            let variables = Set(report["credential_env"] as? [String] ?? []).intersection(credentialVariables[family] ?? []).isEmpty == false
+            return Agent(daemonRunning: (report["daemon"] as? [String: Any])?["running"] as? Bool == true,
+                         routed: agent["edge_routed"] as? Bool == true && agent["key"] as? String == "placeholder",
+                         signsIn: logins || variables || agent["key"] as? String == "other")
+        }
+
+        var summary: String { "agent daemon=\(daemonRunning) routed=\(routed) signsIn=\(signsIn)" }
+    }
+
+    /// Whether a machine that answered `verdict` ends the start with ``NeedsConnection``: the chat brings no connection of
+    /// its own and its agent (`agent`, when known) has neither the machine's route nor a sign-in of its own there.
+    public nonisolated static func needsConnection(_ verdict: Verdict, agent: Agent? = nil, carriesConnection: Bool) -> Bool {
+        guard !carriesConnection else { return false }
+        switch verdict {
+        case .notEdge, .holdsCredential:
+            guard let agent else { return verdict == .notEdge }
+            return agent.daemonRunning && !agent.routed && !agent.signsIn
+        case .ready, .unsupported, .invalid, .noDaemon:
+            return false
+        }
+    }
+
+    /// Whether a start goes on with a machine that answered `verdict`, with no update: routed, or on software from before
+    /// the report, or, with its agent service running, the chat's agent reaches a model (its route, its own sign-in on the
+    /// machine, or the chat's own connection with its launch). With no ``Agent`` reading, a machine that holds a login is
+    /// refused and an unrouted one starts only on the chat's connection, as before.
+    public nonisolated static func starts(_ verdict: Verdict, agent: Agent? = nil, carriesConnection: Bool) -> Bool {
+        switch verdict {
+        case .ready, .unsupported:
+            return true
+        case .notEdge, .holdsCredential:
+            guard let agent else { return verdict == .notEdge && carriesConnection }
+            return agent.daemonRunning && (carriesConnection || agent.routed || agent.signsIn)
+        case .invalid, .noDaemon:
+            return false
+        }
+    }
+
+    private struct Request: Encodable { var stdout: String? }
+    private struct Reply: Decodable { var command: String, verdict: Verdict? }
+
+    /// How long a start waits for its machine to run the app's own machine software (the update pushes the
+    /// app's pinned build and restarts the machine's services on it) before it gives up with ``Refused``:
+    /// ``CloudOutdatedMachine/startUpdateWait``, which says why (it was 8 minutes until 2026-11-16).
+    public static let updateDeadline: Duration = CloudOutdatedMachine.startUpdateWait
+
+    /// Runs `update` (the app's update of the machine to its own machine software, a no-op for a machine
+    /// already on it or on a newer build), at most `deadline`, then ``verify(family:)``. A missed deadline is
+    /// ``Refused`` with ``Verdict/unsupported``.
+    public func afterUpdate(within deadline: Duration = updateDeadline, family: String? = nil, _ update: @escaping @Sendable () async -> Void) async throws {
+        guard await CloudOutdatedMachine.bounded(deadline, clock: ContinuousClock(), { await update() }) != nil else {
+            throw Refused(verdict: .unsupported)
+        }
+        try await verify(family: family)
+    }
+
+    /// Returns when the machine's agents reach models through its edge; throws ``Refused`` otherwise, with `family`'s
+    /// ``Agent`` reading. An exec that fails (the machine went away, the route timed out) throws its own error.
+    public func verify(family: String? = nil) async throws {
+        let route = try await read(family: family)
+        guard route.verdict == .ready else { throw Refused(verdict: route.verdict, agent: route.agent) }
+    }
+
+    /// What Rust answers about the machine's model-route report (``verify(family:)``'s reading), and `family`'s ``Agent``
+    /// in the same output. An exec that fails throws.
+    func read(family: String?) async throws -> (verdict: Verdict, agent: Agent?) {
+        guard let command = CloudStartCore().call("cloud_machine_route", Request(stdout: nil), as: Reply.self)?.command else { return (.invalid, nil) }
+        let ran = try await exec(command, Self.timeoutMs)
+        let verdict = CloudStartCore().call("cloud_machine_route", Request(stdout: ran.stdout), as: Reply.self)?.verdict ?? .invalid
+        return (verdict, await Self.agentReading(ran.stdout, family: family))
+    }
+
+    /// `family`'s ``Agent`` in the machine's output, read off the main actor: the parse splits the whole output and
+    /// decodes each line's JSON.
+    @concurrent nonisolated static func agentReading(_ stdout: String, family: String?) async -> Agent? {
+        family.flatMap { Agent.read(stdout, family: $0) }
+    }
+
+    /// A start whose machine's software lacks a capability it needs (a chosen model connection's start credentials)
+    /// and that the machine could not be updated to: its start card's text, with Retry on the same machine.
+    public nonisolated static var tooOld: String {
+        String(localized: "cloud.machineRoute.tooOld",
+               defaultValue: "This Cloud machine's software is too old for this cmux and couldn't be updated. Try again in a few minutes, or update cmux.",
+               table: "Cloud", bundle: .module)
+    }
+
+    nonisolated static func message(_ verdict: Verdict) -> String {
+        switch verdict {
+        case .ready:
+            ""
+        case .unsupported, .invalid:
+            String(localized: "cloud.machineRoute.outdated",
+                   defaultValue: "This Cloud machine's software couldn't be updated to match this app, so its agents can't reach models. Try again, or use a new machine.",
+                   table: "Cloud", bundle: .module)
+        case .noDaemon:
+            String(localized: "cloud.machineRoute.noDaemon",
+                   defaultValue: "The agent service on this Cloud machine didn't start. Try again in a moment.",
+                   table: "Cloud", bundle: .module)
+        case .holdsCredential:
+            String(localized: "cloud.machineRoute.holdsCredential",
+                   defaultValue: "This Cloud machine holds its own provider sign-in, so its agents skip the Cloud service's model route. Start the chat on a new machine.",
+                   table: "Cloud", bundle: .module)
+        case .notEdge:
+            String(localized: "cloud.machineRoute.notEdge",
+                   defaultValue: "This Cloud machine's agents aren't routed through the Cloud service yet. Try again, or start the chat on a new machine.",
+                   table: "Cloud", bundle: .module)
+        }
+    }
+}

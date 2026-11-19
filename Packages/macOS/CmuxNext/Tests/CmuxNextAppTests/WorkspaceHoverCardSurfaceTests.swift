@@ -44,6 +44,7 @@ import Testing
         scope.adopt(panel)
         body.configure(Self.content)
         body.detailsToggle.performClick(nil)
+        body.runPendingDetailsPresses()
         panel.themeDidChange()
         body.applyColors()
         return (panel, body)
@@ -57,19 +58,24 @@ import Testing
         #expect(panel.glass.cornerRadius == HoverCardPanel.cornerRadius)
     }
 
-    /// On each material the surface takes the scope's own tokens: the overlay glass tint (the
-    /// theme's glass tint, `glassOverlayTintStrength` denser), or the popup surface when solid.
+    /// On each material the surface takes the scope's own tokens: the shared transient veil (the
+    /// theme's glass tint at the transient material's alpha), or the popup surface when solid.
     @Test(arguments: Look.allCases)
     func theSurfaceTakesTheThemesOverlayTokens(look: Look) throws {
         let scope = try scope(look)
         let (panel, _) = mounted(in: scope)
-        let strength = ChromeTunables.glassOverlayTintStrength.value
-        let tint = scope.perform { Palette.glassTint }
-        let overlayTint = tint.withAlphaComponent(min(max(tint.alphaComponent * strength, 0), 1))
+        #expect(panel.glass.tone.style == .transient)
+        let veil = scope.perform { Palette.veil(of: .transient) }
+        let tinted = FloatingGlassStyle.transient.castsShadow == false
+            || panel.glass.glassVariant.tintsGlass(.transient)
 
         panel.glass.materialOverride = .liquidGlass
         let glass = try #require(panel.glass.subviews.compactMap { $0 as? GlassPanelView }.first)
-        #expect(Self.same(try #require(glass.tintColor), overlayTint), "\(look)")
+        if tinted {
+            #expect(Self.same(try #require(glass.tintColor), veil), "\(look)")
+        } else {
+            #expect(glass.tintColor == nil, "\(look)")
+        }
 
         panel.glass.materialOverride = .opaque
         let fill = try #require(panel.glass.subviews.first?.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
