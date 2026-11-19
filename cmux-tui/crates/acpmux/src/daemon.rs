@@ -1223,7 +1223,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     for phase in crate::gauges::global().running() {
         stop_timeline::note(format!("running:{phase}"), 1);
     }
-    tokio::spawn(async { stop_timeline::mark("probe:spawned-task-ran") });
+    let _probe = exit_tasks
+        .spawn_named("stop-probe", async { stop_timeline::mark("probe:spawned-task-ran") });
     // Its home is gone (`daemon/home_watch.rs`): no later daemon can adopt its agents from
     // there, so they end; and this shutdown removes nothing at the old paths, which may be
     // another daemon's now (`config::mark_home_lost` refuses its writes there).
