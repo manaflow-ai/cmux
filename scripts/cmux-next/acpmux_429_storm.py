@@ -366,6 +366,7 @@ def main_run(a: argparse.Namespace) -> int:
     base_url = f"http://127.0.0.1:{server.server_address[1]}"
     acpmux = str(Path(a.acpmux).resolve())
     env = clean_env(out, base_url, acpmux)
+    env.update(dict(kv.split("=", 1) for kv in a.env))
     version = run([acpmux, "--version"], env).stdout.strip()
     log("acpmux", version, "endpoint", base_url)
 
@@ -629,6 +630,8 @@ def main() -> int:
     ap.add_argument("--settle", type=float, default=900, help="longest wait after the lift")
     ap.add_argument("--quiet", type=float, default=240, help="stop waiting after this long with no model request")
     ap.add_argument("--log", default="info", help="the daemon's log filter")
+    ap.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
+                    help="set this in the daemon's environment, which its agents inherit (repeatable)")
     ap.add_argument("--table", nargs="+", metavar="RUN_DIR", help="print the side-by-side table of finished runs")
     ap.add_argument("--recount", nargs="+", metavar="RUN_DIR", help="count finished runs again from their files")
     ap.add_argument("--endpoint-only", metavar="LOG", help="serve only the fake model endpoint, logging each request "
