@@ -182,15 +182,15 @@ UNWIRED: set[str] = {
     # which ci-guards.yml runs only with --advisory and the pre-push gate runs strictly. Run it by hand after
     # changing the checker or .github/single-host-fallbacks.json.
     "tests/test_ci_single_host_fallbacks.py",
-    # No new CI tests (CLAUDE.md). It needs cargo, which no guard step has, and reads rust-workspaces.yml's lock
+    # Kept manual under the 2026-10-23 no-new-CI rule, since lifted. It needs cargo, which no guard step has, and reads rust-workspaces.yml's lock
     # check step; that job runs scripts/cmux-next/cargo-locks.py check --strict itself on every Rust change. Run
     # it by hand after changing cargo-locks.py or that step.
     "tests/test_cargo_locks.py",
-    # lane = "manual" (tests/test-execution.d/other.toml; no new CI tests, CLAUDE.md). It reads four workflows
+    # lane = "manual" (tests/test-execution.d/other.toml; the 2026-10-23 no-new-CI rule, since lifted). It reads four workflows
     # only as text (each failing step asks cargo-locks.py explain) and lists cargo --locked wrappers. Run it by hand
     # after changing cargo-locks.py or a step that runs cargo with --locked.
     "tests/test_cargo_locks_explain.py",
-    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It reads
+    # lane = "manual" (tests/test-execution.d/ci.toml; the 2026-10-23 no-new-CI rule, since lifted). It reads
     # cmux-tui-build-package.yml as data: the shipped fat-LTO legs' warm sticky disks and their
     # restore/record calls. Run it by hand after changing those steps. Exit: as above.
     "tests/test_ci_cmux_tui_fat_warm_target.py",

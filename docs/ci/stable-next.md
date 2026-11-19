@@ -95,7 +95,7 @@ needs `allow_empty`.
 No job uses an M6 mini. Owned macOS jobs take `CI_SIDE_LANE_RUNNER` (std class, M4 Pro) and fail
 on any other chip. Signing stays on Blacksmith, like the nightly's.
 
-The repository rule against new CI gates (CLAUDE.md, Lawrence 2026-10-23) is about push, pull
+The repository rule against new CI gates (Lawrence 2026-10-23, lifted 2026-11-18) was about push, pull
 request and nightly paths. This workflow adds nothing to them: it runs only on its schedule, a
 dispatch, or a push to `stable-next-dry-run`.
 

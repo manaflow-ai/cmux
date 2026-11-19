@@ -395,7 +395,7 @@ class PrePushGateTests(unittest.TestCase):
                         + result.stdout + result.stderr)
 
     def test_ci_advisory_names_an_arch_and_a_guardrails_violation_as_warnings_and_keeps_the_exit_code(self):
-        # CI never runs the arch ratchet or the guardrails line rules (CLAUDE.md: no new CI gates), so a push that
+        # CI never runs the arch ratchet or the guardrails line rules (the 2026-10-23 no-new-CI rule, since lifted), so a push that
         # skipped the hook landed them unseen. --advisory (the fast gates' prepush gate) names each finding as a
         # ::warning on its file and line and a summary row; the gate's exit code is what it is without it.
         self.copy_arch_rules()
@@ -2415,8 +2415,8 @@ mod tests {
 
     @NEEDS_SWIFTFORMAT
     def test_ci_modes_do_not_run_the_swiftformat_layer(self):
-        # SwiftFormat findings are refused by the local pre-push hook only (lead 2026-10-27, CLAUDE.md: no new CI
-        # gates). CI and the merge-time gates run the gate as --base/--head (fast gates, car guards, pull requests)
+        # SwiftFormat findings are refused by the local pre-push hook only (lead 2026-10-27, the 2026-10-23 no-new-CI
+        # rule, since lifted). CI and the merge-time gates run the gate as --base/--head (fast gates, car guards, pull requests)
         # or --commits (pushes); none of them may refuse a SwiftFormat finding.
         self.kit("Fresh", SWIFTFORMAT_HIT)
         self.commit("adds two blank lines in a row")
@@ -2584,7 +2584,7 @@ mod tests {
         self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md: entries[0] (continue-retry): "
                       "needs a tryIt action/deeplink or a docs link", output)
         self.assertIn("add docs: https://cmux.com/docs/<page> or a tryIt; at most 2 sentences, 240 characters", output)
-        # The rule stays out of CI and the merge-time gates (CLAUDE.md: no new CI gates): they run --base/--head
+        # The rule stays out of CI and the merge-time gates (the 2026-10-23 no-new-CI rule, since lifted): they run --base/--head
         # (pull requests, fast gates, car guards) or --commits (pushes).
         for args in (["--base", "HEAD~1", "--head", "HEAD"], ["--commits", "HEAD~1..HEAD"]):
             with self.subTest(args=args):
