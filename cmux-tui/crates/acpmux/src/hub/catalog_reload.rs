@@ -93,6 +93,7 @@ impl Hub {
                 default_permission_mode,
                 remote_daemon,
                 notify_command,
+                peer_wake_command,
                 disk_low_bytes,
                 agent_inbox,
                 hold_agent_starts_to_starter,
@@ -175,6 +176,9 @@ impl Hub {
             current.remote_daemon = remote_daemon;
             // Each of these is read where it is used, so the next use follows the file.
             current.notify_command = notify_command;
+            // Every running peer shares it: the next message's wake runs the new command.
+            self.peer_wake_command.set(peer_wake_command.clone());
+            current.peer_wake_command = peer_wake_command;
             current.disk_low_bytes = disk_low_bytes;
             current.agent_inbox = agent_inbox;
             current.mcp_store = mcp_store;
@@ -373,6 +377,7 @@ mod tests {
         let (path, hub) = hub_on_disk(root.path());
         let mut changed = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
         changed.notify_command = Some("true".into());
+        changed.peer_wake_command = Some(vec!["wake".into(), "{peer}".into()]);
         changed.disk_low_bytes = Some(4096);
         changed.agent_inbox = Some(false);
         changed.hold_agent_starts_to_starter = true;
@@ -388,6 +393,12 @@ mod tests {
         hub.reload_catalog().await.unwrap();
         let current = hub.config.read().await;
         assert_eq!(current.notify_command, expected.notify_command);
+        assert_eq!(current.peer_wake_command, expected.peer_wake_command);
+        assert_eq!(
+            hub.peer_wake_command.argv_for("m"),
+            Some(vec!["wake".to_owned(), "m".to_owned()]),
+            "running peers share the reloaded command"
+        );
         assert_eq!(current.disk_low_bytes, Some(4096));
         assert_eq!(current.agent_inbox, Some(false));
         assert!(current.hold_agent_starts_to_starter);

@@ -1543,6 +1543,12 @@ pub struct Config {
     /// ACPMUX_SESSION_ID, ACPMUX_SESSION_NAME and ACPMUX_TEXT in its env.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notify_command: Option<String>,
+    /// `peerWakeCommand`: an argv the daemon runs when a message to a peer that is down marks
+    /// it to wake (`peer_wake_command.rs`), so a paused machine resumes on any route; `{peer}` in
+    /// an argument is the peer's name. Once per peer per wake window, bounded, logged. Unset (the
+    /// default) runs nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_wake_command: Option<Vec<String>>,
     /// `uploadsMaxAgeDays`: files dropped into a chat (`_acpmux/file_put`) are deleted once
     /// older than this many days (`hub/file_uploads.rs`). Default 30; 0 keeps them.
     #[serde(default, skip_serializing_if = "Option::is_none")]

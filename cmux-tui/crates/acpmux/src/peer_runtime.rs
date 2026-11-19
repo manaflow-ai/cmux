@@ -76,6 +76,7 @@ impl Peer {
             controls: StdMutex::new(None),
             github_revoked: tokio::sync::Notify::new(),
             github_app: std::sync::OnceLock::new(),
+            wake_command: std::sync::OnceLock::new(),
             file_put: AtomicBool::new(false),
             file_put_chunks: AtomicBool::new(false),
             media_read: AtomicBool::new(false),

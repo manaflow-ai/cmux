@@ -957,6 +957,8 @@ pub struct Hub {
     pub(super) github_owners: github_owner::Owners,
     /// The cmux sign-in the app lends for App tokens (`github_app_token.rs`).
     pub(crate) github_app: Arc<crate::github_app_token::AppLease>,
+    /// `peerWakeCommand` (`peer_wake_command.rs`), shared with every peer; a reload sets it.
+    pub(crate) peer_wake_command: Arc<crate::peer_wake_command::WakeCommand>,
     /// Each peer session's events as this daemon saw them, kept on disk
     /// (`peer_snapshot.rs`): a paused or offline peer's chat paints from it.
     pub(super) peer_snapshots: peer_snapshot::PeerSnapshots,
@@ -1372,6 +1374,8 @@ impl Hub {
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
+        let peer_wake_command =
+            Arc::new(crate::peer_wake_command::WakeCommand::new(config.peer_wake_command.clone()));
         #[cfg(feature = "hub-carrier")]
         let hub_carrier =
             crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref());
@@ -1452,6 +1456,7 @@ impl Hub {
             peer_config_gen: std::sync::atomic::AtomicU64::new(0),
             github_owners: Default::default(),
             github_app: Default::default(),
+            peer_wake_command,
             peer_snapshots,
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),

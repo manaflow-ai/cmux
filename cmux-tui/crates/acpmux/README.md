@@ -464,6 +464,10 @@ attempt is over (the next wait, given up, refused, Stop, close), `null` on acpmu
 entries; a restart, or a move to another daemon, settles one left open with `retryable: false`. A
 `notifyCommand` in the config runs on a permission request and on a turn that ends
 unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
+A `peerWakeCommand` (an argv; `{peer}` in an argument is the peer's name) runs when a message to
+a peer whose link is down (or a person typing one) marks it to wake: once per peer per 180 s wake window, detached, for at
+most 60 s, with `ACPMUX_PEER` and `ACPMUX_PEER_WAKE=1` set, its outcome logged. Unset, nothing
+runs.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the

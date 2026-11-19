@@ -54,6 +54,7 @@ mod tokens;
 #[path = "peer_wanted.rs"]
 mod wanted;
 use wanted::BackoffWait;
+pub use wanted::WAKE_ENV;
 #[path = "peer_controls.rs"]
 mod controls;
 #[path = "peer_list_read.rs"]
@@ -365,6 +366,9 @@ pub struct Peer {
     /// The cmux sign-in the app lent this daemon, for an App token when `gh` has no keyring
     /// login (`github_app_token.rs`); set once by the hub.
     github_app: std::sync::OnceLock<Arc<crate::github_app_token::AppLease>>,
+    /// The daemon's `peerWakeCommand`, shared with the hub (`peer_wake_command.rs`); set once
+    /// by the hub. Unset, a message's wake mark runs nothing.
+    wake_command: std::sync::OnceLock<Arc<crate::peer_wake_command::WakeCommand>>,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
     /// It lists `filePutChunks` (`hub/file_uploads.rs`).

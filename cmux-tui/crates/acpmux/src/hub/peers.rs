@@ -226,6 +226,7 @@ impl Hub {
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());
+        peer.set_wake_command(self.peer_wake_command.clone());
         peer.set_mirror(self.link_v2.clone());
         let settled = peer.settled();
         // Register under the peer lock and the rows writer lock (lock order: `peers`, then

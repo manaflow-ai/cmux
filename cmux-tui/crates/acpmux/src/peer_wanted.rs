@@ -14,6 +14,7 @@
 
 use super::Peer;
 use crate::peer_link::{Backoff, SleepWatch};
+use crate::peer_wake_command::{Outcome, WakeCommand};
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 use tokio::sync::Notify;
@@ -53,6 +54,8 @@ pub(super) struct Wanted {
     until: StdMutex<Option<Instant>>,
     /// Until when a connect attempt asks its route to wake a paused machine (`Peer::wake`).
     wake_until: StdMutex<Option<Instant>>,
+    /// When `peerWakeCommand` last ran for this peer (`Peer::wake`): once per `WAKE_FOR`.
+    wake_ran_at: StdMutex<Option<Instant>>,
     asked: Notify,
     /// When an ask last cut a backoff wait short (`Peer::wait_backoff`).
     cut_at: StdMutex<Option<Instant>>,
@@ -71,6 +74,10 @@ impl Peer {
     /// A message waits for this peer: for `WAKE_FOR` each connect attempt asks its route to
     /// wake a paused machine ([`WAKE_ENV`]), and the peer is wanted, so the attempts come within
     /// `Backoff::WANTED_CAP` while it wakes.
+    ///
+    /// With a `peerWakeCommand` set, the mark also runs it (`peer_wake_command.rs`): when the mark
+    /// is first set, and again only once a whole `WAKE_FOR` passed since its last run, so the
+    /// retries and keystrokes that renew the mark run it once.
     pub(crate) fn wake(&self) {
         let now = Instant::now();
         let until = now.checked_add(WAKE_FOR).unwrap_or(now);
@@ -78,6 +85,46 @@ impl Peer {
         *held = Some(held.map_or(until, |was| was.max(until)));
         drop(held);
         self.want_for(WAKE_FOR);
+        self.run_wake_command(now);
+    }
+
+    /// The daemon's `peerWakeCommand`, shared with the hub so a reload reaches this peer.
+    pub(crate) fn set_wake_command(&self, command: std::sync::Arc<WakeCommand>) {
+        let _ = self.wake_command.set(command);
+    }
+
+    /// Starts `peerWakeCommand` for this peer when one is set and a run is due (once per
+    /// `WAKE_FOR`); whether it started one. It runs on this peer's scope, off the request that
+    /// marked the peer, bounded by `peer_wake_command::TIMEOUT`; its outcome is logged.
+    fn run_wake_command(&self, now: Instant) -> bool {
+        let Some(argv) = self.wake_command.get().and_then(|c| c.argv_for(&self.name)) else {
+            return false;
+        };
+        let due = {
+            let mut last = self.wanted.wake_ran_at.lock().unwrap_or_else(|e| e.into_inner());
+            crate::peer_wake_command::take_due(&mut last, now, WAKE_FOR)
+        };
+        if !due {
+            return false;
+        }
+        let peer = self.name.clone();
+        tracing::info!(peer = %peer, program = %argv[0], "peer_wake_command: running for a message to a peer that is down");
+        self.scope.spawn_named("peer-wake-command", async move {
+            let started = Instant::now();
+            let name = peer.clone();
+            let outcome = tokio::task::spawn_blocking(move || {
+                crate::peer_wake_command::run(&argv, &name, crate::peer_wake_command::TIMEOUT)
+            })
+            .await
+            .unwrap_or_else(|e| Outcome::Failed(e.to_string()));
+            let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            if outcome.succeeded() {
+                tracing::info!(peer = %peer, ms, "peer_wake_command: done");
+            } else {
+                tracing::warn!(peer = %peer, ms, ?outcome, "peer_wake_command: did not succeed");
+            }
+        });
+        true
     }
 
     /// Whether a connect attempt now asks its route to wake a paused machine.
@@ -335,6 +382,60 @@ mod tests {
         tokio::time::advance(WAKE_FOR).await;
         assert!(!peer.waking() && !peer.is_wanted(), "the mark lapses by itself");
         assert_eq!(wake_env(&peer), None);
+    }
+
+    fn with_wake_command(peer: &Peer, argv: &[&str]) -> std::sync::Arc<WakeCommand> {
+        let command = std::sync::Arc::new(WakeCommand::new(Some(
+            argv.iter().map(|s| (*s).to_owned()).collect(),
+        )));
+        peer.set_wake_command(command.clone());
+        command
+    }
+
+    /// Wake-on-send for senders on their own peer links: the first message to a peer that is
+    /// down runs `peerWakeCommand` with the peer's name; the retries and keystrokes that renew
+    /// the mark do not, until a whole `WAKE_FOR` passed.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_first_message_runs_the_wake_command_once_for_the_peer() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("runs");
+        let script = format!("printf '%s %s\\n' \"$1\" \"$ACPMUX_PEER\" >> '{}'", out.display());
+        let peer = peer();
+        with_wake_command(&peer, &["/bin/sh", "-c", &script, "sh", "{peer}"]);
+        peer.wake();
+        peer.wake();
+        peer.wake();
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while std::fs::read_to_string(&out).unwrap_or_default().is_empty() {
+            assert!(std::time::Instant::now() < deadline, "the wake command never ran");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(std::fs::read_to_string(&out).unwrap(), "huge-blue huge-blue\n", "one run");
+        assert!(peer.waking(), "the mark is set as before");
+        peer.stop();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_wake_command_runs_once_per_wake_window_and_unset_runs_nothing() {
+        let peer = peer();
+        assert!(!peer.run_wake_command(Instant::now()), "no command set: nothing runs");
+        peer.wake();
+        assert!(peer.waking(), "unset keeps today's mark");
+
+        let peer = self::peer();
+        let command = with_wake_command(&peer, &["/bin/true"]);
+        assert!(peer.run_wake_command(Instant::now()), "the first mark runs it");
+        assert!(!peer.run_wake_command(Instant::now()), "a retry in the window does not");
+        tokio::time::advance(WAKE_FOR - Duration::from_secs(1)).await;
+        assert!(!peer.run_wake_command(Instant::now()));
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(peer.run_wake_command(Instant::now()), "a window later it runs again");
+        tokio::time::advance(WAKE_FOR).await;
+        command.set(None);
+        assert!(!peer.run_wake_command(Instant::now()), "a reload that removes it stops it");
+        peer.stop();
     }
 
     #[tokio::test(start_paused = true)]

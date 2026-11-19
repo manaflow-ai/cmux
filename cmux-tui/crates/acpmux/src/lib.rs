@@ -201,6 +201,7 @@ pub mod peer_mirror;
 pub mod peer_path_stats;
 pub mod peer_paths;
 pub mod peer_states;
+pub mod peer_wake_command;
 pub mod person_proof;
 pub mod person_tokens;
 pub mod placement;
