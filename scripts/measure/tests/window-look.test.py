@@ -307,6 +307,87 @@ class LookKind(unittest.TestCase):
             self.assertRegex(kind, r"^[a-z]+$")
 
 
+class LookTheme(unittest.TestCase):
+    """The check of a look's theme (`appearance.theme`). The app's answer has no name of the theme that it resolved, so
+    the check is by the ground: the window's ground against the ground of the theme's file in the app's bundle. It
+    says the count of the bundle's files with that ground: above 1, the name is not proved."""
+
+    LOOK = "opacity=0.5,appearance.theme=Test Theme,name=test-look"
+    GROUNDS = {"Test Theme": "102030", "Another": "a0b0c0", "Third": "405060"}
+    PROVES = "theme check: the window's ground = the ground of the theme's file in the app's bundle"
+
+    def answer(self, ground="#102030", **window):
+        """`debug.themes` in the shape that the app gives for a theme of the config: no name is in it."""
+        scope = {"spec": None, "effective_spec": None, "source": "config", "window_background": ground, "text_primary": "#F0F0F0",
+                 "is_dark": True, "appearance": "NSAppearanceNameDarkAqua", "backdrop": {"tint": "#10203080", "picture": ""}}
+        return {"windows": [{**scope, **window}], "terminals": [], "ghostty_background": ground}
+
+    def check(self, themes, grounds=None, look=None):
+        return M.look_theme(M.window_look(self.LOOK if look is None else look), themes, self.GROUNDS if grounds is None else grounds)
+
+    def test_the_windows_ground_is_the_ground_of_the_themes_file(self):
+        self.assertEqual(self.check(self.answer()), (self.PROVES + "; 1 of the 3 theme files of the bundle has that ground", None))
+        self.assertIsNone(self.check(self.answer("#102030"), {"Test Theme": "102030"})[1])
+
+    def test_two_files_with_that_ground_do_not_prove_the_name(self):
+        line, problem = self.check(self.answer(), {**self.GROUNDS, "Third": "102030", "Fourth": None})
+        self.assertEqual((line, problem), (self.PROVES + "; 2 of the 4 theme files of the bundle have that ground: the name is not proved", None))
+
+    def test_the_apps_answer_with_another_colour_fails_with_its_text(self):
+        line, problem = self.check(self.answer("#A0B0C0"))
+        self.assertEqual(problem, "theme check: the window's ground is #a0b0c0, not #102030, the ground of the theme's file in the app's bundle")
+        self.assertEqual(line, problem)
+
+    def test_an_answer_with_no_window_background_fails(self):
+        said = "theme check: the app's answer has no window_background: the window's ground was not read"
+        bare = self.answer()
+        del bare["windows"][0]["window_background"]
+        for themes in (bare, self.answer(None), self.answer(""), self.answer("#10203"), self.answer(1056816), {"windows": []}, {"error": "unknown method"}, None):
+            self.assertEqual(self.check(themes), (said, said), themes)
+
+    def test_no_file_of_the_theme_or_no_folder_fails(self):
+        said = "theme check: the app's bundle has no file of the look's theme: the theme is not proved"
+        self.assertEqual(self.check(self.answer(), {"Another": "102030"}), (said, said))
+        said = "theme check: the theme files of the app's bundle were not read: the theme is not proved"
+        self.assertEqual(self.check(self.answer(), False), (said, said))
+
+    def test_a_file_with_no_background_line_fails(self):
+        said = "theme check: the theme's file in the app's bundle has no background line: the theme is not proved"
+        self.assertEqual(self.check(self.answer(), {**self.GROUNDS, "Test Theme": None}), (said, said))
+
+    def test_a_look_with_no_theme_has_no_check(self):
+        self.assertEqual(self.check(self.answer("#A0B0C0"), look="opacity=0.5"), (None, None))
+        self.assertEqual(self.check(None, False, look="opaque"), (None, None))
+
+    def test_a_theme_files_ground_is_its_background_line(self):
+        ground = M.theme_ground
+        self.assertEqual(ground("palette = 0=#0A0B0C\nbackground = #1A2B3C\nforeground = #F0F0F0\n"), "1a2b3c")
+        self.assertEqual(ground("background= 1a2b3c\n"), "1a2b3c")
+        self.assertEqual(ground("  background   =   #1A2B3C  \n"), "1a2b3c")
+        for text in ("", "foreground = #F0F0F0\n", "selection-background = #1A2B3C\n", "background = blue\n", "background = #1A2B\n", "# background = #1A2B3C\n"):
+            self.assertIsNone(ground(text), text)
+
+    def test_the_bundles_files_are_read_one_time_each(self):
+        texts = {"/b/themes/Test Theme": "background = #102030\n", "/b/themes/Another": "foreground = #F0F0F0\n"}
+        read = []
+
+        def text(path):
+            read.append(path)
+            if path not in texts:
+                raise OSError("a fake fault of the read")
+            return texts[path]
+
+        grounds = M.theme_grounds("/b/themes", read=text, names=lambda folder: ["Test Theme", "Another", "Gone"])
+        self.assertEqual(grounds, {"Test Theme": "102030", "Another": None, "Gone": None})
+        self.assertEqual(read, ["/b/themes/Another", "/b/themes/Gone", "/b/themes/Test Theme"])  # in the order of the names
+
+        def gone(folder):
+            raise OSError("a fake fault of the list")
+        self.assertIsNone(M.theme_grounds("/b/themes", read=text, names=gone))
+        for folder in (None, "", 7):
+            self.assertIsNone(M.theme_grounds(folder, read=text, names=lambda folder: ["Test Theme"]))
+
+
 class ShownLook(unittest.TestCase):
     """The read of the running app: its settings answer one time, then its backdrop until it is the look, the tint
     blends no more, or the bound is over. The clock is a counter: 1 s for each read of it, and no sleep."""
@@ -317,11 +398,18 @@ class ShownLook(unittest.TestCase):
 
     READS = ["settings.get appearance", "settings.get", "debug.motion read", "debug.themes"]  # one read of the app
 
-    def shown(self, value, backdrops, settings=None, seconds=10.0, more=None, motion=None, raises=()):
+    def shown(self, value, backdrops, settings=None, seconds=10.0, more=None, motion=None, raises=(), grounds=(), folder="/b/themes", files=None):
         """`shown_look` against an app that has each of `backdrops` in turn as its backdrop (the last one stays). The
         whole settings of the app are its `appearance` answer and `more`; `motion` is its motion answer; a call of
-        `raises` raises."""
+        `raises` raises. `grounds`: the window's ground at each read of the backdrop (the last one stays; with none
+        the answer has no `window_background`); `folder`: the theme folder that the app names in its bundle;
+        `files`: each theme file's text by its name."""
         calls, ticks, slept = [], itertools.count(), []
+        files = {} if files is None else files
+
+        def text(path):
+            calls.append(f"read {path}")
+            return files[path.rpartition("/")[2]]
 
         def rpc(method, params=None):
             said = " ".join([method, *(str(word) for word in (params or {}).values())])
@@ -335,11 +423,53 @@ class ShownLook(unittest.TestCase):
                 return {"path": [], "exists": True, "value": {"appearance": held, **(more or {})}}
             if method == "debug.motion":
                 return {"speed": "fast", "pane_animations": True} if motion is None else motion
+            if method == "debug.appearance":
+                return {"override": None, "effective": "dark", "terminal_background": "#102030", "themes": folder}
             reads = calls.count("debug.themes")
-            return {"ghostty_background": "#102030", "windows": [{"backdrop": backdrops[min(reads, len(backdrops)) - 1]}]}
+            window = {"backdrop": backdrops[min(reads, len(backdrops)) - 1]}
+            if grounds:
+                window["window_background"] = grounds[min(reads, len(grounds)) - 1]
+            return {"ghostty_background": "#102030", "windows": [window]}
 
-        facts, problem = M.shown_look(rpc, M.window_look(value), monotonic=lambda: float(next(ticks)), sleep=slept.append, seconds=seconds)
+        facts, problem = M.shown_look(rpc, M.window_look(value), monotonic=lambda: float(next(ticks)), sleep=slept.append, seconds=seconds,
+                                      read=text, names=lambda path: list(files))
         return facts, problem, calls, slept
+
+    THEME = LOOK + ",appearance.theme=Test Theme"
+    THEMED = {**SETTINGS, "theme": "Test Theme"}
+    FILES = {"Test Theme": "background = #405060\n", "Another": "background = #A0B0C0\n"}
+    FOLDER = ["debug.appearance", "read /b/themes/Another", "read /b/themes/Test Theme"]  # one read of the bundle's themes
+
+    def test_a_look_with_a_theme_asks_the_app_for_its_bundles_themes_one_time(self):
+        facts, problem, calls, slept = self.shown(self.THEME, [self.SHOWN], settings=self.THEMED, grounds=["#405060"], files=self.FILES)
+        self.assertEqual((problem, calls, slept), (None, self.READS[:3] + self.FOLDER + ["debug.themes"], []))
+        self.assertEqual(facts["theme"], "theme check: the window's ground = the ground of the theme's file in the app's bundle; "
+                                         "1 of the 2 theme files of the bundle has that ground")
+
+    def test_a_theme_that_comes_after_the_first_read_is_waited_for(self):
+        facts, problem, calls, slept = self.shown(self.THEME, [self.SHOWN], settings=self.THEMED, grounds=["#A0B0C0", "#405060"], files=self.FILES)
+        # The bundle's files are read one time; only the app's answer is read again.
+        self.assertEqual((problem, calls, slept), (None, self.READS[:3] + self.FOLDER + ["debug.themes", "debug.themes"], [0.5]))
+
+    def test_a_window_with_another_ground_fails_after_the_bound(self):
+        facts, problem, calls, slept = self.shown(self.THEME, [self.SHOWN], settings=self.THEMED, grounds=["#A0B0C0"], files=self.FILES, seconds=3.0)
+        self.assertEqual(problem, "theme check: the window's ground is #a0b0c0, not #405060, the ground of the theme's file in the app's bundle")
+        self.assertEqual(facts["theme"], problem)
+        self.assertLess(len(slept), 6)
+
+    def test_an_app_that_names_no_theme_folder_or_no_ground_fails(self):
+        facts, problem, calls, slept = self.shown(self.THEME, [self.SHOWN], settings=self.THEMED, grounds=["#405060"], files=self.FILES, folder=None, seconds=2.0)
+        self.assertEqual(problem, "theme check: the theme files of the app's bundle were not read: the theme is not proved")
+        facts, problem, calls, slept = self.shown(self.THEME, [self.SHOWN], settings=self.THEMED, files=self.FILES, seconds=2.0)
+        self.assertEqual(problem, "theme check: the app's answer has no window_background: the window's ground was not read")
+        # A fault of the look and a fault of the theme are both said.
+        facts, problem, calls, slept = self.shown(self.THEME, [{**self.SHOWN, "picture": ""}], settings=self.THEMED, grounds=["#A0B0C0"], files=self.FILES, seconds=2.0)
+        self.assertEqual(problem, "the window shows the picture '', not 'test-picture'; theme check: the window's ground is #a0b0c0, not #405060, "
+                                  "the ground of the theme's file in the app's bundle")
+
+    def test_a_look_with_no_theme_reads_no_theme_file(self):
+        facts, problem, calls, slept = self.shown(self.LOOK, [self.SHOWN], grounds=["#A0B0C0"], files=self.FILES)
+        self.assertEqual((problem, calls, facts["theme"]), (None, self.READS, None))
 
     def test_a_look_that_the_window_shows_at_the_first_read_is_read_one_time(self):
         facts, problem, calls, slept = self.shown(self.LOOK, [self.SHOWN])
@@ -422,6 +552,12 @@ class LookHead(unittest.TestCase):
         self.assertEqual(self.head("opaque", {"layout.minimumPaneWidth": 80}, "fast"),
                          ["app setting, not of the look: layout.minimumPaneWidth = 80",
                           "each other setting: not in the app's settings (the app's default)", "the app's motion speed: 'fast'"])
+
+    def test_the_theme_checks_line_is_in_the_head_when_the_look_names_a_theme(self):
+        line = "theme check: the window's ground = the ground of the theme's file in the app's bundle; 2 of the 9 theme files of the bundle have that ground: the name is not proved"
+        facts = {"resolved": {"app_settings": {"appearance.theme": "Test Theme"}, "motion_speed": "fast"}, "theme": line}
+        self.assertEqual(M.look_head(M.window_look("appearance.theme=Test Theme"), facts)[-1], line)
+        self.assertEqual(M.look_head(M.window_look("appearance.theme=Test Theme"), {**facts, "theme": None})[-1], "the app's motion speed: 'fast'")
 
     def test_a_list_that_was_not_read_is_said(self):
         self.assertEqual(self.head("ui.animationSpeed=off", None, None),
