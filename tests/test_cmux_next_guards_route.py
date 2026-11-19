@@ -66,7 +66,7 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertEqual(group["if"], "${{ !cancelled() }}")
         steps = {step.get("name"): step for step in group["steps"]}
         script = steps["Run the ci guard group and the routed groups"]["run"]
-        calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line]
+        calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line and "--list" not in line]
         self.assertEqual(len(calls), 2, calls)
         # A pull request routes release-notary by its paths (detect_linux_guard_changes.RELEASE_NOTARY_INPUTS):
         # no --group, so the ci group plus every group classify_feat picks, release-notary among them.
