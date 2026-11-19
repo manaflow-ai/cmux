@@ -32,11 +32,31 @@ nl='
 kind_dir=${kind_file%/*}
 [ "$kind_dir" != "$kind_file" ] || kind_dir=.
 
-# Holds the lock on fd 9 for 10 s at most, until the script exits.
+# /proc/uptime in centiseconds, or empty.
+uptime_cs() {
+  up=$(cut -d' ' -f1 /proc/uptime 2>/dev/null) || up=
+  up=${up%.*}${up#*.}
+  up=${up#"${up%%[!0]*}"}
+  case "$up" in *[!0-9]*) up= ;; esac
+  echo "${up:-0}"
+}
+
+# Holds the lock on fd 9 for 10 s at most, until the script exits. With
+# CMUX_VM_KIND_TRACE (the boot's clone reset sets its bind trace) it appends
+# how long the lock took, "<uptime s> kind-flock acquired|timeout wait_ms=N";
+# a failed trace write is ignored.
 lock() {
   mkdir -p "$kind_dir"
   exec 9>>"$lock_file"
-  flock -w "${CMUX_VM_KIND_LOCK_WAIT:-10}" 9
+  [ -n "${CMUX_VM_KIND_TRACE:-}" ] || { flock -w "${CMUX_VM_KIND_LOCK_WAIT:-10}" 9; return; }
+  waited=$(uptime_cs)
+  locked=0
+  flock -w "${CMUX_VM_KIND_LOCK_WAIT:-10}" 9 || locked=$?
+  waited=$((($(uptime_cs) - waited) * 10))
+  outcome=acquired
+  [ "$locked" -eq 0 ] || outcome=timeout
+  { mkdir -p "${CMUX_VM_KIND_TRACE%/*}" && printf '%s kind-flock %s wait_ms=%s\n' "$(cut -d' ' -f1 /proc/uptime)" "$outcome" "$waited" >>"$CMUX_VM_KIND_TRACE"; } 2>/dev/null || :
+  return "$locked"
 }
 
 # The generation without leading zeros (0 for no file or an empty one), or

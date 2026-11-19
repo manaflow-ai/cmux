@@ -47,7 +47,7 @@ import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percent
 import { AGENT_TOOLS_BIN } from "./agent-tools";
 import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
-import { HOST_CLI, SELF_UPDATE_OFF } from "./host-agent";
+import { HOST_CLI, HOST_UNIT, SELF_UPDATE_OFF } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
 import { daemonHoldCommand, daemonUptimeDetail, daemonUptimeProblems, forcedRebindCommand, HOLD_SECONDS } from "./daemon-uptime";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
@@ -195,14 +195,182 @@ const DOCKER_CHECK = [
   "test \"$(systemctl is-enabled docker.service)\" = disabled && echo service-disabled",
 ].join(" && ");
 
-const LISTEN_POLL = [
+/**
+ * Waits up to 30 s for the daemon's listener, 50 ms per check: the clone has two vCPUs, and a poll with
+ * no sleep took one of them from the boot it was waiting on. The window's /proc/uptime bounds and CPU
+ * counters at both ends let parseListenWindow and classifyGuestWait place the wait against the bind trace.
+ */
+export const LISTEN_POLL = [
+  "read -r lu _ </proc/uptime; echo listen-start-uptime $lu",
+  "echo stat-start $(grep '^cpu ' /proc/stat)",
   "t0=$(date +%s%N)",
-  "n=0; until grep -qi ':0539 00000000000000000000000000000000:0000 0A' /proc/net/tcp6; do n=$((n+1)); [ $(( ($(date +%s%N) - t0) / 1000000 )) -gt 30000 ] && break; done",
+  "n=0; until grep -qi ':0539 00000000000000000000000000000000:0000 0A' /proc/net/tcp6; do n=$((n+1)); [ $(( ($(date +%s%N) - t0) / 1000000 )) -gt 30000 ] && break; sleep 0.05; done",
   "echo guest-wait-ms $(( ($(date +%s%N) - t0) / 1000000 ))",
+  "read -r lu _ </proc/uptime; echo listen-end-uptime $lu",
+  "echo stat-end $(grep '^cpu ' /proc/stat)",
+  "echo psi-cpu $(head -1 /proc/pressure/cpu 2>/dev/null)",
   "grep -qi ':0539 00000000000000000000000000000000:0000 0A' /proc/net/tcp6",
 ].join("; ");
 
-const IDENTITY_PROBE = [
+/**
+ * The bind trace: one "<uptime s> <event> [k=v ...]" line per boot step on a clone. cmux-devbox-boot writes it
+ * (BIND_TRACE there); an image whose bind runs in `cmux host run` (HOST_UNIT) has none until that role writes the
+ * same lines, and its rows say no-trace. The journal is that unit's, the one this image boots.
+ */
+export const BIND_TRACE_PATH = "/run/cmux/bind-trace";
+export const DAEMON_UNIT = HOST_UNIT;
+
+/** One exec after the clone is ready: its bind trace, CPU steal and pressure, and the daemon unit's journal. */
+export const BOOT_DIAG_COMMAND = [
+  `echo '--- bind-trace'; tail -n 60 ${BIND_TRACE_PATH} 2>/dev/null`,
+  "echo '--- uptime'; cat /proc/uptime",
+  "echo '--- stat'; grep '^cpu ' /proc/stat",
+  "echo '--- pressure-cpu'; cat /proc/pressure/cpu 2>/dev/null",
+  `echo '--- journal'; journalctl -u ${DAEMON_UNIT} -o short-monotonic -n 50 --no-pager 2>&1`,
+  "true",
+].join("; ");
+
+/** `--- name` sections of BOOT_DIAG_COMMAND's output. */
+export function diagSections(stdout: string): Record<string, string> {
+  const sections: Record<string, string> = {};
+  let name = "";
+  for (const line of stdout.split("\n")) {
+    const header = /^--- (\S+)$/.exec(line);
+    if (header) {
+      name = header[1];
+      sections[name] = "";
+    } else if (name) sections[name] += `${sections[name] ? "\n" : ""}${line}`;
+  }
+  for (const key of Object.keys(sections)) sections[key] = sections[key].trim();
+  return sections;
+}
+
+export type BindTraceEvent = { t: number; event: string; fields: Record<string, string> };
+
+/** Bind trace lines, "<uptime s> <event> [k=v ...]"; anything else is skipped. */
+export function parseBindTrace(text: string): BindTraceEvent[] {
+  const events: BindTraceEvent[] = [];
+  for (const line of text.split("\n")) {
+    const [t, event, ...rest] = line.trim().split(/\s+/);
+    if (!event || !/^\d+(\.\d+)?$/.test(t)) continue;
+    events.push({ t: Number(t), event, fields: Object.fromEntries(rest.filter((f) => f.includes("=")).map((f) => [f.slice(0, f.indexOf("=")), f.slice(f.indexOf("=") + 1)])) });
+  }
+  return events;
+}
+
+/** The trace from this clone's own start: the snapshot carries its source's lines before the last `resumed`. */
+export function cloneTrace(events: readonly BindTraceEvent[]): BindTraceEvent[] {
+  const resumed = events.map((e) => e.event).lastIndexOf("resumed");
+  if (resumed >= 0) return events.slice(resumed);
+  const first = events.map((e) => e.event).lastIndexOf("metadata-first");
+  return first >= 0 ? events.slice(first) : [...events];
+}
+
+/** Steal and non-idle CPU time between two `cpu ...` lines of /proc/stat (USER_HZ 100), in ms. */
+export function cpuDelta(start: string, end: string): { stealMs: number; busyMs: number } | undefined {
+  const fields = (line: string) => line.trim().split(/\s+/).slice(1).map(Number);
+  const a = fields(start);
+  const b = fields(end);
+  if (a.length < 8 || b.length < 8 || [...a, ...b].some((v) => !Number.isFinite(v))) return undefined;
+  const d = b.map((v, i) => v - (a[i] ?? 0));
+  // user nice system idle iowait irq softirq steal [guest guest_nice]: guest time is already in user.
+  const busy = d[0] + d[1] + d[2] + d[5] + d[6];
+  return { stealMs: d[7] * 10, busyMs: busy * 10 };
+}
+
+export type ListenWindow = { startS: number; endS: number; stealMs?: number; busyMs?: number; psiCpu?: string };
+
+/** LISTEN_POLL's window on the guest's uptime clock, the clock the bind trace stamps with. */
+export function parseListenWindow(stdout: string): ListenWindow | undefined {
+  const value = (key: string) => new RegExp(`^${key} (.*)$`, "m").exec(stdout)?.[1]?.trim();
+  const startS = Number(value("listen-start-uptime"));
+  const endS = Number(value("listen-end-uptime"));
+  if (!Number.isFinite(startS) || !Number.isFinite(endS) || !value("listen-start-uptime") || !value("listen-end-uptime")) return undefined;
+  const cpu = cpuDelta(value("stat-start") ?? "", value("stat-end") ?? "");
+  const psi = value("psi-cpu");
+  return { startS, endS, ...(cpu ?? {}), ...(psi ? { psiCpu: psi } : {}) };
+}
+
+/** Boot sub-phases a listen wait can sit in, in order. */
+export const GUEST_WAIT_PHASES = ["before-resume", "metadata", "kind-flock", "clone-branch", "state-mount", "daemon-listen"] as const;
+export type GuestWaitPhase = (typeof GUEST_WAIT_PHASES)[number];
+
+/**
+ * Splits the listen wait over the clone's boot steps by the bind trace: before-resume (the guest had not
+ * resumed its parked tick yet), metadata (resume to the instance id; `metadata-ok attempts` says how
+ * many reads), kind-flock (the vm-kind reset, mostly its flock), clone-branch (announce, RNG reseed,
+ * identity wipe), state-mount (start_daemon's state filesystem check and fork), daemon-listen (fork to
+ * the listener). `phase` is the step holding most of the wait, `no-trace` without a trace, `unplaced`
+ * when the trace lacks the clone's steps (an image older than the trace, or a stalled guest).
+ */
+export function classifyGuestWait(trace: readonly BindTraceEvent[], window: ListenWindow | undefined): { phase: GuestWaitPhase | "no-trace" | "unplaced"; ms: Partial<Record<GuestWaitPhase, number>> } {
+  if (trace.length === 0 || !window) return { phase: "no-trace", ms: {} };
+  const events = cloneTrace(trace);
+  const at = (event: string) => events.find((e) => e.event === event);
+  const first = at("metadata-first");
+  const ok = at("metadata-ok");
+  const resumeS = at("resumed")?.t ?? (first ? first.t - Number(first.fields.ms ?? 0) / 1000 : ok ? ok.t - Number(ok.fields.ms ?? 0) / 1000 : undefined);
+  const kind = at("kind-reset");
+  const start = at("start-daemon");
+  const forked = at("daemon-forked");
+  if (resumeS === undefined || !ok) return { phase: "unplaced", ms: {} };
+  const bounds: Array<[GuestWaitPhase, number, number | undefined]> = [
+    ["before-resume", Number.NEGATIVE_INFINITY, resumeS],
+    ["metadata", resumeS, ok.t],
+    ["kind-flock", ok.t, kind?.t],
+    ["clone-branch", kind?.t ?? ok.t, start?.t],
+    ["state-mount", start?.t ?? Number.NaN, forked?.t],
+    ["daemon-listen", forked?.t ?? Number.NaN, window.endS],
+  ];
+  const ms: Partial<Record<GuestWaitPhase, number>> = {};
+  let phase: GuestWaitPhase | "unplaced" = "unplaced";
+  let most = -1;
+  for (const [name, from, to] of bounds) {
+    // A step whose end was never stamped runs to the end of the wait.
+    const end = to ?? window.endS;
+    const overlap = Math.min(end, window.endS) - Math.max(from, window.startS);
+    if (!Number.isFinite(overlap) || overlap <= 0) continue;
+    const spent = Math.round(overlap * 1000);
+    ms[name] = spent;
+    if (spent > most) {
+      most = spent;
+      phase = name;
+    }
+  }
+  return { phase, ms };
+}
+
+/** The row fields BOOT_DIAG_COMMAND and the listen window give one clone. */
+export function bootDiagRow(listenStdout: string, diagStdout: string): Record<string, number | string> {
+  const sections = diagSections(diagStdout);
+  const window = parseListenWindow(listenStdout);
+  const trace = parseBindTrace(sections["bind-trace"] ?? "");
+  const own = cloneTrace(trace);
+  const { phase, ms } = classifyGuestWait(trace, window);
+  const ok = own.find((e) => e.event === "metadata-ok");
+  const flock = own.find((e) => e.event === "kind-flock");
+  const row: Record<string, number | string> = { guestWaitPhase: phase };
+  for (const [name, value] of Object.entries(ms)) row[`wait-${name}-ms`] = value;
+  if (ok?.fields.attempts) row.metadataAttempts = Number(ok.fields.attempts);
+  if (flock?.fields.wait_ms) row.kindFlockWaitMs = Number(flock.fields.wait_ms);
+  if (window?.stealMs !== undefined) row.listenStealMs = window.stealMs;
+  if (window?.busyMs !== undefined) row.listenBusyMs = window.busyMs;
+  if (window?.psiCpu) row.listenPsiCpu = window.psiCpu;
+  if (sections["pressure-cpu"]) row.psiCpu = sections["pressure-cpu"].replaceAll("\n", " | ");
+  if (sections.stat) row.statCpu = sections.stat;
+  if (sections.uptime) row.diagUptime = sections.uptime;
+  row.bindTrace = own.map((e) => `${e.t} ${e.event}${Object.entries(e.fields).map(([k, v]) => ` ${k}=${v}`).join("")}`).join("\n");
+  if (sections.journal) row.daemonJournal = sections.journal;
+  return row;
+}
+
+/** A row for the log line: the trace and journal stay in the report. */
+export function rowForLog(row: Record<string, number | string>): Record<string, number | string> {
+  const { bindTrace: _trace, daemonJournal: _journal, statCpu: _stat, ...rest } = row;
+  return rest;
+}
+
+export const IDENTITY_PROBE = [
   `echo instance=$(${DEVBOX_INSTANCE_ID_COMMAND})`,
   "echo bound=$(cat /etc/cmux/daemon-instance-id 2>/dev/null)",
   "for i in $(seq 1 150); do [ -n \"$(find /etc/ssh -name ssh_host_ed25519_key.pub -newer /etc/cmux/daemon-instance-id 2>/dev/null)\" ] && break; sleep 0.2; done",
@@ -216,7 +384,7 @@ const IDENTITY_PROBE = [
   "echo urandom=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \\n')",
 ].join("; ");
 
-function kv(stdout: string): Record<string, string> {
+export function kv(stdout: string): Record<string, string> {
   return Object.fromEntries(stdout.trim().split("\n").filter((l) => l.includes("=")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
 }
 
@@ -269,11 +437,18 @@ export async function measureClone(fs: ReturnType<typeof freestyleClient>, ledge
   const listeningMs = Date.now() - t0;
   // The poll prints its wait before it judges; without that line the guest never ran it.
   if (!/guest-wait-ms \d+/.test(listen.stdout)) throw new ProviderUnfinished(clone, `listen exec returned ${listen.code} without running: ${listen.stderr.slice(-200)}`);
+  // Diagnostics never fail a clone: an exec that fails leaves the row without them.
+  const diag = () => run(vm, BOOT_DIAG_COMMAND, 30_000).then((r) => bootDiagRow(listen.stdout, r.stdout), (error: unknown) => ({ guestWaitPhase: `diag failed: ${String(error).slice(0, 120)}` }) as Record<string, number | string>);
   const stall = providerStall(createMs, firstExecMs, listen.code);
-  if (stall) throw new ProviderUnfinished(clone, stall);
+  if (stall) {
+    const d = await diag();
+    throw new ProviderUnfinished(clone, `${stall} (wait phase ${String(d.guestWaitPhase)}${d.listenStealMs !== undefined ? `, steal ${d.listenStealMs} ms` : ""})`);
+  }
   const ready = await run(vm, devboxWaitForDaemonCommand(60), 90_000).catch(providerUnfinished(clone, "ready exec"));
   const readyMs = Date.now() - t0;
   const guestWaitMs = Number(/guest-wait-ms (\d+)/.exec(listen.stdout)?.[1] ?? Number.NaN);
+  // After the ready exec, so createToReadyMs never includes it.
+  const diagnostics = await diag();
   // createTo* include the provider's create call; createDoneTo* start when it returned, the image's part.
   return {
     clone,
@@ -287,6 +462,7 @@ export async function measureClone(fs: ReturnType<typeof freestyleClient>, ledge
       createDoneToFirstExecMs: firstExecMs - createMs,
       createDoneToListeningMs: listen.code === 0 ? listeningMs - createMs : -1,
       createDoneToReadyMs: ready.code === 0 ? readyMs - createMs : -1,
+      ...diagnostics,
     },
   };
 }
@@ -524,7 +700,7 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
       rows.push(row);
       // Track the clone before the extra probe so a refused/failed exec still cleans it up.
       kept.push(clone);
-      console.log(`clone ${i} ${clone.vmId}: ${JSON.stringify(row)}`);
+      console.log(`clone ${i} ${clone.vmId}: ${JSON.stringify(rowForLog(row))}`);
       // Clones 1 and 2 carry the identity and idle checks; a third, when there is one, takes the rebind hold.
       if (kept.length > 3) {
         await deleteVm(clone.vm, clone.vmId, clone.name, ledger);

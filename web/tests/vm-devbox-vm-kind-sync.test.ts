@@ -112,6 +112,13 @@ describe("the image's cmux-vm-kind-sync", () => {
     return release;
   }
 
+  const bootFunction = (name: string) => {
+    const start = BOOT.indexOf(`${name}() {`);
+    expect(start).toBeGreaterThan(-1);
+    return BOOT.slice(start, BOOT.indexOf("\n}\n", start) + 3);
+  };
+  const bindTrace = (root: string) => (existsSync(path.join(root, "run/bind-trace")) ? readFileSync(path.join(root, "run/bind-trace"), "utf8") : "");
+
   /**
    * Runs the boot's mark_vm_kind_shared against root, then the step after it.
    * `shims` are commands put first on PATH.
@@ -127,9 +134,8 @@ describe("the image's cmux-vm-kind-sync", () => {
     const installed = path.join(root, "cmux-vm-kind-sync");
     writeFileSync(installed, readFileSync(SYNC));
     chmodSync(installed, 0o755);
-    const start = BOOT.indexOf("mark_vm_kind_shared() {");
-    const fn = BOOT.slice(start, BOOT.indexOf("\n}\n", start) + 3).replaceAll("/usr/local/bin/cmux-vm-kind-sync", installed);
-    const script = `vm_kind_sync_at=5\n${fn}\nmark_vm_kind_shared\necho "daemon start reached, next sync at $vm_kind_sync_at"\n`;
+    const fn = ["uptime_cs", "bind_trace", "mark_vm_kind_shared"].map((name) => bootFunction(name)).join("").replaceAll("/usr/local/bin/cmux-vm-kind-sync", installed);
+    const script = `BIND_TRACE=${path.join(root, "run/bind-trace")}\nvm_kind_sync_at=5\n${fn}\nmark_vm_kind_shared\necho "daemon start reached, next sync at $vm_kind_sync_at"\n`;
     const began = Date.now();
     const result = await runChild("/bin/sh", ["-c", script], {
       env: { PATH: `${bin}:${process.env.PATH}`, CMUX_VM_KIND_FILE: kindFile(root), ...env },
@@ -152,6 +158,39 @@ describe("the image's cmux-vm-kind-sync", () => {
     expect((await reset).status).toBe(0);
     expect(readFileSync(kindFile(root), "utf8")).toBe("team\n");
     expect(generation(root)).toBe("1");
+  });
+
+  test("the clone reset stamps the bind trace with its flock wait and its total", async () => {
+    const root = guestRoot();
+    writeFileSync(kindFile(root), "owner\n");
+    const boot = await bootReset(root);
+    expect(boot.status).toBe(0);
+    expect(boot.stderr).toBe("");
+    const lines = bindTrace(root).trim().split("\n");
+    expect(lines[0]).toMatch(/^\d+\.\d{2} kind-flock acquired wait_ms=\d+$/);
+    expect(lines[1]).toMatch(/^\d+\.\d{2} kind-reset ms=\d+ locked=1$/);
+  });
+
+  test("a held lock shows in the bind trace as a flock timeout and an unlocked reset", async () => {
+    const root = guestRoot();
+    writeFileSync(kindFile(root), "owner\n");
+    await holdLock(root);
+    const boot = await bootReset(root, { CMUX_VM_KIND_LOCK_WAIT: "1" });
+    expect(boot.status).toBe(0);
+    const trace = bindTrace(root);
+    const waited = Number(/kind-flock timeout wait_ms=(\d+)/.exec(trace)?.[1]);
+    expect(waited).toBeGreaterThanOrEqual(900);
+    expect(trace).toMatch(/kind-reset ms=\d+ locked=0/);
+  }, 30_000);
+
+  test("an unwritable bind trace never fails the reset", async () => {
+    const root = guestRoot();
+    writeFileSync(kindFile(root), "owner\n");
+    writeFileSync(path.join(root, "run"), "a file where the trace directory would be");
+    const boot = await bootReset(root);
+    expect(boot.status).toBe(0);
+    expect(boot.stderr).toBe("");
+    expect(readFileSync(kindFile(root), "utf8")).toBe("team\n");
   });
 
   test("a lock that is never released: the boot's reset ends within its bound, records team, and the daemon start is reached", async () => {
