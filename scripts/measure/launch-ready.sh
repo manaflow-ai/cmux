@@ -54,6 +54,8 @@
 #   preflight=1  just before the first launch, ~10 s of top: a system indexer (launch-ready-preflight.sh's INDEXERS)
 #                above preflight_cpu=N % CPU (default 30), or cmux-ci's CMUX_CI_HOST_NOISY=1, fails the step with
 #                LR-HOT-HOST and exit 5. preflight=0 skips it.
+#   preflight_wait=S  a hot host is checked again every 60 s for up to S s (default 900) before it fails the step: an
+#                indexer's batch (mediaanalysisd at 70-200 %) often ends in minutes, and the builds before it took ~20.
 # Each side gets one copy of the app and one home. The priming launch makes the home's state (a person's second
 # launch on), then every measured launch is a relaunch through LaunchServices, activated, as a Dock click is.
 # scripts/measure/launch-ready.swift times each one: finished_launching (the Dock's bounce ends), the first
@@ -94,7 +96,7 @@ main() {
   cd "$(dirname "$0")/../.." || exit 3
   local out="$PWD/.build/launch-ready" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 late=0 engines="" config=release arg rc=0 i side
 
-  local preflight=1 preflight_cpu=30
+  local preflight=1 preflight_cpu=30 preflight_wait=900 waited=0
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT="" LR_LAYOUT=0
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
@@ -122,6 +124,7 @@ main() {
       late=*) late="${arg#late=}" ;;
       machines=*) machines="${arg#machines=}" ;;
       engines=*) engines="${arg#engines=}" ;;
+      preflight_wait=*) preflight_wait="${arg#preflight_wait=}" ;;
       preflight=0|preflight=1) preflight="${arg#preflight=}" ;;
       preflight_cpu=*) preflight_cpu="${arg#preflight_cpu=}" ;;
       layout=0|layout=1) LR_LAYOUT="${arg#layout=}" ;;
@@ -133,6 +136,7 @@ main() {
   [[ "$LR_LAYOUT" == 1 ]] && config=bench
   [[ "$machines" =~ ^[0-9]+$ && "$machines" -le 200 ]] || { echo "machines= takes 0 to 200" >&2; exit 2; }
   [[ "$preflight_cpu" =~ ^[1-9][0-9]*$ ]] || { echo "preflight_cpu= takes a whole percent >= 1" >&2; exit 2; }
+  [[ "$preflight_wait" =~ ^[0-9]+$ && "$preflight_wait" -le 3600 ]] || { echo "preflight_wait= takes 0 to 3600 s" >&2; exit 2; }
   [[ "$LR_STATE" == kept || ( "$session" == small && "$machines" == 0 ) ]] \
     || { echo "state=bare empties the home before each launch: it takes no session=$session or machines=$machines" >&2; exit 2; }
   [[ "$prerun" =~ ^[0-9]+$ && "$prerun" -le 600 ]] || { echo "prerun= takes 0 to 600 seconds" >&2; exit 2; }
@@ -219,7 +223,13 @@ main() {
   [[ "$late" == 0 ]] || sides+=(late)
 
   # A system indexer busy now (mediaanalysisd, Spotlight) voids every launch: fail in ~10 s, not after the run.
-  if [[ "$preflight" == 1 ]]; then bash "$out/preflight.sh" "$preflight_cpu" || { echo "LR-FAIL hot host: a system indexer above ${preflight_cpu}% CPU or cmux-ci's noisy mark (preflight=0 skips this check)"; exit 5; }; fi
+  if [[ "$preflight" == 1 ]]; then
+    until bash "$out/preflight.sh" "$preflight_cpu"; do
+      (( waited + 60 <= preflight_wait )) || { echo "LR-FAIL hot host: a system indexer above ${preflight_cpu}% CPU or cmux-ci's noisy mark, still after ${waited} s (preflight=0 skips this check)"; exit 5; }
+      sleep 60 # a bounded wait (preflight_wait) for the indexer's batch to end
+      waited=$((waited + 60)); echo "LR-PREFLIGHT waited ${waited} s"
+    done
+  fi
   for side in "${sides[@]}"; do
     local mount="$out/mnt-$side" image="$side"
     [[ "$side" != late && -z "$engines" ]] || image=head # the late side, and every engines= side, runs the head's DMG
