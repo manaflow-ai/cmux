@@ -202,23 +202,27 @@ def typing_rows(report, count):
 
 
 def scaling_warnings(rows, limit=LIMIT):
-    """Compare 1000 vs 1 p95 per interaction; return advisory warning records."""
+    """Compare the largest vs the smallest topology's p95 per interaction; return advisory warning records."""
     by_name = {}
     for row in rows:
         by_name.setdefault(row["interaction"], {})[int(row["workspaces"])] = row
+    counts = sorted(COUNTS)
+    top = counts[-1]
     warnings = []
     for interaction, values in sorted(by_name.items()):
         # A one-row sidebar cannot perform a real scroll or workspace switch.  Use
         # the smallest topology with a real gesture/selection for those interactions.
-        baseline_count = 100 if interaction in ("sidebar_scroll", "switch") else 1
+        baseline_count = counts[0]
+        if interaction in ("sidebar_scroll", "switch"):
+            baseline_count = next((c for c in counts if c > 1), counts[0])
         one = (values.get(baseline_count) or {}).get("p95")
-        many = (values.get(1000) or {}).get("p95")
+        many = (values.get(top) or {}).get("p95")
         if not isinstance(one, (int, float)) or not isinstance(many, (int, float)) or one <= 0:
             continue
         ratio = many / one
         if ratio > limit:
             warnings.append({"interaction": interaction, "p95_baseline": one,
-                             "baseline_workspaces": baseline_count, "p95_1000": many,
+                             "baseline_workspaces": baseline_count, f"p95_{top}": many,
                              "ratio": round(ratio, 3), "limit": limit})
     return warnings
 
@@ -326,7 +330,8 @@ def run_app(opts):
         root = pathlib.Path(opts.out) / str(count)
         root.mkdir(parents=True, exist_ok=True)
         failure_start = len(failures)
-        probe_timeout = opts.probe_timeout if count < 1000 else opts.large_probe_timeout
+        # Seeding grows with the count: each further thousand workspaces gets another large budget.
+        probe_timeout = opts.probe_timeout if count < 1000 else opts.large_probe_timeout * (count // 1000)
         instant = root / "instant"
         code = run_probe(HERE / "instant-new-surfaces-bench.py",
                          ["--tag", opts.tag, "--app", opts.app, "--commands", "new_workspace,split_right",
@@ -343,7 +348,7 @@ def run_app(opts):
         # cannot perform either gesture, so skip the probe instead of asking it to run a zero-size
         # switch scenario that reports a false incomplete measurement.
         sidebar_count = max(0, count - 1)
-        if count == 1:
+        if count == 1 or "sidebar" not in opts.probes:
             sidebar_report = {}
         else:
             code = run_probe(HERE / "sidebar-stress-bench.py",
@@ -360,11 +365,13 @@ def run_app(opts):
         # sole active row and all other seeded rows are empty, so a ratio reflects workspace count
         # rather than a different number of agents or browser operations.
         agents = 0
-        code = run_probe(HERE / "automation-typing-bench.py",
-                         ["--app", opts.app, "--agents", str(agents), "--workspace-count", str(count), "--layouts", "light", "--samples", "30",
-                          "--rounds", "1", "--no-browser", "--out", str(typing), "--json", str(typing / "report.json")], root,
-                         probe_timeout)
-        if code != 0 or not (typing / "report.json").exists():
+        code = 0
+        if "typing" in opts.probes:
+            code = run_probe(HERE / "automation-typing-bench.py",
+                             ["--app", opts.app, "--agents", str(agents), "--workspace-count", str(count), "--layouts", "light", "--samples", "30",
+                              "--rounds", "1", "--no-browser", "--out", str(typing), "--json", str(typing / "report.json")], root,
+                             probe_timeout)
+        if "typing" in opts.probes and (code != 0 or not (typing / "report.json").exists()):
             failures.append({"workspaces": count, "probe": "typing", "exit": code,
                              "report": str(typing / "report.json"),
                              **probe_reason(typing / "report.json", root / "automation-typing-bench.log")})
@@ -395,7 +402,9 @@ def run_app(opts):
         sidebar_expected = ("sidebar_scroll", "switch") if count > 1 else ()
         expected = (("new_workspace", "open_pane"), sidebar_expected, ("type",))
         for probe, got, names in zip(("instant", "sidebar", "typing"), probes, expected):
-            missing = [name for name in names if name not in got]
+            if probe not in opts.probes:
+                continue
+            missing =[name for name in names if name not in got]
             if missing:
                 record = {"workspaces": count, "probe": probe, "missing": missing}
                 size_entry = (reports[count]["sidebar"].get("sizes") or {}).get(str(sidebar_count)) or {}
@@ -420,6 +429,7 @@ def run_app(opts):
 
 
 def main():
+    global COUNTS
     ap = argparse.ArgumentParser()
     ap.add_argument("--app")
     ap.add_argument("--tag", default="workspace-scaling")
@@ -429,10 +439,16 @@ def main():
                     help="maximum seconds for each GUI probe before recording it incomplete")
     ap.add_argument("--large-probe-timeout", type=int, default=600,
                     help="maximum seconds for each 1000-workspace probe before recording it incomplete")
+    ap.add_argument("--counts", default=",".join(map(str, COUNTS)),
+                    help="comma-separated workspace counts; the smallest is the ratio baseline, the largest its top")
+    ap.add_argument("--probes", default="instant,sidebar,typing",
+                    help="probes to run with --app; instant alone measures new_workspace and open_pane")
     ap.add_argument("--instant-report", action="append", default=[])
     ap.add_argument("--sidebar-report", action="append", default=[])
     ap.add_argument("--typing-report", action="append", default=[])
     opts = ap.parse_args()
+    COUNTS = tuple(sorted({int(c) for c in opts.counts.split(",") if c.strip()}))
+    opts.probes = {p.strip() for p in opts.probes.split(",") if p.strip()}
     reports, failures = {}, []
     if opts.app:
         reports, failures = run_app(opts)
