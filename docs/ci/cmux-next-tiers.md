@@ -265,6 +265,38 @@ No runner waits for the tree. `cmux-next path routing` probes it once
   scheme compile. A new linked library changes `Package.swift`, which runs
   every tier, so a source-only CmuxNext change cannot add one.
 
+## Docs-only pull requests start almost nothing
+
+A pull request that changes only prose nothing reads (a plan, a design note,
+`docs/`, a root guide, docs images) starts only the required checks and a few
+one-job policy and merge-contract checks. Before 2026-11-19 each one started
+22-23 workflows and 180-275 check runs (#44917, #40040).
+
+- **The block.** `scripts/ci/docs_only_paths.py` holds one `paths:` list
+  (`DOCS_ONLY_PATHS`): every path, then `!**/*.md` and docs images, then the
+  prose that code reads put back (`AGENTS.md`, `CLAUDE.md`, `SKILL.md`,
+  `.github/`, skills and references, templates, resources, fixtures, tests,
+  release notes, and each file an `include_str!` compiles in). The workflows in
+  its `WORKFLOWS` carry it on `pull_request` only; push, schedule and dispatch
+  are unchanged. Edit the list there, then run
+  `python3 scripts/ci/docs_only_paths.py --sync`.
+- **What still starts.** Required checks never get a path filter (a required
+  check that never starts stays Expected). The fast gates and the risk tier
+  start because next-autoland lands only on them; the rest are one-job policy
+  checks. `cmux-next.yml` leaves `plans/cmux-next/**/*.md` out of its pull
+  request list and puts back by name the plan docs a Swift target reads; the
+  detector routes every doc it leaves out and fails on one that reaches a tier.
+- **The detector.** `tests/test_ci_docs_only_prs.py` (ci-guards `ci` group)
+  fails when a docs-only pull request would start a workflow outside its
+  `ALLOWED` table (each with its reason), when a required check gets a filter,
+  when a copy of the block drifts, when an `include_str!` reads a file the block
+  leaves out, or when a guard group test reads one. Path-filtered workflows
+  whose own list takes a package whole (a README inside `cmux-tui/**`) are
+  listed in `SCOPED` until their lists drop Markdown.
+  `tests/test_ci_workflow_paths_cover_inputs.py` checks the inputs of each
+  filtered workflow's tests, and no longer lets the guards workflow excuse an
+  input its own filter leaves out.
+
 ## Changes that need only a blaze build
 
 `scripts/ci/build_class.py [--base REF | --changed-files FILE]` says, from the

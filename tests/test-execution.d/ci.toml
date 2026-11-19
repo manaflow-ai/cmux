@@ -128,6 +128,10 @@ path = "tests/test_ci_display_suites.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_docs_only_prs.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_e2e_runner_pool_auto.py"
 lane = "linux-guard"
 

@@ -765,6 +765,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_paths_cover_inputs.py
 
+      - name: Check that a docs-only pull request starts only the allowed workflows
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_docs_only_prs.py
+
       - name: Check that a cmux-rd-host change runs its macOS clippy and tests
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rd_host_macos_route.py

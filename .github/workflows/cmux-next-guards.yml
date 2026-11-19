@@ -5,8 +5,10 @@ name: cmux-next guards
 # tests there: tests/test_nightly_cmux_tui_resolve.py stayed red on the branch
 # unseen. nightly-next ships from feat-cmux-next, so run the release-notary
 # group (nightly, notarization, nightly-next guard and publication tests) for
-# its pull requests and pushes. There is no workflow path filter, so a base red
-# shows on the push that caused it.
+# its pull requests and pushes. Pushes have no path filter, so a base red shows
+# on the push that caused it; pull requests carry only the docs-only block
+# (scripts/ci/docs_only_paths.py): a pull request of prose nothing reads starts
+# no run (none of these jobs is a required check; tests/test_ci_docs_only_prs.py).
 #
 # A push runs the group in nightly-guards, judged at its tip, so a base red
 # still fails the push that caused it, and in the CI guard group, so the merge
@@ -26,6 +28,46 @@ name: cmux-next guards
 on:
   pull_request:
     branches: [feat-cmux-next]
+    # docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "!docs/**/*.png"
+      - "!docs/**/*.jpg"
+      - "!docs/**/*.gif"
+      - "!docs/**/*.webp"
+      - "!plans/**/*.png"
+      - "!plans/**/*.jpg"
+      - "!plans/**/*.gif"
+      - "!plans/**/*.webp"
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "**/SKILL.md"
+      - ".github/**"
+      - "**/skills/**"
+      - "**/references/**"
+      - "**/templates/**"
+      - "**/Resources/**"
+      - "**/fixtures/**"
+      - "**/testdata/**"
+      - "**/test/**"
+      - "**/tests/**"
+      - "CHANGELOG.md"
+      - "THIRD_PARTY_LICENSES.md"
+      - "release-notes/**"
+      - "docs/agent-hooks.md"
+      - "docs/chief-setup-prompts.md"
+      - "docs/configuration.md"
+      - "docs/ci/node-product-cache-maintenance.md"
+      - "docs/remote-agents-and-cloud.md"
+      - "docs/cmux-next/customize-recipes.md"
+      - "cmux-tui/crates/acpmux/README.md"
+      - "cmux-tui/crates/acpmux/docs/**"
+      - "cmux-tui/crates/cmux-browser-host/js/guide.md"
+      - "cmux-tui/crates/cmux-extension-sdk/README.md"
+      - "cmux-tui/vendor/terminput-crossterm/README.md"
+      - "mux/packages/brain/conformance/README.md"
+    # docs-only paths: END
   push:
     branches: [feat-cmux-next]
 

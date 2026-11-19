@@ -7,8 +7,9 @@ path built from `__file__`, and lists every such input the event's filter does n
 that input starts no run of the workflow, merges green, and leaves the red for the next PR that touches a listed
 path (cmuxterm-hq#8984: a suite imported a sibling tool's module its workflow did not list).
 
-A gap is excused when cmux-next-guards.yml, which runs on every feat-cmux-next pull request and push with no path
-filter, runs the same test for that input: `guards-local.sh --feat-routes` runs ci-guards.yml's `ci` group plus the
+A gap is excused when cmux-next-guards.yml, which runs on every feat-cmux-next push and every pull request but a
+docs-only one (its only filter is scripts/ci/docs_only_paths.py's block; an input that block leaves out is never
+excused), runs the same test for that input: `guards-local.sh --feat-routes` runs ci-guards.yml's `ci` group plus the
 groups detect_linux_guard_changes.classify_feat routes the changed path to (scripts/ci/run_ci_guards.py plans
 them).
 """
@@ -66,8 +67,14 @@ def guard_router():
         branches = config.get("branches") if isinstance(config, dict) else None
         return isinstance(branches, list) and set(map(str, branches)) == {"feat-cmux-next"}
 
+    # cmux-next-guards' own pull_request filter (the docs-only block, scripts/ci/docs_only_paths.py): a path it
+    # leaves out starts no guards run, so the router covers nothing for it.
+    guards = detector.filtered_events(detector.load_yaml(ROOT / ".github/workflows/cmux-next-guards.yml"))
+
     def covered(test: str, path: str, workflow: str, event: str, document) -> bool:
         if not feat_only(document, event):
+            return False
+        if event in guards and not detector.admits(*guards[event], path):
             return False
         key = (path, event)
         if key not in cache:
