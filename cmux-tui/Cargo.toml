@@ -50,6 +50,7 @@ members = [
     "crates/cmux-tui-platform",
     "crates/cmux-tui-image-paste",
     "crates/cmux-tui-hooks",
+    "crates/cmux-agent-customize",
     "crates/cmux-tui-util",
     "crates/cmux-json",
     "crates/cmux-local-url",
@@ -180,6 +181,7 @@ default-members = [
     "crates/cmux-tui-platform",
     "crates/cmux-tui-image-paste",
     "crates/cmux-tui-hooks",
+    "crates/cmux-agent-customize",
     "crates/cmux-tui-util",
     "crates/cmux-json",
     "crates/cmux-local-url",
@@ -379,6 +381,7 @@ cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
 cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
+cmux-agent-customize = { path = "crates/cmux-agent-customize" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-json = { path = "crates/cmux-json" }
 cmux-local-url = { path = "crates/cmux-local-url" }
@@ -409,6 +412,7 @@ async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "macros"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+indexmap = "2"
 toml = "0.8"
 # Same version toml 0.8 already pulls in; used for comment-preserving edits of
 # the user's codex config.toml when syncing hook trust state.

@@ -49,6 +49,8 @@ import {
   type IntegrationsState,
   type McpServersRun,
   type McpServersState,
+  type AgentHooksRun,
+  type AgentHooksState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -719,6 +721,43 @@ export class MockSettingsProvider {
         };
         return {};
       },
+      "cmux.settings.agentHooks.state": () => this.agentHooks,
+      "cmux.settings.agentHooks.run": (params) => {
+        const run = params as AgentHooksRun;
+        const state = this.agentHooks;
+        if (!state.available || run.action === "refresh") return state;
+        this.agentHookRuns.push(run);
+        const listing = state.listing!;
+        if (run.action === "add") {
+          const hook = {
+            id: `${run.agent}-new${listing.hooks.length}`,
+            agent: run.agent,
+            scope: run.scope ?? "user",
+            file: "",
+            event: run.event,
+            matcher: run.matcher ?? null,
+            type: "command",
+            command: run.command,
+            timeout: run.timeout ?? null,
+            enabled: true,
+            owner: "user" as const,
+            read_only: false,
+          };
+          this.agentHooks = { ...state, listing: { ...listing, hooks: [...listing.hooks, hook] } };
+          return this.agentHooks;
+        }
+        const row = listing.hooks.find((entry) => entry.id === run.id);
+        // Like the host: only a listed, editable hook.
+        if (!row) throw new ProtocolError("cmux.settings.invalid", "id must be a listed hook");
+        const hooks =
+          run.action === "remove"
+            ? listing.hooks.filter((entry) => entry.id !== run.id)
+            : listing.hooks.map((entry) =>
+                entry.id === run.id ? { ...entry, enabled: run.action === "enable" } : entry,
+              );
+        this.agentHooks = { ...state, listing: { ...listing, hooks } };
+        return this.agentHooks;
+      },
       "cmux.settings.mcp.state": () => this.mcpServers,
       "cmux.settings.mcp.run": (params) => {
         const run = params as McpServersRun;
@@ -818,6 +857,8 @@ export class MockSettingsProvider {
       "cmux.settings.agentTools.run",
       "cmux.settings.mcp.state",
       "cmux.settings.mcp.run",
+      "cmux.settings.agentHooks.state",
+      "cmux.settings.agentHooks.run",
       "cmux.settings.theme.set",
       "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
@@ -1492,6 +1533,94 @@ export class MockSettingsProvider {
   };
   /** MCP Servers gestures the page sent (sign in, remove). */
   readonly mcpServerRuns: McpServersRun[] = [];
+
+  /** Settings > Agents > Claude Code & Codex > Hooks as the app serves it (`SettingsAgentHooks.state`);
+   * `{ available: false }` is the Labs switch off. */
+  agentHooks: AgentHooksState = {
+    available: true,
+    error: null,
+    listing: {
+      counts: { claude: 3, codex: 2 },
+      codex_hooks_feature: true,
+      elapsed_micros: 900,
+      files: [],
+      hooks: [
+        {
+          id: "claude-0a1b2c3d4e",
+          agent: "claude",
+          scope: "user",
+          file: "/Users/me/.claude/settings.json",
+          event: "PreToolUse",
+          matcher: "Bash",
+          type: "command",
+          command: "bash ~/.claude/hooks/guard.sh",
+          timeout: null,
+          enabled: true,
+          owner: "user",
+          read_only: false,
+        },
+        {
+          id: "claude-1a1b2c3d4e",
+          agent: "claude",
+          scope: "user",
+          file: "/Users/me/.claude/settings.json",
+          event: "Stop",
+          matcher: null,
+          type: "command",
+          command: "notify-done",
+          timeout: 5,
+          enabled: false,
+          owner: "user",
+          read_only: false,
+        },
+        {
+          id: "claude-2a1b2c3d4e",
+          agent: "claude",
+          scope: "user",
+          file: "/Users/me/.claude/settings.json",
+          event: "SessionStart",
+          matcher: null,
+          type: "command",
+          command: '"${CMUX_TUI_HOOK:-:}" claude SessionStart;#cmux-tui-journal-hook',
+          timeout: 5,
+          enabled: true,
+          owner: "cmux",
+          read_only: true,
+        },
+        {
+          id: "codex-3a1b2c3d4e",
+          agent: "codex",
+          scope: "user",
+          file: "/Users/me/.codex/hooks.json",
+          event: "PreToolUse",
+          matcher: "Bash",
+          type: "command",
+          command: "lazy-command hook",
+          timeout: null,
+          enabled: true,
+          owner: "user",
+          read_only: false,
+          trust: "trusted",
+        },
+        {
+          id: "codex-4a1b2c3d4e",
+          agent: "codex",
+          scope: "user",
+          file: "/Users/me/.codex/hooks.json",
+          event: "Stop",
+          matcher: null,
+          type: "command",
+          command: "say done",
+          timeout: null,
+          enabled: true,
+          owner: "user",
+          read_only: false,
+          trust: "untrusted",
+        },
+      ],
+    },
+  };
+  readonly agentHookRuns: AgentHooksRun[] = [];
   /** Agent integrations gestures the page sent (install, repair, remove). */
   readonly integrationRuns: IntegrationsRun[] = [];
 

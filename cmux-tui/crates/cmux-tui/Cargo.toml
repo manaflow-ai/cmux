@@ -105,6 +105,7 @@ cmux-app-manifest.workspace = true
 notify.workspace = true
 # `cmux agent hooks` and the hook paths the Claude wrapper reads.
 cmux-tui-hooks.workspace = true
+cmux-agent-customize.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-tui-machine-agent-protocol.workspace = true
 cmux-tui-machine-protocol.workspace = true

@@ -14,6 +14,9 @@ extension CmuxConfigSnapshot {
     /// `labs.machineJoin`: This Mac's Screen sharing and Control consent switches in Settings > Devices, for a Mac that joined with a pair code or line (contract: cmux machine join, J6-J8). Add Device's join way and the Machines section's joined rows no longer depend on it (cmux#36654, cmux#36667). Off by default. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).
     public nonisolated static let machineJoinPath = ["labs", "machineJoin"]
     public nonisolated static let machineJoinDefault = false
+    /// `labs.agentCustomization`: Claude Code and Codex Customization: Settings > Agents shows a Claude Code & Codex card whose sections read and edit the agents' own config files through the bundled `cmux agent-config` (cmux-tui/crates/cmux-agent-customize): Hooks lists every hook in ~/.claude/settings*.json, plugins and ~/.codex/hooks.json by agent, event and matcher, with Turn Off / Turn On, Add and Remove; cmux's own hooks are read-only. Off by default; off shows and runs nothing new. The person turns it on: agents may not.
+    public nonisolated static let agentCustomizationPath = ["labs", "agentCustomization"]
+    public nonisolated static let agentCustomizationDefault = false
     /// `labs.liveCode`: Live code (docs/cmux-next/live-code.md): an opt-in, temporary switch. On, a live code build (CMUX_LIVE_CODE_BUILD=1 scripts/reload.sh: CmuxNextApp at -Onone, linked -interposable) watches ~/Library/Caches/cmux-next/live-code and applies Swift patches compiled from the person's checkout (scripts/live-code/patch.py) with no new build. Off, nothing is watched or loaded; Debug and bench builds only until a patch's signer is checked (cmux#13742). Read at launch. The person turns it on: agents may not (it loads code into the app).
     public nonisolated static let liveCodePath = ["labs", "liveCode"]
     public nonisolated static let liveCodeDefault = false
@@ -43,7 +46,7 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.voiceRoom", "Voice Room"),
-                help: SettingsText.keyed("settings.labs.voiceRoom.help", "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room."),
+                help: SettingsText.keyed("settings.labs.voiceRoom.help", "While a room is open, cmux sends a transcript of your mic and your screen's text to it."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.voiceRoomDefault),
                 keywords: ["labs", "voice", "room", "call", "meeting", "transcribe", "screen", "record", "chief"]
@@ -63,17 +66,27 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.machineJoin", "Screen Sharing for Joined Machines"),
-                help: SettingsText.keyed("settings.labs.machineJoin.help", "Shows this Mac's Screen sharing and Control switches in Settings > Devices once it has joined your machines. Both stay off until you turn them on."),
+                help: SettingsText.keyed("settings.labs.machineJoin.help", "Shows Screen sharing and Control in Settings > Devices once this Mac joins."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.machineJoinDefault),
                 keywords: ["labs", "machine", "join", "add", "device", "line", "curl", "remote", "mesh"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.agentCustomizationPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.agentCustomization", "Claude Code and Codex Customization"),
+                help: SettingsText.keyed("settings.labs.agentCustomization.help", "Shows Claude Code and Codex hooks in Settings > Agents, where you can turn them off and on, add and remove them."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.agentCustomizationDefault),
+                keywords: ["labs", "claude", "codex", "hooks", "customize", "agent", "config"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.liveCodePath,
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.liveCode", "Live Code"),
-                help: SettingsText.keyed("settings.labs.liveCode.help", "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts."),
+                help: SettingsText.keyed("settings.labs.liveCode.help", "Swift changes you compile apply to the running app. Takes effect after cmux restarts."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.liveCodeDefault),
                 keywords: ["labs", "live", "code", "hot", "reload", "patch", "inject", "swift", "develop"]

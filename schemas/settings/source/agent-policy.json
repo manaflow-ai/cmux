@@ -1255,6 +1255,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "On, Settings turns Claude Code and Codex hooks off and on and edits those agents' own config files: only the person turns that on.",
+      "keys": [
+        "labs.agentCustomization"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, a live code build loads Swift patches into the running app: only the person turns that on.",
       "keys": [
         "labs.liveCode"

@@ -197493,6 +197493,268 @@
         }
       }
     },
+    "settings.labs.agentCustomization": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تخصيص Claude Code وCodex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prilagodba za Claude Code i Codex"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpasning af Claude Code og Codex"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anpassung von Claude Code und Codex"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code and Codex Customization"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalización de Claude Code y Codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personnalisation de Claude Code et Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizzazione di Claude Code e Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code と Codex のカスタマイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកែសម្រួល Claude Code និង Codex"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code 및 Codex 사용자 지정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpasning av Claude Code og Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostosowywanie Claude Code i Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalização do Claude Code e do Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройка Claude Code и Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การปรับแต่ง Claude Code และ Codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code ve Codex Özelleştirmesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштування Claude Code і Codex"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tùy chỉnh Claude Code và Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code 和 Codex 自定义"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code 和 Codex 自訂"
+          }
+        }
+      }
+    },
+    "settings.labs.agentCustomization.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض خطّافات Claude Code وCodex في الإعدادات > الوكلاء، حيث يمكنك إيقافها وتفعيلها وإضافتها وإزالتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazuje Claude Code i Codex hookove u Postavke > Agenti, gdje ih možete isključiti i uključiti, dodati i ukloniti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser Claude Code- og Codex-hooks i Indstillinger > Agenter, hvor du kan slå dem fra og til samt tilføje og fjerne dem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt Claude-Code- und Codex-Hooks unter Einstellungen > Agenten an, wo du sie ein- und ausschalten, hinzufügen und entfernen kannst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Claude Code and Codex hooks in Settings > Agents, where you can turn them off and on, add and remove them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra los hooks de Claude Code y Codex en Ajustes > Agentes, donde puedes activarlos y desactivarlos, añadirlos y quitarlos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche les hooks de Claude Code et Codex dans Réglages > Agents, où vous pouvez les activer, les désactiver, en ajouter et en supprimer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra gli hook di Claude Code e Codex in Impostazioni > Agenti, dove puoi attivarli e disattivarli, aggiungerli e rimuoverli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定 > エージェントに Claude Code と Codex のフックを表示し、オン/オフの切り替え、追加、削除ができます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញ hooks របស់ Claude Code និង Codex ក្នុងការកំណត់ > ភ្នាក់ងារ ដែលអ្នកអាចបិទ និងបើក បន្ថែម និងលុបវាបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설정 > 에이전트에 Claude Code 및 Codex 훅을 표시하며, 켜고 끄고 추가하고 제거할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser Claude Code- og Codex-hooks i Innstillinger > Agenter, der du kan slå dem av og på, legge dem til og fjerne dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuje hooki Claude Code i Codex w Ustawienia > Agenci, gdzie można je włączać i wyłączać, dodawać i usuwać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra os hooks do Claude Code e do Codex em Ajustes > Agentes, onde você pode ativá-los e desativá-los, adicioná-los e removê-los."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает хуки Claude Code и Codex в разделе «Настройки» > «Агенты», где их можно включать и выключать, добавлять и удалять."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดง hooks ของ Claude Code และ Codex ในการตั้งค่า > เอเจนต์ ซึ่งคุณสามารถปิดและเปิด เพิ่ม และลบได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code ve Codex hook'larını Ayarlar > Ajanlar'da gösterir; burada bunları kapatıp açabilir, ekleyip kaldırabilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показує хуки Claude Code і Codex у Налаштування > Агенти, де їх можна вимикати й вмикати, додавати та видаляти."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị hook của Claude Code và Codex trong Cài đặt > Tác tử, nơi bạn có thể tắt và bật, thêm và xóa chúng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在“设置 > 代理”中显示 Claude Code 和 Codex 的钩子，你可以在那里开关、添加和移除它们。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在「設定 > 代理」中顯示 Claude Code 和 Codex 的鉤子，你可以在那裡開關、新增和移除它們。"
+          }
+        }
+      }
+    },
     "settings.labs.liveCode": {
       "extractionState": "manual",
       "localizations": {
