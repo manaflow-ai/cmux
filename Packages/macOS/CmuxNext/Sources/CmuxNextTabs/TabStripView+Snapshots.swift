@@ -10,8 +10,16 @@ extension TabStripView {
         var trailingButtons: TabTrailingButtons
         /// The group chips' glass settings (`GroupChipGlass`).
         var groupLook: GroupChipGlass
-        /// The busy unread tab's Debug look (`TabTunables.busyUnreadMark`); cells read it while they draw.
-        var busyUnreadMark: TabBusyUnreadMark
+        /// The Debug looks the cells read while they draw.
+        var cellLooks: CellLooks
+    }
+
+    /// Debug looks the cells resolve as they draw, outside their metrics: a change redraws them.
+    struct CellLooks: Equatable, Sendable {
+        /// A busy tab with unread output (`TabTunables.busyUnreadMark`).
+        var busyUnreadMark = TabTunables.busyUnreadMark.value
+        /// Where the trailing status mark sits (`TabTunables.statusMarkPlacement`).
+        var statusMarkPlacement = TabTunables.statusMarkPlacement.value
     }
 
     /// Model fields whose change triggers a sync. Equal arrays that share

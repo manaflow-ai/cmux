@@ -175,19 +175,32 @@ test("a start waiting on its browser sign-in says so, not starting or Thinking",
   expect(html).not.toContain("data-signing-in");
 });
 
-test("a plan refusal shows the pricing card: Pro and Max with Subscribe, Run on This Mac and Not Now", () => {
+test("a plan refusal shows the pricing card: cmux NEXT Plus, Pro and Max with Subscribe, Run on This Mac and Not Now", () => {
   const refusal = { ...start, state: "failed" as const, code: "cloud_plan_required" };
   const html = renderToStaticMarkup(
     <CloudStartView start={refusal} onRunHere={() => undefined} onDismiss={() => undefined} />,
   );
   expect(html).toContain("Cloud needs a plan");
+  // Smallest first: Plus, then Pro, then Max.
+  expect(html).toMatch(/data-plan="next_plus"[\s\S]*data-plan="next_pro"[\s\S]*data-plan="next_max"/);
+  expect(html).toContain("cmux NEXT Plus");
+  expect(html).toContain("$20 / month");
+  expect(html).toContain("Machines up to 4 vCPU and 16 GB memory");
+  expect(html).toContain("cmux NEXT Pro");
   expect(html).toContain("$50 / month");
-  expect(html).toContain("Machines up to 8 vCPU and 16 GB memory");
+  expect(html).toContain("Machines up to 8 vCPU and 32 GB memory");
+  expect(html).toContain("cmux NEXT Max");
   expect(html).toContain("$200 / month");
   expect(html).toContain("Machines up to 32 vCPU and 64 GB memory");
-  expect(html).toMatch(/data-action="subscribe" data-plan="pro"[^>]*data-role="default"[^>]*>Subscribe<\/button>/);
-  expect(html).toMatch(/data-action="subscribe" data-plan="max"[^>]*>Subscribe<\/button>/);
-  expect(html).not.toMatch(/data-plan="max"[^>]*data-role="default"/);
+  // The first plan's Subscribe leads, and only it.
+  expect(html).toMatch(
+    /data-action="subscribe" data-plan="next_plus"[^>]*data-role="default"[^>]*>Subscribe<\/button>/,
+  );
+  expect(html).toMatch(/data-action="subscribe" data-plan="next_pro"[^>]*>Subscribe<\/button>/);
+  expect(html).toMatch(/data-action="subscribe" data-plan="next_max"[^>]*>Subscribe<\/button>/);
+  expect(html).not.toMatch(/data-plan="next_pro"[^>]*data-role="default"/);
+  expect(html).not.toMatch(/data-plan="next_max"[^>]*data-role="default"/);
+  expect(html).not.toContain('data-plan="pro"');
   expect(html).toContain('data-action="run-here">Run on This Mac</button>');
   expect(html).toContain('data-action="dismiss">Not Now</button>');
   // Nothing started (the plan is checked before any machine): no startup card, no Upgrade of the classic plan.
@@ -217,7 +230,7 @@ test("a plan refusal in a team says so, names the team and switches to the perso
   expect(html).toContain("cmux is the team selected in the team menu.");
   expect(html).toContain('data-role="default" data-action="switch-team">Switch to Personal</button>');
   // The plans stay beside the switch, which leads: no Subscribe is filled.
-  expect(html).toContain('data-action="subscribe" data-plan="pro"');
+  expect(html).toContain('data-action="subscribe" data-plan="next_pro"');
   expect(html).not.toMatch(/data-action="subscribe"[^>]*data-role="default"/);
   expect(html).not.toContain("acpmux-cloud-start__retry");
   expect(html).not.toContain("acpmux-cloud-start__card");
@@ -227,7 +240,7 @@ test("a plan refusal in a team says so, names the team and switches to the perso
     <CloudStartView start={{ ...refusal, planTeam: { team: "cmux" } }} onSwitchTeam={() => undefined} />,
   );
   expect(plans).not.toContain("switch-team");
-  expect(plans).toMatch(/data-action="subscribe" data-plan="pro"[^>]*data-role="default"/);
+  expect(plans).toMatch(/data-action="subscribe" data-plan="next_plus"[^>]*data-role="default"/);
   // The click hands the team to the pane, which switches and sends again.
   const host = installDom();
   const picked: string[] = [];

@@ -3,14 +3,18 @@
 # that app with its own data, socket, daemon, settings and web overlay, never touching the original's.
 # try-pr.sh opens pull requests in one by default (docs/cmux-next/hot-reload.md, "Try a pull request").
 #
-#   side-instance.sh make NAME [--from APP] [--label TEXT] [--live-code] [--neutral-shell]
-#                                   copy APP (default /Applications/cmux NEXT.app) as NAME; remade
+#   side-instance.sh make NAME [--from APP] [--label TEXT] [--live-code] [--neutral-shell] [--swap BUILD]
+#                                   copy APP (default /Applications/cmux NEXT.app, refused when built
+#                                   over 7 days ago; --from takes any build) as NAME; remade
 #                                   from another app, it clears the state of the identity it replaces.
 #                                   --live-code: a live code build's copy watches live-code/ for
 #                                   Swift patches (docs/cmux-next/live-code.md)
 #                                   --neutral-shell: its terminals show a `$ ` prompt, never the
 #                                   account's `user@host` (hot-verify.py's looks, whose shots and
 #                                   video a privacy check reads)
+#                                   --swap BUILD: the copy runs BUILD's executable and resource bundles
+#                                   (swap-binary.sh build REF BUILD: a commit's Swift built as the
+#                                   nightly builds it), sealed like any copy, so it launches cold
 #   side-instance.sh launch NAME [--front] [-- ARGS...]
 #                                   open it (behind the front app unless --front); records its pid
 #   side-instance.sh stop NAME      quit it: the pid launch recorded, then what still runs from the copy
@@ -62,6 +66,8 @@ done
 mkdir -p "$root"; root="$(cd "$root" && pwd -P)"
 # SIDE_INSTANCE_PLISTBUDDY: a stand-in for tests (tests/test_side_instance_remake_clears_old_identity.py).
 buddy="${SIDE_INSTANCE_PLISTBUDDY:-/usr/libexec/PlistBuddy}"
+# shellcheck source=lib/adhoc-seal.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/adhoc-seal.sh"
 
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
 [[ "$cmd" == -h || "$cmd" == --help ]] && usage
@@ -111,17 +117,28 @@ clear_state() {
 
 case "$cmd" in
   make)
-    from="/Applications/cmux NEXT.app" label="cmux $name" live="" neutral=""
+    # SIDE_INSTANCE_DEFAULT_APP: a stand-in for tests (tests/test_side_instance_stale_default.py).
+    from="${SIDE_INSTANCE_DEFAULT_APP:-/Applications/cmux NEXT.app}" label="cmux $name" live="" neutral="" swap=""
+    chosen=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        --from) [[ $# -ge 2 ]] || usage 1; from="${2%/}"; shift 2 ;;
+        --from) [[ $# -ge 2 ]] || usage 1; from="${2%/}"; chosen=1; shift 2 ;;
         --label) [[ $# -ge 2 ]] || usage 1; label="$2"; shift 2 ;;
         --live-code) live=1; shift ;;
         --neutral-shell) neutral=1; shift ;;
+        --swap) [[ $# -ge 2 ]] || usage 1; swap="$2"; shift 2 ;;
         *) usage 1 ;;
       esac
     done
     [[ -f "$from/Contents/Info.plist" ]] || die "no app at $from"
+    # The default app is whatever someone once installed: a fleet Mac's /Applications/cmux NEXT.app was a Safari
+    # download of a 2026-10-28 build that nothing updates, and each copy of it read inside ~/Downloads at launch
+    # (before the LAUNCH-NO-TCC-PROMPTS fixes of 2026-10-30, #28820), so every new side instance put macOS's
+    # Downloads prompt on an unattended screen (cmux20, 2026-11-18). Named with --from, any build is copied (an
+    # older one is how a before look is taken).
+    if [[ -z "$chosen" && -n "$(find "$from/Contents/Info.plist" -mtime +7 2>/dev/null)" ]]; then
+      die "$from was built over 7 days ago, and a copy runs that old code; install a current build there, or name the app with --from (/Applications/cmux NIGHTLY.app, or an older one on purpose)"
+    fi
     [[ "$label" =~ ^[A-Za-z0-9\ \#._-]+$ ]] || die "the label takes letters, digits, spaces and # . _ -"
     old_bundle="" old_key=""
     if [[ -f "$marker" ]]; then
@@ -209,21 +226,15 @@ PY
         "PROMPT='\$ '" "PS1='\$ '" "RPROMPT=''" "RPS1=''" >"$dir/shell-home/.zshrc"
       plist_set "$plist" LSEnvironment:CMUX_CAPTURE_SHELL_HOME "$dir/shell-home"
     fi
-    # The seal covers Info.plist: re-sign the outer bundle ad hoc (nested code keeps its own
-    # signatures), and check it. An ad hoc signature may carry only unrestricted entitlements: one
-    # that needs the team's provisioning profile (the Keychain group, application-identifier, any
-    # com.apple.developer key) gets the copy killed at launch, so those go, with the profile. The
-    # copy then has no Keychain items of the original's group: it starts signed out.
-    xattr -cr "$app" 2>/dev/null || true
-    rm -f "$app/Contents/embedded.provisionprofile"
+    # --swap: another build's executable and resource bundles in place of the copy's (swap-binary.sh place), before
+    # the seal, which covers them too.
+    if [[ -n "$swap" ]]; then
+      "$(dirname "${BASH_SOURCE[0]}")/swap-binary.sh" place "$app" "$swap" || die "the swap into $name failed"
+    fi
+    # The seal covers Info.plist (and a swapped binary): re-signed ad hoc, as every copy that has to launch is
+    # (lib/adhoc-seal.sh), with the original's unrestricted entitlements only: the copy starts signed out.
     entitlements="$dir/entitlements.plist"
-    codesign -d --entitlements :- "$from" 2>/dev/null | python3 -c '
-import plistlib, sys
-data = sys.stdin.buffer.read()
-kept = {k: v for k, v in (plistlib.loads(data) if data.strip() else {}).items() if k.startswith("com.apple.security.")}
-sys.stdout.buffer.write(plistlib.dumps(kept))' >"$entitlements"
-    codesign --force --sign - --timestamp=none --entitlements "$entitlements" "$app" 2>&1 | grep -v 'replacing existing signature' >&2 || true
-    codesign --verify --strict "$app" || die "the re-sealed copy does not verify"
+    cmux_adhoc_seal "$app" "$from" "$entitlements" || die "the re-sealed copy does not verify"
     # Launch Services learns the new bundle id now, so the first open finds it.
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app" 2>/dev/null || true
     version="$("$buddy" -c "Print :CFBundleVersion" "$from/Contents/Info.plist" 2>/dev/null || true)"

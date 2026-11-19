@@ -104,6 +104,11 @@ export const github: ProviderImpl = {
   authorizeUrl: (env, state) => `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new?state=${encodeURIComponent(state)}`,
   complete: async (env, http, p) => {
     const installation = Number(p.installation_id)
+    // An organization member's install is a request until an owner approves it: GitHub comes back with
+    // `setup_action=request` and no installation yet. Nothing to link; say what happens next.
+    if (p.setup_action === "request" && !Number.isSafeInteger(installation)) {
+      throw new ProviderError("integration.state_invalid", "GitHub sent your request to install the cmux GitHub App to the organization's owners. When an owner approves it, choose Connect GitHub in cmux again")
+    }
     if (!p.code || !Number.isSafeInteger(installation)) {
       throw new ProviderError("integration.state_invalid", "GitHub returned no installation_id or code (enable 'Request user authorization during installation')")
     }

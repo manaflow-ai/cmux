@@ -11,6 +11,8 @@ enum Strings {
     /// "More": the tab group editor's overflow row.
     static var paneMore: String { String(localized: "paneToolbar.more", defaultValue: "More", bundle: .module) }
     static var axClose: String { String(localized: "tabs.ax.close", defaultValue: "Close Tab", bundle: .module) }
+    /// A Cloud chat's machine badge (drawn as a cloud): what VoiceOver says it runs on.
+    static var cloudMachineBadge: String { String(localized: "tabs.machineBadge.cloud", defaultValue: "Cloud", bundle: .module) }
     static func axOnMachine(_ name: String) -> String {
         String(localized: "tabs.ax.onMachine", defaultValue: "on \(name)", bundle: .module)
     }

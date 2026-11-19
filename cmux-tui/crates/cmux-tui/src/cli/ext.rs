@@ -61,6 +61,7 @@ cmux ext: make a cmux extension and watch it change as you work.
                                K: sidebar (default, a sidebar section), session-info (a section
                                in an agent chat's Session Info), pane (a view in a tab),
                                newtab (a whole New Tab page, picked in tabs.newTabApp),
+                               widget (a New Tab and sidebar widget, small/medium/large),
                                command (a palette command, `cmux NAME ...` and an agent tool);
                                --repo OWNER/REPO (else the folder's github.com origin) makes the
                                id OWNER/NAME, sets repository and fills the README's badge
@@ -179,11 +180,6 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 return Err(usage(&format!(
                     "{name}: a name is lowercase letters, digits and '-', starting with a letter or digit (not \"customize\")"
                 )));
-            }
-            if kind == "widget" {
-                return Err(usage(
-                    "--kind widget needs the new tab page's widget interface, which this cmux does not have yet; --kind section works",
-                ));
             }
             if let Some(problem) = scaffold::pending(&kind) {
                 return Err(usage(&problem));

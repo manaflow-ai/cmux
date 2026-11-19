@@ -5,8 +5,9 @@ import { approvedSession, hubEnv, setup, waitFor } from "./helpers";
 describe("audit", () => {
   it("records every event kind, newest first, with paging", async () => {
     const { host, viewer } = await setup();
-    // requested + denied
-    const r = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
+    // requested + denied (a stored ask: an own device is admitted at once otherwise)
+    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "ask" });
+    const r =await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
     await host.call("POST", `/v1/sessions/${r.json.session.id}/decision`, { decision: "deny" });
     // permission_changed, approved, started, ended
     const s = await approvedSession(host, viewer);

@@ -9,6 +9,7 @@ scripts/bench/cmux-bench launch                                 # newest NIGHTLY
 scripts/bench/cmux-bench launch --build 3a731ce7c22... --json   # a commit
 scripts/bench/cmux-bench footprint --host local-readonly        # read-only probes of a running app
 scripts/bench/cmux-bench bundle --host anywhere --compare-zip https://example.com/Other.zip
+scripts/bench/cmux-bench bundle --host anywhere --arg unpack=1     # newest NIGHTLY unpacked on Linux, by kind too
 scripts/bench/cmux-bench compare launch@nightly~1 launch@nightly
 scripts/bench/cmux-bench compare <run id> <run id> --markdown   # paste into a PR
 ```

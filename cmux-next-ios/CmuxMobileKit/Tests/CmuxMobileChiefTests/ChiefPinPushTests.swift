@@ -38,8 +38,8 @@ import UIKit
     }
 
     @Test func tappingOneOfTwoChiefPinsPushesOnlyThatChief() throws {
-        let mac = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
-        let cloud = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        let mac = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
+        let cloud = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
         let sources = ChiefSources(mac: mac, cloud: cloud, selection: UserDefaults(suiteName: "chief-pins-\(UUID())")!)
         // Cloud Chief ready and a Mac linked: Home pins both.
         sources.cloudState = .ready(CloudChief(id: "c1", displayName: "Chief", isDefault: true, mainConversation: "conv", rev: 1))
