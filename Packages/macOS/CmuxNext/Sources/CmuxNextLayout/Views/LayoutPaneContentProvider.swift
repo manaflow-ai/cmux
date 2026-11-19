@@ -215,7 +215,10 @@ final class LayoutViewContext {
             if entry.until == .landing { provider?.retainContentView(entry.host.content, for: pane, retired: false) }
             return entry.host
         }
+        // A probe's time of the make of a pane's content while `debug.motion` records (with views made ahead or with none).
+        MotionTrace.begin("layout.content")
         let content = provider?.makeContentView(for: pane) ?? NSView()
+        MotionTrace.end("layout.content")
         // The provider handed the content made ahead: its host, parked in the window, takes the pane (no window walk now).
         if let spare = spareHost, spare.content === content {
             spareHost = nil
@@ -301,6 +304,9 @@ final class LayoutViewContext {
     /// shows: it follows that frame's commit (``releaseRetired(of:until:)``). Returns whether any hid.
     @discardableResult
     func hideRetiredShown(of screen: ScreenID) -> Bool {
+        // A probe's time of this loop while `debug.motion` records (one hide for each pane that the change took out).
+        MotionTrace.begin("layout.hide")
+        defer { MotionTrace.end("layout.hide") }
         var hid = false
         for (pane, entry) in retired where entry.screen == screen && entry.shown {
             entry.host.isLeaving = false
@@ -310,6 +316,21 @@ final class LayoutViewContext {
             hid = true
         }
         return hid
+    }
+
+    /// The presentation that shows an unzoom placed its panes: each host of `panes` that `screen` holds hidden shows
+    /// (the panes that the zoom covered come back). Returns whether any did.
+    func showReturning(_ panes: [PaneID], on screen: NSView) -> Bool {
+        // A probe's time of this loop while `debug.motion` records (one show for each pane that comes back).
+        MotionTrace.begin("layout.show")
+        defer { MotionTrace.end("layout.show") }
+        var shown = false
+        for pane in panes {
+            guard let host = hosts[pane], host.superview === screen, host.isHidden else { continue }
+            host.isHidden = false
+            shown = true
+        }
+        return shown
     }
 
     /// Whether `pane` left the layout in a close whose host has not gone yet: it waits for the close to show, or,
