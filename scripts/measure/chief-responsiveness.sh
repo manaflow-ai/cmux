@@ -139,7 +139,7 @@ for r in $(seq 1 "$rounds"); do
     status=1
   fi
 done
-python3 -I Native/OptChat/optchat-chief/measure/responsive.py report "${dirs[@]}" \
+python3 -I Native/OptChat/optchat-chief/measure/responsive.py report ${dirs[@]+"${dirs[@]}"} \
   --label "$(git rev-parse --short=12 HEAD) $harness $model $effort ${host_env[*]+"${host_env[*]}"}" \
   --json "$work/report.json" || status=1
 exit "$status"
