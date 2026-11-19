@@ -3,6 +3,7 @@
 //! which of them answer from here. Both verbs read the file in process, so
 //! they work with cmux quit.
 
+use std::io::Write;
 use std::time::{Duration, Instant};
 
 use cmux_config::hosts::{self, HostDecl};
@@ -125,14 +126,17 @@ fn run(output: OutputMode, rest: &[String]) -> i32 {
             let started = Instant::now();
             let results = hosts_check::check_all(&chosen, timeout, &hosts_check::ssh_probe());
             let wall_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-            if json {
-                let timeout_ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX);
-                println!(
-                    "{}",
-                    json!({ "hosts": results, "timeoutMs": timeout_ms, "wallMs": wall_ms })
-                );
-            } else if output != OutputMode::Quiet {
-                print_check(&results);
+            if let Err(error) = write_check(
+                &results,
+                &problems,
+                timeout,
+                wall_ms,
+                output,
+                &mut std::io::stdout().lock(),
+                &mut std::io::stderr().lock(),
+            ) {
+                eprintln!("cmux hosts: {error}");
+                return 1;
             }
             0
         }
@@ -175,17 +179,47 @@ fn print_list(declared: &[HostDecl], problems: &[String], output: OutputMode) {
     }
 }
 
-fn print_check(results: &[hosts_check::HostResult]) {
+/// Check diagnostics follow list diagnostics: embedded in JSON, stderr in text
+/// and quiet modes. Invalid declarations must not disappear from an empty check.
+fn write_check(
+    results: &[hosts_check::HostResult],
+    problems: &[String],
+    timeout: Duration,
+    wall_ms: u64,
+    output: OutputMode,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) -> std::io::Result<()> {
+    if matches!(output, OutputMode::Json | OutputMode::JsonLines) {
+        let timeout_ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX);
+        return writeln!(
+            stdout,
+            "{}",
+            json!({
+                "hosts": results, "problems": problems, "timeoutMs": timeout_ms, "wallMs": wall_ms
+            })
+        );
+    }
+    for problem in problems {
+        writeln!(stderr, "{problem}")?;
+    }
+    if output == OutputMode::Quiet {
+        return Ok(());
+    }
     if results.is_empty() {
-        println!(
+        return writeln!(
+            stdout,
             "No hosts to check. Add one under machines.hosts in cmux-next.json (cmux hosts help)."
         );
-        return;
     }
     let label_width = results.iter().map(|r| r.label.chars().count()).max().unwrap_or(5).max(5);
     let endpoint_width =
         results.iter().map(|r| r.endpoint.chars().count()).max().unwrap_or(8).max(8);
-    println!("{:label_width$}  {:11}  {:endpoint_width$}  DETAIL", "LABEL", "STATUS", "ENDPOINT");
+    writeln!(
+        stdout,
+        "{:label_width$}  {:11}  {:endpoint_width$}  DETAIL",
+        "LABEL", "STATUS", "ENDPOINT"
+    )?;
     for r in results {
         let status = match r.status {
             Status::Reachable => "reachable",
@@ -193,11 +227,13 @@ fn print_check(results: &[hosts_check::HostResult]) {
             Status::Unchecked => "unchecked",
             Status::Unreachable => "unreachable",
         };
-        println!(
+        writeln!(
+            stdout,
             "{:label_width$}  {status:11}  {:endpoint_width$}  {}",
             r.label, r.endpoint, r.detail
-        );
+        )?;
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -226,5 +262,69 @@ mod tests {
         assert!(parse(&words("check --timeout 99")).is_err());
         assert!(parse(&words("check --bogus")).is_err());
         assert!(parse(&words("frobnicate")).is_err());
+    }
+
+    #[test]
+    fn check_reports_invalid_declarations_even_when_none_can_be_probed() {
+        for configuration in [json!([{"label": "broken", "endpoints": []}]), json!("not a list")] {
+            let (declared, problems) = hosts::parse(&configuration);
+            assert!(declared.is_empty());
+            assert!(!problems.is_empty());
+            for output in
+                [OutputMode::Json, OutputMode::JsonLines, OutputMode::Human, OutputMode::Quiet]
+            {
+                let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+                write_check(&[], &problems, DEFAULT_TIMEOUT, 0, output, &mut stdout, &mut stderr)
+                    .expect("write check");
+                if matches!(output, OutputMode::Json | OutputMode::JsonLines) {
+                    let value: serde_json::Value = serde_json::from_slice(&stdout).expect("json");
+                    assert_eq!(value["hosts"], json!([]));
+                    assert_eq!(value["problems"], json!(problems));
+                    assert_eq!(value["timeoutMs"], 3000);
+                    assert!(stderr.is_empty());
+                } else {
+                    assert_eq!(
+                        String::from_utf8(stderr).expect("utf8"),
+                        problems.join("\n") + "\n"
+                    );
+                    if output == OutputMode::Quiet {
+                        assert!(stdout.is_empty());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn check_keeps_valid_results_alongside_invalid_declaration_diagnostics() {
+        let (declared, problems) = hosts::parse(&json!([
+            {"label": "studio", "endpoint": "studio"},
+            {"label": "broken", "endpoints": []}
+        ]));
+        let probe: hosts_check::Probe =
+            std::sync::Arc::new(|endpoint, _, _| hosts_check::EndpointResult {
+                endpoint: endpoint.into(),
+                status: Status::Reachable,
+                detail: "SSH-2.0-example".into(),
+                ms: Some(0),
+            });
+        let results = hosts_check::check_all(&declared, DEFAULT_TIMEOUT, &probe);
+        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+        write_check(
+            &results,
+            &problems,
+            DEFAULT_TIMEOUT,
+            1,
+            OutputMode::Json,
+            &mut stdout,
+            &mut stderr,
+        )
+        .expect("write check");
+        let value: serde_json::Value = serde_json::from_slice(&stdout).expect("json");
+        assert_eq!(value["hosts"][0]["label"], "studio");
+        assert_eq!(value["hosts"][0]["status"], "reachable");
+        assert_eq!(value["problems"], json!(problems));
+        assert_eq!(value["wallMs"], 1);
+        assert!(stderr.is_empty());
     }
 }

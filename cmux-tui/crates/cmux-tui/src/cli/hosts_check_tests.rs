@@ -1,4 +1,4 @@
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -16,12 +16,12 @@ fn host(label: &str, endpoints: &[&str]) -> HostDecl {
     }
 }
 
-/// A local server that writes `greeting` to each connection, on its own thread.
+/// One local connection, then the fixture thread and listener end.
 fn server(greeting: &'static [u8]) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
     let port = listener.local_addr().expect("addr").port();
     std::thread::spawn(move || {
-        for mut stream in listener.incoming().flatten() {
+        if let Ok((mut stream, _)) = listener.accept() {
             let _ = stream.write_all(greeting);
         }
     });
@@ -114,4 +114,80 @@ fn the_pass_ends_at_its_timeout_whatever_the_host_count() {
     let out = check_all(&hosts, Duration::from_millis(300), &probe);
     assert!(started.elapsed() < Duration::from_secs(2), "took {:?}", started.elapsed());
     assert!(out.iter().all(|h| h.status == Status::Unreachable));
+}
+
+#[test]
+fn ssh_identification_after_information_is_reachable_across_read_boundaries() {
+    let bytes = b"Welcome to the host\r\nAuthorized users only\r\nSSH-2.0-example comment\r\n";
+    for size in [1, 3, 17, 256] {
+        let mut input = std::io::Cursor::new(bytes);
+        let answer = read_greeting(|buffer| {
+            let limit = size.min(buffer.len());
+            input.read(&mut buffer[..limit])
+        });
+        assert_eq!(answer, Ok("SSH-2.0-example comment".into()));
+    }
+    let start = Instant::now();
+    let answer =
+        probe_dial("pre-banner", &local(server(bytes)), start, start + Duration::from_secs(5));
+    assert_eq!(answer.status, Status::Reachable);
+}
+
+#[test]
+fn incomplete_or_malformed_ssh_identifications_are_not_reachable() {
+    for bytes in [
+        b"SSH-".as_slice(),
+        b"SSH-\r\n",
+        b"SSH-2.0-\r\n",
+        b"SSH-2.0-example",
+        b"SSH-2.0- example\r\n",
+        b"SSH-two-example\r\n",
+        b"SSH-2.0-ex\0ample\r\n",
+    ] {
+        let mut input = std::io::Cursor::new(bytes);
+        assert_eq!(read_greeting(|buffer| input.read(buffer)), Err(GreetingError::Invalid));
+    }
+    let mut input = std::io::Cursor::new(format!("SSH-2.0-{}\r\n", "x".repeat(246)));
+    assert_eq!(read_greeting(|buffer| input.read(buffer)), Err(GreetingError::Invalid));
+}
+
+#[test]
+fn ssh_pre_identification_bytes_are_bounded() {
+    let mut bytes = vec![b'x'; MAX_GREETING_BYTES - 1];
+    bytes.push(b'\n');
+    bytes.extend_from_slice(b"SSH-2.0-example\r\n");
+    let mut input = std::io::Cursor::new(bytes);
+    assert_eq!(read_greeting(|buffer| input.read(buffer)), Err(GreetingError::Invalid));
+    assert_eq!(input.position(), MAX_GREETING_BYTES as u64);
+
+    let identification = b"SSH-2.0-example\r\n";
+    let mut bytes = vec![b'x'; MAX_GREETING_BYTES - identification.len() - 1];
+    bytes.push(b'\n');
+    bytes.extend_from_slice(identification);
+    let mut input = std::io::Cursor::new(bytes);
+    assert_eq!(read_greeting(|buffer| input.read(buffer)), Ok("SSH-2.0-example".into()));
+}
+
+#[test]
+fn silent_read_timeout_matches_the_collectors_pending_result() {
+    for kind in [std::io::ErrorKind::TimedOut, std::io::ErrorKind::WouldBlock] {
+        assert_eq!(read_greeting(|_| Err(kind.into())), Err(GreetingError::Timeout));
+    }
+    // Keep the accepted socket open in this thread: no fixture sleep or racing EOF.
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let client = TcpStream::connect(addr).expect("connect");
+    let (_silent, _) = listener.accept().expect("accept");
+    let start = Instant::now();
+    let answer = first_line("silent", client, addr, start, start + Duration::from_millis(20));
+    assert_eq!(answer, result("silent", Status::Unreachable, "no answer by the timeout", None));
+    let (release, wait) = std::sync::mpsc::channel::<()>();
+    let wait = std::sync::Mutex::new(wait);
+    let probe: Probe = Arc::new(move |endpoint, _, _| {
+        let _ = wait.lock().expect("wait lock").recv();
+        result(endpoint, Status::Unreachable, "no answer by the timeout", None)
+    });
+    let pending = check_all(&[host("silent", &["silent"])], Duration::ZERO, &probe);
+    drop(release); // Release any worker after observing the collector's default.
+    assert_eq!(pending[0].endpoints[0], answer);
 }

@@ -1,10 +1,10 @@
 //! `cmux hosts check`: which declared hosts answer from here (CMUX-673).
-//! Every endpoint of every host is tried at once, each on
-//! its own thread, and the pass ends at its timeout whatever is still
-//! pending, so its wall time stays the timeout or less at any host count.
+//! Up to MAX_PROBES endpoints are tried concurrently. The collector stops
+//! waiting at its deadline; parsing, allocation and output still scale with
+//! the declarations, and blocking config/DNS work may outlive collection.
 //!
 //! One endpoint: `ssh -G` says where ssh dials it (config only, no network),
-//! then a TCP connect and a read of the server's first line. `SSH-…` is
+//! then a TCP connect and a bounded read of the server's identification. A complete SSH identification is
 //! [`Status::Reachable`]; a port that answers with something else is
 //! [`Status::Down`] (a machine, but no ssh server); no answer is
 //! [`Status::Unreachable`]. An endpoint ssh reaches through a ProxyJump or
@@ -74,7 +74,7 @@ pub(super) struct HostResult {
 /// A probe of one endpoint that answers by the deadline it is given (tests pass their own).
 pub(super) type Probe = Arc<dyn Fn(&str, Instant, Instant) -> EndpointResult + Send + Sync>;
 
-/// The real probe: `ssh -G`, DNS, a TCP connect, the server's first line.
+/// The real probe: `ssh -G`, DNS, a TCP connect, the server's identification.
 pub(super) fn ssh_probe() -> Probe {
     Arc::new(|endpoint: &str, start: Instant, deadline: Instant| {
         let Some(target) = ssh_endpoint(endpoint) else {
@@ -112,7 +112,7 @@ fn dial(target: &SshEndpoint) -> Dial {
     }
 }
 
-/// A TCP connect to where ssh dials, then the first line, all by `deadline`.
+/// A TCP connect to where ssh dials, then its identification, all by `deadline`.
 pub(super) fn probe_dial(
     endpoint: &str,
     dial: &Dial,
@@ -153,7 +153,75 @@ pub(super) fn probe_dial(
     result(endpoint, Status::Unreachable, &last, None)
 }
 
-/// The server's first line: an ssh banner is reachable, anything else down.
+/// Bound the complete pre-identification exchange, including informational lines.
+const MAX_GREETING_BYTES: usize = 8192;
+
+#[derive(Debug, PartialEq, Eq)]
+enum GreetingError {
+    Timeout,
+    Invalid,
+}
+
+/// RFC 4253 permits informational lines before the SSH identification. Only a
+/// complete identification line counts; a prefix or an unterminated line does not.
+fn read_greeting(
+    mut read: impl FnMut(&mut [u8]) -> std::io::Result<usize>,
+) -> Result<String, GreetingError> {
+    let mut line = Vec::new();
+    let mut chunk = [0u8; 256];
+    let mut total = 0;
+    while total < MAX_GREETING_BYTES {
+        let limit = chunk.len().min(MAX_GREETING_BYTES - total);
+        let count = match read(&mut chunk[..limit]) {
+            Ok(0) => return Err(GreetingError::Invalid),
+            Ok(count) => count,
+            Err(error) => match error.kind() {
+                std::io::ErrorKind::Interrupted => continue,
+                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => {
+                    return Err(GreetingError::Timeout);
+                }
+                _ => return Err(GreetingError::Invalid),
+            },
+        };
+        total += count;
+        for byte in &chunk[..count] {
+            line.push(*byte);
+            if *byte != b'\n' {
+                continue;
+            }
+            if line.starts_with(b"SSH-") {
+                return identification(&line).map(str::to_owned).ok_or(GreetingError::Invalid);
+            }
+            line.clear();
+        }
+    }
+    Err(GreetingError::Invalid)
+}
+
+fn identification(line: &[u8]) -> Option<&str> {
+    // RFC 4253's 255-byte identification limit includes CRLF. Accept LF too.
+    if line.len() > 255 {
+        return None;
+    }
+    let text = std::str::from_utf8(line).ok()?.strip_suffix('\n')?;
+    let text = text.strip_suffix('\r').unwrap_or(text);
+    if !text.bytes().all(|byte| (b' '..=b'~').contains(&byte)) {
+        return None;
+    }
+    let (version, software) = text.strip_prefix("SSH-")?.split_once('-')?;
+    let (major, minor) = version.split_once('.')?;
+    if major.is_empty()
+        || minor.is_empty()
+        || !major.bytes().chain(minor.bytes()).all(|byte| byte.is_ascii_digit())
+        || software.split(' ').next()?.is_empty()
+    {
+        return None;
+    }
+    Some(text)
+}
+
+/// A bounded SSH identification read. A read timeout has exactly the collector's
+/// pending result, so a silent peer cannot race between `down` and `unreachable`.
 fn first_line(
     endpoint: &str,
     mut stream: TcpStream,
@@ -161,39 +229,31 @@ fn first_line(
     start: Instant,
     deadline: Instant,
 ) -> EndpointResult {
-    let mut line = Vec::new();
-    let mut chunk = [0u8; 256];
-    loop {
+    let greeting = read_greeting(|buffer| {
         let left = deadline.saturating_duration_since(Instant::now());
-        if left.is_zero() || stream.set_read_timeout(Some(left)).is_err() {
-            break;
+        if left.is_zero() {
+            return Err(std::io::ErrorKind::TimedOut.into());
         }
-        match stream.read(&mut chunk) {
-            Ok(0) | Err(_) => break,
-            Ok(read) => {
-                line.extend_from_slice(&chunk[..read]);
-                if line.contains(&b'\n') || line.len() >= 255 {
-                    break;
-                }
-            }
-        }
+        stream.set_read_timeout(Some(left))?;
+        stream.read(buffer)
+    });
+    if greeting == Err(GreetingError::Timeout) {
+        return result(endpoint, Status::Unreachable, "no answer by the timeout", None);
     }
     let ms = Some(u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX));
-    let text = String::from_utf8_lossy(&line);
-    let text = text.lines().next().unwrap_or("").trim();
-    if text.starts_with("SSH-") {
-        return result(endpoint, Status::Reachable, text, ms);
+    match greeting {
+        Ok(text) => result(endpoint, Status::Reachable, &text, ms),
+        Err(_) => result(
+            endpoint,
+            Status::Down,
+            &format!("{addr} answered without a valid ssh identification"),
+            ms,
+        ),
     }
-    let detail = if text.is_empty() {
-        format!("{addr} accepted the connection but sent no ssh greeting")
-    } else {
-        format!("{addr} answered, but not as an ssh server")
-    };
-    result(endpoint, Status::Down, &detail, ms)
 }
 
-/// Every endpoint of every host at once; the answer, in host order, is ready
-/// by `timeout` whatever the count.
+/// Collect concurrent endpoint probes until the deadline, keeping host order.
+/// The probe cap bounds concurrency; this does not bound configuration or output cost.
 pub(super) fn check_all(hosts: &[HostDecl], timeout: Duration, probe: &Probe) -> Vec<HostResult> {
     let start = Instant::now();
     let deadline = start + timeout;
