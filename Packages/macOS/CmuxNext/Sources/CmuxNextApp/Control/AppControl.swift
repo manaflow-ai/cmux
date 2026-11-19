@@ -430,10 +430,8 @@ final class AppControl {
             DebugWindowSnapshot.controlMethod(services: services),
             .async("debug.glass_parity") { @MainActor [weak services, glassParity = GlassParityPlayground()] call in
                 guard let services else { return .null }
-                return await glassParity.handle(call.params) { window, png in
-                    await DebugWindowSnapshot.captureAsync(["window": .string(String(window.windowNumber)), "path": .string(png.path)],
-                                                           services: services)
-                }
+                // Native and web glass side by side over one backdrop, diffed (CmuxNextPages GlassParity).
+                return await glassParity.handle(call.params) { await DebugWindowSnapshot.captureAsync($0, services: services) }
             }.withDeadline(.fixed(.seconds(60))),
             .mainActor("debug.window.focus") { [weak services] call in
                 guard let services else { return .value(.null) }
