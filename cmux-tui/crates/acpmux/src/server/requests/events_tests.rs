@@ -494,8 +494,8 @@ fn prompt_page(before: u64, limit: u64, max_bytes: u64) -> Value {
 /// segments it holds prompts from, not the log's.
 #[test]
 fn the_prompt_index_answers_bounded_pages_newest_first() {
-    let (root, hub) = prompted_chat(600);
-    let last = 1200u64;
+    let (root, hub) = prompted_chat(2000);
+    let last = 4000u64;
     // Pages back from the end hold every prompt once, in order.
     let mut before = last + 1;
     let mut seen = Vec::new();
@@ -514,8 +514,8 @@ fn the_prompt_index_answers_bounded_pages_newest_first() {
         }
         before = got[0];
     }
-    assert_eq!(pages, 12);
-    assert_eq!(seen, (0..600).map(|n| n * 2 + 1).collect::<Vec<u64>>());
+    assert_eq!(pages, 40);
+    assert_eq!(seen, (0..2000).map(|n| n * 2 + 1).collect::<Vec<u64>>());
     // `maxBytes` bounds a page too, and a page always holds one prompt.
     let page = handle(&hub, method::MUX_EVENTS, &prompt_page(last + 1, 5000, 1), None).unwrap();
     assert_eq!(seqs(&page), [last - 1]);
