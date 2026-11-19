@@ -349,10 +349,24 @@ mac_install() {
     fi
     echo "==> replacing this tool's install of $SLUG at ${recorded_sha:0:12} with $SHA"
     mac_quit_installed || { REPORT_MAC="BLOCKED: the tag's earlier build (${recorded_sha:0:12}) did not quit"; return 1; }
-    rm -rf "$MAC_APP"
   fi
+  # The new app is copied beside the old one and swapped in by renames. macOS App Management may refuse
+  # every change inside an installed app's bundle ("Operation not permitted") while the bundle itself
+  # can still be renamed: emptying it in place left half an app with no Info.plist, recorded as
+  # installed (2026-11-18). The old bundle goes to the tag's state folder (same volume), then is removed
+  # as far as macOS lets it; what stays there never runs.
+  local staged="$MAC_APP.installing" aside="$TAG_STATE/replaced/${recorded_sha:-none}-$$.app"
   mkdir -p "$(dirname "$MAC_APP")"
-  ditto "$built" "$MAC_APP"
+  rm -rf "$staged" 2>/dev/null || true
+  ditto "$built" "$staged" ||
+    { rm -rf "$staged" 2>/dev/null; REPORT_MAC="BLOCKED: the Mac app of job $MAC_JOB did not copy into place (ditto failed)"; return 1; }
+  if [[ -d "$MAC_APP" ]]; then
+    mkdir -p "$(dirname "$aside")"
+    mv "$MAC_APP" "$aside" ||
+      { rm -rf "$staged" 2>/dev/null; REPORT_MAC="BLOCKED: the tag's earlier app could not be moved aside"; return 1; }
+    rm -rf "$aside" 2>/dev/null || true
+  fi
+  mv "$staged" "$MAC_APP" || { REPORT_MAC="BLOCKED: the new Mac app could not be moved into place"; return 1; }
   printf '%s %s\n' "$SHA" "$MAC_JOB" >"$record"
   MAC_SOCKET="$(mac_py socket "$MAC_APP")" || MAC_SOCKET="$(cmux_attach_socket_path "$SLUG")"
 }

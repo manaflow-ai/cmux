@@ -894,7 +894,7 @@ class MacInstallTests(unittest.TestCase):
     """The tag's Mac app: reused for the same head, replaced for this tool's earlier head, never
     touched when this tool did not install it."""
 
-    def install(self, record, app_exists=True):
+    def install(self, record, app_exists=True, sealed=False):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             home = root / 'home'
@@ -902,6 +902,10 @@ class MacInstallTests(unittest.TestCase):
             if app_exists:
                 (app / 'Contents').mkdir(parents=True)
                 (app / 'Contents/old').write_text('old')
+                if sealed:
+                    # macOS App Management: nothing inside another app's bundle may be changed or removed,
+                    # while the bundle itself can still be renamed (seen 2026-11-18 replacing the tag's app).
+                    (app / 'Contents').chmod(0o555)
             state = root / 'state' / SHA
             (state / f'mac/cmux DEV {TAG}.app/Contents').mkdir(parents=True)
             (state / f'mac/cmux DEV {TAG}.app/Contents/new').write_text('new')
@@ -914,12 +918,23 @@ safe_unzip() {{ :; }}
 mac_py() {{ case "$1" in socket) echo /tmp/s ;; *) return 0 ;; esac; }}
 mac_quit_installed() {{ echo QUIT_CALLED; }}
 if mac_install; then echo OK; else echo "BLOCKED $REPORT_MAC"; fi
-ls "$MAC_APP/Contents"; cat "{root / 'state/mac-installed'}" 2>/dev/null"""
+ls "$MAC_APP/Contents"; cat "{root / 'state/mac-installed'}" 2>/dev/null
+find "{root}" -type d -exec chmod u+w {{}} + 2>/dev/null"""
             return bash(script).stdout
 
     def test_this_tools_earlier_head_is_quit_and_replaced(self):
         out = self.install('b' * 40 + ' job1\n')
         self.assertIn('QUIT_CALLED', out)
+        self.assertIn('OK', out)
+        self.assertIn('new', out)
+        self.assertNotIn('old', out)
+        self.assertIn(f'{SHA} job2', out)
+
+    def test_an_app_whose_contents_may_not_change_is_still_replaced(self):
+        # The tag's earlier app could not be emptied in place (App Management: "Operation not permitted"),
+        # so `rm -rf` left half of it and `ditto` into it failed silently: an app with no Info.plist,
+        # recorded as installed. The new app goes in beside it and replaces it by renames.
+        out = self.install('b' * 40 + ' job1\n', sealed=True)
         self.assertIn('OK', out)
         self.assertIn('new', out)
         self.assertNotIn('old', out)
