@@ -165,8 +165,9 @@ fn a_changed_upper_file_is_never_served_stale_from_the_kept_cache() {
     };
     let root = at.path();
     let upper = overlay.upper_dir().to_path_buf();
-    // An upper file, read through the mount twice so its pages are kept.
+    // An upper file, read through the mount twice (kept once its change is a second old).
     std::fs::write(root.join("src/new.rs"), b"version one").unwrap();
+    std::thread::sleep(Duration::from_millis(1100));
     for _ in 0..2 {
         assert_eq!(std::fs::read(root.join("src/new.rs")).unwrap(), b"version one");
     }
@@ -289,4 +290,14 @@ fn creates_writes_and_deletes_keep_the_overlay_right() {
     let mut lines: Vec<&str> = text.lines().collect();
     lines.sort_unstable();
     assert_eq!(lines, ["a", "a/one.txt", "a/two.txt"]);
+}
+
+#[test]
+fn an_upper_file_changed_under_a_second_ago_is_never_kept() {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as i64;
+    let upper = |ctime_ns| Version::Upper { dev: 1, ino: 2, size: 3, mtime_ns: 4, ctime_ns };
+    assert!(racy(&upper(now)));
+    assert!(racy(&upper(now - 500_000_000)));
+    assert!(!racy(&upper(now - 2_000_000_000)));
+    assert!(!racy(&Version::Lower { entry: 1, size: 3, mtime_ns: now }));
 }

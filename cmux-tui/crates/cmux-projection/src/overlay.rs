@@ -198,10 +198,6 @@ fn read_range(file: &fs::File, offset: u64, len: usize) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
-fn is_errno(error: &std::io::Error, errno: i32) -> bool {
-    error.raw_os_error() == Some(errno)
-}
-
 impl Overlay {
     /// The overlay of `manifest` with its state in `state`, fetching bytes through `fetch`, every
     /// path owned by `owner` (uid, gid).
@@ -229,16 +225,25 @@ impl Overlay {
             fs::remove_dir_all(&scratch)?;
         }
         fs::create_dir_all(&scratch)?;
-        let whiteouts = fs::read_to_string(&whiteouts_file)
-            .map(|text| {
-                // Only whole lines: a crash inside an append leaves a last one without its `\n`.
-                text.split_inclusive('\n')
-                    .filter_map(|line| line.strip_suffix('\n'))
-                    .filter(|line| !line.is_empty())
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let text = fs::read_to_string(&whiteouts_file).unwrap_or_default();
+        // Only whole lines: a crash inside an append leaves a last one without its `\n`.
+        let whiteouts: BTreeSet<String> = text
+            .split_inclusive('\n')
+            .filter_map(|line| line.strip_suffix('\n'))
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned)
+            .collect();
+        if !text.is_empty() && !text.ends_with('\n') {
+            // Cut the torn tail off now, or the next append would glue a path onto it.
+            let mut whole = String::new();
+            for path in &whiteouts {
+                whole.push_str(path);
+                whole.push('\n');
+            }
+            let temp = scratch.join("whiteouts");
+            fs::write(&temp, whole)?;
+            fs::rename(&temp, &whiteouts_file)?;
+        }
         let next = manifest.len() as u64 + 2;
         Ok(Self {
             manifest,
@@ -904,8 +909,7 @@ impl Overlay {
                 }
                 self.set_whiteout(&child, true)
             }
-            // Linux answers EISDIR for a folder; some file systems EPERM.
-            Err(error) if is_errno(&error, EISDIR) || is_errno(&error, 1) => Err(EISDIR),
+            // EISDIR for a folder, EPERM and the rest as the disk said them.
             Err(error) => Err(io_errno(&error)),
         }
     }
@@ -1042,7 +1046,8 @@ impl Overlay {
         }
         let path = self.path_of(ino)?;
         let meta = file.metadata().map_err(|error| io_errno(&error))?;
-        Ok(self.attr(&path, &Node::Upper(meta)))
+        // The handle's own inode: the path may name another file by now (a save by rename).
+        Ok(Attr { ino, ..self.attr(&path, &Node::Upper(meta)) })
     }
 
     /// Nothing to do: upper files are plain files on the machine's disk.

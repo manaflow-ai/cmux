@@ -45,6 +45,17 @@ pub const LOWER_TTL: Duration = Duration::from_secs(3600);
 /// How long the kernel may keep an answer about an upper path (a missing path is never kept).
 pub const UPPER_TTL: Duration = Duration::from_secs(1);
 
+/// Whether `version` is an upper file whose last change is too recent to tell apart from the next.
+fn racy(version: &Version) -> bool {
+    let Version::Upper { ctime_ns, .. } = *version else { return false };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|since| i64::try_from(since.as_nanos()).ok())
+        .unwrap_or(i64::MAX);
+    now.saturating_sub(ctime_ns) < 1_000_000_000
+}
+
 fn ttl(attr: &Attr) -> Duration {
     if attr.upper { UPPER_TTL } else { LOWER_TTL }
 }
@@ -206,7 +217,10 @@ impl Fs {
             return 0;
         };
         match self.versions.insert(ino, now) {
-            Some(before) if before == now => FOPEN_KEEP_CACHE,
+            // An upper file changed under a second ago is never trusted equal (git's "racily
+            // clean"): on a disk with coarse timestamps a same-size rewrite in the same tick
+            // leaves size, mtime and ctime as they were.
+            Some(before) if before == now && !racy(&now) => FOPEN_KEEP_CACHE,
             Some(_) => {
                 if let Some(notifier) = self.notifier.get() {
                     // ENOENT: the kernel holds nothing of it, which is fine.

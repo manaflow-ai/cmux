@@ -248,6 +248,12 @@ fn whiteouts_are_appended_and_a_torn_last_line_is_ignored() {
     let overlay = open(state.path(), &manifest, &fake);
     assert_eq!(overlay.whiteouts(), ["src/b.rs"]);
     assert_eq!(names(&overlay, path_ino(&overlay, "src")), ["a.rs", "c.rs", "deep"]);
+    // The torn tail is cut at the open, so the next append starts on a line of its own.
+    overlay.unlink(path_ino(&overlay, "src"), "c.rs").unwrap();
+    assert_eq!(fs::read_to_string(&file).unwrap(), "src/b.rs\nsrc/c.rs\n");
+    drop(overlay);
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.whiteouts(), ["src/b.rs", "src/c.rs"]);
 }
 
 #[test]
