@@ -154,6 +154,9 @@ pub enum DomainKind {
     /// `agentPane.display.commandLabels`: a list of preset names and command
     /// label rules (Swift `CommandLabelsSetting.accepts`).
     CommandLabels,
+    /// `agentPane.display.thinking.glyph`: a `cmux.particles/1` document, checked by the one
+    /// validator (cmux-app-host `particles::validate`) that also checks scene `choreography` props.
+    ParticlesDocument,
     /// `tabs.newTabApp`: an id an app manifest may have
     /// (`app_id::is_valid_app_id`, the manifest schema's pattern; Swift `NewTabAppSetting.isValidID`).
     AppId,
@@ -415,6 +418,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),
         "domain:command_labels" => Validation::Domain(DomainKind::CommandLabels),
         "domain:app_id" => Validation::Domain(DomainKind::AppId),
+        "domain:particles_document" => Validation::Domain(DomainKind::ParticlesDocument),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };
     Ok(Row {

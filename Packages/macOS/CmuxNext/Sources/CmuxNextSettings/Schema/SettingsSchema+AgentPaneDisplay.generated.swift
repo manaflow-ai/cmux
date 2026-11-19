@@ -112,7 +112,14 @@ extension AgentPaneDisplaySettingsSchema {
     /// `agentPane.display.thinking.jumpButton`: What Jump to latest shows while the agent works: the arrow (today), or three small dots in the theme accent moving in turn; the arrow comes back on hover and when the agent stops.
     nonisolated static let thinkingJumpButtonPath = ["agentPane", "display", "thinking", "jumpButton"]
     nonisolated static let thinkingJumpButtonDefault = "arrow"
-    nonisolated static let thinkingJumpButtonValues = ["arrow", "dots"]
+    nonisolated static let thinkingJumpButtonValues = ["arrow", "dots", "glyph"]
+    /// `agentPane.display.thinking.glyph`: A look's thinking dots: a cmux.particles/1 document (cmux-app-host js/ABI.md "Particles choreography", checked by the one Rust validator, cmux-app-host particles.rs, through cmux-config's domain:particles_document). The chat plays it before the live status line and, with jumpButton glyph, in Jump to latest, each choosing the document's trigger from the agent's current activity kind; a sidebar row plays it for cmux.sidebar.rows/1 indicator "glyph". A look may keep it in a file of its folder: {"$file": "thinking-glyph.json"} (cmux-customize setup::inline_files). Unset draws nothing new.
+    nonisolated static let thinkingGlyphPath = ["agentPane", "display", "thinking", "glyph"]
+    /// `agentPane.display.thinking.glyphSize`: The dot size in points Jump to latest draws the thinking glyph at, over the document's particle.size (the button is smaller than the status line); 0 keeps the document's size. The status line and sidebar rows always use the document's size.
+    nonisolated static let thinkingGlyphSizePath = ["agentPane", "display", "thinking", "glyphSize"]
+    nonisolated static let thinkingGlyphSizeDefault: Double = 0
+    nonisolated static let thinkingGlyphSizeRange: ClosedRange<Double> = 0...16
+    nonisolated static let thinkingGlyphSizePlaceholder: Double = 0
     /// `agentPane.display.harnessPlacement`.
     nonisolated static let harnessPlacementPath = ["agentPane", "display", "harnessPlacement"]
     nonisolated static let harnessPlacementDefault = "symbols"

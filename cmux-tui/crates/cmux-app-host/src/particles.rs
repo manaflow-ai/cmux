@@ -481,25 +481,40 @@ pub fn validate(doc: &Value) -> Result<(), ChoreographyError> {
     Ok(())
 }
 
-/// Validates the `choreography` prop of every `create` and `update` op in a scene batch, in place:
-/// a refused document becomes `null` (the renderers then draw nothing). Returns one message per
-/// refusal, naming the node.
+/// Validates the `choreography` prop of every `create` and `update` op in a scene batch, in place,
+/// and a sidebar row's `indicator: {choreography, trigger}` (`cmux.sidebar.rows/1`): a refused
+/// document becomes `null` (the renderers then draw nothing). Returns one message per refusal,
+/// naming the node. A `choreography` that is a string (`"glyph"`, the look's thinking glyph setting,
+/// which the settings owner checks) is a reference, not a document.
 pub fn sanitize_scene_ops(ops: &mut Value) -> Vec<String> {
     let mut refused = Vec::new();
     let Some(list) = ops.as_array_mut() else { return refused };
     for op in list {
         let id = op.get("id").and_then(Value::as_str).unwrap_or("?").to_string();
         let Some(props) = op.get_mut("props").and_then(Value::as_object_mut) else { continue };
-        let Some(doc) = props.get_mut("choreography") else { continue };
-        if doc.is_null() {
-            continue;
+        if let Some(doc) = props.get_mut("choreography") {
+            sanitize_document(doc, &format!("Particles {id}: choreography"), &mut refused);
         }
-        if let Err(error) = validate(doc) {
-            refused.push(format!("Particles {id}: choreography refused: {error}"));
-            *doc = Value::Null;
+        if let Some(doc) = props
+            .get_mut("indicator")
+            .and_then(Value::as_object_mut)
+            .and_then(|indicator| indicator.get_mut("choreography"))
+            .filter(|doc| !doc.is_string())
+        {
+            sanitize_document(doc, &format!("row {id}: indicator.choreography"), &mut refused);
         }
     }
     refused
+}
+
+fn sanitize_document(doc: &mut Value, what: &str, refused: &mut Vec<String>) {
+    if doc.is_null() {
+        return;
+    }
+    if let Err(error) = validate(doc) {
+        refused.push(format!("{what} refused: {error}"));
+        *doc = Value::Null;
+    }
 }
 
 #[cfg(test)]
@@ -688,5 +703,29 @@ mod tests {
         assert_eq!(ops[0]["props"]["choreography"], sample());
         assert_eq!(ops[1]["props"]["choreography"], Value::Null);
         assert_eq!(ops[2]["props"]["choreography"], Value::Null);
+    }
+
+    /// A sidebar row's `indicator: {choreography, trigger}` (`cmux.sidebar.rows/1`) is checked like a
+    /// node's; `"glyph"` names the look's setting, which the settings owner checks.
+    #[test]
+    fn a_row_indicator_document_is_checked_and_a_reference_is_kept() {
+        let mut bad = sample();
+        bad["particle"]["max"] = json!(99);
+        let mut ops = json!([
+            {"op": "create", "id": "r1", "type": "Group", "props": {"row": "w1", "indicator": {"choreography": sample(), "trigger": "execute"}}},
+            {"op": "create", "id": "r2", "type": "Group", "props": {"row": "w2", "indicator": {"choreography": bad}}},
+            {"op": "create", "id": "r3", "type": "Group", "props": {"row": "w3", "indicator": {"choreography": "glyph", "trigger": "read"}}},
+            {"op": "create", "id": "r4", "type": "Group", "props": {"row": "w4", "indicator": "glyph"}},
+        ]);
+        let messages = sanitize_scene_ops(&mut ops);
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        assert!(
+            messages[0].starts_with("row r2: indicator.choreography refused: particle.max"),
+            "{messages:?}"
+        );
+        assert_eq!(ops[0]["props"]["indicator"]["choreography"], sample());
+        assert_eq!(ops[1]["props"]["indicator"]["choreography"], Value::Null);
+        assert_eq!(ops[2]["props"]["indicator"]["choreography"], json!("glyph"));
+        assert_eq!(ops[3]["props"]["indicator"], json!("glyph"));
     }
 }

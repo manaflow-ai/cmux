@@ -190,6 +190,18 @@ extension SettingsSchemaSamples {
                 .array([.object(["id": .string("a"), "name": .string("A"), "level": .string("1")])]),
             ]
         ),
+        "domain:particles_document": SampleSet(
+            accept: [
+                .object(["$schema": .string("cmux.particles/1"), "particle": .object(["size": .number(3), "max": .number(1)]), "phases": .object(["lone": .object(["duration": .number(400), "frames": .array([.object(["at": .number(0), "dots": .array([.array([.number(0), .number(0), .number(0.7)])])])])])])]),
+                .object(["$schema": .string("cmux.particles/1"), "particle": .object(["shape": .string("circle"), "size": .number(3), "color": .string("accent"), "max": .number(3)]), "phases": .object(["row": .object(["duration": .number(1200), "ease": .string("easeInOut"), "frames": .array([.object(["at": .number(0), "formation": .string("row")]), .object(["at": .number(1), "dots": .array([.array([.number(-6), .number(0), .number(1)]), .array([.number(0), .number(0), .number(0.6)]), .array([.number(6), .number(0), .number(1)])])])])])]), "triggers": .object(["execute": .array([.string("row")]), "cycle": .array([.string("row")])])]),
+            ],
+            refuse: [
+                .string("thinking-glyph.json"), .object([:]),
+                .object(["$schema": .string("cmux.particles/2"), "particle": .object(["size": .number(3)]), "phases": .object(["lone": .object(["duration": .number(400), "frames": .array([.object(["at": .number(0), "dots": .array([])])])])])]),
+                .object(["$schema": .string("cmux.particles/1"), "particle": .object(["size": .number(3)]), "phases": .object(["lone": .object(["duration": .number(400), "frames": .array([.object(["at": .number(0), "dots": .array([.array([.number(0), .number(0), .number(9)])])])])])])]),
+                .object(["$schema": .string("cmux.particles/1"), "particle": .object(["size": .number(3)]), "phases": .object(["lone": .object(["duration": .number(400), "frames": .array([.object(["at": .number(0), "dots": .array([])])])])]), "triggers": .object(["read": .array([.string("orbit")])])]),
+            ]
+        ),
         "domain:command_labels": SampleSet(
             accept: [
                 .array([]), .array([.string("cmux-fleet")]),

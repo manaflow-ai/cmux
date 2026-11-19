@@ -33,6 +33,12 @@ pub enum Accepted {
     },
     /// A fixed shape, described in words (`boolean`, `#RRGGBB or #RRGGBBAA`, ...).
     Shape(&'static str),
+    /// A document of a schema (`cmux.particles/1`) and why this one is not
+    /// one: the validator's first bad path and what is wrong there.
+    Document {
+        schema: &'static str,
+        reason: String,
+    },
     /// A name from a value domain; `values` is `None` while the app has not
     /// published the domain.
     Domain {
@@ -53,6 +59,7 @@ impl Accepted {
                 json!({"choices": choices, "shape": shape})
             }
             Accepted::Shape(shape) => json!({"shape": shape}),
+            Accepted::Document { schema, reason } => json!({"schema": schema, "reason": reason}),
             Accepted::Domain { name, values } => json!({"domain": name, "values": values}),
         }
     }
@@ -61,6 +68,14 @@ impl Accepted {
 /// `Ok` when the app would apply `value` for `row` without a diagnostic.
 /// Numbers outside the range are refused although the parser clamps them.
 pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusal> {
+    if row.validation == super::Validation::Domain(DomainKind::ParticlesDocument) {
+        return particles_document(value).map_err(|reason| Refusal::InvalidValue {
+            key: row.key.clone(),
+            kind: row.kind.name(),
+            accepted: Accepted::Document { schema: cmux_app_host::particles::SCHEMA, reason },
+            value: value.clone(),
+        });
+    }
     if row_accepts(row, value, domains) {
         return Ok(());
     }
@@ -151,6 +166,9 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         }
         super::Validation::Domain(DomainKind::AppId) => {
             return value.as_str().is_some_and(super::app_id::is_valid_app_id);
+        }
+        super::Validation::Domain(DomainKind::ParticlesDocument) => {
+            return particles_document(value).is_ok();
         }
         _ => {}
     }
@@ -304,6 +322,16 @@ fn is_command_label(value: &Value) -> bool {
         && (members.contains_key("program") || members.contains_key("match"))
 }
 
+/// A `cmux.particles/1` document the one validator (cmux-app-host
+/// `particles::validate`, which also checks every scene's `choreography`)
+/// accepts, else its reason (`phases.row.frames[3].dots[1][2]: must be from 0
+/// to 4`). The settings file holds the document itself; a look that keeps it
+/// in a file of its folder has it inlined when the look is read
+/// (cmux-customize `setup::inline_documents`).
+fn particles_document(value: &Value) -> Result<(), String> {
+    cmux_app_host::particles::validate(value).map_err(|error| error.to_string())
+}
+
 /// Swift `BrowserOmnibarSetting.isSearchTemplate`: empty, or an address
 /// with a `%s` or `{searchTerms}` placeholder that is valid once filled.
 fn is_search_template(text: &str) -> bool {
@@ -409,5 +437,6 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::CustomDensities => "custom_densities",
         DomainKind::CommandLabels => "command_labels",
         DomainKind::AppId => "app_id",
+        DomainKind::ParticlesDocument => "particles_document",
     }
 }

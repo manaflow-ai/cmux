@@ -182,6 +182,21 @@ fn kind_schema(row: &Row) -> Value {
             });
             return json!({ "type": "array", "items": { "anyOf": [name, rule] } });
         }
+        Validation::Domain(DomainKind::ParticlesDocument) => {
+            // The shape only; the limits and phase names are the validator's (cmux-app-host
+            // particles.rs, js/ABI.md "Particles choreography").
+            return json!({
+                "type": "object",
+                "required": ["$schema", "particle", "phases"],
+                "properties": {
+                    "$schema": { "const": cmux_app_host::particles::SCHEMA },
+                    "particle": { "type": "object" },
+                    "phases": { "type": "object", "minProperties": 1 },
+                    "formations": { "type": "object" },
+                    "triggers": { "type": "object" },
+                },
+            });
+        }
         Validation::Domain(DomainKind::AppId) => {
             // The manifest's own id pattern, read from its schema.
             return match super::app_id::app_id_pattern() {

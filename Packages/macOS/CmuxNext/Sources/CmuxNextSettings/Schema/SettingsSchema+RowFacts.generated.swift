@@ -23,6 +23,7 @@ extension SettingsSchema {
         "appearance.backgroundLocation": "domain:backdrop_location",
         "appearance.customDensities": "domain:custom_densities",
         "agentPane.display.commandLabels": "domain:command_labels",
+        "agentPane.display.thinking.glyph": "domain:particles_document",
         "browser.customSearchEngine.search": "domain:search_template",
         "browser.customSearchEngine.suggest": "domain:search_template", "tabs.newTabApp": "domain:app_id",
     ]

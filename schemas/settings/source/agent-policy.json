@@ -758,6 +758,8 @@
         "agentPane.display.thinking.shimmerPeriod",
         "agentPane.display.thinking.shimmerBand",
         "agentPane.display.thinking.jumpButton",
+        "agentPane.display.thinking.glyph",
+        "agentPane.display.thinking.glyphSize",
         "agentPane.display.harnessPlacement",
         "agentPane.display.rail.side",
         "agentPane.display.commandLabels"

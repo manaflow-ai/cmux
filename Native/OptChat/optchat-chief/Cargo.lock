@@ -134,6 +134,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-host"
+version = "0.1.0"
+dependencies = [
+ "cmux-json",
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-chief"
 version = "0.1.0"
 dependencies = [
@@ -147,6 +157,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-app-host",
  "cmux-json",
  "cmux-theme-tokens",
  "core-foundation",

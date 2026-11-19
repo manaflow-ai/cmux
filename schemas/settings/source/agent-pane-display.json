@@ -1246,6 +1246,13 @@
                 "key": "settings.choice.dots",
                 "text": "Dots"
               }
+            },
+            {
+              "value": "glyph",
+              "title": {
+                "key": "settings.choice.thinkingJumpGlyph",
+                "text": "Thinking Glyph"
+              }
             }
           ],
           "default": "arrow",
@@ -1261,6 +1268,70 @@
             "button",
             "arrow",
             "dots",
+            "claude"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.glyph",
+          "name": "thinkingGlyph",
+          "note": "A look's thinking dots: a cmux.particles/1 document (cmux-app-host js/ABI.md \"Particles choreography\", checked by the one Rust validator, cmux-app-host particles.rs, through cmux-config's domain:particles_document). The chat plays it before the live status line and, with jumpButton glyph, in Jump to latest, each choosing the document's trigger from the agent's current activity kind; a sidebar row plays it for cmux.sidebar.rows/1 indicator \"glyph\". A look may keep it in a file of its folder: {\"$file\": \"thinking-glyph.json\"} (cmux-customize setup::inline_files). Unset draws nothing new.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.glyph",
+            "text": "Thinking Glyph"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.glyph.help",
+            "text": "Dots a look plays while the agent works, as a cmux.particles/1 document."
+          },
+          "kind": "text",
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "glyph",
+            "particles",
+            "dots",
+            "choreography",
+            "animation",
+            "claude"
+          ],
+          "page_hidden": "a cmux.particles/1 document a look or cmux settings set writes, edited in cmux-next.json"
+        },
+        {
+          "key": "agentPane.display.thinking.glyphSize",
+          "name": "thinkingGlyphSize",
+          "note": "The dot size in points Jump to latest draws the thinking glyph at, over the document's particle.size (the button is smaller than the status line); 0 keeps the document's size. The status line and sidebar rows always use the document's size.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.glyphSize",
+            "text": "Jump Button Glyph Size"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.glyphSize.help",
+            "text": "The dot size of the thinking glyph in Jump to latest. 0 uses the glyph's own size."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 16,
+            "step": 0.1,
+            "unit": "points",
+            "placeholder": 0
+          },
+          "default": 0,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "glyph",
+            "particles",
+            "dots",
+            "size",
+            "jump",
             "claude"
           ]
         },

@@ -235,7 +235,8 @@ extension SettingsSchema {
         "agentPane.display.presentation", "agentPane.display.promptCoach", "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom", "agentPane.display.thinking.shimmer",
         "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
-        "agentPane.display.thinking.jumpButton", "agentPane.display.harnessPlacement", "agentPane.display.rail.side",
+        "agentPane.display.thinking.jumpButton", "agentPane.display.thinking.glyph",
+        "agentPane.display.thinking.glyphSize", "agentPane.display.harnessPlacement", "agentPane.display.rail.side",
         "agentPane.display.commandLabels",
         // The code editor's looks and editing behavior (diff-host S7); editor.importFrom is the person's.
         "editor.fontFamily", "editor.fontSize", "editor.fontWeight", "editor.fontLigatures", "editor.lineHeight",

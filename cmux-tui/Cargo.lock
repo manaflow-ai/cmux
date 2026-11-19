@@ -1616,6 +1616,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-app-host",
  "cmux-json",
  "cmux-theme-tokens",
  "core-foundation 0.10.1",

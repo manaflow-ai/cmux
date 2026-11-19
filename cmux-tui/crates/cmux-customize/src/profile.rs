@@ -250,7 +250,18 @@ impl Customize {
                     "the setting {key} is one only you can change; a profile may not set it"
                 )));
             }
-            if cmux_config::schema::accepts(row, value, &Default::default()).is_err() {
+            if let Err(refusal) = cmux_config::schema::accepts(row, value, &Default::default()) {
+                // A document's refusal says where it goes wrong (`phases.row.frames[3]: ...`):
+                // a path in the look's own file, never a value.
+                if let cmux_config::refusal::Refusal::InvalidValue {
+                    accepted: cmux_config::schema::Accepted::Document { schema, reason },
+                    ..
+                } = &refusal
+                {
+                    return Err(Error::Profile(format!(
+                        "the profile's value for {key} is not a {schema} document: {reason}"
+                    )));
+                }
                 // The key says where to look; the refused value (which may be
                 // a credential under the wrong key) stays in the file.
                 return Err(Error::Profile(format!(
@@ -462,14 +473,20 @@ fn read_profile(path: &std::path::Path) -> Result<Profile, Error> {
         .map_err(|error| Error::Profile(format!("{}: {error}", path.display())))?;
     // Where it stops reading, never what it read there: the parser's own
     // message quotes the value it did not expect.
-    serde_json::from_str::<Profile>(&text).map_err(|error| {
+    let mut profile = serde_json::from_str::<Profile>(&text).map_err(|error| {
         Error::Profile(format!(
             "{}: not a cmux profile (line {}, column {})",
             path.display(),
             error.line(),
             error.column()
         ))
-    })
+    })?;
+    // A look's cmux-setup.json read as a profile (`cmux customize try PATH`) keeps long values in
+    // files beside it, as a setup install reads them.
+    if let Some(dir) = path.parent() {
+        crate::setup::inline_files(&mut profile.settings, dir)?;
+    }
+    Ok(profile)
 }
 
 #[cfg(test)]
