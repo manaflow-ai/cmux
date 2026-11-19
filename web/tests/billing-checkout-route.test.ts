@@ -174,6 +174,7 @@ beforeAll(() => {
 
 afterAll(() => {
   useStubDb = false;
+  delete process.env.STRIPE_PRICE_NEXT_PLUS_MONTHLY;
   delete process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY;
   delete process.env.STRIPE_PRICE_NEXT_MAX_MONTHLY;
 });
@@ -255,7 +256,8 @@ describe("billing checkout route", () => {
     resolveTeamPrice.mockClear();
     resolveNextPlanPrice.mockClear();
     resolveNextPlanPrice.mockImplementation(async (plan: unknown) => `price_${String(plan)}_month`);
-    delete process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY;
+    delete process.env.STRIPE_PRICE_NEXT_PLUS_MONTHLY;
+  delete process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY;
     delete process.env.STRIPE_PRICE_NEXT_MAX_MONTHLY;
     captureBillingCheckoutStarted.mockClear();
     stripeLimit.mockClear();
@@ -720,7 +722,7 @@ describe("billing checkout route", () => {
   test("a cmux NEXT plan with its Price unset is not available and creates nothing", async () => {
     stripeConfigured = true;
     userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
-    for (const plan of ["next_pro", "next_max"]) {
+    for (const plan of ["next_plus", "next_pro", "next_max"]) {
       const response = await GET(new NextRequest(`https://cmux.test/api/billing/checkout?plan=${plan}`));
       expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?billing=plan_unavailable");
     }
@@ -775,6 +777,34 @@ describe("billing checkout route", () => {
     const upgrade = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=next_max"));
     expect(new URL(upgrade.headers.get("location")!).pathname).toBe("/api/billing/portal");
     expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
+  test("NEXT plans rank Plus < Pro < Max: a lower plan is already included, a higher one goes to the portal", async () => {
+    stripeConfigured = true;
+    process.env.STRIPE_PRICE_NEXT_PLUS_MONTHLY = "price_configured_plus";
+    process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY = "price_configured_pro";
+    stripeActiveSubscriptionRows = [{ plan: "next_pro" }];
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+    const lower = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=next_plus"));
+    expect(lower.headers.get("location")).toBe("https://cmux.test/dashboard/billing?welcome=active");
+    stripeActiveSubscriptionRows = [{ plan: "next_plus" }];
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+    const higher = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=next_pro"));
+    expect(new URL(higher.headers.get("location")!).pathname).toBe("/api/billing/portal");
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
+  test("creates a monthly cmux NEXT Plus checkout at the configured Price", async () => {
+    stripeConfigured = true;
+    process.env.STRIPE_PRICE_NEXT_PLUS_MONTHLY = "price_configured_plus";
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=next_plus"));
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
+    expect(resolveNextPlanPrice).toHaveBeenCalledWith("next_plus");
+    expect(createdStripeSessions[0]).toMatchObject({
+      metadata: expect.objectContaining({ plan: "next_plus", app: "cmux", billingInterval: "month" }),
+      subscription_data: { metadata: expect.objectContaining({ plan: "next_plus" }) },
+    });
   });
 
   test("cmux NEXT plans are monthly only", async () => {

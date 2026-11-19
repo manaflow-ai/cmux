@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/admin/users { userId, plan: "pro" | "max" | "founders" | "next_pro" | "next_max" | null, slot?: "classic" | "next" }
+ * POST /api/admin/users { userId, plan: "pro" | "max" | "founders" | "next_plus" | "next_pro" | "next_max" | null, slot?: "classic" | "next" }
  *
  * An account holds a classic grant and a cmux NEXT grant side by side. A NEXT
  * plan always writes the NEXT slot; a classic plan writes the classic slot.
