@@ -510,12 +510,12 @@ FORK_PR_BLACKSMITH = re.compile(
 # The CI_TRUSTED_RUNNER selector (scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
 # secretless declared light job whose workflow cannot read RUNNER_POOLS may retry on it.
 TRUSTED_SELECTOR_TAIL = [
-    "contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
+    "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
     "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER",
     "'blacksmith-4vcpu-ubuntu-2404'",
 ]
 EPHEMERAL_MIRROR_TERM = re.compile(
-    r"contains\(fromJSON\('\[\"blacksmith-\d+vcpu-ubuntu-2404\"(?:,\"blacksmith-\d+vcpu-ubuntu-2404\")*\]'\), "
+    r"contains\(fromJSON\('\[(?:\"ubuntu-24\.04\",)?\"blacksmith-\d+vcpu-ubuntu-2404\"(?:,\"blacksmith-\d+vcpu-ubuntu-2404\")*\]'\), "
     r"vars\.LINUX_RUNNER\) && vars\.LINUX_RUNNER")
 # A pool read wrapped for forks, `(<fork pull request> && '<label>' || fromJSON(vars.RUNNER_POOLS).<pool>)`: a fork's
 # run gets no variables, so it keeps the label; every other run reads the pool. Forks are outside this exception.

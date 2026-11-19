@@ -22,7 +22,7 @@ WORKFLOW_ROOT = Path(os.environ.get("RUNNER_POOL_WORKFLOW_ROOT", Path(__file__).
 NOW = dt.datetime(2026, 11, 1, 12, tzinfo=dt.timezone.utc)
 SMALL = "blacksmith-4vcpu-ubuntu-2404"
 LARGE = "blacksmith-16vcpu-ubuntu-2404"
-LINUX_EPHEMERAL = {"blacksmith-8vcpu-ubuntu-2404", LARGE, SMALL}
+LINUX_EPHEMERAL = {"ubuntu-24.04", "blacksmith-8vcpu-ubuntu-2404", LARGE, SMALL}
 # backend.yml's credentialed jobs are read from the workflow by tests/workflow_jobs.py's YAML loader, not
 # kept by hand: the hand list (BACKEND_SECRET_JOBS) missed deploy-dashboard-staging when #36559 split it out of deploy-staging.
 # The anchors only stop a parser regression from emptying the derived set and the route check with it.
@@ -81,7 +81,7 @@ class SecretRouteBoundary(unittest.TestCase):
                 self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", route)
                 match = re.search(r"contains\(fromJSON\('([^']+)'\), vars.LINUX_RUNNER\) && vars.LINUX_RUNNER", route)
                 self.assertIsNotNone(match)
-                self.assertEqual(set(json.loads(match[1])), {SMALL, LARGE, "blacksmith-8vcpu-ubuntu-2404"})
+                self.assertEqual(set(json.loads(match[1])), {"ubuntu-24.04", SMALL, LARGE, "blacksmith-8vcpu-ubuntu-2404"})
                 self.assertTrue(route.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_8 }}"))
 
     def test_backend_secret_jobs_use_only_the_ephemeral_linux_mirror(self):

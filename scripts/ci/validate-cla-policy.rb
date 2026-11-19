@@ -82,7 +82,7 @@ CLA_ACTION = CLA_ACTION_FINAL
 # CLA checks while the other is down.
 CLA_RUNNER = "ubuntu-24.04".freeze
 CLA_BLACKSMITH_RUNNERS = %w[blacksmith-2vcpu-ubuntu-2404 blacksmith-4vcpu-ubuntu-2404].freeze
-CLA_TRUSTED_RUNNER_EXPRESSION = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}".freeze
+CLA_TRUSTED_RUNNER_EXPRESSION = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}".freeze
 CLA_RUNNERS = ([CLA_RUNNER] + CLA_BLACKSMITH_RUNNERS + [CLA_TRUSTED_RUNNER_EXPRESSION]).freeze
 # The original runner identity guard admits only GitHub-hosted runners. It
 # stays valid so workflows main carries keep passing until they move to the
@@ -117,8 +117,11 @@ SH
 # exact runs-on allowlist above, which routes only to GitHub-hosted runners
 # or Blacksmith's read-only scale-set labels. If Blacksmith renames its VMs
 # again so that a name no longer starts with its label, this guard fails
-# closed until the guard learns the new names. CI_TRUSTED_RUNNER no longer
-# accepts ubuntu-24.04: the hosted pool started nothing for hours on 2026-11-18.
+# closed until the guard learns the new names. CI_TRUSTED_RUNNER may name
+# ubuntu-24.04 again: on 2026-11-19 Blacksmith's Linux labels started almost
+# nothing for hours, and the overflow switch's failover writes ubuntu-24.04
+# (cloud_overflow_switch.py HOSTED_LINUX), which a Blacksmith-only list
+# ignored. The variable picks the provider that serves; both are one-job VMs.
 CLA_EPHEMERAL_RUNNER_PREFIXES = CLA_BLACKSMITH_RUNNERS.map { |label| "#{label}-" }.freeze
 CLA_OWNED_RUNNER_NAME_MARKER = "glaeda".freeze
 CLA_EPHEMERAL_RUNNER_GUARD_NAME = "Require GitHub-hosted or Blacksmith runner".freeze
@@ -2064,7 +2067,7 @@ def run_runner_regression_matrix!
     "ubuntu-24.04",
     "blacksmith-2vcpu-ubuntu-2404",
     "blacksmith-4vcpu-ubuntu-2404",
-    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
   ]
   fail!("CLA runner allowlist regression failed") unless accepted_runners == CLA_RUNNERS
   cla_jobs.product(accepted_runners).each do |job_name, runner|
