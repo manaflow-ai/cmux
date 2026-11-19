@@ -80,6 +80,7 @@ export { TeamDO } from "./team-do.ts"
 export { UserDO } from "./user-do.ts"
 export { UsageMeterDO } from "./usage-meter-do.ts"
 export { SpendGuardDO } from "./inference/spend-guard-do.ts"
+export { ModelCatalogDO } from "./models-catalog/catalog-do.ts"
 export { FreeDeviceDO } from "./inference/free-device-do.ts"
 
 /** The SSO gate could not reach a TeamDO or UserDO: retryable, never a 500 (cx-44j.51). */
@@ -263,6 +264,8 @@ export default {
     if (handoff) return handleHandoffs(request, env, handoff)
     if (url.pathname === "/v1/presence-key" && request.method === "POST") return handlePresenceKey(request, env)
     if (url.pathname.startsWith("/v1/inference/")) return inference(url.pathname, request, env, ctx)
+    // The live model catalog (models-catalog/route.ts): public reads, internal publish and kill switch.
+    if (url.pathname.startsWith("/v1/models/") || url.pathname.startsWith("/internal/v1/models/")) return (await import("./models-catalog/route.ts")).handleModelsCatalog(env, request, url.pathname)
     // Home attachments (home-attachments.ts): intent, commit and URL mint need a bearer; the slot and the signed URL are the credential.
     if (url.pathname === "/v1/home/attachments/intent" && request.method === "POST") return handleAttachmentIntent(request, env)
     if (url.pathname === "/v1/home/attachments/commit" && request.method === "POST") return handleAttachmentCommit(request, env)
