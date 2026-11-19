@@ -2470,7 +2470,7 @@ export function namesUnavailableFirstExec(exec: Exec): Exec {
 const FACTS_READ_MS = 10_000;
 
 /** The checks only the journey runs, never part of a person's chat: they run after the reply, outside J.firstText. */
-export const JOURNEY_ONLY_STEPS = ["listed", "first exec", "machine facts", "GitHub on the machine (stub)", "GitHub on the machine (live)"] as const;
+export const JOURNEY_ONLY_STEPS = ["listed", "first exec", "machine facts", "GitHub connection (team status)", "GitHub on the machine (stub)", "GitHub on the machine (live)", "GitHub by the agent (live)"] as const;
 
 /** A Swift `static let NAME = #"""...."""#` raw string, with the closing delimiter's indentation stripped. */
 export function swiftRawString(source: string, name: string): string {
@@ -2528,6 +2528,103 @@ export function keyProbeDetail(p: KeyProbe): string {
 export const MODEL_STUB_PY = fileURLToPath(new URL("../../tests/fixtures/model-stub/model_stub.py", import.meta.url));
 /** GitHub on a Cloud machine through the team connection, run on the guest (the journey's GitHub steps). */
 export const GITHUB_E2E_SH = fileURLToPath(new URL("./cloud-github-e2e.sh", import.meta.url));
+/** Where the journey writes cloud-github-e2e.sh on the guest. */
+export const GITHUB_E2E_GUEST = "/home/cmux/.cmux/cloud-github-e2e.sh";
+export const GITHUB_STATUS_STEP = "GitHub connection (team status)";
+export const GITHUB_AGENT_STEP = "GitHub by the agent (live)";
+
+/** CMUX_JOURNEY_GITHUB_REPO as OWNER/REPO, or null when unset or not that shape. */
+export function githubSandbox(value: string | undefined): string | null {
+  const v = value?.trim() ?? "";
+  return /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(v) ? v : null;
+}
+
+/** The `e2e: NAME ok|FAIL ...` lines of cloud-github-e2e.sh, one per cell, joined for a step's detail. */
+export function e2eLines(stdout: string): string {
+  return stdout.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("e2e:")).join("; ");
+}
+
+export type GithubConnectionFacts = {
+  configured: boolean;
+  allowed: boolean;
+  connected: boolean;
+  /** The GitHub account (user or org) the App is installed on: an account name, never a repository. */
+  account: string | null;
+  status: string | null;
+  /** Repositories the installation selected, "all" when it has all of its account's, null when unknown. */
+  selected: number | "all" | null;
+  /** From the team's repository list (its first page): how many, and how many private. */
+  listed: number | null;
+  private_listed: number | null;
+  /** Whether the sandbox repository is in the list (and private); null with no sandbox or no list. */
+  sandbox_listed: boolean | null;
+  sandbox_private: boolean | null;
+};
+
+const repoName = (r: unknown): string => (typeof r === "string" ? r : typeof (r as any)?.full_name === "string" ? (r as any).full_name : "");
+
+/**
+ * What GET /v1/integrations/github/status and GET /v1/integrations/github/repos say about the team's GitHub
+ * connection, as counts and yes/no: no token and no repository name (the sandbox is matched, never listed).
+ */
+export function githubConnectionFacts(status: any, repos: any | null, sandbox?: string): GithubConnectionFacts {
+  const c = status?.connection && typeof status.connection === "object" ? status.connection : null;
+  const account = typeof c?.account === "string" && /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(c.account) ? c.account : null;
+  const list: any[] | null = Array.isArray(repos?.repos) ? repos.repos : null;
+  const lower = sandbox?.toLowerCase();
+  const hit = lower && list ? list.find((r) => repoName(r).toLowerCase() === lower) : undefined;
+  const picked = Array.isArray(c?.repos) ? c.repos : null;
+  return {
+    configured: status?.configured === true,
+    allowed: status?.allowed !== false,
+    connected: status?.configured === true && status?.allowed !== false && c?.status === "active",
+    account,
+    status: typeof c?.status === "string" ? c.status : null,
+    selected: picked ? picked.length : c && c.repos === null ? "all" : null,
+    listed: list ? list.length : null,
+    private_listed: list ? list.filter((r) => r?.private !== false && typeof r === "object").length : null,
+    sandbox_listed: lower && list ? Boolean(hit) : null,
+    sandbox_private: hit && typeof hit === "object" ? hit.private !== false : null,
+  };
+}
+
+export function githubConnectionDetail(f: GithubConnectionFacts): string {
+  const yn = (b: boolean | null) => (b === null ? "?" : b ? "yes" : "no");
+  return [
+    `connected ${yn(f.connected)}`,
+    `App configured ${yn(f.configured)}`,
+    `policy allows ${yn(f.allowed)}`,
+    `connection ${f.status ?? "none"}`,
+    `installation account ${f.account ?? "none"}`,
+    `repos selected ${f.selected ?? "?"}`,
+    `listed ${f.listed ?? "?"} (private ${f.private_listed ?? "?"})`,
+    ...(f.sandbox_listed === null ? [] : [`sandbox listed ${yn(f.sandbox_listed)}${f.sandbox_listed ? ` (private ${yn(f.sandbox_private)})` : ""}`]),
+  ].join(", ");
+}
+
+/** Why the live GitHub cells cannot pass with this connection, or null when they can. */
+export function githubConnectionBlocker(f: GithubConnectionFacts, sandbox: string): string | null {
+  if (!f.configured) return "this deployment has no GitHub App configured";
+  if (!f.allowed) return "the team's policy does not allow GitHub";
+  if (!f.connected) return "the team has no active GitHub connection (install the cmux-cloud GitHub App and link it to this team)";
+  if (f.sandbox_listed === false) return `the team's GitHub connection does not list ${sandbox} (add it on the App installation's page)`;
+  if (f.sandbox_private === false) return `${sandbox} is public; the cells need a private sandbox repository`;
+  return null;
+}
+
+/** What the journey asks the agent to do in the sandbox repository, and the branch and file it reads back. */
+export function githubAgentAsk(sandbox: string, tag: string): { prompt: string; branch: string; file: string } {
+  const safe = tag.replace(/[^A-Za-z0-9-]/g, "-").slice(0, 40);
+  const branch = `cmux-agent-e2e/${safe}`;
+  const file = `cmux-e2e/agent-${safe}.md`;
+  const prompt = [
+    `In the GitHub repository ${sandbox}, using git and gh on this machine:`,
+    `clone it into a new folder, create the branch ${branch}, add the file ${file} with the one line "cmux agent e2e ${safe}",`,
+    `commit it, push the branch, and open a draft pull request from ${branch} into the default branch titled "cmux agent e2e ${safe}".`,
+    "Change nothing else. Answer with the pull request URL only.",
+  ].join(" ");
+  return { prompt, branch, file };
+}
 /**
  * The gateway route's time by hop, from each timed call's Server-Timing (a `hop-s` line after its `hop-t` line; the
  * warm-up is dropped), as p50 ms: the Worker's `auth` and `worker-do`, the team object's `do-wait` and `do-gateway`,
@@ -3991,6 +4088,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // `first exec` was the first to meet a claimed machine answering vm_unavailable; namesUnavailableFirstExec now
     // says so for whichever step reaches the machine first.
     let journeyOnlyStarted = false;
+    let githubScriptOnGuest = false;
     const journeyOnly = async () => {
       if (journeyOnlyStarted) return;
       journeyOnlyStarted = true;
@@ -4028,15 +4126,35 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.record({ step: "machine facts", status: "skip", ms: Date.now() - factsAt, detail: `read failed: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
       }
 
-      // GitHub through the team's connection with no setup on the machine (HQ docs/design/remote-integrations.md):
+      // GitHub through the team's connection with no setup on the machine (HQ docs/design/remote-integrations.md).
+      // First, from here, what the app's Set Up GitHub reads: the team's connection (GET /v1/integrations/github/status)
+      // and its repository list (GET /v1/integrations/github/repos), counts only. Then
       // scripts/cmux-next/cloud-github-e2e.sh on the guest. The stub run (a stand-in minter and GitHub MCP server) checks
-      // the wiring on every image whose acpmux has `github-mcp`; CMUX_JOURNEY_GITHUB_REPO=OWNER/REPO adds the live run
-      // (gh auth status, git push of a test branch, a GitHub MCP call, nothing at rest), which needs the team's GitHub
-      // connection. `--skip github` leaves both out.
+      // the wiring on every image whose acpmux has `github-mcp`; CMUX_JOURNEY_GITHUB_REPO=OWNER/REPO, a dedicated sandbox
+      // repository the team's connection lists, adds the live cells (clone, branch, commit, push, a draft PR, its comments
+      // and checks read, cleanup) and, with a real model, "GitHub by the agent (live)" after the chat. `--skip github`
+      // leaves all of them out.
       if (!only.has("github")) {
-        const file = "/home/cmux/.cmux/cloud-github-e2e.sh";
+        const sandbox = githubSandbox(process.env.CMUX_JOURNEY_GITHUB_REPO);
+        const ghTeam = api.team ?? (typeof user?.personal_team === "string" ? user.personal_team : undefined);
+        const statusAt = Date.now();
+        try {
+          const q = ghTeam ? `?team=${encodeURIComponent(ghTeam)}` : "";
+          const s = await api.raw("GET", `/v1/integrations/github/status${q}`, undefined, 20_000);
+          if (s.status !== 200) throw new Error(`status: HTTP ${s.status} ${short(s.body?.error ?? s.body)}`);
+          const listed = s.body?.connection?.status === "active" ? await api.raw("GET", `/v1/integrations/github/repos${q}`, undefined, 20_000) : null;
+          const facts = githubConnectionFacts(s.body, listed?.status === 200 ? listed.body : null, sandbox ?? undefined);
+          const bad = sandbox ? githubConnectionBlocker(facts, sandbox) : null;
+          const detail = `${githubConnectionDetail(facts)}${listed && listed.status !== 200 ? `; repos: HTTP ${listed.status}` : ""}${bad ? `; ${bad}` : ""}`;
+          J.record({ step: GITHUB_STATUS_STEP, status: bad ? "fail" : "pass", ms: Date.now() - statusAt, detail });
+        } catch (e) {
+          // A read the hourly stub run cannot make is recorded, never red; with a sandbox named it is the live cells' blocker.
+          J.record({ step: GITHUB_STATUS_STEP, status: sandbox ? "fail" : "skip", ms: Date.now() - statusAt, detail: String((e as Error)?.message ?? e).slice(0, 300) });
+        }
+        const file = GITHUB_E2E_GUEST;
         const wrote = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: readFileSync(GITHUB_E2E_SH).toString("base64"), mode: 0o755 });
-        const has = wrote.status >= 200 && wrote.status < 300 && wrote.body?.ok !== false
+        githubScriptOnGuest = wrote.status >= 200 && wrote.status < 300 && wrote.body?.ok !== false;
+        const has = githubScriptOnGuest
           ? await exec(`${GUEST}a="$c acp"; command -v acpmux >/dev/null && a=acpmux; : | timeout 20 $a github-mcp >/dev/null 2>&1; echo "@@has $?"`)
           : null;
         if (!has || !/@@has 0/.test(has.stdout)) {
@@ -4045,17 +4163,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           await J.step("GitHub on the machine (stub)", async () => {
             const r = await exec(`${GUEST}sh ${shq(file)} --stub 2>&1`, 180_000);
             if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-400)}`);
-            return { value: null, detail: r.stdout.trim().split("\n").filter((l) => l.startsWith("e2e:")).join("; ") };
-          });
-          const repo = process.env.CMUX_JOURNEY_GITHUB_REPO?.trim();
-          if (!repo) J.skip("GitHub on the machine (live)", "CMUX_JOURNEY_GITHUB_REPO is not set");
-          else await J.step("GitHub on the machine (live)", async () => {
-            if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repo)) throw new Error("CMUX_JOURNEY_GITHUB_REPO must be OWNER/REPO");
-            const r = await exec(`${GUEST}sh ${shq(file)} ${shq(repo)} 2>&1`, 300_000);
-            if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-600)}`);
-            return { value: null, detail: r.stdout.trim().split("\n").filter((l) => l.startsWith("e2e:")).join("; ") };
+            return { value: null, detail: e2eLines(r.stdout) };
           });
         }
+        // The live cells need only the script on the machine: an image with no github-mcp fails the mcp_call cell alone.
+        if (!sandbox) J.skip("GitHub on the machine (live)", process.env.CMUX_JOURNEY_GITHUB_REPO?.trim() ? "CMUX_JOURNEY_GITHUB_REPO must be OWNER/REPO" : "CMUX_JOURNEY_GITHUB_REPO is not set");
+        else if (!githubScriptOnGuest) J.skip("GitHub on the machine (live)", `fs/write: HTTP ${wrote.status}`);
+        else await J.step("GitHub on the machine (live)", async () => {
+          const r = await exec(`${GUEST}sh ${shq(file)} ${shq(sandbox)} 2>&1`, 300_000);
+          if (r.code !== 0) throw new Error(`exit ${r.code} ${e2eLines(r.stdout) || r.stdout.slice(-600)}`);
+          return { value: null, detail: e2eLines(r.stdout) };
+        }).catch(() => undefined);
       }
     };
     runJourneyOnly = journeyOnly;
@@ -4603,6 +4721,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           return { value: null, detail: `daemon ${old} killed, ${now} serves after ${back} s; ${turn.detail}` };
         });
       }
+      // The agent itself does the GitHub cells, as a person would ask it in the chat: clone, branch, commit, push and a
+      // draft PR in the sandbox repository. The journey reads them back on the machine (cloud-github-e2e.sh --agent-pr),
+      // then closes the PR and deletes the branch whatever the turn said. A real model only: the stub answers no prompt.
+      const sandbox = githubSandbox(process.env.CMUX_JOURNEY_GITHUB_REPO);
+      if (only.has("github")) J.skip(GITHUB_AGENT_STEP, "--skip github");
+      else if (!sandbox) J.skip(GITHUB_AGENT_STEP, "CMUX_JOURNEY_GITHUB_REPO is not set");
+      else if (modelStub || gatewayStub) J.skip(GITHUB_AGENT_STEP, "the stub model answers no prompt (the real model runs this cell)");
+      else if (!githubScriptOnGuest) J.skip(GITHUB_AGENT_STEP, "cloud-github-e2e.sh is not on the machine");
+      else await J.step(GITHUB_AGENT_STEP, async () => {
+        const ask = githubAgentAsk(sandbox, tag);
+        let said = "";
+        let turnError = "";
+        try {
+          said = (await laterTurn(ask.prompt)).detail;
+        } catch (e) {
+          turnError = String((e as Error)?.message ?? e).slice(0, 300);
+        }
+        const r = await exec(`${GUEST}sh ${shq(GITHUB_E2E_GUEST)} --agent-pr ${shq(sandbox)} ${shq(ask.branch)} ${shq(ask.file)} 2>&1`, 180_000);
+        const cells = e2eLines(r.stdout) || r.stdout.slice(-400);
+        if (turnError) throw new Error(`the agent's turn: ${turnError}; read back: ${cells}`);
+        if (r.code !== 0) throw new Error(`read back exit ${r.code}: ${cells}; the agent said: ${said.slice(0, 160)}`);
+        return { value: null, detail: `${cells}; the agent said: ${said.slice(0, 160)}` };
+      }).catch(() => undefined);
     }
 
     // After the chat, while its processes still run: where a provider key sits on the chat machine.
