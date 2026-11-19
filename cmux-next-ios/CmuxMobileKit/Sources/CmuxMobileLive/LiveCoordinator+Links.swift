@@ -635,7 +635,7 @@ extension LiveCoordinator {
 
     /// The Mac was used now: its link opens if it was closed, and stays while recent.
     public func touch(_ macID: String) {
-        lastShown[macID] = ContinuousClock.now
+        lastShown[macID] = instants.now()
         applyLinks()
     }
 
@@ -705,7 +705,7 @@ extension LiveCoordinator {
                 chiefOffline()
             } else {
                 // Name the Mac first: what is written to its cloud copy is for this Mac
-                // (the outbox's target), not for whichever Mac connects next.
+                // (the session's Chief target), not for whichever Mac connects next.
                 ChiefSession.shared.macID = owner.macID
                 useChiefCloudCopy(macName: owner.name)
             }
@@ -964,7 +964,7 @@ extension LiveCoordinator {
     /// offline label ≤ 5 s), never "Reattaching…" for 20 minutes (D4).
     private func updateTerminalsOffline(_ session: MacSession) {
         let phase = session.link.phase
-        let now = ContinuousClock.now
+        let now = instants.now()
         if phase.isConnected || phase == .idle {
             session.linkDownSince = nil
         } else if session.linkDownSince == nil {

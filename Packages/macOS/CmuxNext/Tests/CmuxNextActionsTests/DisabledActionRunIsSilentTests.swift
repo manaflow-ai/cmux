@@ -23,7 +23,7 @@ struct DisabledActionRunIsSilentTests {
         #expect(!registry.perform("minimizeWindow", invocation: ActionInvocation(origin: .user)))
         #expect(runs() == 0, "the disabled action ran")
         #expect(refusals().map(\.0) == [Self.reason])
-        #expect(refusals().allSatisfy(\.1), "a disabled action's shortcut run asked for the refusal toast")
+        #expect(refusals().allSatisfy { $0.1 }, "a disabled action's shortcut run asked for the refusal toast")
     }
 
     @Test func aCallerStillGetsTheReason() {

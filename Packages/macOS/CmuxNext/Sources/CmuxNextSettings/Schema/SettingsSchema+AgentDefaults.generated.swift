@@ -16,6 +16,13 @@ extension AgentDefaultsSettingsSchema {
     nonisolated static let modelRouterModelValues = ["deepseek/deepseek-v4.1-flash-1017", "deepseek/deepseek-v4.1-flash", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"]
 }
 
+extension AgentDefaultsSettingsSchema {
+    /// `agents.cmuxMcp`: Whether agents cmux starts get its cmux MCP server (cmux mcp serve, which carries cmux Computer Use): a Claude Code or Codex typed into a cmux terminal (the claude and codex shims, cmux-tui agent_mcp_choice.rs) and the app's agent chats (acpmux agent_tools.rs agents_get_cmux), all with one server definition named cmux (acpmux agent_tools::cmux_server) and the app's settings file. Only through the launch: cmux never writes an agent's own config; cmux setup mcp reports which agents get it and the manual lines a person runs to use it elsewhere. ask (unset) is no answer yet: no server, and the app asks at launch (OnboardingWindowPresenter.askAgentToolsOnce); on is the person's yes (it also turns the server on for these agents unless mcp.enabled says otherwise, cli/mcp/config.rs); off gives none. A Chief turn keeps its own cmux tool list either way. Rust reads it with cmux_tui_core::user_settings::AgentsCmuxMcp.
+    nonisolated static let cmuxMcpPath = ["agents", "cmuxMcp"]
+    nonisolated static let cmuxMcpDefault = "ask"
+    nonisolated static let cmuxMcpValues = ["ask", "on", "off"]
+}
+
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum AgentDefaultsSettingsSchema {
     /// The defaults a new agent chat starts with (Agents > Agent Chat).
@@ -63,6 +70,28 @@ nonisolated enum AgentDefaultsSettingsSchema {
                 ]),
                 default: .string(AgentDefaultsSettingsSchema.modelRouterModelDefault),
                 keywords: ["model", "router", "cmux router", "deepseek", "vision", "images", "inference", "default model", "new chat"]
+            ),
+        ]
+    }
+
+    /// Settings > Agents > cmux Tools: the onboarding step's question (do agents the person starts in cmux, its terminals and agent chats, get cmux's MCP server?) and its answer, beside the card that lists the agents on this Mac, an old cmux entry in one's own config (with Remove) and the manual lines for agents started elsewhere.
+    static var toolsDescriptors: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.agentTools", "cmux Tools")
+        return [
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.cmuxMcpPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.cmuxMcp", "cmux Tools for Agents in cmux"),
+                help: SettingsText.keyed("settings.agents.cmuxMcp.help", "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings."),
+                summary: SettingsText.keyed("settings.agents.cmuxMcp.summary", "Whether agents you start in cmux get cmux’s tools"),
+                kind: .choice([
+                    SettingChoice("ask", SettingsText.keyed("settings.agents.cmuxMcp.ask", "Ask")),
+                    SettingChoice("on", SettingsText.keyed("settings.agents.cmuxMcp.on", "On")),
+                    SettingChoice("off", SettingsText.keyed("settings.agents.cmuxMcp.off", "Off")),
+                ]),
+                default: .string(AgentDefaultsSettingsSchema.cmuxMcpDefault),
+                keywords: ["mcp", "mcp server", "cmux tools", "computer use", "claude", "codex", "coding agents", "agents", "onboarding"]
             ),
         ]
     }

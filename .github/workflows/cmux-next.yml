@@ -67,6 +67,7 @@ on:
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
       - scripts/ci/cargo-groups.sh
+      - scripts/ci/cmux-tui-mac-cargo-builds.sh
       - scripts/ci/acpmux-build-features.sh
       - scripts/ci/tailnet-go.sh
       - scripts/ci/macos-stubs/**
@@ -79,7 +80,7 @@ on:
       - mux/packages/brain/conformance/**
       - skills/cmux-acpmux/SKILL.md
       - skills/cmux-browser/**
-      - skills/cmux-cua/**
+      - skills/cmux-computer-use/**
       - skills/cmux-customization/**
       - skills/cmux-live/**
       - skills/cmux/SKILL.md
@@ -90,6 +91,8 @@ on:
       - docs/configuration.md
       # Why: docs/ci/cmux-next-workflow-notes.md#note-353
       - docs/remote-agents-and-cloud.md
+      # cmux-customize-recipes embeds the recipes guide (in the tree key).
+      - docs/cmux-next/customize-recipes.md
       - webviews/test/fixtures/**
       # The web bundles' sources (build output since cx-vn5; the package tests
       # read the built pages; cmux_next_route.py BUNDLE_INPUTS).
@@ -122,7 +125,6 @@ on:
       - tests/test_web_ota_pointer.sh
       - tests/test_web_ota_publication_contract.py
       - scripts/cmux-next/web-ota-pointer.py
-      - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/cmux_next_base_merge_carry.py
@@ -370,6 +372,7 @@ on:
       - scripts/cmux-next/state-roots-baseline.tsv
       - docs/configuration.md
       - docs/remote-agents-and-cloud.md
+      - docs/cmux-next/customize-recipes.md
       - scripts/cmux-next/check-generator-inputs.sh
       - tests/test_ci_generator_input_freshness.sh
       - tests/test_cmux_next_base_autofix_finishes.py
@@ -422,6 +425,7 @@ on:
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
       - scripts/ci/cargo-groups.sh
+      - scripts/ci/cmux-tui-mac-cargo-builds.sh
       - scripts/ci/acpmux-build-features.sh
       - scripts/ci/tailnet-go.sh
       - scripts/ci/macos-stubs/**
@@ -434,7 +438,7 @@ on:
       - mux/packages/brain/conformance/**
       - skills/cmux-acpmux/SKILL.md
       - skills/cmux-browser/**
-      - skills/cmux-cua/**
+      - skills/cmux-computer-use/**
       - skills/cmux-customization/**
       - skills/cmux-live/**
       - skills/cmux/SKILL.md
@@ -474,7 +478,6 @@ on:
       - tests/test_web_ota_pointer.sh
       - tests/test_web_ota_publication_contract.py
       - scripts/cmux-next/web-ota-pointer.py
-      - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/cmux_next_base_merge_carry.py
@@ -836,7 +839,7 @@ jobs:
     if: ${{ always() && !cancelled() && inputs.same_tree_sha == '' }}
     name: cmux-next path routing
     # Why: docs/ci/cmux-next-workflow-notes.md#note-358
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' path_route ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' path_route ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' path_route ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' path_route ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     # Why: docs/ci/cmux-next-workflow-notes.md#note-88
     timeout-minutes: 8
     permissions:
@@ -1521,7 +1524,7 @@ jobs:
     name: portable job placement
     # Why: docs/ci/cmux-next-workflow-notes.md#note-126
     if: ${{ !cancelled() && vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' && inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '' && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 4
     permissions:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-127
@@ -1650,7 +1653,11 @@ jobs:
             # the job's share (CMUX_CI_CPU_BUDGET on a mini) does not start them last.
             [script-tests]
             # The pre-push gate refuses a push that adds a violation and names the commit in CI.
-            python3 tests/test_cmux_next_prepush_gate.py
+            # Its 145 cases in four parts (tests/unittest_shard.py): one command, it outlasted every other by 2x.
+            python3 tests/test_cmux_next_prepush_gate.py --shard 1/4
+            python3 tests/test_cmux_next_prepush_gate.py --shard 2/4
+            python3 tests/test_cmux_next_prepush_gate.py --shard 3/4
+            python3 tests/test_cmux_next_prepush_gate.py --shard 4/4
             # A production journey workflow change needs its main twin (#43870); it ran nowhere before.
             python3 tests/test_cmux_next_prepush_main_twin.py
             # hot-apply.py's plan, apply and rollback (about four minutes, so it starts early). It ran nowhere
@@ -3540,6 +3547,9 @@ jobs:
         id: spm-root
         if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true') }}
         continue-on-error: true
+        env:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-409
+          CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
@@ -3547,19 +3557,22 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-401
       - name: Compute fast-tier cache keys
         id: fast-cache-key
-        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((!contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true') }}
-        run: scripts/cmux-next/fast-tier-cache-key.sh >> "$GITHUB_OUTPUT"
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((!contains(runner.name, '-glaeda') || steps.spm-root.outputs.seed == '1') && steps.reuse.outputs.hit != 'true') }}
+        env:
+          # The seed's key holds the path it was built at: the seed root on an owned mini.
+          CMUX_FAST_CACHE_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}
+        run: scripts/cmux-next/fast-tier-cache-key.sh "$CMUX_FAST_CACHE_WORKSPACE" >> "$GITHUB_OUTPUT"
 
       - name: Restore the CmuxNext build
         id: fast-cache-restore
-        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((!contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true') }}
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((!contains(runner.name, '-glaeda') || steps.spm-root.outputs.seed == '1') && steps.reuse.outputs.hit != 'true') }}
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         env:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
           backend: r2
-          path: Packages/macOS/CmuxNext/.build
+          path: ${{ format('{0}/Packages/macOS/CmuxNext/.build', steps.spm-root.outputs.root || github.workspace) }}
           key: ${{ steps.fast-cache-key.outputs.swift-key }}
           restore-keys: ${{ steps.fast-cache-key.outputs.swift-prefix }}
 
@@ -3569,7 +3582,10 @@ jobs:
         env:
           MATCHED: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
           PREFIX: ${{ steps.fast-cache-key.outputs.swift-prefix }}
-        run: echo "commit=${MATCHED#"$PREFIX"}" >> "$GITHUB_OUTPUT"
+          SEED_ROOT: ${{ steps.spm-root.outputs.seed }}
+        run: |
+          echo "commit=${MATCHED#"$PREFIX"}" >> "$GITHUB_OUTPUT"
+          if [[ "$SEED_ROOT" == 1 ]]; then python3 scripts/ci/owned_spm_scratch.py seeded; fi
 
       - name: Restore the CmuxHomeRender build of that seed
         if: ${{ (steps.fast-cache-seed.outputs.commit != '') && steps.reuse.outputs.hit != 'true' }}
@@ -3579,14 +3595,16 @@ jobs:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
           backend: r2
-          path: Packages/Shared/CmuxHomeRender/.build
+          path: ${{ format('{0}/Packages/Shared/CmuxHomeRender/.build', steps.spm-root.outputs.root || github.workspace) }}
           key: ${{ steps.fast-cache-key.outputs.home-prefix }}${{ steps.fast-cache-seed.outputs.commit }}
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-203
       - name: Replay the seed's input times
         if: ${{ (steps.fast-cache-seed.outputs.commit != '') && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
-        run: python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
+        env:
+          ROOT: ${{ steps.spm-root.outputs.root || github.workspace }}
+        run: python3 -I scripts/ci/e2e_warm_derived_data.py replay "$ROOT" "$ROOT/Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json"
 
       - name: Run the fast tier
         id: fast-tier-run
@@ -4871,7 +4889,10 @@ jobs:
       # The reuse lookup lists artifacts.
       actions: read
       contents: read
-    timeout-minutes: 40
+    # Runs from runner pickup, so it also counts the runner hook's wait for capacity units. Finished runs took 20-39 min
+    # (2026-11-17, 12 h), and a units wait of 19 min cancelled cmux#44505's mid-compile at 40. 60, plus the PR
+    # autofix pack step's 10.
+    timeout-minutes: 70
     outputs:
       patch: ${{ steps.regenerate.outputs.patch }}
     env:
@@ -5158,6 +5179,42 @@ jobs:
           path: ${{ runner.temp }}/base-exports
           if-no-files-found: error
           retention-days: 1
+
+      # The PR autofix's Mac exports on this build of the same merge commit (base_autofix_pushed_exports.py pr-lookup).
+      - name: Pack the exports for the PR autofix
+        id: pr-exports
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && steps.reuse.outputs.hit != 'true' && format('{0}', vars.CMUX_NEXT_PR_EXPORTS_PACK) != '0' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          CMUX_STRINGS_BEST_EFFORT: "1"
+          CMUX_NEXT_JOB_BUILT: plain
+        run: |
+          set -euo pipefail
+          # The base's scripts, as the PR autofix's Mac job runs them; HEAD^1 is the base, HEAD^2 the head.
+          base="$RUNNER_TEMP/pr-autofix-base"
+          rm -rf "$base" && mkdir -p "$base"
+          git archive HEAD^1 scripts/cmux-next | tar -x -C "$base"
+          pack="$base/scripts/cmux-next/base-autofix-exports-pack.sh"
+          if ! grep -q -- '--pr' "$pack"; then echo "the base's pack script makes no PR pack yet"; exit 0; fi
+          if git log -1 --format=%B HEAD^2 | grep -q '^Autofix-Run: '; then echo "an autofix head: the PR autofix wants no exports"; exit 0; fi
+          areas="$(git diff --no-renames --name-only HEAD^1 HEAD | "$base/scripts/cmux-next/autofix-areas.sh")"
+          if ! grep -qE '^(actions|settings)=true$' <<<"$areas"; then
+            echo "no action or settings inputs changed: the PR autofix wants no exports"
+            exit 0
+          fi
+          "$pack" "$RUNNER_TEMP/pr-exports" --pr | tee -a "$GITHUB_OUTPUT"
+
+      - name: Upload the exports for the PR autofix
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.pr-exports.outcome == 'success' && steps.pr-exports.outputs.name != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.pr-exports.outputs.name }}
+          path: ${{ runner.temp }}/pr-exports
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-277
       - name: Regenerate stale files
