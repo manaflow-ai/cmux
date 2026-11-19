@@ -703,6 +703,9 @@ pub struct Removed {
     pub actions: Vec<String>,
     /// Actions left as they are: you changed them after the install.
     pub kept_actions: Vec<String>,
+    /// Actions another installed setup also sets: they stay that setup's
+    /// (the topmost one's, when several do).
+    pub shared_actions: Vec<String>,
 }
 
 /// What an export wrote.
@@ -953,7 +956,13 @@ impl Customize {
         self.ensure_baseline(now_ms)?;
         let _lock = self.store().lock()?;
         let before = self.current_generation()?;
+        let receipts = self.read_setup_receipts()?;
         let installed = self.install_setup_locked(setup, label, origin, now_ms);
+        if installed.is_err() {
+            // The receipts as they were (an install can disown an action
+            // you changed from the setups that set it).
+            let _ = self.write_setup_receipts(&receipts);
+        }
         if installed.is_err()
             && let Some(n) = before
         {
@@ -987,6 +996,13 @@ impl Customize {
         let before = self.current_generation()?;
         let library = self.library_snapshot()?;
         let receipts = self.read_setup_receipts()?;
+        let new_id = &setup.manifest.id;
+        if new_id != &old.id && receipts.setups.iter().any(|receipt| &receipt.id == new_id) {
+            return Err(Error::Setup(format!(
+                "{} now reads as {new_id}, which is another installed setup; remove one first",
+                old.id
+            )));
+        }
         let setups_dir = self.roots().setups_dir();
         let slot = old
             .library
@@ -1014,6 +1030,10 @@ impl Customize {
                 let mut file = self.read_setup_receipts()?;
                 let at = receipts.setups.iter().position(|receipt| receipt.id == old.id);
                 let mut held = old.clone();
+                // Under the id the caller records the new receipt by, so
+                // it replaces this one in place (a manifest whose id
+                // changed leaves no second receipt behind).
+                held.id = new_id.clone();
                 held.library =
                     installed.applied.as_ref().and_then(|applied| applied.library.clone());
                 held.layer = installed.layer.clone();
@@ -1080,13 +1100,28 @@ impl Customize {
         if !setup.actions().is_empty() {
             let mut text = settings_text(self)?;
             let file = jsonc::parse(&text).unwrap_or(Value::Null);
+            let mut receipts = self.read_setup_receipts()?;
+            let mut disowned = false;
             for (name, value) in setup.actions() {
                 let path = action_path(name);
-                prior_actions
-                    .insert(name.clone(), cmux_config::value::value_at(&file, &path).cloned());
+                let current = cmux_config::value::value_at(&file, &path).cloned();
+                let (prior, disown) = action_base_at_install(&receipts.setups, id, name, current);
+                if disown {
+                    // You changed it after the setups that set it: it is
+                    // yours now, and none of them puts it back on remove.
+                    for other in receipts.setups.iter_mut().filter(|other| &other.id != id) {
+                        other.actions.remove(name);
+                        other.prior_actions.remove(name);
+                    }
+                    disowned = true;
+                }
+                prior_actions.insert(name.clone(), prior);
                 text = jsonc::set(&text, &path, value).map_err(settings_error)?;
             }
             tree::write(self.roots(), SETTINGS, text.as_bytes(), false)?;
+            if disowned {
+                self.write_setup_receipts(&receipts)?;
+            }
         }
         let applied = self.apply_locked(Some(label), origin, now_ms)?;
         let applied = applied.recorded.then_some(applied);
@@ -1103,9 +1138,10 @@ impl Customize {
     /// Undoes an installed setup, and only it: its library entry off (and
     /// removed when the install made it; what was under it comes back), its
     /// views layer deleted, its actions out (or back to yours), its receipt
-    /// dropped. An action you, or a setup installed after it, changed since
-    /// stays as it is; a setup installed after it that replaced its action
-    /// now puts back what this one had replaced. Your own customize folder
+    /// dropped. An action you changed since stays as it is; one another
+    /// installed setup also sets stays that setup's (the topmost one's), and
+    /// only an action no other setup sets goes back to what was there before
+    /// the setups. Your own customize folder
     /// and every other setup's layer are not touched. Extensions are the
     /// caller's (it names them in the receipt).
     pub fn remove_setup(
@@ -1133,41 +1169,48 @@ impl Customize {
             }
             _ => None,
         };
+        let mut file = self.read_setup_receipts()?;
+        file.setups.retain(|old| old.id != receipt.id);
         let mut actions = Vec::new();
         let mut kept_actions = Vec::new();
+        let mut shared_actions = Vec::new();
         if !receipt.actions.is_empty() {
             let mut text = settings_text(self)?;
-            let file = jsonc::parse(&text).unwrap_or(Value::Null);
+            let settings = jsonc::parse(&text).unwrap_or(Value::Null);
+            let mut changed = false;
             for (name, value) in &receipt.actions {
                 let path = action_path(name);
-                if cmux_config::value::value_at(&file, &path) != Some(value) {
-                    kept_actions.push(name.clone());
-                    continue;
+                let current = cmux_config::value::value_at(&settings, &path);
+                match action_after_remove(&file.setups, receipt, name, value, current) {
+                    ActionAfterRemove::Yours => kept_actions.push(name.clone()),
+                    ActionAfterRemove::Owned(None) => shared_actions.push(name.clone()),
+                    ActionAfterRemove::Owned(Some(top)) => {
+                        text = jsonc::set(&text, &path, &top).map_err(settings_error)?;
+                        changed = true;
+                        shared_actions.push(name.clone());
+                    }
+                    ActionAfterRemove::Base(base) => {
+                        let edit = match base {
+                            Some(prior) => jsonc::set(&text, &path, &prior),
+                            None => jsonc::remove(&text, &path),
+                        };
+                        text = edit.map_err(settings_error)?;
+                        changed = true;
+                        actions.push(name.clone());
+                    }
                 }
-                let changed = match receipt.prior_actions.get(name).cloned().flatten() {
-                    Some(prior) => jsonc::set(&text, &path, &prior),
-                    None => jsonc::remove(&text, &path),
-                };
-                text = changed.map_err(settings_error)?;
-                actions.push(name.clone());
+                // Every setup still setting it puts back the same value on
+                // its last remove: what was there before any setup set it.
+                let base = action_base(&file.setups, Some(receipt), name);
+                for other in file.setups.iter_mut().filter(|other| other.actions.contains_key(name))
+                {
+                    other.prior_actions.insert(name.clone(), base.clone());
+                }
             }
-            if !actions.is_empty() {
+            if changed {
                 tree::write(self.roots(), SETTINGS, text.as_bytes(), false)?;
                 let label = format!("setup {}: removed", receipt.id);
                 self.apply_locked(Some(&label), origin, now_ms)?;
-            }
-        }
-        let mut file = self.read_setup_receipts()?;
-        file.setups.retain(|old| old.id != receipt.id);
-        // A setup that replaced one of this one's actions would put this
-        // one's back on its own remove: it puts back what this one replaced.
-        for other in &mut file.setups {
-            for (name, value) in &receipt.actions {
-                if let Some(prior) = other.prior_actions.get_mut(name)
-                    && prior.as_ref() == Some(value)
-                {
-                    *prior = receipt.prior_actions.get(name).cloned().flatten();
-                }
             }
         }
         self.write_setup_receipts(&file)?;
@@ -1180,8 +1223,94 @@ impl Customize {
             layer: receipt.layer.clone(),
             actions,
             kept_actions,
+            shared_actions,
         })
     }
+}
+
+/// What a remove does with one of the removed setup's actions.
+#[derive(Debug, PartialEq)]
+enum ActionAfterRemove {
+    /// You changed it since: it stays as it is.
+    Yours,
+    /// Another installed setup sets it: the topmost one's value, written
+    /// when it differs from what is there (`None`: it is there already).
+    Owned(Option<Value>),
+    /// No other setup sets it: what was there before any setup did
+    /// (`None`: nothing, the action comes out).
+    Base(Option<Value>),
+}
+
+/// Action `name` once `removed` (which set it to `value`) is off, with
+/// `remaining` the other receipts, top first, and `current` what the
+/// settings file holds. Ownership goes by the order: the topmost remaining
+/// setup that sets it wins, whatever its value; only when none does is
+/// what was there before the setups put back. Never by matching values
+/// alone, so two setups that set the same action never undo each other.
+fn action_after_remove(
+    remaining: &[Receipt],
+    removed: &Receipt,
+    name: &str,
+    value: &Value,
+    current: Option<&Value>,
+) -> ActionAfterRemove {
+    let owners: Vec<&Value> =
+        remaining.iter().filter_map(|other| other.actions.get(name)).collect();
+    let set_by_a_setup = current == Some(value) || owners.iter().any(|own| Some(*own) == current);
+    if !set_by_a_setup {
+        return ActionAfterRemove::Yours;
+    }
+    match owners.first() {
+        Some(top) if Some(*top) == current => ActionAfterRemove::Owned(None),
+        Some(top) => ActionAfterRemove::Owned(Some((*top).clone())),
+        None => ActionAfterRemove::Base(action_base(remaining, Some(removed), name)),
+    }
+}
+
+/// What action `name` was before any of the setups that set it (`also`
+/// included) did. Each records it as its prior; a receipt file from before
+/// that rule chains them instead (a prior that is another setup's value),
+/// so the prior that is no setup's value wins, then any.
+fn action_base(receipts: &[Receipt], also: Option<&Receipt>, name: &str) -> Option<Value> {
+    let members: Vec<&Receipt> =
+        receipts.iter().chain(also).filter(|receipt| receipt.actions.contains_key(name)).collect();
+    let priors = members.iter().filter_map(|receipt| receipt.prior_actions.get(name));
+    let mut first = None;
+    for prior in priors {
+        let is_a_setup_value = prior.as_ref().is_some_and(|prior| {
+            members.iter().any(|member| member.actions.get(name) == Some(prior))
+        });
+        if !is_a_setup_value {
+            return prior.clone();
+        }
+        first.get_or_insert(prior);
+    }
+    first.cloned().flatten()
+}
+
+/// What setup `id` records as the prior of action `name` it is about to
+/// set over `current`, and whether the setups that set it before lose it.
+/// When one of them is what is there, the prior is what was there before
+/// any of them (so every receipt names the same one); when none is, you
+/// changed it since: your value is the prior, and they disown it.
+fn action_base_at_install(
+    receipts: &[Receipt],
+    id: &str,
+    name: &str,
+    current: Option<Value>,
+) -> (Option<Value>, bool) {
+    let others: Vec<Receipt> = receipts
+        .iter()
+        .filter(|receipt| receipt.id != id && receipt.actions.contains_key(name))
+        .cloned()
+        .collect();
+    if others.is_empty() {
+        return (current, false);
+    }
+    if others.iter().any(|other| other.actions.get(name) == current.as_ref()) {
+        return (action_base(&others, None, name), false);
+    }
+    (current, true)
 }
 
 /// The views layer `setup` installs as, when it carries views.

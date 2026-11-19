@@ -686,3 +686,182 @@ fn the_first_receipts_file_still_reads() {
     assert!(setups.iter().all(|receipt| receipt.on && receipt.layer.is_none()));
     assert!(home.customize().setup("github.com/leo/night").unwrap().is_some());
 }
+
+/// A setup that sets one action, `shared`, to run `command`.
+fn action_setup(root: &Path, id: &str, command: &str) -> setup::Setup {
+    let name = id.replace('/', "-");
+    let repo = root.join(format!("actions-{name}-{}", command.len()));
+    fs::create_dir_all(&repo).unwrap();
+    fs::write(
+        repo.join(SETUP_FILE),
+        format!(
+            r#"{{"cmuxSetup": 1, "id": "{id}", "name": "{name}", "cmuxProfile": 1,
+               "actions": {{"shared": {{"type": "command", "command": "{command}"}}}}}}"#
+        ),
+    )
+    .unwrap();
+    setup::read_dir(&repo).unwrap()
+}
+
+fn install_action(home: &Home, customize: &Customize, id: &str, command: &str, at: u64) {
+    let read = action_setup(home.dir.path(), id, command);
+    let installed = customize.install_setup(&read, id, "cli", at).unwrap();
+    let reference = Reference::parse(&format!("github.com/{id}")).unwrap();
+    let receipt =
+        Receipt::new(&read, &installed, SetupSource::Repo { reference }, "c", Vec::new(), at);
+    customize.record_setup(receipt).unwrap();
+}
+
+fn remove_by_id(customize: &Customize, id: &str, at: u64) -> setup::Removed {
+    let receipt = customize.setup(id).unwrap().unwrap();
+    customize.remove_setup(&receipt, "cli", at).unwrap()
+}
+
+/// What the `shared` action runs now (`Null`: there is none).
+fn shared(home: &Home) -> Value {
+    home.settings()["actions"]["shared"]["command"].clone()
+}
+
+const MINE_SHARED: &str =
+    "{ \"actions\": { \"shared\": { \"type\": \"command\", \"command\": \"echo mine\" } } }\n";
+
+fn prior_of(customize: &Customize, id: &str) -> Option<Value> {
+    customize.setup(id).unwrap().unwrap().prior_actions["shared"].clone()
+}
+
+#[test]
+fn removing_one_of_two_setups_that_set_the_same_action_keeps_it_for_the_other() {
+    for first_off in ["leo/a", "leo/b"] {
+        let home = Home::new();
+        home.write("cmux-next.json", MINE_SHARED);
+        let customize = home.customize();
+        install_action(&home, &customize, "leo/a", "echo same", 10);
+        install_action(&home, &customize, "leo/b", "echo same", 20);
+        let mine = Some(json!({ "type": "command", "command": "echo mine" }));
+        assert_eq!(prior_of(&customize, "leo/b"), mine, "both name what was there before them");
+
+        let removed = remove_by_id(&customize, first_off, 30);
+        assert_eq!(shared(&home), json!("echo same"), "{first_off} off: the other still sets it");
+        assert!(removed.actions.is_empty(), "{removed:?}");
+        assert_eq!(removed.shared_actions, ["shared"]);
+        let other = if first_off == "leo/a" { "leo/b" } else { "leo/a" };
+        let receipt = customize.setup(other).unwrap().unwrap();
+        assert_eq!(receipt.actions["shared"]["command"], json!("echo same"));
+        assert_eq!(receipt.prior_actions["shared"], mine, "its receipt still puts yours back");
+
+        let removed = remove_by_id(&customize, other, 40);
+        assert_eq!(removed.actions, ["shared"]);
+        assert_eq!(shared(&home), json!("echo mine"), "the last one off puts yours back");
+    }
+}
+
+#[test]
+fn two_setups_with_different_values_hand_the_action_down_by_order() {
+    for (first_off, left) in [("leo/b", "echo a"), ("leo/a", "echo b")] {
+        let home = Home::new();
+        home.write("cmux-next.json", MINE_SHARED);
+        let customize = home.customize();
+        install_action(&home, &customize, "leo/a", "echo a", 10);
+        install_action(&home, &customize, "leo/b", "echo b", 20);
+        assert_eq!(shared(&home), json!("echo b"), "the top one wins");
+
+        let removed = remove_by_id(&customize, first_off, 30);
+        assert_eq!(shared(&home), json!(left), "{first_off} off");
+        assert_eq!(removed.shared_actions, ["shared"]);
+        let other = if first_off == "leo/a" { "leo/b" } else { "leo/a" };
+        remove_by_id(&customize, other, 40);
+        assert_eq!(shared(&home), json!("echo mine"));
+        assert!(customize.setups().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn an_action_no_one_had_comes_out_only_with_the_last_setup_that_sets_it() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let customize = home.customize();
+    install_action(&home, &customize, "leo/a", "echo same", 10);
+    install_action(&home, &customize, "leo/b", "echo same", 20);
+    install_action(&home, &customize, "leo/c", "echo c", 30);
+    remove_by_id(&customize, "leo/c", 40);
+    assert_eq!(shared(&home), json!("echo same"));
+    remove_by_id(&customize, "leo/a", 50);
+    assert_eq!(shared(&home), json!("echo same"));
+    assert_eq!(prior_of(&customize, "leo/b"), None);
+    remove_by_id(&customize, "leo/b", 60);
+    assert_eq!(shared(&home), Value::Null);
+    assert_eq!(home.settings()["actions"]["mine"]["command"], json!("ls"));
+}
+
+#[test]
+fn an_action_you_changed_before_a_new_setup_comes_back_when_that_setup_goes() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE_SHARED);
+    let customize = home.customize();
+    install_action(&home, &customize, "leo/a", "echo a", 10);
+    let text = home.read("cmux-next.json").unwrap().replace("\"echo a\"", "\"echo hand\"");
+    home.write("cmux-next.json", &text);
+    customize.apply(None, "cli", 15).unwrap();
+    install_action(&home, &customize, "leo/b", "echo b", 20);
+    assert!(
+        !customize.setup("leo/a").unwrap().unwrap().actions.contains_key("shared"),
+        "your change made it yours: leo/a no longer puts anything back"
+    );
+
+    let removed = remove_by_id(&customize, "leo/b", 30);
+    assert_eq!(removed.actions, ["shared"]);
+    assert_eq!(shared(&home), json!("echo hand"));
+    let removed = remove_by_id(&customize, "leo/a", 40);
+    assert!(removed.actions.is_empty() && removed.shared_actions.is_empty(), "{removed:?}");
+    assert_eq!(shared(&home), json!("echo hand"));
+}
+
+#[test]
+fn receipts_that_chain_their_priors_still_put_the_first_value_back() {
+    // The receipt file as the previous rule wrote it: each setup's prior is
+    // what was there when it installed (leo/b's is leo/a's value).
+    let home = Home::new();
+    home.write("cmux-next.json", MINE_SHARED);
+    let customize = home.customize();
+    install_action(&home, &customize, "leo/a", "echo a", 10);
+    install_action(&home, &customize, "leo/b", "echo b", 20);
+    let path = home.dir.path().join("state/setups.json");
+    let mut file: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    let rows = file["setups"].as_array_mut().unwrap();
+    let b = rows.iter_mut().find(|row| row["id"] == json!("leo/b")).unwrap();
+    b["prior_actions"]["shared"] = json!({ "type": "command", "command": "echo a" });
+    fs::write(&path, serde_json::to_string(&file).unwrap()).unwrap();
+
+    remove_by_id(&customize, "leo/a", 30);
+    assert_eq!(shared(&home), json!("echo b"));
+    assert_eq!(
+        prior_of(&customize, "leo/b"),
+        Some(json!({ "type": "command", "command": "echo mine" }))
+    );
+    remove_by_id(&customize, "leo/b", 40);
+    assert_eq!(shared(&home), json!("echo mine"));
+}
+
+#[test]
+fn an_update_whose_id_changed_leaves_one_receipt_in_the_old_place() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE_SHARED);
+    let customize = home.customize();
+    install_action(&home, &customize, "leo/below", "echo below", 5);
+    install_action(&home, &customize, "leo/old", "echo old", 10);
+    install_action(&home, &customize, "leo/top", "echo top", 15);
+    let old = customize.setup("leo/old").unwrap().unwrap();
+
+    let taken = action_setup(home.dir.path(), "leo/top", "echo taken");
+    let refused = customize.replace_setup(&old, &taken, "update", "cli", 20);
+    assert!(matches!(refused, Err(Error::Setup(_))), "{refused:?}");
+
+    let renamed = action_setup(home.dir.path(), "leo/renamed", "echo renamed");
+    let installed = customize.replace_setup(&old, &renamed, "update", "cli", 30).unwrap();
+    let reference = Reference::parse("github.com/leo/renamed").unwrap();
+    let receipt =
+        Receipt::new(&renamed, &installed, SetupSource::Repo { reference }, "d", Vec::new(), 30);
+    customize.record_setup(receipt).unwrap();
+    let ids: Vec<String> = customize.setups().unwrap().into_iter().map(|r| r.id).collect();
+    assert_eq!(ids, ["leo/top", "leo/renamed", "leo/below"]);
+}

@@ -22,7 +22,8 @@ anything. `--yes` answers the card for you (needed with `--json` or without a te
   folder: to what it holds now). It keeps its place in the order, and stays off if it was off.
 - `cmux setup remove [REPO|ID|DIR]` takes off its layer and only its layer: its settings, views,
   actions, and the extensions it installed.
-- `cmux setup off ID` turns its layer off and keeps it installed in its place; `cmux setup on ID`
+- `cmux setup off ID` turns its settings, theme, shortcuts, stylesheets and views off and keeps it
+  installed in its place (its actions and extensions stay); `cmux setup on ID`
   turns it back on.
 - `cmux setup order ID [ID]...` puts the setups in that order, top first.
 
@@ -42,8 +43,10 @@ Every setup is a layer of its own. Install two looks and both are there: the new
 - **A key two setups set takes the higher one's value.** `cmux setup order` changes which is
   higher; `cmux setup off` lets the one below show.
 - **Removing one touches nothing else.** The other setups' settings, themes and views, and your
-  own, stay byte for byte. An action another setup or you changed since stays; one a later setup
-  had replaced now goes back to what was there before both.
+  own, stay byte for byte. An action you changed since stays yours. An action another installed
+  setup also sets stays that setup's (the topmost one's, when several do), even when both set the
+  same value; only when no installed setup sets it any more does it go back to what was there
+  before the setups.
 
 On disk:
 

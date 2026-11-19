@@ -1115,6 +1115,15 @@ fn human(value: &Value) -> String {
             let names: Vec<_> = kept.iter().filter_map(Value::as_str).collect();
             line.push_str(&format!(" Kept the actions you changed since: {}.", names.join(", ")));
         }
+        if let Some(shared) =
+            removed["shared_actions"].as_array().filter(|shared| !shared.is_empty())
+        {
+            let names: Vec<_> = shared.iter().filter_map(Value::as_str).collect();
+            line.push_str(&format!(
+                " Left the actions another installed setup also sets: {}.",
+                names.join(", ")
+            ));
+        }
         return line;
     }
     if let Some(setups) = value.get("setups").and_then(Value::as_array) {
