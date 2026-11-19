@@ -9,8 +9,10 @@ public import Foundation
 ///
 /// - `cmux.settings.backdrop.image.link {url}`: downloads an https image or movie and uses it,
 ///   as a picked file is used; `{id}`.
-/// - `cmux.settings.backdrop.image.remove {id}`: deletes one of the folder's own images, never
-///   the background in use (`cmux.settings.backdrop.in_use`); `{bytes}`.
+/// - `cmux.settings.backdrop.image.remove {id}`: deletes one of the folder's own images, or takes a
+///   YouTube wallpaper off the list, never the background in use (`cmux.settings.backdrop.in_use`); `{bytes}`.
+/// - `cmux.settings.backdrop.image.youtube {id}`: lists a canonical `youtube:` id under Moving
+///   wallpapers and sets it; `{id}`.
 /// - `cmux.settings.backdrop.image.reveal {id?}`: shows the image, or the folder, in Finder.
 /// - `cmux.settings.backdrop.image.usage`: `{bytes, folder}`: what the folder's own images take, and
 ///   the folder (Shuffle Your Images is `folder:` it).
@@ -69,7 +71,12 @@ public final class BackdropImagesPageProvider: PageProvider {
             }
             defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
             return ["id": .string(try await use(file))]
+        case Self.prefix + "youtube":
+            return try await useYouTube(params)
         case Self.prefix + "remove":
+            if let id = params["id"]?.stringValue, let video = BackdropYouTube(id: id) {
+                return try await removeYouTube(video)
+            }
             let selection = try own(params)
             // Removing the background in use would leave every window blank.
             guard selection != inUse() else {
@@ -102,6 +109,30 @@ public final class BackdropImagesPageProvider: PageProvider {
         default:
             throw PageError.unknownOp(op)
         }
+    }
+
+    /// `youtube {id}`: a canonical YouTube wallpaper id (`youtube:<VIDEO_ID>[?start=S][&end=E][&quality=Q]`;
+    /// the Rust side turns a pasted link into one) is listed under Moving wallpapers and set as the
+    /// background; `{id}`. The person chose it, so the write is theirs.
+    private func useYouTube(_ params: JSONValue) async throws -> JSONValue {
+        guard let id = params["id"]?.stringValue, let video = BackdropYouTube(id: id) else {
+            throw PageError.invalidParams("id is not a YouTube wallpaper id")
+        }
+        guard let settings else { throw PageError(code: "cmux.page.unavailable", message: "no settings") }
+        let library = BackdropYouTubeLibrary(folder: images.folder)
+        try await Task.detached(priority: .medium) { try library.add(video) }.value
+        try await settings.setSetting(at: BackdropSelectionSetting.configPath, to: .string(video.id), by: .user)
+        return ["id": .string(video.id)]
+    }
+
+    /// Takes a YouTube wallpaper off the list, never the one in use; `{bytes, folder}`.
+    private func removeYouTube(_ video: BackdropYouTube) async throws -> JSONValue {
+        guard inUse() != .youtube(video) else {
+            throw PageError(code: "cmux.settings.backdrop.in_use", message: "the background in use cannot be removed")
+        }
+        let library = BackdropYouTubeLibrary(folder: images.folder)
+        try await Task.detached(priority: .medium) { try library.remove(video) }.value
+        return try await usage()
     }
 
     /// The folder's own image `params.id` names; anything else is refused.

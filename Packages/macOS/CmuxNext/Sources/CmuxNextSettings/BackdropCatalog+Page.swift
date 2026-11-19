@@ -7,14 +7,22 @@ public extension BackdropCatalog {
     /// whether it is dynamic.
     var pageRows: JSONValue {
         .array(choices.map { choice -> JSONValue in
-            let title = choice.title(aerialNames: aerialNames)
+            let video = choice.youtube
+            // A YouTube video's title is YouTube's (oEmbed, kept in the library), its id until known.
+            let title = video.flatMap { youtubeTitles[$0.videoID] } ?? choice.title(aerialNames: aerialNames)
             var row: [String: JSONValue] = ["id": .string(choice.id), "title": .string(title),
                                             "attribution": .string(choice.attribution(title: title))]
             if let collection = choice.pickerCollection {
                 row["collection"] = .string(collection.id)
                 row["collection_title"] = .string(collection.title)
             }
-            if choice.liveID != nil {
+            if let video {
+                // A YouTube video plays in the embed; its thumbnail is YouTube's, cached as its poster.
+                row["video"] = .bool(true)
+                row["youtube"] = .object(["video": .string(video.videoID), "start": .number(Double(video.start)),
+                                          "end": video.end.map { .number(Double($0)) } ?? .null,
+                                          "quality": .number(Double(video.quality))])
+            } else if choice.liveID != nil {
                 // A live wallpaper: its thumbnail is its still, drawn on the GPU.
                 row["live"] = .bool(true)
             } else if choice.isVideo {

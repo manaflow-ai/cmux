@@ -37,6 +37,8 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         if case .live(let id) = self { return id }
         return nil
     }
+    /// A YouTube video playing in the embed (``BackdropYouTube``), its thumbnail the poster.
+    case youtube(BackdropYouTube)
 
     /// The persisted id of ``desktop``.
     public static let desktopID = "desktop"
@@ -52,6 +54,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .moment(let path, let frame, let dark): return "system:\(path)|frame:\(frame)|\(dark ? "dark" : "light")"
         case .live(let id): return Self.livePrefix + id
         case .shader(let shader): return shader.id
+        case .youtube(let video): return video.id
         }
     }
 
@@ -73,6 +76,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .moment(let path, _, _): return Self.systemTitle(path, aerialNames: aerialNames)
         case .live(let id): return LiveWallpaper.named(id)?.name ?? id
         case .shader(let shader): return shader.title
+        case .youtube(let video): return video.title
         }
     }
 
@@ -90,7 +94,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         switch self {
         case .system(let path), .file(let path): return AppleWallpapers.isVideo(path)
         case .pair(let light, let dark): return light.isVideo || dark.isVideo
-        case .art, .desktop, .moment, .shader, .live: return false
+        case .art, .desktop, .moment, .shader, .live, .youtube: return false
         }
     }
 
@@ -99,9 +103,22 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         switch self {
         case .shader(let shader): return shader
         case .pair(let light, let dark): return light.shader ?? dark.shader
-        case .art, .system, .file, .desktop, .moment, .live: return nil
+        case .art, .system, .file, .desktop, .moment, .live, .youtube: return nil
         }
     }
+
+    /// The YouTube video this choice plays, nil for anything else.
+    public var youtube: BackdropYouTube? {
+        switch self {
+        case .youtube(let video): return video
+        case .pair(let light, let dark): return light.youtube ?? dark.youtube
+        case .art, .system, .file, .desktop, .moment, .shader, .live: return nil
+        }
+    }
+
+    /// Whether the window plays this choice as a moving picture: a video file or a YouTube video.
+    /// The picker lists both under Moving wallpapers.
+    public var isMovingPicture: Bool { isVideo || youtube != nil }
 
     /// The picker group: the art's collection, the person's own images, Apple Wallpapers for a
     /// macOS still, or Moving wallpapers for every video (Apple's, downloaded aerials, the
@@ -114,6 +131,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .moment: return (AppleWallpapers.collection, AppleWallpapers.collectionTitle)
         case .live: return Self.liveCollection
         case .shader: return (BackdropShader.collection, BackdropShader.collectionTitle)
+        case .youtube: return Self.videoCollection
         case .desktop, .pair: return nil
         }
     }
@@ -152,6 +170,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
                 ? String(localized: "backdrop.live.attribution", defaultValue: "Live wallpaper: moves, and follows the pointer", bundle: .module)
                 : summary
         case .shader(let shader): return shader.attribution
+        case .youtube: return BackdropYouTube.attribution(title: title)
         }
     }
 
@@ -160,6 +179,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         switch self {
         case .art(let art): return art.sourceURL
         case .pair(let light, _): return light.sourceURL
+        case .youtube(let video): return URL(string: "https://www.youtube.com/watch?v=\(video.videoID)")
         case .system, .file, .desktop, .moment, .shader, .live: return nil
         }
     }
@@ -175,6 +195,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
             return (dark ? wallpaper?.darkThumbnail : wallpaper?.lightThumbnail) ?? wallpaper?.thumbnail ?? URL(fileURLWithPath: path)
         case .pair(let light, _): return light.thumbnailURL
         case .shader(let shader): return shader.posterURL(dark: true)
+        case .youtube(let video): return video.posterURL
         case .file, .desktop: return imageURL
         // Its still is drawn, not a file (SettingsBackdropThumbnails).
         case .live: return nil
@@ -205,6 +226,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
             // The full picture holds every frame; until it downloads, the thumbnail of the moment's side.
             return appleWallpaper(path)?.imageURL(for: dark ? .dark : .light) ?? URL(fileURLWithPath: path)
         case .shader(let shader): return shader.posterURL(dark: appearance == .dark)
+        case .youtube(let video): return video.posterURL
         }
     }
 
@@ -252,7 +274,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
             // window shows) it is read here.
             let picture = BackdropImageStore.shared.desktop.picture ?? DesktopPicture(screen: NSScreen.main ?? NSScreen.screens.first)
             return picture.resolvedURL(dark: dark)
-        case .art, .file, .live: return imageURL
+        case .art, .file, .live, .youtube: return imageURL
         }
     }
 
@@ -287,6 +309,8 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     public init?(id: String) {
         if let art = BackdropArt(id: id) {
             self = .art(art)
+        } else if let video = BackdropYouTube(id: id) {
+            self = .youtube(video)
         } else if let shader = BackdropShader(id: id) {
             self = .shader(shader)
         } else if id == Self.desktopID {

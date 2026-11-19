@@ -37,6 +37,22 @@ public final class BackdropImageStore {
     /// Wakes the video wallpapers of every window this store serves when idle time can change
     /// whether they play (`appearance.videoWallpaperIdlePause`).
     public let idle = BackdropIdle()
+    /// The YouTube players of every window this store serves, one playing at a time (``BackdropYouTubeView``).
+    public let youtube = BackdropYouTubePlayers()
+    /// YouTube wallpapers' posters and titles, fetched once (the video stream never is).
+    public let youtubeDownloads = BackdropYouTubeDownloads(library: .app) { url in
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+        return data
+    }
+
+    /// The file of `selection`'s thumbnail; a YouTube video's is its poster, fetched once into
+    /// Caches first, and nil until it is.
+    public func thumbnailURL(of selection: BackdropSelection) async -> URL? {
+        if let video = selection.youtube { return await youtubeDownloads.poster(for: video) }
+        return selection.thumbnailURL
+    }
+
     /// Texture passes run (tests).
     private(set) var renderCount = 0
 
@@ -159,6 +175,14 @@ public final class BackdropImageStore {
         if case .art(let art) = selection, art.imageURL == nil {
             // Not bundled and not downloaded yet: fetch it once, then decode as usual.
             guard await downloads.file(for: art) != nil else { return nil }
+            if let image = images[key] { return image }
+        }
+        if case .youtube(let video) = selection {
+            // The poster is fetched once into Caches; the video is listed in the picker with its title.
+            let downloads = youtubeDownloads
+            // task-owner: one library write and oEmbed read per shown video, ended by itself (never cancelled)
+            Task.detached(priority: .utility) { await downloads.shown(video) }
+            guard await downloads.poster(for: video) != nil else { return nil }
             if let image = images[key] { return image }
         }
         // Every caller waits on the newest chain until none is newer (the desktop can move on

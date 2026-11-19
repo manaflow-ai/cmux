@@ -71,6 +71,8 @@ public final class WindowMaterialView: NSView {
     public let videoView: BackdropVideoView
     /// A living wallpaper over the art (its still), drawn every frame while seen (``BackdropShaderView``).
     public let shaderView: BackdropShaderView
+    /// A YouTube video over the art (its poster), playing in one window at a time (``BackdropYouTubeView``).
+    public let youtubeView: BackdropYouTubeView
     private(set) var artImage: NSImage?
     /// A video wallpaper plays over the art (pages get no still of it, `glassSource`).
     private(set) var showsVideo = false
@@ -80,6 +82,8 @@ public final class WindowMaterialView: NSView {
     private(set) var showsLive = false
     /// A living wallpaper draws over the art (pages get no still of it, `glassSource`).
     private(set) var showsShader = false
+    /// A YouTube video plays over the art (pages get no still of it, `glassSource`).
+    private(set) var showsYouTube = false
     /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
     let glassFeeds = NSHashTable<GlassBackdropFeed>.weakObjects()
     private let images: BackdropImageStore
@@ -122,6 +126,7 @@ public final class WindowMaterialView: NSView {
         videoView = BackdropVideoView(frame: frameRect, players: videos, idle: idle ?? images.idle)
         liveView = BackdropLiveView(frame: frameRect, programs: images.livePrograms)
         shaderView = BackdropShaderView(frame: frameRect, renderer: images.shaders)
+        youtubeView = BackdropYouTubeView(frame: frameRect, players: images.youtube, idle: idle ?? images.idle)
         super.init(frame: frameRect)
         artView.wantsLayer = true
         artView.frame = bounds
@@ -139,9 +144,16 @@ public final class WindowMaterialView: NSView {
         shaderView.frame = bounds
         shaderView.autoresizingMask = [.width, .height]
         addSubview(shaderView)
+        youtubeView.frame = bounds
+        youtubeView.autoresizingMask = [.width, .height]
+        addSubview(youtubeView)
         // The living wallpaper moves on the video wallpaper's terms, through its observers.
         shaderView.sight = { [weak videoView] in (videoView?.screensAsleep ?? false, videoView?.sessionInactive ?? false) }
-        videoView.onSightChange = { [weak shaderView] closing in shaderView?.sightChanged(closing: closing) }
+        youtubeView.sight = shaderView.sight
+        videoView.onSightChange = { [weak shaderView, weak youtubeView] closing in
+            shaderView?.sightChanged(closing: closing)
+            youtubeView?.sightChanged(closing: closing)
+        }
         glassTint.overlay.frame = bounds
         glassTint.overlay.autoresizingMask = [.width, .height]
         addSubview(glassTint.overlay)
@@ -327,6 +339,9 @@ public final class WindowMaterialView: NSView {
         let shader = hidesArt ? nil : shown?.shader
         showsShader = shader != nil
         shaderView.show(shader, dark: dark)
+        let youtube = hidesArt ? nil : shown?.youtube
+        showsYouTube = youtube != nil
+        youtubeView.show(youtube)
         // Window Glass: the desktop shows through the art. The model value only, so a fade-in in
         // flight runs on to it.
         artOpacity = Float(backdrop.artOpacity)
@@ -334,6 +349,7 @@ public final class WindowMaterialView: NSView {
         if videoView.layer?.opacity != artOpacity { videoView.layer?.opacity = artOpacity }
         if liveView.layer?.opacity != artOpacity { liveView.layer?.opacity = artOpacity }
         if shaderView.layer?.opacity != artOpacity { shaderView.layer?.opacity = artOpacity }
+        if youtubeView.layer?.opacity != artOpacity { youtubeView.layer?.opacity = artOpacity }
         if backdrop.material != material {
             material = backdrop.material
             materialView?.removeFromSuperview()
@@ -394,7 +410,7 @@ public final class WindowMaterialView: NSView {
     private func applyArtBlur(_ radius: Int) {
         guard radius != artBlurRadius else { return }
         artBlurRadius = radius
-        for view in [artView, videoView as NSView, liveView as NSView, shaderView as NSView] {
+        for view in [artView, videoView as NSView, liveView as NSView, shaderView as NSView, youtubeView as NSView] {
             if radius > 0 { view.layerUsesCoreImageFilters = true }
             // Clamped first: the blur then reads the edge pixels past the edge, not transparency,
             // so the picture keeps no translucent rim.

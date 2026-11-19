@@ -6,7 +6,7 @@ extension WindowMaterialView {
     /// The art pages may refract now: nil under the solid sheet, without art, under a moving
     /// or live or living wallpaper, or where the desktop shows through more than a little of the art.
     var glassStill: NSImage? {
-        guard !isHidden, !hidesArt, !artView.isHidden, !showsVideo, !showsLive, !showsShader, Self.refractsArt(opacity: artOpacity) else { return nil }
+        guard !isHidden, !hidesArt, !artView.isHidden, !showsVideo, !showsLive, !showsShader, !showsYouTube, Self.refractsArt(opacity: artOpacity) else { return nil }
         return artImage
     }
 

@@ -54,7 +54,7 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
         }
         guard request.prefix == Self.prefix, request.path.count == 1,
               let id = request.path[0].removingPercentEncoding, let selection = BackdropSelection(id: id),
-              allowed.contains(id) || refreshedAllowed(id) || userImages?.contains(selection) == true else { return nil }
+              selection.youtube != nil || allowed.contains(id) || refreshedAllowed(id) || userImages?.contains(selection) == true else { return nil }
         if case .live(let slug) = selection, let wallpaper = LiveWallpaper.named(slug) {
             let data = await BackdropImageStore.shared.livePrograms.stillPNG(wallpaper, width: 240, height: 135, tokens: ThemeScope.app.tokens)
             return data.map { PageResource(data: $0, mimeType: "image/png") }
@@ -62,13 +62,11 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
         if let data = cache[id] { return PageResource(data: data, mimeType: "image/png") }
         // Art reads its bundled thumbnail, so works that are not downloaded yet still show. A file
         // (a photo can be tens of megabytes) decodes off the main actor; the desktop picture,
-        // which only the main actor can resolve, draws here.
-        let data: Data?
-        if let url = selection.thumbnailURL {
-            data = await Task.detached { Self.thumbnail(at: url) }.value
-        } else {
-            data = selection.image().flatMap(Self.thumbnail)
-        }
+        // which only the main actor can resolve, draws here. Any YouTube id answers its poster: the
+        // page previews a video before the person chooses it.
+        let data: Data? = if let url = await BackdropImageStore.shared.thumbnailURL(of: selection) {
+            await Task.detached { Self.thumbnail(at: url) }.value
+        } else { selection.image().flatMap(Self.thumbnail) }
         guard let data else { return nil }
         cache[id] = data
         return PageResource(data: data, mimeType: "image/png")
