@@ -584,6 +584,10 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
 #[path = "client_closed_tests.rs"]
 mod closed_tests;
 
+#[cfg(all(test, unix))]
+#[path = "client_cancel_tests.rs"]
+mod cancel_tests;
+
 #[cfg(test)]
 mod lineage_tests {
     use super::*;
