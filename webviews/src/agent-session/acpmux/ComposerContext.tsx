@@ -339,10 +339,13 @@ export function ComposerContext({
   const sessions = placeLists.current.of(listedSessions);
   // The chat's own place (`placeFields` of its summary): the same object while where it runs is the
   // same, so the machine and folder lists below are not made again from every listed chat when only
-  // the summary's other fields changed. A New Tab's summary is made anew from each snapshot.
-  const placedSummary = useRef<Summary | undefined>(undefined);
-  if (!samePlace(placedSummary.current, summary)) placedSummary.current = summary;
-  const summaryPlace = placedSummary.current;
+  // the summary's other fields changed. A New Tab's summary is made anew from each snapshot. Kept in
+  // state, not a ref: render reads and writes no ref (React's "adjust state when a prop changes"), so
+  // the compiler still memoizes this component.
+  const [placedSummary, setPlacedSummary] = useState(summary);
+  const placeMoved = !samePlace(placedSummary, summary);
+  if (placeMoved) setPlacedSummary(summary);
+  const summaryPlace = placeMoved ? summary : placedSummary;
   const t = useT();
   const composerSettings = useComposerSettings();
   const newChat = !started && onProject !== undefined;
