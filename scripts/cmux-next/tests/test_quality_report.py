@@ -625,6 +625,22 @@ class WorkflowRepair(unittest.TestCase):
                 self.assertLess(bound, step_limit, f"{name}: timeout plus kill grace {bound} s is not under {step_limit} s")
         self.assertIn("Run v2 gate measures", checked)
 
+    def test_the_gate_step_and_the_job_leave_a_slow_night_room(self):
+        # The gate step has taken 54 to 60 minutes on this job's runner, and one night finished at 57m27s. A limit
+        # under that cuts a run that would have finished, the home reports missing measures and the last step fails
+        # the job. The job's own limit must also hold every bounded step at its limit, or the job is cut first.
+        path = os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-quality-report.yml")
+        steps = workflow_steps(path)
+        gate = next(step for step in steps if step["keys"].get("name") == "Run v2 gate measures")
+        limits = [timeout_parts(line)[0] for line in gate["run"] if timeout_parts(line) is not None]
+        self.assertEqual(len(limits), 1)
+        self.assertGreaterEqual(limits[0], 75 * 60, "the gate script's limit leaves under 15 minutes over a 60-minute run")
+        with open(path, encoding="utf-8") as f:
+            job = [line.split(":", 1)[1] for line in f.read().splitlines() if line.startswith("    timeout-minutes:")]
+        self.assertEqual(len(job), 1)
+        bounded = sum(int(step["keys"]["timeout-minutes"]) for step in steps if "timeout-minutes" in step["keys"])
+        self.assertGreaterEqual(int(job[0]), bounded, f"the job's limit is under its steps' limits ({bounded} min)")
+
 
 def workflow_steps(path):
     """The job's steps as {"keys": top-level scalars, "run": logical lines of run}, read without a YAML library."""
@@ -685,6 +701,12 @@ def runs_cargo(line, root, working_dir):
 
 def timeout_bound(line):
     """Seconds `timeout` lets the line's command live, limit plus kill grace; None when not wrapped in timeout."""
+    parts = timeout_parts(line)
+    return None if parts is None else parts[0] + parts[1]
+
+
+def timeout_parts(line):
+    """(limit, kill grace) in seconds of a line wrapped in `timeout --kill-after=G LIMIT`; None otherwise."""
     def seconds(text):
         text = text.strip('"')
         scale = {"s": 1, "m": 60, "h": 3600}.get(text[-1:], None)
@@ -701,7 +723,7 @@ def timeout_bound(line):
     if not rest or grace is None:
         return None
     try:
-        return seconds(rest[0]) + grace
+        return seconds(rest[0]), grace
     except ValueError:
         return None
 
