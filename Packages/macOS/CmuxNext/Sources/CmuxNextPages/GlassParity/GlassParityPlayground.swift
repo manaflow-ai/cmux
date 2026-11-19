@@ -175,9 +175,12 @@ public final class GlassParityPlayground {
                   right >= left, bottom >= top else {
                 throw PageError(code: "cmux.glass_parity.bad_surfaces", message: "a surface is malformed")
             }
-            let named = item["role"]?.stringValue
-            guard let role = named.map({ Glass.hostGlassRoles[$0] }) ?? Glass.hostGlassRole(level) else {
-                throw PageError(code: "cmux.glass_parity.bad_surfaces", message: "a surface's role is unknown")
+            var role: SurfaceRole?
+            if let named = item["role"]?.stringValue {
+                guard let known = Glass.hostGlassRoles[named] else {
+                    throw PageError(code: "cmux.glass_parity.bad_surfaces", message: "a surface's role is unknown")
+                }
+                role = known
             }
             surfaces.append(.init(id: id, level: level, role: role, rect: CGRect(x: left, y: top, width: right - left, height: bottom - top),
                                   radius: item["radius"]?.doubleValue ?? 0, opacity: item["opacity"]?.doubleValue ?? 1))
@@ -358,7 +361,8 @@ public final class GlassParityPlayground {
         let radius = Self.radius(kind)
         let surface: OverlaySurfaceView = switch kind {
         case .menu: Glass.makeMenuPanel(cornerRadius: radius, interactive: false)
-        case .popover, .card: Glass.makeSurface(.popover, cornerRadius: radius, interactive: false)
+        // The native popovers' one transient material (the palette, page info, which-key).
+        case .popover, .card: Glass.makeOverlayPanel(cornerRadius: radius, interactive: false, tone: .neutralGlass(.transient))
         case .tooltip: Glass.makeSurface(.tooltip, cornerRadius: radius, interactive: false)
         case .dialog: Glass.makeSurface(.sheet, cornerRadius: radius, interactive: false)
         case .toast: Glass.makeSurface(.toast, cornerRadius: radius, interactive: false)
