@@ -50,9 +50,27 @@ for arg in "$@"; do
     *) args+=("$arg") ;;
   esac
 done
+# >>> console-check (scripts/measure/tests/split-spring-console-check.test.sh runs this)
+# console_check BUILD_ONLY REPORT [ARG...]: the launcher's console check, before the build; a failed check writes
+# REPORT as the Python side's check does (the step's artifact says no-gui-session). The Python side makes the same
+# check directly before the launch (split-spring-terminal.py); on a Mac where it fails, a suite that needs a window
+# ends here in the step's first second, not after its build. No check for --build-only and for the 3 suites that
+# the Python side lets through (launch-check says the session itself; pane-bench and action-budget-bench have no
+# window). It does not hold a console that changes in the build's time: the second check is for that.
+console_check() {
+  local build_only="$1" report="$2" arg
+  shift 2
+  [[ "$build_only" == 1 ]] && return 0
+  for arg in "$@"; do
+    case "$arg" in --suite=launch-check | --suite=pane-bench | --suite=action-budget-bench) return 0 ;; esac
+  done
+  python3 -c 'import sys; sys.path.insert(0, "scripts/cmux-next"); import bench_launch; bench_launch.require_gui_session("split-spring", argv=["--json", sys.argv[1]])' "$report"
+}
+# <<< console-check
 tag="split-spring"
 out="$(pwd)/artifacts/split-spring"
 mkdir -p "$out"
+console_check "$build_only" "$out/report.json" ${args[@]+"${args[@]}"} || exit 1
 sha="$(git rev-parse HEAD)"
 # Keyed by the app's sources, not the commit: the bench's own scripts (scripts/cmux-next, scripts/measure) build
 # nothing, so a change to them alone reuses the app. Every other path, the build scripts in scripts/ too, is in the key.
