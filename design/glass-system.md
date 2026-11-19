@@ -58,13 +58,17 @@ PR (cmux#46104's head); after is what ships with it.
 | Level | Used by | Before | After (light / dark) | Backdrop before | Backdrop after |
 | --- | --- | --- | --- | --- | --- |
 | chrome | bars and panes docked on the page where no native glass is under it | 60% | 62% / 55% | `blur(20px) saturate(1.4)` | `blur(20px) saturate(1.6)` |
-| popover | glass in the page that floats but is not a popup: composer, Session Info, running tray, side tabs, viewers | 70% (50% over art) | 72% / 64% (50% over art) | `blur(24px) saturate(1.25)` | `blur(24px) saturate(1.6)` |
+| popover | glass in the page that floats but is not a popup: composer, Session Info, running tray, side tabs, viewers | 70% (50% over art) | 72% / 70% (50% over art) | `blur(24px) saturate(1.25)` | `blur(24px) saturate(1.6)` |
 | menu | every popup and hover card (`--ds-glass-menu-*`, `--ds-transient-web-*`) | 78% | 80% / 72% | `blur(32px) saturate(1.6)` | unchanged |
 | chip | tooltips, the find pill, chips | host contrast-fitted, floor 60% | unchanged | `blur(24px) saturate(1.6)` | unchanged |
 | scrim | behind sheets and dialogs | native `Scrim` (`--cmux-scrim`) | unchanged | none | none |
 | composer material | the one hero surface | the popover tint | the popover tint | `blur(24px) saturate(1.8)` | `blur(24px) saturate(1.6)` |
 | see-through underlay | floating glass in a see-through page that cannot blur itself | 70% (93% cover under a menu) | 40% (88%) | | |
 | edge | every plain glass | hairline ring | hairline ring plus lit top hairline (60% / 24%) | | |
+
+The popover's dark tint is 70%, not the research note's 64%: at 64% the composer's prompt fell under
+4.5:1 over a white page in the dark theme (`webviews/test/composer-glass.test.ts`), so by rule 5 the
+tint went up and the text stayed.
 
 Not changed, on purpose:
 - **chip** keeps the native tooltip's numbers (24 px, a 60% floor that the host raises until text
@@ -134,13 +138,13 @@ surface takes after this change.
 | Dialogs: share, delete chat, add account, connect Claude, add project, machines, cloud sheets, models sheet, form dialog, activity viewer (`.ui-dialog.ui-glass`) | transient veil 55% / 42%, 32 px, 1.6 | sheet role | none here (native-shared role, follow-up) |
 | Notice, transient error card, cookie import toast | toast veil 55% / 42%, chrome blur | toast role | chrome blur now 1.6 |
 | History cookie backups sheet; icon picker pills | bare `.ui-glass` chrome | chrome | 62% / 55%, 1.6 |
-| Agent composer card (`composerStates.css`) | popover tint 70% / 50%, 24 px 1.25 (1.8 over art), specular rim, docked: no underlay | popover, hero | 72% / 64%, one saturation |
+| Agent composer card (`composerStates.css`) | popover tint 70% / 50%, 24 px 1.25 (1.8 over art), specular rim, docked: no underlay | popover, hero | 72% / 70%, one saturation |
 | Composer strip, queued prompts band, goal strip, pending asks, hat questions, running tray, tray tuck | the composer's stack tint | popover | follow the composer |
-| New Tab composer box; legacy new-tab box | popover 70%, 24 px | popover | 72% / 64%, 1.6 |
-| Session Info (`sessionInfo.css`) | popover 70% / 50%, host glass, page blurs in place | popover | 72% / 64%, 1.6 |
+| New Tab composer box; legacy new-tab box | popover 70%, 24 px | popover | 72% / 70%, 1.6 |
+| Session Info (`sessionInfo.css`) | popover 70% / 50%, host glass, page blurs in place | popover | 72% / 70%, 1.6 |
 | Session Info outputs edges | surface at 58/82/90% with 5/8/12 px | 8 | none (a fade) |
 | Summary popover | chrome via `.ui-glass-floats`, page blurs in place | popover | chrome numbers now 62% / 55%, 1.6; level name is a follow-up |
-| Workflow side tab; thread minimap card; image viewer; chat gallery | popover 70%, 24 px | popover | 72% / 64%, 1.6 |
+| Workflow side tab; thread minimap card; image viewer; chat gallery | popover 70%, 24 px | popover | 72% / 70%, 1.6 |
 | PDF viewer, paste view, tool visual card | chrome plus 70% underlay | popover | 62% / 55% over 40% underlay |
 | Jump to latest, jump up, since-divider pill, needs-you pill | page background at 72% (clear over art), fisheye lens | chip | none: the fisheye is its own mode |
 | Selection reply pill | surface at 90%, `blur(6px) saturate(1.4)` | chip, 5 | saturation now the one 1.6; 90% kept (its contrast test) |
