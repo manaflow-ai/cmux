@@ -1,7 +1,7 @@
-import CmuxNextServer
+public import CmuxNextServer
 public import CmuxNextSidebar
 import Foundation
-import Observation
+public import Observation
 
 /// The native Hosts section. It consumes the same `MachineSectionRow.rows` snapshot as the Machines
 /// page, so the sidebar and page cannot disagree about identity, ordering or connection state.
