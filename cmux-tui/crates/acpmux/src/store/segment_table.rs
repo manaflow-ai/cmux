@@ -215,6 +215,7 @@ mod tests {
 
     #[test]
     fn repeated_pages_share_the_segment_table_at_every_log_size() {
+        let mut failures = Vec::new();
         for size in [1, 64, 512] {
             let (_fixture, store) = fixture();
             for seq in 1..=size {
@@ -226,9 +227,10 @@ mod tests {
             assert_eq!(table.len() as u64, size);
             let before = store.segment_table.listings.load(Ordering::Relaxed);
             let started = std::time::Instant::now();
+            let mut shared = true;
             for _ in 0..32 {
                 let next = store.segments("c").unwrap();
-                assert!(Arc::ptr_eq(&table.0, &next.0));
+                shared &= Arc::ptr_eq(&table.0, &next.0);
                 let page = store.events("c", size - 1, 1).unwrap();
                 assert_eq!(page.len(), 1);
                 assert_eq!(page.first().unwrap().seq, size);
@@ -238,8 +240,11 @@ mod tests {
                 "segment table: {size} segments, 32 pages, {lists} directory listings, {} us",
                 started.elapsed().as_micros()
             );
-            assert_eq!(lists, 0);
+            if lists != 0 || !shared {
+                failures.push((size, lists, shared));
+            }
         }
+        assert!(failures.is_empty(), "segment table reuse failed: {failures:?}");
     }
 
     #[test]
