@@ -1282,6 +1282,8 @@ def main(argv=None):
                        help="launch even with no GUI session: only the socket and the window list are checked, no "
                             "frames; the result says socket_only and gui_session")
     sub.add_parser("session", help="only report whether this account has a GUI session")
+    sub.add_parser("console-user", help="print the account whose session is on the console (IOConsoleUsers), or "
+                                        "nothing: the one reader for scripts (scripts/ci/frame-pacing/console-session.sh)")
     sub.add_parser("limits", help="launchd's soft limits (a Finder launch's) and this process's, one JSON line")
     finder = sub.add_parser("finder-exec", help="run COMMAND with launchd's soft limits, as a Finder launch gets")
     finder.add_argument("cmd", nargs=argparse.REMAINDER, metavar="-- COMMAND")
@@ -1302,6 +1304,11 @@ def main(argv=None):
                 os.execvp(cmd[0], cmd)  # the limits set here are the command's (exec keeps them)
             except OSError as error:
                 parser.error(f"finder-exec: cannot run {cmd[0]}: {error}")
+    if opts.command == "console-user":
+        user = console_user()
+        if user:
+            print(user, flush=True)
+        return 0
     if opts.command == "session":
         result = {**host_facts(), "gui_session": gui_session()}
         print("BENCH-LAUNCH " + json.dumps(result), flush=True)
