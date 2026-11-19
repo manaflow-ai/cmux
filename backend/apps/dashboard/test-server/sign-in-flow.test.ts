@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test"
 import { autoSignInHref, signInHref } from "../src/lib/return-path"
 import {
   ACCESS_COOKIE,
+  failedPath,
   FAILED_PATH,
+  MAX_NORMALIZED_RETURN_PATH,
   finishSignIn,
   FLOW_COOKIE,
   FLOW_TTL_SECONDS,
@@ -15,7 +17,7 @@ import {
 } from "../src/lib/sign-in-flow"
 
 const SECRET = "c".repeat(40)
-const config: SignInConfig = signInConfig("console.cmux.dev", { CMUX_SIGN_IN_CLIENT_SECRET: SECRET })!
+const config: SignInConfig = signInConfig("console.cmux.dev", { CMUX_SIGN_IN_CLIENT_ID: "cmux-console", CMUX_SIGN_IN_CLIENT_SECRET: SECRET })!
 const NOW = 1_800_000_000_000
 
 describe("return path", () => {
@@ -30,6 +32,14 @@ describe("return path", () => {
     expect(path).toBe("/integrations/callback?repo=%E6%97%A5%E6%9C%AC&x=%C3%A9")
     expect(() => new Headers({ location: path })).not.toThrow()
     expect(safeReturnPath("/日本")).toBe("/%E6%97%A5%E6%9C%AC")
+  })
+
+  test("caps the normalized path so the flow cookie always fits", () => {
+    const fits = `/${"a".repeat(MAX_NORMALIZED_RETURN_PATH - 1)}`
+    expect(safeReturnPath(fits)).toBe(fits)
+    expect(safeReturnPath(`${fits}a`)).toBe("/")
+    // Percent-encoding counts: 700 three-byte characters become 6300 characters.
+    expect(safeReturnPath(`/${"日".repeat(700)}`)).toBe("/")
   })
 
   test("refuses every open-redirect form", () => {
@@ -66,16 +76,27 @@ describe("return path", () => {
 describe("config", () => {
   test("only the known consoles, each with its own client and cmux.com deployment", () => {
     expect(config).toEqual({ clientId: "cmux-console", issuer: "https://cmux.com", redirectUri: "https://console.cmux.dev/auth/handoff", clientSecret: SECRET })
-    expect(signInConfig("console-staging.cmux.dev", { CMUX_SIGN_IN_CLIENT_SECRET: SECRET })).toEqual({
+    expect(signInConfig("console-staging.cmux.dev", { CMUX_SIGN_IN_CLIENT_ID: "cmux-console-staging", CMUX_SIGN_IN_CLIENT_SECRET: SECRET })).toEqual({
       clientId: "cmux-console-staging",
       issuer: "https://cmux-staging.vercel.app",
       redirectUri: "https://console-staging.cmux.dev/auth/handoff",
       clientSecret: SECRET
     })
-    expect(signInConfig("evil.example", { CMUX_SIGN_IN_CLIENT_SECRET: SECRET })).toBeNull()
+    expect(signInConfig("evil.example", { CMUX_SIGN_IN_CLIENT_ID: "cmux-console", CMUX_SIGN_IN_CLIENT_SECRET: SECRET })).toBeNull()
     expect(signInConfig("localhost:3010", { CMUX_SIGN_IN_CLIENT_SECRET: SECRET })).toBeNull()
     expect(signInConfig("console.cmux.dev", {})).toBeNull()
-    expect(signInConfig("console.cmux.dev", { CMUX_SIGN_IN_CLIENT_SECRET: "short" })).toBeNull()
+    expect(signInConfig("console.cmux.dev", { CMUX_SIGN_IN_CLIENT_ID: "cmux-console", CMUX_SIGN_IN_CLIENT_SECRET: "short" })).toBeNull()
+  })
+
+  test("the deployment's pinned client must match the request host", () => {
+    const production = { CMUX_SIGN_IN_CLIENT_ID: "cmux-console", CMUX_SIGN_IN_CLIENT_SECRET: SECRET }
+    const staging = { CMUX_SIGN_IN_CLIENT_ID: "cmux-console-staging", CMUX_SIGN_IN_CLIENT_SECRET: SECRET }
+    // A host header naming the other console never pairs this deployment's secret with that client.
+    expect(signInConfig("console-staging.cmux.dev", production)).toBeNull()
+    expect(signInConfig("console.cmux.dev", staging)).toBeNull()
+    expect(signInConfig("console.cmux.dev", { CMUX_SIGN_IN_CLIENT_SECRET: SECRET })).toBeNull()
+    expect(signInConfig("console.cmux.dev", { ...production, CMUX_SIGN_IN_CLIENT_ID: "other" })).toBeNull()
+    expect(signInConfig("console.cmux.dev", production)?.clientId).toBe("cmux-console")
   })
 })
 
@@ -192,7 +213,7 @@ describe("finish", () => {
     const { calls, fetchImpl } = issuer(tokens)
     const injected = "i".repeat(43)
     const response = await finishSignIn(handoff({ code: injected, state: "attacker-state-aaaaaaaaaaaaaa" }, flow), { config, fetch: fetchImpl, now: () => NOW })
-    expect(response.headers.get("location")).toBe(FAILED_PATH)
+    expect(response.headers.get("location")).toBe(failedPath("/devices"))
     expect(cookieValue(response, ACCESS_COOKIE)).toBeUndefined()
     expect(setCookies(response).find((c) => c.startsWith(`${FLOW_COOKIE}=`))).toContain("Max-Age=0")
     // The only call burns the code with a verifier that is not this flow's.
@@ -221,6 +242,32 @@ describe("finish", () => {
     expect(cookieValue(response, ACCESS_COOKIE)).toBeUndefined()
   })
 
+  test("a failure on an integration callback offers a retry back to the same callback", async () => {
+    const callback = "/integrations/callback?state=st&code=gh&installation_id=7"
+    const { flow, decoded } = await start(callback)
+    const { fetchImpl } = issuer(() => Response.json({ error: "invalid_grant" }, { status: 400 }))
+    const response = await finishSignIn(handoff({ code: "c", state: decoded.state }, flow), { config, fetch: fetchImpl, now: () => NOW })
+    const location = new URL(response.headers.get("location")!, "https://console.cmux.dev")
+    expect(location.pathname).toBe("/")
+    expect(location.searchParams.get("signin")).toBe("failed")
+    expect(location.searchParams.get("return_to")).toBe(callback)
+    // The retry link goes through the same validated start.
+    expect(new URL(signInHref(location.searchParams.get("return_to")!), "https://console.cmux.dev").searchParams.get("return_to")).toBe(callback)
+    expect(failedPath("//evil.example")).toBe(FAILED_PATH)
+    expect(failedPath("/")).toBe(FAILED_PATH)
+  })
+
+  test("the longest kept return path still round-trips through the flow cookie", async () => {
+    const long = `/integrations/callback?x=${"a".repeat(MAX_NORMALIZED_RETURN_PATH - 30)}`
+    const { flow, decoded, response: started } = await start(long)
+    expect(decoded.returnTo).toBe(long)
+    const line = setCookies(started).find((c) => c.startsWith(`${FLOW_COOKIE}=`))!
+    expect(line.length).toBeLessThan(4000)
+    const { fetchImpl } = issuer(tokens)
+    const response = await finishSignIn(handoff({ code: "c", state: decoded.state }, flow), { config, fetch: fetchImpl, now: () => NOW })
+    expect(response.headers.get("location")).toBe(long)
+  })
+
   test("a PKCE refusal (or any issuer error) is one generic failure", async () => {
     for (const answer of [
       () => Response.json({ error: "invalid_grant" }, { status: 400 }),
@@ -234,7 +281,7 @@ describe("finish", () => {
       const { flow, decoded } = await start("/devices")
       const { fetchImpl } = issuer(answer)
       const response = await finishSignIn(handoff({ code: "c", state: decoded.state }, flow), { config, fetch: fetchImpl, now: () => NOW })
-      expect(response.headers.get("location")).toBe(FAILED_PATH)
+      expect(response.headers.get("location")).toBe(failedPath("/devices"))
       expect(cookieValue(response, ACCESS_COOKIE)).toBeUndefined()
       expect(setCookies(response).find((c) => c.startsWith(`${FLOW_COOKIE}=`))).toContain("Max-Age=0")
     }

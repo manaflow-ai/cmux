@@ -3,7 +3,7 @@ import { env } from "../../env";
 import { createDbHandoffCodeStore } from "../../lib/handoff-codes";
 import { requestOrigin } from "../../lib/request-origin";
 import { stackServerApp } from "../../lib/stack";
-import { makeConsoleSignInAuthorizeHandler } from "../../../services/auth/consoleSignIn";
+import { consoleSignInRateLimitId, makeConsoleSignInAuthorizeHandler } from "../../../services/auth/consoleSignIn";
 
 /** GET /handler/console-sign-in: issues a one-time code to the Cloud console (services/auth/consoleSignIn.ts). */
 export const GET = makeConsoleSignInAuthorizeHandler({
@@ -19,5 +19,6 @@ export const GET = makeConsoleSignInAuthorizeHandler({
   },
   origin: (request) => requestOrigin(request),
   checkRateLimit,
-  rateLimitId: env.CMUX_CONSOLE_SIGN_IN_RATE_LIMIT_ID ?? env.CMUX_FEEDBACK_RATE_LIMIT_ID,
+  // Deployed (Vercel): its own limiter only, and the route refuses without it. Locally the feedback one is enough.
+  rateLimitId: consoleSignInRateLimitId(env, process.env.VERCEL === "1"),
 });

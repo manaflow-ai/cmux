@@ -26,9 +26,23 @@ export const FLOW_COOKIE = "__Host-cmux_signin"
 export const FLOW_TTL_SECONDS = 10 * 60
 export const SIGN_IN_PATH = "/auth/sign-in"
 export const HANDOFF_PATH = "/auth/handoff"
-/** Where every failure lands; the page says only that sign-in did not finish. */
+/** Where a failure with no flow of this browser's lands; the page says only that sign-in did not finish. */
 export const FAILED_PATH = "/?signin=failed"
+/**
+ * The sign-in page after a failure, with a "try again" that keeps the flow's own return path (an
+ * integration callback stays resumable). Nothing on it says which check failed.
+ */
+export const failedPath = (returnTo: string): string => {
+  const safe = safeReturnPath(returnTo)
+  return safe === "/" ? FAILED_PATH : `${FAILED_PATH}&return_to=${encodeURIComponent(safe)}`
+}
 const MAX_RETURN_PATH = 2048
+/**
+ * The longest return path kept (after percent-encoding). With the state and verifier it keeps the
+ * flow cookie well under its 4096-character read limit and the browser's 4 KB cookie limit, so a
+ * long URL can never drop the cookie and fail a sign-in that was otherwise valid.
+ */
+export const MAX_NORMALIZED_RETURN_PATH = 1800
 /** cmux.com's one-time codes: 256 bits, base64url. */
 const CODE_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const TOKEN_TIMEOUT_MS = 10_000
@@ -47,12 +61,17 @@ const CONSOLES: Readonly<Record<string, { clientId: string; issuer: string }>> =
   "console-staging.cmux.dev": { clientId: "cmux-console-staging", issuer: "https://cmux-staging.vercel.app" }
 }
 
-/** This console's client, or null on any other host or without its secret (the flow is then off). */
+/**
+ * This console's client, or null (the flow is then off). The deployment pins its client with
+ * CMUX_SIGN_IN_CLIENT_ID next to the one secret it holds, and the request's host must be that
+ * client's console: a host header naming the other console never pairs this secret with it.
+ */
 export const signInConfig = (host: string | null | undefined, env: Record<string, string | undefined>): SignInConfig | null => {
   const name = host?.toLowerCase().split(":")[0] ?? ""
   const entry = CONSOLES[name]
+  const pinned = env.CMUX_SIGN_IN_CLIENT_ID?.trim()
   const clientSecret = env.CMUX_SIGN_IN_CLIENT_SECRET?.trim()
-  if (!entry || !clientSecret || clientSecret.length < 32) return null
+  if (!entry || !pinned || entry.clientId !== pinned || !clientSecret || clientSecret.length < 32) return null
   return { clientId: entry.clientId, issuer: entry.issuer, redirectUri: `https://${name}${HANDOFF_PATH}`, clientSecret }
 }
 
@@ -73,7 +92,7 @@ export const safeReturnPath = (raw: unknown): string => {
     if (url.pathname.startsWith("/auth/")) return "/"
     // The parsed form is percent-encoded ASCII, so it is always a valid Location header value.
     const normalized = `${url.pathname}${url.search}${url.hash}`
-    if (normalized[1] === "/" || normalized[1] === "\\" || normalized.length > MAX_RETURN_PATH * 3) return "/"
+    if (normalized[1] === "/" || normalized[1] === "\\" || normalized.length > MAX_NORMALIZED_RETURN_PATH) return "/"
     return normalized
   } catch {
     return "/"
@@ -180,9 +199,11 @@ const redeem = async (config: SignInConfig, code: string, verifier: string, fetc
 
 export const finishSignIn = async (request: Request, deps: FinishDeps): Promise<Response> => {
   const clearFlow = cookieHeader(FLOW_COOKIE, "", 0)
+  // Set once this browser's own flow cookie is read: a failure then offers a retry to the same page.
+  let returnTo = "/"
   const fail = (reason: string) => {
     deps.log?.(reason)
-    return redirect(FAILED_PATH, [clearFlow])
+    return redirect(failedPath(returnTo), [clearFlow])
   }
   const config = deps.config
   if (!config) return fail("not_configured")
@@ -190,6 +211,7 @@ export const finishSignIn = async (request: Request, deps: FinishDeps): Promise<
   const code = params.get("code") ?? ""
   const state = params.get("state") ?? ""
   const flow = decodeFlow(readCookie(request, FLOW_COOKIE), deps.now?.() ?? Date.now())
+  if (flow) returnTo = flow.returnTo
   if (!flow || !state || !(await constantTimeEqual(flow.state, state))) {
     // Not a flow this browser started: burn the code (a wrong verifier consumes it on cmux.com) so
     // a code that reached the wrong browser cannot be replayed elsewhere.

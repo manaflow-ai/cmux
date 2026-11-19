@@ -105,6 +105,19 @@ function redirect(location: string | URL): NextResponse {
   return response;
 }
 
+/**
+ * The authorize route's Vercel Firewall rule. A deployment needs its own
+ * CMUX_CONSOLE_SIGN_IN_RATE_LIMIT_ID (undefined otherwise, so the route refuses);
+ * only a local run may fall back to the feedback rule.
+ */
+export function consoleSignInRateLimitId(
+  env: { CMUX_CONSOLE_SIGN_IN_RATE_LIMIT_ID?: string; CMUX_FEEDBACK_RATE_LIMIT_ID?: string },
+  deployed: boolean,
+): string | undefined {
+  if (env.CMUX_CONSOLE_SIGN_IN_RATE_LIMIT_ID) return env.CMUX_CONSOLE_SIGN_IN_RATE_LIMIT_ID;
+  return deployed ? undefined : env.CMUX_FEEDBACK_RATE_LIMIT_ID;
+}
+
 type RateLimitDependencies = {
   checkRateLimit?: typeof vercelCheckRateLimit;
   isVercel?: () => boolean;

@@ -4,12 +4,14 @@ import { NextRequest } from "next/server";
 import {
   createMemoryHandoffCodeStore,
   HANDOFF_CODE_MAX_TTL_MS,
+  sweepExpiredHandoffCodes,
   redeemHandoffCode,
   s256Challenge,
   sha256Hex,
 } from "../app/lib/handoff-codes";
 import {
   consoleSignInClient,
+  consoleSignInRateLimitId,
   makeConsoleSignInAuthorizeHandler,
   makeConsoleSignInTokenHandler,
   type ConsoleSignInUser,
@@ -294,6 +296,19 @@ describe("console sign-in token", () => {
 });
 
 describe("handoff codes", () => {
+  test("a failed cleanup sweep never fails issuing a code", async () => {
+    await expect(sweepExpiredHandoffCodes(async () => { throw new Error("db down"); })).resolves.toBeUndefined();
+    let ran = false;
+    await sweepExpiredHandoffCodes(async () => { ran = true; });
+    expect(ran).toBe(true);
+  });
+
+  test("a deployment uses only its own rate limiter; local runs may fall back", () => {
+    expect(consoleSignInRateLimitId({ CMUX_FEEDBACK_RATE_LIMIT_ID: "feedback" }, true)).toBeUndefined();
+    expect(consoleSignInRateLimitId({ CMUX_CONSOLE_SIGN_IN_RATE_LIMIT_ID: "console", CMUX_FEEDBACK_RATE_LIMIT_ID: "feedback" }, true)).toBe("console");
+    expect(consoleSignInRateLimitId({ CMUX_FEEDBACK_RATE_LIMIT_ID: "feedback" }, false)).toBe("feedback");
+  });
+
   test("S256 matches RFC 7636 appendix B", () => {
     expect(s256Challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")).toBe("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
     expect(sha256Hex("abc")).toBe(createHash("sha256").update("abc").digest("hex"));

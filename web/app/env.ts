@@ -243,8 +243,8 @@ export const env = createEnv({
     // sets only the production one, the staging deployment only the staging one.
     CMUX_CONSOLE_SIGN_IN_SECRET: z.string().min(32).optional(),
     CMUX_CONSOLE_STAGING_SIGN_IN_SECRET: z.string().min(32).optional(),
-    // The console sign-in start route fails closed on Vercel when this limiter
-    // (and the feedback fallback) is absent.
+    // The console sign-in start route fails closed on Vercel without this
+    // limiter; only local runs fall back to the feedback limiter.
     CMUX_CONSOLE_SIGN_IN_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Canonical origin returned with CodeRouter route tokens. Deployed
     // non-preview runtimes must set this; handoff exchange never trusts a

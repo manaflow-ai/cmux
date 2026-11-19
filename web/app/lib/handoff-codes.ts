@@ -104,13 +104,25 @@ export async function redeemHandoffCode(
   return { ok: true, userId: row.userId };
 }
 
+/**
+ * Opportunistic, bounded cleanup of long-expired codes, after the new code is stored. Best effort:
+ * a failed sweep never fails the sign-in (the next issue retries it; expired rows are inert).
+ */
+export async function sweepExpiredHandoffCodes(sweep: () => PromiseLike<unknown>): Promise<void> {
+  try {
+    await sweep();
+  } catch {
+    console.warn("auth.handoff_codes.sweep_failed");
+  }
+}
+
 /** The Postgres store (table auth_handoff_codes). */
 export function createDbHandoffCodeStore(db: () => ReturnType<typeof cloudDb> = cloudDb): HandoffCodeStore {
   return {
     async insert(row, now) {
       const database = db();
-      // Opportunistic, bounded cleanup of long-expired codes.
-      await database.delete(authHandoffCodes).where(
+      await database.insert(authHandoffCodes).values({ ...row, createdAt: now });
+      await sweepExpiredHandoffCodes(() => database.delete(authHandoffCodes).where(
         inArray(
           authHandoffCodes.codeHash,
           database
@@ -120,8 +132,7 @@ export function createDbHandoffCodeStore(db: () => ReturnType<typeof cloudDb> = 
             .orderBy(asc(authHandoffCodes.expiresAt))
             .limit(SWEEP_LIMIT),
         ),
-      );
-      await database.insert(authHandoffCodes).values({ ...row, createdAt: now });
+      ));
     },
     async consume(codeHash, now) {
       const [row] = await db()
