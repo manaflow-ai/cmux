@@ -163,10 +163,32 @@ Successful bounded replay queues its final `stream_end` after every admitted
 record, so completion cannot overtake or discard the replay tail. Overflow and
 cancellation remain destructive. `start` and `cursor` are mutually exclusive.
 
-Each committed subject is also inserted into an append-only
-`(kind, id, sequence)` index in the record transaction. Retained catch-up for
-exact subjects, such as one `agent_tree`, reads only matching sequences. Live
-delivery uses the bounded in-memory fanout and checks each new record once.
+**Subject rows.** Each committed subject also gets a row in an append-only
+`(kind, id, sequence)` index. A later commit writes these rows, not the record
+transaction: the commit of the record that ends a period of 100 records, a
+segment seal, a daemon stop and a registry open each write the rows of every
+record after the mark (`meta.journal_subject_rows_through`) and move the mark
+in that same commit. A store that has no index yet gets the index and the
+rows of every active record in the one transaction that makes the index. A
+read by subject takes the index and, for every active record after the mark,
+the subjects that the record itself names, in one statement: it gives what an
+index written in the record transaction gives. The write and the read parse a
+stored record's subjects with one function, so a damaged record's subject that
+the write skips is skipped by the read too, and each skip is counted in a log
+line.
+Retained catch-up for exact subjects, such as one `agent_tree`, reads only
+matching sequences. Live delivery uses the bounded in-memory fanout and checks
+each new record once.
+
+While a record is after the mark, `meta.schema_version` is 16: schema 15 with
+subject rows due. A build that does not know the mark reads the index alone,
+so it must not open that store, and it refuses 16. The transaction of the
+first record that gets no subject rows sets the 16; a stop and an open put the
+15 back in the commit that writes the rows. After a crash the store stays at
+16 until a build that knows the mark opens it. So 16 is not a plain schema
+number: the next schema change takes 17 and its rows-due number is 18, and the
+open of that build writes the subject rows of a store left at 16 before it
+migrates the store.
 
 Filters are optional. Filter dimensions are ANDed, entries within one
 dimension are ORed, and filtered records still advance the cursor:

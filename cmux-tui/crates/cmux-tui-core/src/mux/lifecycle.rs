@@ -286,10 +286,22 @@ impl Mux {
             self.capture_shutdown_checkpoint();
         }
         lap("shutdown.screen_checkpoint");
-        if let Err(error) = self.journal_ingress.close_and_join() {
+        let joined = self.journal_ingress.close_and_join();
+        if let Err(error) = &joined {
             eprintln!("cmux-tui: stop session journal writer during {context}: {error:#}");
         }
         lap("shutdown.journal_writer");
+        // The writer ended, so the journal has its last row of this run: its
+        // subject rows that are due go in now, and an older build can open
+        // the store again. A writer that did not end can still append: then
+        // nothing is written here and the next open writes them.
+        if joined.is_ok() {
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Err(error) = registry.write_journal_subject_tail() {
+                eprintln!("cmux-tui: write journal subject rows during {context}: {error:#}");
+            }
+        }
+        lap("shutdown.journal_subject_rows");
     }
 
     /// Publish that every owner needed by canonical server lifecycle commands

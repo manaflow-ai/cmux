@@ -11,13 +11,19 @@ use std::time::Duration;
 use anyhow::Context;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
+use crate::workspace_registry::session_journal::subject_rows::stored_number_for_a_rollback;
+
+const REGISTRY: &str = "workspace_registry";
+
 /// Every store a rollback checks: its name, its file in a session directory,
 /// and the newest schema this build reads.
 const STORES: &[(&str, &str, i64)] = &[
     (
-        "workspace_registry",
+        REGISTRY,
         crate::workspace_registry::WORKSPACE_REGISTRY_FILE,
-        crate::workspace_registry::SCHEMA_VERSION,
+        // The number of a store whose journal has subject rows due: this
+        // build opens it, a build that does not know the number refuses it.
+        crate::workspace_registry::session_journal::subject_rows::ROWS_DUE_SCHEMA_VERSION,
     ),
     (
         "conversation_store",
@@ -54,6 +60,11 @@ pub fn stored(state_root: &Path) -> anyhow::Result<BTreeMap<String, i64>> {
                 continue;
             }
             if let Some(version) = schema_version(&path)? {
+                let version = if *name == REGISTRY {
+                    stored_number_for_a_rollback(state_root, &session, version)
+                } else {
+                    version
+                };
                 let newest = found.entry((*name).to_string()).or_insert(version);
                 *newest = (*newest).max(version);
             }

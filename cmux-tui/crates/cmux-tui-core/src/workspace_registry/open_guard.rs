@@ -257,7 +257,7 @@ fn try_preflight_unsupported_schema(
         return Ok(None);
     };
     let found = found.parse::<i64>().context("workspace registry schema is invalid")?;
-    if found <= SCHEMA_VERSION {
+    if super::session_journal::subject_rows::schema_of_stored_number(found) <= SCHEMA_VERSION {
         return Ok(None);
     }
     Ok(Some(UnsupportedWorkspaceRegistrySchema {

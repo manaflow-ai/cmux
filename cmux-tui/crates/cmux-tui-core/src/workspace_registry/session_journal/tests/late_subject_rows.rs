@@ -401,6 +401,21 @@ impl Store {
         took
     }
 
+    /// A stop's write of the subject rows, a close and an open. After the
+    /// write no journal row is after the mark and the schema number is 15.
+    fn stop_and_reopen(&mut self, what: &str) {
+        self.registry().write_journal_subject_tail().unwrap();
+        let head = self.head();
+        let (mark, after, number) = self.file_state();
+        assert_eq!(
+            (mark, after, number.as_str()),
+            (head, 0, PLAIN_NUMBER),
+            "{what}: after the stop's write (the mark, the journal rows after it, the number)"
+        );
+        self.check_table(what, head);
+        self.reopen(what);
+    }
+
     fn file_state(&self) -> (u64, u64, String) {
         file_state(&self.database(), self.head())
     }
@@ -614,7 +629,7 @@ fn a_page_by_subject_over_rows_after_the_mark_is_the_page_of_the_record_time_tab
 }
 
 #[test]
-fn the_ids_of_a_range_after_the_mark_come_from_the_rows_and_a_row_that_does_not_read_fails() {
+fn the_ids_of_a_range_after_the_mark_come_from_the_rows_and_a_read_skips_what_the_write_skips() {
     let store = fixture("ids", 300);
     let head = store.head();
     assert_eq!(store.lose_rows(60), head - 60);
@@ -624,23 +639,49 @@ fn the_ids_of_a_range_after_the_mark_come_from_the_rows_and_a_row_that_does_not_
         store.check_ids(what, kind, head - 150, head - 30);
         store.check_ids(what, kind, 1, head);
     }
-    // A journal row after the mark whose subjects are not a list: the read
-    // of a range with that row fails, and its caller takes each id as named.
+    // File damage in 2 journal rows after the mark (an append stores the
+    // subjects from typed values, so no build writes these): the subjects of
+    // one are not a list; the other names one subject that reads, then a
+    // number and an object with no id.
+    const DAMAGED: &str = "terminal_damaged";
     let connection =
         open_registry_database_with_flags(&store.database(), OpenFlags::default()).unwrap();
     connection.execute_batch("DROP TRIGGER IF EXISTS session_journal_reject_update;").unwrap();
-    connection
-        .execute(
-            "UPDATE session_journal SET subjects_json = '{\"kind\":\"terminal\"}'
-             WHERE sequence = ?1",
-            [int(head - 10)],
-        )
-        .unwrap();
-    assert!(
-        store.registry().journal_subject_ids_in_range("terminal", head - 59, head).is_err(),
-        "the ids of a range read with a journal row after the mark whose subjects do not read"
+    let damage = "UPDATE session_journal SET subjects_json = ?2 WHERE sequence = ?1";
+    connection.execute(damage, params![int(head - 10), r#"{"kind":"terminal"}"#]).unwrap();
+    let some = format!(r#"[{{"kind":"terminal","id":"{DAMAGED}"}},7,{{"kind":"terminal"}}]"#);
+    connection.execute(damage, params![int(head - 20), some]).unwrap();
+    drop(connection);
+    // Each read by subject gives the same from the journal rows after the
+    // mark as from the table after the write of their subject rows: a
+    // subject that does not read is skipped by both, and each skip is
+    // counted.
+    let named = JournalSubject { kind: "terminal".into(), id: DAMAGED.into() };
+    let reads = || {
+        let registry = store.registry();
+        let ids = registry.journal_subject_ids_in_range("terminal", head - 59, head).unwrap();
+        let sequences =
+            subject_rows::sequences_after(&registry.connection.get(), 0, 8, &[named.clone()])
+                .unwrap();
+        (ids, sequences)
+    };
+    let skipped = subject_rows::skipped_subjects();
+    let from_the_rows = reads();
+    let skipped_by_the_reads = subject_rows::skipped_subjects() - skipped;
+    assert_eq!(skipped_by_the_reads, 6, "2 reads, each over the 3 subjects that do not read");
+    assert_eq!(from_the_rows.1, vec![head - 20], "the journal row that names the id that reads");
+    assert!(from_the_rows.0.contains(&DAMAGED.to_string()), "{:?}", from_the_rows.0);
+    store.registry().write_journal_subject_tail().unwrap();
+    let skipped_by_the_write = subject_rows::skipped_subjects() - skipped - skipped_by_the_reads;
+    assert_eq!(skipped_by_the_write, 3, "the write skips the 3 subjects that do not read");
+    assert_eq!(store.file_state().0, head, "the write moved the mark to the head");
+    assert_eq!(
+        reads(),
+        from_the_rows,
+        "the ids of the range and the page by subject, from the table after the write, are \
+         those from the journal rows after the mark before it"
     );
-    store.check_ids("a range before the row whose subjects do not read", "terminal", 1, head - 11);
+    store.check_ids("a range before the rows whose subjects do not read", "terminal", 1, head - 21);
 }
 
 #[test]
@@ -849,7 +890,8 @@ fn pool() -> Vec<JournalSubject> {
 
 /// The model row: steps by a seed (appends of 1 to 30 journal rows and at
 /// times to 150, single reads, seals, a close with no stop step and an open,
-/// a crash file and an open, a crash file with no open). After each step:
+/// a crash file and an open, a stop and an open, a crash file with no open).
+/// After each step:
 /// the file's check and, where the step names it, each read against the
 /// record-time table.
 #[test]
@@ -861,7 +903,7 @@ fn each_read_by_subject_is_the_record_time_tables_through_appends_seals_opens_an
         for step in 0..STEPS {
             let what = format!("seed {seed:#x}, step {step}");
             let limit = 8 + dice.index(57);
-            match dice.below(12) {
+            match dice.below(13) {
                 0..=4 => {
                     let most = if dice.below(8) == 0 { 150 } else { 30 };
                     let count = 1 + dice.below(most);
@@ -898,6 +940,11 @@ fn each_read_by_subject_is_the_record_time_tables_through_appends_seals_opens_an
                     let what = format!("{what}: journal rows after the mark, a crash and an open");
                     store.reopen(&what);
                     store.check_table(&what, head);
+                    store.check_reads(&what, &pool, limit);
+                }
+                11 => {
+                    let what = format!("{what}: a stop and an open");
+                    store.stop_and_reopen(&what);
                     store.check_reads(&what, &pool, limit);
                 }
                 _ => {
@@ -1006,4 +1053,117 @@ fn the_rollback_check_reads_a_number_above_16_as_it_is_with_a_running_owner() {
         open_registry_database_with_flags(&store.database(), OpenFlags::default()).unwrap();
     connection.execute("UPDATE meta SET value = '17' WHERE key = 'schema_version'", []).unwrap();
     assert_eq!(store.rollback_number(), 17);
+}
+
+/// The starts of the row below.
+const STARTS: usize = 100;
+
+/// The rollback's check asks if an owner runs by a try of the session's
+/// guard. A start tries that guard with no wait, so a try that it meets
+/// would fail it. The check runs in a loop on a thread of its own while the
+/// session starts and ends in a loop: no start fails.
+#[test]
+fn no_start_fails_while_the_rollback_check_asks_in_a_loop_if_an_owner_runs() {
+    use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+
+    let mut store = store_with_rows_due("rollback-loop");
+    drop(store.registry.take());
+    let component = crate::workspace_registry::session_guard_component(SESSION);
+    let done = AtomicBool::new(false);
+    let (asked, owned, failed) = std::thread::scope(|scope| {
+        let check = scope.spawn(|| {
+            let (mut asked, mut owned) = (0_u64, 0_u64);
+            while !done.load(Relaxed) {
+                let runs = crate::workspace_registry::session_guard::session_owner_runs(
+                    &store.root,
+                    &component,
+                );
+                asked += 1;
+                owned += u64::from(runs == Some(true));
+            }
+            (asked, owned)
+        });
+        let mut failed = Vec::new();
+        for start in 0..STARTS {
+            match WorkspaceRegistry::open(&store.root, SESSION) {
+                Ok(registry) => drop(registry),
+                Err(error) => failed.push(format!("start {start}: {error:#}")),
+            }
+        }
+        done.store(true, Relaxed);
+        let (asked, owned) = check.join().unwrap();
+        (asked, owned, failed)
+    });
+    println!(
+        "late_subject_rows: {STARTS} starts of a session while the rollback's check asked \
+         {asked} times if an owner runs ({owned} answers `an owner runs`): {} starts failed",
+        failed.len()
+    );
+    assert!(
+        failed.is_empty(),
+        "{} of {STARTS} starts failed:\n{}",
+        failed.len(),
+        failed.join("\n")
+    );
+    assert!(asked > 0, "the check ran while the session started and ended");
+}
+
+/// The files of `dir` that are product code: no test file and no file of a
+/// `tests` directory.
+fn product_sources(dir: &Path, out: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if path.is_dir() {
+            if name != "tests" {
+                product_sources(&path, out);
+            }
+        } else if name.ends_with(".rs") && !name.ends_with("_tests.rs") && name != "tests.rs" {
+            out.push(path);
+        }
+    }
+}
+
+/// One module names the subject table: `subject_rows`. Its statements are
+/// private, so a new read or write of the table is a new function there, and
+/// each read by subject goes through its one read. The 2 other files name
+/// the table in a list of table names only (the tables that an open checks
+/// and touches, the tables that an output cleanup makes again).
+#[test]
+fn no_product_file_outside_the_one_module_names_the_subject_table() {
+    const MODULE: &str = "workspace_registry/session_journal/subject_rows.rs";
+    const LISTS: [(&str, usize); 2] =
+        [("workspace_registry/schema.rs", 2), ("workspace_registry/output_cleanup.rs", 1)];
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    product_sources(&root, &mut files);
+    assert!(files.len() > 100, "the crate's sources were read: {}", files.len());
+    let mut found = Vec::new();
+    for path in files {
+        let shown = path.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");
+        if shown == MODULE {
+            continue;
+        }
+        let text = fs::read_to_string(&path).unwrap();
+        let lines = text
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| line.contains(SUBJECT_TREES[0]))
+            .map(|(number, line)| format!("{shown}:{}: {}", number + 1, line.trim()))
+            .collect::<Vec<_>>();
+        let allowed = LISTS.iter().find(|(file, _)| *file == shown).map_or(0, |(_, count)| *count);
+        if lines.len() != allowed {
+            found.push(format!(
+                "{shown}: {} lines, {allowed} allowed\n{}",
+                lines.len(),
+                lines.join("\n")
+            ));
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "a product file outside `subject_rows` names the subject table; read and write it \
+         through that module:\n{}",
+        found.join("\n")
+    );
 }

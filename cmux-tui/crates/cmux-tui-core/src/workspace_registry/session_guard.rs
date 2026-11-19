@@ -87,14 +87,7 @@ pub(crate) enum SessionOwnerProbe {
 pub(crate) fn probe_session_owner(root: &Path, component: &str) -> SessionOwnerProbe {
     let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
     let lock_path = session_guard_lock_component_path(&lock_dir, component);
-    let mut options = OpenOptions::new();
-    options.read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
-    }
-    let file = match options.open(&lock_path) {
+    let file = match open_existing_session_guard(&lock_path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return SessionOwnerProbe::NoGuard;
@@ -115,6 +108,35 @@ pub(crate) fn probe_session_owner(root: &Path, component: &str) -> SessionOwnerP
         return SessionOwnerProbe::Owned;
     }
     SessionOwnerProbe::Unowned(SessionLease { lock, path: lock_path, coordinator_waiter_dir: None })
+}
+
+/// Opens the guard file at `lock_path`; never makes it.
+fn open_existing_session_guard(lock_path: &Path) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    options.open(lock_path)
+}
+
+/// Whether a daemon owns the session whose guard file stem is `component`
+/// now, and nothing more: `Some(true)` only when the guard's lock is taken,
+/// `Some(false)` only when it is free, `None` for each doubt (no guard file,
+/// the path no longer names the opened file, an I/O error).
+///
+/// Unlike [`probe_session_owner`] it keeps no lock. Another process that
+/// holds the guard for a short time (a host sweep, a session reset) reads as
+/// an owner.
+pub(crate) fn session_owner_runs(root: &Path, component: &str) -> Option<bool> {
+    let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
+    let lock_path = session_guard_lock_component_path(&lock_dir, component);
+    let file = open_existing_session_guard(&lock_path).ok()?;
+    let taken = FileLock::held_elsewhere(&file, Kind::Exclusive).ok()?;
+    validate_session_lock_file(&lock_path, &file).ok()?;
+    Some(taken)
 }
 
 /// What the last owner run of the session `component` of `root` left in its
