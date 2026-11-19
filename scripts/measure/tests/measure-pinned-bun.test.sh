@@ -24,12 +24,20 @@ for script in "$dir"/*.sh; do
     fail=1
   else
     # the private bun dir goes on PATH, and the web builders cd into webviews/ first, so it must be absolute:
-    # "$out" from mktemp -d, or a path from "$PWD" or "$root" (perf-bench.sh's ".build/perf-bench" was relative)
+    # "$out" from mktemp -d, or a path from "$PWD" or "$root" (perf-bench.sh's ".build/perf-bench" was relative),
+    # or any "$NAME" whose last assignment before that line is "$(mktemp -d ...)" or "$(cd ... && pwd)"
     temp=$(sed -n "${private}p" "$script" | sed -n 's/.*RUNNER_TEMP="\([^"]*\)".*/\1/p')
     out_line=$(grep -n -E '^[^#]*out="\$\(mktemp -d' "$script" | head -n 1 | cut -d: -f1 || true)
     case "$temp" in
       '$PWD/'*|'$root/'*|'$ROOT/'*) ;;
       '$out') [[ -n "$out_line" ]] || { echo "FAIL: $name: RUNNER_TEMP=\$out, but \$out is not from mktemp -d"; fail=1; } ;;
+      '$'[A-Za-z_]*)
+        var=$(printf '%s' "$temp" | sed -n 's/^\$\([A-Za-z_][A-Za-z0-9_]*\).*/\1/p')
+        last=$(grep -n -E "^[^#]*(^|[[:space:]])${var}=" "$script" | awk -F: -v p="$private" '$1 < p' | tail -n 1 || true)
+        if ! printf '%s' "$last" | grep -q -E "${var}=\"\\\$\((mktemp -d|cd .*&& pwd\))"; then
+          echo "FAIL: $name: RUNNER_TEMP=\"$temp\" at line $private, but \$$var's last assignment before it is not mktemp -d or cd ... && pwd: ${last:-none}"
+          fail=1
+        fi ;;
       *) echo "FAIL: $name: RUNNER_TEMP=\"$temp\" at line $private is not an absolute path (\$out from mktemp -d, \$PWD/..., \$root/...)"; fail=1 ;;
     esac
   fi
