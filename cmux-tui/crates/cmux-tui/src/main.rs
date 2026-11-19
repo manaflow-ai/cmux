@@ -66,6 +66,8 @@ mod page_listener;
 mod private_mode;
 mod screen_detection_status;
 #[cfg(unix)]
+mod scroll_probe;
+#[cfg(unix)]
 mod share_room;
 #[cfg(unix)]
 mod signal_sender;

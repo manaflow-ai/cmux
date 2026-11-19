@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "chat-disk"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "chat-disk", "terminal-scroll"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -746,6 +746,28 @@ class WebUiTests(unittest.TestCase):
             {"name": "chat_disk.growth_ratio", "p50": 374.0, "p95": 374.0, "unit": "x", "target": 1.2}]},
             budgets_mod, {"rows": {}})
         self.assertEqual(rows["webui.chat_disk.growth_ratio"]["p95"], 374.0)
+
+    def test_the_terminal_scroll_rows_keep_their_names_and_are_judged_against_zero(self):
+        self.assertTrue(cron.is_linux_part("terminal-scroll"))
+        self.assertEqual(cron.part_for_row("terminal.scroll.local.mirror.jumps@linux"), "terminal-scroll")
+        self.assertEqual(cron.part_for_row("terminal.scroll.ssh.bad@linux"), "terminal-scroll")
+        self.assertEqual(cron.part_for_row("terminal.throughput.ratio"), "throughput")
+        runs = cron.linux_bench_runs("/r", "terminal-scroll")
+        self.assertEqual(list(runs), ["build", "suite"])
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/terminal-scroll-stress-linux.sh", "build-only"])
+        self.assertEqual(runs["suite"][0], ["bash", "/r/scripts/measure/terminal-scroll-stress-linux.sh"])
+        rows = cron.rows_of_part(cron.PART_BY_NAME["terminal-scroll"], {"rows": [
+            {"name": "terminal.scroll.local.mirror.blank_rows", "p50": 0, "p95": 0, "unit": "rows", "target": 0,
+             "floor": 0.5},
+            {"name": "terminal.scroll.local.daemon.jumps", "p50": 1, "p95": 2, "unit": "rows", "target": 0,
+             "floor": 0.5}]}, budgets_mod, {"rows": {}})
+        self.assertEqual(sorted(rows), ["terminal.scroll.local.daemon.jumps", "terminal.scroll.local.mirror.blank_rows"])
+        self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("terminal.scroll.local.daemon.jumps"))
+        name = "terminal.scroll.local.daemon.jumps"
+        self.assertEqual(cron.target_of(name, rows[name], None), 0)
+        self.assertTrue(cron.over_target(name, rows[name], None))
+        clean = "terminal.scroll.local.mirror.blank_rows"
+        self.assertFalse(cron.over_target(clean, rows[clean], None))
 
     def test_the_million_event_chat_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-million"))
