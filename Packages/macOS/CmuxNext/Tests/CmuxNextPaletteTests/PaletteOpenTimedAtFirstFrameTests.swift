@@ -34,17 +34,14 @@ struct PaletteOpenTimedAtFirstFrameTests {
         spinner.toValue = 1
         spinner.duration = 3600
         layer.add(spinner, forKey: "test.spinner")
-
-        Self.runMainRunLoopPass()
-        Self.runMainRunLoopPass()
-        #expect(timings.count == 1, "the open was not timed at its first frame: \(timings.count) timing(s) after two passes")
-        layer.removeAnimation(forKey: "test.spinner")
-    }
-
-    /// One pass of the main run loop through its before-waiting point, where the frame commit and the work after it
-    /// run. A zero timeout only polls, and a polling pass skips the before-waiting observers, so the pass may wait
-    /// (at most 50 ms, nothing else wakes it) once it has run them.
-    private static func runMainRunLoopPass() {
-        _ = CFRunLoopRunInMode(.defaultMode, 0.05, true)
+        defer { layer.removeAnimation(forKey: "test.spinner") }
+        // Run the main run loop until the open is timed, for at most 2 s: a pass that handles a source or main-queue
+        // work first returns before its before-waiting point, so the number of passes is not fixed. The animation
+        // runs an hour, so a timer that waits for it reports nothing in this window.
+        let deadline = ContinuousClock.now + .seconds(2)
+        while timings.isEmpty, ContinuousClock.now < deadline {
+            _ = CFRunLoopRunInMode(.defaultMode, 0.05, true)
+        }
+        #expect(timings.count == 1, "the open was not timed at its first frame: \(timings.count) timing(s) within 2 s")
     }
 }
