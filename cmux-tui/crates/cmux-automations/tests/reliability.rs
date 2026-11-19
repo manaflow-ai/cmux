@@ -67,7 +67,7 @@ fn a_run_that_could_not_start_is_retried_with_backoff_then_given_up() {
 
     // Each backoff makes one retry, linked to the run it retries.
     let mut now = T0;
-    let mut previous = first.clone();
+    let mut previous = first;
     for attempt in 1..=MAX_RETRIES {
         now += RETRY_BACKOFF_SECONDS[(attempt - 1) as usize];
         let report = tick(&store, now, &mut exec).unwrap();
