@@ -1,0 +1,30 @@
+{
+  "name": "claude",
+  "description": "The window as the Claude app: warm near-black paper with the clay accent, replies set in serif in a narrow reading column, your prompt in a soft rounded pill, round tabs and panes, sessions by project with their branch and pull request. Every New Tab is Claude's home (a greeting, one prompt box that starts a Claude chat, your recents), the sidebar carries Claude's usage left, and each chat's Session Info gets a Claude Code status line. Command-N starts a Claude chat.",
+  "settings": {
+    "appearance.themeFile": "claude-app",
+    "tabs.newTabApp": "local/customize",
+    "tabs.hideLoneChatTab": true,
+    "tabs.toolbarButtons": ["openDiffViewer"],
+    "layout.newPanePlacement": "split",
+    "sidebar.groupBy": "folder",
+    "sidebar.showTimestamps": true,
+    "sidebar.density": "comfortable",
+    "sidebar.showSpaces": false,
+    "sidebar.cards.tips": false,
+    "sidebar.workspaceRow.branch": true,
+    "sidebar.workspaceRow.pullRequest": true,
+    "sidebar.hoverCards.layout": "minimal",
+    "agentPane.display.presentation": "transcript",
+    "agentPane.display.transcriptView": "normal",
+    "agentPane.display.font.preset": "serif",
+    "agentPane.display.font.size": 16,
+    "agentPane.display.font.lineHeight": 1.6,
+    "agentPane.display.width": 760,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.sessionInfo.placement": "push",
+    "agentPane.editedFiles.show": "always",
+    "agentPane.editedFiles.scope": "session",
+    "agentPane.showContextUsage": true
+  }
+}
