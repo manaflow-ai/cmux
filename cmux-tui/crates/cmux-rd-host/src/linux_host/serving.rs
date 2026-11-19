@@ -108,8 +108,9 @@ pub(super) fn join_owner(dir: &Path) -> Res<Option<String>> {
 }
 
 /// The host as the join `credential` from `home`: its device, signed in. The same join keeps its
-/// device once the hub still signs it in as the recorded account; anything else is torn down
-/// first. On an error the host is off.
+/// device once the hub still signs it in as the recorded account, and so does a record from
+/// before joins were marked, which is then marked; anything else is torn down first. On an
+/// error the host is off.
 pub(super) fn join(
     dir: &Path,
     hub_url: &str,
@@ -123,12 +124,27 @@ pub(super) fn join(
     if let Some(Previous { account: Some(account), device: Some(device), joined: Some(joined) }) =
         &previous
     {
-        if joined.is(home, &credential) && account.hub == hub_url {
+        let unmarked = joined.unmarked_from(home);
+        if (joined.is(home, &credential) || unmarked) && account.hub == hub_url {
             let renewal = machine_renewal(credential.clone());
             let checked = Hub::with_renewal(hub_url, device.clone(), None, renewal)
                 .and_then(|hub| hub.session().map(|_| hub.user_id()));
             match checked {
-                Ok(Some(user)) if user == account.user_id => return Ok(device.clone()),
+                // The hub signs the join in as the recorded account: the host serves the join's.
+                Ok(Some(user)) if user == account.user_id => {
+                    let marked = if unmarked {
+                        machine::Joined::of(home, &credential).save(dir)
+                    } else {
+                        Ok(())
+                    };
+                    match marked {
+                        Ok(()) => return Ok(device.clone()),
+                        Err(e) => {
+                            tear_down(dir, previous, unit)?;
+                            return Err(e);
+                        }
+                    }
+                }
                 Ok(_) => {}
                 Err(e) => {
                     tear_down(dir, previous, unit)?;
@@ -239,13 +255,21 @@ pub(super) fn still_current(dir: &Path, unit: &dyn Unit) -> Res<()> {
 }
 
 /// The host this desktop serves at `run`'s start: a joined desktop's must be the current
-/// join's, or it serves nothing (a unit started for an earlier join, or after a leave).
+/// join's, or it serves nothing (a unit started for an earlier join, or after a leave). A
+/// record from before joins were marked goes through [`join`] instead, so an update heals the
+/// host at once rather than leaving it off until the daemon's next start.
 pub(super) fn current_join(
     dir: &Path,
+    hub_url: &str,
     joined: &machine::Joined,
 ) -> Res<machine::MachineCredential> {
     let credential = machine::load(&joined.acpmux_home)?
         .ok_or_else(|| Fatal::needs("This machine's join was revoked or removed", Fatal::JOIN))?;
+    if joined.unmarked_from(&joined.acpmux_home) {
+        // Nothing serves yet at `run`'s start, so there is no unit to stop first.
+        join(dir, hub_url, &joined.acpmux_home, credential.clone(), &ThisProcess)?;
+        return Ok(credential);
+    }
     if !joined.is(&joined.acpmux_home, &credential) {
         return Err(Fatal(format!(
             "This machine was joined again since this host signed in ({}). The host stopped and will not restart by itself; the acpmux daemon sets it up for the new join at its next start",

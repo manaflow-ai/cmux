@@ -83,7 +83,8 @@ pub const JOINED_FILE: &str = "joined.json";
 pub struct Joined {
     pub acpmux_home: PathBuf,
     /// The join it was signed in for ([`MachineCredential::machine_id`] and generation): a
-    /// record written before these existed names no join, so it is never the current one.
+    /// record written before these existed names no join, so it is never the current one until
+    /// the hub says it is ([`Joined::unmarked_from`]).
     #[serde(default)]
     pub machine_id: String,
     #[serde(default)]
@@ -103,6 +104,12 @@ impl Joined {
     /// Whether this record is the join `credential` from `acpmux_home` is now.
     pub fn is(&self, acpmux_home: &Path, credential: &MachineCredential) -> bool {
         !self.machine_id.is_empty() && *self == Self::of(acpmux_home, credential)
+    }
+
+    /// Whether this record was written from `acpmux_home` before joins were marked (#45369): it
+    /// names no join, so only the hub can say whether its account is the current join's.
+    pub fn unmarked_from(&self, acpmux_home: &Path) -> bool {
+        self.machine_id.is_empty() && self.acpmux_home == acpmux_home
     }
 
     pub fn load(dir: &Path) -> Res<Option<Self>> {
