@@ -26,10 +26,12 @@ WEBVIEWS="$(cd "$(dirname "$0")/../.." && pwd)"
 REPO="$(cd "$WEBVIEWS/.." && pwd)"
 
 usage() { sed -n 2,22p "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+# The folder slots live in; only the test (dev-slot.test.sh) moves it.
+root="${CMUX_DEV_SLOT_ROOT:-/tmp}"
 
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
 if [[ "$cmd" == status ]]; then
-  for dir in /tmp/acpdev-*; do
+  for dir in "$root"/acpdev-*; do
     [[ -d "$dir" ]] || continue
     slot="${dir##*-}"
     state=down
@@ -54,7 +56,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-home="/tmp/acpdev-$slot"
+home="$root/acpdev-$slot"
 daemon_port=$((47900 + slot))
 vite_port=$((4180 + slot))
 # 4190 is on the WHATWG fetch "bad ports" list, so browsers (WebKit, Chromium) and Node refuse it.
