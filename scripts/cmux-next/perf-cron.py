@@ -229,6 +229,12 @@ PARTS = [
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
     {"name": "chat-disk", "where": "linux", "kind": "webui", "needs": "chat-disk"},
+    # cmux Cloud claim-to-ready (scripts/cmux-next/cloud-claim-rows.py): p50 and p95 over the newest 24 production
+    # claims the hourly Cloud journey (cloud-journey-prod.yml) made, read from its probe.json artifacts; no machine is
+    # made here. Its rows are cloud.claim_to_ready*, report-only (REPORT_ONLY_ROW_RE): the number is the deployed
+    # Cloud's, not the measured commit's, so a bisect over cmux commits could not find its culprit. Their targets are
+    # cmuxterm-hq plans/cloud/ARCHITECTURE-2026-11.md T3 "Click to agent ready", shown and marked over target.
+    {"name": "cloud-claim", "where": "linux", "kind": "webui", "needs": "cloud-claim", "row_prefix": "cloud"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
@@ -245,6 +251,7 @@ ROW_PARTS = [
     (r"^webui\.chat_100k_flat\.grown_many\.", "web-ui-flat-grown"),
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
     (r"^webui\.chat_disk\.", "chat-disk"),
+    (r"^cloud\.claim_to_ready", "cloud-claim"),
     (r"^webui\.", "web-ui"),
 ]
 # Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
@@ -252,7 +259,7 @@ ROW_PARTS = [
 # memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged. The chat
 # composer's typing stages (acp.<engine>.typing.to_listener and .to_work, perf-budgets.py STAGE_ROW_RE) say where
 # the judged to_frame time goes: shown, not judged (measurement only, no new gate).
-REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
+REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\.|cloud\.claim_to_ready"
                                 r"|acp\.[^.]+\.typing\.(to_listener|to_work)$)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
@@ -612,7 +619,7 @@ def rows_of_part(part, report, budgets_mod, budgets):
     elif part["kind"] == "webui":
         # web-ui-suite.ts's rows (webviews/bench/perfRow.ts): its target is the row's budget, its floor the noise on
         # a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule).
-        out.update(webui_rows(report.get("rows")))
+        out.update(webui_rows(report.get("rows"), part.get("row_prefix", "webui")))
         if part.get("name") == "web-ui-god":
             # The ordinary twins ran here only to pair at one commit on one runner; the web-ui part owns their rows.
             ratios = god_ratio_rows(out)
@@ -625,9 +632,9 @@ def rows_of_part(part, report, budgets_mod, budgets):
     return out
 
 
-def webui_rows(rows):
-    """{webui.<name>: row} of a list of PERF_ROW objects (pure): a row's target is its budget, its floor the noise on
-    a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule)."""
+def webui_rows(rows, prefix="webui"):
+    """{<prefix>.<name>: row} of a list of PERF_ROW objects (pure): a row's target is its budget, its floor the noise
+    on a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule)."""
     out = {}
     for r in rows or []:
         name, p95 = r.get("name") if isinstance(r, dict) else None, r.get("p95") if isinstance(r, dict) else None
@@ -635,7 +642,7 @@ def webui_rows(rows):
             continue
         p50 = r.get("p50") if isinstance(r.get("p50"), (int, float)) else p95
         floor = r.get("floor") if isinstance(r.get("floor"), (int, float)) else max(round(0.1 * p95, 4), 0.0001)
-        out[f"webui.{name}"] = {"p50": p50, "p95": p95, "unit": r.get("unit") or "ms",
+        out[f"{prefix}.{name}"] = {"p50": p50, "p95": p95, "unit": r.get("unit") or "ms",
                                 "budget": r.get("target") if isinstance(r.get("target"), (int, float)) else None,
                                 "floor": floor,
                                 "measure_version": r["version"] if isinstance(r.get("version"), int) else DIFF_LEGACY_VERSION}
@@ -839,7 +846,7 @@ def target_of(name, row, refresh_ms):
         # Scaling rows are judged only by their 1000-vs-baseline ratio. Their absolute
         # latency is intentionally advisory and must not inherit the generic 10 ms target.
         return None
-    if name.startswith(("diff.", "launch.", "webui.")):
+    if name.startswith(("diff.", "launch.", "webui.", "cloud.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
         return 0
@@ -953,6 +960,8 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "chat-disk":
         script = os.path.join(root, CHAT_DISK)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
+    if part == "cloud-claim":
+        return {"suite": (["python3", os.path.join(root, CLOUD_CLAIM)], root or ".", {})}
     if part == "infinite-items":
         # The release build first, in a run of its own: a cold one takes about 15 minutes, and each run has its own
         # 30-minute cap. The suite's build is then a no-op; its rows are the part's (a webui part keeps the last run's).
@@ -1895,6 +1904,8 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{INFINITE_ITEMS}"], capture_output=True).returncode == 0
         elif need == "chat-disk":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_DISK}"], capture_output=True).returncode == 0
+        elif need == "cloud-claim":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CLOUD_CLAIM}"], capture_output=True).returncode == 0
         elif need == "terminal-throughput":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
@@ -1949,6 +1960,7 @@ MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
+CLOUD_CLAIM = "scripts/cmux-next/cloud-claim-rows.py"
 # The web-ui-god part: the benches that take FIXTURE=god (web-ui-suite.ts lists each as NAME and NAME-god) and the
 # shared fixture a commit needs for the part. A god row is webui.<prefix>.god.<rest>; its ordinary twin drops `.god`.
 GOD_FIXTURE = "webviews/bench/godFixture.ts"
@@ -3247,7 +3259,7 @@ def last_json_object(text):
     return None
 
 
-def webui_summary(report):
+def webui_summary(report, prefix="webui"):
     """The web-ui part's rows as Markdown lines, slowest first relative to their target (rows with no target after,
     by p95), then the benches that failed (pure): what a lane fixes first."""
     rows = [r for r in (report.get("rows") or []) if isinstance(r, dict) and isinstance(r.get("p95"), (int, float))
@@ -3261,7 +3273,7 @@ def webui_summary(report):
     for r in rows:
         unit = r.get("unit") or "ms"
         target = f"{r['target']} {unit}" if ratio(r) >= 0 else "-"
-        lines.append(f"| webui.{r.get('name')} | {r['p95']} {unit} | {target} | "
+        lines.append(f"| {prefix}.{r.get('name')} | {r['p95']} {unit} | {target} | "
                      + (f"{ratio(r) * 100:.0f} %" if ratio(r) >= 0 else "-") + " |")
     for f in report.get("failed") or []:
         if isinstance(f, dict):
@@ -3310,7 +3322,7 @@ def cmd_run_linux_part(o):
         else:
             report[name] = value
     if PART_BY_NAME[part]["kind"] == "webui":
-        for line in webui_summary(report):
+        for line in webui_summary(report, PART_BY_NAME[part].get("row_prefix", "webui")):
             print(f"perf-cron web-ui: {line}")
     else:
         report["bench_versions"] = diff_bench_versions(ROOT)
