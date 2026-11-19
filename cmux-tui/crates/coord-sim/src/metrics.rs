@@ -37,8 +37,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let dir = args
         .first()
         .filter(|a| !a.starts_with("--"))
-        .ok_or("usage: coord-sim report RUN_DIR [--out FILE] [--rows]")?;
+        .ok_or("usage: coord-sim report RUN_DIR [--out FILE] [--rows] [--fanin DIR]")?;
     let mut report = report(Path::new(dir))?;
+    // A fan-in ramp's tables (`coord-sim fanin`) beside the drive run, or in RUN_DIR itself (report() reads those).
+    if let Some(f) = crate::flag(args, "--fanin") {
+        let section = fanin_section(Path::new(f))?
+            .ok_or(format!("{f}: no fanin-summary.json or fanin-table.json"))?;
+        if let Some(obj) = report.as_object_mut() {
+            obj.insert("fanin".into(), section);
+        }
+    }
     // What the driver's run.json does not carry: the harness passes it.
     for (flag, key) in [("--commit", "commit"), ("--shape-hash", "shape_hash"), ("--seed", "seed")]
     {
@@ -136,6 +144,9 @@ pub fn perf_rows(r: &Value) -> Vec<Value> {
             row["target"] = json!(t);
         }
         rows.push(row);
+    }
+    if r["fanin"].is_object() {
+        fanin_rows(&r["fanin"], &mut rows);
     }
     rows
 }
@@ -456,7 +467,7 @@ pub fn report(dir: &Path) -> Result<Value, String> {
         }
         s.ms.add(ms);
         match o.op.as_str() {
-            "open" if o.n.unwrap_or(0) > 0 => paint.add(ms),
+            "open" | "attach" if o.n.unwrap_or(0) > 0 => paint.add(ms),
             "scroll" => {
                 page_ms_total += ms;
                 over_60 += u64::from(ms > FRAME_60);
@@ -505,8 +516,11 @@ pub fn report(dir: &Path) -> Result<Value, String> {
     })?;
     bad.insert("proc", bad_proc);
 
-    let attach =
-        ops.get("open").map(|s| s.ms.summary()).unwrap_or_else(|| LogHist::default().summary());
+    let attach = ops
+        .get("open")
+        .or_else(|| ops.get("attach"))
+        .map(|s| s.ms.summary())
+        .unwrap_or_else(|| LogHist::default().summary());
     let scroll = ops
         .get("scroll")
         .map(|s| (s.ms.summary(), s.ms.n()))
@@ -518,6 +532,7 @@ pub fn report(dir: &Path) -> Result<Value, String> {
     let duration_s = if t1 > t0 { Some((t1 - t0) as f64 / 1e6) } else { None };
     let cfg = |k: &str| config.get(k).cloned().unwrap_or(Value::Null);
     let has_rss = rss.n() > 0;
+    let fanin = fanin_section(dir)?.unwrap_or(Value::Null);
     Ok(json!({
         "schema": SCHEMA,
         "config": {
@@ -570,7 +585,151 @@ pub fn report(dir: &Path) -> Result<Value, String> {
         "peak_rss_mb_by_role": role_peak.iter().map(|(k, v)| (k.clone(), round3(Some(v / 1024.0)))).collect::<Map<_, _>>(),
         "ops": ops.iter().map(|(k, s)| (k.clone(), json!({"ms": s.ms.summary(), "failed": s.failed}))).collect::<Map<_, _>>(),
         "bad_lines": bad,
+        "fanin": fanin,
     }))
+}
+
+// ---------- the fan-in ramp (`coord-sim fanin`, goal sessions-2000-attached) ----------
+
+/// The fan-in section from a ramp root (fanin-summary.json, every N) or one ramp's dir (fanin-table.json); None
+/// when DIR has neither. Per N: attach p95 through the controller, the fleet listing (whole and paged, at rest and
+/// during churn), fan-out p50/p95/max (one prompt to all N: controller send to agent receipt), fan-in p95, lost and
+/// duplicated, controller CPU % and RSS MB per session; across the ramp, the least-squares slope of each per-session
+/// cost over N (per 1,000 sessions: flat is constant cost, rising is work that grows with the fleet) and the
+/// marginal cost of each added session (fanin-summary.v1 controller_slopes).
+pub fn fanin_section(dir: &Path) -> Result<Option<Value>, String> {
+    let read = |p: &Path| -> Result<Option<Value>, String> {
+        match std::fs::read_to_string(p) {
+            Ok(t) => {
+                serde_json::from_str(&t).map(Some).map_err(|e| format!("{}: {e}", p.display()))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(format!("{}: {e}", p.display())),
+        }
+    };
+    let (summary, tables) = match read(&dir.join("fanin-summary.json"))? {
+        Some(s) => {
+            let t = s["tables"].as_array().cloned().unwrap_or_default();
+            (Some(s), t)
+        }
+        None => match read(&dir.join("fanin-table.json"))? {
+            Some(t) => (None, vec![t]),
+            None => return Ok(None),
+        },
+    };
+    let f = |t: &Value, ptr: &str| t.pointer(ptr).and_then(Value::as_f64);
+    let num = |v: Option<f64>| round3(v);
+    let mut per_n = Vec::new();
+    let (mut rss_slope, mut cpu_slope) = (Slope::default(), Slope::default());
+    for t in &tables {
+        let n = t["n"].as_u64().unwrap_or(0);
+        if t.get("error").is_some_and(|e| !e.is_null()) {
+            per_n.push(json!({"n": n, "error": t["error"]}));
+            continue;
+        }
+        let rss_mb = f(t, "/controller/rss_kb_per_session").map(|k| k / 1024.0);
+        let cpu = f(t, "/controller/cpu_pct_per_session");
+        if let Some(v) = rss_mb {
+            rss_slope.add(n as f64 / 1000.0, v);
+        }
+        if let Some(v) = cpu {
+            cpu_slope.add(n as f64 / 1000.0, v);
+        }
+        let lost = f(t, "/events/lost").unwrap_or(0.0) + f(t, "/events/fanout_lost").unwrap_or(0.0);
+        let dup = f(t, "/events/dup").unwrap_or(0.0) + f(t, "/events/fanout_dup").unwrap_or(0.0);
+        per_n.push(json!({
+            "n": n,
+            "hosts": t["hosts"],
+            "attach_ms": {"p50": num(f(t, "/attach_ms/p50")), "p95": num(f(t, "/attach_ms/p95")), "max": num(f(t, "/attach_ms/max")),
+                          "failed": t["attach_failed"]},
+            "attach_one_p95_ms": num(f(t, "/attach_one_ms/p95")),
+            "list_ms": {"whole_at_rest": num(f(t, "/list/whole_ms_at_rest")), "paged_at_rest": num(f(t, "/list/paged_ms_at_rest")),
+                        "whole_under_churn_p95": num(f(t, "/list/whole_ms_window/p95")), "rows": t["list"]["rows"]},
+            "fanout_ms": {"p50": num(f(t, "/fanout_ms/p50")), "p95": num(f(t, "/fanout_ms/p95")), "max": num(f(t, "/fanout_ms/max"))},
+            "fanin_ms": {"p50": num(f(t, "/fanin_ms/p50")), "p95": num(f(t, "/fanin_ms/p95"))},
+            "events": {"lost": lost, "duplicated": dup, "client_lagged": t["events"]["client_lagged"]},
+            "controller": {"cpu_pct_per_session": num(cpu), "rss_mb_per_session": num(rss_mb),
+                           "rss_mb": num(f(t, "/controller/rss_kb").map(|k| k / 1024.0)),
+                           "cpu_pct": num(f(t, "/controller/cpu_pct"))},
+            "gaps": t["gaps"],
+        }));
+    }
+    Ok(Some(json!({
+        "schema": "coord-sim-fanin.v1",
+        "ramps": per_n,
+        "slope_per_1000_sessions": {"controller_rss_mb_per_session": num(rss_slope.slope()),
+                                    "controller_cpu_pct_per_session": num(cpu_slope.slope())},
+        "marginal": summary.as_ref().map(|s| s["controller_slopes"].clone()).unwrap_or(Value::Null),
+        "ratios": summary.as_ref().map(|s| s["ratios"].clone()).unwrap_or(Value::Null),
+        "goal_met_at_2000": summary.as_ref().map(|s| s["goal_met_at_2000"].clone()).unwrap_or(Value::Null),
+    })))
+}
+
+/// The fan-in section's PERF_ROW rows: coord_sim.fanin.n<N>.<metric>, and the slopes across the ramp.
+fn fanin_rows(fanin: &Value, rows: &mut Vec<Value>) {
+    let row = |name: String,
+               p50: f64,
+               p95: f64,
+               unit: &str,
+               floor: Option<f64>,
+               target: Option<f64>| {
+        let mut r =
+            json!({"name": name, "p50": p50, "p95": p95, "unit": unit, "version": ROWS_VERSION});
+        if let Some(fl) = floor {
+            r["floor"] = json!(fl);
+        }
+        if let Some(t) = target {
+            r["target"] = json!(t);
+        }
+        r
+    };
+    for t in fanin["ramps"].as_array().map(Vec::as_slice).unwrap_or(&[]) {
+        let Some(n) = t["n"].as_u64() else { continue };
+        if !t["error"].is_null() {
+            continue;
+        }
+        let p = format!("coord_sim.fanin.n{n}");
+        let dist = [("attach_ms", "/attach_ms", Some(1000.0)), ("fanout_ms", "/fanout_ms", None)];
+        for (name, ptr, target) in dist {
+            let g = |k: &str| t.pointer(&format!("{ptr}/{k}")).and_then(Value::as_f64);
+            if let (Some(p50), Some(p95)) = (g("p50"), g("p95")) {
+                rows.push(row(format!("{p}.{name}"), p50, p95, "ms", None, target));
+            }
+        }
+        let ones = [
+            ("fanout_max_ms", "/fanout_ms/max", "ms", 10.0, None),
+            ("list_ms", "/list_ms/whole_at_rest", "ms", 5.0, None),
+            ("list_paged_ms", "/list_ms/paged_at_rest", "ms", 5.0, None),
+            ("list_under_churn_ms", "/list_ms/whole_under_churn_p95", "ms", 5.0, None),
+            ("controller_rss_mb_per_session", "/controller/rss_mb_per_session", "MB", 0.05, None),
+            ("controller_cpu_pct_per_session", "/controller/cpu_pct_per_session", "%", 0.01, None),
+        ];
+        for (name, ptr, unit, floor, target) in ones {
+            if let Some(v) = t.pointer(ptr).and_then(Value::as_f64) {
+                rows.push(row(format!("{p}.{name}"), v, v, unit, Some(floor), target));
+            }
+        }
+        let ld = t["events"]["lost"].as_f64().unwrap_or(0.0)
+            + t["events"]["duplicated"].as_f64().unwrap_or(0.0);
+        rows.push(row(format!("{p}.lost_or_duplicated"), ld, ld, "events", Some(0.5), Some(0.0)));
+    }
+    for (name, unit, floor) in [
+        ("controller_rss_mb_per_session", "MB", 0.05),
+        ("controller_cpu_pct_per_session", "%", 0.01),
+    ] {
+        if let Some(v) = fanin["slope_per_1000_sessions"][name].as_f64() {
+            // A falling per-session cost is good news: the row is the rise only (the cron judges lower as better).
+            let v = v.max(0.0);
+            rows.push(row(
+                format!("coord_sim.fanin.slope.{name}_per_ksession"),
+                v,
+                v,
+                unit,
+                Some(floor),
+                None,
+            ));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -772,6 +931,95 @@ mod tests {
     }
 
     #[test]
+    fn fanin_ramp_section_and_rows() {
+        let table = |n: u64, rss_kb_per: f64, cpu_per: f64| {
+            json!({"schema": "fanin-table.v1", "n": n, "hosts": 10,
+                "attach_ms": {"n": n, "p50": 3.0, "p95": 8.0 + n as f64 / 100.0, "p99": 9.0, "max": 12.0}, "attach_failed": 0,
+                "attach_one_ms": {"n": 30, "p50": 2.0, "p95": 4.0},
+                "list": {"whole_ms_at_rest": 1.5 * n as f64 / 50.0, "paged_ms_at_rest": 2.0, "rows": n, "pages": 1,
+                         "whole_ms_window": {"n": 5, "p50": 3.0, "p95": 6.0}},
+                "fanin_ms": {"n": 100, "p50": 1.0, "p95": 2.0},
+                "fanout_ms": {"n": n, "p50": 5.0, "p95": 20.0, "p99": 25.0, "max": 30.0},
+                "events": {"emitted": 1000, "lost": if n == 2000 { 3 } else { 0 }, "dup": 0, "fanout_sent": n,
+                           "fanout_lost": 0, "fanout_dup": 1, "client_lagged": 0},
+                "controller": {"cpu_pct": cpu_per * n as f64, "cpu_pct_per_session": cpu_per, "rss_kb": 50_000.0 + rss_kb_per * n as f64,
+                               "rss_kb_per_session": rss_kb_per},
+                "gaps": []})
+        };
+        let summary = json!({"schema": "fanin-summary.v1", "controller_slopes": [{"from": 50, "to": 200, "rss_kb_per_added_session": 110.0}],
+            "ratios": [], "goal_met_at_2000": false,
+            "tables": [table(50, 102.4, 0.02), table(200, 204.8, 0.02), table(2000, 2150.4, 0.02),
+                       {"schema": "fanin-table.v1", "n": 5000, "error": "wall clock cap"}]});
+        let d = run_dir("fanin", &[("fanin-summary.json", &summary.to_string())]);
+        let r = report(&d).unwrap();
+        let f = &r["fanin"];
+        let n200 = &f["ramps"][1];
+        assert_eq!(n200["n"], 200);
+        assert_eq!(n200["attach_ms"]["p95"].as_f64(), Some(10.0));
+        assert_eq!(n200["controller"]["rss_mb_per_session"].as_f64(), Some(0.2));
+        assert_eq!(n200["fanout_ms"]["max"].as_f64(), Some(30.0));
+        assert_eq!(n200["list_ms"]["whole_at_rest"].as_f64(), Some(6.0));
+        assert_eq!(f["ramps"][2]["events"]["lost"].as_f64(), Some(3.0));
+        assert_eq!(f["ramps"][3]["error"], "wall clock cap");
+        // per-session RSS: 0.1, 0.2, 2.1 MB at 50, 200, 2000: rising, about 1.03 MB per 1,000 sessions
+        let slope = f["slope_per_1000_sessions"]["controller_rss_mb_per_session"].as_f64().unwrap();
+        assert!((slope - 1.03).abs() < 0.05, "{slope}");
+        assert_eq!(
+            f["slope_per_1000_sessions"]["controller_cpu_pct_per_session"].as_f64(),
+            Some(0.0)
+        );
+        assert_eq!(f["marginal"][0]["rss_kb_per_added_session"].as_f64(), Some(110.0));
+        let rows = perf_rows(&r);
+        let get =
+            |n: &str| rows.iter().find(|x| x["name"] == n).unwrap_or_else(|| panic!("{n} missing"));
+        assert_eq!(get("coord_sim.fanin.n200.attach_ms")["p95"].as_f64(), Some(10.0));
+        assert_eq!(
+            get("coord_sim.fanin.n200.controller_rss_mb_per_session")["p95"].as_f64(),
+            Some(0.2)
+        );
+        assert_eq!(get("coord_sim.fanin.n200.fanout_ms")["p50"].as_f64(), Some(5.0));
+        assert_eq!(get("coord_sim.fanin.n200.fanout_max_ms")["p95"].as_f64(), Some(30.0));
+        assert_eq!(get("coord_sim.fanin.n50.lost_or_duplicated")["p95"].as_f64(), Some(1.0));
+        assert!(
+            get("coord_sim.fanin.slope.controller_rss_mb_per_session_per_ksession")["p95"]
+                .as_f64()
+                .unwrap()
+                > 1.0
+        );
+        assert!(rows.iter().all(|x| !x["name"].as_str().unwrap().contains("n5000")));
+        // one ramp's own dir (fanin-table.json, and the raw files with fanin's `attach` op)
+        let one = run_dir(
+            "fanin-one",
+            &[
+                ("fanin-table.json", &table(200, 204.8, 0.02).to_string()),
+                (
+                    "ops.ndjson",
+                    "{\"op\":\"attach\",\"c\":1,\"t_us\":1,\"latency_us\":7000,\"n\":3,\"ok\":true}\n",
+                ),
+            ],
+        );
+        let r1 = report(&one).unwrap();
+        assert_eq!(r1["fanin"]["ramps"][0]["n"], 200);
+        assert_eq!(r1["attach_ms"]["n"], 1);
+        assert_eq!(r1["first_paint_ms"]["n"], 1);
+        // --fanin DIR adds the ramp to a drive run's report
+        let drive = run_dir("fanin-drive", &[("run.json", "{}")]);
+        super::run(&[
+            drive.to_string_lossy().into_owned(),
+            "--fanin".into(),
+            d.to_string_lossy().into_owned(),
+        ])
+        .unwrap();
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(drive.join("report.json")).unwrap())
+                .unwrap();
+        assert_eq!(written["fanin"]["ramps"][1]["n"], 200);
+        for x in [d, one, drive] {
+            let _ = std::fs::remove_dir_all(&x);
+        }
+    }
+
+    #[test]
     fn empty_run_dir_reports_nulls_not_errors() {
         let d = run_dir("empty", &[]);
         let r = report(&d).unwrap();
@@ -780,6 +1028,7 @@ mod tests {
         assert_eq!(r["daemon"]["rss_slope_mb_per_min"], Value::Null);
         assert_eq!(r["events"]["lost"], 0);
         assert!(perf_rows(&r).is_empty(), "an empty run has no rows");
+        assert!(r["fanin"].is_null());
         let _ = std::fs::remove_dir_all(&d);
     }
 

@@ -83,6 +83,7 @@
     "received": 598,
     "unseen_by_readers": 2
   },
+  "fanin": null,
   "files": {
     "events": true,
     "ops": true,

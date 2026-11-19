@@ -52,6 +52,16 @@ class CoordSimTest(unittest.TestCase):
         py = rows_of_report(report)
         self.assertEqual(sorted((r["name"], r["p95"]) for r in py), sorted((r["name"], r["p95"]) for r in rust))
 
+    def test_fanin_rows_match_the_rust_rows(self):
+        lines = (FIXTURES / "coord-sim-linux-fanin.log").read_text().splitlines()
+        report, rust = json.loads(lines[-2]), json.loads(lines[-1])["rows"]
+        py = rows_of_report(report)
+        self.assertEqual(sorted((r["name"], r["p95"]) for r in py), sorted((r["name"], r["p95"]) for r in rust))
+        c = ctx()
+        BENCH.ingest(c, FIXTURES / "report-fanin.json")
+        self.assertEqual(find(c.rows, "fanin.n200.attach_ms")["p95"], 10.0)
+        self.assertEqual(find(c.rows, "fanin.n200.controller_rss_mb_per_session")["value"], 0.2)
+
     def test_not_a_log(self):
         with self.assertRaises(BenchError):
             BENCH.ingest(ctx(), Path(__file__))

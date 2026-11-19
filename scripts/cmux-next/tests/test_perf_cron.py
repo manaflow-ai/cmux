@@ -755,7 +755,8 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(list(runs), ["build", "suite"])  # the build runs first, under its own cap
         self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/coord-sim-linux.sh", "build-only"])
         self.assertEqual(runs["suite"][0], ["bash", "/r/scripts/measure/coord-sim-linux.sh", "coordinators=3", "rate=10",
-                                            "seconds=300"])
+                                            "seconds=300", "fanin=50,200", "fanin_window=60"])
+        self.assertEqual(cron.part_for_row("webui.coord_sim.fanin.n200.controller_rss_mb_per_session@linux"), "coord-sim")
         # The report's last line, as `coord-sim report RUN_DIR --rows` prints it.
         rows = cron.rows_of_part(cron.PART_BY_NAME["coord-sim"], {"rows": [
             {"name": "coord_sim.delivery_ms", "p50": 4.1, "p95": 18.5, "unit": "ms", "target": 100, "version": 1},

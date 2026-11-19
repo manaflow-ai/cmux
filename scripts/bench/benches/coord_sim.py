@@ -15,6 +15,10 @@ webui.coord_sim.<metric>):
   page_ms, scroll.over_33ms (ops): a reader paging history, and pages over two 60 Hz frames
   typing.ack_ms, typing.echo_ms: a prompt to the daemon's ack and to its echo
   daemon.peak_rss_mb, daemon.rss_slope_mb_per_min (the leak signal), daemon.cpu_pct, per_chat.rss_mb, per_chat.cpu_pct
+  fanin.n<N>.{attach_ms, fanout_ms, fanout_max_ms, list_ms, list_paged_ms, list_under_churn_ms,
+    controller_rss_mb_per_session, controller_cpu_pct_per_session, lost_or_duplicated}, and
+    fanin.slope.controller_{rss_mb,cpu_pct}_per_session_per_ksession: the fan-in ramp (`coord-sim fanin`, one
+    controller, N sessions over many host daemons), when the run had one (harness arg fanin=RAMPS)
 
 Run: `cmux-bench coord-sim [--arg coordinators=3] [--arg rate=10] [--arg seconds=300]` sends the harness through
 `cmux-ci test --setup rust` (Linux; on a lane VM at the caller's open PR head) and reads its log. `--import PATH`
@@ -31,7 +35,7 @@ from pathlib import Path
 from benchlib.bench import Bench, BenchError, Context
 
 HARNESS = "scripts/measure/coord-sim-linux.sh"
-PASS_THROUGH = ("coordinators", "rate", "seconds", "seed")
+PASS_THROUGH = ("coordinators", "rate", "seconds", "seed", "readers", "fanin", "fanin_window", "fanin_hosts")
 # A GitHub Actions log prefixes each line with its time.
 STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ")
 PREFIX = "coord_sim."
@@ -73,6 +77,25 @@ def rows_of_report(report: dict) -> list[dict]:
         one("scroll.over_33ms", g("scroll", "over_33_3ms"), "ops")
     one("daemon.peak_rss_mb", g("daemon", "peak_rss_mb"), "MB")
     one("daemon.rss_slope_mb_per_min", g("daemon", "rss_slope_mb_per_min"), "MB/min")
+    fanin = report.get("fanin") if isinstance(report.get("fanin"), dict) else {}
+    for t in fanin.get("ramps") or []:
+        if not isinstance(t, dict) or t.get("error") or not isinstance(t.get("n"), int):
+            continue
+        p = f"fanin.n{t['n']}."
+        dist(p + "attach_ms", t.get("attach_ms"), "ms")
+        dist(p + "fanout_ms", t.get("fanout_ms"), "ms")
+        one(p + "fanout_max_ms", _get(t, "fanout_ms", "max"), "ms")
+        one(p + "list_ms", _get(t, "list_ms", "whole_at_rest"), "ms")
+        one(p + "list_paged_ms", _get(t, "list_ms", "paged_at_rest"), "ms")
+        one(p + "list_under_churn_ms", _get(t, "list_ms", "whole_under_churn_p95"), "ms")
+        one(p + "controller_rss_mb_per_session", _get(t, "controller", "rss_mb_per_session"), "MB")
+        one(p + "controller_cpu_pct_per_session", _get(t, "controller", "cpu_pct_per_session"), "%")
+        ev = t.get("events") or {}
+        one(p + "lost_or_duplicated", (ev.get("lost") or 0) + (ev.get("duplicated") or 0), "events")
+    for name, unit in (("controller_rss_mb_per_session", "MB"), ("controller_cpu_pct_per_session", "%")):
+        v = _get(fanin, "slope_per_1000_sessions", name)
+        if isinstance(v, (int, float)):
+            one(f"fanin.slope.{name}_per_ksession", max(v, 0.0), unit)
     return out
 
 

@@ -233,7 +233,10 @@ PARTS = [
     # chats shaped like the heaviest real ones (histograms only) streamed at 10x into a release acpmux at once, with
     # readers attached: event delivery p50/p95/p99, lost and duplicated events, attach and first paint under load, a
     # reader paging history, prompt to ack and echo, the daemon's RSS, its slope (the leak signal) and memory and
-    # CPU per chat (`coord-sim report`, schema coord-sim-run.v1). Its rows are webui.coord_sim.*.
+    # CPU per chat (`coord-sim report`, schema coord-sim-run.v1). Then the fan-in ramp at 50 and 200 sessions (goal
+    # sessions-2000-attached; 2,000 needs more than this runner and cap): attach through one controller, the fleet
+    # listing, fan-out p50/p95/max, controller CPU and RSS per session and their slope over N. Its rows are
+    # webui.coord_sim.*.
     {"name": "coord-sim", "where": "linux", "kind": "webui", "needs": "coord-sim"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
@@ -961,7 +964,8 @@ def linux_bench_runs(root, part="diff-viewer"):
         # The release builds first, in a run of their own (each run has its own 30-minute cap), then 300 s of load.
         script = os.path.join(root, COORD_SIM)
         return {"build": (["bash", script, "build-only"], root or ".", {}),
-                "suite": (["bash", script, "coordinators=3", "rate=10", "seconds=300"], root or ".", {})}
+                "suite": (["bash", script, "coordinators=3", "rate=10", "seconds=300", "fanin=50,200", "fanin_window=60"],
+                          root or ".", {})}
     if part == "chat-disk":
         script = os.path.join(root, CHAT_DISK)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
