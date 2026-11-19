@@ -454,15 +454,15 @@ else:
 ' <<<"$body" 2>/dev/null || echo unknown
 }
 
-# Prints how the active cmux-tui artifacts runs of commit <sha> are doing, one line,
+# Prints how cmux-tui artifacts runs of commit <sha> are doing, one line,
 # from their jobs, so a waiter follows the run's live state instead of only "active":
 #   building             a run is making progress: nothing below holds for it
-#   failed <job>: <url>  every active run has a failed build or publish job on its last
+#   failed <job>: <url>  every active run has a failed preflight, build or publish job on its last
 #                        retry attempt, so none publishes the tree
 #   stalled <what>       every active run is stuck: a job (or the run itself, with no
 #                        jobs yet) has waited for a runner longer than
 #                        CMUX_TUI_TREE_RUNNER_STALL_SECONDS (default 900)
-#   none                 no active run
+#   none                 no run, or the newest completed run has no required-job failure
 #   unknown              the runs or a run's jobs could not be read (keep waiting)
 # A queued job is one with no runner: GitHub lists it before any runner takes it.
 artifacts_run_progress() {
@@ -478,9 +478,12 @@ try:
     runs = json.loads(sys.stdin.read())["workflow_runs"]
 except Exception:
     print("unknown"); sys.exit(0)
-for r in runs:
-    if isinstance(r, dict) and r.get("status") != "completed":
-        print(r.get("id"))
+assert isinstance(runs, list) and all(isinstance(r, dict) for r in runs)
+active = [r for r in runs if r.get("status") != "completed"]
+# Active retries take precedence over older terminal attempts. With none active,
+# inspect the newest run so a completed preflight failure keeps its job and URL.
+for r in active or runs[:1]:
+    print(r.get("id"))
 ' <<<"$runs" 2>/dev/null || echo unknown)"
   [[ "$ids" != unknown ]] || { echo unknown; return 0; }
   [[ -n "$ids" ]] || { echo none; return 0; }
@@ -496,12 +499,13 @@ for r in runs:
 import datetime, json, os, re, sys
 jobs_dir, now, stall, web = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
 runs = {str(r.get("id")): r for r in json.load(open(os.path.join(jobs_dir, "runs.json")))["workflow_runs"] if isinstance(r, dict)}
-# Jobs whose failure means the run publishes no tree: the builds and the publish. The
+# Jobs whose failure means the run publishes no tree: preflight, builds and publish. The
 # primary macOS leg is left out: build-darwin-fallback rebuilds it when it fails.
-REQUIRED = re.compile(r"^(build(-linux|-darwin-fallback)?( / |$)|publish (to R2|tree-addressed))")
+REQUIRED = re.compile(r"^(cmux-tui tree preflight$|build(-linux|-darwin-fallback)?( / |$)|publish (to R2|tree-addressed))")
 DARWIN_PRIMARY = re.compile(r"^build / .*-apple-darwin")
 # cmux-tui-artifacts-retry re-runs a failed run's failed jobs until attempt MAX_ATTEMPTS
-# (scripts/ci/cmux_tui_artifacts_retry.py): before the last attempt a failure is not final
+# (scripts/ci/cmux_tui_artifacts_retry.py): an active attempt before the last is not final.
+# A completed failure retains its error; callers give retries two observations to start.
 # (tree 453a2f94 published on such a retry, 2026-11-18).
 MAX_ATTEMPTS = 3
 def age(stamp):
@@ -516,10 +520,12 @@ for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
     url = run.get("html_url") or f"{web}/actions/runs/{run_id}"
     bad = [j for j in jobs if j.get("conclusion") in ("failure", "timed_out", "cancelled")
            and REQUIRED.match(j.get("name", "")) and not DARWIN_PRIMARY.match(j.get("name", ""))]
-    if bad and int(run.get("run_attempt") or 1) >= MAX_ATTEMPTS:
+    if bad and (run.get("status") == "completed" or int(run.get("run_attempt") or 1) >= MAX_ATTEMPTS):
         failed.append(f"{bad[0]['name']}: {url}")
         continue
-    # Only a build or publish job holds the tree back; a shadow or upload job may queue.
+    if run.get("status") == "completed":
+        continue
+    # Preflight, build and publish jobs hold the tree back; a shadow or upload job may queue.
     waiting = [j for j in jobs if j.get("status") in ("queued", "waiting", "pending") and not j.get("runner_name")
                and REQUIRED.match(j.get("name", ""))]
     late = [j for j in waiting if age(j.get("created_at")) >= stall]
@@ -532,7 +538,7 @@ for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
         stalled.append(f"run pending {age(run.get('created_at')) // 60} min with no job started: {url}")
         continue
     print("building"); sys.exit(0)
-print(("failed " + failed[0]) if failed else ("stalled " + stalled[0]))
+print(("failed " + failed[0]) if failed else ("stalled " + stalled[0]) if stalled else "none")
 PY
   rm -rf "$jobs_dir"
 }

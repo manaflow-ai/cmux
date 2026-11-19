@@ -92,22 +92,23 @@ while :; do
     # builds sat queued on Blacksmith while nightly 44243166776 waited blind).
     publisher="" stuck="" skip=""
     for candidate in "$@"; do
-      case "$(bash "$script_dir/pin-cmux-tui.sh" runs-state "$candidate" 2>/dev/null || echo unknown)" in
-        active)
+      state="$(bash "$script_dir/pin-cmux-tui.sh" runs-state "$candidate" 2>/dev/null || echo unknown)"
+      case "$state" in
+        active|ended\ *)
           progress="$(bash "$script_dir/pin-cmux-tui.sh" run-progress "$candidate" 2>/dev/null || echo unknown)"
           case "$progress" in
             # none: the run list said active a moment ago; trust it until the next check.
-            building|unknown|none) publisher="$candidate"; break ;;
+            building|unknown) publisher="$candidate"; break ;;
+            none) [[ "$state" != active ]] || { publisher="$candidate"; break; } ;;
             *) stuck="the run of ${candidate:0:12} is $progress"; skip="$skip $candidate" ;;
           esac ;;
         unknown) publisher=unknown ;;
       esac
     done
     if [[ -z "$publisher" ]]; then
-      # active-publisher returns one same-key commit at a time. Pass over a
-      # stalled or failed run and ask again: owner and takeover runs may share
-      # a tree key, so the first match is not necessarily the viable publisher.
-      while :; do
+      # Bound alternate discovery; an unfinished scan is unknown, never proof
+      # that no publisher can finish. Pass over each stalled same-tree source.
+      for ((scan = 0; scan < 20; scan++)); do
         found="$(CMUX_TUI_TREE_SKIP_PUBLISHERS="$skip" bash "$script_dir/pin-cmux-tui.sh" active-publisher "$key" 2>/dev/null || echo unknown)"
         case "$found" in
           unknown) publisher=unknown; break ;;
@@ -121,6 +122,7 @@ while :; do
             esac ;;
         esac
       done
+      (( scan < 20 )) || publisher=unknown
     fi
     case "$publisher" in
       unknown) idle_checks=0; echo "the cmux-tui artifacts runs could not all be read; waiting on" >&2 ;;
