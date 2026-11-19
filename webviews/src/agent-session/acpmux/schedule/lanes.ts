@@ -65,7 +65,8 @@ export interface LanesEnv {
 }
 
 export const FRAME_BUDGET_MS = 6;
-export const SLICE_MS = 4;
+/** A slice of the app lanes: 2 ms at most, then the thread goes back to input and the frame. */
+export const SLICE_MS = 2;
 /** A key or pointer handled this recently still counts as pending input. */
 export const INPUT_QUIET_MS = 50;
 /** A frame asked for that does not come in this long (an occluded window) runs anyway. */

@@ -41,6 +41,7 @@ import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
 import { reportTrace, traceWindow } from "./styleInvalidationTrace";
 import { sourceMapper } from "./sourceMapper";
+import { mainTaskStats, traceMainTasks, type MainTaskStats } from "./mainTasks";
 let mapUrl: (file: string, line: number, column: number) => string = (file, line) => `${file}:${line + 1}`;
 
 const argv = process.argv.slice(2);
@@ -59,6 +60,10 @@ const DEV = argv.includes("--dev");
 /// stream with no typing; it prints elements restyled per key and per token and what restyled them
 /// (styleInvalidationTrace.ts; `STYLE-TRACE ... SUMMARY` lines).
 const TRACE = argv.includes("--trace");
+/// With --tasks: a light trace (`toplevel`) over the typed keys that reads every main-thread task, not only the 50 ms
+/// ones the longtask observer sees: main_task_max_ms, main_task_p99_ms and the tasks over 2, 4 and 8 ms
+/// (mainTasks.ts). Chromium only; not with --trace.
+const TASKS = argv.includes("--tasks");
 const webviews = path.resolve(import.meta.dir, "..");
 const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
@@ -66,8 +71,9 @@ const FLOOR = !argv.includes("--no-floor");
 const COLD = argv.includes("--cold");
 const ENGINE = flag("--engine") ?? "chromium";
 if (ENGINE !== "chromium" && ENGINE !== "webkit") throw new Error(`--engine must be chromium or webkit, not ${ENGINE}`);
-if (ENGINE === "webkit" && (PROFILE || TRACE))
-  throw new Error("--profile and --trace read Chromium's DevTools protocol");
+if (ENGINE === "webkit" && (PROFILE || TRACE || TASKS))
+  throw new Error("--profile, --trace and --tasks read Chromium's DevTools protocol");
+if (TRACE && TASKS) throw new Error("--trace and --tasks each trace the typed keys: pass one");
 /// Prompts waiting in the chat's queue while the keys are typed (0: none).
 const QUEUED = Number(flag("--queue") ?? 0);
 /// What an A/B of arms summarizes: key to frame, key to listener and the long tasks.
@@ -78,6 +84,7 @@ const ARM_METRICS = [
   "to_listener_p95",
   "longest_task_ms",
   "long_tasks",
+  ...(TASKS ? (["main_task_max_ms", "main_task_p99_ms", "main_tasks_over_4ms", "main_tasks_over_8ms"] as const) : []),
 ] as const;
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 const METRICS = [
@@ -242,7 +249,12 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       }
     };
     const typedAt = performance.now();
-    const typedEvents = TRACE ? await traceWindow(browser, page, typeKeys) : (await typeKeys(), undefined);
+    let tasks: MainTaskStats | undefined;
+    const typedEvents = TRACE
+      ? await traceWindow(browser, page, typeKeys)
+      : TASKS
+        ? void (tasks = mainTaskStats(await traceMainTasks(browser, page, typeKeys)))
+        : (await typeKeys(), undefined);
     const typedMs = performance.now() - typedAt;
     await page.waitForTimeout(500);
     const after = await metrics();
@@ -349,6 +361,7 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       to_frame_max: typing.to_frame?.max_ms,
       longest_task_ms: Math.round(Math.max(0, ...long.map((task) => task.ms)) * 10) / 10,
       long_tasks: long.length,
+      ...tasks,
       composer_per_stream_event: composerPerEvent,
       composer_per_tick_event: composerPerTick,
       transcript_per_stream_event: transcriptPerEvent,

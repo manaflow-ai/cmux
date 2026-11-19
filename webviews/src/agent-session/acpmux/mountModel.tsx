@@ -20,6 +20,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { liveBackground } from "../../ui/liveBackground/liveBackground.experiment";
 import { installUiPointer, type UiPointerControl } from "./uiPointer/picker";
 import { reportChatSnapshot } from "./chatSnapshot/live";
+import { afterTask, createDrawPacer, pageLanes } from "./schedule";
 
 // The chat's snapshot drew in the document's first frame (chatSnapshot/boot.ts): the host shows the
 // page now, before the handshake, instead of keeping its loading state until the rows are read.
@@ -37,8 +38,15 @@ reportChatSnapshot(postNative);
   },
 );
 
-// One transcript snapshot per display frame, however many deltas land in it.
-AcpmuxDirectClient.scheduleFrame = nextFrame;
+// One transcript snapshot per display frame, however many deltas land in it; a streamed draw that is
+// expensive gives the thread back to keys first (schedule/drawPacer.ts).
+const drawPacer = createDrawPacer({
+  now: () => performance.now(),
+  frame: nextFrame,
+  inputPending: () => pageLanes().inputPending(),
+  afterTask,
+});
+AcpmuxDirectClient.scheduleFrame = (run, paced) => drawPacer.schedule(run, paced);
 document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
 // The native context menu learns which message is under the pointer (conversation/messageMenu.ts).
 installMessageMenuReporter(document);

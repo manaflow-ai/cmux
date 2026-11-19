@@ -476,3 +476,40 @@ test("a streamed chunk's frame is parsed once", async () => {
     client.close();
   }
 });
+
+// Input first (schedule/drawPacer.ts): a draw of only the reply's text growing is asked for paced, so
+// the pacer may hold it while draws are expensive and a key waits. Anything else draws in the next
+// frame, and a paced draw waiting when it lands is asked for again unpaced and draws with it.
+test("only the reply's text growing asks for a paced draw; another change makes it unpaced", async () => {
+  const { socket, client, snapshots } = await openPane();
+  const asked: boolean[] = [];
+  let cancelled = 0;
+  AcpmuxDirectClient.scheduleFrame = (run, paced) => {
+    asked.push(paced === true);
+    frames.push(run);
+    return () => {
+      cancelled += 1;
+      frames = frames.filter((frame) => frame !== run);
+    };
+  };
+  try {
+    record(socket, 401, "turn_end");
+    record(socket, 402, "turn_started");
+    chunk(socket, 403);
+    flushFrames();
+    asked.length = 0;
+    const before = snapshots();
+    // The reply grows: one paced request, however many chunks land before its frame.
+    for (let seq = 404; seq < 410; seq++) chunk(socket, seq);
+    expect(asked).toEqual([true]);
+    // The turn ends: the paced request is replaced by an unpaced one, and one frame draws both.
+    record(socket, 410, "turn_end");
+    expect(asked).toEqual([true, false]);
+    expect(cancelled).toBe(1);
+    expect(frames.length).toBe(1);
+    flushFrames();
+    expect(snapshots() - before).toBe(1);
+  } finally {
+    client.close();
+  }
+});
