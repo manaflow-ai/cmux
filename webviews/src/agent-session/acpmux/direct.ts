@@ -15169,6 +15169,12 @@ export class AcpmuxDirectClient {
   refreshModels(): Promise<unknown> {
     return this.request("_acpmux/models", { refresh: true });
   }
+  /// The model catalog acpmux uses (`catalog.get`: its fetched, stored or bundled copy with the
+  /// public feed's newer models over it); `refresh` makes it fetch both first (`catalog.refresh`).
+  async modelCatalog(refresh = false): Promise<unknown> {
+    if (refresh) await this.request("catalog.refresh", {});
+    return this.request("catalog.get", {});
+  }
   /// Enables a folder profile (`_acpmux/harness_enable {folder, id}`). Call it straight from the
   /// click or key handler, with no await before it: the host takes the gesture, shows its own
   /// confirmation and adds the file's hash itself (the pane never sends one). A Cancel there

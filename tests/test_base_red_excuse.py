@@ -3521,6 +3521,12 @@ class SignedHostGitHub(FakeGitHub):
 class BaseDispatchForPullRequestOnlyWorkflows(unittest.TestCase):
     """A workflow in BASE_DISPATCH with no base verdict starts one dispatch on the base tip and refuses, naming it;
     the check after it completes compares against it as any base run."""
+    LISTED = excuse.BASE_DISPATCH  # the real list, before setUp names the signed-host workflow it was written for
+
+    def setUp(self):
+        listed = unittest.mock.patch.object(excuse, "BASE_DISPATCH", frozenset({("feat-cmux-next", SIGNED_HOST_FILE)}))
+        listed.start()
+        self.addCleanup(listed.stop)
 
     def judge(self, gh):
         return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
@@ -3627,7 +3633,7 @@ class BaseDispatchForPullRequestOnlyWorkflows(unittest.TestCase):
 
     def test_each_base_dispatch_workflow_can_be_dispatched(self):
         yaml = excuse.yaml_module()
-        for branch, file in excuse.BASE_DISPATCH:
+        for branch, file in self.LISTED:
             workflow = yaml.safe_load((excuse.WORKFLOWS / file).read_text())
             triggers = workflow.get(True, workflow.get("on")) or {}
             self.assertIn("workflow_dispatch", triggers, file)
@@ -7709,8 +7715,9 @@ class WsCheckFleetRoute(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
 
-    def keep(self, *, run=1, receipt_run=1, conclusion="failure", state="done", ran_on="build-fleet"):
-        record = {"id": "j1", "repo": self.gh.REPO, "dispatch": self.gh.HOST, "run_id": run, "conclusion": conclusion,
+    def keep(self, *, run=1, receipt_run=1, conclusion="failure", state="done", ran_on="build-fleet", head=HEAD):
+        record = {"id": "j1", "repo": self.gh.REPO, "dispatch": self.gh.HOST, "head": head, "run_id": run,
+                  "conclusion": conclusion,
                   "fleet": {"from_run": run, "state": state, "steps": [{"where": "linux-pool", "job_id": "f1"}]}}
         (self.folder / "j1.json").write_text(json.dumps(record))
         receipt = {"source_sha": HEAD, "run_id": str(receipt_run), "ran_on": ran_on, "exit_code": 1}
@@ -7736,7 +7743,7 @@ class WsCheckFleetRoute(unittest.TestCase):
             self.judge()
 
     def test_a_kept_log_not_held_to_this_run_and_verdict_is_not_read(self):
-        for kwargs in ({"run": 7}, {"conclusion": "success"}, {"state": "running"}):
+        for kwargs in ({"run": 7}, {"conclusion": "success"}, {"state": "running"}, {"head": "b" * 40}):
             with self.subTest(**kwargs):
                 self.keep(**kwargs)
                 with self.assertRaisesRegex(excuse.Refused, "has no result on"):
@@ -7746,6 +7753,15 @@ class WsCheckFleetRoute(unittest.TestCase):
                 self.keep(**kwargs)
                 with self.assertRaisesRegex(excuse.Refused, "has no FAST_CHECKS_RECEIPT naming that run"):
                     self.judge()
+
+
+class WsCheckFleetRecordsFolders(unittest.TestCase):
+    """cmux#46667: with no BASE_RED_FLEET_RECORDS the primary broker's records are read, then the standby broker's."""
+
+    def test_the_standby_brokers_records_follow_the_primarys(self):
+        self.assertEqual(excuse.fleet_records_dirs({"HOME": "/h"}),
+                         [Path("/h/.local/state/lane-gh-broker/ci"), Path("/h/.local/state/lane-gh-broker-standby/ci")])
+        self.assertEqual(excuse.fleet_records_dirs({"HOME": "/h", excuse.FLEET_RECORDS_ENV: "/x"}), [Path("/x")])
 
 
 class WsCheckFailureText(unittest.TestCase):
@@ -15471,7 +15487,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
             "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
             "thunderdome-label.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
-            "cmux-next-pr-closed-cancel.yml", "language-boundaries.yml", "required-checks-drift.yml",
+            "cmux-next-pr-closed-cancel.yml", "ci-pr-closed-cancel.yml", "language-boundaries.yml",
+            "required-checks-drift.yml",
             "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml",
             # Dispatch-only secrets seal; on a pull request that edits it every job is skipped.
             "cmux-vm-secrets-seal.yml"),
