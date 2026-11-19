@@ -170,8 +170,9 @@ final class CommitProducerProbe {
             let start = DispatchTime.now().uptimeNanoseconds
             original(object, selector)
             let milliseconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6
+            let producer = ObjectIdentifier(object)  // the key only: the object itself never crosses into the main actor
             MainActor.assumeIsolated { // main-proof: Core Animation display passes and AppKit layout run on the main thread
-                probe.record(ObjectIdentifier(object), kind: kind, milliseconds: milliseconds)
+                probe.record(producer, kind: kind, milliseconds: milliseconds)
             }
         }
     }
