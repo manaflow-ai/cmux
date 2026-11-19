@@ -249,6 +249,8 @@ export class ResizableTableView extends TableView {
   private readonly handle: HTMLElement;
   private column = -1;
   private dragging = false;
+  // A column drag's watch (pressRelease.ts): a table gone mid-drag leaves no listener behind.
+  private stopDrag: (() => void) | undefined;
 
   constructor(
     node: ProseNode,
@@ -497,11 +499,13 @@ export class ResizableTableView extends TableView {
         move(next);
         this.pointer = { x: next.clientX, y: next.clientY };
       }
+      this.stopDrag = undefined;
       this.dragging = false;
       this.dom.classList.remove("md-col-resizing");
       this.save(widths);
     };
-    watchPress(this.dom.ownerDocument, { events: "mouse", move, end: (_how, next) => up(next) });
+    this.stopDrag?.();
+    this.stopDrag = watchPress(this.dom.ownerDocument, { events: "mouse", move, end: (_how, next) => up(next) });
   };
 
   /** Double-click: the column fits its content (the other columns keep their widths). */
@@ -535,6 +539,8 @@ export class ResizableTableView extends TableView {
   }
 
   destroy(): void {
+    this.stopDrag?.();
+    this.stopDrag = undefined;
     this.unfade();
     this.dom.removeEventListener("mousemove", this.hover);
     this.dom.removeEventListener("mouseleave", this.leave);

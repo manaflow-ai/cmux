@@ -1106,12 +1106,16 @@ export function ComposerQueue({
           stopPress.current?.();
           const done = () => {
             pressing.current = false;
-            page.removeEventListener("keydown", done, true);
             stopPress.current?.();
             stopPress.current = undefined;
           };
           page.addEventListener("keydown", done, true);
-          stopPress.current = watchPress(page, { pointerId: event.pointerId, end: done });
+          const stopWatch = watchPress(page, { pointerId: event.pointerId, end: done });
+          // One stop for both ends, so an unmount or the next press removes the key listener too.
+          stopPress.current = () => {
+            page.removeEventListener("keydown", done, true);
+            stopWatch();
+          };
         }}
         aria-label={`${t("composer.queue")} (${shown.length})`}
       >
