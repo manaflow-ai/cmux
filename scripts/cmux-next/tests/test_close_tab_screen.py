@@ -1,0 +1,357 @@
+#!/usr/bin/env python3
+"""new_surface_frames.py and new_surface_screen.py: one Close Tab key (Cmd-W), from the screen's frames and the pane's tabs.
+
+No app, no display, no fleet: the frames are rows in the form that the app's frame_strip writes, and the app is a
+function that answers the tool's calls, with a list of tabs and a clock that only the tool's pauses move. The
+tool's sender of the New Tab keys runs here before the recording's call, on that clock, and not in a thread. So
+this proves the tool's own reading, its cases, the times at which it plans its keys and its INVALID rules, not
+that a recording on a Mac gives such rows or that the app takes the keys at those times.
+
+    python3 -I scripts/cmux-next/tests/test_close_tab_screen.py
+"""
+import contextlib
+import io
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+sys.dont_write_bytecode = True  # the imports leave no cache folder in the checkout
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import test_new_surface_frames as base  # noqa: E402
+
+nsf, new_surface_screen = base.nsf, base.new_surface_screen
+# The pane as before the key, with the strip's numbers, then the close: each region at its last picture in one frame.
+OLD_ROW = dict(content=base.OLD, outside=base.STILL, strip=(0, 0.2))
+GONE = dict(content=base.NEW, outside=base.STILL, strip=(0.2, 0))
+STRIP_LATE = dict(content=base.NEW, outside=base.STILL, strip=(0, 0.2))  # the next tab's content, the closed tab still in the strip
+BLANK = dict(content=(0.3, 0.3), outside=base.STILL, strip=(0.2, 0), blank=True)  # the closed tab's content gone, no content yet
+SAME = dict(content=base.STILL, outside=base.STILL, strip=(0.2, 0))  # the tab that shows has the closed tab's picture
+SENT = 2.0  # the Close Tab key went in this long before the reply's zero
+AT = {"frame": 3, "ms": 19.0, "file": "frame-004.png"}  # the first frame of the display in which a change of `shot` can be
+
+
+def shot(pictures, spans=()):
+    """A recording of one Close Tab key: a row of the old picture, then one frame of the display for each picture."""
+    return base.take([OLD_ROW] + list(pictures), spans=list(spans), before_send_ms=SENT)
+
+
+def tabs(*ids, shown):
+    return {"tabs": [{"id": name, "kind": "terminal" if name.startswith("term") else "newTab"} for name in ids], "selected": shown}
+
+
+def opened(before_ms):
+    """The app's mark of a New Tab key's opening that began `before_ms` before the Close Tab key went in."""
+    return {"name": "newTab.open", "ms": -(before_ms + SENT), "duration_ms": 6.0}
+
+
+class CloseFactTests(unittest.TestCase):
+    def fact(self, pictures, before, after, keys=0, spans=()):
+        self.assertTrue(hasattr(nsf, "close_of"), "new_surface_frames.py has no `close_of`: a Close Tab key has no row")
+        reply = shot(pictures, spans)
+        row = nsf.one_key(reply, "w", asked_hz=120)
+        fact, faults = nsf.close_of(row, reply["spans"], before, after, keys)
+        return fact, faults
+
+    def test_an_idle_close_says_which_tab_shows_and_the_frame_in_which_the_closed_tabs_content_is_gone(self):
+        fact, faults = self.fact([GONE] * 239, tabs("term-0", "term-1", "page-2", shown="page-2"), tabs("term-0", "term-1", shown="term-1"))
+        self.assertEqual(faults, [])
+        self.assertEqual(fact["closed"], [{"id": "page-2", "kind": "newTab", "index": 2, "was_shown": True}])
+        self.assertEqual(fact["closed_is"], "the shown tab (newTab)")
+        self.assertEqual(fact["shown_after"], {"id": "term-1", "kind": "terminal", "index": 1, "of": 2, "is": "the tab to the left of the closed tab"})
+        self.assertEqual((fact["content_gone"], fact["content_shown"], fact["strip_first"]), (AT, AT, AT))
+        self.assertEqual(fact["order"], "the strip and the content area changed in the same frame")
+        self.assertEqual((fact["tabs_before"], fact["tabs_after"], fact["new_tab_keys"], fact["new_tab_change_can_be_in_the_frames"]), (3, 2, 0, False))
+
+    def test_the_tab_that_shows_is_named_by_its_place_from_the_closed_tab(self):
+        right, _ = self.fact([GONE] * 239, tabs("term-0", "page-1", "term-2", shown="page-1"), tabs("term-0", "term-2", shown="term-2"))
+        self.assertEqual(right["shown_after"]["is"], "the tab to the right of the closed tab")
+        far, _ = self.fact([GONE] * 239, tabs("term-0", "term-1", "term-2", "page-3", shown="page-3"), tabs("term-0", "term-1", "term-2", shown="term-0"))
+        self.assertEqual(far["shown_after"]["is"], "another tab (3 places to the left of the closed tab)")
+        # A close of a tab that was not the shown one, and a key that closed nothing: each a fact with its own words.
+        other, faults = self.fact([GONE] * 239, tabs("term-0", "page-1", shown="page-1"), tabs("page-1", shown="page-1"))
+        self.assertEqual((other["closed_is"], other["shown_after"]["is"], faults),
+                         ("a tab that was not the shown one (terminal)", "the tab that was shown before the key (the closed tab was not the shown one)", []))
+        none, faults = self.fact([GONE] * 239, tabs("term-0", "page-1", shown="page-1"), tabs("term-0", "page-1", shown="page-1"))
+        self.assertEqual((none["closed_is"], none["shown_after"]["is"]), ("no tab", "no tab closed"))
+        self.assertTrue(faults[0].startswith("input: 0 New Tab key-downs and 1 Close Tab key sent: the pane had 2 tabs before them and has 2 after them"), faults)
+
+    def test_the_order_of_the_strip_and_the_content_area_is_in_the_row(self):
+        late, _ = self.fact([STRIP_LATE] * 2 + [GONE] * 237, tabs("term-0", "page-1", shown="page-1"), tabs("term-0", shown="term-0"))
+        self.assertEqual((late["content_gone"]["frame"], late["strip_first"]["frame"]), (3, 5))
+        self.assertEqual(late["order"], "the strip changed 2 frames after the content area")
+        early, _ = self.fact([dict(OLD_ROW, strip=(0.2, 0))] + [GONE] * 238, tabs("term-0", "page-1", shown="page-1"), tabs("term-0", shown="term-0"))
+        self.assertEqual(early["order"], "the strip changed 1 frames before the content area")
+
+    def test_frames_with_the_closed_tabs_content_gone_and_no_content_yet_are_counted(self):
+        fact, faults = self.fact([BLANK] * 3 + [GONE] * 236, tabs("term-0", "page-1", shown="page-1"), tabs("term-0", shown="term-0"))
+        self.assertEqual(faults, [])
+        self.assertEqual((fact["content_gone"]["frame"], fact["content_shown"]["frame"], fact["content_shown"]["ms"]), (3, 6, 44.0))
+        self.assertEqual((fact["blank_frames"], fact["content_between_frames"]), (3, 3))
+
+    def test_a_close_100_ms_after_a_new_tab_key_says_the_true_time_between_the_keys(self):
+        marks = [opened(100.0), {"name": "closeLocalTab", "ms": -1.5, "duration_ms": 0.5}]
+        fact, faults = self.fact([GONE] * 239, tabs("term-0", shown="term-0"), tabs("term-0", shown="term-0"), keys=1, spans=marks)
+        self.assertEqual(faults, [])
+        self.assertEqual((fact["closed"], fact["closed_is"], fact["closed_new_tabs"], fact["new_tabs_left"]), ([], "a new tab of the recording", 1, 0))
+        self.assertEqual(fact["shown_after"]["is"], "the tab that was shown before the New Tab keys")
+        self.assertEqual((fact["new_tab_marks_before_ms"], fact["last_new_tab_key_before_ms"], fact["close_marks_ms"]), ([100.0], 100.0, [0.5]))
+        self.assertIs(fact["new_tab_change_can_be_in_the_frames"], True)
+
+    def test_a_close_after_a_hold_names_the_new_tab_that_shows(self):
+        after = tabs("term-0", "new-1", "new-2", "new-3", "new-4", "new-5", shown="new-5")
+        fact, faults = self.fact([GONE] * 239, tabs("term-0", shown="term-0"), after, keys=6, spans=[opened(100.0)])
+        self.assertEqual(faults, [])
+        self.assertEqual((fact["closed_is"], fact["closed_new_tabs"], fact["new_tabs_left"]), ("a new tab of the recording", 1, 5))
+        self.assertEqual(fact["shown_after"]["is"], "a new tab of the recording (place 5 of the 5 that are left, from the left)")
+
+    def test_two_new_tab_pages_with_one_picture_are_no_fault_and_the_row_says_that_the_content_did_not_change(self):
+        after = tabs("term-0", "new-1", shown="new-1")
+        # The picture before the key is also the last picture: only the strip changes, in the second row.
+        reply = base.take([dict(SAME, strip=(0, 0.2))] + [SAME] * 239, spans=[opened(100.0)], before_send_ms=SENT)
+        row = nsf.one_key(reply, "w", asked_hz=120)
+        self.assertTrue(row["invalid"][0].startswith("content: "), row["invalid"])  # the reader of an opening's rule
+        self.assertTrue(hasattr(nsf, "close_of"), "new_surface_frames.py has no `close_of`")
+        fact, faults = nsf.close_of(row, reply["spans"], tabs("term-0", shown="term-0"), after, 2)
+        self.assertEqual((faults, fact["content_gone"], fact["content_shown"], fact["strip_first"]), ([], None, None, AT))
+        self.assertEqual(fact["not_a_fault_for_a_close"], row["invalid"])
+        self.assertEqual(fact["order"], "the strip changed and the content area did not (one picture before and after the key)")
+
+    def test_a_close_that_took_a_tab_from_before_the_new_tab_keys_is_a_fact(self):
+        fact, faults = self.fact([GONE] * 239, tabs("term-0", "term-1", shown="term-1"), tabs("term-0", "new-2", shown="new-2"), keys=1, spans=[opened(100.0)])
+        self.assertEqual(faults, [])
+        self.assertEqual((fact["closed"], fact["closed_is"], fact["closed_new_tabs"], fact["new_tabs_left"]),
+                         ([{"id": "term-1", "kind": "terminal", "index": 1, "was_shown": True}], "a tab that was there before the New Tab keys (terminal)", 0, 1))
+
+    def test_a_row_whose_keys_are_not_proved_is_invalid(self):
+        one, shown = tabs("term-0", shown="term-0"), tabs("term-0", "new-1", shown="new-1")
+        _, count = self.fact([GONE] * 239, one, shown, keys=1, spans=[opened(100.0)])
+        self.assertTrue(count[0].startswith("input: 1 New Tab key-downs and 1 Close Tab key sent: the pane had 1 tabs before them and has 2 after them"), count)
+        _, no_mark = self.fact([GONE] * 239, one, one, keys=1)
+        self.assertTrue(no_mark[0].startswith("input: no `newTab.open` mark in the recording before the Close Tab key went in"), no_mark)
+        _, late = self.fact([GONE] * 239, one, one, keys=1, spans=[opened(100.0), opened(-7.0)])
+        self.assertTrue(late[0].startswith("input: a `newTab.open` mark starts 7 ms after the Close Tab key went in"), late)
+        fact, not_read = self.fact([GONE] * 239, None, one)
+        self.assertTrue(not_read[0].startswith("tabs: "), not_read)
+        self.assertEqual((fact.get("shown_after"), fact["content_gone"]), (None, AT))
+
+    def test_a_case_counts_what_shows_and_gives_the_frames(self):
+        self.assertTrue(hasattr(nsf, "close_summary"), "new_surface_frames.py has no `close_summary`")
+        rows = []
+        for pictures in ([GONE] * 239, [BLANK] * 3 + [GONE] * 236):
+            reply = shot(pictures)
+            row = nsf.one_key(reply, "w", asked_hz=120)
+            row["close_tab"], _ = nsf.close_of(row, reply["spans"], tabs("term-0", "page-1", shown="page-1"), tabs("term-0", shown="term-0"), 0)
+            rows.append(row)
+        summary = nsf.close_summary(rows)
+        self.assertEqual((summary["shows"], summary["closed"]), ({"the tab to the left of the closed tab": 2}, {"the shown tab (newTab)": 2}))
+        self.assertEqual(summary["content_gone"], {"frame": {"p50": 3.0, "max": 3}, "ms": {"p50": 19.0, "max": 19.0}})
+        self.assertEqual(summary["content_shown"]["frame"], {"p50": 4.5, "max": 6})
+        said = nsf.close_cell(summary)
+        self.assertIn("shows after the close: the tab to the left of the closed tab 2/2", said)
+        self.assertIn("closed tab's content gone frame 3 (max 3), 19 ms (max 19)", said)
+        self.assertIn("content of the tab that shows final frame 4.5 (max 6)", said)
+
+
+class CloseApp(base.FakeApp):
+    """The app with one pane's tabs: Control-` and Cmd-T put a tab to the right of the shown tab and show it, Cmd-W
+    closes the shown tab and shows the tab to its left. `now` is the clock: only the tool's pauses move it."""
+
+    def __init__(self, folder, pictures=None, **more):
+        super().__init__(folder, [OLD_ROW] + [GONE] * 239 if pictures is None else pictures, **more)
+        self.ids, self.kinds, self.shown, self.serial = ["tab-0"], {"tab-0": "terminal"}, "tab-0", 0
+        self.now, self.sent = 1000.0, SENT
+        # Each New Tab key by `debug.key`: its params and its time; `refuse_keys`: the numbers of the ones that the app refuses.
+        self.keys, self.key_times, self.open_times, self.refuse_keys = [], [], [], set()
+        self.asked, self.strip_times = [], []  # each recording of a Close Tab key: its params and its time
+        # `closes`: False for a Close Tab key that closes nothing. `mark_before`: how long before the Close Tab key
+        # the opening mark of a New Tab key of the last 50 ms starts (None: the recording has no such mark).
+        self.closes, self.mark_before, self.focus = True, 100.0, True
+
+    def clock(self):
+        return self.now
+
+    def pause(self, seconds):
+        self.now += seconds
+        super().pause(seconds)
+
+    def start(self, work):
+        work()  # the tool's sender, to its end, before the recording's call
+        return lambda: None
+
+    def open(self, kind):
+        self.serial += 1
+        name = f"tab-{self.serial}"
+        self.ids.insert(self.ids.index(self.shown) + 1, name)
+        self.kinds[name], self.shown = kind, name
+
+    def close_shown(self):
+        at = self.ids.index(self.shown)
+        self.kinds.pop(self.ids.pop(at))
+        self.shown = self.ids[max(0, at - 1)] if self.ids else None
+
+    def terminal_tab(self):
+        self.open("terminal")
+
+    def close_new(self, count):
+        self.closed.append(count)
+        for _ in range(count):
+            self.close_shown()
+
+    def rpc(self, method, params=None, timeout=30):
+        params = params or {}
+        action = params.get("action")
+        if method == "debug.focus":
+            mine = {"pane": "pane-1", "selected": self.shown, "tab_count": len(self.ids), "tabs": [f"{name}:{self.kinds[name]}" for name in self.ids]}
+            other = {"pane": "pane-0", "selected": "far-0", "tab_count": 1, "tabs": ["far-0:terminal"]}
+            return {"windows": [{"model": {"pane": "pane-1", "resolved_tab": self.shown}, "consistent": True, "topology": [other, mine]}] if self.focus else []}
+        if method == "debug.key":
+            self.keys.append(params)
+            self.key_times.append(self.now)
+            if len(self.keys) in self.refuse_keys:
+                return {"error": "no window"}
+            self.open("newTab")
+            self.open_times.append(self.now)
+            self.openings.append({"spare": True, "ms": 1000.0 + len(self.openings)})
+            return {"handled": "router"}
+        if action == "switch_and_type":
+            return {"tabs": [{"id": name} for name in self.ids]}
+        if action == "frame_strip" and params.get("key") == "w":
+            self.strips += 1
+            self.asked.append(params)
+            self.strip_times.append(self.now)
+            if self.strips in self.refused:
+                return {"error": "no window"}
+            spans = []
+            if self.mark_before is not None and any(self.now - at <= 0.05 for at in self.open_times):
+                spans.append(opened(self.mark_before))
+            if self.closes:
+                spans.append({"name": "closeLocalTab", "ms": -1.5, "duration_ms": 0.5})
+                self.close_shown()
+            reply = base.take(self.pictures, spans=spans, before_send_ms=self.sent)
+            os.makedirs(params["dir"], exist_ok=True)
+            for frame in reply["frames"]:
+                Path(params["dir"], frame["file"]).write_bytes(b"png")
+            return reply
+        return super().rpc(method, params, timeout)
+
+
+def options(folder, **changed):
+    return base.options(folder, **{**dict(keys="w", runs=1, close_cases="idle,key,hold", close_gap_ms=100.0, hold_keys=6,
+                                          hold_delay_ms=375.0, hold_repeat_ms=90.0), **changed})
+
+
+class CloseScreenTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="close-tab-screen-test-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.folder, ignore_errors=True))
+
+    def run_mode(self, app, **changed):
+        def make(socket_path, count, live, url, deadline, out):
+            return {"asked_more": count, "live_shells": live, "maker_exit": 0, "maker_said_made": count, "seed_s": 0.0}
+        try:
+            screen = new_surface_screen.Screen(options(self.folder, **changed), app.rpc, app.tools(), sleep=app.pause, make_session=make,
+                                               clock=app.clock, start=app.start)
+        except TypeError as error:
+            self.fail(f"new_surface_screen.Screen takes no clock and no starter of its sender: the tool has no Close Tab case ({error})")
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            report = screen.run()
+        return report, said.getvalue()
+
+    def test_the_close_tab_key_has_its_three_cases_and_each_row_says_which_tab_shows(self):
+        app = CloseApp(self.folder)
+        report, _ = self.run_mode(app)
+        self.assertEqual(list(report["cases"]), ["cmd-w/idle", "cmd-w/100 ms after a New Tab key",
+                                                 "cmd-w/100 ms after a hold of the New Tab key (6 key-downs)"])
+        rows = report["rows"]
+        self.assertEqual([row["label"] for row in rows], ["cmd-w-idle-0", "cmd-w-key100-0", "cmd-w-hold100-0"])
+        self.assertEqual([row["invalid"] for row in rows], [[], [], []])
+        self.assertEqual([row["close_tab"]["new_tab_keys"] for row in rows], [0, 1, 6])
+        self.assertEqual([row["close_tab"]["shown_after"]["is"] for row in rows],
+                         ["the tab to the left of the closed tab", "the tab that was shown before the New Tab keys",
+                          "a new tab of the recording (place 5 of the 5 that are left, from the left)"])
+        self.assertEqual([row["close_tab"]["closed_is"] for row in rows], ["the shown tab (newTab)"] + ["a new tab of the recording"] * 2)
+        self.assertEqual([(row["close_tab"]["content_gone"], row["close_tab"]["content_shown"]) for row in rows], [(AT, AT)] * 3)
+        self.assertEqual([row["tabs_before"] for row in rows], [3, 2, 2])
+        # One recording for each row, of the Close Tab key alone: the app's recorder sends no second key.
+        self.assertEqual([(asked["key"], asked.get("repeat"), asked["above"], asked["capture"], asked["duration_ms"]) for asked in app.asked],
+                         [("w", None, True, "screencapturekit", 2000.0)] * 3)
+        # Each recording's tabs are closed again, and no more of them than the tool opened.
+        self.assertEqual((app.closed, app.ids), ([1, 1, 6], ["tab-0"]))
+        self.assertEqual(report["cases"]["cmd-w/idle"]["close"]["shows"], {"the tab to the left of the closed tab": 1})
+
+    def test_the_new_tab_keys_are_one_key_down_for_each_call_at_the_times_of_a_held_key(self):
+        app = CloseApp(self.folder)
+        report, _ = self.run_mode(app)
+        sent = [row["close_tab"]["new_tab_keys_sent_ms"] for row in report["rows"]]
+        self.assertEqual(sent, [[], [-100.0], [-835.0, -460.0, -370.0, -280.0, -190.0, -100.0]])
+        # The idle case's own New Tab key (the tab that it closes) and the 7 of the two other cases: no repeat flag.
+        self.assertEqual(app.keys, [{"key": "t", "modifiers": ["command"]}] * 8)
+        # The idle case's tab is there 1.5 s before its recording starts: its opening is in no frame of the recording.
+        self.assertGreaterEqual(app.strip_times[0] - app.key_times[0], 1.5)
+        self.assertEqual(report["rows"][0]["close_tab"]["new_tab_marks_before_ms"], [])
+        self.assertEqual([row["close_tab"]["last_new_tab_key_before_ms"] for row in report["rows"][1:]], [100.0, 100.0])
+
+    def test_a_new_tab_key_that_the_app_refused_makes_the_row_invalid(self):
+        app = CloseApp(self.folder)
+        app.refuse_keys = {1}
+        report, _ = self.run_mode(app, close_cases="key")
+        reasons = report["rows"][0]["invalid"]
+        self.assertTrue(any(reason.startswith("input: the New Tab key-down 1 of 1 was refused") for reason in reasons), reasons)
+        self.assertEqual(app.ids, ["tab-0"])
+
+    def test_a_close_tab_key_that_closed_nothing_is_an_invalid_row_and_its_tabs_are_closed_again(self):
+        app = CloseApp(self.folder)
+        app.closes = False
+        report, _ = self.run_mode(app, close_cases="idle")
+        row = report["rows"][0]
+        self.assertTrue(row["invalid"][0].startswith("input: 0 New Tab key-downs and 1 Close Tab key sent"), row["invalid"])
+        self.assertEqual((row["close_tab"]["shown_after"]["is"], app.closed, app.ids), ("no tab closed", [2], ["tab-0"]))
+
+    def test_a_recording_that_the_app_refused_closes_what_the_tool_opened(self):
+        app = CloseApp(self.folder)
+        app.refused = {1}
+        report, _ = self.run_mode(app, close_cases="hold")
+        self.assertTrue(report["rows"][0]["invalid"][0].startswith("frame_strip: "), report["rows"][0]["invalid"])
+        self.assertEqual((app.closed, app.ids), ([7], ["tab-0"]))
+
+    def test_an_idle_close_of_a_page_in_another_engine_is_an_invalid_row(self):
+        report, _ = self.run_mode(CloseApp(self.folder, engine="webkit"), close_cases="idle")
+        self.assertEqual(report["rows"][0]["invalid"], ["engine: the closed tab's page ran in webkit, cef was asked"])
+
+    def test_tabs_that_the_app_does_not_list_make_the_row_invalid(self):
+        app = CloseApp(self.folder)
+        app.focus = False
+        report, _ = self.run_mode(app, close_cases="idle")
+        self.assertTrue(report["rows"][0]["invalid"][0].startswith("tabs: "), report["rows"][0]["invalid"])
+
+    def test_a_rows_line_and_a_cases_line_say_the_close(self):
+        _, said = self.run_mode(CloseApp(self.folder), close_cases="idle")
+        line = next(line for line in said.splitlines() if "-ROW cmd-w-idle-0" in line)
+        self.assertIn(": valid ", line)
+        self.assertIn(" closed='the shown tab (newTab)' shows='the tab to the left of the closed tab' content_gone=[3, 19.0] "
+                      "shown=[3, 19.0] strip_first=[3, 19.0] between=0 blank=0", line)
+        case = next(line for line in said.splitlines() if line.startswith("NEW-SURFACE-SCREEN cmd-w/idle: "))
+        self.assertIn("shows after the close: the tab to the left of the closed tab 1/1", case)
+
+    def test_the_limit_of_opening_records_is_one_recordings(self):
+        count = new_surface_screen.openings
+        # 12 runs of each case: a recording of 2 keys can make 4 records, a hold of 6 key-downs 12. The app keeps 64.
+        self.assertEqual(count(options(self.folder, keys="n,t", gaps="0,100", runs=12)), 4)
+        self.assertEqual(count(options(self.folder, keys="n,t,w", gaps="0,100", runs=12)), 12)
+        self.assertEqual(count(options(self.folder, keys="w", hold_keys=31)), 62)
+        self.assertEqual(count(options(self.folder, keys="w", hold_keys=31, close_cases="idle,key")), 2)
+
+    def test_each_case_keeps_pictures_up_to_its_own_limit(self):
+        # Each row keeps its pictures here (`--keep-keys` 2). With a limit of 4 for a case, the second row of each
+        # case keeps none, and the first row of the NEXT case keeps its own again.
+        with mock.patch.object(new_surface_screen, "PICTURES_A_CASE", 4, create=True):
+            report, _ = self.run_mode(CloseApp(self.folder), runs=2, keep_keys=2)
+        self.assertEqual([bool(row.get("kept_pictures")) for row in report["rows"]], [True, False] * 3)
+
+
+if __name__ == "__main__":
+    unittest.main()

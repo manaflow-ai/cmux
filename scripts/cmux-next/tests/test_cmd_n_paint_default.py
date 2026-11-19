@@ -153,12 +153,41 @@ class DefaultPathTests(unittest.TestCase):
         self.assertEqual([row["invalid"][0].split(":")[0] for row in json.loads(got["report"])["rows"]], ["capture", "capture"])
         self.assertNotIn("PASS", "".join(got["stdout"]))
 
+    def test_screen_takes_12_runs_of_a_case(self):
+        # 12 runs of 2 keys, alone and after a key, are 72 openings in the run and 2 at most in one recording. The
+        # tool counts the app's new opening records for each recording alone, so the run's own count is no limit.
+        mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
+        got = outcome(str(HERE.parent), ["--screen", "--runs", "12", "--page-watch", "0"], bad=False, files=mode)
+        self.assertEqual((got["exit"], got["stderr"]), (0, []))
+        self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 48 rows, 48 INVALID, 0 pictures kept")
+
+    def test_screen_sends_the_close_tab_cases_keys_through_the_driver(self):
+        # The driver's own sender (a thread beside the recording's call) and its real clock, against this app: its
+        # frames are one window's and it lists no tabs, so each row is INVALID. The keys that went to the app are
+        # counted, and not their order: the order is by the clock.
+        mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
+        got = outcome(str(HERE.parent), ["--screen", "--runs", "1", "--keys", "w", "--page-watch", "0"], bad=False, files=mode)
+        self.assertEqual((got["exit"], got["stderr"]), (0, []))
+        self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 3 rows, 3 INVALID, 0 pictures kept")
+        calls = [json.loads(call) for call in got["calls"]]
+        new_tab = [params for method, params in calls if method == "debug.key" and params.get("key") == "t"]
+        self.assertEqual(new_tab, [{"key": "t", "modifiers": ["command"]}] * 8)  # 1 for the idle case's tab, 1, and a hold of 6
+        strips = [params for method, params in calls if params.get("action") == "frame_strip"]
+        self.assertEqual([(s["key"], s.get("repeat"), s["duration_ms"]) for s in strips], [("w", None, 2000)] * 3)
+        labels = [row["label"] for row in json.loads(got["report"])["rows"]]
+        self.assertEqual(labels, ["cmd-w-idle-0", "cmd-w-key100-0", "cmd-w-hold100-0"])
+
     def test_screen_refuses_what_it_cannot_count_before_a_call_to_the_app(self):
         mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
-        # 11 runs of 2 keys, alone and after a key: 66 openings, and the app keeps its newest 64 opening records.
-        many = outcome(str(HERE.parent), ["--screen", "--runs", "11"], bad=False, files=mode)
+        # The app keeps its newest 64 opening records, and the tool counts the new ones of ONE recording by the
+        # list's content. A hold of 31 New Tab key-downs can make 62 records in its recording: over the limit of 60.
+        many = outcome(str(HERE.parent), ["--screen", "--keys", "w", "--hold-keys", "31"], bad=False, files=mode)
         self.assertEqual((many["exit"], many["calls"]), (2, []))
-        self.assertIn("--screen: 66 openings asked", many["stderr"][-1])
+        self.assertIn("--screen: 62 opening records can come in one recording", many["stderr"][-1])
+        # A case that is not one of the Close Tab key's is refused by its name.
+        word = outcome(str(HERE.parent), ["--screen", "--keys", "w", "--close-cases", "idle,held"], bad=False, files=mode)
+        self.assertEqual((word["exit"], word["calls"]), (2, []))
+        self.assertIn("held", word["stderr"][-1])
         # A part of the flag's word is the flag to the parser, and the mode's module is read only by the whole word.
         part = outcome(str(HERE.parent), ["--scr", "--runs", "1"], bad=False, files=mode)
         self.assertEqual((part["exit"], part["calls"]), (2, []))

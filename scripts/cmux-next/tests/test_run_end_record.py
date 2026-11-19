@@ -27,6 +27,7 @@ except ImportError:
 BUNDLE = "com.example.app.debug.demo tag"
 RUN = {"pid": 4242, "launched": 1763500000.5, "recovery": False, "survived": True, "version": "0.1 7", "commit": "abc1234",
        "context": {"workspaces": 3, "note": "x" * 600}}
+NOW = 1795000000.0  # the time of each read of the system's reports here; a report's age counts back from it
 
 
 class RunEndTests(unittest.TestCase):
@@ -151,6 +152,95 @@ class RunEndTests(unittest.TestCase):
         self.assertIs(self.own(77, ended_in_20_s=False, killed_by_the_driver=True, returncode=-9), False)
         self.assertIn('"killed_by_the_driver": true', self.said[0])
         self.assertIn("OWN-END-RECORD verdict: no crash of this run (a quit that was asked for began and did not come to its end", self.said[-1])
+
+    def system_report(self, name, age=100.0, bundle=BUNDLE, folder="", frames=20, path=None):
+        """A report of the system's writer in the account's report folder, in its form of a header line and a body:
+        the crashed thread is the second of two, with `frames` frames. Each text of it is made up here."""
+        reports = os.path.join(self.home, "Library/Logs/DiagnosticReports", folder)
+        os.makedirs(reports, exist_ok=True)
+        head = {"app_name": "demo", "app_version": "0.1", "build_version": "7", "bundleID": bundle, "name": "demo", "bug_type": "309"}
+        stack = [{"imageIndex": 0, "imageOffset": 4096 + n, "symbol": f"step_{n}", "symbolLocation": n} for n in range(frames)]
+        stack[3:4] = [{"imageIndex": 0, "imageOffset": 4099}] if frames > 3 else []  # a frame with no symbol
+        body = {"procName": "demo", "procPath": path or os.path.join(self.app, "Contents/MacOS/demo"),
+                "exception": {"type": "EXC_BREAKPOINT", "signal": "SIGTRAP"}, "termination": {"indicator": "Trace/BPT trap: 5"},
+                "faultingThread": 1,
+                "threads": [{"id": 10, "frames": [{"imageIndex": 1, "imageOffset": 64, "symbol": "idle_wait", "symbolLocation": 8}]},
+                            {"id": 11, "queue": "com.example.main-thread", "triggered": True, "frames": stack}],
+                "usedImages": [{"name": "demo", "uuid": "0000-1111"}, {"name": "libfake.dylib", "uuid": "2222-3333"}]}
+        file = Path(reports, name)
+        file.write_text(json.dumps(head) + "\n" + json.dumps(body, indent=1))
+        os.utime(file, (NOW - age, NOW - age))
+        return file
+
+    def test_a_system_report_is_the_bundles_by_its_own_bundle_id_whatever_its_files_name(self):
+        # The system names a report after the process, and a build's process does not have the app folder's name.
+        self.system_report("demo-2026-11-18-060634.ips", age=300.0)
+        self.system_report("demo-2026-11-17-010101.ips", age=5000.0, folder="Retired")
+        self.system_report("demo-2026-11-18-070000.ips", bundle="com.example.app.debug.other")
+        self.system_report("demo-2026-11-01-010101.ips", age=15 * 86400.0)
+        self.end.last(now=NOW)
+        found = self.lines("LAST-END-RECORD the system's reports of this bundle from the last 14 days: ")
+        self.assertEqual(len(found), 1, self.said)
+        self.assertTrue(found[0].startswith("LAST-END-RECORD the system's reports of this bundle from the last 14 days: 2; the newest: "
+                                            "demo-2026-11-17-010101.ips, demo-2026-11-18-060634.ips"), found)
+        self.assertIn("a report is the bundle's by its own bundle id", found[0])
+        self.assertFalse([line for line in self.said if "demo-2026-11-18-070000.ips" in line or "demo-2026-11-01-010101.ips" in line])
+
+    def test_a_report_with_no_bundle_id_is_the_bundles_by_its_path_or_by_its_files_name(self):
+        by_path = self.system_report("demo-2026-11-18-060634.ips", bundle=None)
+        self.system_report("demo-2026-11-18-060700.ips", bundle=None, path="/another/place/demo.app/Contents/MacOS/demo")
+        Path(by_path.parent, "cmux DEV demo-tag-2026-11-18-060800.ips").write_text("not a report that can be read")
+        os.utime(Path(by_path.parent, "cmux DEV demo-tag-2026-11-18-060800.ips"), (NOW - 50, NOW - 50))
+        self.end.last(now=NOW)
+        found = self.lines("LAST-END-RECORD the system's reports of this bundle from the last 14 days: ")
+        self.assertTrue(found and found[0].startswith("LAST-END-RECORD the system's reports of this bundle from the last 14 days: 2; the newest: "
+                                                      "demo-2026-11-18-060634.ips, cmux DEV demo-tag-2026-11-18-060800.ips"), self.said)
+
+    def test_no_report_folder_is_said_and_is_no_stop(self):
+        self.end.last(now=NOW)
+        found = self.lines("LAST-END-RECORD the system's reports of this bundle from the last 14 days: 0")
+        self.assertEqual(len(found), 1, self.said)
+        self.assertIn("not there or not read: ", found[0])
+
+    def test_the_crashed_threads_first_12_frames_are_in_the_log(self):
+        self.system_report("demo-2026-11-18-060634.ips")
+        self.end.last(now=NOW)
+        name = "LAST-END-RECORD demo-2026-11-18-060634.ips"
+        self.assertIn(f"{name} crashed thread 1 (queue com.example.main-thread): 20 frames, the first 12", self.said)
+        frames = self.lines(f"{name} frame ")
+        self.assertEqual(len(frames), 12, self.said)
+        self.assertEqual(frames[:5], [f"{name} frame 0: demo step_0 + 0", f"{name} frame 1: demo step_1 + 1", f"{name} frame 2: demo step_2 + 2",
+                                      f"{name} frame 3: demo 0x1003 (no symbol)", f"{name} frame 4: demo step_4 + 4"])
+        self.assertFalse([line for line in self.said if "idle_wait" in line])  # the other thread's frame
+
+    def test_the_build_of_a_report_is_in_the_log_and_its_commit_only_when_the_report_has_one(self):
+        self.system_report("demo-2026-11-18-060634.ips")
+        os.makedirs(self.logs)
+        Path(self.logs, "com.example.app.debug.demo_tag-app-20261118-101010-123.json").write_text(json.dumps({"kind": "app", "signal": 5, "version": "0.1 7"}))
+        Path(self.logs, "com.example.app.debug.demo_tag-app-20261118-101010-124.json").write_text(
+            json.dumps({"kind": "app", "signal": 5, "version": "0.1 8", "commit": "abc1234"}))
+        self.left(RUN, signal.SIGTRAP)
+        self.end.last(now=NOW)
+        self.assertIn("LAST-END-RECORD run.json build: version 0.1 7; commit abc1234", self.said)
+        self.assertIn("LAST-END-RECORD com.example.app.debug.demo_tag-app-20261118-101010-123.json build: version 0.1 7; commit: not in the report", self.said)
+        self.assertIn("LAST-END-RECORD com.example.app.debug.demo_tag-app-20261118-101010-124.json build: version 0.1 8; commit abc1234", self.said)
+        self.assertIn("LAST-END-RECORD demo-2026-11-18-060634.ips build: version 0.1 (7); the process demo; image uuid 0000-1111; "
+                      "commit: not in the report", self.said)
+
+    def test_a_text_report_gives_the_first_12_lines_of_its_crashed_thread(self):
+        reports = os.path.join(self.home, "Library/Logs/DiagnosticReports")
+        os.makedirs(reports)
+        text = (f"Process:               demo [1]\nIdentifier:            {BUNDLE}\nVersion:               0.1 (7)\n\n"
+                "Thread 0:\n0   libfake.dylib  0x01 idle_wait + 8\n\nThread 1 Crashed:: Dispatch queue: com.example.main-thread\n"
+                + "".join(f"{n}   demo  0x{4096 + n:x} step_{n} + {n}\n" for n in range(15)) + "\nThread 2:\n0   libfake.dylib  0x02 other_wait + 4\n")
+        Path(reports, "demo_2026-11-18-060634_host.crash").write_text(text)
+        os.utime(Path(reports, "demo_2026-11-18-060634_host.crash"), (NOW - 100, NOW - 100))
+        self.end.last(now=NOW)
+        name = "LAST-END-RECORD demo_2026-11-18-060634_host.crash"
+        self.assertIn(f"{name} crashed thread: Thread 1 Crashed:: Dispatch queue: com.example.main-thread; 15 frames, the first 12", self.said)
+        frames = self.lines(f"{name} frame ")
+        self.assertEqual((len(frames), frames[0], frames[-1]), (12, f"{name} frame 0   demo  0x1000 step_0 + 0", f"{name} frame 11   demo  0x100b step_11 + 11"))
+        self.assertFalse([line for line in frames if "wait" in line])  # no line of another thread
 
     def test_a_quit_signal_and_the_files_of_another_process_are_no_crash_of_this_run(self):
         self.left({**RUN, "pid": 77}, signal.SIGTERM)
