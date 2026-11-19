@@ -1141,6 +1141,38 @@
             "background",
             "battery"
           ]
+        },
+        {
+          "key": "appearance.liveWallpaperGrade",
+          "title": {
+            "key": "settings.appearance.liveWallpaperGrade",
+            "text": "Live Wallpaper Tritone"
+          },
+          "help": {
+            "key": "settings.appearance.liveWallpaperGrade.help",
+            "text": "Tones a live wallpaper in three theme colors: darks in the darker of the background and text colors, midtones in the accent, lights in the lighter. 0 keeps the wallpaper's own colors."
+          },
+          "kind": "number",
+          "swift_owner": "LiveWallpaperGradeSetting",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": 0,
+          "keywords": [
+            "live wallpaper",
+            "wallpaper",
+            "tritone",
+            "duotone",
+            "grade",
+            "color grade",
+            "tone",
+            "cinematic",
+            "accent",
+            "background"
+          ]
         }
       ]
     },

@@ -42,6 +42,18 @@ struct LiveWallpaperSelectionTests {
         #expect(LiveWallpaperFrame.floats >= 36)
     }
 
+    /// `appearance.liveWallpaperGrade` reaches `Frame.grade` (floats 40..44): off by default, and
+    /// the library clamps it to 0...1.
+    @Test func theGradeReachesTheFrame() {
+        let colors = LiveWallpaperColors(ink: SIMD3(1, 1, 1), paper: SIMD3(0, 0, 0), accent: SIMD3(0, 0, 1), dark: true)
+        var frame = LiveWallpaperFrame(colors: colors)
+        #expect(Array(frame.packed()[40..<44]) == [0, 0, 0, 0])
+        frame.grade = 0.4
+        #expect(frame.packed()[40] == 0.4)
+        frame.grade = 3
+        #expect(frame.packed()[40] == 1)
+    }
+
     /// The catalog lists the first-party set last, each as `live:<id>`.
     @Test func theCatalogEndsWithTheFirstPartySet() {
         let choices = LiveWallpaper.choices

@@ -24,8 +24,8 @@ fn static_bytes(
 }
 
 #[test]
-fn abi_version_is_four() {
-    assert_eq!(cmux_wallpaper_abi_version(), 4);
+fn abi_version_is_five() {
+    assert_eq!(cmux_wallpaper_abi_version(), 5);
 }
 
 #[test]
@@ -176,6 +176,8 @@ fn activity_round_trips_into_the_frame_and_the_schedule() {
         let mut out = [7.0f32; CMUX_WALLPAPER_FRAME_FLOATS];
         assert!(cmux_wallpaper_frame_pack(&input, out.as_mut_ptr()));
         assert_eq!(&out[36..40], &[a.level, 1.0, 1.0, 0.0]);
+        // No grade asked: the row is zeros (off).
+        assert_eq!(&out[40..44], &[0.0; 4]);
 
         let mut s = CmuxWallpaperScheduleInput {
             seconds_since_activity: 100.0,
@@ -237,9 +239,9 @@ fn trail_round_trips_into_the_frame() {
 
         let mut out = [7.0f32; CMUX_WALLPAPER_FRAME_FLOATS];
         assert!(cmux_wallpaper_frame_pack(&input, out.as_mut_ptr()));
-        assert_eq!(&out[40..42], &[25.0, 15.0]);
-        assert_eq!(out[43], 1.0);
-        assert!(out[52..].iter().all(|v| *v == 0.0));
+        assert_eq!(&out[44..46], &[25.0, 15.0]);
+        assert_eq!(out[47], 1.0);
+        assert!(out[56..].iter().all(|v| *v == 0.0));
 
         // A C caller's len past the ring reads as a full ring, never past it.
         trail.len = 1000;
@@ -281,5 +283,16 @@ fn the_manifest_idle_after_reaches_the_schedule() {
         assert!(cmux_wallpaper_schedule(&s).run);
         let short = CmuxWallpaperScheduleInput { idle_after_s: 2.0, ..s };
         assert_eq!(cmux_wallpaper_schedule(&short).hold_reason, 12);
+    }
+}
+
+#[test]
+fn the_grade_reaches_the_frame_clamped() {
+    let mut out = [7.0f32; CMUX_WALLPAPER_FRAME_FLOATS];
+    for (grade, packed) in [(0.4, 0.4), (3.0, 1.0), (-1.0, 0.0), (f32::NAN, 0.0)] {
+        let input = CmuxWallpaperFrameInput { grade, ..Default::default() };
+        // SAFETY: `input` is valid; `out` has the Frame's floats.
+        assert!(unsafe { cmux_wallpaper_frame_pack(&input, out.as_mut_ptr()) });
+        assert_eq!(&out[40..44], &[packed, 0.0, 0.0, 0.0], "{grade}");
     }
 }

@@ -338,43 +338,15 @@ extension AppearanceSettingsSchema {
                 default: .string(LiveWallpaperFrameRateSetting.fallback),
                 keywords: ["live wallpaper", "wallpaper", "frame rate", "fps", "animation", "motion", "background", "battery"]
             ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var tuning: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
-        return [
             SettingDescriptor(
-                AppearanceTuningSetting.glassTransparencyPath,
+                LiveWallpaperGradeSetting.configPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
-                help: SettingsText.keyed("settings.appearance.glassTransparency.help", "How much of the desktop or wallpaper shows through the glass."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction)),
-                default: .number(AppearanceTuningSetting.glassTransparencyDefault),
-                keywords: ["glass", "transparency", "alpha", "clear"]
-            ).hiddenFromSettingsPage("duplicates appearance.backgroundOpacity; the key still loads"),
-            SettingDescriptor(
-                AppearanceTuningSetting.huePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.hue", "Hue"),
-                help: SettingsText.keyed("settings.appearance.hue.help", "Shift the tint color around the hue wheel."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.hueRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.huePlaceholder)),
-                default: .number(AppearanceTuningSetting.hueDefault),
-                keywords: ["tint", "color", "colour"]
-            ),
-            SettingDescriptor(
-                AppearanceTuningSetting.saturationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.saturation", "Saturation"),
-                help: SettingsText.keyed("settings.appearance.saturation.help", "Increase or reduce the tint color intensity."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.saturationRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.saturationPlaceholder)),
-                default: .number(AppearanceTuningSetting.saturationDefault),
-                keywords: ["tint", "color", "colour", "intensity"]
+                title: SettingsText.keyed("settings.appearance.liveWallpaperGrade", "Live Wallpaper Tritone"),
+                help: SettingsText.keyed("settings.appearance.liveWallpaperGrade.help", "Tones a live wallpaper in three theme colors: darks in the darker of the background and text colors, midtones in the accent, lights in the lighter. 0 keeps the wallpaper's own colors."),
+                kind: .number(SettingNumber(LiveWallpaperGradeSetting.range, step: 0.05, unit: .fraction)),
+                default: .number(LiveWallpaperGradeSetting.fallback),
+                keywords: ["live wallpaper", "wallpaper", "tritone", "duotone", "grade", "color grade", "tone", "cinematic", "accent", "background"]
             ),
         ]
     }

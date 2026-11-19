@@ -19,7 +19,7 @@
  Floats in the Frame uniform (`cmux_wallpaper_frame_pack` writes this
  many; 4 bytes each). Size the uniform buffer from this, never a literal.
  */
-#define CMUX_WALLPAPER_FRAME_FLOATS 104
+#define CMUX_WALLPAPER_FRAME_FLOATS 108
 
 /*
  Points in a `CmuxWallpaperTrail`, and rows in `Frame.trail`.
@@ -189,6 +189,11 @@ typedef struct {
      `CmuxWallpaperActivity.count`.
      */
     float agent_events;
+    /*
+     The tritone grade over the program's colors, 0 (off) ..1 (`appearance.liveWallpaperGrade`):
+     lightness mapped from the darker of paper and ink, through accent, to the lighter.
+     */
+    float grade;
     float ink[3];
     float paper[3];
     float accent[3];

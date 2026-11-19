@@ -190,6 +190,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var wallpaperTint = WallpaperTintSetting.fallback
     /// `appearance.liveWallpaperFrameRate`: a live wallpaper's frame cap, 15, 30 (the default) or 60.
     public var liveWallpaperFrameRate = 30
+    /// `appearance.liveWallpaperGrade`: the tritone grade over a live wallpaper, 0 (off, the default) to 1.
+    public var liveWallpaperGrade = 0.0
     /// `appearance.surfaces.<surface>.color|opacity` (R55); no override
     /// (every surface shows the window's backdrop) when unset or invalid.
     public var surfaceBackgrounds = SurfaceBackgrounds.none
@@ -420,6 +422,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.inactiveWindowDim = WindowBackgroundSetting.parseInactiveDim(root, diagnostics: &snapshot.diagnostics)
         snapshot.wallpaperTint = WallpaperTintSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.liveWallpaperFrameRate = LiveWallpaperFrameRateSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.liveWallpaperGrade = LiveWallpaperGradeSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }

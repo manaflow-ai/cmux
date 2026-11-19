@@ -127,6 +127,13 @@ extension LiveWallpaperFrameRateSetting {
     public nonisolated static let values = ["15", "30", "60"]
 }
 
+extension LiveWallpaperGradeSetting {
+    /// `appearance.liveWallpaperGrade`.
+    public nonisolated static let configPath = ["appearance", "liveWallpaperGrade"]
+    public nonisolated static let fallback: Double = 0
+    public nonisolated static let range: ClosedRange<Double> = 0...1
+}
+
 extension AppearanceTuningSetting {
     /// `appearance.glassTransparency`.
     public nonisolated static let glassTransparencyPath = ["appearance", "glassTransparency"]

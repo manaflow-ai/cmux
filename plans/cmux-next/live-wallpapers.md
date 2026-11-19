@@ -53,13 +53,14 @@ struct Frame {
     accent: vec4<f32>,    // theme accent, linear, a = 1
     params: array<vec4<f32>, 2>, // the manifest's params in order, up to 8 floats
     activity: vec4<f32>,  // x agent activity in the window (0..1, eased), y seconds since the newest agent event, z agent events so far (mod 1024), w 0
+    grade: vec4<f32>,     // x the tritone grade's amount (0 off ..1, appearance.liveWallpaperGrade), yzw 0; the host applies it, a program may ignore it
     trail: array<vec4<f32>, 16>, // the pointer's recent path, newest first: xy rendered pixels, z age in seconds, w valid (0 or 1)
 }
 var<uniform> frame: Frame;   // the host's binding; never declared by the program
 ```
 
 Every field is a `vec4<f32>` or an array of them, so the layout is the same in Metal, WGSL and GLSL std140:
-416 bytes (26 `vec4<f32>`, 104 floats). The header exports `CMUX_WALLPAPER_FRAME_FLOATS` and
+432 bytes (27 `vec4<f32>`, 108 floats). The header exports `CMUX_WALLPAPER_FRAME_FLOATS` and
 `CMUX_WALLPAPER_TRAIL_POINTS`; a host sizes its uniform buffer from them, never from a literal.
 
 The trail (`TrailState`, `cmux_wallpaper_trail_*`) is a ring of 16 pointer samples. On each move, when the
@@ -67,6 +68,15 @@ ring has fewer than 2 points or the move comes 50 ms or more after the newest co
 shifts in; otherwise the head moves to the pointer. So the head follows the pointer, committed points are
 about 50 ms apart, and the ring covers about 0.8 s. A point older than 1 s, or not set, is all zeros. A
 still has no trail (zeros); a program that wants one in its cover draws its own.
+
+The tritone grade (`Frame.grade`, cmux-wallpaper `grade.rs`) is the host's: `fs_main` runs it on whatever
+`wallpaper` returns, before the sRGB encoding, so every program, first-party or not, gets it with no code
+of its own. The pixel's lightness (the square root of its linear luminance), measured from the lightness of
+the darker of paper and ink (0) to the lighter's (1), picks a color on a three-stop ramp: the darker at 0
+and below (black), accent half way, the lighter at 1 and above (white). Ordering paper and ink by
+luminance keeps a light theme's darks dark, and a pixel in the theme's own paper or ink keeps it. The amount
+mixes the toned color over the program's own; at 0 (the default) a uniform branch skips it, so an
+ungraded wallpaper pays one compare per pixel. Stills (picker thumbnails) are drawn ungraded.
 
 An agent event is an agent in the window writing output or changing state. A burst counts once: an
 event within 0.4 s of the last counted one only raises the level (`ActivityState`, `cmux_wallpaper_activity_*`).
@@ -161,6 +171,9 @@ per frame: the field changes only per picture.
   `live:<id>` (first party) or `live:<extension>/<id>`.
 - One row, `appearance.liveWallpaperFrameRate`, after Wallpaper Tint in the same group: 15, 30 (default)
   or 60 frames per second.
+- `appearance.liveWallpaperGrade` (Live Wallpaper Tritone) after it: the tritone grade's amount, 0 (default,
+  off) to 1 in steps of 0.05. As with the frame rate, a running wallpaper takes a change on its next frame,
+  a held one when it runs again.
 
 ## The first-party set
 
