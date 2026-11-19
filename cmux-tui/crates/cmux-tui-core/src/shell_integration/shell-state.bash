@@ -81,8 +81,10 @@ if [[ -n "${CMUX_TUI_SHELL_STATE-}" ]] \
   # redirection), so no error and no xtrace line reaches the screen.
   _cmux_tui_state_save() {
     [[ -r "$CMUX_TUI_SHELL_STATE.request" ]] || builtin return 0
-    builtin local - _cmux_tui_nonce="" _cmux_tui_name _cmux_tui_attrs _cmux_tui_i _cmux_tui_umask
+    builtin local - _cmux_tui_nonce="" _cmux_tui_name _cmux_tui_attrs _cmux_tui_i _cmux_tui_umask _cmux_tui_flags=$-
     local -a _cmux_tui_vars=() _cmux_tui_local=() _cmux_tui_funcs=()
+    # The person's -e, -u and -x, before this function turns them off (`local -`
+    # gives them back when it returns).
     builtin set +e +u +x
     # Before any redirection or substitution opens an fd of its own.
     _cmux_tui_state_unsaveable_fd
@@ -149,6 +151,10 @@ if [[ -n "${CMUX_TUI_SHELL_STATE-}" ]] \
       builtin trap -p
       builtin complete -p
       builtin alias -p
+      # Last, so no line above runs under them; never -e, under which one
+      # failing line of the startup that follows would end the shell.
+      [[ "$_cmux_tui_flags" == *u* ]] && builtin printf 'builtin set -u\n'
+      [[ "$_cmux_tui_flags" == *x* ]] && builtin printf 'builtin set -x\n'
       builtin printf '# end %s\n' "$_cmux_tui_nonce"
     } >|"$CMUX_TUI_SHELL_STATE.state" 2>/dev/null
     builtin umask "$_cmux_tui_umask"

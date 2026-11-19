@@ -42,7 +42,7 @@ if [[ -o interactive && -n ${CMUX_TUI_SHELL_STATE-} ]]; then
         builtin local _cmux_tui_k
         for _cmux_tui_k in ${(k)options}; do
             case $_cmux_tui_k in
-                (interactive|login|shinstdin|singlecommand|restricted|privileged|zle) ;;
+                (interactive|login|shinstdin|singlecommand|restricted|privileged|zle|errexit|errreturn) ;;
                 (*) if [[ ${options[$_cmux_tui_k]} == on ]]; then
                         _cmux_tui_on+=($_cmux_tui_k)
                     else
