@@ -47,6 +47,30 @@ import Testing
         #expect(chat.params(.useDefault)["maxRunning"] is NSNull)
     }
 
+    @Test func workspaceReadSetAndClearUseTheWorkspaceScope() async throws {
+        let scope = SubagentLimit.Scope.workspace("workspace-1")
+        #expect(scope.params(nil).keys.sorted() == ["workspaceId"])
+        let line = FakeLine(reply: ["workspaceId": "workspace-1", "maxRunning": 12])
+        let current = try #require(SubagentLimit.Current(reply: line.reply ?? [:], scope: scope))
+        #expect(current.own == 12 && current.effective == 12)
+        #expect(await flow(line, answer: answer(SubagentLimit.setButton, "24")).run(scope) == nil)
+        #expect(line.sent.last?["workspaceId"] as? String == "workspace-1")
+        #expect(line.sent.last?["sessionId"] == nil)
+        #expect(line.sent.last?["maxRunning"] as? Int == 24)
+        #expect(await flow(line, answer: answer(SubagentLimit.defaultButton)).run(scope) == nil)
+        #expect(line.sent.last?["maxRunning"] is NSNull)
+    }
+
+    @Test func unsetWorkspaceShowsTheGlobalDefault() throws {
+        let scope = SubagentLimit.Scope.workspace("workspace-1")
+        let current = try #require(SubagentLimit.Current(reply: ["workspaceId": "workspace-1", "maxRunning": NSNull()], scope: scope))
+        #expect(current.own == nil && current.effective == nil)
+        let dialog = SubagentLimit(scope: scope, current: current, setting: 1000).spec
+        #expect(dialog.lines == [SubagentLimitStrings.workspaceLine])
+        #expect(dialog.fields == [.text(SubagentLimit.field, initial: "", label: SubagentLimitStrings.field, placeholder: "1000")])
+        #expect(SubagentLimit.Current(reply: ["workspaceId": "workspace-1"], scope: scope) == nil)
+    }
+
     @Test func currentReadsTheOwnValueOnlyWhenTheScopeSetIt() throws {
         let own = try #require(SubagentLimit.Current(reply: chatReply, scope: .chat("s-1")))
         #expect(own == SubagentLimit.Current(own: 4, effective: 4, running: 3, queued: 2))
@@ -149,5 +173,7 @@ import Testing
     @Test func onlyAPersonOpensTheDialog() throws {
         let descriptor = try #require(ActionRegistry.standard().descriptor(for: "agentChat.subagentLimit"))
         #expect(descriptor.isPersonOnly, "a socket caller cannot open it and have the person line submit for it")
+        let workspace = try #require(ActionRegistry.standard().descriptor(for: "workspace.subagentLimit"))
+        #expect(workspace.isPersonOnly)
     }
 }

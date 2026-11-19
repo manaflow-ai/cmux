@@ -4,9 +4,8 @@ import Foundation
 
 /// Subagent Limit… on a chat (Leo: "Right-click, edit subagent count"): how many of a chat's
 /// sub-sessions acpmux runs at once (`_acpmux/subsession/limits` `maxRunning`). A chat's own value
-/// comes first, then its workspace's, then `agents.subsessions.maxRunning`. There is no workspace
-/// item yet: acpmux reads a workspace's value through a chat's `workspace_id`, which chats started
-/// in the app do not carry.
+/// comes first, then its workspace's, then `agents.subsessions.maxRunning`. New local chats
+/// carry the pane's workspace through `AcpmuxPathPolicy.stampWorkspace`.
 /// The dialog reads the current value, asks for a number or Use Default, and sends it; a number
 /// sets the value, `null` clears it. Running sub-sessions never stop when it goes down.
 @MainActor
@@ -17,11 +16,13 @@ struct SubagentLimit {
     enum Scope: Equatable {
         /// One chat, by its acpmux session id.
         case chat(String)
+        case workspace(String)
 
         /// The request's params: `maxRunning` left out reads, a number sets, `nil` clears.
         func params(_ change: Change?) -> [String: Any] {
             var params: [String: Any] = switch self {
             case .chat(let session): ["sessionId": session]
+            case .workspace(let workspace): ["workspaceId": workspace]
             }
             switch change {
             case nil: break
@@ -59,6 +60,10 @@ struct SubagentLimit {
                 own = limits["maxRunningSource"] as? String == "session" ? effective : nil
                 running = Self.int(limits["running"])
                 queued = Self.int(limits["queued"])
+            case .workspace:
+                guard reply["workspaceId"] is String, reply.keys.contains("maxRunning") else { return nil }
+                own = Self.int(reply["maxRunning"])
+                effective = own
             }
         }
 
@@ -92,7 +97,7 @@ struct SubagentLimit {
     /// (the own value, else empty with the value in effect as its placeholder) and Cancel,
     /// Use Default and Set.
     var spec: CmuxDialogSpec {
-        var lines = [SubagentLimitStrings.chatLine]
+        var lines = [scope.isWorkspace ? SubagentLimitStrings.workspaceLine : SubagentLimitStrings.chatLine]
         if let running = current.running, let queued = current.queued {
             lines.append(SubagentLimitStrings.status(running: running, queued: queued))
         }
@@ -122,6 +127,13 @@ struct SubagentLimit {
     struct InvalidNumber: Error, Equatable {}
 }
 
+private extension SubagentLimit.Scope {
+    var isWorkspace: Bool {
+        if case .workspace = self { return true }
+        return false
+    }
+}
+
 /// Handlers.xcstrings.
 enum SubagentLimitStrings {
     static var title: String {
@@ -130,6 +142,11 @@ enum SubagentLimitStrings {
     static var chatLine: String {
         String(localized: "subagentLimit.chat.line",
                defaultValue: "The most subagents this chat runs at the same time. More wait their turn and start as running ones finish.",
+               table: "Handlers", bundle: .module)
+    }
+    static var workspaceLine: String {
+        String(localized: "subagentLimit.workspace.line",
+               defaultValue: "Subagents each local chat runs at once. A chat's own limit takes precedence.",
                table: "Handlers", bundle: .module)
     }
     static func status(running: Int, queued: Int) -> String {
@@ -166,6 +183,10 @@ enum SubagentLimitStrings {
     }
     static var notAChat: String {
         String(localized: "subagentLimit.notAChat", defaultValue: "Only an agent chat on this Mac has a subagent limit.",
+               table: "Handlers", bundle: .module)
+    }
+    static var notLocalWorkspace: String {
+        String(localized: "subagentLimit.notLocalWorkspace", defaultValue: "Choose a workspace on this Mac.",
                table: "Handlers", bundle: .module)
     }
 }
