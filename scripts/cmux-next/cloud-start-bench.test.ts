@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { staleJourneyMachines } from "./cloud-journey";
-import { answeredPath, MachineFailed, quantile, type StartTarget, startBenchMarkdown, summarize, timeStart } from "./cloud-start-bench";
+import { answeredPath, answerTimings, MachineFailed, pickVmApiTenant, quantile, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts, traceStepSummary } from "./cloud-start-bench";
 
 /** A clock the target's calls move: each call costs what the script says, sleeps cost their ms. */
 function fakeClock() {
@@ -125,5 +125,77 @@ describe("the start bench leaves nothing behind", () => {
       { id: "e", name: `my cloud start bench ${tag} cold 1`, status: "running" },
     ];
     expect(staleJourneyMachines(rows, Date.UTC(2026, 10, 17)).map((m) => m.id)).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("the VM API tenant for a Stack session", () => {
+  const team = (id: string, personal = false) => ({ id, display_name: "x", ...(personal ? { client_read_only_metadata: { cmuxVmPersonalTenant: true } } : {}) });
+  test("the user's cmux VM personal tenant first, then the selected team, then the first", () => {
+    expect(pickVmApiTenant({ items: [team("a"), team("p", true), team("s")] }, "s")).toEqual({ team: "p", via: "the user's cmux VM personal tenant" });
+    expect(pickVmApiTenant({ items: [team("a"), team("s")] }, "s")).toEqual({ team: "s", via: "the user's selected Stack team" });
+    expect(pickVmApiTenant({ items: [team("a"), team("b")] }, "gone")).toEqual({ team: "a", via: "the user's first Stack team" });
+  });
+  test("no Stack team, or no list, names why instead of a team the VM API refuses", () => {
+    const none = pickVmApiTenant({ items: [] }, null);
+    expect(none.team).toBeNull();
+    expect("why" in none && none.why).toContain("no Stack team");
+    expect(pickVmApiTenant({ error: "x" }, null).team).toBeNull();
+    // A malformed id is never sent as X-Cmux-Team-Id.
+    expect(pickVmApiTenant({ items: [{ id: "a b" }, { id: 7 }] }, null).team).toBeNull();
+  });
+});
+
+describe("the platform's create trace", () => {
+  const sample = (path: StartSample["path"], trace: unknown): StartSample => ({
+    path, asked: path, run: 0, ok: true, error: null, ms: { answer: 1, running: 2, exec: 3, daemon: 4 }, exec_attempts: 1, daemon_attempts: 1,
+    facts: trace === undefined ? {} : { trace },
+  });
+  test("traceFacts keeps the createTrace's numeric steps and reads null without one", () => {
+    const view = { id: "vm_1", createTrace: { attempt: 1, outcome: "spare_claim", steps: { capability: 1, budget: 120, adopt: 700, bad: "x" }, totalMs: 702 } };
+    expect(traceFacts(view)).toEqual({ outcome: "spare_claim", attempt: 1, totalMs: 702, steps: { capability: 1, budget: 120, adopt: 700 } });
+    expect(traceFacts({ id: "vm_1" })).toBeNull();
+    expect(traceFacts(null)).toBeNull();
+    expect(traceFacts({ createTrace: { steps: {} } })).toBeNull();
+  });
+  test("p50 per step per path, and a table under the bench only when a sample has a trace", () => {
+    const t = (adopt: number, total: number) => ({ outcome: "spare_claim", attempt: 1, totalMs: total, steps: { capability: 1, adopt } });
+    const samples = [sample("spare", t(100, 110)), sample("spare", t(300, 310)), sample("spare", t(200, 210)), sample("cold", undefined), sample("vm-api-cold", undefined)];
+    expect(traceStepSummary(samples)).toEqual([{ path: "spare", traced: 3, steps: [{ step: "capability", p50: 1 }, { step: "adopt", p50: 200 }, { step: "totalMs", p50: 210 }] }]);
+    const md = startBenchMarkdown(samples);
+    expect(md).toContain("| spare | 3 | adopt | 200 ms |");
+    expect(startBenchMarkdown([sample("cold", undefined)])).not.toContain("create trace");
+  });
+  test("the trace is read untimed before the remove, and a failed read never fails the sample", async () => {
+    const { clock, advance } = fakeClock();
+    const order: string[] = [];
+    const base: StartTarget = {
+      path: "spare",
+      create: async () => { advance(1_000); return { machine: "m1" }; },
+      running: async () => true,
+      exec: () => async () => ({ code: 0, stdout: "ok daemon-ok", stderr: "" }),
+      daemon: true,
+      trace: async () => { order.push("trace"); advance(5_000); return { outcome: "spare_claim", attempt: 1, totalMs: 9, steps: { adopt: 9 } }; },
+      remove: async () => { order.push("remove"); },
+    };
+    const s = await timeStart(base, 0, clock);
+    expect(s.ok).toBe(true);
+    expect(s.ms.daemon).toBe(1_000);
+    expect(s.facts.trace).toEqual({ outcome: "spare_claim", attempt: 1, totalMs: 9, steps: { adopt: 9 } });
+    expect(order).toEqual(["trace", "remove"]);
+    const failed = await timeStart({ ...base, trace: async () => { throw new Error("403"); } }, 1, clock);
+    expect(failed.ok).toBe(true);
+    expect(failed.facts.trace).toBeUndefined();
+    expect(failed.facts.trace_missing).toBe("read failed: Error");
+    const refused = await timeStart({ ...base, trace: async () => "HTTP 404" }, 2, clock);
+    expect(refused.facts.trace).toBeUndefined();
+    expect(startBenchMarkdown([refused])).toContain("Samples with no create trace: HTTP 404 (1)");
+  });
+  test("the create answer's value.timings is kept as a trace and gets its own p50 table", () => {
+    const t = answerTimings({ machine: "vm_1", timings: { path: "create", steps: { plan_read: 40, ensure: 2_100, bad: "x" }, total_ms: 2_300 } });
+    expect(t).toEqual({ outcome: "create", attempt: null, totalMs: 2_300, steps: { plan_read: 40, ensure: 2_100 } });
+    expect(answerTimings({ machine: "vm_1" })).toBeNull();
+    const s: StartSample = { ...sample("cold", undefined), facts: { timings: t } };
+    expect(traceStepSummary([s], "timings")).toEqual([{ path: "cold", traced: 1, steps: [{ step: "plan_read", p50: 40 }, { step: "ensure", p50: 2_100 }, { step: "totalMs", p50: 2_300 }] }]);
+    expect(startBenchMarkdown([s])).toContain("| cold | 1 | ensure | 2100 ms |");
   });
 });

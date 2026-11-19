@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextCompat
-import enum CmuxNextControl.LaunchPriorChat
+import struct CmuxNextControl.LaunchPriorChat
 public import CmuxNextDesign
 import CmuxNextDesignTokens
 import CmuxNextDictation
@@ -73,6 +73,9 @@ public final class AgentPaneView: NSView {
     public typealias PageFocusLoss = @MainActor (_ window: NSWindow?, _ detail: String) -> Void
     /// The app's focus log for this page's `focus-lost` events (``AgentPaneShared/focusLoss``); nil records none.
     public var onPageFocusLost: PageFocusLoss?
+    /// Draws this chat's last page (its saved or held frame, or the New Tab frame) under it in its pane, when a hold
+    /// gave up on it before it painted (``standInUntilPainted()``), true when a picture shows; set by its pane.
+    public var drawsLastPage: (() -> Bool)?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
@@ -126,6 +129,8 @@ public final class AgentPaneView: NSView {
     }
     private var reduceMotionObserver: MainActorObservation?
     private var reduceMotionOverrideObserver: MainActorObservation?
+    /// The app finished a GitHub install (``CloudGitHubChanges``): the folder menu reads GitHub again.
+    var gitHubChangeObservation: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
     private var gestureMonitor: Any?
     var transportPacer: AgentPaneFramePacer?
@@ -447,6 +452,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
+            gitHubChangeObservation?.cancel()
             actAsMePill.stop()
             sessionStatusObservation?.cancel()
             model.sessionInfo.hostObservation?.cancel()
