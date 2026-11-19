@@ -13,6 +13,17 @@
 // `pending` names the PR that brings a gap to its value: until it lands the test expects that row to
 // fail (bun `test.failing`), so the landing PR must drop `pending` and the row is enforced from then on.
 
+import {
+  TRANSCRIPT_LINE_ROW,
+  TRANSCRIPT_LINE_TO_LIVE_STEP,
+  TRANSCRIPT_LIVE_STEP_GAP,
+  TRANSCRIPT_LIVE_STEP_GAP_TOKEN,
+  TRANSCRIPT_LIVE_STEP_HEIGHT,
+} from "./transcriptGrid";
+
+/// The live line under a one-line row: its distance comes from its box and gap in transcriptGrid.ts, never typed here.
+const LIVE_STEP_SOURCE = `${TRANSCRIPT_LINE_ROW} line, half each side + ${TRANSCRIPT_LIVE_STEP_GAP_TOKEN} ${TRANSCRIPT_LIVE_STEP_GAP} + the live line's ${TRANSCRIPT_LIVE_STEP_HEIGHT} box, half (transcriptGrid.ts TRANSCRIPT_LIVE_STEP_BOX)`;
+
 export type SpacingRow = {
   /** The measurement's id, as the test names it. */
   id: string;
@@ -111,9 +122,9 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   {
     id: "step-to-live",
     between: 'the waiting group and the live line under it ("Sending message to …"), centre to centre',
-    value: 38,
+    value: TRANSCRIPT_LINE_TO_LIVE_STEP,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source: LIVE_STEP_SOURCE,
   },
 ];
 
@@ -243,9 +254,9 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "waiting-to-live",
     variant: "working-bottom",
     between: '"1 message from 1 session" and the live "Thinking" line under it, the turn\'s last, centre to centre',
-    value: 38,
+    value: TRANSCRIPT_LINE_TO_LIVE_STEP,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source: LIVE_STEP_SOURCE,
   },
   {
     id: "reply-footer-to-received",
@@ -267,18 +278,18 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "sent-to-live",
     variant: "reply-received",
     between: '"Sent to" and the live "Thinking" line under it, centre to centre',
-    value: 38,
+    value: TRANSCRIPT_LINE_TO_LIVE_STEP,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source: LIVE_STEP_SOURCE,
   },
   {
     id: "note-to-live",
     variant: "notes-live",
     between:
       'the last "Background task finished" note, after "Received 6 messages", and the live "Thinking" line under it, centre to centre',
-    value: 38,
+    value: TRANSCRIPT_LINE_TO_LIVE_STEP,
     tolerance: 0.5,
-    source: "22 line + Codex transcript run gap 16",
+    source: LIVE_STEP_SOURCE,
   },
   {
     id: "status-to-prompt",

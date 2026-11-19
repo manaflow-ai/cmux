@@ -26,7 +26,7 @@ public struct BrowserPagePrint {
     /// page too. `done` runs when the panel ends, or at once when it cannot
     /// show: a page's window.print() waits until then.
     func printWebKit(_ webView: WKWebView, done: @escaping @MainActor () -> Void) -> Bool {
-        guard let window = webView.window, window.attachedSheet == nil else {
+        guard let window = webView.window, window.attachedSheet == nil, !webView.cmuxIsSuspended else {
             done()
             return false
         }

@@ -114,6 +114,17 @@ pub struct Consent {
 /// 2026-11-14: "ok then do that", to one click on the new Mac).
 pub const SIGNED_IN_MACHINES: &str = "signedInMachines";
 
+/// Whether `consent` (a `_acpmux/machine_consent_get` answer) grants [`SIGNED_IN_MACHINES`] while
+/// this machine is joined as `account`: only the word `granted`, given for that same account
+/// (`signedInMachinesUser`), does. A grant given for another account, or no account, grants
+/// nothing. The workspace circuit's gate (`session_service`) and Share This Mac's admission
+/// (`share_approval::SignedInMachinesConsent`) read it the same way.
+pub fn signed_in_machines_granted(consent: &Value, account: Option<&str>) -> bool {
+    account.is_some_and(|account| {
+        consent.pointer("/consent/signedInMachinesUser").and_then(Value::as_str) == Some(account)
+    }) && consent.pointer("/consent/signedInMachines").and_then(Value::as_str) == Some("granted")
+}
+
 /// Every consent surface the person can grant on this machine.
 pub(crate) fn is_consent_surface(surface: &str) -> bool {
     matches!(surface, "screen" | "control" | SIGNED_IN_MACHINES)
@@ -318,6 +329,18 @@ pub(crate) fn authority() -> Result<crate::machine_consent::Authority> {
 /// nonblocking take would fail as if another holder were still at work.
 pub(crate) struct HeldLock(pub(crate) std::fs::File);
 
+impl HeldLock {
+    /// Takes `file`'s exclusive lock without waiting (`flock` on Unix, `LockFileEx` on Windows);
+    /// `busy` is the error when another holder has it.
+    pub(crate) fn take(file: std::fs::File, busy: &'static str) -> Result<Self> {
+        match file.try_lock() {
+            Ok(()) => Ok(HeldLock(file)),
+            Err(std::fs::TryLockError::WouldBlock) => Err(anyhow::anyhow!(busy)),
+            Err(std::fs::TryLockError::Error(e)) => Err(e.into()),
+        }
+    }
+}
+
 impl Drop for HeldLock {
     fn drop(&mut self) {
         let _ = self.0.unlock();
@@ -338,12 +361,6 @@ pub fn require_consent(surface: &str) -> Result<()> {
         let _ = record_consent_refusal(surface);
         Err(anyhow!(CONSENT_REQUIRED))
     }
-}
-
-/// Whether the Mac's own sessions keep computer use with no consent: the requirement comes only
-/// from joins signing in made ([`machine_consent::Authority::required_only_by_sign_in`]).
-pub(crate) fn local_computer_use_kept() -> bool {
-    authority().is_ok_and(|authority| authority.required_only_by_sign_in())
 }
 
 pub fn require_joined_consent(surface: &str) -> Result<()> {

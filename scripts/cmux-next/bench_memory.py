@@ -155,6 +155,81 @@ def usage(pid: int):
     return buf[8], buf[9], buf[30], cpu_ns, buf[4] + buf[5]
 
 
+def disk_io(pid: int):
+    """(bytes read, bytes written, logical bytes written) over the process's life, or None once the pid is
+    gone. RUSAGE_INFO_V4 words 18 and 19 (ri_diskio_bytesread, ri_diskio_byteswritten: what reached the
+    storage device, page-ins and write-backs included) and 29 (ri_logical_writes: bytes the process wrote,
+    before the cache folds them)."""
+    buf = (ctypes.c_uint64 * 64)()
+    if _libproc.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(4), ctypes.byref(buf)) != 0:
+        return None
+    return buf[18], buf[19], buf[29]
+
+
+def gpu_stats() -> dict:
+    """The GPU's own counters now (`ioreg -r -c IOAccelerator`, PerformanceStatistics of the first
+    accelerator that has them): device, renderer and tiler utilization % and the memory it holds. macOS
+    gives no per-process GPU time and no frame count here; the GPU process's CPU is in its kind's row."""
+    try:
+        out = subprocess.run(["ioreg", "-r", "-c", "IOAccelerator", "-d", "1", "-a"], capture_output=True,
+                             timeout=10).stdout
+        entries = plistlib.loads(out) if out else []
+    except (subprocess.TimeoutExpired, OSError, ValueError, plistlib.InvalidFileException):
+        return {}
+    for entry in entries if isinstance(entries, list) else [entries]:
+        stats = entry.get("PerformanceStatistics") if isinstance(entry, dict) else None
+        if isinstance(stats, dict):
+            return {key: value for key, value in stats.items() if isinstance(value, (int, float))}
+    return {}
+
+
+def gpu_summary(samples: list[dict]) -> dict:
+    """The mean of each GpuSampler key over a window's gpu_stats() samples (memory in MB)."""
+    if not samples:
+        return {"error": "ioreg gave no IOAccelerator PerformanceStatistics"}
+    out: dict = {"samples": len(samples)}
+    for key in GpuSampler.KEYS:
+        values = [s[key] for s in samples if key in s]
+        if not values:
+            continue
+        name = key.lower().replace(" %", "_pct").replace(" ", "_")
+        mean = sum(values) / len(values)
+        if key.endswith("memory"):
+            out[name + "_mb"] = round(mean / MB, 1)
+        else:
+            out[name] = round(mean, 2)
+    return out
+
+
+class GpuSampler:
+    """Samples gpu_stats() every `interval` seconds from a thread of this script (an ioreg child, nothing
+    the measured app runs) and averages each counter over the window."""
+
+    KEYS = ("Device Utilization %", "Renderer Utilization %", "Tiler Utilization %",
+            "In use system memory", "Alloc system memory")
+
+    def __init__(self, interval: float = 5.0):
+        import threading
+        self.interval, self.samples = interval, []
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self):
+        while not self.stop_event.is_set():
+            got = gpu_stats()
+            if got:
+                self.samples.append(got)
+            self.stop_event.wait(self.interval)
+
+    def start(self):
+        self.thread.start()
+
+    def finish(self) -> dict:
+        self.stop_event.set()
+        self.thread.join(15)
+        return gpu_summary(self.samples)
+
+
 def process_table():
     rows = []
     out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
@@ -185,12 +260,10 @@ def kind_of(cmd: str, bundle: str) -> str:
         return "cef-helper"
     if rel.startswith("/Contents/MacOS/"):
         return "app"
+    if "/bin/cmux-holder" in rel:
+        return "holder"
     if "/bin/cmux-tui" in rel or "/bin/cmux " in rel or rel.endswith("/bin/cmux"):
-        if "__terminal-host" in rel:
-            return "terminal-host"
-        if "--session cmux-chief" in rel:
-            return "tui-daemon-chief"
-        return "tui-daemon"
+        return tui_kind(rel)
     if "/bin/acpmux" in rel:
         return "acpmux-" + (rel.split("/bin/acpmux", 1)[1].split() or ["agent"])[0]
     if "/bin/" in rel:
@@ -200,16 +273,88 @@ def kind_of(cmd: str, bundle: str) -> str:
     return os.path.basename(cmd.split()[0])
 
 
-def owned(app_pid: int, bundle: str):
-    """{pid: (kind, command)} for every process from the bundle, plus the
-    WebKit processes the app is responsible for."""
-    found = {}
-    for pid, _ppid, cmd in process_table():
+def tui_kind(rel: str) -> str:
+    """The kind of a cmux-tui (or cmux) process, by its first argument. The daemon starts with a flag
+    (`--headless ...`) or as `<scope> start`. Every other bundle process of the binary runs one hidden
+    subcommand (`__terminal-host`, `__holder`, `__provider-authority`, ...) and gets a kind of its own,
+    so the daemon's row is the daemon alone (it was 4 processes summed into one 86 MB `tui-daemon`)."""
+    tail = rel.split("/bin/", 1)[1].split()[1:] if "/bin/" in rel else rel.split()[1:]
+    first = tail[0] if tail else ""
+    if first == "__terminal-host":
+        return "terminal-host"
+    if first == "__holder":
+        return "holder"
+    if first.startswith("__"):
+        return "tui-" + first.lstrip("_")
+    if first and not first.startswith("-") and (tail[1:2] != ["start"]):
+        return "cmux-" + first
+    if "--session cmux-chief" in rel:
+        return "tui-daemon-chief"
+    return "tui-daemon"
+
+
+# The processes the daemon starts with a bare argv[0] (host_exe.rs `arg0("cmux-tui")`, the holder's
+# `cmux-holder`): their command line has no bundle path, so they are found by their executable or by
+# the daemon that owns them.
+BARE_NAMES = ("cmux-tui", "cmux-tui-host", "cmux-holder", "cmux")
+OWNER = re.compile(r"--owner \S*@(\d+)")
+
+
+def exe_path(pid: int) -> str | None:
+    """The process's executable (proc_pidpath), whatever its argv[0] says."""
+    buf = ctypes.create_string_buffer(4096)
+    try:
+        size = _libproc.proc_pidpath(ctypes.c_int(pid), buf, ctypes.c_uint32(4096))
+    except (AttributeError, TypeError, ctypes.ArgumentError):
+        return None
+    if not isinstance(size, int) or size <= 0:
+        return None
+    return buf.value.decode("utf-8", "replace")
+
+
+def bundle_processes(table, bundle: str, exe_of=exe_path) -> dict[int, tuple[str, str]]:
+    """{pid: (kind, command)} for every process of the bundle in `table` ((pid, ppid, command) rows):
+    a command that starts with the bundle path; else an executable inside the bundle (a bare argv[0]),
+    named by that path; else a bare-named cmux-tui or holder process whose `--owner ...@<pid>` or
+    parent is one of these (repeated, so a host of the holder counts too)."""
+    found: dict[int, tuple[str, str]] = {}
+    bare = []
+    for pid, ppid, cmd in table:
         if in_bundle(cmd, bundle) is not None:
-            _run_pids.add(pid)
             found[pid] = (kind_of(cmd, bundle), cmd)
-        elif _responsible is not None and "com.apple.WebKit." in cmd and webkit_owned(pid, app_pid):
-            found[pid] = (kind_of(cmd, bundle), cmd)
+            continue
+        name = os.path.basename(cmd.split(None, 1)[0]) if cmd.strip() else ""
+        if name not in BARE_NAMES:
+            continue
+        exe = exe_of(pid)
+        if exe and in_bundle(exe, bundle) is not None:
+            named = exe + (" " + cmd.split(None, 1)[1] if len(cmd.split(None, 1)) > 1 else "")
+            found[pid] = (kind_of(named, bundle), named)
+        else:
+            bare.append((pid, ppid, cmd, name))
+    grew = True
+    while grew:
+        grew = False
+        for pid, ppid, cmd, name in bare:
+            if pid in found:
+                continue
+            owner = OWNER.search(cmd)
+            if ppid in found or (owner and int(owner.group(1)) in found):
+                found[pid] = (kind_of("/bin/" + cmd, bundle), cmd)
+                grew = True
+    return found
+
+
+def owned(app_pid: int, bundle: str):
+    """{pid: (kind, command)} for every process of the bundle (bundle_processes), plus the WebKit
+    processes the app is responsible for."""
+    table = process_table()
+    found = bundle_processes(table, bundle)
+    _run_pids.update(found)
+    if _responsible is not None:
+        for pid, _ppid, cmd in table:
+            if pid not in found and "com.apple.WebKit." in cmd and webkit_owned(pid, app_pid):
+                found[pid] = (kind_of(cmd, bundle), cmd)
     return found
 
 
@@ -234,13 +379,19 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
     adds `child_cpu_pct`: the CPU of the process's children that ended in the window."""
     start = {}
     child_start = {}
+    io_start = {}
+    gpu = None
     if measure > 0:
         for pid in owned(app_pid, bundle):
             got = usage(pid)
             if got is not None:
                 start[pid] = got
+                io_start[pid] = disk_io(pid)
                 if child_ns is not None:
                     child_start[pid] = child_ns(pid)
+        if SAMPLE_GPU:
+            gpu = GpuSampler()
+            gpu.start()
         time.sleep(measure)  # test script: the measured idle window
     rows = []
     for pid, (kind, cmd) in owned(app_pid, bundle).items():
@@ -256,6 +407,13 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
             child_end = child_ns(pid) if child_ns is not None else None
             if child_end is not None and child_start.get(pid) is not None:
                 row["child_cpu_pct"] = round(100 * (child_end - child_start[pid]) / 1e9 / measure, 3)
+            io_end = disk_io(pid)
+            if io_end is not None and io_start.get(pid) is not None:
+                # MB per hour of the window: a process that writes 1 MB a minute reads 60.
+                per_hour = 3600 / measure / MB
+                row["disk_read_mb_per_h"] = round((io_end[0] - io_start[pid][0]) * per_hour, 2)
+                row["disk_write_mb_per_h"] = round((io_end[1] - io_start[pid][1]) * per_hour, 2)
+                row["logical_write_mb_per_h"] = round((io_end[2] - io_start[pid][2]) * per_hour, 2)
         rows.append(row)
     rows.sort(key=lambda row: -row["footprint_mb"])
     kinds = {}
@@ -269,11 +427,22 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
             entry["wakeups_per_s"] = round(entry.get("wakeups_per_s", 0.0) + row["wakeups_per_s"], 2)
         if "child_cpu_pct" in row:
             entry["child_cpu_pct"] = round(entry.get("child_cpu_pct", 0.0) + row["child_cpu_pct"], 3)
-    return {"measure_s": measure, "label": label, "workspaces": workspaces, "time": round(time.time()),
-            "total_rss_mb": round(sum(r["rss_mb"] for r in rows), 1),
-            "total_footprint_mb": round(sum(r["footprint_mb"] for r in rows), 1),
-            "kinds": dict(sorted(kinds.items(), key=lambda item: -item[1]["footprint_mb"])),
-            "processes": rows}
+        for key in IO_KEYS:
+            if key in row:
+                entry[key] = round(entry.get(key, 0.0) + row[key], 2)
+    result = {"measure_s": measure, "label": label, "workspaces": workspaces, "time": round(time.time()),
+              "total_rss_mb": round(sum(r["rss_mb"] for r in rows), 1),
+              "total_footprint_mb": round(sum(r["footprint_mb"] for r in rows), 1),
+              "kinds": dict(sorted(kinds.items(), key=lambda item: -item[1]["footprint_mb"])),
+              "processes": rows}
+    if gpu is not None:
+        result["gpu"] = gpu.finish()
+    return result
+
+
+IO_KEYS = ("disk_read_mb_per_h", "disk_write_mb_per_h", "logical_write_mb_per_h")
+# --gpu: each measured window also samples the GPU's own counters (GpuSampler).
+SAMPLE_GPU = False
 
 
 class _ThreadInfo(ctypes.Structure):
@@ -438,14 +607,11 @@ def print_attribution(label: str, found: dict):
     sys.stdout.flush()
 
 
-# CMUX_BENCH_VMMAP_KINDS=tui-daemon,app (cmux-ci run --env): after each sample, `vmmap --summary` of every process of
-# those kinds, as VMMAP lines: where a process's footprint is (MALLOC zones, a framework's __DATA, stacks...). vmmap
-# suspends the process while it reads it, so it runs after the sample's window and only when asked.
-VMMAP_KINDS_ENV = "CMUX_BENCH_VMMAP_KINDS"
-
-
-def print_vmmap(result) -> None:
-    kinds = {k for k in os.environ.get(VMMAP_KINDS_ENV, "").split(",") if k}
+# --vmmap-kinds tui-daemon,app: after each sample, `vmmap --summary` of every process of those kinds, as VMMAP
+# lines: where a process's footprint is (MALLOC zones, a framework's __DATA, stacks...). vmmap suspends the process
+# while it reads it, so it runs after the sample's window and only when asked.
+def print_vmmap(result, kinds_arg: str | None) -> None:
+    kinds = {k for k in (kinds_arg or "").split(",") if k}
     if not kinds or not shutil.which("vmmap"):
         return
     for row in result["processes"]:
@@ -465,10 +631,14 @@ def print_vmmap(result) -> None:
 def print_sample(result, top: int):
     print(f"== {result['label']}: {result['workspaces']} workspaces, {len(result['processes'])} processes, "
           f"footprint {result['total_footprint_mb']:.0f} MB, RSS {result['total_rss_mb']:.0f} MB")
-    print(f"   {'kind':<22}{'n':>4}{'footprint MB':>14}{'RSS MB':>10}{'CPU %':>9}{'wakeups/s':>11}")
+    print(f"   {'kind':<22}{'n':>4}{'footprint MB':>14}{'RSS MB':>10}{'CPU %':>9}{'wakeups/s':>11}"
+          f"{'disk W MB/h':>13}{'disk R MB/h':>13}")
     for kind, entry in result["kinds"].items():
         print(f"   {kind:<22}{entry['count']:>4}{entry['footprint_mb']:>14.1f}{entry['rss_mb']:>10.1f}"
-              f"{entry.get('cpu_pct', float('nan')):>9.3f}{entry.get('wakeups_per_s', float('nan')):>11.2f}")
+              f"{entry.get('cpu_pct', float('nan')):>9.3f}{entry.get('wakeups_per_s', float('nan')):>11.2f}"
+              f"{entry.get('disk_write_mb_per_h', float('nan')):>13.2f}{entry.get('disk_read_mb_per_h', float('nan')):>13.2f}")
+    if result.get("gpu"):
+        print(f"   GPU (whole Mac, ioreg): {json.dumps(result['gpu'])}")
     for kind, entry in result["kinds"].items():
         if "child_cpu_pct" in entry:
             print(f"   children of {kind:<22}{entry['child_cpu_pct']:>9.3f} CPU % (ended in the window)")
@@ -550,6 +720,95 @@ class App:
         return out.returncode == 0
 
 
+def workspace_ids(app: App) -> set[str]:
+    """The ids of the app's workspaces (`snapshot.get`)."""
+    found: set[str] = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            value = node.get("id")
+            if isinstance(value, str) and value.startswith("ws_"):
+                found.add(value)
+            for child in node.values():
+                walk(child)
+        elif isinstance(node, list):
+            for child in node:
+                walk(child)
+    walk(app.call("snapshot.get", timeout=30))
+    return found
+
+
+# --axis: one kind of item, all hidden (each in a workspace of its own, the launch workspace shown) or all
+# visible (each in a pane of the launch workspace).
+AXES = ("chat-hidden", "chat-visible", "terminal-hidden", "terminal-visible")
+
+
+def add_axis_item(app: App, chats: "FakeChats | None", axis: str, index: int, opened: list) -> bool:
+    """Adds item `index` (0-based) of `axis`; True when the app made it.
+
+    Hidden: a workspace of its own (an answered chat, or a terminal), as open_workspace does; the caller
+    shows the launch workspace again afterwards. Visible: the first item in the launch workspace's pane,
+    each later one in a new pane of it (`newPaneAutoLayout`, which a script's run opens on a terminal; a
+    chat then opens over it with `agent.openSessionTab`, so each visible chat's pane also holds one hidden
+    terminal)."""
+    if axis == "chat-hidden":
+        workspace = chats.open(index)
+        if workspace is not None:
+            # Shown once, so its page loads, as open_workspace does; hidden again by the next item.
+            app.action("goToWorkspace", workspace=workspace, focus=True)
+    elif axis == "terminal-hidden":
+        workspace = open_workspace(app, "terminal", "", index)
+    else:
+        workspace = None
+        if index > 0:
+            split = app.action("newPaneAutoLayout", focus=True)
+            if split.get("error") or split.get("code"):
+                print(f"   newPaneAutoLayout {index}: {split.get('message') or split.get('error')}", file=sys.stderr)
+                return False
+            if axis == "terminal-visible":
+                return True
+        if axis == "terminal-visible":
+            made = app.run("newSurface")
+        else:
+            session = chats.new_session(index)
+            if session is None:
+                return False
+            made = app.action("agent.openSessionTab", session=session, focus=True)
+        if made.get("error") or made.get("code"):
+            print(f"   {axis} {index}: {made.get('message') or made.get('error')}", file=sys.stderr)
+            PANE_FAILURES.append(f"{axis} {index}: {made.get('message') or made.get('error')}"[:200])
+            return False
+        return True
+    if workspace is None:
+        return False
+    opened.append(workspace)
+    return True
+
+
+def run_axis(app: App, chats, axis: str, counts: list[int], launch_workspaces: list[str], opened: list,
+             settle_and_sample, settled_wait: float) -> dict:
+    """Samples `axis` at each item count (`items-N`), and with `settled_wait` again after that much more
+    idle time (`settled-N`: the hidden chats' pages frozen and released). Returns {count: items made}."""
+    made, made_at = 0, {}
+    for count in counts:
+        while made < count:
+            if not add_axis_item(app, chats, axis, made, opened):
+                break
+            made += 1
+        if axis.endswith("-hidden") and launch_workspaces:
+            # Every item hidden: the launch workspace shown again, as a person who went back to it.
+            app.action("goToWorkspace", workspace=launch_workspaces[0], focus=True)
+        made_at[count] = made
+        settle_and_sample(f"items-{count}")["items"] = made
+        if settled_wait > 0:
+            time.sleep(settled_wait)  # test script: past the hidden pages' freeze (30 s) and release (60 s) timers
+            settle_and_sample(f"settled-{count}")["items"] = made
+        if made < count:
+            print(f"== {axis}: the app made {made} of {count} items; later counts stop here", flush=True)
+            break
+    return made_at
+
+
 FAKE_AGENT_ID = "bench-memory-fake"
 # The first prompt of each --fake-agent chat (--chat-prompt); the fake agent echoes it back, so a
 # long one gives the chat a long history to hold.
@@ -601,31 +860,23 @@ class FakeChats:
         raise SystemExit("bench-memory: the app's acpmux opened no socket within 90 s")
 
     def workspace_ids(self) -> set[str]:
-        """The ids of the app's workspaces (`snapshot.get`)."""
-        found: set[str] = set()
+        return workspace_ids(self.app)
 
-        def walk(node):
-            if isinstance(node, dict):
-                value = node.get("id")
-                if isinstance(value, str) and value.startswith("ws_"):
-                    found.add(value)
-                for child in node.values():
-                    walk(child)
-            elif isinstance(node, list):
-                for child in node:
-                    walk(child)
-        walk(self.app.call("snapshot.get", timeout=30))
-        return found
-
-    def open(self, index: int) -> str | None:
-        """A new workspace on a new answered chat; returns the workspace id."""
+    def new_session(self, index: int) -> str | None:
+        """A new acpmux session on the fake agent, its first turn answered; returns its id."""
         made = subprocess.run([self.app.cli_path, "acp", "new", "--json", "-d", "-m", FAKE_AGENT_ID,
                                f"memory bench chat {index}" + (f"\n\n{CHAT_PROMPT}" if CHAT_PROMPT else "")],
                               capture_output=True, text=True, timeout=120, env=self.env)
         try:
-            session = json.loads(made.stdout)["sessionId"]
+            return json.loads(made.stdout)["sessionId"]
         except (ValueError, KeyError):
             print(f"   acp new: {(made.stdout + made.stderr).strip()[:300]}", file=sys.stderr)
+            return None
+
+    def open(self, index: int) -> str | None:
+        """A new workspace on a new answered chat; returns the workspace id."""
+        session = self.new_session(index)
+        if session is None:
             return None
         before = self.workspace_ids()
         response = self.app.action("agent.openSessionWorkspace", session=session)
@@ -1197,6 +1448,73 @@ def interrupted(_signum, _frame):
     raise KeyboardInterrupt
 
 
+APP_VM_TOOLS = (
+    # (tool, its arguments, lines kept): the app process's own memory by region, by footprint category, and by malloc
+    # zone and class. The goal's app process (~250 MB idle) had never been broken down (ram-baseline, CMUX-571).
+    ("vmmap", ["--summary"], 400),
+    ("footprint", [], 400),
+    ("heap", ["--sortBySize"], 160),
+)
+
+
+def app_vm_stacks(pid: int, pattern: str, limit: int = 40) -> dict:
+    """--app-vm-stacks: the address and size of each live block of a class `heap` names (`heap -addresses PATTERN`), and
+    for up to `limit` of them, largest first, the stack that allocated it (`malloc_history`; the app runs with
+    MallocStackLogging=lite for this). Says which code keeps the copies a class count shows (CMUX-571: 36 copies of the
+    palette's item list in the idle app)."""
+    try:
+        # heap matches the whole type name; a step argument carries no regex characters, so a substring is wrapped here.
+        proc = subprocess.run(["heap", str(pid), "-addresses", f".*{pattern}.*"], capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {"error": str(e)[:300]}
+    blocks = []
+    for line in proc.stdout.splitlines():
+        m = re.match(r"\s*(0x[0-9a-f]+): .*?\((\d+) bytes\)", line)
+        if m:
+            blocks.append((int(m.group(2)), m.group(1), line.strip()[:200]))
+    blocks.sort(reverse=True)
+    out = {"rc": proc.returncode, "blocks": [b[2] for b in blocks], "stderr": proc.stderr[-400:], "head": proc.stdout.splitlines()[:120],
+           "stacks": {}}
+    for size, address, _ in blocks[:limit]:
+        try:
+            hist = subprocess.run(["malloc_history", str(pid), address], capture_output=True, text=True, timeout=120)
+            out["stacks"][f"{address} {size}"] = hist.stdout.splitlines()[-80:] + hist.stderr.splitlines()[-5:]
+        except (OSError, subprocess.TimeoutExpired) as e:
+            out["stacks"][f"{address} {size}"] = [str(e)[:200]]
+    return out
+
+
+def app_vm(pid: int) -> dict:
+    """--app-vm: the app process's `vmmap --summary`, `footprint` and `heap --sortBySize` (each output's first lines;
+    heap lists its zones, then the largest classes). A tool that fails keeps its error, so the report says why."""
+    out = {}
+    for tool, extra, keep in APP_VM_TOOLS:
+        if not shutil.which(tool):
+            out[tool] = {"error": "not installed"}
+            continue
+        try:
+            proc = subprocess.run([tool, *extra, str(pid)], capture_output=True, text=True, timeout=180)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            out[tool] = {"error": str(e)[:300]}
+            continue
+        lines = proc.stdout.splitlines()
+        out[tool] = {"rc": proc.returncode, "lines": lines[:keep], "total_lines": len(lines),
+                     "stderr": proc.stderr[-600:]}
+    return out
+
+
+def print_app_vm(label: str, vm: dict) -> None:
+    for tool, entry in ((t, e) for t, e in vm.items() if t not in ("pages", "stacks")):
+        if "error" in entry:
+            print(f"APP-VM {label} {tool} error: {entry['error']}", flush=True)
+            continue
+        print(f"APP-VM {label} {tool} rc={entry.get('rc')} lines={entry.get('total_lines')}", flush=True)
+        for line in entry.get("lines") or []:
+            print(f"APP-VM {label} {tool}| {line}", flush=True)
+        if entry.get("stderr") and entry.get("rc"):
+            print(f"APP-VM {label} {tool} stderr: {entry['stderr']}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True, help="the .app bundle")
@@ -1215,6 +1533,8 @@ def main():
     parser.add_argument("--cef-switches", default="",
                         help="launch, DEBUG builds: extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES)")
     parser.add_argument("--top", type=int, default=15)
+    parser.add_argument("--vmmap-kinds", help="after each sample, vmmap --summary of every process of these kinds "
+                        "(comma list, e.g. tui-daemon,app), as VMMAP lines")
     parser.add_argument("--config", default="{}",
                         help='launch: cmux.json settings as JSON, e.g. \'{"browser": {"hibernation": 1}}\'')
     parser.add_argument("--fake-agent", metavar="SCRIPT",
@@ -1251,8 +1571,28 @@ def main():
     parser.add_argument("--js-heap", action="store_true",
                         help="after each sample: every cmux page's V8 heap (Runtime.getHeapUsage), summed by page path "
                              "(`js_heap` in the sample; a bench or DEV build)")
+    parser.add_argument("--app-vm", action="store_true",
+                        help="after the idle-launch sample: the app process's vmmap --summary, footprint and "
+                             "heap --sortBySize (`app_vm` in the sample, APP-VM lines)")
+    parser.add_argument("--app-vm-stacks", metavar="PATTERN",
+                        help="with --app-vm: launch with MallocStackLogging=lite and print each live block of the classes "
+                             "`heap -addresses PATTERN` names with the stack that allocated it (a diagnostic run: the "
+                             "logging itself costs memory, so its footprint is not a measurement)")
+    parser.add_argument("--axis", choices=AXES,
+                        help="instead of --workspaces: --items counts of one kind of item, visible or hidden "
+                             "(chat-hidden needs --fake-agent; see run_axis)")
+    parser.add_argument("--items", default="1,10,100", help="--axis: item counts to sample (0 is idle-launch)")
+    parser.add_argument("--settled-wait", type=float, default=0, metavar="SECONDS",
+                        help="--axis: after each count's sample, wait this long more (past the hidden pages' freeze "
+                             "and release timers, 30 s and 60 s) and sample again as settled-N")
+    parser.add_argument("--gpu", action="store_true",
+                        help="each measured window also samples the GPU's counters (ioreg IOAccelerator)")
     parser.add_argument("--out")
     args = parser.parse_args()
+    global SAMPLE_GPU
+    SAMPLE_GPU = args.gpu
+    if args.axis and args.axis.startswith("chat-") and not args.fake_agent:
+        parser.error("--axis chat-* needs --fake-agent (chats whose first turn is answered)")
     global CHAT_PROMPT
     CHAT_PROMPT = args.chat_prompt
     if (args.purge_hidden or args.release_hidden_chats > 0) and len([n for n in args.workspaces.split(",") if n]) > 1:
@@ -1288,6 +1628,8 @@ def main():
         socket_path, app_pid = args.socket, args.app_pid
     else:
         extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": args.cef_switches} if args.cef_switches else {}
+        if args.app_vm_stacks:
+            extra["MallocStackLogging"] = "lite"  # --app-vm-stacks: malloc_history needs the allocation stacks
         config = json.loads(args.config)
         if chat_renderer_crash.enabled():
             config = merged(config, chat_renderer_crash.CONFIG)
@@ -1339,17 +1681,43 @@ def main():
             print(f"   JS heap: {heap.get('pages', 0)} cmux pages ({heap.get('hidden_pages', 0)} hidden) in "
                   f"{heap.get('renderers', 0)} renderers, used {heap.get('used_mb', 0)} MB, total {heap.get('total_mb', 0)} MB "
                   f"{json.dumps(heap.get('by_renderer') or heap.get('error'))[:600]}", flush=True)
+        if args.app_vm and label == "idle-launch":
+            result["app_vm"] = app_vm(app_pid)
+            if args.app_vm_stacks:
+                stacks = app_vm_stacks(app_pid, args.app_vm_stacks)
+                result["app_vm"]["stacks"] = stacks
+                print(f"APP-VM {label} stacks rc={stacks.get('rc')} blocks={len(stacks.get('blocks') or [])} "
+                      f"error={stacks.get('error')} stderr={stacks.get('stderr')!r}", flush=True)
+                for line in stacks.get("head") or []:
+                    print(f"APP-VM {label} stacks-head| {line}", flush=True)
+                for line in stacks.get("blocks") or []:
+                    print(f"APP-VM {label} block| {line}", flush=True)
+                for key, frames in (stacks.get("stacks") or {}).items():
+                    for frame in frames:
+                        print(f"APP-VM {label} stack {key}| {frame}", flush=True)
+            try:  # which pages are live at idle (their engines own the WebContent and renderer processes)
+                result["app_vm"]["pages"] = (app.call("debug.page", {"action": "list"}, timeout=30) or {}).get("pages")
+            except Exception as e:  # noqa: BLE001 - a build without the debug op still gets its vmmap
+                result["app_vm"]["pages"] = {"error": str(e)[:300]}
+            print(f"APP-VM {label} pages: {json.dumps(result['app_vm']['pages'])[:3000]}", flush=True)
+            print_app_vm(label, result["app_vm"])
         result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
         report["pane_failures"] = PANE_FAILURES[:20]
         print_sample(result, args.top)
-        print_vmmap(result)
+        print_vmmap(result, args.vmmap_kinds)
         return result
 
     try:
         if args.fake_agent:
             chats = FakeChats(app, bundle, args.fake_agent)
-        settle_and_sample("idle-launch")
+        launch_workspaces = sorted(workspace_ids(app)) if args.axis else []
+        settle_and_sample("idle-launch")["items"] = 0
+        if args.axis:
+            report["axis"] = args.axis
+            report["axis_made"] = run_axis(app, chats, args.axis, sorted(int(n) for n in args.items.split(",") if n),
+                                           launch_workspaces, opened, settle_and_sample, args.settled_wait)
+            counts = []
         if args.tabs:
             tab_counts = sorted(int(n) for n in args.tabs.split(",") if n)
             urls = tab_urls(args.urls, max(tab_counts))

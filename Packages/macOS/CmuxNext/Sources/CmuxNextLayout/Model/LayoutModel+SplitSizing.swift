@@ -47,8 +47,8 @@ extension LayoutModel {
 
     /// Shows the sizing of a split the caller is about to show (Cmd-D, Cmd-Shift-D), in this
     /// turn and with nothing sent: the split and its chain's new sizes reach the window in one
-    /// layout, so every pane of the chain moves on one spring from the key's frame
-    /// (plans/cmux-next/split-spring-animation/DESIGN.md). The sizes stay over the daemon's
+    /// layout, so the frame that shows the split shows every pane of the chain at its new size,
+    /// never the split first and its sizing after the daemon's reply. The sizes stay over the daemon's
     /// snapshots until ``commitSplitSizing(_:)`` or ``cancelSplitSizing(_:)``.
     ///
     /// - Parameter changes: ``splitSizingChanges(splitting:axis:)``, computed before the split.

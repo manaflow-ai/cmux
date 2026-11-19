@@ -10,7 +10,7 @@ import Foundation
 import Testing
 
 /// What ONE change in ONE workspace costs two more readers that join an item of every workspace (or of every live
-/// tab), in a session of 60 workspaces and in the person's 826 (`CMUX_TEST_SESSION_SIZES=large,real`): the items the
+/// tab), in a session of 60 workspaces and in one of 826 (`CMUX_TEST_SESSION_SIZES=large,real`): the items the
 /// reader's work visits (``ObservationWork``), as ``ObservationCostTests`` counts them for the favicon table and Needs
 /// you. Each reader passes the wake count of ``LargeSessionObservationTests`` (O5, O6): one tab's change wakes one
 /// observation. The woken reader then asked `ObservedItems` for the item of EVERY listed workspace (or live tab) and
