@@ -81,30 +81,32 @@ impl CommittedSnapshots {
         self.read_at_ms.store(ms, Ordering::Relaxed);
     }
 
-    /// Lets the cached rows go when no read took them for `keep` before `now`. Returns when to look again: the
-    /// cached rows' deadline, or `None` when none are cached. A builder at work (its lock taken) stores rows of
-    /// its own, so this looks again at a later deadline.
-    pub(crate) fn release_unread(&self, now: Instant, keep: Duration) -> Option<Instant> {
-        self.latest.load().as_ref()?;
+    /// Lets the cached rows go when no read took them for `keep` before `now`. Returns whether it let them go,
+    /// and when to look again: the cached rows' deadline, or `None` when none are cached. A builder at work (its
+    /// lock taken) stores rows of its own, so this looks again at a later deadline.
+    pub(crate) fn release_unread(&self, now: Instant, keep: Duration) -> (bool, Option<Instant>) {
+        if self.latest.load().is_none() {
+            return (false, None);
+        }
         let due = |snapshots: &Self| {
             snapshots.epoch
                 + Duration::from_millis(snapshots.read_at_ms.load(Ordering::Relaxed))
                 + keep
         };
         if now < due(self) {
-            return Some(due(self));
+            return (false, Some(due(self)));
         }
         let _builder = match self.reader.try_lock() {
             Ok(builder) => builder,
             Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
-            Err(TryLockError::WouldBlock) => return Some(now + keep),
+            Err(TryLockError::WouldBlock) => return (false, Some(now + keep)),
         };
         // A read between the check and the lock took them: they stay.
         if now < due(self) {
-            return Some(due(self));
+            return (false, Some(due(self)));
         }
         self.latest.store(None);
-        None
+        (true, None)
     }
 
     /// Whether rows are cached (tests).

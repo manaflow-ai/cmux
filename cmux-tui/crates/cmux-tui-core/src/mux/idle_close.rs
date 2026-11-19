@@ -298,9 +298,14 @@ pub fn start_idle_terminal_reaper(
             let (_, next) = owner.reap_idle_terminals_until_next(now);
             // The session snapshot's cached rows go when no read took them for a while; this thread keeps
             // their deadline too (`resource_api/committed_snapshot.rs`).
-            let snapshot = owner.committed_snapshots.as_ref().and_then(|snapshots| {
-                snapshots.release_unread(now, crate::resource_api::COMMITTED_SNAPSHOT_KEEP)
-            });
+            let (released, snapshot) =
+                owner.committed_snapshots.as_ref().map_or((false, None), |snapshots| {
+                    snapshots.release_unread(now, crate::resource_api::COMMITTED_SNAPSHOT_KEEP)
+                });
+            if released {
+                // No read for a minute: the pages the rows held go back to the system, or glibc keeps them.
+                release_free_pages();
+            }
             let next = match (next, snapshot) {
                 (Some(a), Some(b)) => Some(a.min(b)),
                 (a, b) => a.or(b),
@@ -317,6 +322,17 @@ pub fn start_idle_terminal_reaper(
         }
     })?;
     Ok(IdleTerminalReaper { stop: Some(stop), thread: Some(thread) })
+}
+
+/// Gives glibc's free whole pages back to the system (`malloc_trim(0)`). glibc keeps the pages a daemon frees,
+/// so a large free (the snapshot's rows) leaves the daemon's resident size where it was without it. Nothing on
+/// other allocators: musl and macOS compile this to nothing.
+fn release_free_pages() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    // SAFETY: no pointer is passed; glibc documents malloc_trim as MT-Safe.
+    unsafe {
+        libc::malloc_trim(0);
+    }
 }
 
 #[cfg(test)]

@@ -699,12 +699,18 @@ fn unread_cached_rows_are_let_go_and_the_next_read_shows_the_same_snapshot() {
     assert!(snapshots.holds_rows_for_test(), "a read caches the rows");
     let keep = Duration::from_secs(60);
     let now = std::time::Instant::now();
-    let due = snapshots.release_unread(now, keep).expect("rows read just now stay");
+    let (released, due) = snapshots.release_unread(now, keep);
+    assert!(!released);
+    let due = due.expect("rows read just now stay");
     assert!(due > now && due <= now + keep, "they are looked at again at their deadline");
     assert!(snapshots.holds_rows_for_test());
-    assert_eq!(snapshots.release_unread(now + keep + Duration::from_secs(1), keep), None);
+    assert_eq!(snapshots.release_unread(now + keep + Duration::from_secs(1), keep), (true, None));
     assert!(!snapshots.holds_rows_for_test(), "rows no read took for the keep time are let go");
-    assert_eq!(snapshots.release_unread(now + keep * 3, keep), None, "nothing cached, no deadline");
+    assert_eq!(
+        snapshots.release_unread(now + keep * 3, keep),
+        (false, None),
+        "nothing cached, no deadline"
+    );
     let (again, head_again) = public_session_snapshot_with_journal_head(&mux).unwrap();
     assert_eq!((again, head_again), (first, head), "the rebuilt rows show the same snapshot");
     assert!(snapshots.holds_rows_for_test(), "the read cached them again");
