@@ -5,7 +5,7 @@
       "id": "studio",
       "addon": "studio",
       "builtIn": null,
-      "pending": "No built-in Studio preset is merged yet (agentPane.display.transcriptLook is in progress); the add-on is the reference it must match."
+      "pending": "The built-in Studio transcript preset (agentPane.display.transcriptLook studio) is in review in #46047 and #46258; once it lands this entry names it and its gallery variant. Until then the add-on is the reference it must match."
     },
     {
       "id": "paper",

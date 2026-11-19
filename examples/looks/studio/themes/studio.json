@@ -1,13 +1,13 @@
-// Studio: a near-black, low-contrast workbench. Neutral grays, a hairline between the sidebar and the
-// chat, no wallpaper and no glass, so the transcript and the code read first.
+// Studio: a pure black sidebar beside a near-black chat, white-at-8% hairlines, one bright blue
+// for the send button and links, and nothing else in color.
 {
   "name": "Studio",
-  "description": "Near-black neutral chrome, a hairline sidebar edge, no wallpaper or glass.",
+  "description": "Black sidebar, near-black chat, hairline edges, a single bright blue.",
 
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.
   "appearance.appTheme": "followTerminal",
-  "colors": { "background": "#0b0b0c", "foreground": "#e4e4e7", "selection": "#27272a", "accent": "#a1a1aa" },
+  "colors": { "background": "#0b0b0b", "foreground": "#f5f5f5", "selection": "#1f1f1f", "accent": "#346bf1" },
   "appearance.accent": "neutral",
 
   "appearance.background": "none",
@@ -16,12 +16,12 @@
   "appearance.borders": "default",
 
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#0e0e10",
+  "appearance.surfaces.sidebar.color": "#000000",
   "appearance.surfaces.sidebar.opacity": 1,
-  "appearance.surfaces.agentPane.color": "#0b0b0c",
+  "appearance.surfaces.agentPane.color": "#0b0b0b",
   "appearance.surfaces.agentPane.opacity": 1,
-  "sidebar.sectionLook": "lines",
+  "sidebar.sectionLook": "quiet",
   "appearance.statusIndicator.style": "dot",
 
-  "appearance.density": "compact"
+  "appearance.density": "comfortable"
 }

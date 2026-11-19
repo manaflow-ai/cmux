@@ -7,7 +7,7 @@ its own, like dotfiles, and you install it from there:
 
 | Look | Its repo | What it is |
 | --- | --- | --- |
-| [`studio`](studio) | [manaflow-ai/cmux-studio-look](https://github.com/manaflow-ai/cmux-studio-look) | A dense, near-black workbench: quiet chrome, compact rows, a boxed prompt with a hairline |
+| [`studio`](studio) | [manaflow-ai/cmux-studio-look](https://github.com/manaflow-ai/cmux-studio-look) | A quiet black workbench for agent threads: threads grouped by project with their age, filled prompt bubbles, one bright blue; dark, light and ember variants |
 | [`paper`](paper) | [manaflow-ai/cmux-paper-look](https://github.com/manaflow-ai/cmux-paper-look) | A warm, roomy reading look: serif replies on paper, soft rounded prompts |
 
 ```sh
