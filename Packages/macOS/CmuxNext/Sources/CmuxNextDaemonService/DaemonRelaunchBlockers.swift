@@ -44,16 +44,8 @@ public extension DaemonService {
                                       userInputActive: userInputActive)
     }
 
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// The update-idle harness's input time (`debug.updater {action: "input"}`): a fleet Mac has no person.
-    @MainActor static var debugLastInput: Date?
-    #endif
-
     /// Seconds since the last keyboard, pointer or scroll input anywhere in this login session.
-    @MainActor static func secondsSinceInput() -> Double {
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if let debugLastInput { return Date().timeIntervalSince(debugLastInput) }
-        #endif
+    nonisolated static func secondsSinceInput() -> Double {
         let inputTimes = [
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown),
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .mouseMoved),

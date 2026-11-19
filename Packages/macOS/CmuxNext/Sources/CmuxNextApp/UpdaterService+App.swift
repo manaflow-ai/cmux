@@ -25,8 +25,12 @@ extension UpdaterService {
         }
         let activity = UpdateAgentActivity(environment: QuitAgents.environment(services))
         relaunchBlockers = { [weak self, weak services, activity] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
-        // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate.
-        attachIdleGate(services: services, activity: activity)
+        // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate (UpdateIdleGate).
+        let idle = UpdateIdleGate(activity: activity, daemon: services.machines.local) { [weak services] in services?.agentTabs.unsentDrafts.count }
+        idleInstallGate = { [weak self, idle] in
+            guard let self, let window = installWhenIdle else { return .unknown }
+            return .idleHold(idle.hold(idleMinutes: window / .seconds(60), lastInput: debugLastInput)?.rawValue)
+        }
         // The windows leave the screen when Sparkle commits to the relaunch,
         // not at the click (`UpdateWindowHandoff`); a failed install brings them back.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
@@ -86,18 +90,7 @@ extension UpdaterService {
         settingsObservation?.cancel()
         // The update card's Automatic Updates box and the tip card's Never Show Tips write the
         // same settings as Settings (UPDATE-CARD); the change returns through the observation below.
-        writeSetting = { [weak self, weak settings] setting, on in
-            guard let settings else { return }
-            let log = self?.log, path = setting == .tips ? SidebarSectionsSetting.tipsPath : UpdatesSettings.downloadAutomaticallyPath
-            // task-owner: one settings write that ends by itself; nothing to cancel.
-            Task { @MainActor in
-                do {
-                    try await settings.setSetting(at: path, to: .bool(on), by: .user)
-                } catch {
-                    log?.append("\(path.joined(separator: ".")) not written: \(error)")
-                }
-            }
-        }
+        writesSettings(to: settings)
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
