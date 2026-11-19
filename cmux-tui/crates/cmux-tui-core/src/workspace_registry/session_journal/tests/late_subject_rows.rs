@@ -43,8 +43,9 @@ const MARK_KEY: &str = "journal_subject_rows_through";
 const PLAIN_NUMBER: &str = "15";
 pub(crate) const DUE_NUMBER: &str = "16";
 /// The journal rows of one period: the commit of a journal row whose
-/// sequence is a multiple of this writes the subject rows to it.
-const PERIOD: u64 = 100;
+/// sequence is a multiple of this writes the subject rows to it. It is the
+/// product's one constant, not a second number.
+pub(crate) const PERIOD: u64 = subject_rows::PERIOD.unsigned_abs();
 const SESSION: &str = "late-subject-rows";
 const SUBJECT_TABLE: &str = "CREATE TABLE journal_subject_index (
        sequence INTEGER NOT NULL CHECK(sequence > 0),
@@ -68,11 +69,15 @@ const WAL_HEADER: usize = 32;
 const WAL_FRAME_HEADER: usize = 24;
 /// The journal rows of the frames row's fixture before its period.
 const FRAMES_FIXTURE_ROWS: u64 = 10_000;
-/// The frames row's bound for the 2 b-trees of the subject rows, for one
-/// period: below 4 a journal row. A journal row of the fixture has 7
-/// subjects; written at record time they are on 7 pages of the index and 1
-/// of the table, so at least 8 frames a journal row.
-const MAX_SUBJECT_FRAMES: usize = 400;
+/// The frames row's bound: the frames that one period writes in the 2
+/// b-trees of the subject rows, as a percentage of the frames that the same
+/// run writes there with a write after each journal row. Both counts are of
+/// this run, so a change of the fixture or of a page's fill moves both. How
+/// it was found: a run of this fixture gave 397 frames against 1,341, which
+/// is 30 percent. A count at or above the bound means that a period's write
+/// no longer shares its pages: the subject rows are written row by row
+/// again, or a period got shorter.
+const MAX_SUBJECT_FRAMES_PERCENT: usize = 35;
 /// The seeds of the model row, and its steps for each seed.
 const SEEDS: [u64; 4] =
     [0x9e37_79b9_7f4a_7c15, 0x2545_f491_4f6c_dd1d, 0x0123_4567_89ab_cdef, 0x0fed_cba9_8765_4321];
@@ -811,17 +816,32 @@ fn a_period_of_journal_rows_writes_its_subject_rows_one_time() {
         pages.extend(wal.new_pages());
     }
     store.record();
-    let trees = page_trees(&database);
-    let subject_frames = pages
-        .iter()
-        .filter(|page| trees.get(page).is_some_and(|tree| SUBJECT_TREES.contains(&tree.as_str())))
-        .count();
+    let in_subject_trees = |pages: &[u32]| {
+        let trees = page_trees(&database);
+        let of_subjects = |page: &&u32| {
+            trees.get(*page).is_some_and(|tree| SUBJECT_TREES.contains(&tree.as_str()))
+        };
+        pages.iter().filter(of_subjects).count()
+    };
+    let subject_frames = in_subject_trees(&pages);
+    // The same count with a write after each journal row, as the write at
+    // record time was: the next period's rows, each with the stop's write.
+    let mut row_by_row = Vec::new();
+    for row in PERIOD..2 * PERIOD {
+        let record = records(&[fixture_subjects(FRAMES_FIXTURE_ROWS + row)]);
+        store.registry().append_journal_records_for_test(&record);
+        store.registry().write_journal_subject_tail().unwrap();
+        row_by_row.extend(wal.new_pages());
+    }
+    store.record();
+    let row_by_row_frames = in_subject_trees(&row_by_row);
     let last = times.pop().unwrap();
     times.sort();
     println!(
         "late_subject_rows: {PERIOD} journal rows with 7 subjects each, each row in a commit of \
          its own, after {FRAMES_FIXTURE_ROWS} journal rows of the fixture: {} WAL frames, \
-         {subject_frames} of them in the subject table and its index; the commit of the row \
+         {subject_frames} of them in the subject table and its index ({row_by_row_frames} for \
+         the next {PERIOD} journal rows with a write after each row); the commit of the row \
          that ends the period: {:.3} ms; the {} commits before it: median {:.3} ms, slowest \
          {:.3} ms",
         pages.len(),
@@ -831,13 +851,14 @@ fn a_period_of_journal_rows_writes_its_subject_rows_one_time() {
         ms(times[times.len() - 1])
     );
     assert!(
-        subject_frames < MAX_SUBJECT_FRAMES,
+        subject_frames * 100 < row_by_row_frames * MAX_SUBJECT_FRAMES_PERCENT,
         "{PERIOD} journal rows wrote {subject_frames} frames in the subject table and its \
-         index; the bound is below {MAX_SUBJECT_FRAMES}"
+         index, and the next {PERIOD} wrote {row_by_row_frames} with a write after each row; \
+         the bound is below {MAX_SUBJECT_FRAMES_PERCENT} percent of that"
     );
-    let what = "after a period of journal rows, each in a commit of its own";
+    let what = "after a period of journal rows and a period with a write after each row";
     store.check_file(what);
-    store.check_reads(what, &fixture_subjects(FRAMES_FIXTURE_ROWS + PERIOD - 1), 64);
+    store.check_reads(what, &fixture_subjects(FRAMES_FIXTURE_ROWS + 2 * PERIOD - 1), 64);
 }
 
 /// A generator with a seed: the same steps at each run.

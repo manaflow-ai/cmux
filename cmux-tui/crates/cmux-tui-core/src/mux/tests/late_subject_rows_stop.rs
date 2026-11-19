@@ -16,13 +16,13 @@ use std::time::Instant;
 use super::*;
 use crate::workspace_registry::new_uuid_v4;
 use crate::workspace_registry::session_journal::tests::late_subject_rows::{
-    DUE_NUMBER, fixture_subjects, lose_rows, ms, records, stopped_file_problem,
+    DUE_NUMBER, PERIOD, fixture_subjects, lose_rows, ms, records, stopped_file_problem,
 };
 
 /// The journal rows before the tail, and the tail: one row less than a
-/// period of 100 journal rows.
+/// period (99 journal rows for a period of 100).
 const ROWS_BEFORE: u64 = 500;
-const TAIL: u64 = 99;
+const TAIL: u64 = PERIOD - 1;
 
 /// Stops a `Mux` whose store has `tail` journal rows with no subject rows
 /// yet, and returns what is wrong with the store's file after the stop.
