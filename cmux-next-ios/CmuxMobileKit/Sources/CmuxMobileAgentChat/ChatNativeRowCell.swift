@@ -338,7 +338,11 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             if let file = area.file, actions.viewed.contains(file) { label += ", viewed" }
             element.accessibilityLabel = label
             element.accessibilityTraits = .button
-            if area.isDisclosure { element.accessibilityHint = "Shows details" }
+            // A drawn disclosure is always a closed one; open, its row is SwiftUI, which says "Expanded".
+            if area.isDisclosure {
+                element.accessibilityHint = "Shows details"
+                element.accessibilityValue = "Collapsed"
+            }
             element.accessibilityIdentifier = area.identifier
             element.activate = { [weak self] in
                 guard let self, index < self.hits.count else { return }
