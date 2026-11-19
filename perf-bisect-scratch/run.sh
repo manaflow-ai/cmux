@@ -14,7 +14,9 @@ mkdir -p "$out"
 work="${RUNNER_TEMP:-/tmp}/pbu-trees"
 mkdir -p "$work"
 
-shell_line=$(bash "$root/scripts/ci/ensure-system-chrome.sh" --optional 2>&1 | tee "$out/chrome.txt" | grep '^CMUX_CHROME_HEADLESS_SHELL=' | tail -n 1)
+shell_line=
+# PBU_BUILD_ONLY=1: only rebuild the trees (a local check of the chain), no browser, install or bench.
+[ -n "${PBU_BUILD_ONLY:-}" ] || shell_line=$(bash "$root/scripts/ci/ensure-system-chrome.sh" --optional 2>&1 | tee "$out/chrome.txt" | grep '^CMUX_CHROME_HEADLESS_SHELL=' | tail -n 1)
 export "${shell_line:-CMUX_CHROME_HEADLESS_SHELL=}"
 echo "headless shell: ${CMUX_CHROME_HEADLESS_SHELL:-none}" | tee -a "$out/summary.txt"
 nproc | sed 's/^/nproc /' | tee -a "$out/summary.txt"
@@ -34,18 +36,27 @@ build() { # build TAG: its parent first, then copy the parent's three dirs and a
     name=$(basename "$top")
     case "$name" in webviews|release-notes|schemas|perf-bisect-scratch) ;; *) ln -s "$top" "$dir/$name" ;; esac
   done
-  (cd "$pdir" && tar --exclude=node_modules -cf - webviews schemas release-notes/next) | (cd "$dir" && tar -xf -)
+  # From the tip only its tracked files (the job's setup has already installed it); a derived parent is clean.
+  if [ "$parent" = tip ]; then
+    (cd "$root" && git ls-files -z webviews schemas release-notes/next | tar --null -T - -cf -) | (cd "$dir" && tar -xf -)
+  else
+    (cd "$pdir" && tar -cf - webviews schemas release-notes/next) | (cd "$dir" && tar -xf -)
+  fi
   (cd "$dir" && gzip -dc "$here/patches/$patch" | git apply --binary --whitespace=nowarn -) || { echo "apply failed: $tag"; return 1; }
   echo "built $tag from $parent"
 }
 
+# Every tree before any install: a tree is copied from its parent's, which must not carry an install's
+# generated files yet.
+for tag in "$@"; do build "$tag" || exit 1; done
+[ -n "${PBU_BUILD_ONLY:-}" ] && exit 0
 for tag in "$@"; do
-  build "$tag" || exit 1
   dir=$(tree_of "$tag")
   (cd "$dir/webviews" && bun install --frozen-lockfile > "$out/install-$tag.txt" 2>&1) || { echo "install failed: $tag"; tail -n 20 "$out/install-$tag.txt"; exit 1; }
   echo "installed $tag"
 done
 
+[ -n "${PBU_BUILD_ONLY:-}" ] && exit 0
 cores=$(nproc)
 pin="0-3"; [ "$cores" -lt 4 ] && pin="0-$((cores - 1))"
 for round in $(seq 1 "$rounds"); do
