@@ -90,6 +90,17 @@ class ReopenTests(unittest.TestCase):
         result, _ = run(rows, "kept", "home")
         self.assertEqual(result["head"]["failed"], ["run1"])  # run2 is judged against the seeded Home, not run1
 
+    def test_a_seeded_front_judges_the_preruns_too(self):
+        # front=tab: full1 left the seeded tab and run1 came back. Judging only the measured launches read 1/1 and
+        # LR-SAME-FRONT ok; every launch after the seed is judged against the seed's front instead.
+        rows = [row("head", "prime", TAB), row("head", "full1", OTHER_TAB),
+                row("head", "run1", TAB, TAB_MARKS, "tabs")]
+        result, lines = run(rows, "kept", "tab")
+        self.assertEqual(result["head"]["failed"], ["full1"])
+        self.assertIn("LR-REOPENED head 1/1 (front changed at full1) case=kept", lines)
+        self.assertTrue(any(l.startswith("LR-FAIL head full1 ") for l in lines))
+        self.assertIn("LR-SAME-FRONT invalid: head failed full1", lines)
+
     def test_seed_that_did_not_take_fails_prime(self):
         result, lines = run([row("head", "prime", TAB), row("head", "run1", TAB, TAB_MARKS, "tabs")], "kept", "home")
         self.assertIn("prime", result["head"]["failed"])
