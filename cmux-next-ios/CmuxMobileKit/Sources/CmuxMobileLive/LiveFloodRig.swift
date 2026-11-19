@@ -9,7 +9,7 @@ import OSLog
 
 /// A busy Mac through the real live path, for the list rig (`CMUX_MOBILE_LIST_FLOOD=N`).
 ///
-/// Only the Mac is faked: an in-process daemon (`FloodDaemon`) answers the real `DaemonClient`
+/// Only the Mac is faked: an in-process daemon (`LiveFloodDaemon`) answers the real `DaemonClient`
 /// and streams the events a Mac with many working agents sends. Everything on the phone is the
 /// production code: `WorkspaceSync` (event parse, the projection, its publications), `AppStore`
 /// (`replaceWorkspaces`, `updateWorkspaces`), `TerminalFeed` (`notificationPosted`, the ledger
@@ -47,7 +47,7 @@ public final class LiveFloodRig {
 
     public let sync: WorkspaceSync
     public let terminalFeed: TerminalFeed
-    private let daemon: FloodDaemon
+    private let daemon: LiveFloodDaemon
     private let store: AppStore
     private let macID: String
     /// Store publications the rig saw (logged at the end: what the flood cost the main thread).
@@ -69,7 +69,7 @@ public final class LiveFloodRig {
         self.store = store
         self.macID = macID
         self.list = list
-        daemon = FloodDaemon(load: load)
+        daemon = LiveFloodDaemon(load: load)
         sync = WorkspaceSync(deviceID: "list-rig", deviceName: "iPhone")
         terminalFeed = TerminalFeed(store: feedStore)
         let sync = sync
@@ -167,7 +167,7 @@ public final class LiveFloodRig {
 /// `known`), `list-agents` and `list-notifications`, and streams title, agent, add and
 /// notification events at the rig's load. JSON is built on this actor, off the main thread,
 /// as on the Mac.
-actor FloodDaemon: LinkChannel {
+actor LiveFloodDaemon: LinkChannel {
     nonisolated let id: UInt32 = 1
     private let load: LiveFloodRig.Load
     private var inbox: [Data] = []
