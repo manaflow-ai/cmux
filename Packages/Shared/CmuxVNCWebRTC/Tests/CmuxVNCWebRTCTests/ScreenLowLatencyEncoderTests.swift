@@ -196,7 +196,7 @@ final class EncoderBench: @unchecked Sendable {
                 outputs.append(Output(rtp: image.timeStamp, bytes: bytes.count, keyframe: image.frameType == .videoFrameKey,
                                       width: image.encodedWidth, height: image.encodedHeight,
                                       nalTypes: Self.nalTypes(bytes), latencyMs: Double(now - sent) / 1e6,
-                                      qp: image.qp?.intValue ?? -1, parsedQP: reader.qp(annexB: bytes)))
+                                      qp: image.qp.intValue, parsedQP: reader.qp(annexB: bytes)))
             }
             return true
         }
