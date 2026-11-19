@@ -839,9 +839,7 @@ jobs:
           JOBS: tree-x86_64-musl tree-aarch64-musl machine-x86_64-musl machine-aarch64-musl
           LINUX_ONLY: tree-x86_64-musl tree-aarch64-musl machine-x86_64-musl machine-aarch64-musl
           LINUX_GROUPS: tree-x86_64-musl,tree-aarch64-musl machine-x86_64-musl,machine-aarch64-musl
-          # The persistent GCP build lane, which has runners; cmux-fleet-linux-x64 had none (2026-11-19).
-          FLEET_LINUX: cmux-gcp-lane-build-x64
-          FLEET_LINUX_VOUCHED: "1"
+          FLEET_LINUX: cmux-fleet-linux-x64
           REQUIRE_LIVE_CAPACITY: "1"
           NIGHTLY_WAIT_FOR_FLEET: "1"
           NIGHTLY_WAIT_SECONDS: "120"
