@@ -1285,7 +1285,7 @@ impl State {
             if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
                 self.push(Entry::Tap {
                     dir: TapDir::In,
-                    msg: Message::notification(&kind, crate::codex_app_server::redact(&raw))
+                    msg: Message::notification(&kind, crate::codex_app_server::logged(&raw))
                         .into_value(),
                 });
             }

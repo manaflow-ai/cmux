@@ -539,6 +539,11 @@ pub fn tap_kind(raw: &Value) -> Option<String> {
     }
 }
 
+/// The copy of an app-server line the session log keeps: [`redact`]ed.
+pub fn logged(raw: &Value) -> Value {
+    redact(raw)
+}
+
 /// Redact credentials before a Codex wire value reaches the session log or
 /// viewer. The original value is still sent to Codex; only the tap copy is
 /// scrubbed. This covers both JSON field spellings and JWT-shaped strings.
@@ -593,6 +598,29 @@ pub fn line(v: &Value) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A resumed thread's answer (`thread/resume`) carries the thread's whole history, up to
+    /// 1.6 MB a line on a lane's long Codex chat, logged again on every resume. The log keeps the
+    /// answer without it: the same history is logged as the resume's replayed updates.
+    #[test]
+    fn the_log_keeps_a_resumed_threads_answer_without_its_history() {
+        let turns: Vec<Value> = (0..200)
+            .map(|n| json!({"id": format!("turn-{n}"), "items": [{"type": "agentMessage", "text": "x".repeat(4000)}]}))
+            .collect();
+        let raw = json!({"id": 7, "result": {"thread": {"id": "t", "preview": "p", "turns": turns},
+            "turnsBackwardsCursor": "c", "accessToken": "secret"}});
+        let kept = logged(&raw);
+        assert!(kept.to_string().len() < 1024, "{} bytes logged", kept.to_string().len());
+        assert_eq!(kept["id"], 7);
+        assert_eq!(kept["result"]["thread"]["id"], "t");
+        assert_eq!(kept["result"]["thread"]["preview"], "p");
+        assert_eq!(kept["result"]["thread"]["turnsOmitted"], 200);
+        assert_eq!(kept["result"]["turnsBackwardsCursor"], "c");
+        assert_eq!(kept["result"]["accessToken"], "[REDACTED]");
+        // An answer with no history is logged as it was.
+        let small = json!({"id": 8, "result": {"thread": {"id": "t", "turns": []}}});
+        assert_eq!(logged(&small), small);
+    }
 
     /// What `translator()` tells the hub about audio once an app-server that
     /// reports `user_agent` answered its `initialize`.
