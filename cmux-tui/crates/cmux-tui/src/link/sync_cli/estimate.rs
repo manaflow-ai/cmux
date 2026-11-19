@@ -46,9 +46,15 @@ use super::size_cap;
 
 /// The longest a start's copy may take before its chat starts: past it, a first pass.
 pub(crate) const BUDGET: Duration = Duration::from_secs(60);
-/// The link's rate before this Mac measured one: 8 MiB/s (about 67 Mbit/s), a home uplink's
-/// order, low enough that a first guess does not leave a person waiting minutes.
-pub(crate) const DEFAULT_RATE: u64 = 8 * 1024 * 1024;
+/// The link's rate before this Mac measured one: 1 MiB/s (about 8 Mbit/s), a slow home or
+/// hotel uplink's, so a first guess never leaves a person waiting minutes. The first copy
+/// records the real rate ([`record_rate`], `copy-rates.json`), which every later start uses: a
+/// fast link is slow at most once.
+///
+/// It was 8 MiB/s. On 2026-11-17 a 64 GB folder from a Mac with no measured rate got a 256 MiB
+/// first pass (8 MiB/s for a minute is more) on a 1.73 MB/s uplink: the "one minute" pass took
+/// 155 s, and the chat waited for all of it.
+pub(crate) const DEFAULT_RATE: u64 = 1024 * 1024;
 /// The longest the estimate lists before any machine; past it the start goes from a first pass.
 pub(crate) const LIST_BOUND: Duration = Duration::from_secs(5);
 /// The smallest first pass by time: what a link that is slow for a moment still sends (a

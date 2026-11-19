@@ -241,6 +241,7 @@ fn team_missing_role_and_legacy_stamps_cannot_enter_native_owner_dispatch() {
             json!({"cmd":"new-tab", "pane":1}),
             json!({"cmd":"close-surface", "surface":1}),
             json!({"cmd":"send-key", "surface":1, "key":"enter"}),
+            json!({"cmd":"set-layout-sizes", "transaction":1, "values":[{"pane":1, "width":0.5}]}),
         ] {
             assert_eq!(call(&mut stream, &mut reader, frame)["error_code"], json!(REMOTE_DENIED));
         }
@@ -372,6 +373,94 @@ fn native_owner_opens_a_terminal_tab_and_types_into_it() {
     assert_ne!(listed["error_code"], json!(REMOTE_DENIED), "{listed}");
 }
 
+/// The sizes a resize gesture ends with (`set-layout-sizes`) on the owner's own machine. The
+/// carrier takes each value's own command (`set-split-ratio`, `set-viewport-pane-width`), so it
+/// takes the one command that applies the same values as one change: two columns made over the
+/// link get both widths from one request.
+#[test]
+fn native_owner_sets_two_column_widths_with_one_command() {
+    let fake = FakeAcpmux::start("native-layout-sizes");
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let workspace = ok(&mut stream, &mut reader, json!({"cmd":"create-workspace", "name":"sizes"}));
+    let terminal = ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"create-terminal", "workspace":workspace["workspace"], "cols":80, "rows":22}),
+    );
+    let left = terminal["pane"].as_u64().unwrap();
+    let column = ok(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"new-pane-right", "pane":left, "width":0.5, "cols":38, "rows":22}),
+    );
+    let surface = column["surface"].as_u64().unwrap();
+    let right = entry.mux.with_state(|state| state.pane_of(surface).unwrap());
+    // Each column of the screen that holds the first pane: its panes and its width.
+    let columns = || {
+        entry.mux.with_state(|state| {
+            state
+                .workspaces
+                .iter()
+                .flat_map(|workspace| workspace.screens.iter())
+                .find(|screen| {
+                    screen
+                        .layout_columns
+                        .iter()
+                        .any(|column| column.root.pane_ids_vec().contains(&left))
+                })
+                .map(|screen| {
+                    screen
+                        .layout_columns
+                        .iter()
+                        .map(|column| (column.root.pane_ids_vec(), column.width))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        })
+    };
+    let before = columns();
+    assert_eq!(
+        before.iter().map(|column| column.0.clone()).collect::<Vec<_>>(),
+        vec![vec![left], vec![right]],
+        "the fixture: two columns of one pane each"
+    );
+
+    let reply = call(
+        &mut stream,
+        &mut reader,
+        json!({"cmd":"set-layout-sizes", "transaction":1,
+        "values":[{"pane":left, "width":0.4}, {"pane":right, "width":0.6}]}),
+    );
+    assert_ne!(reply["error_code"], json!(REMOTE_DENIED), "{reply}");
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let after = columns();
+    assert_eq!(after.len(), 2, "{after:?}");
+    assert!(
+        (after[0].1 - 0.4).abs() < 1e-4 && (after[1].1 - 0.6).abs() < 1e-4,
+        "the one command set the widths {before:?} to {after:?}, want 0.4 and 0.6"
+    );
+}
+
+/// The app sends `set-layout-sizes` only on a connection whose identify lists
+/// `layout-sizes-batch-v1`. Without the name on this link the app sends each value as its own
+/// command: separate commits, not all or none.
+#[test]
+fn native_owner_identify_lists_the_layout_sizes_batch() {
+    let fake = FakeAcpmux::start("native-layout-sizes-identify");
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let identity = ok(&mut stream, &mut reader, json!({"cmd":"identify"}));
+    let capabilities = identity["capabilities"].as_array().unwrap();
+    assert!(capabilities.contains(&json!(LAYOUT_SIZES_BATCH_CAPABILITY)), "{identity}");
+}
+
 /// The app's commands that the Native owner carrier does not take: each one is a decision, not an
 /// omission. A command the app adds must land in `native_owner::COMMANDS` or here, else
 /// `every_app_command_is_decided_for_the_owner_link` fails (2026-11-05: new-tab and
@@ -489,7 +578,12 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "put-blob",
     "put-frontend-projection",
     "put-session",
+    "quick-terminal",
     "remote-host-app",
+    // This Mac's Computer Use settings and saved approvals: the verified local app only
+    // (origin.forbidden otherwise); another machine reaches Computer Use through the relay.
+    "computer-use-config",
+    "computer-use-approvals",
     "remote-host-call",
     "remote-host-config",
     "remote-host-status",
