@@ -3,7 +3,7 @@
   "arch": "arm64",
   "sha256": "f434be0f456956dd49464c8f5c829277bb372d53b9fc3a8eb1320cd1063af3c1",
   "r2_bucket": "cmux-cef",
-  "r2_key": "cua-helper-dev/f434be0f456956dd49464c8f5c829277bb372d53b9fc3a8eb1320cd1063af3c1/cmux-files-host-dev-macos-arm64.zip",
+  "r2_key": "files-host-dev/f434be0f456956dd49464c8f5c829277bb372d53b9fc3a8eb1320cd1063af3c1/cmux-files-host-dev-macos-arm64.zip",
   "bundle_id": "com.cmuxterm.files.dev",
   "signing": "Apple Development",
   "team_id": "7WLXT3NR37",

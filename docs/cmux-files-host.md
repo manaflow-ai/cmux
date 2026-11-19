@@ -135,7 +135,7 @@ after changing the phase, `FilesHost` or the pin (it is not a CI gate).
 | --- | --- |
 | Build (release `cmux-files-host`, bundle, unsigned zip) on a fleet Mac | `cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --os macos --arg files-host --artifact .build/artifacts/cmux-files-host-dev-unsigned.zip` |
 | Sign with an Apple Development or Developer ID identity of team 7WLXT3NR37 and write the pin | `scripts/cmux-next/sign-files-host-dev.sh UNSIGNED.zip` |
-| Publish for builds | `cmux-ci artifact-put` (fleet store) and, with R2 write credentials, `scripts/cmux-next/publish-cua-pinned-asset.sh --prefix cua-helper-dev` |
+| Publish for builds | `cmux-ci artifact-put` (fleet store) and, with R2 write credentials, `scripts/cmux-next/publish-cua-pinned-asset.sh --prefix files-host-dev` |
 | Embed in DEV builds (Xcode "Embed Computer Use helper (dev)" phase) | `scripts/cmux-next/embed-files-host-dev.sh` |
 
 Without the pin file or the asset a DEV build embeds nothing and prints one note line; it then

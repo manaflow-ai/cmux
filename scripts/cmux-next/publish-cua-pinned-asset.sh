@@ -33,7 +33,7 @@ while (( $# )); do
   esac
 done
 [[ -f "$file" && -n "$pin" ]] || usage
-case "$prefix" in cua-driver-sdk|cua-helper-dev|cmux-cua-helper|cmux-cua-source) ;; *) echo "error: prefix must be cua-driver-sdk, cua-helper-dev, cmux-cua-helper or cmux-cua-source" >&2; exit 2 ;; esac
+case "$prefix" in cua-driver-sdk|cua-helper-dev|cmux-cua-helper|cmux-cua-source|files-host-dev) ;; *) echo "error: prefix must be cua-driver-sdk, cua-helper-dev, cmux-cua-helper, cmux-cua-source or files-host-dev" >&2; exit 2 ;; esac
 case "$(basename "$file")" in
   *.p12|*.pem|*.key|*.cer|*.mobileprovision|*.provisionprofile|*.env) echo "error: refusing to publish a credential-like file" >&2; exit 2 ;;
 esac
