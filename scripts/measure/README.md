@@ -29,6 +29,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
 | mcp-fanout | `mcp-fanout.sh` (`mcp-fanout.py`) on a fleet Mac, any published app (`app=`) | MCP tool-server processes, RSS, idle CPU per kind at N open chats; first cmux tool call latency. |
 | workspace-factory | `workspace-factory.sh` (`workspace-factory/`, the `wsfactory` Rust factory) on a fleet Mac | A per-job throwaway workspace (APFS clone of a read-only seed) against today's cold and warm-slot step workspaces: start, build, cache hit, disk left behind. |
+| glass-engine | `glass-engine-frames.sh` (`webviews/bench/glass-engine.bench.ts`) in Google Chrome on a display Mac's GPU, headless and headful | The lens against the glass engine at 1440x900@2 and 4K (3840x2160 device px), 3 and 32 glass: GPU ms per frame, moving frame interval, fps, dropped frames. |
 
 
 ## Launch and update
