@@ -35,7 +35,8 @@ BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_appli
                                                     "layout_spans", "windows_behind", "marker_color", "marker_command", "stills_facts",
                                                     "stills_clock", "stills_cost", "docked_state", "cli_settings", "theme_facts",
                                                     "move_facts", "animated_row", "proof_round_row", "proof_mark",
-                                                    "pane_in_a_move", "move_ticks", "ticks_said", "measure"})
+                                                    "pane_in_a_move", "move_ticks", "ticks_said", "move_times", "times_said",
+                                                    "parts_said", "first_move_row", "measure"})
 ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
@@ -527,7 +528,8 @@ class AProofRound(unittest.TestCase):
                          [("debug.motion", "trace_start", ("panes",)), ("debug.motion", "trace_stop", ())])
         self.assertEqual((run["samples_in_a_move"], run["proof"]), (4, True))
         self.assertIn("proof round (not timed, not in the numbers): 4 of 5 samples of the pane trace in a move; "
-                      "4 ticks in the move, median interval 8.3 ms, largest 8.3 ms; the trace does not say the display's rate; moved",
+                      "4 ticks in the move, median interval 8.3 ms, largest 8.3 ms; the trace does not say the display's rate; "
+                      "no time after the act: the trace does not say its ticks' host time; moved",
                       self.printed[-1])
         self.assertEqual(run["ticks"], {"ticks": 4, "median_ms": 8.3, "largest_ms": 8.3, "refresh_ms": None, "half_rate": False})
         self.assertNotIn("p95", self.printed[-1])
@@ -548,15 +550,19 @@ class AProofRound(unittest.TestCase):
         made, _ = self.bench(self.move)
         facts, row, mark = made["move_facts"], made["proof_round_row"], made["proof_mark"]
         limit = "the move is proved for this arm's settings in one round, not in each timed round"
-        ticks = made["move_ticks"]
-        run = {"moving_frames": 0, "commit_frames": 0, "move": facts(self.move), "ticks": ticks(self.move), "commit_notes": []}
+        ticks, times = made["move_ticks"], made["move_times"]
+        run = {"moving_frames": 0, "commit_frames": 0, "move": facts(self.move), "ticks": ticks(self.move),
+               "times": times(self.move | {"t0_s": 10.0}, 10.0), "commit_notes": []}
         name, expected, seen, ok = row("on", run)
         self.assertEqual((name, ok), ("proof round: animated (a pane's rect moves in the pane trace, or a layout spring, the strip camera "
                                       "or a commit motion moved)", True))
         self.assertEqual(expected, f"2 samples in a move or more, or above 0 frames ({limit})")
         self.assertEqual(seen, "4 of 5 samples of the pane trace in a move; 0 spring frames, 0 commit frames; "
-                               "4 ticks in the move, median interval 8.3 ms, largest 8.3 ms; the trace does not say the display's rate")
-        once = {"moving_frames": 0, "commit_frames": 0, "move": facts(self.one_frame), "ticks": ticks(self.one_frame), "commit_notes": ["a note"]}
+                               "4 ticks in the move, median interval 8.3 ms, largest 8.3 ms; the trace does not say the display's rate; "
+                               "first move 0.0 ms after the act, visible end 50.0 ms after the act "
+                               "(the act's time is the script's send; a time is a tick's)")
+        once = {"moving_frames": 0, "commit_frames": 0, "move": facts(self.one_frame), "ticks": ticks(self.one_frame),
+                "times": times(self.one_frame, 0.0), "commit_notes": ["a note"]}
         self.assertFalse(row("on", once)[3])
         self.assertEqual(row("off", once)[:2], ("proof round: still (the pane motion is off)", f"1 sample in a move at the most, 0 frames ({limit})"))
         self.assertTrue(row("off", once)[3])
@@ -574,8 +580,8 @@ class AProofRound(unittest.TestCase):
         run = made["measure"]("30p zoom proof on", "zoom", proof=True) | {"move": made["move_facts"](slow), "ticks": made["move_ticks"](slow)}
         name, expected, seen, ok = made["proof_round_row"]("on", run)
         self.assertTrue(ok)
-        self.assertTrue(seen.endswith("4 ticks in the move, median interval 16.7 ms, largest 16.7 ms; the window's display link says "
-                                      "8.33 ms a refresh (120 Hz)  MOVE AT HALF RATE"), seen)
+        self.assertIn("4 ticks in the move, median interval 16.7 ms, largest 16.7 ms; the window's display link says "
+                      "8.33 ms a refresh (120 Hz)  MOVE AT HALF RATE; no time after the act: ", seen)
 
 
 class TheTicksOfAMove(unittest.TestCase):
@@ -630,6 +636,79 @@ class TheTicksOfAMove(unittest.TestCase):
     def test_a_move_from_the_traces_first_sample_has_one_interval_fewer(self):
         facts = self.ticks(self.trace([0, 8.33, 16.66], rest=0))
         self.assertEqual((facts["ticks"], facts["median_ms"], facts["largest_ms"]), (3, 8.33, 8.33))
+
+
+class TheTimesOfAMove(unittest.TestCase):
+    """A proof round's act has 2 times after the act, by the pane trace: the first tick with a pane in a move, and the
+    visible end, the first tick at which each pane has 0.2 percent of its way or less left. The act's time is the
+    script's clock before it sends the act; the trace says its first tick's host time on the same clock."""
+
+    def setUp(self):
+        self.bench = loaded()
+        self.times, self.said = self.bench["move_times"], self.bench["times_said"]
+
+    def trace(self, widths, start=100.0, step=8.33, more=()):
+        """A pane that ends 1200 wide: at rest for 2 ticks, then as wide as each of `widths`, a tick each."""
+        kept = [100, 6, 1200, 190]
+        rows = [kept[2], kept[2], *widths]
+        return {"t0_s": start, "samples": [{"t": round(step * at, 2), "panes": [pane("a", kept, [100, 6, width, 190]), *more]}
+                                           for at, width in enumerate(rows)]}
+
+    def test_the_first_move_and_the_visible_end_are_ticks_after_the_act(self):
+        # The act at 100.00902 s; the ticks at 100.01666 s (the first in a move), ..., 100.04165 s (1.5 pt of 1,000 left).
+        facts = self.times(self.trace([200, 700, 1100, 1198.5, 1200]), 100.00902)
+        self.assertEqual(facts, {"first_move_ms": 7.6, "visible_end_ms": 32.6, "problem": None})
+        self.assertEqual(self.said(facts), "first move 7.6 ms after the act, visible end 32.6 ms after the act "
+                                           "(the act's time is the script's send; a time is a tick's)")
+
+    def test_a_pane_with_more_than_the_share_of_its_way_left_is_not_at_its_end(self):
+        facts = self.times(self.trace([200, 700, 1100, 1197.5, 1200]), 100.00902)  # 2.5 pt of 1,000 left: above 0.2 percent
+        self.assertEqual(facts["visible_end_ms"], 41.0)
+
+    def test_the_end_waits_for_each_pane(self):
+        slow = [pane("b", [400, 6, 300, 190], [400, 6, 290, 190])]  # a second pane, 10 pt from its end in each tick but the last
+        trace = self.trace([200, 700, 1198.5, 1200, 1200], more=slow)
+        trace["samples"][-1]["panes"][1] = pane("b", [400, 6, 300, 190])
+        self.assertEqual(self.times(trace, 100.0)["visible_end_ms"], 50.0)
+
+    def test_a_trace_that_ends_in_the_move_has_no_visible_end(self):
+        facts = self.times(self.trace([200, 700, 1100]), 100.00902)
+        self.assertEqual(facts, {"first_move_ms": 7.6, "visible_end_ms": None, "problem": "the trace ends in the move"})
+        self.assertEqual(self.said(facts), "first move 7.6 ms after the act, no visible end: the trace ends in the move "
+                                           "(the act's time is the script's send; a time is a tick's)")
+
+    def test_no_move_no_clock_or_another_clock_gives_no_time_and_says_why(self):
+        moved = self.trace([200, 700, 1200])
+        for trace, act, why in (
+                (self.trace([1200, 1200]), 100.0, "no pane in a move in the trace"),
+                (None, 100.0, "no pane in a move in the trace"),
+                ({key: value for key, value in moved.items() if key != "t0_s"}, 100.0, "the trace does not say its ticks' host time"),
+                (moved | {"t0_s": True}, 100.0, "the trace does not say its ticks' host time"),
+                (moved, None, "the script has no time of the act"),
+                (moved, 100.5, "the first move is before the act: the trace's clock is not the script's")):
+            facts = self.times(trace, act)
+            self.assertEqual(facts, {"first_move_ms": None, "visible_end_ms": None, "problem": why}, why)
+            self.assertEqual(self.said(facts), "first move: NONE" if why.startswith("no pane") else f"no time after the act: {why}")
+
+    def test_a_proof_round_of_a_pane_act_with_no_first_move_fails(self):
+        row, none = self.bench["first_move_row"], self.times(self.trace([1200, 1200]), 100.0)
+        moved = self.times(self.trace([200, 700, 1198.5, 1200]), 100.00902)
+        for arm in ("on", None, ""):
+            for act in ("split", "close", "zoom", "unzoom"):
+                self.assertEqual(row(arm, act, none), ("proof round: a pane moves after the act", "a tick with a pane in a move",
+                                                       "first move: NONE", False), (arm, act))
+        self.assertEqual(row("on", "zoom", moved)[2:], ("first move 7.6 ms after the act", True))
+        no_clock = self.times({"samples": self.trace([200, 1200])["samples"]}, 100.0)
+        self.assertEqual(row("on", "zoom", no_clock)[2:], ("a pane moves; no time after the act: the trace does not say its ticks' host time", True))
+        # The off arm moves no pane, and New Column moves the strip camera only: no such row.
+        self.assertEqual([row("off", "zoom", none), row("on", "column", none), row("on", "drag", none)], [None, None, None])
+
+    def test_the_apps_own_parts_of_the_acts_turn_are_in_the_proof_line(self):
+        said = self.bench["parts_said"]
+        self.assertEqual((said({}), said(None)), ("", ""))
+        self.assertEqual(said({"layout.zoom.b": {"count": 1, "sum_ms": 2.5, "max_ms": 2.5, "max_at_ms": 4.0},
+                               "layout.zoom.a": {"count": 3, "sum_ms": 6.0, "max_ms": 3.5, "max_at_ms": 1.0}}),
+                         "; layout.zoom.a 3 x, sum 6.0 ms, max 3.5 ms at 1.0 ms; layout.zoom.b 1 x, sum 2.5 ms, max 2.5 ms at 4.0 ms")
 
 
 def dock(mode="docked", shown=True, panes=("p7",), edge="left"):

@@ -75,6 +75,12 @@ with a pane in a move, the median and the largest interval between them, and the
 link. A median above 9 ms on a 120 Hz display prints MOVE AT HALF RATE; that is a print and fails no row. An
 interval is between 2 ticks of the link on the main thread, with the trace's sampler on: it is not the time between
 2 pictures on the display, and a move that the system animates with no tick of the app is not in it.
+They say 2 times after the act too (`times` in the report): the first move, the first tick with a pane in a move, and
+the visible end, the first tick at which each pane has 0.2 percent of its way or less left. The act's time is the
+script's clock before it sends the act, so the control socket's time to the app is in both; a time is a tick's time.
+A proof round of a split, a close, a zoom or an unzoom with the pane motion on and with no tick with a pane in a move
+prints `first move: NONE`, and its row `a pane moves after the act` fails: that is not a missing number.
+The line has the app's own spans of the act with a name that starts with `layout.` (count, sum, longest), if any.
 Limits: the move is proved for an arm's settings in one round, not in each timed round. The row says that a pane's
 rect moves: the 4 acts of the commit motion (split, close, zoom, unzoom) each move a pane's rect; New Column moves
 no pane, only the strip camera (the same row holds it by the spring frames); at an unzoom the rings of the panes
@@ -424,6 +430,76 @@ def ticks_said(ticks):
             + ("  MOVE AT HALF RATE" if ticks["half_rate"] else ""))
 
 
+def move_times(trace, action_s):
+    """When a move starts and ends after the act, by a pane trace. `action_s`: the script's uptime clock directly
+    before it sends the act; the trace's `t0_s` is its first tick's host time on that clock, and a sample's `t` the
+    ms after it. `first_move_ms`: from the act to the first tick with a pane in a move (`pane_in_a_move`).
+    `visible_end_ms`: from the act to the first tick after that one at which each pane has 0.2 percent of its way or
+    less left. A pane's way, for each of its rect's 4 numbers: its largest distance from its end from the first
+    tick in a move on (a number that is 0.5 pt or less from its end in each tick has no way). `problem`: None, or
+    why a time is not said.
+    Limits: the act's time is the script's send, so the control socket's time to the app is in both times; a time
+    is a tick's time, so one refresh is the grain; the sampler has a cost at each tick."""
+    def number(value):
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    def left(sample):  # how far each number of each pane's rect is from its end
+        return {(row[0], at): abs(now - end) for row in sample.get("panes") or [] if isinstance(row, list) and len(row) >= 22
+                for at, (now, end) in enumerate(zip(row[-4:], row[1:5]))}
+
+    def none(problem):
+        return {"first_move_ms": None, "visible_end_ms": None, "problem": problem}
+
+    samples = trace.get("samples") if isinstance(trace, dict) and isinstance(trace.get("samples"), list) else []
+    first = next((at for at, sample in enumerate(samples) if pane_in_a_move(sample)), None)
+    if first is None:
+        return none("no pane in a move in the trace")
+    if not number(action_s):
+        return none("the script has no time of the act")
+    start, moved = trace.get("t0_s"), samples[first:]
+    if not number(start) or not all(isinstance(sample, dict) and number(sample.get("t")) for sample in moved):
+        return none("the trace does not say its ticks' host time")
+    after = [round((start - action_s) * 1000 + sample["t"], 1) for sample in moved]
+    if after[0] < 0:
+        return none("the first move is before the act: the trace's clock is not the script's")
+    lefts, way = [left(sample) for sample in moved], {}
+    for one in lefts:
+        for key, distance in one.items():
+            way[key] = max(way.get(key, 0.0), distance)
+    last = max(at for at, one in enumerate(lefts) if any(way[key] > 0.5 and distance > 0.002 * way[key] for key, distance in one.items()))
+    end = after[last + 1] if last + 1 < len(after) else None
+    return {"first_move_ms": after[0], "visible_end_ms": end, "problem": None if end is not None else "the trace ends in the move"}
+
+
+def times_said(times):
+    """`move_times` as the text of a proof round's line and row. No tick with a pane in a move: `first move: NONE`."""
+    if times["first_move_ms"] is None:
+        return "first move: NONE" if times["problem"] == "no pane in a move in the trace" else f"no time after the act: {times['problem']}"
+    end = f"visible end {times['visible_end_ms']} ms after the act" if times["visible_end_ms"] is not None else f"no visible end: {times['problem']}"
+    return f"first move {times['first_move_ms']} ms after the act, {end} (the act's time is the script's send; a time is a tick's)"
+
+
+def first_move_row(arm, act, times):
+    """The row `a pane moves after the act` of a proof round: (its name, what it expects, what it saw, passed), or
+    None for the arm with the pane motion off and for an act that is not one of the 4 acts of the commit motion (New
+    Column moves the strip camera only). `times`: the act's `move_times`. A round in which no tick has a pane in
+    a move fails: `first move: NONE` is not a missing number. A move with no time (a trace with no clock) passes,
+    and the row says why it has no time."""
+    if arm == "off" or act not in ("split", "close", "zoom", "unzoom"):
+        return None
+    none = times["problem"] == "no pane in a move in the trace"
+    seen = (times_said(times) if none else f"first move {times['first_move_ms']} ms after the act" if times["first_move_ms"] is not None
+            else f"a pane moves; {times_said(times)}")
+    return ("proof round: a pane moves after the act", "a tick with a pane in a move", seen, not none)
+
+
+def parts_said(parts):
+    """`layout_spans` of an act (the app's own spans with a name that starts with `layout.`) as the text of a proof
+    round's line: each part's count, sum and longest one with its start. A build with no such span: no text."""
+    return "".join(f"; {name} {part['count']} x, sum {part['sum_ms']} ms, max {part['max_ms']} ms at {part['max_at_ms']} ms"
+                   for name, part in sorted((parts or {}).items()))
+
+
 def move_facts(trace):
     """What a pane trace (the reply of `debug.motion` trace_stop) says of a move: `samples`, `samples_in_a_move` (the
     samples in which a pane IS not where it ends by more than 0.5 pt: a pane row's last 4 numbers against its first
@@ -470,7 +546,7 @@ def proof_round_row(arm, run):
     act's `measure` with `proof`. The rule is `animated_row`'s. The limit is in the row's own text: the timed
     rounds of the arm run with no trace, so the move is proved for the arm's settings, not for each timed round."""
     said, expected, seen, passed = animated_row(arm, run["moving_frames"], run["commit_frames"], run["move"], run["commit_notes"])
-    rate = "" if run["move"]["no_source"] else f"; {ticks_said(run['ticks'])}"  # the move's rate: a print, no part of `passed`
+    rate = "" if run["move"]["no_source"] else f"; {ticks_said(run['ticks'])}; {times_said(run['times'])}"  # prints, no part of `passed`
     return (f"proof round: {said}",
             f"{expected} (the move is proved for this arm's settings in one round, not in each timed round)", seen + rate, passed)
 
@@ -978,6 +1054,7 @@ def measure(label, name, proof=False, mark=""):
     window_trace = stopped_trace if name in WINDOW_ACTIONS else None
     move = move_facts(stopped_trace) if proof else None  # the proof round's row reads it (proof_round_row)
     ticks = move_ticks(stopped_trace) if proof else None  # the move's rate, from the same trace
+    times = move_times(stopped_trace, action_s) if proof else None  # the first move and the visible end after the act
     hangs = rpc("debug.hangs") or {}
     work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
     # Each Core Animation commit while recording (MotionCommitProbe): with Chromium pages, how long a page's
@@ -991,7 +1068,7 @@ def measure(label, name, proof=False, mark=""):
         "label": label, "action": name, "error": error,
         "missed": frames.get("missed"), "frames_max_ms": frames.get("max_ms"), "frames_p99_ms": frames.get("p99_ms"),
         "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
-        "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving, "commit_frames": committed, "move": move, "ticks": ticks, "proof": proof,
+        "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving, "commit_frames": committed, "move": move, "ticks": ticks, "times": times, "proof": proof,
         "samples_in_a_move": move["samples_in_a_move"] if move and not move["no_source"] else None, **late,
         "commit_notes": commit_notes(motion.get("notes")) if isinstance(motion, dict) else [],
         "commit_placements": commit_placements(motion.get("samples"), motion.get("notes")) if isinstance(motion, dict) else [],
@@ -1056,7 +1133,8 @@ def measure(label, name, proof=False, mark=""):
         result["error"] = error
     if proof:
         said = (f"NO SOURCE: {move['no_source']}" if move["no_source"]
-                else f"{move['samples_in_a_move']} of {move['samples']} samples of the pane trace in a move; {ticks_said(ticks)}")
+                else f"{move['samples_in_a_move']} of {move['samples']} samples of the pane trace in a move; {ticks_said(ticks)}; {times_said(times)}"
+                     f"{parts_said(result.get('layout_spans'))}")
         print(f"  {label:<22} proof round (not timed, not in the numbers): {said}; moved {moving} commit {committed}  err {error}", flush=True)
         return result
     extra = ""
@@ -1523,12 +1601,16 @@ def main():
                 run = measure(f"{panes:>2}p {step} proof" + (f" {arm}" if arm else ""), step, proof=True)
                 report.setdefault("proof_rounds", []).append({
                     "layout": label, "action": step, "pane_motion": arm, "error": run["error"], "move": run["move"], "ticks": run["ticks"],
+                    "times": run["times"], "layout_spans": run.get("layout_spans"),
                     "samples_in_a_move": run["samples_in_a_move"], "moving_frames": run["moving_frames"],
                     "commit_frames": run["commit_frames"], "commit_notes": run["commit_notes"]})
                 row(f"{label} {step} proof round: ran", "no error", str(run["error"]), run["error"] is None)
                 said, expected, seen, passed = proof_round_row(arm, run)
                 row(f"{label} {step} {said}", expected, seen, passed)
-                proved[(arm, step)] = passed and run["error"] is None
+                moved = first_move_row(arm, step, run["times"]) if run["times"] else None  # an act that moves no layout spring has no trace
+                if moved:
+                    row(f"{label} {step} {moved[0]}", *moved[1:])
+                proved[(arm, step)] = passed and run["error"] is None and (moved is None or moved[3])
                 time.sleep(0.4)  # test harness: idle between runs
         for index, arm in [(index, arm) for index in range(opts.rounds) for arm in tags]:
             label = tags[arm]
