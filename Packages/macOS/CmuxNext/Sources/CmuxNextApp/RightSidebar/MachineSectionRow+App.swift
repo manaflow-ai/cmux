@@ -25,7 +25,10 @@ extension MachineSectionRow {
         let byID = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let live = machines.daemons.filter { !isAgentInfrastructure($0.machineID, in: machines) && signedIn[$0.machineID].map { byID[$0] != nil } ?? true }.map { daemon in
             let state = daemon.store.connectionState
-            let connected = if case .connected = state { true } else { false }
+            // The store can report its socket as connected before the app has a usable daemon
+            // transport (for example an enrolled host with acpmux but no cmux-tui). Such a row
+            // must take the connect/recovery path instead of dispatching a doomed workspace action.
+            let connected = if case .connected = state { daemon.connection != nil } else { false }
             let connecting = state == .connecting
             let name = daemon.isLocal ? RightSidebarStrings.thisMac : machines.machineName(daemon.machineID) ?? daemon.machineID
             let report = health.reports[daemon.machineID]

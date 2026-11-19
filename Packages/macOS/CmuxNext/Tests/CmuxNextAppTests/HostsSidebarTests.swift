@@ -78,6 +78,7 @@ struct HostsSidebarTests {
         #expect(opened == ["offline", "connecting"])
     }
 
+
     @Test func meshOnlyJoinedMacsUseDialAndDisconnectedRowsStayClosed() {
         let joined = JoinedMachine(id: "m1", name: "Desk", state: .online, platform: "macos")
         let row = MachineSectionRow.joined(joined, health: nil)
