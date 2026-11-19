@@ -1,10 +1,6 @@
 {
   "about": "Workflows a push to feat-cmux-next starts that no pull request into it can reach (tests/test_ci_post_merge_checks.py). kind check: a verdict about the code, to move onto pull requests. kind publish: a deploy, a publish, a bot or a probe of a live system.",
   "workflows": {
-    "acpmux-sim-sweep.yml": {
-      "kind": "check",
-      "why": "the large seed sweep; pull requests run only a fixed small window in cmux-tui-spec"
-    },
     "app-ffi-release.yml": {
       "kind": "publish",
       "why": "publishes the app FFI release from the base"
@@ -12,10 +8,6 @@
     "app-ffi-repin.yml": {
       "kind": "publish",
       "why": "a bot that re-pins the app FFI after a release"
-    },
-    "chief-evals.yml": {
-      "kind": "check",
-      "why": "scores Chief code after it lands; a regression shows only on the base"
     },
     "cloud-devbox-image-rebake.yml": {
       "kind": "publish",
@@ -40,10 +32,6 @@
     "cmux-browser-host-release.yml": {
       "kind": "publish",
       "why": "publishes the browser host release from the base"
-    },
-    "cmux-mobile-ffi.yml": {
-      "kind": "check",
-      "why": "fmt, clippy, tests and the xcframework for the mobile FFI run on push paths only"
     },
     "cmux-next-base-autofix.yml": {
       "kind": "publish",
@@ -81,10 +69,6 @@
       "kind": "publish",
       "why": "a probe of upstream security advisories that keeps one issue open, not a verdict about the change"
     },
-    "cmux-next-terminal.yml": {
-      "kind": "check",
-      "why": "the Rust and Swift terminal suites run on every push and on no pull request"
-    },
     "cmux-next-tip-test-compile.yml": {
       "kind": "check",
       "why": "compiles the Swift test targets at the tip; the pull request compile is a separate advisory job"
@@ -100,10 +84,6 @@
     "cmux-next-web.yml": {
       "kind": "check",
       "why": "the base's web verdict, coalesced; pull requests get theirs from ci.yml's copy of the jobs"
-    },
-    "cmux-rd-windows.yml": {
-      "kind": "check",
-      "why": "the Windows host selftest and the Windows-to-Mac live proof (#42833, #42911); the proof needs the ios-e2e environment, which pull request events do not reach (cmuxterm-hq#10846)"
     },
     "cmux-tui-artifacts.yml": {
       "kind": "check",
