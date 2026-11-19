@@ -250,19 +250,45 @@ public final class GlassParityPlayground {
         }
         // Every page loads and reports while shown; the capture solos one renderer at a time after.
         solo(nil)
+        // Active: the app active and the window key (the harness launches the app without the no-activate
+        // switch for these cells; under it macOS may refuse, and `status().key` says so). Inactive: another
+        // app active, so the window shows its inactive look, as behind any other app's window.
         if scenario.active {
+            NSRunningApplication.current.activate(options: [])
             NSApp.activate()
             window.makeKeyAndOrderFront(nil)
         } else {
             NSApp.deactivate()
             window.orderFrontRegardless()
         }
+        await wait(until: { scenario.active ? window.isKeyWindow : !NSApp.isActive }, limit: .seconds(3))
         await wait(until: { self.ready.count >= self.pages.count }, limit: .seconds(15))
         if scenario.mode == .host {
             await wait(until: { !self.hosts.values.contains { $0.count < Kind.allCases.count } }, limit: .seconds(4))
         }
         await settle()
         return status()
+    }
+
+    /// Moves the backdrop under the glass every frame for `seconds` with only `column`'s renderer shown (nil:
+    /// all), so `debug.frames` around it measures the frame time of that glass over a moving backdrop.
+    func animate(seconds: Double, only column: Column?) async -> JSONValue {
+        guard let backdropView else { return ["error": "the playground is not open"] }
+        solo(column)
+        await settle()
+        let start = ContinuousClock.now
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            backdropView.animate(for: seconds) { done.resume() }
+        }
+        let elapsed = ContinuousClock.now - start
+        solo(nil)
+        var answer = status()
+        if case .object(var members) = answer {
+            members["animated_ms"] = .number(Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15)
+            members["column"] = column.map { .string($0.rawValue) } ?? .null
+            answer = .object(members)
+        }
+        return answer
     }
 
     /// Shows only `column`'s renderer (nil: all of them), so a capture holds one renderer over the backdrop.
@@ -355,8 +381,7 @@ public final class GlassParityPlayground {
         // drawing AppKit skipped it under them, opaque to it, and the glass sampled nothing).
         root.wantsLayer = true
         window.contentView = root
-        let backdrop = GlassParityBackdropView(frame: stage)
-        backdrop.autoresizingMask = [.width, .height]
+        let backdrop = GlassParityBackdropView(stage: stage)
         root.addSubview(backdrop)
         backdropView = backdrop
         let native = GlassParityFlippedView(frame: stage)
@@ -453,7 +478,7 @@ public final class GlassParityPlayground {
     // MARK: Control
 
     /// `debug.glass_parity {backdrop?, mode?, color?, opacity?, offset?, active?, row?, scale?, measure?, dir?,
-    /// close?}` (the App routes it here): opens or reconfigures the playground (``show(_:scale:)``; a key
+    /// animate?, column?, close?}` (`animate`: seconds of a moving backdrop under `column`'s glass alone) (the App routes it here): opens or reconfigures the playground (``show(_:scale:)``; a key
     /// left out keeps its value) and, with `measure`, captures every renderer and diffs them into `dir`
     /// (default a folder in the temporary directory). `close` closes it.
     public func handle(_ params: [String: JSONValue], capture: ([String: JSONValue]) async -> JSONValue) async -> JSONValue {
@@ -485,6 +510,14 @@ public final class GlassParityPlayground {
         }
         let scale = params["scale"]?.doubleValue.map { CGFloat($0) }
         let shown = await show(next, scale: scale)
+        if let seconds = params["animate"]?.doubleValue {
+            var only: Column?
+            if let name = params["column"]?.stringValue {
+                guard let column = Column(rawValue: name) else { return ["error": .string("unknown column \(name)")] }
+                only = column
+            }
+            return await animate(seconds: min(max(seconds, 0.5), 20), only: only)
+        }
         guard params["measure"]?.boolValue == true else { return shown }
         let directory = params["dir"]?.stringValue.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).appending(path: "glass-parity", directoryHint: .isDirectory)
