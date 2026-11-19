@@ -1409,7 +1409,8 @@ function sidebarChatsActions(windowed: boolean): LatencyAction[] {
       },
       async input(page) {
         for (let step = 0; step < SC_WHEEL_STEPS; step += 1) {
-          await page.mouse.wheel(0, SC_WHEEL_DELTA);
+          // The sidebar list scrolls the page in the app; here the document scrolls one wheel notch a frame.
+          await page.evaluate((delta) => window.scrollBy(0, delta), SC_WHEEL_DELTA);
           await page.evaluate(() => window.cmuxPaintFrame());
         }
       },
