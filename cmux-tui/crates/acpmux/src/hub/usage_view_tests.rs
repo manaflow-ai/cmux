@@ -195,7 +195,7 @@ async fn reads_that_stop_waiting_never_pile_up_passes() {
         hub.insert_test_session(chat);
     }
     let probe = hub.usage_probe_for_test();
-    probe.delay_ms.store(300, Ordering::SeqCst);
+    probe.delay_ms.store(1_000, Ordering::SeqCst);
     for _ in 0..40 {
         // A turn ended since: no throttle, as under steady churn.
         hub.usage_pass_due_for_test();
@@ -220,4 +220,40 @@ async fn reads_that_stop_waiting_never_pile_up_passes() {
         passes <= 3,
         "80 reads shared {passes} passes; at most 3 (one, then one for those that came while it ran)"
     );
+}
+
+/// A driver aborted before its first poll (spawned on a closing scope) or one that panics drops
+/// its guard: every read waiting goes on, one that asked for the pass after too, and the next
+/// read starts a pass of its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_driver_that_never_ran_lets_every_read_go_on() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    {
+        let mut whole = hub.usage_stats.whole.lock().unwrap();
+        (whole.running, whole.again) = (true, false);
+    }
+    // One read waits for the running pass, one (a turn ended) for the pass after it.
+    let first = tokio::spawn({
+        let hub = hub.clone();
+        async move { hub.refresh_usage_stats().await }
+    });
+    hub.usage_pass_due_for_test();
+    let second = tokio::spawn({
+        let hub = hub.clone();
+        async move { hub.refresh_usage_stats().await }
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    drop(Unwind(hub.clone(), true));
+    for read in [first, second] {
+        tokio::time::timeout(Duration::from_secs(5), read)
+            .await
+            .expect("the read went on")
+            .unwrap();
+    }
+    assert!(!hub.usage_stats.whole.lock().unwrap().running, "no pass left marked running");
+    hub.usage_pass_due_for_test();
+    tokio::time::timeout(Duration::from_secs(5), hub.refresh_usage_stats())
+        .await
+        .expect("a new pass ran");
+    assert_eq!(hub.usage_passes_for_test().0, 1, "the next read ran a pass of its own");
 }

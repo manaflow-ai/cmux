@@ -78,17 +78,20 @@ impl Default for Ended {
     }
 }
 
-/// A driver that panics or is aborted (its scope closed) ends the passes as one that ends does:
-/// the next read starts one, and the reads waiting go on with the last pass's stats. Disarmed
-/// on a driver's own end, which resets them itself.
-struct Unwind<'a>(&'a UsageCache, bool);
+/// A driver that panics or is aborted ends the passes as one that ends does: the next read
+/// starts one, and every read waiting goes on with the last pass's stats. Made before the spawn
+/// and moved into the task, so a task aborted before its first poll (spawned on a closing
+/// scope) resets them too. Disarmed on a driver's own end, which resets them itself.
+struct Unwind(Arc<Hub>, bool);
 
-impl Drop for Unwind<'_> {
+impl Drop for Unwind {
     fn drop(&mut self) {
         if self.1 {
-            let mut whole = self.0.whole.lock().unwrap_or_else(|e| e.into_inner());
+            let cache = &self.0.usage_stats;
+            let mut whole = cache.whole.lock().unwrap_or_else(|e| e.into_inner());
             (whole.running, whole.again) = (false, false);
-            self.0.ended.0.send_modify(|n| *n += 1);
+            // A read waits for at most the pass after the one that ran: two past what it saw.
+            cache.ended.0.send_modify(|n| *n += 2);
         }
     }
 }
@@ -143,7 +146,7 @@ impl Hub {
     pub(crate) async fn refresh_usage_stats(self: &Arc<Self>) {
         let cache = &self.usage_stats;
         let mut ended = cache.ended.0.subscribe();
-        let target = {
+        let (target, start) = {
             let mut whole = cache.whole.lock().unwrap_or_else(|e| e.into_inner());
             let now = crate::store::now_ms();
             let dirty = cache.dirty.swap(false, Ordering::SeqCst);
@@ -151,30 +154,34 @@ impl Hub {
             if whole.running {
                 // The running pass began before this read; a turn ended since needs the next.
                 whole.again |= dirty;
-                done + if whole.again { 2 } else { 1 }
+                (done + if whole.again { 2 } else { 1 }, false)
             } else {
                 if !dirty && now.saturating_sub(whole.last_start) < REFRESH_EVERY_MS {
                     return;
                 }
                 whole.running = true;
                 whole.last_start = now;
-                let hub = self.clone();
-                self.scope.spawn_named("usage-passes", async move { hub.run_whole_passes().await });
-                done + 1
+                (done + 1, true)
             }
         };
+        // Spawned with the state's lock let go: a task aborted at its spawn drops its guard
+        // here, which takes that lock.
+        if start {
+            let unwind = Unwind(self.clone(), true);
+            self.scope.spawn_named("usage-passes", Self::run_whole_passes(unwind));
+        }
         let _ = ended.wait_for(|n| *n >= target).await;
     }
 
     /// Runs whole passes until none is due. Ends when a pass ends with no read asking for
     /// another since it began (`again`), so it runs at most one pass past the last read.
-    async fn run_whole_passes(self: Arc<Self>) {
-        let cache = &self.usage_stats;
-        let mut unwind = Unwind(cache, true);
+    async fn run_whole_passes(mut unwind: Unwind) {
+        let hub = unwind.0.clone();
+        let cache = &hub.usage_stats;
         loop {
             {
                 let _pass = cache.pass.lock().await;
-                self.read_usage(self.usage_candidates(crate::store::now_ms()), true).await;
+                hub.read_usage(hub.usage_candidates(crate::store::now_ms()), true).await;
             }
             let mut whole = cache.whole.lock().unwrap_or_else(|e| e.into_inner());
             cache.ended.0.send_modify(|n| *n += 1);
