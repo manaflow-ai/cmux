@@ -19,6 +19,8 @@ self-hosted-runner:
     - blacksmith-4vcpu-windows-2025
     - blacksmith-32vcpu-ubuntu-2404
     - warp-ubuntu-latest-x64-4x
+    # Our own ephemeral GCP Linux runners (org runner group cmux-fleet-linux).
+    - cmux-fleet-linux-x64
     # GitHub-hosted, not self-hosted. actionlint 1.7.7 ships a fixed list of
     # hosted labels and macos-15-intel postdates it, so the only way to say
     # "this label is real" is here. It is: run 34656982146's
