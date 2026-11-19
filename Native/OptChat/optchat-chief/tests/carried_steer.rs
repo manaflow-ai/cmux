@@ -23,6 +23,9 @@ fn carried_events() -> Vec<serde_json::Value> {
             json!({"content": {"type": "text", "text": "Corrected: 418."}}),
         ),
         json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+        // acpmux writes every turn's result after its end; with no carriedTo
+        // the carried turn is the last (no wait for a later one).
+        json!({"dir": "mux", "kind": "turn_result", "msg": {"status": "completed"}}),
     ]
 }
 
@@ -50,6 +53,19 @@ fn run_carried(answer_meta: bool, result_event: bool) -> Harness {
     h.say("user_local", "what is 19 times 21?");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
         h.step();
+    }
+    // The fake records the prompt before it appends the turn's own events:
+    // the carried turn comes after them, as in acpmux.
+    while !h
+        .agents
+        .inner
+        .lock()
+        .unwrap()
+        .events
+        .get("s1")
+        .is_some_and(|e| e.iter().any(|e| e.kind == "turn_end"))
+    {
+        std::thread::yield_now();
     }
     let mut events = carried_events();
     if !result_event {
@@ -91,7 +107,22 @@ fn the_turn_follows_a_carried_turn_that_carries_again() {
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
         h.step();
     }
+    // The fake records the prompt before it appends the turn's own events:
+    // the carried turn comes after them, as in acpmux.
+    while !h
+        .agents
+        .inner
+        .lock()
+        .unwrap()
+        .events
+        .get("s1")
+        .is_some_and(|e| e.iter().any(|e| e.kind == "turn_end"))
+    {
+        std::thread::yield_now();
+    }
     let mut events = carried_events();
+    // This carried turn carries again: its result names the next one.
+    events.pop();
     events.push(json!({"dir": "mux", "kind": "turn_result", "msg": {"status": "completed", "carriedTo": {"turnId": "t3"}}}));
     events.push(
         json!({"dir": "mux", "kind": "turn_started", "msg": {"carried": ["optchat-steer:x:2"]}}),
