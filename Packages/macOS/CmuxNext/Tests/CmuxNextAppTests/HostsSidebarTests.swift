@@ -124,7 +124,7 @@ struct HostsSidebarTests {
         #expect(stops == 1)
     }
 
-    @Test func disabledLabsSectionProjectsNoRowsOrActions() {
+    @Test func disabledLabsSectionProjectsNoRowsOrActions() async {
         var added = false
         var enabled = false
         var refreshes = 0
@@ -139,6 +139,7 @@ struct HostsSidebarTests {
         #expect(refreshes == 0 && agingStarts == 0)
         enabled = true
         _ = hosts.rows()
+        await Task.yield()
         #expect(refreshes == 1 && agingStarts == 1)
     }
 }
