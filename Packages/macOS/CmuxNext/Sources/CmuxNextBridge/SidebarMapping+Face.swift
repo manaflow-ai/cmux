@@ -241,6 +241,10 @@ extension SidebarMapping {
         row.startsInCloud = page?.startsInCloud ?? false
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
         row.lastMessage = at(facts.chat)?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
+        // The chat the face picked: when it last changed what it does, its row's age (`SidebarWorkspace.rowAge`).
+        // The row already reads this chat's detail (`detail(tabs:...)`), so this adds no observation.
+        row.chatActivity = at(facts.chat)?.agentSession.flatMap(AgentTurnStateStore.shared.detail(for:))?.laneSinceMs
+            .flatMap { $0 == 0 ? nil : Self.date(ms: $0) }
         // What an agent needs the person to do in a tab says why the row is marked; it comes
         // before the newest notification's text (tab-attention-v1).
         if options.showsUnread {
