@@ -179,6 +179,12 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
+    # A Chromium page's frames while it scrolls and animates beside a printing terminal, and each frame producer's time
+    # in a Core Animation commit (scripts/cmux-next/page-frame-bench.py, debug.commit_producers): the rows of the
+    # budgets page.scroll.frame, terminal.commit.producer, page.commit.producer and frame.commit.all_producers
+    # (perf-budget-table.tsv). Its own part, so home-idle keeps its args (and its rows their part config).
+    {"name": "page-frames", "args": [*MEASURE, "--suite=budgets", "--only=page"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "page-frames"},
     # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
     # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
     # It measures the bench configuration (Release optimization, split-spring.sh --config=bench), the build people
@@ -229,6 +235,10 @@ PARTS = [
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
     {"name": "chat-disk", "where": "linux", "kind": "webui", "needs": "chat-disk"},
+    # The newest nightly's app bundle and DMG size (scripts/measure/bundle-size-linux.sh: the nightly's size step,
+    # bundle-size.py summary, on the published DMG), the row of the budget disk.app. Reported only (REPORT_ONLY_ROW_RE):
+    # the nightly is not the measured commit. About 2 minutes (a 240 MB download and its APFS unpack).
+    {"name": "bundle-size", "where": "linux", "kind": "webui", "needs": "bundle-size"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
@@ -236,7 +246,7 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
-    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"), (r"^launch\.", "launch"),
+    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(page|commit)\.", "page-frames"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -245,6 +255,7 @@ ROW_PARTS = [
     (r"^webui\.chat_100k_flat\.grown_many\.", "web-ui-flat-grown"),
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
     (r"^webui\.chat_disk\.", "chat-disk"),
+    (r"^webui\.bundle_size\.", "bundle-size"),
     (r"^webui\.", "web-ui"),
 ]
 # Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
@@ -252,7 +263,7 @@ ROW_PARTS = [
 # memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged. The chat
 # composer's typing stages (acp.<engine>.typing.to_listener and .to_work, perf-budgets.py STAGE_ROW_RE) say where
 # the judged to_frame time goes: shown, not judged (measurement only, no new gate).
-REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
+REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\.|webui\.bundle_size\."
                                 r"|acp\.[^.]+\.typing\.(to_listener|to_work)$)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
@@ -981,6 +992,8 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "chat-disk":
         script = os.path.join(root, CHAT_DISK)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
+    if part == "bundle-size":
+        return {"suite": (["bash", os.path.join(root, BUNDLE_SIZE)], root or ".", {})}
     if part == "infinite-items":
         # The release build first, in a run of its own: a cold one takes about 15 minutes, and each run has its own
         # 30-minute cap. The suite's build is then a no-op; its rows are the part's (a webui part keeps the last run's).
@@ -1923,6 +1936,10 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{INFINITE_ITEMS}"], capture_output=True).returncode == 0
         elif need == "chat-disk":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_DISK}"], capture_output=True).returncode == 0
+        elif need == "bundle-size":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{BUNDLE_SIZE}"], capture_output=True).returncode == 0
+        elif need == "page-frames":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{PAGE_FRAME_BENCH}"], capture_output=True).returncode == 0
         elif need == "terminal-throughput":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
@@ -1977,6 +1994,8 @@ MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
+BUNDLE_SIZE = "scripts/measure/bundle-size-linux.sh"
+PAGE_FRAME_BENCH = "scripts/cmux-next/page-frame-bench.py"
 # The web-ui-god part: the benches that take FIXTURE=god (web-ui-suite.ts lists each as NAME and NAME-god) and the
 # shared fixture a commit needs for the part. A god row is webui.<prefix>.god.<rest>; its ordinary twin drops `.god`.
 GOD_FIXTURE = "webviews/bench/godFixture.ts"

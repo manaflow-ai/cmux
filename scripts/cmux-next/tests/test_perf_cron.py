@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "chat-disk"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "chat-disk", "bundle-size"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -746,6 +746,26 @@ class WebUiTests(unittest.TestCase):
             {"name": "chat_disk.growth_ratio", "p50": 374.0, "p95": 374.0, "unit": "x", "target": 1.2}]},
             budgets_mod, {"rows": {}})
         self.assertEqual(rows["webui.chat_disk.growth_ratio"]["p95"], 374.0)
+
+    def test_the_bundle_size_rows_have_their_own_linux_part_and_are_reported_only(self):
+        self.assertTrue(cron.is_linux_part("bundle-size"))
+        self.assertEqual(cron.part_for_row("webui.bundle_size.nightly.app_mb@linux"), "bundle-size")
+        runs = cron.linux_bench_runs("/r", "bundle-size")
+        self.assertEqual(runs["suite"][0], ["bash", "/r/scripts/measure/bundle-size-linux.sh"])
+        rows = cron.rows_of_part(cron.PART_BY_NAME["bundle-size"], {"rows": [
+            {"name": "bundle_size.nightly.app_mb", "p50": 797.4, "p95": 797.4, "unit": "MB", "target": 700.0, "floor": 1.0}]},
+            budgets_mod, {"rows": {}})
+        self.assertEqual(rows["webui.bundle_size.nightly.app_mb"]["p95"], 797.4)
+        # The nightly is not the measured commit: stored and shown, never judged or bisected.
+        self.assertTrue(cron.REPORT_ONLY_ROW_RE.match("webui.bundle_size.nightly.app_mb"))
+
+    def test_the_page_frame_and_commit_producer_rows_have_their_own_mac_part(self):
+        self.assertFalse(cron.is_linux_part("page-frames"))
+        self.assertIn("--only=page", cron.PART_BY_NAME["page-frames"]["args"])
+        for row in ("page.chromium.scroll.frame@cmux20-bench", "commit.terminal.producer@cmux20-bench",
+                    "commit.all.producer@cmux20-bench"):
+            self.assertEqual(cron.part_for_row(row), "page-frames")
+        self.assertEqual(cron.part_for_row("idle.terminals.app_wakeups_per_s@cmux20-bench"), "home-idle")
 
     def test_the_million_event_chat_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-million"))

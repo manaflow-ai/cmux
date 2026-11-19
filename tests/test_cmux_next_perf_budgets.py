@@ -136,6 +136,23 @@ class MappingTests(unittest.TestCase):
         self.assertEqual(pb.rows_panes(None), {})
         self.assertEqual(pb.rows_sidebar(None, 400)["sidebar.400.scroll.frame"], (None, None))
 
+    def test_idle_rows_carry_the_apps_own_wakeups_and_its_longest_main_turn(self):
+        rows = pb.rows_idle({"scenarios": {"terminals": {
+            "processes": [{"kind": "app", "cpu_percent": 0.2, "wakeups_per_s": 3.4}, {"kind": "daemon", "wakeups_per_s": 9}],
+            "main_max_gap_ms": 21.5, "main_wakes_per_s": 0.6}}})
+        self.assertEqual(rows["idle.terminals.app_wakeups_per_s"], (3.4, 3.4))
+        self.assertEqual(rows["idle.terminals.main_stall_ms"], (21.5, 21.5))
+        self.assertEqual(rows["idle.terminals.main_wakes_per_s"], (0.6, 0.6))
+        # A build without debug.hangs: no stall row, so the budget table says not measured, never a pass.
+        self.assertNotIn("idle.terminals.main_stall_ms", pb.rows_idle({"scenarios": {"terminals": {"processes": []}}}))
+
+    def test_page_rows_come_from_the_page_frame_bench(self):
+        rep = {"rows": {"page.chromium.scroll.frame": [8.3, 9.1], "commit.all.producer": [0.4, 1.2], "bad": [1, None]}}
+        self.assertEqual(pb.rows_page(rep), {"page.chromium.scroll.frame": (8.3, 9.1), "commit.all.producer": (0.4, 1.2)})
+        self.assertEqual(pb.rows_page(None), {})
+        self.assertNotIn("page", pb.BENCHES, "opt-in: the default suite (stable-next's gate) does not run it")
+        self.assertIn("page", pb.OPT_IN_BENCHES)
+
     def test_typing_stages_become_rows_that_are_never_judged(self):
         """CMUX-571 typing-latency: the chat composer's typing stages (key to page, key to edit and render done) are
         stored beside to_frame and to_paint, with no budget, no regression check and no baseline entry."""
@@ -217,7 +234,10 @@ class MappingTests(unittest.TestCase):
                  "cmd_shift_d.idle.key_to_visible", "tab_switch.chromium.10.e2e",
                  "palette.home_cmd_p.key_to_frame", "idle.terminals.app_cpu_pct",
                  "workspace_switch.chromium.cmd_digit.input_to_idle", "workspace_switch.terminal.next_prev.longest_frame",
-                 "sidebar.400.ticking.frame", "sidebar.400.ticking.main_ms_per_s", "sidebar.400.drag.frame"]
+                 "sidebar.400.ticking.frame", "sidebar.400.ticking.main_ms_per_s", "sidebar.400.drag.frame",
+                 "idle.terminals.app_wakeups_per_s", "idle.terminals.main_stall_ms", "idle.chromium-static.main_wakes_per_s",
+                 "page.chromium.scroll.frame", "page.chromium.animate.frame", "commit.terminal.producer",
+                 "commit.page.producer", "commit.all.producer"]
         for name in names:
             self.assertTrue(pb.budget_for(name, budgets).get("p95"), name)
         for pattern in budgets["rows"]:

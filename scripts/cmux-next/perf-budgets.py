@@ -17,9 +17,12 @@ bench launches and quits the app itself), and maps their reports to budget rows 
   agent-engine-bench.py          ACP chat composer: keydown to next frame (the page's typingStats), and its stages:
                                  to_listener (the key reaches the page) and to_work (its edit and render done),
                                  stored for the breakdown, never judged (STAGE_ROW_RE)
-  bench_idle.py                  idle CPU of the app with terminals open
+  bench_idle.py                  idle CPU and wakeups of the app with terminals open, its main thread's longest turn and
+                                 run-loop wakes (debug.hangs)
   tab-churn-bench.py             terminal_burst: 30 Ctrl-` terminals in a row (first and last ten, growth), closing them,
                                  and Cmd-T / Cmd-W in a pane of 1 tab and of 31 (ask-8a0837950b)
+  page-frame-bench.py            page (opt-in): a Chromium page's frame interval while it scrolls and animates, and each
+                                 frame producer's time in a commit (debug.commit_producers: a terminal, a page, all)
 
   A bench that fails to run (older build without its debug method, no display) leaves its rows "n/a"; the
   suite goes on, but the gate reports an incomplete result when an expected row is absent. Output: --json
@@ -47,7 +50,7 @@ REGRESSION = 0.10
 BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", "acp", "idle", "anim"]
 # Benches that run only when --only names them: the default (all of BENCHES) is what stable-next's --gate step runs, and
 # a bench added here is a perf cron row that warns, never a new gate row (CLAUDE.md: no new CI gates).
-OPT_IN_BENCHES = ["terminal_burst"]
+OPT_IN_BENCHES = ["terminal_burst", "page"]
 PERF_BENCH = os.path.join(HERE, "..", "perf-bench")
 # Stage rows: where a judged row's time goes (the chat composer's typing: key to page, key to edit and render done).
 # Stored and shown, never gated, budgeted or written to a baseline: measurement only (no new CI gates).
@@ -314,7 +317,22 @@ def rows_idle(rep):
         if app:
             cpu = app[0].get("cpu_percent")
             out[f"idle.{name}.app_cpu_pct"] = (cpu, cpu)
+            # The app process's own wakeups (every thread: package idle exits and interrupt wakeups), not the daemons'.
+            wake = app[0].get("wakeups_per_s")
+            if isinstance(wake, (int, float)):
+                out[f"idle.{name}.app_wakeups_per_s"] = (wake, wake)
+        # The main thread's longest turn in the window, and its run-loop wakes a second (bench_idle.py, debug.hangs).
+        for key, row in (("main_max_gap_ms", "main_stall_ms"), ("main_wakes_per_s", "main_wakes_per_s")):
+            if isinstance(sc.get(key), (int, float)):
+                out[f"idle.{name}.{row}"] = (sc[key], sc[key])
     return out
+
+
+def rows_page(rep):
+    """page-frame-bench.py's rows: a Chromium page's frame interval while it scrolls and animates, and each frame
+    producer's time in a Core Animation commit (one terminal, one page, all producers of a commit)."""
+    return {name: (v[0], v[1]) for name, v in ((rep or {}).get("rows") or {}).items()
+            if isinstance(v, list) and len(v) == 2 and isinstance(v[1], (int, float))}
 
 
 def profile_splits(out):
@@ -510,6 +528,8 @@ def main():
         "terminal_burst": ([py, S("tab-churn-bench.py"), *common, "--cycles", "12", "--terminals", "30",
                   "--out", o("terminal_burst"), "--json", o("terminal_burst.json")], "terminal_burst.json",
                            rows_terminal_burst),
+        "page": ([py, S("page-frame-bench.py"), *common, "--out", o("page"), "--json", o("page.json")], "page.json",
+                 rows_page),
         "idle": ([py, S("bench_idle.py"), *common, "--scenarios", "terminals,chromium-static", "--settle", "15",
                   "--measure", "30", "--no-fail", "--label", "budgets", "--out", o("idle")], None, rows_idle),
     }

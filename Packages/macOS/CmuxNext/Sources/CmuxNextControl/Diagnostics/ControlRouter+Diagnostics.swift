@@ -5,7 +5,12 @@ public import CmuxNextSettings
 /// lock-protected counters), so they work while the main thread is stalled.
 extension ControlRouter {
     func diagnosticMethods() -> [ControlMethod] {
-        [
+        // Each frame producer's main-thread time per Core Animation commit (page-frame-bench.py). Owned by its method.
+        let commitProducers = CommitProducerProbe()
+        return [
+            .mainActor("debug.commit_producers") { [commitProducers] call in
+                .value(commitProducers.handle(action: call.params["action"]?.stringValue))
+            },
             .snapshot("debug.hangs") { [weak self] call in
                 guard let self else { throw Self.stopped }
                 guard let watchdog = self.watchdog else {

@@ -160,12 +160,24 @@ def wait_for_socket(path, limit_s=60):
 # ---------------------------------------------------------------------------
 
 
+def hangs(control, params=None):
+    """debug.hangs (answered off the main thread, so reading it adds no main-thread turn), or {}."""
+    try:
+        return control.call("debug.hangs", params or {"limit": 5}).get("result") or {}
+    except (OSError, ValueError):
+        return {}
+
+
 def measure(app_pid, bundle, seconds, control):
     kinds = classify(app_pid, bundle)
+    # The main thread's longest turn and its run-loop wakes in this window only: `clear` restarts the watchdog's
+    # longest gap (max_gap_ms) and its stall log; main_wakes is cumulative, so the window's is the difference.
+    before_hangs = hangs(control, {"clear": True, "limit": 0})
     start = {pid: usage(pid) for pid in kinds}
     t0 = time.monotonic()
     time.sleep(seconds)  # test script: the measurement window itself
     wall = time.monotonic() - t0
+    after_hangs = hangs(control)
     kinds.update({pid: kind for pid, kind in classify(app_pid, bundle).items() if pid not in kinds})
     rows = []
     for pid, kind in sorted(kinds.items(), key=lambda item: item[1]):
@@ -189,12 +201,14 @@ def measure(app_pid, bundle, seconds, control):
             diag["active_frame_clients"] = report.get("active_frame_clients", [])
     except (OSError, ValueError):
         pass
-    try:
-        hangs = control.call("debug.hangs", {"limit": 5}).get("result") or {}
-        diag["busy_count"] = hangs.get("busy_count")
-        diag["stall_count"] = hangs.get("count")
-    except (OSError, ValueError):
-        pass
+    if after_hangs:
+        diag["busy_count"] = after_hangs.get("busy_count")
+        diag["stall_count"] = after_hangs.get("count")
+        # The longest main-thread turn of the window (any length; a stall is one over the watchdog's threshold).
+        diag["main_max_gap_ms"] = after_hangs.get("max_gap_ms") if before_hangs else None
+        wakes = [h.get("main_wakes") for h in (before_hangs, after_hangs)]
+        if all(isinstance(w, (int, float)) for w in wakes):
+            diag["main_wakes_per_s"] = round((wakes[1] - wakes[0]) / wall, 2)
     return {"wall_s": round(wall, 1), "processes": rows, **diag}
 
 
