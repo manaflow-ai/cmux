@@ -1,5 +1,10 @@
 /* The Liquid Glass Parity page (main.tsx): nothing but the surfaces, at the boxes the App sends,
    over no background of its own, so every pixel outside a surface is the App's backdrop. */
+/* The native theme bootstrap paints `html{background:var(--cmux-surface-background) !important}` (the
+   theme's page surface, opaque in an opaque theme): this page shows the App's backdrop instead. */
+:root[data-cmux-page="glass-parity"] {
+  --cmux-surface-background: transparent !important;
+}
 html,
 body {
   margin: 0;

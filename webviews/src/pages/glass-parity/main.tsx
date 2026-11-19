@@ -17,7 +17,12 @@ import "../shared/desktop";
 import "../shared/transientMaterial";
 import "../../ui/popupSurface.css";
 import { createPageClient, type PageClient } from "../shared/pageClient";
-import { HOST_GLASS_ENGINES_ATTRIBUTE, reportHostGlass, type HostGlassLevel } from "../../ui/glass/hostGlass";
+import {
+  HOST_GLASS_ENGINES_ATTRIBUTE,
+  HOST_GLASS_ROLE_ATTRIBUTE,
+  reportHostGlass,
+  type HostGlassLevel,
+} from "../../ui/glass/hostGlass";
 import "./styles.css";
 
 /** The surfaces the playground compares, as the App names them (GlassParityKind.swift). */
@@ -82,7 +87,11 @@ export function paritySurface(doc: Document, cell: ParityCell, mode: ParityLayou
   surface.className = `glass-parity-surface ${PARITY_CLASS[cell.kind]}`;
   surface.dataset.parityId = cell.id;
   surface.dataset.parityKind = cell.kind;
-  if (mode === "host") surface.setAttribute("data-host-glass", PARITY_LEVEL[cell.kind]);
+  if (mode === "host") {
+    surface.setAttribute("data-host-glass", PARITY_LEVEL[cell.kind]);
+    // A dialog's glass is the native dialog card's neutral glass (CmuxDialogCardSurface: `.sheet`).
+    if (cell.kind === "dialog") surface.setAttribute(HOST_GLASS_ROLE_ATTRIBUTE, "sheet");
+  }
   surface.style.left = `${cell.left}px`;
   surface.style.top = `${cell.top}px`;
   surface.style.width = `${cell.width}px`;

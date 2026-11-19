@@ -144,7 +144,11 @@ public final class GlassParityPlayground {
                   right >= left, bottom >= top else {
                 throw PageError(code: "cmux.glass_parity.bad_surfaces", message: "a surface is malformed")
             }
-            surfaces.append(.init(id: id, level: level, rect: CGRect(x: left, y: top, width: right - left, height: bottom - top),
+            let named = item["role"]?.stringValue
+            guard let role = named.map({ Glass.hostGlassRoles[$0] }) ?? Glass.hostGlassRole(level) else {
+                throw PageError(code: "cmux.glass_parity.bad_surfaces", message: "a surface's role is unknown")
+            }
+            surfaces.append(.init(id: id, level: level, role: role, rect: CGRect(x: left, y: top, width: right - left, height: bottom - top),
                                   radius: item["radius"]?.doubleValue ?? 0, opacity: item["opacity"]?.doubleValue ?? 1))
         }
         hosts[column]?.apply(surfaces)
@@ -499,12 +503,13 @@ final class GlassParityHostLayer: NSView {
     struct Surface: Equatable {
         var id: String
         var level: GlassLevel
+        var role: SurfaceRole
         var rect: CGRect
         var radius: CGFloat
         var opacity: CGFloat
     }
 
-    private var views: [String: (level: GlassLevel, view: OverlaySurfaceView)] = [:]
+    private var views: [String: (role: SurfaceRole, level: GlassLevel, view: OverlaySurfaceView)] = [:]
     var count: Int { views.count }
 
     override init(frame: NSRect) {
@@ -523,14 +528,17 @@ final class GlassParityHostLayer: NSView {
         var kept = Set<String>()
         for surface in surfaces {
             kept.insert(surface.id)
-            if views[surface.id]?.level != surface.level {
-                views[surface.id]?.view.removeFromSuperview()
+            if let old = views[surface.id], old.role != surface.role || old.level != surface.level {
+                old.view.removeFromSuperview()
+                views[surface.id] = nil
+            }
+            if views[surface.id] == nil {
                 // As the agent pane draws its host glass (AgentPaneView+HostGlass.swift).
-                let view = Glass.makeSurface(Glass.hostGlassRole(surface.level), interactive: false)
+                let view = Glass.makeSurface(surface.role, interactive: false)
                 view.tintLevel = Glass.hostTintLevel(surface.level)
                 view.translatesAutoresizingMaskIntoConstraints = true
                 addSubview(view)
-                views[surface.id] = (surface.level, view)
+                views[surface.id] = (surface.role, surface.level, view)
             }
             guard let view = views[surface.id]?.view else { continue }
             if view.frame != surface.rect { view.frame = surface.rect }
