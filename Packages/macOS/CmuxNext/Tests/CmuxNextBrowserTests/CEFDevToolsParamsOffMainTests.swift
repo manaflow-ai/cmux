@@ -102,6 +102,32 @@ import Testing
         return #"{"data":""# + png.base64EncodedString() + #""}"#
     }
 
+    /// 12 of the 17 NIGHTLY hangs in `cmux_shim_devtools_call` of 2026-11-17/18 (HQ #8689, #13672; 2.1-4.6 s each)
+    /// came from builds whose hidden-page trim sent `Memory.simulatePressureNotification` once per hidden page.
+    /// Chromium answers it in the browser process only, by running every memory-pressure listener of the whole
+    /// process inside the send, on the main thread: N hidden pages were N process-wide purges in a row. One round
+    /// is one notice.
+    @Test func aTrimRoundOfManyHiddenPagesSendsOneNotice() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        var done = false
+        let trim = CEFHiddenPageTrim(hiddenPages: { [tab, tab, tab] }) { await CEFHiddenPageTrim.notice($0) }
+        Task { await trim.trim(); done = true }
+        var answered: Int32?
+        await rig.until {
+            // Chromium answers each notice: a trim that waits for one reply per page goes on to the next page.
+            if let message = Recorder.lastMessage, message != answered {
+                answered = message
+                rig.runtime.handle(.devToolsResult(browser: Rig.browser, messageID: message, success: true, json: "{}"))
+            }
+            return done
+        }
+        #expect(done)
+        #expect(Recorder.sent(["Memory.simulatePressureNotification"]).map(\.params) == [#"{"level":"critical"}"#],
+                "3 hidden pages, one browser-process purge")
+    }
+
     // MARK: Rig
 
     @MainActor final class Rig {
@@ -164,12 +190,16 @@ private nonisolated enum Recorder {
     nonisolated(unsafe) static var nextMessage: Int32 = 1
     /// The message id the last DevTools call got.
     nonisolated(unsafe) static var lastMessage: Int32?
+    /// How long each DevTools call holds its caller, as Chromium's dispatch of a method the browser process
+    /// answers does (a critical memory-pressure notice: 2.1-4.6 s in NIGHTLY hang reports).
+    nonisolated(unsafe) static var sendNanos: UInt64 = 0
 
     static func reset(forkAPI api: Int32) {
         forkAPI = api
         calls = []
         nextMessage = 1
         lastMessage = nil
+        sendNanos = 0
     }
 
     /// The calls of `methods`, in the order they reached the shim.
@@ -182,6 +212,8 @@ private nonisolated enum Recorder {
             let bytes = params.map { strlen($0) } ?? 0
             Recorder.calls.append(Call(method: method.map { String(cString: $0) } ?? "",
                                        params: bytes < 256 ? params.map { String(cString: $0) } ?? "" : "", paramsBytes: bytes))
+            let end = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + Recorder.sendNanos
+            while clock_gettime_nsec_np(CLOCK_UPTIME_RAW) < end {}
             Recorder.nextMessage += 1
             Recorder.lastMessage = Recorder.nextMessage
             return Recorder.nextMessage
