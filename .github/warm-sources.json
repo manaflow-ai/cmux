@@ -95,7 +95,6 @@
     "cmux-next-iphone-clips.yml:record": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
     "cmux-next-ios-kit.yml:kit-tests": {"class": "ios", "warm": ["actions-cache"]},
     "cmux-next-media.yml:tour": {"class": "mac-build", "warm": ["deriveddata-reuse", "product-reuse"]},
-    "cmux-next-hot-verify.yml:look": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
     "cmux-next-perf-bench.yml:bench": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
     "cmux-next-tab-switch.yml:frames": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
     "mobile-worker-dev-deploy.yml:deploy-dev": {"class": "linux-js", "warm": [], "exempt": "cold: bun install, TypeScript check and vitest on workerd before a manual dev deploy, with no dependency cache; no warm source wired yet"},

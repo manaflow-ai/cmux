@@ -360,7 +360,10 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     /// Where every row's text starts, past the icon column: the name, the status word, the stats, each
     /// fact, each tab's title and detail line, "Show N more" and "Show details" share this one leading edge
     /// (Lawrence msg 19245: "alignment here looks bad").
-    static var textInset: CGFloat { iconSize + Metrics.space2 }
+    static var textInset: CGFloat { iconSize + iconGap }
+    /// The gap from the icon column to the text, in whole points (``HoverCardRowView/iconGap``): the header's stack
+    /// and the frame-laid tab rows then put the text on one pixel.
+    static var iconGap: CGFloat { HoverCardRowView.iconGap }
     /// The body font with digits of one width, for lines whose running time ticks.
     private static var liveFont: NSFont { Typography.system(.monospacedDigit, size: tokens.titleSize, weight: .regular) }
 
@@ -504,7 +507,6 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         titleRow.setViews([ageLabel], in: .trailing)
         titleRow.orientation = .horizontal
         titleRow.alignment = .firstBaseline
-        titleRow.spacing = Metrics.space2
         // The indicator's slot is a box that never hides, so a style that draws no glyph keeps the
         // word on the text column.
         let activitySlot = HoverCardIconSlot(side: Self.iconSize, line: activityLabel)
@@ -515,7 +517,6 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         activityRow.orientation = .horizontal
         // The mark on the word's capitals, as every icon on the card (`HoverCardIconSlot`).
         activityRow.alignment = .firstBaseline
-        activityRow.spacing = Metrics.space2
         factsStack.orientation = .vertical
         factsStack.alignment = .leading
         factsStack.spacing = Metrics.space2
@@ -587,6 +588,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         customError.font = Self.captionFont
         summaryLabel.font = Self.captionFont
         kindIcon.side = tokens.iconSide
+        titleRow.spacing = Self.iconGap
+        activityRow.spacing = Self.iconGap
         activitySlot?.side = tokens.iconSide
         statsRow.edgeInsets = NSEdgeInsets(top: 0, left: Self.textInset, bottom: 0, right: 0)
         summaryRow.edgeInsets = NSEdgeInsets(top: 0, left: Self.textInset, bottom: 0, right: 0)
@@ -691,13 +694,13 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         activityRow.isHidden = word == nil
         // The width the title wraps at (the panel sizes the card in one
         // pass): the row less its icon and the age.
-        let age = ageLabel.isHidden ? 0 : ageLabel.intrinsicContentSize.width + Metrics.space2
-        let icon = kindIcon.isHidden ? 0 : Self.iconSize + Metrics.space2
-        let hostWidth = hostLabel.isHidden ? 0 : hostLabel.intrinsicContentSize.width + Metrics.space2
-        let dot = hostDot.isHidden ? 0 : hostDot.intrinsicContentSize.width + Metrics.space2
+        let age = ageLabel.isHidden ? 0 : ageLabel.intrinsicContentSize.width + Self.iconGap
+        let icon = kindIcon.isHidden ? 0 : Self.iconSize + Self.iconGap
+        let hostWidth = hostLabel.isHidden ? 0 : hostLabel.intrinsicContentSize.width + Self.iconGap
+        let dot = hostDot.isHidden ? 0 : hostDot.intrinsicContentSize.width + Self.iconGap
         titleLabel.preferredMaxLayoutWidth = width - 2 * Self.padding - icon - age - hostWidth - dot
         while factViews.count < content.facts.count { addFactRow() }
-        let wrap = width - 2 * Self.padding - Self.iconSize - Metrics.space2
+        let wrap = width - 2 * Self.padding - Self.textInset
         for (index, row) in factViews.enumerated() {
             let fact = index < content.facts.count ? content.facts[index] : nil
             row.isHidden = fact == nil || fact?.kind == "machine"

@@ -44,6 +44,10 @@
 #   late=MS      a third side, late: its own copy of the head's DMG and its own home, interleaved after head, whose measured
 #                launches wait MS ms (0 to 10000) between the previous launch's quit and their open request. It tells a
 #                head cost that comes from overlapping the quit before it from one the head pays anyway. Default 0.
+#   layout=1     with dmg=build: both sides built with --config bench (Release optimization with the debug.* commands)
+#                and every launch samples its layout from the first on-screen frame (launch-ready.swift `layout`): the
+#                window's frame and the sidebar's edge until neither changed for 1 s or 3 s passed. Each LR-RUN row gets
+#                `layout`; LR-FRAMES per side: the median and highest move (points) and change count after the first frame.
 
 #   preflight=1  just before the first launch, ~10 s of top: a system indexer (launch-ready-preflight.sh's INDEXERS)
 #                above preflight_cpu=N % CPU (default 30), or cmux-ci's CMUX_CI_HOST_NOISY=1, fails the step with
@@ -86,11 +90,11 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 late=0 engines="" arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 late=0 engines="" config=release arg rc=0 i side
 
   local preflight=1 preflight_cpu=30
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-  LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT=""
+  LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT="" LR_LAYOUT=0
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
   # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
   LR_SOCKETS="$(mktemp -d /tmp/lr.XXXXXX)" && chmod 0777 "$LR_SOCKETS" || exit 3
@@ -118,10 +122,13 @@ main() {
       engines=*) engines="${arg#engines=}" ;;
       preflight=0|preflight=1) preflight="${arg#preflight=}" ;;
       preflight_cpu=*) preflight_cpu="${arg#preflight_cpu=}" ;;
+      layout=0|layout=1) LR_LAYOUT="${arg#layout=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
+  [[ "$LR_LAYOUT" == 0 || "$dmg" == build ]] || { echo "layout=1 takes dmg=build (the sidebar edge needs a bench build)" >&2; exit 2; }
+  [[ "$LR_LAYOUT" == 1 ]] && config=bench
   [[ "$machines" =~ ^[0-9]+$ && "$machines" -le 200 ]] || { echo "machines= takes 0 to 200" >&2; exit 2; }
   [[ "$preflight_cpu" =~ ^[1-9][0-9]*$ ]] || { echo "preflight_cpu= takes a whole percent >= 1" >&2; exit 2; }
   [[ "$LR_STATE" == kept || ( "$session" == small && "$machines" == 0 ) ]] \
@@ -184,12 +191,12 @@ main() {
     done
     if [[ -n "$base" ]]; then
       git -c advice.detachedHead=false checkout --quiet --detach "$base" || exit 3
-      build_dmg "$out" base release; rc=$?
+      build_dmg "$out" base "$config"; rc=$?
       [[ $rc == 0 ]] || { git -c advice.detachedHead=false checkout --quiet --detach "$here"; exit "$rc"; }
       sides=(base head)
     fi
     git -c advice.detachedHead=false checkout --quiet --detach "$head" || exit 3
-    build_dmg "$out" head release; rc=$?
+    build_dmg "$out" head "$config"; rc=$?
     git -c advice.detachedHead=false checkout --quiet --detach "$here" || exit 3
     [[ $rc == 0 ]] || exit "$rc"
   else
@@ -325,7 +332,7 @@ probe() {
   fi
   checkers="$(checker_cpu)" exe="$(exe_stat "$app")"
   line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" \
-    $([[ "$LR_STATE" == bare ]] && echo shell) 2>>"$out/probe.log" | grep '^LR-RUN ')"
+    $([[ "$LR_STATE" == bare ]] && echo shell) $([[ "$LR_LAYOUT" == 1 ]] && echo layout) 2>>"$out/probe.log" | grep '^LR-RUN ')"
   checkers="$(checker_delta "$checkers" "$(checker_cpu)") exe=$exe->$(exe_stat "$app")"
   # Every launch snapshot path the launch left must be in its own home: one in the other side's means it read that.
   # Unsaved defaults fail the same way, and the stale copy goes: the side's next launch starts empty, not from it.
