@@ -43,3 +43,5 @@ c4ce941 af3da25 af3da25-c4ce941.patch.gz
 912505c df634f9 df634f9-912505c.patch.gz
 de0da3a 912505c 912505c-de0da3a.patch.gz
 0d4d903 de0da3a de0da3a-0d4d903.patch.gz
+f24a132 tip fb17b5f-f24a132.patch.gz
+e0c66cd f24a132 f24a132-e0c66cd.patch.gz
