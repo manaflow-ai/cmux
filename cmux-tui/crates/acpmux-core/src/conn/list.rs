@@ -184,6 +184,15 @@ impl Source for HubSource {
                 crate::hub::RELAY_BUSY,
                 "the origin has the most relayed requests in flight; ask again",
             ),
+            // The connection holds one relayed page unanswered (decision 299): another that
+            // would wait answers `busy` now, and its slots go back as it drops.
+            Ok(Relayed::Sent(relayed)) if !reply.may_wait() => {
+                drop(relayed);
+                reply.error(
+                    crate::hub::RELAY_BUSY,
+                    "this connection has a relayed page unanswered; ask again",
+                );
+            }
             Ok(Relayed::Sent(relayed)) => {
                 self.scope.spawn(async move {
                     match relayed.answer().await {

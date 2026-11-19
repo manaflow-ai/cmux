@@ -2000,6 +2000,10 @@ SEED_DUE_SCRIPT = ROOT / "scripts/cmux-next/fast-tier-seed-due.py"
 FAST_TIER_SCRIPT = ROOT / "scripts/cmux-next/fast-tier.py"
 FAST_CACHE_DIRS = {"swift": "Packages/macOS/CmuxNext/.build", "home": "Packages/Shared/CmuxHomeRender/.build"}
 FAST_CACHE_MANIFEST = "Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json"
+# Owned minis that hold the seed root build there (owned_spm_scratch.py seed_lease), so a restore path names the
+# root, defaulting to the checkout.
+FAST_CACHE_PATHS = {name: "${{ format('{0}/%s', steps.spm-root.outputs.root || github.workspace) }}" % path
+                    for name, path in FAST_CACHE_DIRS.items()}
 NEXT_BUCKET = "cmux-ci-cache-next"
 NEXT_PUBLIC_URL = "https://ci-cache-next.cmux.com"
 NEXT_WRITER = "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}"
@@ -2301,7 +2305,7 @@ class FastTierStartsWarm(unittest.TestCase):
         job = self.fast_tier()
         steps = job["steps"]
         restores = [s for s in steps if is_cache_restore(s)]
-        self.assertEqual(sorted(cache["with"]["path"] for cache in restores), sorted(FAST_CACHE_DIRS.values()))
+        self.assertEqual(sorted(cache["with"]["path"] for cache in restores), sorted(FAST_CACHE_PATHS.values()))
         key_step = steps[index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))]
         for restore in restores:
             with self.subTest(restore=restore["name"]):
@@ -2320,13 +2324,13 @@ class FastTierStartsWarm(unittest.TestCase):
         steps = self.fast_tier()["steps"]
         key_id = steps[index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))]["id"]
         by_path = {s["with"]["path"]: s for s in steps if is_cache_restore(s)}
-        swift = by_path[FAST_CACHE_DIRS["swift"]]
+        swift = by_path[FAST_CACHE_PATHS["swift"]]
         self.assertEqual(swift["with"]["key"], "${{ steps.%s.outputs.swift-key }}" % key_id)
         self.assertEqual(swift["with"]["restore-keys"], "${{ steps.%s.outputs.swift-prefix }}" % key_id)
         seed = steps[index_of(steps, lambda s: "cache-matched-key" in json.dumps(s.get("env", {})) and "commit=" in s.get("run", ""))]
         for name in ("home",):
             with self.subTest(name=name):
-                step = by_path[FAST_CACHE_DIRS[name]]
+                step = by_path[FAST_CACHE_PATHS[name]]
                 self.assertEqual(step["with"]["key"], "${{ steps.%s.outputs.%s-prefix }}${{ steps.%s.outputs.commit }}" % (key_id, name, seed["id"]))
                 self.assertFalse(step["with"].get("restore-keys"), "an exact key, never a prefix")
                 self.assertIn("steps.%s.outputs.commit != ''" % seed["id"], step.get("if", ""))
@@ -2658,9 +2662,9 @@ FAST_LANE_CLAUSE = (
 )
 # While fast-tier-fleet ran, the fast tier only reports its verdict from Linux (GatewayRunsOnlyTheFleetClient);
 # a step still queued (verdict `queued`) hands it back, and it runs on Blacksmith macOS.
-# The hand-back reads the Blacksmith switch as every owned fallback does since #43860: with the value
-# `pr-rescue`, a pull request's re-run (attempt 2 and later), or a bot's re-run of a dispatch gating one
-# (cmuxterm-hq#12109), does not take the side lane label.
+# The hand-back reads the Blacksmith switch as every owned fallback does: only `on` leaves the side lane label
+# here. Under `pr-rescue` a re-run reaches Blacksmith macOS only through the placement's dead-aware retry label
+# (cmux#44966: the plain fallback queued re-runs on a Blacksmith label with no runner online).
 FAST_TIER_REPORT_CLAUSE = (
     "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
     "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
@@ -2673,14 +2677,9 @@ FAST_TIER_REPORT_CLAUSE = (
     "&& fromJSON(vars.RUNNER_POOLS).linux_2 || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && needs.fast-tier-handback-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.fast-tier-handback-placement.outputs.runner || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && "
-    "((vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.run_attempt < 2 || github.event_name != 'pull_request' && "
-    "(github.event_name != 'workflow_dispatch' || "
-    "!contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || "
-    "inputs.same_tree_origin != '' && inputs.same_tree_origin != 'pull_request' || inputs.dev_daily == true || "
-    "inputs.tip_swift_suite == true || inputs.tip_daemon_suite == true || inputs.base_tier == true || "
-    "inputs.no_reuse == true)) "
-    "&& vars.CI_BLACKSMITH_MACOS != 'on' && "
-    "(vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) || "
+    "(vars.CI_BLACKSMITH_MACOS != 'on' && "
+    "(vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || "
+    "fromJSON(vars.RUNNER_POOLS).macos_26) || "
 )
 
 
@@ -2872,10 +2871,12 @@ class PortablePlacementBootstrapAdmission(unittest.TestCase):
         jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())["jobs"]
         bootstrap = one_runs_on(jobs["portable-placement"])
         for fleet in ("", "cmux-fleet-linux-x64", "stale-fleet-label"):
-            for attempt, overflow, expected in ((1, "", "ubuntu-24.04"),
-                                                (1, "1", "ubuntu-24.04"),
-                                                (2, "", "blacksmith-8vcpu-ubuntu-2404"),
-                                                (2, "1", "blacksmith-16vcpu-ubuntu-2404")):
+            # Blacksmith on every attempt, never GitHub-hosted Ubuntu (it left the job queued for hours, cmux#45735).
+            # A few seconds of work: the 2 vCPU size like the other placement bootstraps, overflow or not.
+            for attempt, overflow, expected in ((1, "", "blacksmith-2vcpu-ubuntu-2404"),
+                                                (1, "1", "blacksmith-2vcpu-ubuntu-2404"),
+                                                (2, "", "blacksmith-2vcpu-ubuntu-2404"),
+                                                (2, "1", "blacksmith-2vcpu-ubuntu-2404")):
                 with self.subTest(fleet=fleet, attempt=attempt, overflow=overflow):
                     context = {"github.repository_owner": "manaflow-ai",
                                "github.event_name": "pull_request",

@@ -60,10 +60,16 @@ public nonisolated struct SidebarBridgeRules: Sendable {
         case nothing
         /// On the machine the intent named, the window's machine, or the app's default.
         case onMachine, onWindow, onDefault
+        /// A Cloud machine's section (a double-click under a Cloud workspace's row, its header's "+"): a new workspace on
+        /// this Mac whose chat composer has Cloud picked, never a terminal workspace on that machine (cmux#46021). The
+        /// composer's first send starts the chat in Cloud, as New Cloud Chat does.
+        case cloudChat
     }
 
-    /// A sidebar New Workspace: `machine` says whether the intent names one and whether it has a daemon.
-    public func newWorkspace(machine: Bool?, group: Bool, localWindow: Bool, windowDaemon: Bool) -> NewWorkspace? {
+    /// A sidebar New Workspace: `machine` says whether the intent names one and whether it has a daemon;
+    /// `cloudMachine`, whether that named machine is a Cloud machine the app has (``NewWorkspace/cloudChat``).
+    public func newWorkspace(machine: Bool?, group: Bool, localWindow: Bool, windowDaemon: Bool, cloudMachine: Bool = false) -> NewWorkspace? {
+        if cloudMachine, machine == true { return .cloudChat }
         let reply = ask("new_workspace", ["machine": RuleJSON(machine), "group": .bool(group), "local_window": .bool(localWindow),
                                           "window_daemon": .bool(windowDaemon)], as: Tagged.self)
         return switch (reply?.kind, reply?.on) {
