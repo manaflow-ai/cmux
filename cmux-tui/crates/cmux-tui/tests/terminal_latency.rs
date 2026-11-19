@@ -27,6 +27,12 @@
 //!   the same terminal during it (input latency under a flood) and into
 //!   another terminal (does one flood slow the others).
 //!
+//! - `tui-echo` and `tui-burst-settle`: the same through the interactive
+//!   client (`cmux-tui` in a terminal, as a person runs it over SSH from a
+//!   phone) on a PTY: a key typed into it until the echo is on its screen,
+//!   and `seq` until its screen shows the end, with the client's write
+//!   syscalls and the bytes it printed (`CMUX_LATENCY_TUI=0` skips it).
+//!
 //! Run (ignored in the normal test run):
 //! `cargo test --release -p cmux-tui --test terminal_latency -- --ignored --nocapture`.
 //! `CMUX_LATENCY_COUNTS` (default `1,10,50`), `CMUX_LATENCY_RTTS_MS` (default
@@ -144,6 +150,253 @@ impl Daemon {
             .or_else(|| created["surface_id"].as_u64())
             .unwrap_or_else(|| panic!("run reply names no surface: {created}"))
     }
+}
+
+// ------------------------------------------------------------------- TUI --
+
+/// The TUI's PTY: the sidebar plus a terminal of about `COLS` x `ROWS`.
+const TUI_COLS: u16 = 160;
+const TUI_ROWS: u16 = 48;
+
+/// What the TUI printed, with escape sequences taken out, and when each
+/// read of it arrived.
+#[derive(Default)]
+struct Screen {
+    text: Vec<u8>,
+    /// (arrival, `text` length after that read, raw bytes so far).
+    reads: Vec<(Instant, usize, usize)>,
+    raw: Vec<u8>,
+}
+
+/// Strips escape sequences from a stream that may split them anywhere.
+#[derive(Default)]
+struct Stripper {
+    state: u8,
+}
+
+impl Stripper {
+    const TEXT: u8 = 0;
+    const ESC: u8 = 1;
+    const CSI: u8 = 2;
+    const STRING: u8 = 3;
+    const STRING_ESC: u8 = 4;
+    const CHARSET: u8 = 5;
+
+    fn feed(&mut self, bytes: &[u8], out: &mut Vec<u8>) {
+        for &byte in bytes {
+            self.state = match (self.state, byte) {
+                (Self::TEXT, 0x1b) => Self::ESC,
+                (Self::TEXT, byte) => {
+                    if byte >= 0x20 || byte == b'\n' {
+                        out.push(byte);
+                    }
+                    Self::TEXT
+                }
+                (Self::ESC, b'[') => Self::CSI,
+                (Self::ESC, b']' | b'P' | b'_' | b'^' | b'X') => Self::STRING,
+                (Self::ESC, b'(' | b')' | b'*' | b'+' | b'#' | b'%' | b' ') => Self::CHARSET,
+                (Self::ESC, _) | (Self::CHARSET, _) => Self::TEXT,
+                (Self::CSI, 0x40..=0x7e) => Self::TEXT,
+                (Self::CSI, _) => Self::CSI,
+                (Self::STRING, 0x07) => Self::TEXT,
+                (Self::STRING, 0x1b) => Self::STRING_ESC,
+                (Self::STRING, _) => Self::STRING,
+                (Self::STRING_ESC, b'\\') => Self::TEXT,
+                (Self::STRING_ESC, _) => Self::STRING,
+                _ => Self::TEXT,
+            };
+        }
+    }
+}
+
+/// The interactive client as a person runs it in a terminal (over SSH from
+/// a phone, or in any terminal app), on a PTY, attached to `daemon`.
+struct Tui {
+    child: Child,
+    master: fs::File,
+    screen: Arc<(Mutex<Screen>, Condvar)>,
+}
+
+impl Tui {
+    fn start(daemon: &Daemon) -> Self {
+        let (master, slave) = open_pty(TUI_COLS, TUI_ROWS);
+        let home = daemon.dir.join("home");
+        let child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .args(["--session", "main", "--socket"])
+            .arg(&daemon.socket)
+            .current_dir(&home)
+            .env("HOME", &home)
+            .env_remove("CMUX_BUNDLE_ID")
+            .env_remove("CMUX_TAG")
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("XDG_DATA_HOME")
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_SOCKET_PATH")
+            .env("CMUX_TUI_CONFIG", daemon.dir.join("config.json"))
+            .env("CMUX_NEXT_CONFIG_FILE", daemon.dir.join("cmux-next.json"))
+            .env("ACPMUX_SOCKET", daemon.dir.join("acpmux.sock"))
+            .env("CMUX_TUI_SHELL_INTEGRATION", "none")
+            .env("SHELL", "/bin/sh")
+            .env("TERM", "xterm-256color")
+            .env("LC_ALL", "C")
+            .env("LANG", "C")
+            .stdin(Stdio::from(slave.try_clone().unwrap()))
+            .stdout(Stdio::from(slave.try_clone().unwrap()))
+            .stderr(Stdio::from(fs::File::create(daemon.dir.join("tui-stderr.txt")).unwrap()))
+            .spawn()
+            .unwrap();
+        drop(slave);
+        let screen = Arc::new((Mutex::new(Screen::default()), Condvar::new()));
+        let mut reader = master.try_clone().unwrap();
+        let shared = screen.clone();
+        std::thread::spawn(move || {
+            let mut stripper = Stripper::default();
+            let mut buffer = vec![0u8; 1 << 16];
+            loop {
+                let count = match reader.read(&mut buffer) {
+                    Ok(0) | Err(_) => return,
+                    Ok(count) => count,
+                };
+                let now = Instant::now();
+                let (lock, cond) = &*shared;
+                let mut screen = lock.lock().unwrap();
+                let Screen { text, reads, raw } = &mut *screen;
+                stripper.feed(&buffer[..count], text);
+                raw.extend_from_slice(&buffer[..count]);
+                reads.push((now, text.len(), raw.len()));
+                drop(screen);
+                cond.notify_all();
+            }
+        });
+        Self { child, master, screen }
+    }
+
+    fn mark(&self) -> usize {
+        self.screen.0.lock().unwrap().text.len()
+    }
+
+    fn raw_len(&self) -> usize {
+        self.screen.0.lock().unwrap().raw.len()
+    }
+
+    /// When the text the TUI printed after `from` first held `needle`.
+    fn printed(&self, from: usize, needle: &[u8], within: Duration) -> Option<Instant> {
+        let (lock, cond) = &*self.screen;
+        let deadline = Instant::now() + within;
+        let mut screen = lock.lock().unwrap();
+        loop {
+            let from = from.min(screen.text.len());
+            if let Some(at) =
+                screen.text[from..].windows(needle.len()).position(|window| window == needle)
+            {
+                let end = from + at + needle.len();
+                let read = screen.reads.iter().find(|(_, len, _)| *len >= end);
+                return read.map(|(at, _, _)| *at);
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return None;
+            }
+            screen = cond.wait_timeout(screen, deadline - now).unwrap().0;
+        }
+    }
+
+    fn type_bytes(&self, bytes: &[u8]) {
+        (&self.master).write_all(bytes).unwrap();
+    }
+
+    /// Write syscalls the TUI process has made (Linux `/proc/PID/io`).
+    fn write_syscalls(&self) -> u64 {
+        fs::read_to_string(format!("/proc/{}/io", self.child.id()))
+            .ok()
+            .and_then(|io| {
+                io.lines()
+                    .find_map(|line| line.strip_prefix("syscw: "))
+                    .and_then(|value| value.trim().parse().ok())
+            })
+            .unwrap_or(0)
+    }
+}
+
+impl Drop for Tui {
+    fn drop(&mut self) {
+        // The client this test started, by its own handle.
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// A PTY pair of `cols` x `rows`: the test keeps the master.
+fn open_pty(cols: u16, rows: u16) -> (fs::File, std::os::fd::OwnedFd) {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    let mut master: libc::c_int = -1;
+    let mut slave: libc::c_int = -1;
+    let size = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
+    // SAFETY: `openpty` writes two descriptors into the out params on success.
+    let opened = unsafe {
+        libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null(), &size)
+    };
+    assert_eq!(opened, 0, "openpty: {}", std::io::Error::last_os_error());
+    for descriptor in [master, slave] {
+        // SAFETY: both descriptors are open and owned here.
+        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+        // SAFETY: as above.
+        assert_eq!(unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags | libc::FD_CLOEXEC) }, 0);
+    }
+    // SAFETY: both descriptors are fresh, owned, and valid.
+    unsafe { (fs::File::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) }
+}
+
+/// The TUI as a person uses it in a terminal: keys typed into its PTY until
+/// the echo is on its screen, and a burst until its screen settles, with the
+/// TUI's write syscalls and the bytes it printed.
+fn measure_tui(daemon: &Daemon, count: u64, keys: usize, run: &mut Run) {
+    let tui = Tui::start(daemon);
+    if tui.printed(0, b"$ ", Duration::from_secs(60)).is_none() {
+        let stderr = fs::read_to_string(daemon.dir.join("tui-stderr.txt")).unwrap_or_default();
+        eprintln!("LATENCY terminals={count} tui: no prompt on the TUI's screen; stderr: {stderr}");
+        return;
+    }
+    std::thread::sleep(Duration::from_millis(1500));
+    let mut samples = Vec::with_capacity(keys);
+    for k in 0..keys {
+        // Letters a person types; the stripped screen text holds no escape
+        // sequence that could match one early.
+        let key = b'a' + (k % 26) as u8;
+        let from = tui.mark();
+        let sent = Instant::now();
+        tui.type_bytes(&[key]);
+        match tui.printed(from, &[key], Duration::from_secs(10)) {
+            Some(at) => samples.push(ms(sent, at)),
+            None => eprintln!("LATENCY tui: key {:?} never echoed", key as char),
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    tui.type_bytes(b"\x15");
+    std::thread::sleep(Duration::from_millis(300));
+    run.add(count, 0, "tui-echo", stats(samples), json!({}));
+
+    let from = tui.mark();
+    let raw_from = tui.raw_len();
+    let writes_from = tui.write_syscalls();
+    let started = Instant::now();
+    tui.type_bytes(format!("seq 1 {BURST_LINES}; echo BURST-$((1+1))-DONE\r").as_bytes());
+    let settled = tui.printed(from, b"BURST-2-DONE", WAIT);
+    std::thread::sleep(Duration::from_millis(300));
+    let writes = tui.write_syscalls().saturating_sub(writes_from);
+    let bytes = tui.raw_len().saturating_sub(raw_from);
+    match settled {
+        Some(at) => run.add(
+            count,
+            0,
+            "tui-burst-settle",
+            stats(vec![ms(started, at)]),
+            json!({"tui_write_syscalls": writes, "tui_bytes": bytes,
+                   "bytes_per_write": bytes.checked_div(writes.max(1) as usize).unwrap_or(0)}),
+        ),
+        None => eprintln!("LATENCY tui: the burst never settled on the TUI's screen"),
+    }
+    tui.type_bytes(b"\x15");
 }
 
 // ----------------------------------------------------------- delay proxy --
@@ -526,6 +779,11 @@ fn measure_count(count: u64, rtts: &[u64], keys: usize, run: &mut Run) {
         let conn = Conn::connect(socket);
         conn.attach(surfaces[0], Some(0));
         run.add(count, *rtt, "echo", stats(echo(&conn, surfaces[0], keys)), json!({}));
+    }
+
+    // The TUI in a terminal, as over SSH from a phone.
+    if std::env::var("CMUX_LATENCY_TUI").map_or(true, |value| value != "0") {
+        measure_tui(&daemon, count, keys, run);
     }
 
     // 10K lines of scrollback in every terminal.
