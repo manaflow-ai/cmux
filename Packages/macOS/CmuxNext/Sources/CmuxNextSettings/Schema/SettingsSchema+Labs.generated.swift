@@ -17,6 +17,9 @@ extension CmuxConfigSnapshot {
     /// `labs.liveCode`: Live code (docs/cmux-next/live-code.md): an opt-in, temporary switch. On, a live code build (CMUX_LIVE_CODE_BUILD=1 scripts/reload.sh: CmuxNextApp at -Onone, linked -interposable) watches ~/Library/Caches/cmux-next/live-code and applies Swift patches compiled from the person's checkout (scripts/live-code/patch.py) with no new build. Off, nothing is watched or loaded; Debug and bench builds only until a patch's signer is checked (cmux#13742). Read at launch. The person turns it on: agents may not (it loads code into the app).
     public nonisolated static let liveCodePath = ["labs", "liveCode"]
     public nonisolated static let liveCodeDefault = false
+    /// `customize.fromTheApp`: Opt-in Customize surfaces in the window: holding Option over a big part shows the Customize Inspector (its settings, theme colors, Change This… and Reset), and the right-click menus of those parts end with Customize…. Off by default; off hides both, and nothing else changes. Leo 2026-11-15 (ask-9634dbcdac): opt-in UI needs a way back, which is turning this off.
+    public nonisolated static let customizeFromTheAppPath = ["customize", "fromTheApp"]
+    public nonisolated static let customizeFromTheAppDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -40,7 +43,7 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.voiceRoom", "Voice Room"),
-                help: SettingsText.keyed("settings.labs.voiceRoom.help", "While a room is open, cmux sends a transcript of your mic and your screen's text to it."),
+                help: SettingsText.keyed("settings.labs.voiceRoom.help", "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.voiceRoomDefault),
                 keywords: ["labs", "voice", "room", "call", "meeting", "transcribe", "screen", "record", "chief"]
@@ -60,7 +63,7 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.machineJoin", "Screen Sharing for Joined Machines"),
-                help: SettingsText.keyed("settings.labs.machineJoin.help", "Shows Screen sharing and Control in Settings > Devices once this Mac joins."),
+                help: SettingsText.keyed("settings.labs.machineJoin.help", "Shows this Mac's Screen sharing and Control switches in Settings > Devices once it has joined your machines. Both stay off until you turn them on."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.machineJoinDefault),
                 keywords: ["labs", "machine", "join", "add", "device", "line", "curl", "remote", "mesh"]
@@ -70,10 +73,20 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.liveCode", "Live Code"),
-                help: SettingsText.keyed("settings.labs.liveCode.help", "Swift changes you compile apply to the running app. Takes effect after cmux restarts."),
+                help: SettingsText.keyed("settings.labs.liveCode.help", "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.liveCodeDefault),
                 keywords: ["labs", "live", "code", "hot", "reload", "patch", "inject", "swift", "develop"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.customizeFromTheAppPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.customizeFromTheApp", "Customize From the Window"),
+                help: SettingsText.keyed("settings.labs.customizeFromTheApp.help", "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.customizeFromTheAppDefault),
+                keywords: ["customize", "inspector", "option", "hover", "right-click", "theme", "labs"]
             ),
         ]
     }

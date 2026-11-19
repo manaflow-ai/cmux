@@ -37,7 +37,8 @@ fn script(chief: fn(usize, &str) -> Option<&'static str>) -> Script {
                 json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
             ]
         };
-        if text.contains("REPORT-TASK") {
+        // The subagent's own prompt (a Chief turn names the task too, in `<open-items>`).
+        if text.contains("REPORT-TASK") && !text.contains("<open-items>") {
             return say("Landed the sidebar fix on feat-cmux-next.");
         }
         match chief(turn, &text) {
