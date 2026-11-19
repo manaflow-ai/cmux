@@ -54,7 +54,7 @@ extension WorkspaceContentController {
     /// and the remembered selection.
     func focusTopology() -> FocusTopology {
         var panes: [FocusTopology.Pane] = []
-        for id in layoutModel.screens.flatMap(\.layout.panes) {
+        for id in layoutModel.screens.flatMap(\.panes) {
             if let controller = self.panes[id] {
                 panes.append(controller.focusPane)
                 continue
@@ -89,7 +89,7 @@ extension WorkspaceContentController {
 
     /// Focuses the most recently focused pane of `screen`, else its first.
     func focusRememberedPane(on screen: LayoutScreenID) {
-        guard let panes = layoutModel.screens.first(where: { $0.id == screen })?.layout.panes,
+        guard let panes = layoutModel.screens.first(where: { $0.id == screen })?.panes,
               let pane = FocusNavigation.mostRecent(panes, recency: recentPanes) ?? panes.first else { return }
         // Keep the layout model's shown screen and pane in sync immediately.
         // The focus coordinator may not have this newly mirrored pane in its

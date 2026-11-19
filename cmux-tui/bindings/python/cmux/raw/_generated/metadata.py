@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362'
+IR_SHA256 = '2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226'
 
 
 @dataclass(frozen=True)
@@ -892,6 +892,41 @@ COMMANDS = {
         'local-admin',
         12,
         'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'computer-use-approvals': CommandMetadata(
+        'computer-use-approvals',
+        'local-admin',
+        12,
+        'computer-use-v1',
+        ('local-admin',),
+        None,
+        {
+            'action': CommandFieldMetadata(None, None),
+            'answer': CommandFieldMetadata(None, None),
+            'app_id': CommandFieldMetadata(None, None),
+            'id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'computer-use-config': CommandMetadata(
+        'computer-use-config',
+        'local-admin',
+        12,
+        'computer-use-v1',
+        ('local-admin',),
+        None,
+        {
+            'config': CommandFieldMetadata(None, None),
+        },
+    ),
+    'computer-use-endpoint': CommandMetadata(
+        'computer-use-endpoint',
+        'local-admin',
+        12,
+        'computer-use-v1',
         ('local-admin',),
         None,
         {
@@ -2670,6 +2705,22 @@ COMMANDS = {
             'transport': CommandFieldMetadata(None, None),
         },
     ),
+    'quick-terminal': CommandMetadata(
+        'quick-terminal',
+        'control',
+        12,
+        'quick-terminal-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'h': CommandFieldMetadata(None, None),
+            'mode': CommandFieldMetadata(None, None),
+            'screen': CommandFieldMetadata(None, None),
+            'w': CommandFieldMetadata(None, None),
+            'x': CommandFieldMetadata(None, None),
+            'y': CommandFieldMetadata(None, None),
+        },
+    ),
     'read-screen': CommandMetadata(
         'read-screen',
         'control',
@@ -2786,6 +2837,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'app_permissions': CommandFieldMetadata(None, None),
             'computer_use': CommandFieldMetadata(None, None),
             'headless': CommandFieldMetadata(None, None),
             'screen_sharing': CommandFieldMetadata(None, None),

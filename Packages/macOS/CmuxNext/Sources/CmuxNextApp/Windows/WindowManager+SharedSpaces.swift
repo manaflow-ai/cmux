@@ -41,12 +41,12 @@ extension WindowManager {
         return sharedWorkspaces(in: profile, for: id, registry: registry, cache: &cache)
     }
 
-    /// Sets every window's guests for the space it shows now (one window: no guests, and nothing is read).
+    /// Sets every window's guests for the space it shows now (one window: no guests, and nothing is read; a window a Move Space took from: none, `gatherSources`).
     func shareSpaces(_ registry: inout WindowRegistry) {
         let sharing = registry.windows.filter { sharesSpaces($0.id, in: registry) }
         var cache: [String: [String]] = [:] // each owner window's list is filtered once per space, not once per viewer
         for window in registry.windows {
-            let guests = sharing.count > 1 ? states[window.id].map { sharedWorkspaces(in: $0.profileID, for: window.id, registry: registry, cache: &cache) } ?? [] : []
+            let guests = sharing.count > 1 && !self.registry.gatherSources.contains(window.id) ? states[window.id].map { sharedWorkspaces(in: $0.profileID, for: window.id, registry: registry, cache: &cache) } ?? [] : []
             guard !guests.isEmpty || !window.guests.isEmpty else { continue }
             registry.setGuests(guests, of: window.id)
         }

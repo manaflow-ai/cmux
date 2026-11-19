@@ -12,7 +12,7 @@ extension ClassicImportPreview {
 
     /// The prompt; `atLaunch`, the launch's own ask: it says where the import waits and its Cancel reads Not Now.
     public func dialogSpec(atLaunch: Bool) -> CmuxDialogSpec {
-        CmuxDialogSpec(
+        CmuxDialogSpec(usesTransientMaterial: true,
             title: ClassicImportPreviewStrings.title,
             lines: promptLines(atLaunch: atLaunch),
             buttons: [

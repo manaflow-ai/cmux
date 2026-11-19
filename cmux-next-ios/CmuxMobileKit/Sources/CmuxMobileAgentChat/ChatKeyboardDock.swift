@@ -204,6 +204,18 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         if placement == .external { externalMetricsChanged() }
     }
 
+    /// The Mac's chat look (``CmuxMobileChatLook``), or nil for the stock chat: the transcript is
+    /// clear over the chat's backdrop (`CmuxMobileChatBackdrop`, which the host draws behind it),
+    /// its rows take the theme's light or dark style and the top fade its ground.
+    func applyChatLook(_ look: CmuxMobileChatLook?) {
+        loadViewIfNeeded()
+        let background: UIColor = look == nil ? .cmuxMobileBackground : .clear
+        if scrollView.backgroundColor != background { scrollView.backgroundColor = background }
+        let style = look?.interfaceStyle ?? .unspecified
+        if overrideUserInterfaceStyle != style { overrideUserInterfaceStyle = style }
+        topFade.ground = look?.groundColor
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
@@ -394,6 +406,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             view.layoutIfNeeded()
             return
         }
+        // A stack not measured yet rests from the page's bottom: placed again at the page's size.
+        if placement == .external, externalRest == nil { externalMetricsChanged() }
         let top = headerBottom
         if openAreaTop?.constant != top { openAreaTop?.constant = top }
         updateStackCeiling(headerBottom: top)
@@ -645,12 +659,25 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         UIView.performWithoutAnimation { updateInsets() }
     }
 
+    /// In a window and drawn at the size it is laid out at: no zoom or card scale on it or an
+    /// ancestor, so a window point converts into it as it will once the page rests.
+    private var isDrawnAtOwnSize: Bool {
+        guard let window = view.window, view.bounds.width > 0, view.bounds.height > 0 else { return false }
+        let drawn = view.convert(view.bounds, to: window)
+        return abs(drawn.width - view.bounds.width) < 0.5 && abs(drawn.height - view.bounds.height) < 0.5
+    }
+
     /// The external stack's height and resting bottom from the surface.
     private func externalMetricsChanged() {
         guard placement == .external, isViewLoaded else { return }
         // The stack's bottom is reported in screen space; with the keyboard
         // down it is the resting place (TabsKit puts it above its toolbar).
-        if let maxY = surface.stackMaxY, !surface.composerFocused, view.window != nil {
+        // Measured only while the page is drawn at its own size. In the tab grid and during the
+        // zoom that opens a card, TabsKit draws the page scaled down, and the stack's bottom (a
+        // window point from when the page was last shown) converted into the scaled page lands
+        // far below it: 1,485 for 776 on an iPhone 17 Pro, which dropped the newest turn 146 pt
+        // under the card's place until the zoom landed and the page measured again (cmux#45442).
+        if let maxY = surface.stackMaxY, !surface.composerFocused, isDrawnAtOwnSize {
             let rest = view.convert(CGPoint(x: 0, y: maxY), from: nil).y
             if externalRest != rest {
                 externalRest = rest
@@ -658,10 +685,27 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                 externalRestBottomMax?.constant = rest
                 view.setNeedsLayout()
             }
+            // The resting stack the tab's grid card is drawn with, and any tab not measured yet.
+            if let height = surface.stackHeight, height > 0, view.bounds.height > 0 {
+                let resting = ChatRestingStack(height: height, bottomGap: view.bounds.height - rest)
+                if surface.restingStack != resting { surface.restingStack = resting }
+                AgentChatSurface.lastRestingStack = resting
+            }
         } else if externalRest == nil {
-            let rest = view.bounds.height - 72 - Self.dockGap
-            externalRestBottom?.constant = rest
-            externalRestBottomMax?.constant = rest
+            // Not measured yet (the page is built under the zoom that opens it, before TabsKit
+            // shows its composer): placed as its card was (`AgentChatSurface.placementStack`),
+            // so the card opens into the page without a jump.
+            let stack = surface.placementStack
+            let rest = view.bounds.height - stack.bottomGap
+            if externalRestBottom?.constant != rest {
+                externalRestBottom?.constant = rest
+                externalRestBottomMax?.constant = rest
+                view.setNeedsLayout()
+            }
+            if surface.drawnStackHeight == nil, abs(stackHeight - stack.height) > 0.01 {
+                stackHeight = stack.height
+                dockHeightConstraint?.constant = stack.height
+            }
         }
     }
 
@@ -1085,6 +1129,8 @@ struct ChatTranscriptRepresentable: UIViewControllerRepresentable {
         configureRows(controller.rowContext)
         // Read here so SwiftUI calls update when the chat's Text and Width change.
         controller.applyDisplay(ChatDisplayPreferences.shared.settings(for: store.summary))
+        // Read here so SwiftUI calls update when the Mac's chat look changes.
+        controller.applyChatLook(CmuxMobileMacTheme.shared.chatLook)
     }
 }
 
@@ -1181,8 +1227,13 @@ private final class TopFadeView: UIView {
         gradient.locations = [0, NSNumber(value: Double(solid)), 1]
     }
 
+    /// The chat look's ground while the chat follows the Mac (``CmuxMobileChatLook/groundColor``).
+    var ground: UIColor? {
+        didSet { if ground != oldValue { updateColors() } }
+    }
+
     private func updateColors() {
-        let color = UIColor(Color.cmuxMobileBackground).resolvedColor(with: traitCollection)
+        let color = (ground ?? UIColor(Color.cmuxMobileBackground)).resolvedColor(with: traitCollection)
         gradient.colors = [color.cgColor, color.cgColor, color.withAlphaComponent(0).cgColor]
     }
 }
