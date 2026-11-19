@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use crate::listing_patch::Patch;
 use crate::lower::Ext;
 use crate::wire::{self, Ask, Part};
-use crate::{Fetch, FetchError};
+use crate::{Fetch, FetchError, Fetched};
 
 /// How long an ask waits for the Mac to come back by default (RFD 0007: a reconnect usually lands
 /// inside it).
@@ -291,17 +291,41 @@ fn part_result(part: Option<Part>) -> Result<Vec<u8>, FetchError> {
     }
 }
 
+fn part_fresh(part: Option<Part>) -> Result<Fetched, FetchError> {
+    if let Some((stat, bytes)) = part.as_ref().and_then(Part::restat) {
+        return Ok(Fetched::Restated(stat, bytes.to_vec()));
+    }
+    part_result(part).map(Fetched::Same)
+}
+
 impl Fetch for Link {
     fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
-        let parts = self.ask(&|ask| Ask::Read { ask, entry, offset, len })?;
-        part_result(parts.into_iter().next())
+        match self.read_fresh(entry, offset, len)? {
+            Fetched::Same(bytes) => Ok(bytes),
+            Fetched::Restated(..) => Err(FetchError::Changed),
+        }
     }
 
     fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
+        self.batch_fresh(entries)
+            .into_iter()
+            .map(|answer| match answer? {
+                Fetched::Same(bytes) => Ok(bytes),
+                Fetched::Restated(..) => Err(FetchError::Changed),
+            })
+            .collect()
+    }
+
+    fn read_fresh(&self, entry: u32, offset: u64, len: u32) -> Result<Fetched, FetchError> {
+        let parts = self.ask(&|ask| Ask::Read { ask, entry, offset, len })?;
+        part_fresh(parts.into_iter().next())
+    }
+
+    fn batch_fresh(&self, entries: &[u32]) -> Vec<Result<Fetched, FetchError>> {
         match self.ask(&|ask| Ask::Batch { ask, entries: entries.to_vec() }) {
             Ok(parts) => {
                 let mut parts = parts.into_iter();
-                entries.iter().map(|_| part_result(parts.next())).collect()
+                entries.iter().map(|_| part_fresh(parts.next())).collect()
             }
             Err(error) => entries.iter().map(|_| Err(error)).collect(),
         }
@@ -336,13 +360,23 @@ pub fn answer_asks_packed(
 
 /// The parts that answer `ask`.
 fn answer_of(source: &(dyn Source + Sync), ask: &Ask) -> Vec<Part> {
-    match ask {
+    let mut parts = match ask {
         Ask::Read { entry, offset, len, .. } => vec![source.read(*entry, *offset, *len)],
         Ask::Batch { entries, .. } => entries.iter().map(|entry| source.whole(*entry)).collect(),
         Ask::Ping { .. } => Vec::new(),
         Ask::Stored { since, .. } => source.stored(*since),
         Ask::Listing { since, .. } => vec![source.listing(*since)],
+    };
+    // A file re-listed after a change may have grown past what one answer carries: such a part
+    // keeps only its stat, and the machine asks for its bytes again.
+    let mut total = 0u64;
+    for part in &mut parts {
+        if total + part.bytes.len() as u64 > wire::MAX_ANSWER {
+            part.keep_stat_only();
+        }
+        total += part.bytes.len() as u64;
     }
+    parts
 }
 
 /// Reads asks on this thread and answers them on [`ANSWER_WORKERS`] others, each answer written
@@ -413,9 +447,11 @@ fn answer_asks_as(
 
 /// What the Mac serves a projection's bytes from.
 pub trait Source {
-    /// `len` bytes of file `entry` at `offset` (fewer at its end).
+    /// `len` bytes of file `entry` at `offset` (fewer at its end). A file that changed since the
+    /// manifest is re-listed and answered [`wire::RESTATED`] ([`Part::restated`]): its stat now,
+    /// then the range as it is now.
     fn read(&self, entry: u32, offset: u64, len: u32) -> Part;
-    /// All of file `entry` (a batch asks only for small files).
+    /// All of file `entry` (a batch asks only for small files), [`wire::RESTATED`] as for `read`.
     fn whole(&self, entry: u32) -> Part;
     /// The answer to [`Ask::Stored`]: an epoch part (`u64`) and one part per file put in the store
     /// from the `since`-th on (`entry u32` and its blob id). None when this Mac puts nothing in a
