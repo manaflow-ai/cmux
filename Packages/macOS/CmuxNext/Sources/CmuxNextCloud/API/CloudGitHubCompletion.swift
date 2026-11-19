@@ -77,7 +77,7 @@ import os
         attempts[connection] = Array(([attempt] + kept).prefix(Self.statesPerConnection))
     }
 
-    /// The unexpired attempts recorded for `connection`, newest first, reserved until ``end(connection:finished:spent:)``;
+    /// The unexpired attempts recorded for `connection`, newest first, reserved until ``end(connection:finished:)``;
     /// nil when none was recorded (an unsolicited link) or a completion for it is already running.
     public func begin(connection: String, now: Date) -> [Attempt]? {
         prune(now)
@@ -87,11 +87,11 @@ import os
     }
 
     /// Ends the completion ``begin(connection:now:)`` reserved: a finished connection forgets every attempt (single use);
-    /// otherwise only the `spent` ones (the API refused them) go, and the rest stay for the link to be opened again.
-    public func end(connection: String, finished: Bool, spent: [Attempt]) {
+    /// any other outcome keeps them until their state expires. A refusal is never taken as spent: a link with a made-up
+    /// handoff value for a connection this app started is refused too, and must not cost the person their real attempt.
+    public func end(connection: String, finished: Bool) {
         running.remove(connection)
-        let left = finished ? [] : (attempts[connection] ?? []).filter { !spent.contains($0) }
-        attempts[connection] = left.isEmpty ? nil : left
+        if finished { attempts[connection] = nil }
     }
 
     private var running: Set<String> = []
@@ -192,9 +192,8 @@ extension CloudGitHubCompletion {
         // task-owner: fire and forget; one completion per link, reserved in `attempts` until it ends.
         Task { @MainActor in
             await auth.awaitRestored()
-            guard auth.isSignedIn else { return attempts.end(connection: completion.connection, finished: false, spent: []) }
+            guard auth.isSignedIn else { return attempts.end(connection: completion.connection, finished: false) }
             let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
-            var spent: [CloudGitHubAttempts.Attempt] = []
             var finished = false
             for attempt in candidates {
                 let team = team(ofState: attempt.state)
@@ -202,9 +201,8 @@ extension CloudGitHubCompletion {
                 logger.notice("github completion: \(String(describing: answer), privacy: .public)")
                 if answer == .connected { finished = true; break }
                 if answer == .noAnswer { break }
-                spent.append(attempt)
             }
-            attempts.end(connection: completion.connection, finished: finished, spent: spent)
+            attempts.end(connection: completion.connection, finished: finished)
             if finished { auth.gitHubChanges.count += 1 }
         }
         return true

@@ -18,7 +18,7 @@ import * as ghTokens from "./integrations/github-tokens.ts"
 import { createConfigurePageTable, githubConnectTarget, installationConfigureUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, listeners, removeListener, type IntegrationChangedFrame } from "./integrations/github-push.ts"
 import { github, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
-import { attemptHashOf, createHandoffTables, dropHandoff, markStateUsed, pruneHandoffs, readHandoff, stashHandoff, stateUsed, type CompletionState, type HandoffAnswer, type HandoffReply } from "./integrations/handoff.ts"
+import { activationOf, attemptHashOf, createHandoffTables, recordActivation, dropHandoff, markStateUsed, pruneHandoffs, readHandoff, stashHandoff, stateUsed, type CompletionState, type HandoffAnswer, type HandoffReply } from "./integrations/handoff.ts"
 import { STATE_TTL_SECONDS } from "./integrations/state.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
@@ -404,7 +404,9 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     if (c.status === "revoked") return "this connection was revoked"
     // Expired, or past its lifetime with the expiry alarm not yet run: refuse before calling the provider.
     if (c.status === "expired" || (c.status === "pending" && now >= c.created_at + PENDING_CONNECTION_TTL_MS)) return "the connection link expired; start again from Connect"
-    if (c.status !== "pending" && (st.issued_at + 1) * 1000 <= c.updated_at) return "this connection is already connected; start again from Connect to change it"
+    // Activated after this state was signed (a connection activated before activation times were kept: its last update).
+    const activatedAt = activationOf(this.ctx.storage.sql, c.id) ?? c.updated_at
+    if (c.status !== "pending" && (st.issued_at + 1) * 1000 <= activatedAt) return "this connection is already connected; start again from Connect to change it"
     return undefined
   }
 
@@ -468,8 +470,13 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
         scopes_requested: scopesToRequest(this.env, impl, c.scopes_requested)
       })
     } catch (e) {
-      // A retryable failure (the provider was unavailable) may run again with the same state; anything else spent it.
-      if (e instanceof ProviderError && e.retryable && e.code !== "mutation.indeterminate") used.release()
+      // A retryable failure (the provider was unavailable) may run again with the same state, and so may a failure that
+      // is not the provider's answer at all (a network error): the state and its hand-off stay. A provider refusal spent it.
+      if (!(e instanceof ProviderError)) {
+        used.release()
+        throw new ProviderError("provider.error", "the provider could not be reached; try again", true)
+      }
+      if (e.retryable && e.code !== "mutation.indeterminate") used.release()
       else dropHandoff(sql, stateHash)
       throw e
     }
@@ -504,6 +511,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       throw new ProviderError("integration.state_invalid", rej.message)
     }
     const active = this.boundEngine!.currentState.connections[c.id]!
+    recordActivation(this.ctx.storage.sql, c.id, Date.now())
     // Gmail push for new-mail triggers (G3); a failure here retries from the alarm, never fails the link.
     await startWatchSafely(this.watchHost(), active, Date.now())
     this.scheduleAlarm()

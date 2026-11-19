@@ -7,7 +7,7 @@ import { aadFor, open, seal } from "../src/integrations/crypto.ts"
 import { github, installationToken, linear, slack, type Http } from "../src/integrations/providers.ts"
 import { GITHUB_CONFIGURE_URL } from "../src/integrations/github-connect.ts"
 import { CONNECT_RETURN_TO } from "@cmux/protocol"
-import { connectAsk, INTEGRATION_HANDOFF_PATH } from "../src/integrations/handoff.ts"
+import { connectAsk, handleIntegrationHandoff, HANDOFF_MAX_BODY_BYTES, INTEGRATION_HANDOFF_PATH } from "../src/integrations/handoff.ts"
 import { CONFIGURE_URL_PATTERN, integrationConfigureLink, integrationReturnLink, RETURN_TO_PATTERN } from "../../dashboard/src/lib/integration-callback.ts"
 
 const testEnv = env as unknown as Record<string, any>
@@ -557,6 +557,43 @@ describe("connections end to end (workerd)", () => {
       expect((await op(me.token, "integration.complete", { state: mine.state, handoff: myHandoff, attempt: theirs.attempt })).json.error.code).toBe("integration.state_invalid")
     })
 
+    it("the handoff route bounds its body and its rate per team before taking anything", async () => {
+      const { token } = await signedIn("conn-gh-app-limits")
+      const { state } = await start(token)
+      const big = await worker.fetch(`https://api.test${INTEGRATION_HANDOFF_PATH}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ state, code: "c".repeat(HANDOFF_MAX_BODY_BYTES) }) })
+      expect(big.status).toBe(413)
+      // A body larger than declared (or with no declared length) is still cut off at the cap.
+      const streamed = new Request(`https://api.test${INTEGRATION_HANDOFF_PATH}`, { method: "POST", body: new Blob(["x".repeat(HANDOFF_MAX_BODY_BYTES + 1)]).stream(), duplex: "half" } as RequestInit)
+      expect((await handleIntegrationHandoff(streamed, testEnv as any)).status).toBe(413)
+      // Over the per-team limit: refused as retryable, and nothing is kept.
+      const limited = Object.assign(Object.create(testEnv), { INTEGRATION_HANDOFF_LIMIT: { limit: async ({ key }: { key: string }) => ({ success: !key.startsWith("team:") }) } })
+      const req = new Request(`https://api.test${INTEGRATION_HANDOFF_PATH}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ state, code: "c" }) })
+      const answer = await handleIntegrationHandoff(req, limited as any)
+      expect(answer.status).toBe(429)
+      expect(await answer.json()).toMatchObject({ ok: false, error: { code: "integration.rate_limited", retryable: true } })
+      expect((await handOff({ state, code: "c" })).json.ok).toBe(true)
+    })
+
+    it("a network failure at the provider keeps the state and its hand-off for a retry", async () => {
+      const { token, team } = await signedIn("conn-gh-app-network")
+      const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
+      let down = true
+      const good = githubAs("c")
+      await inDO(connections, async (instance) => {
+        instance.http = async (req: Request) => {
+          if (down) throw new TypeError("network connection lost")
+          return good.http(req)
+        }
+      })
+      const { attempt, state } = await start(token)
+      const handoff = (await handOff({ state, code: "c", installation_id: "55" })).json.value.handoff as string
+      const failed = await op(token, "integration.complete", { state, handoff, attempt })
+      expect(failed.json).toMatchObject({ ok: false, error: { code: "provider.error", retryable: true } })
+      down = false
+      const done = await op(token, "integration.complete", { state, handoff, attempt }, failed.json.idempotency_key)
+      expect(done.json).toMatchObject({ ok: true, value: { status: "active" } })
+    })
+
     it("the handoff route refuses a state that is not an app attempt, altered, or naming another installation", async () => {
       const { token } = await signedIn("conn-gh-app-route")
       const plain = await op(token, "integration.connect", { provider: "github" })
@@ -614,6 +651,20 @@ describe("connections end to end (workerd)", () => {
     const stale = await op(token, "integration.complete", { state: older, code: "c2" })
     expect(stale.json).toMatchObject({ ok: false, error: { code: "integration.state_invalid" } })
     expect(stale.json.error.message).toMatch(/already connected/)
+    // The check reads when the connection turned active, not its last update: a later status change (the stored
+    // activation time stays) does not make a state signed after activation look stale.
+    await inDO(connections, async (_i, s) => {
+      s.storage.sql.exec("UPDATE integration_activations SET activated_at = ? WHERE conn = ?", Date.now() - 10 * 60_000, conn)
+    })
+    const between = await new SignJWT({ conn, team, provider: "slack" })
+      .setProtectedHeader({ alg: "ES256", typ: "JWT" })
+      .setIssuer(`https://cmux-api/${testEnv.ENVIRONMENT}`)
+      .setAudience("cmux-integration-state")
+      .setSubject(user)
+      .setIssuedAt(Math.floor(Date.now() / 1000) - 5 * 60)
+      .setExpirationTime("10m")
+      .sign(key)
+    expect((await op(token, "integration.complete", { state: between, code: "c3" })).json).toMatchObject({ ok: true, value: { status: "active" } })
   })
 
   it("GitHub Connect refuses a return link that is not a cmux chat link, and repo on another provider", async () => {

@@ -241,13 +241,14 @@ struct CloudGitHubReposTests {
         let first = try #require(attempts.begin(connection: conn, now: now))
         #expect(first.map(\.expires.timeIntervalSince1970) == [4_000_000_700, 4_000_000_600])
         #expect(first.allSatisfy { $0.secret == secret })
-        // One completion at a time; no answer keeps both; a refused one goes; a finished connection forgets the rest.
+        // One completion at a time. No answer, or a refusal (a made-up handoff value for this connection is refused
+        // too), keeps every attempt; only a finished connection forgets them.
         #expect(attempts.begin(connection: conn, now: now) == nil)
-        attempts.end(connection: conn, finished: false, spent: [])
-        let again = try #require(attempts.begin(connection: conn, now: now))
-        attempts.end(connection: conn, finished: false, spent: [again[0]])
-        #expect(try #require(attempts.begin(connection: conn, now: now)).count == 1)
-        attempts.end(connection: conn, finished: true, spent: [])
+        attempts.end(connection: conn, finished: false)
+        #expect(try #require(attempts.begin(connection: conn, now: now)).count == 2)
+        attempts.end(connection: conn, finished: false)
+        #expect(try #require(attempts.begin(connection: conn, now: now)).count == 2)
+        attempts.end(connection: conn, finished: true)
         #expect(attempts.begin(connection: conn, now: now) == nil)
         // The hash is base64url SHA-256 without padding, the API's attempt_hash form.
         #expect(CloudGitHubAttempts.hash("abc") == "ungWv48Bz-pBQUDeXa4iI7ADYaOWF3qctBD_YfIAFa0")

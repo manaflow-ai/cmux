@@ -63,6 +63,7 @@ interface Stashed extends HandoffAnswer {
 export const createHandoffTables = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS integration_handoffs (state_hash TEXT PRIMARY KEY, conn TEXT NOT NULL, answer_hash TEXT NOT NULL, sealed TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
   sql.exec(`CREATE TABLE IF NOT EXISTS integration_states_used (state_hash TEXT PRIMARY KEY, conn TEXT NOT NULL, used_at INTEGER NOT NULL)`)
+  sql.exec(`CREATE TABLE IF NOT EXISTS integration_activations (conn TEXT PRIMARY KEY, activated_at INTEGER NOT NULL)`)
 }
 
 /** Forgets handed-over answers past their state's lifetime, and used states once no signature on them could still verify. */
@@ -70,6 +71,13 @@ export const pruneHandoffs = (sql: SqlStorage, now: number) => {
   sql.exec(`DELETE FROM integration_handoffs WHERE expires_at < ?`, now)
   sql.exec(`DELETE FROM integration_states_used WHERE used_at < ?`, now - 2 * STATE_TTL_SECONDS * 1000)
 }
+
+/** When each connection last turned active through a completion: a state signed before then cannot finish it again. */
+export const recordActivation = (sql: SqlStorage, conn: string, at: number) =>
+  void sql.exec(`INSERT INTO integration_activations (conn, activated_at) VALUES (?, ?) ON CONFLICT (conn) DO UPDATE SET activated_at = excluded.activated_at`, conn, at)
+
+export const activationOf = (sql: SqlStorage, conn: string): number | undefined =>
+  sql.exec<{ activated_at: number }>(`SELECT activated_at FROM integration_activations WHERE conn = ?`, conn).toArray()[0]?.activated_at
 
 export const stateUsed = (sql: SqlStorage, stateHash: string): boolean =>
   sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM integration_states_used WHERE state_hash = ?`, stateHash).toArray()[0]!.n > 0
@@ -125,6 +133,34 @@ export type HandoffReply = { ok: true; handoff: string } | { ok: false; code: st
 const str = (v: unknown, max: number, pattern?: RegExp): string | undefined | null =>
   v === undefined ? undefined : typeof v === "string" && v.length > 0 && v.length <= max && (!pattern || pattern.test(v)) ? v : null
 
+/** The largest hand-off body: a state (at most 4000 characters) and the provider's short answer, with room to spare. */
+export const HANDOFF_MAX_BODY_BYTES = 8 * 1024
+
+/** The body as text when it is at most `max` bytes; undefined when more arrives (read stops there). */
+const readCapped = async (request: Request, max: number): Promise<string | undefined> => {
+  if (!request.body) return ""
+  const reader = request.body.getReader()
+  const chunks: Array<Uint8Array> = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > max) {
+      await reader.cancel().catch(() => undefined)
+      return undefined
+    }
+    chunks.push(value)
+  }
+  const all = new Uint8Array(size)
+  let at = 0
+  for (const c of chunks) {
+    all.set(c, at)
+    at += c.byteLength
+  }
+  return new TextDecoder().decode(all)
+}
+
 const refuse = (status: number, code: string, message: string) => Response.json({ ok: false, error: { code, message, retryable: false } }, { status, headers: { "cache-control": "no-store" } })
 
 /**
@@ -135,7 +171,18 @@ const refuse = (status: number, code: string, message: string) => Response.json(
  */
 export const handleIntegrationHandoff = async (request: Request, env: Env): Promise<Response> => {
   if (request.method !== "POST") return refuse(405, "validation.invalid", "POST only")
-  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
+  // No session here: bound the body before reading it (a declared length first, then what actually arrives).
+  const declared = Number(request.headers.get("content-length") ?? "0")
+  if (!Number.isFinite(declared) || declared > HANDOFF_MAX_BODY_BYTES) return refuse(413, "validation.invalid", "the request body is too large")
+  const raw = await readCapped(request, HANDOFF_MAX_BODY_BYTES)
+  if (raw === undefined) return refuse(413, "validation.invalid", "the request body is too large")
+  const body = (() => {
+    try {
+      return JSON.parse(raw) as Record<string, unknown> | null
+    } catch {
+      return null
+    }
+  })()
   if (!body || typeof body !== "object") return refuse(400, "validation.invalid", "a JSON body is required")
   const state = str(body.state, 4000)
   const code = str(body.code, 2000)
@@ -150,6 +197,12 @@ export const handleIntegrationHandoff = async (request: Request, env: Env): Prom
   if (env.ENVIRONMENT === "production" && isDevReturnTo(st.return_to)) return invalid("a development build cannot finish a production connection")
   if (st.installation !== undefined && installation !== undefined && installation !== String(st.installation)) return invalid("the redirect names another GitHub installation than this connection attempt")
   if (!env.INTEGRATIONS_KEK) return refuse(400, "integration.not_configured", "integrations are not configured on this deployment")
+  // Per team the verified state names: every hand-off arrives from the console's servers, so a client IP would put
+  // every person behind one key. Only a state the API signed reaches this point.
+  const limit = env.INTEGRATION_HANDOFF_LIMIT
+  if (limit && !(await limit.limit({ key: `team:${st.team}` })).success) {
+    return Response.json({ ok: false, error: { code: "integration.rate_limited", message: "too many connection hand-offs; retry in a minute", retryable: true } }, { status: 429, headers: { "retry-after": "60", "cache-control": "no-store" } })
+  }
   const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(st.team))
   let reply: HandoffReply
   try {

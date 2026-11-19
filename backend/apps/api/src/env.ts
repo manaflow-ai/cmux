@@ -54,6 +54,8 @@ export interface Env {
   readonly SSO_DISCOVER_LIMIT?: RateLimit
   /** GET /v1/cloud/keyset per client IP (namespaces 1161-1163). */
   readonly CLOUD_KEYSET_LIMIT?: RateLimit
+  /** POST /v1/integrations/handoff per team the verified state names (namespaces 1221-1223, 30 per minute; integrations/handoff.ts). */
+  readonly INTEGRATION_HANDOFF_LIMIT?: RateLimit
   /** POST /v1/wire/ticket per user (namespaces 1191-1193, 60 per minute; wire-ticket.ts). */
   readonly WIRE_TICKET_LIMIT?: RateLimit
   /** Pending cmux server pairings, one object per code (plans/cmux-next/server.md 6.2). */
