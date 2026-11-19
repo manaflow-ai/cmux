@@ -13,6 +13,8 @@ const REORDER_GRACE_US: u64 = 100_000;
 struct Sent {
     seq: u16,
     arrived: bool,
+    /// Never sent after all (`forget`): settles as neither received nor lost.
+    retired: bool,
     settle_due_us: Option<u64>,
 }
 
@@ -41,9 +43,19 @@ impl LossMeter {
     pub fn on_sent(&mut self, seq: u16) {
         self.ordinals.insert(seq, self.next_ordinal);
         self.next_ordinal += 1;
-        self.order.push_back(Sent { seq, arrived: false, settle_due_us: None });
+        self.order.push_back(Sent { seq, arrived: false, retired: false, settle_due_us: None });
         while self.order.len() > MAX_TRACKED {
             self.pop_front(); // Eviction is unknown evidence, not network loss.
+        }
+    }
+
+    /// A datagram recorded by `on_sent` was dropped before it left (a pacer
+    /// queue emptied after an outage, D12): its missing receipt is not loss.
+    pub fn forget(&mut self, seq: u16) {
+        let first_ordinal = self.next_ordinal - self.order.len() as u64;
+        let Some(ordinal) = self.ordinals.remove(&seq) else { return };
+        if let Some(packet) = self.order.get_mut((ordinal - first_ordinal) as usize) {
+            packet.retired = true;
         }
     }
 
@@ -105,6 +117,9 @@ impl LossMeter {
         let (mut received, mut lost) = (0u64, 0u64);
         while self.order.front().is_some_and(|p| p.settle_due_us.is_some_and(|due| now_us >= due)) {
             let Some(packet) = self.pop_front() else { break };
+            if packet.retired {
+                continue;
+            }
             if packet.arrived {
                 received += 1;
             } else {
@@ -138,6 +153,18 @@ mod tests {
         assert_eq!(m.on_arrivals(5..10, REORDER_GRACE_US), None);
         assert_eq!(m.on_arrivals([], 2 * REORDER_GRACE_US), Some(0.0));
         assert_eq!(m.on_arrivals([], 3 * REORDER_GRACE_US), None);
+    }
+
+    #[test]
+    fn a_forgotten_datagram_is_not_loss() {
+        let mut m = sent(10);
+        for seq in 3..7 {
+            m.forget(seq);
+        }
+        assert_eq!(m.on_arrivals([0, 1, 2, 7, 8, 9], 0), None);
+        assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0));
+        assert_eq!(m.take_congestion_loss(0), None, "six settled, too few for a sample");
+        m.forget(42); // unknown: ignored
     }
 
     #[test]
