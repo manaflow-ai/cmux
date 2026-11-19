@@ -139,7 +139,7 @@ enum CloudHandlers {
 
     /// Whether a machine change goes: a person's own run yes; an agent's or a script's once the person allows it (CloudChangeRequest, naming the machine and what was asked; `shown` gets its dialog's id).
     static func allows(_ id: ActionID, _ invocation: ActionInvocation, _ registry: ActionRegistry, _ context: AppActionContext, shown: (@MainActor (Int) -> Void)? = nil) -> @MainActor () async -> Bool {
-        CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, asked: invocation.arguments.compactMapValues { $0.stringValue ?? $0.intValue.map(String.init) }).asking(registry.descriptor(for: id)?.title ?? id.rawValue, person: origin(of: invocation) == .user, in: { context.services.windows.active?.window }, shown: shown)
+        CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, arguments: invocation.arguments).asking(registry.descriptor(for: id)?.title ?? id.rawValue, person: origin(of: invocation) == .user, in: { context.services.windows.active?.window }, shown: shown)
     }
 
     /// The origin of a connect an invocation starts: `user` only for the

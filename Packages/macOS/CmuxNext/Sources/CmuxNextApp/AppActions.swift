@@ -120,6 +120,7 @@ enum AppActions {
         AgentConfigurationHandlers.bind(into: registry, context: context)
         AgentChatKeyHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
+        DaemonStartupWait(daemon: services.daemon).bind(into: registry)
         AccountsHandlers.bind(into: registry, context: context)
         ProfileMenuHandlers.bind(into: registry, context: context)
         RemoteHandlers.bind(into: registry, context: context)
