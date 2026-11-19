@@ -14,16 +14,16 @@ impl Drop for Home {
     }
 }
 
-/// A store of 4 KiB segments holding chat `id` with `records` records of ~400 bytes each.
+/// A store of 64 KiB segments (its least) holding chat `id` with `records` records of ~2 KB each.
 fn chat(id: &str, records: u64) -> (Home, LocalStore) {
     let path = std::env::temp_dir().join(format!("acpmux-segment-starts-{}", uuid::Uuid::now_v7()));
-    let store = LocalStore::new(path.join("sessions"), 4096).unwrap();
+    let store = LocalStore::new(path.join("sessions"), 64 * 1024).unwrap();
     let meta = json!({
         "schema": META_SCHEMA, "id": id, "name": "long chat", "harness": "claude",
         "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
     });
     store.save(&serde_json::from_value(meta).unwrap()).unwrap();
-    let text = "x".repeat(400);
+    let text = "x".repeat(2000);
     for seq in 1..=records {
         let rec = EventRecord {
             seq,
@@ -55,36 +55,36 @@ fn head_reads(store: &LocalStore) -> u64 {
 
 #[test]
 fn a_page_past_after_reads_the_heads_of_log_n_segments_once_then_none() {
-    let (_home, store) = chat("long", 3000);
+    let (_home, store) = chat("long", 7000);
     let segments = store.segments("long").unwrap().len();
     assert!(segments >= 200, "the chat spans {segments} segments");
     let before = head_reads(&store);
-    assert_eq!(seqs_after(&store, "long", 2990), (2991..=3000).collect::<Vec<_>>());
+    assert_eq!(seqs_after(&store, "long", 6990), (6991..=7000).collect::<Vec<_>>());
     let cold = head_reads(&store) - before;
     // A binary search: about log2(segments) heads, never one per segment.
     let bound = u64::from(usize::BITS - segments.leading_zeros()) + 1;
     assert!(cold <= bound, "{cold} segment heads read for {segments} segments (bound {bound})");
     // Read again, and for other cursors: the kept seqs answer, no segment head is opened.
     let warm = head_reads(&store);
-    assert_eq!(seqs_after(&store, "long", 2990), (2991..=3000).collect::<Vec<_>>());
+    assert_eq!(seqs_after(&store, "long", 6990), (6991..=7000).collect::<Vec<_>>());
     assert_eq!(head_reads(&store), warm, "a second page read no segment head");
 }
 
 #[test]
 fn the_cost_of_a_page_does_not_grow_with_the_log() {
     // Ten times the segments, the same page: at most a few more heads (log n), never 10x.
-    let (_small_home, small) = chat("small", 300);
-    let (_large_home, large) = chat("large", 3000);
+    let (_small_home, small) = chat("small", 700);
+    let (_large_home, large) = chat("large", 7000);
     let reads = |store: &LocalStore, id: &str, last: u64| {
         let before = head_reads(store);
         assert_eq!(seqs_after(store, id, last - 5).len(), 5);
         head_reads(store) - before
     };
-    let small_reads = reads(&small, "small", 300);
-    let large_reads = reads(&large, "large", 3000);
+    let small_reads = reads(&small, "small", 700);
+    let large_reads = reads(&large, "large", 7000);
     assert!(
         large_reads <= small_reads + 5,
-        "a page of 5 records read {small_reads} heads of a 300-record log, {large_reads} of a 3000-record one"
+        "a page of 5 records read {small_reads} heads of a 700-record log, {large_reads} of a 7000-record one"
     );
 }
 
