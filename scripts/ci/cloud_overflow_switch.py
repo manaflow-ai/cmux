@@ -101,8 +101,10 @@ PROBE_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
 # CI_CLOUD_LABEL_HEALTH only and never decide overflow: on 2026-11-18 linux_16 and linux_32 sat on
 # blacksmith-32vcpu-ubuntu-2404 from about 23:12Z with nothing starting there, because no probe asked for it
 # and the janitor's snapshot (truncated at 2,500 queued runs) said nothing either.
+# The owned GCP labels (runner_pools.OWNED_LINUX) lead every x64 Linux pool since 2026-11-18, so it is probed
+# too: a start keeps it serving, a probe that starts nothing marks it dead and the pools take Blacksmith.
 HEALTH_LABELS = (*PROBE_LABELS, "blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
-                 "blacksmith-32vcpu-ubuntu-2404")
+                 "blacksmith-32vcpu-ubuntu-2404", "cmux-fleet-linux-x64", "cmux-gcp-lane-x64")
 # Where Linux overflow goes while the probed label stalls: another Blacksmith
 # Linux size, never GitHub-hosted Ubuntu. CI_TRUSTED_RUNNER's readers accept
 # only ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it

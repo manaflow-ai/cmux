@@ -67,13 +67,14 @@ jobs:
     # (cloud_overflow_switch.HEALTH_LABELS): every x64 size a RUNNER_POOLS pool can
     # point at gets per-label health, and they never decide overflow. On 2026-11-18
     # linux_16 and linux_32 sat on a 32 vCPU label that started nothing for hours
-    # because no probe asked for it.
+    # because no probe asked for it. The owned GCP labels (cmux-fleet-linux-x64, cmux-gcp-lane-x64), which
+    # lead every x64 Linux pool since 2026-11-18, are probed the same way.
     name: Blacksmith probe (${{ matrix.label }})
     if: github.repository_owner == 'manaflow-ai'
     strategy:
       fail-fast: false
       matrix:
-        label: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.probe_label != '' && format('["{0}"]', inputs.probe_label) || '["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"]') }}
+        label: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.probe_label != '' && format('["{0}"]', inputs.probe_label) || '["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404", "cmux-fleet-linux-x64", "cmux-gcp-lane-x64"]') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || matrix.label }}
     timeout-minutes: 2
     permissions: {}

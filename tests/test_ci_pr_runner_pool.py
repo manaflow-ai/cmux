@@ -4528,15 +4528,12 @@ class IOSWiring(unittest.TestCase):
                                                  "compile_seconds", "package_seconds", "upload_seconds"})
 
         seed = jobs["ios-simulator-cache-seed"]
-        # An ephemeral Blacksmith Linux VM: the bounded LINUX_RUNNER pick (4, 8, 16 or 32 vCPU, else 4; 8 since #31031), so a
-        # 4 vCPU stall moves it and no variable value reaches a reused machine.
+        # The Linux runner LINUX_RUNNER names, owned runners included (Leo 2026-11-18 removed the
+        # ephemeral-only rule); a fork's pull request still takes Blacksmith 4 vCPU.
         self.assertEqual(seed["runs-on"],
                          "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
                          "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
-                         "'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\","
-                         "\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), "
-                         "vars.LINUX_RUNNER) "
-                         "&& vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
+                         "'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
         self.assertEqual(seed["environment"], "${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}")
         self.assertEqual(seed["needs"], ["ios-simulator-build"])
         # As the step ran: only after a successful build, only on a main seed_cache run.

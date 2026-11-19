@@ -134,7 +134,7 @@ def problems(env: dict[str, str]) -> list[str]:
                 # say) that no signing job may run on.
                 if name not in reported and not allowed_value(name, value):
                     found.append(f"{name}={value!r}: signing jobs run on it, so it may only name blacksmith-* "
-                                 "or ubuntu-* (scripts/ci/signing_runner_variables.py)")
+                                 "ubuntu-* or the owned cmux-fleet-linux-*/cmux-gcp-lane-* (scripts/ci/signing_runner_variables.py)")
             for name, value, reason in drifted:
                 if (switched.get(name) == value and not HOSTED_MACOS_LABEL.search(value.strip().lower())
                         and allowed_value(name, value)):
