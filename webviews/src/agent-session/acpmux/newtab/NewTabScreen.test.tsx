@@ -1274,6 +1274,36 @@ test("with Cloud picked and No folder, a send names no folder: not even the tab'
   expect(clouded[0]?.[2]).toBeUndefined();
 });
 
+// cmux#45946: a tab that inherited a folder the chip does not show (no start folder from the host) reads
+// "No folder"; its Cloud send copied that folder anyway ("tmp" on the start card).
+test("with Cloud picked and the chip reading No folder, a send names no folder, not the tab's unshown folder", async () => {
+  const clouded: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        cwd="/tmp/inherited"
+        template="default"
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        onCloud={(...args) => (clouded.push(args), false)}
+      />,
+    );
+  });
+  expect(container.querySelector(".nt-location")?.textContent).toContain("No folder");
+  await typePrompt("1+1");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(clouded.length).toBe(1);
+  expect(clouded[0]?.[2]).toBeUndefined();
+});
+
 test("while a Cloud start is out the box takes no edits, and takes them again once it ends", async () => {
   const page = (cloudStarting: boolean) => (
     <NewTabScreen
