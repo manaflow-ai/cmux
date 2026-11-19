@@ -10,7 +10,7 @@ export const shortcutKeycaps = defineExperiment({
   id: "shortcut-keycaps",
   title: "Shortcut keycaps in buttons",
   description:
-    "Header tools, New and All sessions draw their shortcut as inline keycaps. Watch the row's width, how the caps read on light and dark themes, and whether a rebind shows at once.",
+    "The header New button, All sessions and All Chats draw their shortcut as inline keycaps. Watch the row's width, how the caps read on light and dark themes, and whether a rebind shows at once.",
   arms: {
     off: { label: "Off (today)", description: "No keycaps in buttons; the shortcut stays in the tooltip." },
     filled: { label: "Filled", description: "One tinted cap per key, as the permission card's keycaps." },

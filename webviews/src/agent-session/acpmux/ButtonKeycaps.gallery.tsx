@@ -1,11 +1,11 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
-// Shortcut keycaps in buttons (shortcut-keycaps experiment, off by default): the chat header's tools,
-// New's face, and the New Tab page's All Chats, each drawing its shortcut inside itself. The arms
+// Shortcut keycaps in buttons (shortcut-keycaps experiment, off by default): the header New
+// button's face and the New Tab page's All Chats, each drawing its shortcut inside itself. The
+// header quick tools are left to the glass toolbar's capsule (#47172). The arms
 // are pinned through ShortcutKeycapLookContext; the keycaps come from ShortcutsContext as the host
 // pushes them (applyShortcuts), so the rebound variant shows a rebind with no other change.
 import type React from "react";
 import { componentEntry } from "../../gallery/format";
-import { ChatHeaderTools } from "./header/ChatHeaderTools";
 import { HEADER_ACTIONS } from "./header/headerActions";
 import { HeaderNewButton } from "./header/HeaderNewButton";
 import { ChatCards } from "./newtab/ChatCards";
@@ -20,9 +20,6 @@ type Props = { look: ShortcutKeycapLook; palette: Palette; labels?: ShortcutLabe
 /// The default bindings as the host pushes them.
 const DEFAULTS: ShortcutLabels = {
   [HEADER_ACTIONS.terminal]: "⌘D",
-  [HEADER_ACTIONS.splitDown]: "⇧⌘D",
-  [HEADER_ACTIONS.browser]: "⌥⌘D",
-  [HEADER_ACTIONS.changes]: "⇧⌘G",
   [SHORTCUT_ACTIONS.searchChats]: "⌘K ⌘J",
 };
 
@@ -30,7 +27,6 @@ const DEFAULTS: ShortcutLabels = {
 const REBOUND: ShortcutLabels = {
   ...DEFAULTS,
   [HEADER_ACTIONS.terminal]: "⌃⌥T",
-  [HEADER_ACTIONS.browser]: "⌃⌥B",
   [SHORTCUT_ACTIONS.searchChats]: "⇧⌘O",
 };
 
@@ -71,16 +67,6 @@ function KeycapButtons({ look, palette, labels = DEFAULTS }: Props) {
           style={{ flexDirection: "column", gap: 16, padding: 16, ...PALETTES[palette] }}
         >
           <div className="acpmux-header" style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <ChatHeaderTools
-              controls="standard"
-              summary={null}
-              onTerminal={noop}
-              onSplitDown={noop}
-              onBrowser={noop}
-              hasChanges
-              onChanges={noop}
-              menu={() => []}
-            />
             <HeaderNewButton kinds={["terminal", "browser", "sideChat", "newTab"]} make={noop} initialLast="terminal" />
           </div>
           <ChatCards cards={CARDS} onOpen={noop} onShowAll={noop} />
@@ -100,7 +86,6 @@ export default componentEntry<Props>({
   anchors: [{ selector: "[data-keycaps-fixture]" }],
   covers: [
     "agent-session/acpmux/ButtonKeycaps.tsx#ShortcutKeycaps",
-    "agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools",
     "agent-session/acpmux/header/HeaderNewButton.tsx#HeaderNewButton",
     "agent-session/acpmux/newtab/ChatCards.tsx#ChatCards",
   ],
@@ -115,11 +100,11 @@ export default componentEntry<Props>({
   variants: {
     off: {
       props: { look: "off", palette: "light" },
-      note: "Off (the default, today): icon buttons and All Chats with no keycaps; the shortcut is in the tooltip only.",
+      note: "Off (the default, today): New and All Chats with no keycaps; the shortcut is in the tooltip only.",
     },
     light: {
       props: { look: "filled", palette: "light" },
-      note: "Filled caps on a light theme: one tinted cap per key, joined into one shape per stroke; the icon buttons grow to fit.",
+      note: "Filled caps on a light theme: one tinted cap per key, joined into one shape per stroke; New grows to fit.",
     },
     dark: {
       props: { look: "filled", palette: "dark" },
@@ -135,7 +120,7 @@ export default componentEntry<Props>({
     },
     rebound: {
       props: { look: "filled", palette: "light", labels: REBOUND },
-      note: "After a rebind (Terminal ⌃⌥T, Browser ⌃⌥B, All Chats ⇧⌘O): the host pushes the new keys and the caps follow.",
+      note: "After a rebind (New terminal ⌃⌥T, All Chats ⇧⌘O): the host pushes the new keys and the caps follow.",
     },
   },
 });
