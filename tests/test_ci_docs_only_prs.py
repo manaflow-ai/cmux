@@ -242,9 +242,10 @@ class DocsOnlyPullRequests(unittest.TestCase):
             self.assertTrue(reason.strip(), name)
             self.assertNotIn(name, ALLOWED, name)
             self.assertTrue((WORKFLOWS / name).is_file(), f"{name} is gone: remove its SCOPED entry")
-            config = filters.triggers(load(name)).get("pull_request")
-            self.assertTrue(isinstance(config, dict) and {"paths", "paths-ignore"} & set(config),
-                            f"{name} has no pull_request path filter: SCOPED excuses only a scoped list")
+            events = filters.triggers(load(name))
+            configs = [events.get(e) for e in ("pull_request", "pull_request_target") if e in events]
+            self.assertTrue(configs and all(isinstance(c, dict) and {"paths", "paths-ignore"} & set(c) for c in configs),
+                            f"{name} has no pull_request(_target) path filter: SCOPED excuses only a scoped list")
             started = any(starts(load(name), base, [path]) for base in BASES for path in docs_files)
             self.assertTrue(started, f"{name} no longer starts for any docs file: remove its SCOPED entry")
 
