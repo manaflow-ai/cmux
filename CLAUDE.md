@@ -33,6 +33,10 @@ Full loop and examples: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md)
 
 Known limit: a tree build is not Team-signed, so Rust hot-apply from it into a Developer ID NIGHTLY is held back.
 
+A signed-in build to drive is a copy of a signed-in app, not an "authenticated dev build": `cmux app try <PR|sha>`
+in your NIGHTLY (production account), `cmux-ci run ... --sign-in agent` for an agent step, `--for-person` on a
+Swift build handed to a person. Table: [cmux-hot-loop, Signed in](skills/cmux-hot-loop/SKILL.md#signed-in-without-an-authenticated-dev-build).
+
 ## Verification and isolation
 
 - Before committing, setup or a native build, [choose scoped verification](skills/cmux-testing/references/local-vs-ci-validation.md).
