@@ -32,6 +32,9 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
     (`dead_labels`, cmux#27114: `label` joined with "," and `live`, members that started jobs).
     The snapshot's `starved` and `unserved` describe owned (glaeda-*) labels, which are never
     pool members, so they are not read;
+  - a label whose `label_started` is within RECENT_START is serving and never dead, whatever the
+    probe saw (recently_started()): under Blacksmith's org vCPU cap a probe can wait out its
+    minutes on a size that keeps starting jobs;
 - marks dead labels in RUNNER_POOLS' `_dead` (label -> when last seen dead). A mark expires after
   DEAD_TTL unless seen again; evidence that the label started a job clears it at once. A mark expires
   only on a pass whose evidence covers its label (evidence_covers()): the probe's health for the sizes
@@ -40,7 +43,10 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   the linux pool went from 16 back to the stalled 32 vCPU size;
 - points each pool at its first member with no mark. With every member marked, an x64 Linux pool takes its
   release valve, the next smaller declared x64 size with no mark (valve_labels(); 2026-11-18, linux_16 and
-  linux_32 sat on a dead 32 vCPU); with none, or for any other pool, it keeps its first member;
+  linux_32 sat on a dead 32 vCPU); with none, or for any other pool, it keeps its first member. A Blacksmith
+  Linux pool lists its smaller sizes before its larger ones (grows_before_shrinking(), checked by
+  spec_problems()), so a size stalled by the org's vCPU cap moves its jobs down, never up into the sizes the
+  cap starves first;
 - writes RUNNER_POOLS only when something changed. A value that does not match the schema
   (parse_value()) is replaced from the declared defaults, never crashed on.
 
@@ -48,6 +54,12 @@ LINUX_RUNNER predates RUNNER_POOLS and most Linux runs-on still read it (`vars.L
 so each pass also writes the linux pool's live member to it (MIRRORS, mirror_writes()) unless the
 overflow switch's record names it among the variables it changed, and --check fails while it names a
 label outside the pool.
+
+Other variables hold one raw Blacksmith Linux label that runs-on reads ahead of a pool (RAW_LABEL_VARS:
+LINUX_BUILD_RUNNER, LINUX_RUNNER_DARWIN_CROSS, CI_TRUSTED_RUNNER, ...). Each pass moves one that names a `_dead`
+label to the nearest live size of the same image, records the label it left in RUNNER_POOLS' `_raw_home`, and
+moves it back once that label leaves `_dead` (raw_homes(), raw_writes()); each move is a workflow warning. A value
+that is not a Blacksmith Linux pool label is left alone.
 
 Moving jobs already queued on a dead member is not done here: GitHub binds a job's label when it
 creates the job, and the queue janitor's dead-label re-dispatch (cmux#27114) re-runs those jobs,
@@ -92,6 +104,30 @@ HEALTH_VARIABLE = "CI_CLOUD_LABEL_HEALTH"
 # jobs sat queued on it, the oldest for over an hour. Each pass now writes the pool's live member to
 # them too (mirror_writes()), and --check fails while one names a label outside its pool.
 MIRRORS = {"LINUX_RUNNER": "linux"}
+# Variables that hold one raw Blacksmith Linux label and that runs-on reads ahead of a Linux pool or literal
+# (`vars.X || ... fromJSON(vars.RUNNER_POOLS).linux_16`, `vars.X || 'blacksmith-...-ubuntu-2404'`), on main or
+# feat-cmux-next. They follow no pool, so moving a pool off a dead label left them on it: on 2026-11-18
+# LINUX_BUILD_RUNNER and LINUX_RUNNER_DARWIN_CROSS still named blacksmith-32vcpu-ubuntu-2404 (dead since 23:11Z the
+# day before) until they were moved by hand at 04:40Z, with about 1,706 jobs queued there that never started. Each
+# pass moves such a variable off a label `_dead` names to the nearest live size of its image (raw_substitute()),
+# keeps where it came from in RUNNER_POOLS' `_raw_home`, and moves it back once that label leaves `_dead`
+# (raw_homes(), raw_writes()). A value that is no Blacksmith Linux pool label (an owned runner, a hosted label,
+# unset) is never touched. tests/test_ci_runner_pools.py fails when a main workflow reads another variable that way.
+# macOS variables are never here: macOS moves through its pickers and the overflow switch.
+RAW_LABEL_VARS = (
+    "CI_CLASSIC_NIGHTLY_MINI",
+    "CI_COMPILE_CHECK_GATEWAY",
+    "CI_CONTROL_RUNNER",
+    "CI_LINUX_GATE_OWNED_RUNNER",
+    "CI_NIGHTLY_NEXT_BUILD_RUNNER",
+    "CI_TEST_COMPILE_GATEWAY",
+    "CI_TRUSTED_RUNNER",
+    "LINUX_ARM64_RUNNER",
+    "LINUX_BUILD_RUNNER",
+    "LINUX_RUNNER_DARWIN_CROSS",
+)
+RAW_HOME_KEY = "_raw_home"
+BLACKSMITH_LINUX = re.compile(r"^blacksmith-(\d+)vcpu-(ubuntu-[a-z0-9.-]+)$")
 # While the overflow switch's record is set, the switch owns those variables (cloud_overflow_switch.py).
 OVERFLOW_RECORD = "CI_CLOUD_OVERFLOW_SAVED"
 DEAD_KEY = "_dead"
@@ -99,6 +135,12 @@ DEAD_KEY = "_dead"
 # (queue_janitor.LABEL_STARTED_KEY).
 LABEL_STARTED_KEY = "label_started"
 UPDATED_KEY = "_updated"
+# A label the janitor's `label_started` shows starting a job this recently is serving, whatever a probe saw: it is
+# never marked dead, and a mark on it clears (label_evidence()). Blacksmith caps the org on vCPUs at once, so under
+# load a probe can wait out its PROBE_MINUTES on a size that keeps starting jobs: at 02:00:26Z on 2026-11-18
+# RUNNER_POOLS marked blacksmith-4vcpu-ubuntu-2404 dead while it had completed 11 jobs and ran 6 since 01:05Z.
+RECENT_START = dt.timedelta(minutes=15)
+LINUX_SIZE = re.compile(r"^blacksmith-(\d+)vcpu-(ubuntu-\d+(?:-arm)?)$")
 # A dead mark lasts this long unless seen again. The probe runs every 10 minutes and the janitor
 # sweeps about as often, so a label that is still dead is marked again before its mark expires,
 # and one that recovered is used again within half an hour (or at once when it starts a job).
@@ -220,7 +262,35 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
                              "through a picker, never a pool")
         if spec.get("hosted") and not str(spec.get("hosted_why", "")).strip():
             found.append(f"{where}: a hosted pool names why it cannot run on the set (hosted_why)")
+        grows = grows_before_shrinking(listed)
+        if grows:
+            found.append(f"{where}: lists {grows} after a larger failover or out of size order; Blacksmith caps the org on vCPUs at "
+                         "once, so a stalled size moves down first (list smaller sizes, largest first, before larger)")
     return found
+
+
+def grows_before_shrinking(listed: Sequence[str]) -> str | None:
+    """The member out of order in a Blacksmith Linux pool's failovers, else None.
+
+    Blacksmith caps the org on vCPUs running at once, not per size, so when one size queues while the others start
+    the cap is what binds, and moving its jobs to a bigger size fills the cap faster: on 2026-11-17 (00:00-00:48Z)
+    32 vCPU started 1 of 282 jobs, 16 vCPU 5 of 63 and 4 vCPU 47 of 209, while linux_16 failed over to 32 vCPU. So a
+    pool's failovers go down in size first (the largest smaller size first), and only then up."""
+    sizes = [LINUX_SIZE.match(label) for label in listed]
+    if len(listed) < 2 or not all(sizes) or len({match.group(2) for match in sizes}) != 1:
+        return None
+    first = int(sizes[0].group(1))
+    larger_seen: str | None = None
+    previous = first
+    for label, match in zip(listed[1:], sizes[1:]):
+        size = int(match.group(1))
+        if size > first:
+            larger_seen = larger_seen or label
+        elif larger_seen is not None or size > previous:
+            return label
+        else:
+            previous = size
+    return None
 
 
 def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tuple[dict[str, Any], list[str]]:
@@ -259,6 +329,18 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
         dropped.append(f"{VARIABLE}.{DEAD_KEY} is not an object; reset")
     if isinstance(value.get(UPDATED_KEY), str) and parse_time(value[UPDATED_KEY]) is not None:
         clean[UPDATED_KEY] = value[UPDATED_KEY]
+    homes = value.get(RAW_HOME_KEY)
+    if homes is not None:
+        good = {name: {"home": entry["home"], "to": entry["to"]}
+                for name, entry in (homes.items() if isinstance(homes, dict) else ())
+                if name in RAW_LABEL_VARS and isinstance(entry, dict)
+                and all(isinstance(entry.get(key), str) and BLACKSMITH_LINUX.match(entry[key])
+                        for key in ("home", "to"))}
+        if not isinstance(homes, dict) or len(good) != len(homes):
+            dropped.append(f"{VARIABLE}.{RAW_HOME_KEY} holds entries that are not VARIABLE -> "
+                           "{home, to} Blacksmith Linux labels; dropped")
+        if good:
+            clean[RAW_HOME_KEY] = dict(sorted(good.items()))
     return clean, dropped
 
 
@@ -293,7 +375,7 @@ def switch_owned(record: str | None) -> frozenset[str] | None:
         return None
     if not isinstance(changed, dict):
         return None
-    return frozenset(name for name in MIRRORS if name in changed)
+    return frozenset(name for name in (*MIRRORS, *RAW_LABEL_VARS) if name in changed)
 
 
 def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
@@ -321,7 +403,94 @@ def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
         if current and not EPHEMERAL.match(current) and not HOSTED_OVERRIDE_LABEL.match(current):
             continue
         writes.append((name, want))
+    writes += [(name, target) for name, target, _current, _why in raw_writes(value, live, owned=owned)]
     return writes
+
+
+def raw_substitute(label: str, dead: Iterable[str], pools: Mapping[str, Mapping[str, Any]]) -> str | None:
+    """The live Blacksmith Linux pool label a RAW_LABEL_VARS variable takes while `label` is dead: the same image
+    (so the same arch), the largest size at most `label`'s (the release valve's direction), else the smallest larger
+    one. None when no other size of that image is live."""
+    match = BLACKSMITH_LINUX.match(label)
+    if not match:
+        return None
+    size, image, dead = int(match.group(1)), match.group(2), set(dead)
+    sizes: dict[str, int] = {}
+    for spec in pools.values():
+        for member in members(spec):
+            other = BLACKSMITH_LINUX.match(member)
+            if other and other.group(2) == image and member != label and member not in dead:
+                sizes[member] = int(other.group(1))
+    down = sorted((name for name, n in sizes.items() if n <= size), key=lambda name: -sizes[name])
+    up = sorted((name for name, n in sizes.items() if n > size), key=lambda name: sizes[name])
+    return next(iter([*down, *up]), None)
+
+
+def raw_homes(previous: Mapping[str, Mapping[str, str]], live: Mapping[str, str | None], dead: Iterable[str],
+              pools: Mapping[str, Mapping[str, Any]], *, owned: frozenset[str]) -> tuple[dict[str, dict[str, str]],
+                                                                                         list[str]]:
+    """The next RUNNER_POOLS `_raw_home` (VARIABLE -> {home, to}) and a line per change.
+
+    A RAW_LABEL_VARS variable on a Blacksmith Linux pool label `_dead` names gets an entry: `home`, the label it
+    held, and `to`, the live size it moves to (raw_substitute()). The entry stays while the variable holds `home`,
+    `to` or another dead label; raw_writes() points it at `to` while `home` is dead and back at `home` after. Once
+    it holds `home` again with `home` live, the entry goes. A variable set by hand to anything else loses its entry
+    and is left alone, as is one this pass could not read or the overflow switch's record names (`owned`)."""
+    dead = set(dead)
+    known = {label for spec in pools.values() for label in members(spec) if BLACKSMITH_LINUX.match(label)}
+    homes: dict[str, dict[str, str]] = {}
+    lines: list[str] = []
+    for name in RAW_LABEL_VARS:
+        entry = previous.get(name)
+        if name not in live or name in owned:
+            if entry:
+                homes[name] = dict(entry)
+            continue
+        current = (live.get(name) or "").strip()
+        if entry and current not in (entry["home"], entry["to"]) and current not in dead:
+            lines.append(f"{name}={current or 'unset'} was set by hand after it moved off {entry['home']}; "
+                         "it stays as set")
+            entry = None
+        if entry is None:
+            if current not in known or current not in dead:
+                continue
+            to = raw_substitute(current, dead, pools)
+            if to is None:
+                lines.append(f"{name}={current} is dead and no other size of its image is live; it stays")
+                continue
+            homes[name] = {"home": current, "to": to}
+            continue
+        home = entry["home"]
+        if home not in dead and current == home:
+            lines.append(f"{name} is back on {home}")
+            continue
+        to = entry["to"]
+        if home in dead and to in dead:
+            to = raw_substitute(home, dead, pools) or to
+        homes[name] = {"home": home, "to": to}
+    return dict(sorted(homes.items())), lines
+
+
+def raw_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
+               owned: frozenset[str]) -> list[tuple[str, str, str, str]]:
+    """(variable, label, current, why) for each `_raw_home` entry (raw_homes()) whose variable does not hold its
+    target: `to` while `home` is dead, `home` once it is not. Only a variable this pass read, the switch's record
+    does not name, and that still holds `home`, `to` or a dead label (else it was set by hand) moves."""
+    dead = set(value.get(DEAD_KEY) or {})
+    found = []
+    for name, entry in sorted((value.get(RAW_HOME_KEY) or {}).items()):
+        if name in owned or name not in live:
+            continue
+        current = (live.get(name) or "").strip()
+        if current not in (entry["home"], entry["to"]) and current not in dead:
+            continue
+        if entry["home"] in dead:
+            target, why = entry["to"], f"{entry['home']} is dead"
+        else:
+            target, why = entry["home"], f"{entry['home']} takes jobs again"
+        if current != target and target not in dead:
+            found.append((name, target, current, why))
+    return found
 
 
 def mirror_problems(live: Mapping[str, str | None], pools: Mapping[str, Mapping[str, Any]], *,
@@ -400,6 +569,7 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; no snapshot evidence")
     elif generated is not None:
         age = max(0.0, (now - generated).total_seconds() / 60)
+        started |= recently_started(snapshot, now=now)
         for label, load in (snapshot.get("pools") or {}).items():
             if not (isinstance(label, str) and EPHEMERAL.match(label) and isinstance(load, Mapping)):
                 continue
@@ -444,7 +614,26 @@ def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any
     if generated is not None and dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE \
             and not pr_runner_pool.snapshot_truncated(snapshot):
         covered |= {label for spec in pools.values() for label in members(spec)} - probed
+        # A probed size the janitor saw start a job recently is covered too: label_evidence() calls it started.
+        covered |= recently_started(snapshot, now=now)
     return covered
+
+
+def recently_started(snapshot: Mapping[str, Any], *, now: dt.datetime) -> set[str]:
+    """The Blacksmith labels the janitor's `label_started` shows starting a job within RECENT_START of `now`.
+
+    Such a label is serving, so it is never dead, whatever the probe saw: a probe that waits out its minutes on a
+    size that keeps starting jobs is queued behind the org's vCPU cap, not on a dead size."""
+    starts = snapshot.get(LABEL_STARTED_KEY)
+    if not isinstance(starts, Mapping):
+        return set()
+    found = set()
+    for label, when in starts.items():
+        moment = parse_time(when)
+        if isinstance(label, str) and EPHEMERAL.match(label) and moment is not None \
+                and dt.timedelta(minutes=-1) <= now - moment <= RECENT_START:
+            found.add(label)
+    return found
 
 
 def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]], *,
@@ -538,7 +727,7 @@ class Variables:
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None, *,
-         api: Any = None, switch: Any = None, now: dt.datetime | None = None) -> int:
+         api: Any = None, switch: Any = None, now: dt.datetime | None = None, fallback: Any = None) -> int:
     env = os.environ if env is None else env
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--check", action="store_true", help="validate the live RUNNER_POOLS and exit")
@@ -579,13 +768,47 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         try:
             snapshot = api.snapshot(now=now)
         except Exception as error:  # noqa: BLE001 - a missing snapshot only means no janitor evidence
-            print(f"::warning title=Runner pools::no janitor snapshot ({error}); judging on the probe alone")
+            fallback_token = (env.get("GH_FALLBACK_TOKEN") or "").strip()
+            if fallback is None and fallback_token and fallback_token != (env.get("GH_TOKEN") or "").strip() \
+                    and repo:
+                fallback = pr_runner_pool.GitHub(fallback_token, repo)
+            if fallback is None:
+                print(f"::warning title=Runner pools::no janitor snapshot ({error}); judging on the probe alone")
+            else:
+                # The cmux-bot read budget is org-wide and runs out: on 2026-11-18 from 11:18Z every read was
+                # refused (403), every probe but 2 vCPU waited out its minutes under the vCPU cap, and with no
+                # snapshot every Linux pool went to the 2 vCPU release valve. Ask once more with the workflow
+                # token, as cloud_overflow_switch.GitHub does for a refused read.
+                try:
+                    snapshot = fallback.snapshot(now=now)
+                    if snapshot is None:
+                        print(f"::warning title=Runner pools::no janitor snapshot ({error}; fallback: no trusted "
+                              "snapshot); judging on the probe alone")
+                    else:
+                        print(f"::notice title=Runner pools::janitor snapshot read with the fallback token ({error})")
+                except Exception as second:  # noqa: BLE001 - as above
+                    print(f"::warning title=Runner pools::no janitor snapshot ({error}; fallback: {second}); "
+                          "judging on the probe alone")
     health = _health(switch, env)
     dead, started, notes = label_evidence(health, snapshot, now=now)
     for note in notes:
         print(note)
     value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now,
                              covered=evidence_covers(health, snapshot, pools, now=now))
+    # The mirrored and raw-label variables and the switch's record, read live: the switch step just before this
+    # one may have moved them, so the job-start values could undo its failover.
+    live, record, readable = _live(switch, env)
+    owned = switch_owned(record) if readable else None
+    previous_homes = current.get(RAW_HOME_KEY) or {}
+    if owned is not None:
+        homes, said = raw_homes(previous_homes, live, value[DEAD_KEY], pools, owned=owned)
+        lines += said
+    else:
+        homes = dict(previous_homes)
+    if homes:
+        value[RAW_HOME_KEY] = homes
+    if homes != previous_homes:
+        value[UPDATED_KEY] = iso(now)
     for line in lines:
         print(line)
     summary = env.get("GITHUB_STEP_SUMMARY")
@@ -598,11 +821,13 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         print(f"{VARIABLE} unchanged")
     else:
         writes.append((VARIABLE, render(value)))
-    # The mirrored variables and the switch's record, read live: the switch step just before this one
-    # may have moved them, so the job-start values could undo its failover.
-    live, record, readable = _live(switch, env)
     if readable:
         writes += mirror_writes(value, live, record=record)
+    if owned is not None:
+        # Every raw-label move is a warning, so the run's annotations say which variables left which label.
+        for name, target, was, why in raw_writes(value, live, owned=owned):
+            print(f"::warning title=Runner pools::{name}: {was or 'unset'} -> {target} ({why}; "
+                  f"{VARIABLE}.{RAW_HOME_KEY} keeps its home)")
     if not writes:
         return 0
     if args.dry_run:
@@ -621,7 +846,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
 
 
 def _live(switch: Any, env: Mapping[str, str]) -> tuple[dict[str, str | None], str | None, bool]:
-    """(MIRRORS values, the overflow record, whether they were read) through the API, else the job's env."""
+    """(MIRRORS values, the overflow record, whether they were read) through the API, else the job's env.
+
+    The RAW_LABEL_VARS values this pass could read are in the same map; one it could not read is absent, so it is
+    never moved on a guess (raw_homes(), raw_writes())."""
     names = (*MIRRORS, OVERFLOW_RECORD)
     if switch is not None and hasattr(switch, "get_variable"):
         try:
@@ -635,6 +863,14 @@ def _live(switch: Any, env: Mapping[str, str]) -> tuple[dict[str, str | None], s
             return {}, None, False
         got = {name: env.get(name) for name in names}
     record = got.pop(OVERFLOW_RECORD)
+    for name in RAW_LABEL_VARS:
+        if switch is not None and hasattr(switch, "get_variable"):
+            try:
+                got[name] = switch.get_variable(name)
+            except Exception as error:  # noqa: BLE001 - an unread variable is never moved
+                print(f"::warning title=Runner pools::could not read {name} ({error}); not moving it")
+        elif name in env:
+            got[name] = env.get(name)
     return got, record, True
 
 
