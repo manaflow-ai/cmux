@@ -128,7 +128,7 @@ CLA_ACTION = CLA_ACTION_FINAL
 # CLA checks while the other is down.
 CLA_RUNNER = "ubuntu-24.04".freeze
 CLA_BLACKSMITH_RUNNERS = %w[blacksmith-2vcpu-ubuntu-2404 blacksmith-4vcpu-ubuntu-2404].freeze
-CLA_TRUSTED_RUNNER_EXPRESSION = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}".freeze
+CLA_TRUSTED_RUNNER_EXPRESSION = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}".freeze
 CLA_RUNNERS = ([CLA_RUNNER] + CLA_BLACKSMITH_RUNNERS + [CLA_TRUSTED_RUNNER_EXPRESSION]).freeze
 # The original runner identity guard admits only GitHub-hosted runners. It
 # stays valid so workflows main carries keep passing until they move to the
@@ -163,7 +163,8 @@ SH
 # exact runs-on allowlist above, which routes only to GitHub-hosted runners
 # or Blacksmith's read-only scale-set labels. If Blacksmith renames its VMs
 # again so that a name no longer starts with its label, this guard fails
-# closed, and CI_TRUSTED_RUNNER=ubuntu-24.04 restores the GitHub-hosted route.
+# closed until the guard learns the new names. CI_TRUSTED_RUNNER no longer
+# accepts ubuntu-24.04: the hosted pool started nothing for hours on 2026-11-18.
 CLA_EPHEMERAL_RUNNER_PREFIXES = CLA_BLACKSMITH_RUNNERS.map { |label| "#{label}-" }.freeze
 CLA_OWNED_RUNNER_NAME_MARKER = "glaeda".freeze
 CLA_EPHEMERAL_RUNNER_GUARD_NAME = "Require GitHub-hosted or Blacksmith runner".freeze
@@ -2159,7 +2160,7 @@ end
   [
     "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
     CLA_TRUSTED_RUNNER_EXPRESSION.gsub("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER"),
-    CLA_TRUSTED_RUNNER_EXPRESSION.sub('"ubuntu-24.04",', '"ubuntu-24.04","self-hosted",'),
+    CLA_TRUSTED_RUNNER_EXPRESSION.sub('"blacksmith-2vcpu-ubuntu-2404",', '"self-hosted","blacksmith-2vcpu-ubuntu-2404",'),
     "${{ github.event.pull_request.head.ref }}",
     "self-hosted",
     "ubuntu-latest",
@@ -2579,7 +2580,7 @@ def run_runner_regression_matrix!
     "ubuntu-24.04",
     "blacksmith-2vcpu-ubuntu-2404",
     "blacksmith-4vcpu-ubuntu-2404",
-    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
   ]
   fail!("CLA runner allowlist regression failed") unless accepted_runners == CLA_RUNNERS
   cla_jobs.product(accepted_runners).each do |job_name, runner|
@@ -2597,8 +2598,8 @@ def run_runner_regression_matrix!
     "event-controlled selector" => selector.sub("vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER", "github.event.pull_request.title) && github.event.pull_request.title"),
     "selector renamed to LINUX_RUNNER" => selector.gsub("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER"),
     "selector reading another variable" => selector.sub("&& vars.CI_TRUSTED_RUNNER ||", "&& vars.LINUX_RUNNER ||"),
-    "selector widened to an owned label" => selector.sub('"ubuntu-24.04",', '"ubuntu-24.04","glaeda-std-xcode-26.6",'),
-    "selector widened to self-hosted" => selector.sub('"ubuntu-24.04",', '"ubuntu-24.04","self-hosted",'),
+    "selector widened to an owned label" => selector.sub('"blacksmith-2vcpu-ubuntu-2404",', '"glaeda-std-xcode-26.6","blacksmith-2vcpu-ubuntu-2404",'),
+    "selector widened to self-hosted" => selector.sub('"blacksmith-2vcpu-ubuntu-2404",', '"self-hosted","blacksmith-2vcpu-ubuntu-2404",'),
     "selector without fork branch" => selector.sub("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", ""),
     "selector falling back to a variable" => selector.sub("|| 'blacksmith-4vcpu-ubuntu-2404' }}", "|| vars.LINUX_RUNNER }}"),
     "selector with trailing comment" => "#{selector} # ephemeral-required",
