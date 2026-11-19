@@ -29,8 +29,8 @@ import Testing
         var sections = sections(home: home)
         let rule = NewWorkspaceDefaultSlot(placement: placement, current: nil)
         guard let slot = rule.slot(for: "n", section: .machine(.local), in: sections, home: home ? "home" : nil) else { return nil }
-        // The daemon's create already put it at the section's top: the app sends no second move for it.
-        #expect(rule.move(for: "n", section: .machine(.local), in: sections, home: home ? "home" : nil) == nil)
+        // The section holds a group, so the daemon's `top` may have put it in its active workspace's group: the app moves it.
+        #expect(rule.move(for: "n", section: .machine(.local), in: sections, home: home ? "home" : nil) == slot)
         let position = try #require(slot.position(moving: ["n"], section: .machine(.local), in: sections))
         #expect(SidebarEdits.apply(.reorder([WorkspaceID("n")], to: position), to: &sections))
         var loose: [String] = [], group: [String] = []

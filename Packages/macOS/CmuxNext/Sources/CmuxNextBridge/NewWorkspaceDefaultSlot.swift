@@ -119,12 +119,22 @@ public struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// at ``slot(for:section:in:home:catchingUp:)``: the daemon places every new workspace by `workspaces.newPlacement` in
     /// the commit that creates it (first below Home under `top`, last under `bottom`), so a second write would be a second
     /// state change and render for the same order (plans/cmux-next/sidebar-ordering-DESIGN.md). Only a slot the daemon
-    /// does not know is moved to: in the current workspace's group, and every `afterCurrent` one (the daemon anchors it
-    /// to its active workspace, which a top page such as Home leaves on the parked one, #32731).
+    /// does not know is moved to: in the current workspace's group, every `afterCurrent` one (the daemon anchors it
+    /// to its active workspace, which a top page such as Home leaves on the parked one, #32731), and the section's top
+    /// while the section holds a group: the daemon's `top` goes first in its active workspace's group
+    /// (`sidebar_doc_create::target`), and the app never tells it which one the window shows, so a create from a loose
+    /// row drew its stand-in above the group and then its row in it (Leo 2026-11-08, "a bit of a flicker on that, like
+    /// individual top group"). This slot is the one rule: the stand-in shows at it and the move puts the row there.
     public func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?, catchingUp: Bool = false) -> WorkspaceSlot? {
         guard let slot = slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp) else { return nil }
-        if !named, placement != .afterCurrent, slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
+        if !named, placement != .afterCurrent, slot == Self.top(for: id, section: section, in: sections, home: home),
+           !Self.holdsGroup(section, in: sections) { return nil }
         return slot
+    }
+
+    /// Whether `section` of `sections` lists a group, where the daemon's `top` can differ from the window's.
+    private static func holdsGroup(_ section: SectionID, in sections: [SidebarRowSection]) -> Bool {
+        sections.first { $0.id == section }?.nodes.contains { if case .group = $0 { true } else { false } } == true
     }
 
     /// The slot for a new workspace made inside group `group` from the group itself (its header's

@@ -32,18 +32,27 @@ import Testing
         rule.move(for: "n", section: section, in: sections(home: home), home: home ? "home" : nil)
     }
 
-    @Test func topIsTheSectionsFirstSlotAndSendsNoMove() {
+    @Test func topIsTheSectionsFirstSlotAndSendsNoMoveWithNoGroup() {
         let rule = NewWorkspaceDefaultSlot(placement: .top, current: nil)
         #expect(Self.slot(rule) == .top(anchor: nil))
-        #expect(Self.move(rule) == nil)
+        // No group in the section: the daemon's create already put it there.
+        let loose = [SidebarSection(kind: .machine(Self.machine), nodes: ["a", "f", "n"].map { .workspace(Self.row($0)) })]
+        #expect(rule.move(for: "n", section: Self.section, in: loose, home: nil) == nil)
         // A loose current workspace changes nothing: still the section's top.
         #expect(Self.slot(NewWorkspaceDefaultSlot(placement: .top, current: "a")) == .top(anchor: nil))
+    }
+
+    /// The daemon's `top` goes first in its own active workspace's group, which need not be the window's: with a group in
+    /// the section the app moves the row to its slot, the one its stand-in showed (Leo 2026-11-08).
+    @Test func topIsMovedToTheSectionsTopWhileTheSectionHoldsAGroup() {
+        #expect(Self.move(NewWorkspaceDefaultSlot(placement: .top, current: nil)) == .top(anchor: nil))
+        #expect(Self.move(NewWorkspaceDefaultSlot(placement: .top, current: "a")) == .top(anchor: nil))
     }
 
     @Test func topStaysBelowHome() {
         let rule = NewWorkspaceDefaultSlot(placement: .top, current: nil)
         #expect(Self.slot(rule, home: true) == .below("home"))
-        #expect(Self.move(rule, home: true) == nil)
+        #expect(Self.move(rule, home: true) == .below("home"))
     }
 
     @Test func topInAGroupIsTheGroupsTopAndIsMoved() {
