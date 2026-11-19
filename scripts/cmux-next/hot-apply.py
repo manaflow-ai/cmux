@@ -705,36 +705,42 @@ def plan(repo: Path, app: Path, sha: str, branch: bool = False, base: str | None
 LIVE_FROM_MAX = 400  # a NIGHTLY is at most a day of merges behind feat-cmux-next
 
 
-def pins_daemon(repo: Path, commit: str) -> list[str]:
+def pins_daemon(repo: Path, commit: str, *, whole_app: bool = False) -> list[str]:
     """The paths of COMMIT's own change that alter what the app links.
 
     The app links the release named by app-ffi-pin.json, so FFI source edits alone do not pin the daemon to
     a new app. A repin does, as does Rust the Swift build reads outside the FFI release. A root commit pins it.
+    For app try's signed list, whole_app also includes every layer its bin-only update cannot carry.
     """
     parent = git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^", check=False)
     if not SHA.fullmatch(parent or ""):
         return [f"{commit} has no parent here"]
     files = live_apply.classify_range(str(repo), parent, commit)["files"]
     daemon = sorted(set(files.get("daemon", [])))
+    uncarried = []
+    if whole_app:
+        uncarried = [path for kind in ("swift-live", "rebuild", "web-live") for path in files.get(kind, [])]
+        uncarried.extend(helper_rust(repo, daemon))
     before, after = pinned_ffi_source(repo, parent), pinned_ffi_source(repo, commit)
     if before is None and after is None:
-        return linked_rust(repo, daemon)
-    paths = swift_read_rust(repo, daemon)
+        return sorted(set(uncarried + linked_rust(repo, daemon)))
+    paths = uncarried + swift_read_rust(repo, daemon)
     if before != after:
         paths.append(ffi_part.PIN_FILE)
-    return paths
+    return sorted(set(paths))
 
 
 def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
-    """Every commit whose app can take SHA's daemon build live, newest first: SHA, then its first parents
-    back to the newest commit whose own change pins the daemon to the app (pins_daemon; included: an app
-    built there links that change).
+    """Every app commit that app try can bring to SHA with only its published bin files, newest first.
+    Stop at the newest commit changing a layer those files do not carry, or daemon ABI compatibility.
+    Include that floor: an app built there already contains that change. Standalone hot-apply's daemon
+    compatibility remains separate; it can apply parts and report the other layers as left.
     At most `limit` commits; `floor` is that commit, or None when the walk stopped at the limit. The
     signed Mac live update file names them (scripts/ci/cmux-machine-channel.py --purpose mac-live)."""
     out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": []}
     for commit in git(repo, "rev-list", "--first-parent", f"--max-count={limit}", sha).split():
         out["live_from"].append(commit)
-        if paths := pins_daemon(repo, commit):
+        if paths := pins_daemon(repo, commit, whole_app=True):
             out["floor"], out["floor_paths"] = commit, paths[:20]
             break
     return out
