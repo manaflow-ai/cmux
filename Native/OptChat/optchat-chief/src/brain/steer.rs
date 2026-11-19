@@ -234,12 +234,58 @@ impl Brain {
         }
         // Written to the harness and unread: the session may still hold them.
         self.steer_left = Some(key.clone());
+        // Take them back from the harness first (Claude Code drops a line it
+        // has not read), then cut the turn: a session that holds no unread
+        // message is kept, and the next turn goes on in it with the messages
+        // (turns.rs `keep_turn_session`). The cut waits for the answers, off
+        // the brain thread; a harness that cannot take one back leaves it in
+        // the session, which is then not kept.
+        let prompts: Vec<String> = unread
+            .iter()
+            .map(|s| format!("optchat-steer:{}:{}", s.key, s.id))
+            .collect();
         for steer in unread.into_iter().rev() {
             for item in steer.items.into_iter().rev() {
                 self.queue.push_front(item);
             }
         }
-        self.interrupt_for_person("steer unread past the deadline");
+        self.steer_left = Some(key.clone());
+        let session = self.state.turn.as_ref().and_then(|t| t.session_id.clone());
+        let (Some(session), true) = (session, !prompts.is_empty()) else {
+            self.interrupt_for_person("steer unread past the deadline");
+            return;
+        };
+        let agents = self.agents.clone();
+        let tx = self.tx.clone();
+        let asked_key = key.clone();
+        let spawned = std::thread::Builder::new()
+            .name("steer-withdraw".into())
+            .spawn(move || {
+                let all = prompts
+                    .iter()
+                    .all(|p| agents.withdraw_steer(&session, p) == Ok(true));
+                let _ = tx.send(Input::SteersWithdrawn {
+                    key: asked_key,
+                    all,
+                });
+            });
+        if let Err(e) = spawned {
+            (self.log)(&format!("taking back unread steers failed: {e}"));
+            self.interrupt_for_person("steer unread past the deadline");
+        }
+    }
+
+    /// The unread steers of turn `key` were asked back: cut the turn now (it
+    /// still runs), keeping its session when every one was dropped unread.
+    pub(super) fn steers_withdrawn(&mut self, key: &str, all: bool) {
+        let current =
+            self.phase == Phase::Running && self.state.turn.as_ref().is_some_and(|t| t.key == key);
+        if all && self.steer_left.as_deref() == Some(key) {
+            self.steer_left = None;
+        }
+        if current {
+            self.interrupt_for_person("steer unread past the deadline");
+        }
     }
 
     /// Stops the running turn for a person's message it cannot take now:
