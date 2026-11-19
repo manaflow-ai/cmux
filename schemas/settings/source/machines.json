@@ -10,76 +10,322 @@
       },
       "rows": [
         {
-          "key": "computerUse.enabled",
+          "key": "computerUse.mode",
+          "note": "How much agents may do with the apps on this Mac; the raw values are the engine's (cmux_computer_use::policy::Mode).",
           "title": {
-            "key": "settings.computerUse.enabled",
+            "key": "settings.computerUse.mode",
             "text": "Computer Use"
           },
           "help": {
-            "key": "settings.computerUse.enabled.help",
-            "text": "Agents can see and use your apps. macOS asks for Accessibility and Screen Recording."
+            "key": "settings.computerUse.mode.help",
+            "text": "What agents may do with the apps on this Mac. Denied apps are never used, in any mode."
           },
           "summary": {
-            "key": "settings.computerUse.enabled.summary",
-            "text": "Lets agents see and use your apps"
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "computer use",
-            "agents",
-            "automation",
-            "screen recording",
-            "accessibility",
-            "helper"
-          ]
-        },
-        {
-          "key": "computerUse.driver",
-          "note": "Which Computer Use driver the helper runs.",
-          "title": {
-            "key": "settings.computerUse.driver",
-            "text": "Computer Use Driver"
-          },
-          "help": {
-            "key": "settings.computerUse.driver.help",
-            "text": "Upstream is the new helper; macOS asks for its permissions again."
-          },
-          "summary": {
-            "key": "settings.computerUse.driver.summary",
-            "text": "Which helper runs Computer Use"
+            "key": "settings.computerUse.mode.summary",
+            "text": "What agents may do with your apps"
           },
           "kind": "choice",
           "choices": [
             {
-              "value": "legacy",
+              "value": "fullAccess",
               "title": {
-                "key": "settings.computerUse.driver.legacy",
-                "text": "Legacy"
-              },
-              "note": "The cmux-cua 0.8.12 helper (today's path, unchanged)."
+                "key": "settings.computerUse.mode.fullAccess",
+                "text": "Full Access"
+              }
             },
             {
-              "value": "upstream",
+              "value": "approvedApps",
               "title": {
-                "key": "settings.computerUse.driver.upstream",
-                "text": "Upstream"
-              },
-              "note": "The cmux Computer Use helper v2 with upstream Cua Driver in process."
+                "key": "settings.computerUse.mode.approvedApps",
+                "text": "Approved Apps"
+              }
+            },
+            {
+              "value": "askEveryTime",
+              "title": {
+                "key": "settings.computerUse.mode.askEveryTime",
+                "text": "Ask Every Time"
+              }
+            },
+            {
+              "value": "lookOnly",
+              "title": {
+                "key": "settings.computerUse.mode.lookOnly",
+                "text": "Look Only"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.computerUse.mode.off",
+                "text": "Off"
+              }
             }
           ],
-          "default": "upstream",
+          "default": "fullAccess",
+          "swift_enum": {
+            "name": "ComputerUseMode",
+            "generated": false
+          },
           "keywords": [
             "computer use",
-            "driver",
-            "cua",
-            "upstream",
-            "legacy",
-            "helper"
+            "agents",
+            "automation",
+            "apps",
+            "access",
+            "permission",
+            "look only",
+            "approve"
+          ]
+        },
+        {
+          "key": "computerUse.deniedApps",
+          "note": "The engine's default deny list, entry for entry (cmux-tui/crates/cmux-computer-use/src/policy.rs, default_denied_apps; ComputerUseSettingsTests compares the two).",
+          "title": {
+            "key": "settings.computerUse.deniedApps",
+            "text": "Denied Apps"
+          },
+          "help": {
+            "key": "settings.computerUse.deniedApps.help",
+            "text": "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name."
+          },
+          "summary": {
+            "key": "settings.computerUse.deniedApps.summary",
+            "text": "Apps agents may never use"
+          },
+          "kind": "string_list",
+          "default": [
+            "com.apple.keychainaccess",
+            "com.apple.Passwords",
+            "com.1password.*",
+            "com.agilebits.onepassword*",
+            "com.bitwarden.*",
+            "com.dashlane.*",
+            "com.lastpass.*",
+            "com.nordpass.*",
+            "me.proton.pass",
+            "org.keepassxc.keepassxc",
+            "com.markmcguill.strongbox",
+            "in.sinew.enpass*",
+            "com.keepersecurity.*",
+            "1password.exe",
+            "bitwarden.exe",
+            "keepass.exe",
+            "keepassxc.exe",
+            "org.keepassxc.KeePassXC",
+            "1password",
+            "bitwarden",
+            "com.apple.systempreferences",
+            "com.apple.Terminal",
+            "com.googlecode.iterm2",
+            "com.mitchellh.ghostty",
+            "net.kovidgoyal.kitty",
+            "com.github.wez.wezterm",
+            "org.alacritty",
+            "dev.warp.*",
+            "windowsterminal.exe",
+            "cmd.exe",
+            "powershell.exe",
+            "pwsh.exe",
+            "org.gnome.Terminal",
+            "org.gnome.Ptyxis",
+            "org.kde.konsole",
+            "com.cmuxterm.app",
+            "com.cmuxterm.app.*"
           ],
+          "keywords": [
+            "computer use",
+            "deny",
+            "block",
+            "apps",
+            "password",
+            "terminal",
+            "exclude"
+          ]
+        },
+        {
+          "key": "computerUse.allowOwnMachines",
+          "title": {
+            "key": "settings.computerUse.allowOwnMachines",
+            "text": "Allow My Other Machines"
+          },
+          "help": {
+            "key": "settings.computerUse.allowOwnMachines.help",
+            "text": "Agents on your other machines, signed in to the same account, may use this Mac's apps."
+          },
+          "summary": {
+            "key": "settings.computerUse.allowOwnMachines.summary",
+            "text": "Agents on your other machines may use this Mac"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "computer use",
+            "remote",
+            "machines",
+            "devices",
+            "same account"
+          ]
+        },
+        {
+          "key": "computerUse.pauseOnTakeover",
+          "title": {
+            "key": "settings.computerUse.pauseOnTakeover",
+            "text": "Pause When I Use the Mouse or Keyboard"
+          },
+          "help": {
+            "key": "settings.computerUse.pauseOnTakeover.help",
+            "text": "While you use the mouse or keyboard, agents wait before their next click or key press."
+          },
+          "summary": {
+            "key": "settings.computerUse.pauseOnTakeover.summary",
+            "text": "Agents wait while you use this Mac"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "computer use",
+            "pause",
+            "takeover",
+            "mouse",
+            "keyboard",
+            "interrupt"
+          ]
+        },
+        {
+          "key": "computerUse.showCursor",
+          "title": {
+            "key": "settings.computerUse.showCursor",
+            "text": "Show Agent Cursor"
+          },
+          "help": {
+            "key": "settings.computerUse.showCursor.help",
+            "text": "A blue cursor shows wherever an agent clicks or types."
+          },
+          "summary": {
+            "key": "settings.computerUse.showCursor.summary",
+            "text": "A blue cursor shows where agents act"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "computer use",
+            "cursor",
+            "pointer",
+            "blue",
+            "overlay"
+          ]
+        },
+        {
+          "key": "computerUse.cursorTag",
+          "note": "When an agent cursor shows its tag (the agent's workspace name, or the tag the agent set).",
+          "title": {
+            "key": "settings.computerUse.cursorTag",
+            "text": "Agent Cursor Tag"
+          },
+          "help": {
+            "key": "settings.computerUse.cursorTag.help",
+            "text": "Each agent cursor can carry a tag: the agent's workspace name, or a tag the agent sets. Show it when your pointer is over the cursor, always, or never."
+          },
+          "summary": {
+            "key": "settings.computerUse.cursorTag.summary",
+            "text": "When the agent cursor shows its tag"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "hover",
+              "title": {
+                "key": "settings.computerUse.cursorTag.hover",
+                "text": "When I Point at It"
+              },
+              "note": "The tag shows while the person's pointer is over the agent cursor."
+            },
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.computerUse.cursorTag.always",
+                "text": "Always"
+              }
+            },
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.computerUse.cursorTag.never",
+                "text": "Never"
+              }
+            }
+          ],
+          "default": "hover",
           "swift_enum": {
-            "name": "ComputerUseDriver"
-          }
+            "name": "ComputerUseCursorTag"
+          },
+          "keywords": [
+            "computer use",
+            "cursor",
+            "tag",
+            "label",
+            "workspace",
+            "name",
+            "hover"
+          ]
+        },
+        {
+          "key": "computerUse.settle",
+          "note": "What the engine waits for after an action before its screenshot (PolicyConfig settle).",
+          "title": {
+            "key": "settings.computerUse.settle",
+            "text": "After Each Action"
+          },
+          "help": {
+            "key": "settings.computerUse.settle.help",
+            "text": "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing."
+          },
+          "summary": {
+            "key": "settings.computerUse.settle.summary",
+            "text": "What agents wait for after each action"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "adaptive",
+              "title": {
+                "key": "settings.computerUse.settle.adaptive",
+                "text": "Wait for the change (adaptive)"
+              },
+              "note": "Waits until the screen stops changing."
+            },
+            {
+              "value": "anthropic",
+              "title": {
+                "key": "settings.computerUse.settle.anthropic",
+                "text": "Fixed 2 s, then screenshot (Anthropic)"
+              },
+              "note": "Anthropic's reference loop: a fixed 2 s wait."
+            },
+            {
+              "value": "openai",
+              "title": {
+                "key": "settings.computerUse.settle.openai",
+                "text": "Screenshot at once (OpenAI)"
+              },
+              "note": "OpenAI's reference loop: no wait."
+            }
+          ],
+          "default": "adaptive",
+          "swift_enum": {
+            "name": "ComputerUseSettle"
+          },
+          "keywords": [
+            "computer use",
+            "settle",
+            "wait",
+            "delay",
+            "screenshot",
+            "action",
+            "anthropic",
+            "openai"
+          ]
         },
         {
           "key": "computerUse.livePreview",
@@ -104,6 +350,77 @@
             "agent activity",
             "screenshot",
             "chat"
+          ]
+        },
+        {
+          "key": "computerUse.menus",
+          "note": "Whether agents may open pop-up and context menus of background apps (cmux_computer_use::menus::MenuMode).",
+          "title": {
+            "key": "settings.computerUse.menus",
+            "text": "Menus in Background Apps"
+          },
+          "help": {
+            "key": "settings.computerUse.menus.help",
+            "text": "Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background."
+          },
+          "summary": {
+            "key": "settings.computerUse.menus.summary",
+            "text": "Agents may open menus in background apps"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "open",
+              "title": {
+                "key": "settings.computerUse.menus.open",
+                "text": "Open Menus"
+              }
+            },
+            {
+              "value": "refuse",
+              "title": {
+                "key": "settings.computerUse.menus.refuse",
+                "text": "Never Open Menus"
+              }
+            }
+          ],
+          "default": "open",
+          "swift_enum": {
+            "name": "ComputerUseMenus"
+          },
+          "keywords": [
+            "computer use",
+            "menu",
+            "pop-up",
+            "popup",
+            "context menu",
+            "right click",
+            "background"
+          ]
+        },
+        {
+          "key": "computerUse.allowForeground",
+          "title": {
+            "key": "settings.computerUse.allowForeground",
+            "text": "Allow Foreground Input"
+          },
+          "help": {
+            "key": "settings.computerUse.allowForeground.help",
+            "text": "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input."
+          },
+          "summary": {
+            "key": "settings.computerUse.allowForeground.summary",
+            "text": "Advanced: agents may take focus and move the pointer"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "computer use",
+            "foreground",
+            "focus",
+            "pointer",
+            "advanced",
+            "background"
           ]
         }
       ]
