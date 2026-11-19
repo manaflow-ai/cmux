@@ -23,9 +23,12 @@
 //! The store is in the state of a daemon's store: a flush request follows
 //! each commit, as the journal writer makes one after a batch that no request
 //! waits for and the server makes one after a reply, so the registry's syncer
-//! checkpoints the WAL as it does in a daemon. While the store is made, the
-//! test also waits for the syncer after each transaction; in the measured
-//! parts it does not wait.
+//! checkpoints the WAL as it does in a daemon. The store is made in
+//! transactions of [`FILL_ROWS`] journal rows, and there the test also waits
+//! for the syncer after each transaction; in the measured parts it does not
+//! wait. A daemon makes its store in commits of one journal row: the
+//! fixture's tables hold the same rows in the same order, and the measured
+//! parts start after a checkpoint of the whole WAL.
 //!
 //! Each line starts with `late_subject_rows size:` and prints when its part
 //! ends. A time is the test's own clock around one call. No assert is on a
@@ -45,6 +48,14 @@ use super::*;
 
 /// The journal rows of the store before the first measure.
 const STORE_ROWS: u64 = 1_000_000;
+/// The journal rows of one transaction while the store is made. The rows and
+/// their order are the same with each size: a row that ends a period writes
+/// the period's subject rows inside its transaction. A large transaction
+/// changes a page of the subject index one time where many small ones change
+/// it many times, so the syncer copies far fewer pages while the store is
+/// made.
+const FILL_ROWS: u64 = 50_000;
+const _: () = assert!(STORE_ROWS % FILL_ROWS == 0);
 /// The journal rows of the late write's part: a multiple of 100 and of 1,000.
 const LATE_ROWS: u64 = 3_000;
 /// The journal rows of the part with a write after each row.
@@ -368,16 +379,29 @@ fn the_costs_of_a_period_in_a_fixture_store_of_1_000_000_journal_rows() {
     // The store.
     let started = Instant::now();
     let mut next = store.head();
+    let (mut appends, mut syncer_waits) = (Duration::ZERO, Duration::ZERO);
     while next < STORE_ROWS {
         if let Some(why) = limits.passed() {
             line(&format!("THE STORE: {next} journal rows of {STORE_ROWS} are made"));
             return ended_by_a_limit("the making of the store", &why);
         }
-        append_fixture_rows(&store, next, 1_000);
-        // The syncer ends its work for this transaction before the next one,
-        // as it does in a daemon, where a journal row comes long after it.
+        let append_started = Instant::now();
+        append_fixture_rows(&store, next, FILL_ROWS);
+        let append = append_started.elapsed();
+        // The syncer ends its work for this transaction before the next one:
+        // the WAL holds one transaction at most when the next one starts.
+        let wait_started = Instant::now();
         store.registry().connection.checkpoints_after_flush_for_test();
-        next += 1_000;
+        let wait = wait_started.elapsed();
+        next += FILL_ROWS;
+        appends += append;
+        syncer_waits += wait;
+        line(&format!(
+            "THE STORE: {next} journal rows are made; the last transaction of {FILL_ROWS}: its \
+             append {:.1} s, the wait for the syncer after it {:.1} s",
+            append.as_secs_f64(),
+            wait.as_secs_f64()
+        ));
     }
     let fill = started.elapsed();
     let made = counts(&store);
@@ -385,10 +409,13 @@ fn the_costs_of_a_period_in_a_fixture_store_of_1_000_000_journal_rows() {
     let (mark, after, number) = file_state(&database, head);
     line(&format!(
         "THE STORE: {head} journal rows with 7 subjects each, made by the registry's append \
-         with 1,000 journal rows in a transaction, each with a flush request and a wait for the \
-         syncer after it, in {:.1} s; {} commits, {} checkpoints of the syncer; {}; the mark is \
+         with {FILL_ROWS} journal rows in a transaction, each with a flush request and a wait \
+         for the syncer after it, in {:.1} s (the appends {:.1} s, the waits for the syncer \
+         {:.1} s); {} commits, {} checkpoints of the syncer; {}; the mark is \
          {mark}, {after} journal rows are after it, the schema number is {number}",
         fill.as_secs_f64(),
+        appends.as_secs_f64(),
+        syncer_waits.as_secs_f64(),
         made.commits,
         made.checkpoints,
         files(&store, &database)
