@@ -22,6 +22,7 @@
 //   COORD_SIM_BIN=../cmux-tui/crates/coord-sim/target/release/coord-sim \
 //     bun bench/coord-sim-load.bench.ts [coords=3] [rate=10] [seconds=60] [history=5000]
 // COORD_SIM_RECORDS=DIR serves records written before (coord-sim surface --target app-host --out DIR).
+// COORD_SIM_SESSIONS=DIR,DIR serves sized acpmux session dirs as the chats' history (TAIL_RECORDS of each); STREAM=0 idle.
 // Linux only (renderer CPU and memory from /proc).
 import fs from "node:fs";
 import os from "node:os";
@@ -42,6 +43,12 @@ const SCROLL_STEPS = Number(process.env.SCROLL_STEPS ?? 120);
 const KEYS = Number(process.env.KEYS ?? 40);
 const CPU_S = Number(process.env.CPU_S ?? 10);
 const SWITCHES = Math.min(COORDS - 1, Number(process.env.SWITCHES ?? 5));
+// Sized chats (the generator's acpmux session dirs: session.json and events/NNNNNN.ndjson, 1 MB to 4 GB): chat i takes
+// session i's newest TAIL_RECORDS records as its history (read from the newest event file back, so a 4 GB chat costs
+// only its tail here; acpmux pages the same way). STREAM=0 measures them idle.
+const SESSIONS = (process.env.COORD_SIM_SESSIONS ?? "").split(",").filter(Boolean);
+const TAIL_RECORDS = Number(process.env.TAIL_RECORDS ?? 20_000);
+const STREAM = process.env.STREAM !== "0";
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 if (process.platform !== "linux") {
   console.error("coord-sim-load: Linux only (renderer CPU and memory from /proc)");
@@ -52,7 +59,8 @@ if (!(COORDS >= 1 && RATE > 0 && SECONDS > 0)) {
   process.exit(2);
 }
 const webviews = path.resolve(import.meta.dir, "..");
-const TAG = `c${COORDS}`;
+// LABEL names the run in its rows and RUN_DIR folder (a sized run: LABEL=c3-1gb).
+const TAG = process.env.LABEL ?? `c${COORDS}${process.env.STREAM === "0" ? "-idle" : ""}`;
 const ROW = `coord_sim_load.${TAG}`;
 
 type Rec = { sessionId: string; seq: number; at: number; dir: string; kind: string; msg: Record<string, unknown> };
@@ -63,6 +71,25 @@ const readNdjson = (file: string): Rec[] =>
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as Rec);
+const eventFiles = (dir: string) =>
+  fs
+    .readdirSync(path.join(dir, "events"))
+    .filter((name) => name.endsWith(".ndjson"))
+    .sort()
+    .map((name) => path.join(dir, "events", name));
+const sessionBytes = (dir: string) => eventFiles(dir).reduce((sum, file) => sum + fs.statSync(file).size, 0);
+/// The newest `limit` records of an acpmux session dir, keyed to `id` (the chat the stand-in serves them as).
+function sessionTail(dir: string, id: string, limit: number, index: number): Rec[] {
+  const out: Rec[] = [];
+  for (const file of eventFiles(dir).reverse()) {
+    const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
+    for (let i = lines.length - 1; i >= 0 && out.length < limit; i--)
+      out.push({ ...(JSON.parse(lines[i]!) as Rec), sessionId: id });
+    if (out.length >= limit) break;
+  }
+  if (!out.length) throw new Error(`coord-sim-load: no records in ${dir} (chat ${index})`);
+  return out.reverse();
+}
 const pct = (values: number[], p: number) => {
   const sorted = [...values].sort((a, b) => a - b);
   return sorted.length ? sorted[Math.min(sorted.length - 1, Math.round((sorted.length - 1) * p))]! : 0;
@@ -131,8 +158,22 @@ try {
     if (made.exitCode !== 0) throw new Error(`coord-sim: ${made.stderr.toString()}`);
   }
   const manifest = JSON.parse(fs.readFileSync(path.join(recordsDir, "manifest.json"), "utf8")) as Manifest;
-  const history = manifest.chats.map((_, i) => readNdjson(path.join(recordsDir!, `history-${i}.ndjson`)));
-  const live = readNdjson(path.join(recordsDir, "live.ndjson"));
+  const history = manifest.chats.map((chat, i) => {
+    const sized = SESSIONS[i % Math.max(1, SESSIONS.length)];
+    return sized
+      ? sessionTail(sized, chat.sessionId, TAIL_RECORDS, i)
+      : readNdjson(path.join(recordsDir!, `history-${i}.ndjson`));
+  });
+  // A sized chat's live records continue its own sequence.
+  const nextSeq = new Map(manifest.chats.map((chat, i) => [chat.sessionId, (history[i]!.at(-1)?.seq ?? 0) + 1]));
+  const live = STREAM
+    ? readNdjson(path.join(recordsDir, "live.ndjson")).map((rec) => {
+        const seq = nextSeq.get(rec.sessionId) ?? rec.seq;
+        nextSeq.set(rec.sessionId, seq + 1);
+        return { ...rec, seq };
+      })
+    : [];
+  if (SESSIONS.length) summary.sessions = SESSIONS.map((dir) => ({ dir, bytes: sessionBytes(dir) }));
   console.log(
     `coord-sim-load: ${COORDS} coordinators at ${RATE}x for ${SECONDS}s, ${HISTORY} records each before attach, ` +
       `${live.length} live records (${(live.length / SECONDS).toFixed(0)}/s), ${READERS} readers`,
