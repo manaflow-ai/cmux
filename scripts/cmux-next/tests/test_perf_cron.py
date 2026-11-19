@@ -670,6 +670,53 @@ class WebUiTests(unittest.TestCase):
                          "no empty sample: no ratio either")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
 
+    def test_the_idle_budget_part_judges_chromiums_idle_wakeups_per_kind(self):
+        """Chromium's GPU, renderer and utility processes at idle get judged rows (idle-budget.py's light session,
+        idle-budget.json: each <= 1 wakeup/s, plans/cmux-next/idle-wakeups.md section 7); every kind's wakeups/s is
+        stored. Before this part no cron row had a Chromium process's wakeups, and their budgets were null."""
+        self.assertIn("idle-budget", FLEET, "a Mac part on the measure host")
+        part = cron.PART_BY_NAME["idle-budget"]
+        self.assertIn("--suite=idle-budget", part["args"])
+        self.assertIn("--sessions=light", part["args"])
+        self.assertEqual(cron.part_for_row("idle_budget.light.cef-gpu.wakeups_per_s@cmux20-bench"), "idle-budget")
+        self.assertEqual(cron.part_for_row("idle.terminals.app_cpu_pct@cmux20-bench"), "home-idle")
+        spec2 = importlib.util.spec_from_file_location("idle_budget", os.path.join(HERE, "..", "idle-budget.py"))
+        ib = importlib.util.module_from_spec(spec2)
+        # Its pure parts only: off macOS there is no libproc to load (test_idle_budget.py does the same).
+        with mock.patch("ctypes.CDLL") if os.uname().sysname != "Darwin" else contextlib.nullcontext():
+            spec2.loader.exec_module(ib)
+        with open(os.path.join(HERE, "..", "idle-budget.json")) as f:
+            budget = json.load(f)
+        for name in ("cef-gpu", "cef-renderer", "cef-utility"):
+            self.assertEqual(budget["kinds"][name]["wakeups_max"], 1.0, f"{name} is judged, not null")
+
+        def kind(wake, wmax, n=1):
+            return {"n": n, "threads": 20, "threads_max": 20, "wakeups_per_s": wake, "wakeups_max": wmax,
+                    "csw_per_s": 1.0, "cpu_pct": 0.1, "threads_ran": 1}
+        report = {"sessions": {"light": {"exit": 0, "kinds": {
+            "app": {**kind(0.4, 0.4), "main_wakes_per_s": 0}, "cef-gpu": kind(86.0, 86.0),
+            "cef-renderer": kind(3.0, 2.2, n=2), "cef-utility": kind(0.2, 0.2), "other:zsh": kind(5.0, 5.0)}}}}
+        out = ib.cron_report(report, budget)
+        self.assertNotIn("incomplete", out)
+        rows = cron.rows_of_part(part, out, budgets_mod, {})
+        gpu = rows["idle_budget.light.cef-gpu.wakeups_max"]
+        self.assertEqual((gpu["p95"], gpu["unit"], gpu["budget"]), (86.0, "/s", 1.0))
+        self.assertEqual(rows["idle_budget.light.cef-gpu.wakeups_per_s"]["p95"], 86.0, "per-kind wakeups are stored")
+        self.assertEqual(rows["idle_budget.light.cef-renderer.wakeups_max"]["p95"], 2.2, "judged per process")
+        self.assertEqual(rows["idle_budget.light.cef-renderer.wakeups_per_s"]["p95"], 3.0, "the kind's sum")
+        self.assertFalse(any(n.startswith("idle_budget.light.other:") for n in rows), "a shell is not the app's")
+        found = cron.find_regressions({"idle_budget.light.cef-gpu.wakeups_max": gpu}, {}, 8.33, 8.33, budgets_mod)
+        self.assertEqual([(f["name"], f["target"], f["why"]) for f in found],
+                         [("idle_budget.light.cef-gpu.wakeups_max", 1.0, cron.NO_REFERENCE)],
+                         "a first value over its budget is listed, not a silent pass")
+        under = {**gpu, "p50": 0.6, "p95": 0.6}
+        self.assertEqual(cron.find_regressions({"idle_budget.light.cef-gpu.wakeups_max": under}, {}, 8.33, 8.33, budgets_mod), [])
+        # A run with no Chromium process, or a session that failed, is not done (no silent drop of judged rows).
+        no_cef = {"sessions": {"light": {"exit": 0, "kinds": {"app": kind(0.4, 0.4)}}}}
+        self.assertTrue(cron.report_is_incomplete(part, ib.cron_report(no_cef, budget)))
+        failed = {"sessions": {"light": {"exit": 1, "error": "RuntimeError: launch"}}}
+        self.assertIn("launch", ib.cron_report(failed, budget)["incomplete"][0])
+
     def test_the_memory_agents_part_measures_the_optimized_app(self):
         """CMUX-571 ram-baseline compares the app with other apps' release builds and with the 2026-11-08 Release
         baseline (app process 243-285 MB). The part measured the Debug build (app process 323.3 MB at 8c515cc5), so
