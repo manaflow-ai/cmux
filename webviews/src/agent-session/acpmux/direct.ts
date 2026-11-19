@@ -94,7 +94,7 @@ import { resolvedTarget } from "./conversation/sessionRefs";
 import { noteReplaced } from "./sessionIndex";
 import { hostKind, sessionEntry, sessionTitle, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { sameUsageStats, type SessionUsageStats } from "./usageStats";
-import { usageLimitsOf } from "./usageLimits";
+import { liveUsageLimits, usageLimitsOf } from "./usageLimits";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
 import { forkHistoryTail, sameForkHistory } from "./forkTail";
@@ -9730,6 +9730,12 @@ export class AcpmuxDirectClient {
         ? contextBreakdownOf(update?._meta?.acpmux?.contextBreakdown)
         : undefined;
     if (breakdown && this.summary) this.summary = { ...this.summary, contextBreakdown: breakdown };
+    // The plan's usage limits as the same update moves them (Claude's rate_limit_event, Codex's
+    // account/rateLimits/updated): the composer's plan ring reads them live, not at the next attach.
+    if (update?.sessionUpdate === SESSION_INFO_KIND && this.summary) {
+      const limits = liveUsageLimits(this.summary.usageLimits, update);
+      if (limits !== this.summary.usageLimits) this.summary = { ...this.summary, usageLimits: limits };
+    }
     // Codex owns its goal lifecycle in `_meta.goal`; apply live completion and clearing before
     // the session-start row's early return so the persistent strip follows the harness event.
     if (
