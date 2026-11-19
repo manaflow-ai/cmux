@@ -71,6 +71,7 @@ public final class HostsSidebar {
         guard expanded else { return items }
 
         var addHost = SidebarItemInfo(title: "Add Host…", symbol: "plus")
+        addHost.caption = "Add Host…"
         addHost.indent = 1
         add(Self.addID, addHost)
         for machine in machines {
@@ -95,7 +96,6 @@ public final class HostsSidebar {
     }
 
     private static func caption(for machine: MachineSectionRow) -> String {
-        if machine.isConnecting { return "Connecting…" }
         if let state = machine.serverState {
             switch state {
             case .paused: return "Paused"
@@ -104,6 +104,7 @@ public final class HostsSidebar {
             case .deleted: return "Deleted"
             }
         }
+        if machine.isConnecting { return "Connecting…" }
         return machine.isConnected ? "Connected" : "Offline"
     }
 }

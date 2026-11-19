@@ -179,7 +179,14 @@ final class AppServices {
     let wideningGate = PageWideningGate()
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
     private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.machineAPI)
-    let machineHealth = MachineHealthStore(); var hostsSidebar: HostsSidebar.Host { .init(rows: { [weak self] in self.map { MachineSectionRow.rows($0.machines, health: $0.machineHealth, joined: $0.joinedMachines, signedIn: $0.serverReach.signedIn.joinedByMachine) } ?? [] }, add: { [weak self] in _ = self?.registry.perform("device.add") }, open: { [weak self] machine in _ = self?.registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(machine.id)])) }) }
+    let machineHealth = MachineHealthStore(); var hostsSidebar: HostsSidebar.Host { .init(rows: { [weak self] in self.map { MachineSectionRow.rows($0.machines, health: $0.machineHealth, joined: $0.joinedMachines, signedIn: $0.serverReach.signedIn.joinedByMachine) } ?? [] }, add: { [weak self] in _ = self?.registry.perform("device.add") }, open: { [weak self] machine in
+        guard let self else { return }
+        if let joined = machine.joined, machine.id == JoinedMachine.healthID(joined.id), joined.state == .online, joined.isMac {
+            Task { await MachineSectionHostView.signedInDial(self).open(joined) }
+        } else if machine.isConnected {
+            _ = self.registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(machine.id)]))
+        }
+    }) }
     /// The process's one guard of the Keychain UI switch: every store of cmux's own Keychain items gets this one.
     let loginKeychain = LoginKeychain()
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
