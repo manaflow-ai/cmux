@@ -1,6 +1,60 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.agents.mcpServers.enabled": {
+      "comment": "Settings > MCP Servers: toggle title",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Saved Servers in Agent Chats"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الخوادم المحفوظة في محادثات الوكلاء"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Sačuvani serveri u chatovima agenata"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Gemte servere i agentchats"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Gespeicherte Server in Agent-Chats"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Servidores guardados en chats de agentes"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Serveurs enregistrés dans les discussions"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Server salvati nelle chat degli agenti"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントチャットで保存済みサーバー"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ម៉ាស៊ីនមេដែលបានរក្សាទុកក្នុងការជជែក"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트 채팅의 저장된 서버"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Lagrede servere i agentchatter"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zapisane serwery w czatach agentów"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Servidores salvos nos chats de agentes"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Сохранённые серверы в чатах агентов"}},
+        "th": {"stringUnit": {"state": "translated", "value": "เซิร์ฟเวอร์ที่บันทึกไว้ในแชทเอเจนต์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ajan sohbetlerinde kayıtlı sunucular"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Збережені сервери в чатах агентів"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Máy chủ đã lưu trong trò chuyện agent"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "代理聊天中的已存服务器"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "代理聊天中的已存伺服器"}}
+      }
+    },
+    "settings.agents.mcpServers.enabled.help": {
+      "comment": "Settings > MCP Servers: toggle help",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "New chats can use the servers listed above."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يمكن للمحادثات الجديدة استخدام الخوادم المدرجة أعلاه."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Novi chatovi mogu koristiti servere navedene gore."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Nye chats kan bruge serverne ovenfor."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Neue Chats können die oben genannten Server nutzen."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Los chats nuevos pueden usar los servidores de arriba."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les nouvelles discussions utilisent les serveurs ci-dessus."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Le nuove chat possono usare i server elencati sopra."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいチャットで上のサーバーを使えます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការជជែកថ្មីអាចប្រើម៉ាស៊ីនមេខាងលើ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "새 채팅에서 위에 나열된 서버를 사용할 수 있습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Nye chatter kan bruke serverne ovenfor."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nowe czaty mogą używać serwerów wymienionych wyżej."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Novos chats podem usar os servidores listados acima."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Новые чаты могут использовать серверы выше."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แชทใหม่ใช้เซิร์ฟเวอร์ที่แสดงด้านบนได้"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Yeni sohbetler yukarıdaki sunucuları kullanabilir."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Нові чати можуть використовувати сервери вище."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cuộc trò chuyện mới có thể dùng các máy chủ ở trên."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "新聊天可以使用上方列出的服务器。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "新聊天可以使用上方列出的伺服器。"}}
+      }
+    },
     "settings.choice.fontSmoothingAuto": {
       "comment": "Text Smoothing choice: no override; the Mac's own smoothing and each page's own style.",
       "extractionState": "manual",
@@ -1088,6 +1142,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Theo múi giờ"}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "来自时区"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "來自時區"}}
+      }
+    },
+    "settings.group.mcpServers": {
+      "comment": "Settings > MCP Servers: the group under the list of servers.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Agent Chats"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "محادثات الوكلاء"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Chatovi agenata"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Agentchats"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Agent-Chats"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Chats de agentes"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Discussions d’agents"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Chat degli agenti"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントチャット"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការជជែករបស់ភ្នាក់ងារ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트 채팅"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Agentchatter"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Czaty agentów"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Chats de agentes"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Чаты агентов"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แชทของเอเจนต์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ajan sohbetleri"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Чати агентів"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Trò chuyện với agent"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "代理聊天"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "代理聊天"}}
       }
     },
     "settings.placeholder.wordOrPhrase": {
@@ -219191,6 +219272,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "以灰色文字建議你的下一則提示；按 Tab 即可採用。每則建議都是一次額外的模型呼叫。"
+          }
+        }
+      }
+    },
+    "settings.labs.customizeFromTheApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التخصيص من النافذة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prilagodi iz prozora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpas fra vinduet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Fenster anpassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Customize From the Window"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizar desde la ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnaliser depuis la fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizza dalla finestra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウからカスタマイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរតាមបំណងពីបង្អួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창에서 사용자화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpass fra vinduet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostosuj z okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizar pela janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройка из окна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปรับแต่งจากหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencereden Özelleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштування з вікна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tùy chỉnh từ cửa sổ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从窗口自定义"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從視窗自訂"
+          }
+        }
+      }
+    },
+    "settings.labs.customizeFromTheApp.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اضغط مع الاستمرار على Option فوق جزء من النافذة لترى ما يغيّره، وانقر بزر الماوس الأيمن عليه لاختيار تخصيص…. أوقف هذا لإخفاء الاثنين."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Držite Option iznad dijela prozora da vidite šta ga mijenja, i kliknite desnim klikom za Prilagodi…. Isključite ovo da sakrijete oboje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold Option over en del af vinduet for at se, hvad der ændrer den, og højreklik på den for Tilpas…. Slå dette fra for at skjule begge."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Halte Wahl über einem Teil des Fensters, um zu sehen, was ihn ändert, und klicke mit der rechten Maustaste für Anpassen…. Schalte dies aus, um beides auszublenden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén Opción sobre una parte de la ventana para ver qué la cambia y haz clic derecho para Personalizar…. Desactívalo para ocultar ambos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maintenez Option sur une partie de la fenêtre pour voir ce qui la modifie, et faites un clic droit pour Personnaliser…. Désactivez ceci pour masquer les deux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tieni premuto Opzione su una parte della finestra per vedere cosa la cambia e fai clic destro per Personalizza…. Disattiva per nascondere entrambi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウの一部の上で Option を押し続けると、それを変える設定が表示されます。右クリックで「カスタマイズ…」も使えます。オフにすると両方とも表示されません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចុច Option លើផ្នែកមួយនៃបង្អួច ដើម្បីមើលអ្វីដែលផ្លាស់ប្ដូរវា ហើយចុចកណ្ដុរស្ដាំសម្រាប់ ប្ដូរតាមបំណង…។ បិទវា ដើម្បីលាក់ទាំងពីរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창의 한 부분 위에서 Option을 누르고 있으면 무엇이 그것을 바꾸는지 보이고, 오른쪽 클릭하면 사용자화…가 나옵니다. 끄면 둘 다 숨겨집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold Tilvalg over en del av vinduet for å se hva som endrer den, og høyreklikk for Tilpass…. Slå av for å skjule begge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przytrzymaj Option nad częścią okna, aby zobaczyć, co ją zmienia, i kliknij prawym przyciskiem, aby wybrać Dostosuj…. Wyłącz, aby ukryć oba."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segure Option sobre uma parte da janela para ver o que a altera e clique com o botão direito para Personalizar…. Desative para ocultar ambos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удерживайте Option над частью окна, чтобы увидеть, что её меняет, и нажмите правой кнопкой для «Настроить…». Выключите, чтобы скрыть и то и другое."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กด Option ค้างไว้เหนือส่วนหนึ่งของหน้าต่างเพื่อดูว่าอะไรเปลี่ยนส่วนนั้น และคลิกขวาเพื่อเลือก ปรับแต่ง… ปิดตัวเลือกนี้เพื่อซ่อนทั้งสองอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neyin değiştirdiğini görmek için pencerenin bir bölümü üzerinde Option tuşunu basılı tutun ve Özelleştir… için sağ tıklayın. İkisini de gizlemek için kapatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Утримуйте Option над частиною вікна, щоб побачити, що її змінює, і клацніть правою кнопкою для «Налаштувати…». Вимкніть, щоб сховати обидва."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ Option trên một phần của cửa sổ để xem điều gì thay đổi nó, và nhấp chuột phải để chọn Tùy chỉnh…. Tắt để ẩn cả hai."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在窗口的某个部分上按住 Option 可查看改变它的设置，右键点按可选择“自定义…”。关闭此项即可隐藏两者。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在視窗的某個部分上按住 Option 可查看改變它的設定，按右鍵可選擇「自訂…」。關閉此項即可隱藏兩者。"
           }
         }
       }
