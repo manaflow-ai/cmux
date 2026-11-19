@@ -691,9 +691,9 @@ impl Capture {
         let mut capture = result?;
         let start = capture.bounds;
         let shared = capture.shared.clone();
-        // SAFETY: dup(2) of the wake pipe's write end, which the sink keeps open; the copy is
-        // the watcher's own, closed when it ends.
-        let wake = Fd(unsafe { libc::dup(capture.wake_write_fd()?) });
+        // SAFETY: a close-on-exec dup of the wake pipe's write end, which the sink keeps open;
+        // the copy is the watcher's own, closed when it ends.
+        let wake = Fd(unsafe { libc::fcntl(capture.wake_write_fd()?, libc::F_DUPFD_CLOEXEC, 0) });
         if wake.0 < 0 {
             return Err(std::io::Error::last_os_error().into());
         }
