@@ -194,6 +194,8 @@ async fn a_chat_starts_claude_with_its_limits_lifted_unless_the_profile_sets_one
             "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "5",
             "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY": "64",
             "BASH_MAX_TIMEOUT_MS": "2147483647",
+            // One retry of its own, then acpmux's continuation (harness_limits.rs).
+            "CLAUDE_CODE_MAX_RETRIES": "1",
             // The foreground default stays Claude Code's own.
             "BASH_DEFAULT_TIMEOUT_MS": null,
         })
