@@ -1183,6 +1183,11 @@ const WARM_VIEWPORTS = 1;
 /// land in the offset in the frame they are measured and no visible row moves.
 const HISTORY_VIEWPORTS = 4;
 
+/// The history a chat's first drawn commit mounts above the view; the rest of HISTORY_VIEWPORTS mounts
+/// in a deferred render right after it. Four screens in the commit that drew the open were most of
+/// its rows (74 of a 300-turn chat at 800 px) and most of attach to latest (chat-open.bench.ts).
+const OPEN_HISTORY_VIEWPORTS = 1;
+
 /// How far the reader scrolls, in viewports, before the warm rows move with them.
 const WARM_STEP_VIEWPORTS = 0.5;
 
@@ -4423,8 +4428,24 @@ function TranscriptView({
   const followHeld =
     jumpTarget.current !== undefined ||
     (scroller !== null && userScrollIntent(scroller).isHeld() && !followRequest.current?.());
-  const projectedTop =
-    sessionSwitched || placedBefore === layout || draggedHeight !== undefined
+  // A chat's first overflowing rows open at the latest message (the placement pass's `open`), so this
+  // commit draws them there: drawn from the top, the open mounted and laid out the chat's first rows,
+  // then the pass scrolled to the end and a second render drew the newest ones (chat-open.bench.ts
+  // attach_to_latest). The switch commit too: the end of the new chat's own layout reuses nothing of
+  // the old chat's scroll. Only the plain open: a remembered place (openAt), a clicked fold or a send
+  // in flight is placed by the pass alone, as before (on a switch the pass resets the send refs).
+  const opensAtLatest =
+    (sessionSwitched || !openedAtLatest) &&
+    (sessionSwitched || followingRef.current) &&
+    !followHeld &&
+    draggedHeight === undefined &&
+    layout.totalHeight > height &&
+    !foldAnchor.current &&
+    (sessionSwitched || (!sentBeforeOpen.current && sends === seenSends.current)) &&
+    !(openAt && rows.some((row) => row.id === openAt.rowId));
+  const projectedTop = opensAtLatest
+    ? Math.max(0, layout.totalHeight - height)
+    : sessionSwitched || placedBefore === layout || draggedHeight !== undefined
       ? undefined
       : followingRef.current
         ? openedAtLatest && !followHeld
@@ -4485,19 +4506,23 @@ function TranscriptView({
   heldWarmAt.current = sessionSwitched ? undefined : warmAt;
   const warmTop = warmAnchorTop(layout, rows, useDeferredValue(warmAt)) ?? liveWarmAt;
   // Above the view the warm rows reach HISTORY_VIEWPORTS: history to scroll up into, built between
-  // frames as the rest of them are.
+  // frames as the rest of them are. The commit that first draws a chat's rows (an open, a switch)
+  // reaches OPEN_HISTORY_VIEWPORTS, and the deferred render right after its paint the rest, so the
+  // newest message is not held for rows above the view.
+  const opening = `${sessionKey}:${rows.length > 0 ? 1 : 0}`;
+  const historyViewports = useDeferredValue(opening) === opening ? HISTORY_VIEWPORTS : OPEN_HISTORY_VIEWPORTS;
   const warm = visibleLayoutRange(
     layout,
-    warmTop - height * HISTORY_VIEWPORTS - warmStep / 2,
-    height * (1 + HISTORY_VIEWPORTS + WARM_VIEWPORTS) + warmStep,
+    warmTop - height * historyViewports - warmStep / 2,
+    height * (1 + historyViewports + WARM_VIEWPORTS) + warmStep,
   );
-  // A followed view (a chat as it opens, at its latest row) mounts that history in the commit that
-  // draws it, not a deferred render later: the deferred anchor of a chat's first commit is the top of
-  // its rows, nowhere near the view, so its first painted frame held only the rows in view and
-  // nothing to scroll up into. A followed view is anchored at its end, so rows drawn above it at their
+  // A followed view (a chat as it opens, at its latest row) mounts that history from its own offset,
+  // not the warm rows' deferred anchor: that anchor in a chat's first commit is the top of its rows,
+  // nowhere near the view, so its first painted frame held only the rows in view and nothing to
+  // scroll up into. Its first commit mounts one screen of it, the next the rest (historyViewports). A followed view is anchored at its end, so rows drawn above it at their
   // estimate and measured move the offset, never a visible row. Scrolled up, the warm rows hold it.
   const history = renderFollowing
-    ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
+    ? visibleLayoutRange(layout, shownTop - height * historyViewports, height * historyViewports, 0)
     : undefined;
   const scrolledRanges = mergeRowRanges([
     ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
