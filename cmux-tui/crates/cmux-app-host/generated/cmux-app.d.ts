@@ -197,7 +197,7 @@ declare namespace Cmux {
   type GitIncludeReport = { copied: number; kept: number; outside: Array<string>; problems: Array<string> }
   type GitPatchPage = { offset: string; next_offset: string; total_bytes: string; revision: string; data_base64: string; complete: boolean }
   type GitPushResult = { root: string; remote: string; branch: string; upstream: string; pushed_commit: string; previous_remote_commit?: string; created_upstream: boolean; up_to_date: boolean }
-  type GitStatusResult = { root: string; branch?: string; detached: boolean; head?: string; upstream?: string; github_repo?: string; base?: string; ahead: number; behind: number; worktree?: Cmux.GitStatusWorktree }
+  type GitStatusResult = { root: string; branch?: string; detached: boolean; head?: string; upstream?: string; github_repo?: string; base?: string; ahead: number; behind: number; worktree?: Cmux.GitStatusWorktree; in_progress?: "merge" | "rebase" | "cherry-pick" | "revert" }
   type GitStatusWorktree = { main_root: string }
   type GitWorktreeApplyResult = { main_root: string; files: Array<string> }
   type GitWorktreeCreateResult = { root: string; branch: string; base: string; base_commit: string; main_root?: string; setup: Cmux.GitWorktreeSetupStart }

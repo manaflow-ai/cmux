@@ -272,3 +272,86 @@ test("Create PR discards completion from an old repository and from an unmounted
   await act(async () => fail(new Error("Closed page rejection")));
   expect(host.textContent).toBe("");
 });
+
+// Commit and Push show only where they work (ceremony audit, Leo 2026-11-17): a chat whose folder is
+// not on this Mac lists only the read ops, so the viewer has no Commit or Push to refuse with "this
+// chat's folder isn't on this Mac"; a merge or rebase that stopped partway turns Commit off instead
+// of answering "finish it in a terminal first".
+test("a remote chat's viewer, whose host lists only the reads, gets no Commit or Push", () => {
+  const reads = ["cmux.diff.git.status", "cmux.diff.git.diff", "cmux.diff.git.fingerprint"];
+  expect(diffGitSource(page as never, reads)).toBeUndefined();
+});
+
+test("Commit is off while a merge or rebase is in progress, and on again once it ends", async () => {
+  let inProgress: string | undefined = "rebase";
+  const committed: unknown[] = [];
+  const source = {
+    ...diffGitSource(page as never, OPS)!,
+    status: async () => ({
+      head: HEAD,
+      branch: "main",
+      upstream: "origin/main",
+      detached: false,
+      ahead: 1,
+      ...(inProgress ? { in_progress: inProgress } : {}),
+    }),
+    commit: async (params: unknown) => {
+      committed.push(params);
+      return { value: { commit: HEAD, summary: "s" } };
+    },
+  };
+  let refresh!: () => void;
+  function Viewer() {
+    const git = useGitWrite(source, () => {});
+    refresh = git.refresh;
+    return <GitToolbarButtons git={git} formOpen={false} onToggleForm={() => {}} />;
+  }
+  await act(async () => root.render(<Viewer />));
+  await act(async () => {});
+  const tool = (name: string) => host.querySelector<HTMLButtonElement>(`[data-tool="${name}"]`)!;
+  expect(tool("commit").disabled).toBe(true);
+  // Push is not about the merge: the branch is still ahead.
+  expect(tool("push").disabled).toBe(false);
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+
+  inProgress = undefined;
+  await act(async () => refresh());
+  await act(async () => {});
+  expect(tool("commit").disabled).toBe(false);
+  expect(committed).toEqual([]);
+  await act(async () => root.render(null));
+});
+
+test("a merge_in_progress refusal from a stale status reads the status again, so Commit turns off", async () => {
+  let statusReads = 0;
+  const source = {
+    ...diffGitSource(page as never, OPS)!,
+    status: async () => {
+      statusReads += 1;
+      return {
+        head: HEAD,
+        branch: "main",
+        detached: false,
+        ahead: 0,
+        ...(statusReads > 1 ? { in_progress: "merge" } : {}),
+      };
+    },
+    commit: async () => {
+      throw { code: "operation.failed", details: { reason: "merge_in_progress" } };
+    },
+  };
+  let write!: ReturnType<typeof useGitWrite>;
+  function Viewer() {
+    write = useGitWrite(source, () => {});
+    return <GitToolbarButtons git={write} formOpen={false} onToggleForm={() => {}} />;
+  }
+  await act(async () => root.render(<Viewer />));
+  await act(async () => {});
+  const commit = () => host.querySelector<HTMLButtonElement>('[data-tool="commit"]')!;
+  expect(commit().disabled).toBe(false);
+  await act(async () => void (await write.commit("m", "staged", false)));
+  await act(async () => {});
+  expect(statusReads).toBe(2);
+  expect(commit().disabled).toBe(true);
+  await act(async () => root.render(null));
+});

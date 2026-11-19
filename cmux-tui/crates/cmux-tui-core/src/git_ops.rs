@@ -219,8 +219,14 @@ fn status(directory: &Path, github: bool) -> Result<Value, ResourceError> {
     if let Some((_, base)) = repository.base_branch() {
         value.set("base", json!(base));
     }
-    if let Some(main) = repository.main_checkout() {
+    let layout = repository.layout();
+    if let Some(main) = layout.main_checkout {
         value.set("worktree", json!({"main_root": main.to_string_lossy()}));
+    }
+    // A view offers no Commit (git.commit refuses merge_in_progress) and no
+    // Apply (git.worktree.apply refuses unmerged) while this is set.
+    if let Some(state) = layout.in_progress {
+        value.set("in_progress", json!(state));
     }
     Ok(value)
 }
