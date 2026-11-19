@@ -101,12 +101,11 @@ const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS journal_subject_index (
        SELECT RAISE(ABORT, 'journal subject index is append-only');
      END;";
 
-/// The first mark of a store that has none. `?1`: the table was there. Then
-/// each journal row has its subject rows, so the mark is the newest active
-/// row (an open moves it to the head). With no table, no row has them.
+/// The first mark of a store that has the table and no mark: each journal
+/// row has its subject rows, so the mark is the newest active row (an open
+/// moves it to the head).
 const FIRST_MARK: &str = "INSERT OR IGNORE INTO meta(key, value)
-     SELECT 'journal_subject_rows_through',
-            CAST(CASE WHEN ?1 THEN COALESCE(MAX(sequence), 0) ELSE 0 END AS TEXT)
+     SELECT 'journal_subject_rows_through', CAST(COALESCE(MAX(sequence), 0) AS TEXT)
      FROM session_journal";
 
 /// The active journal rows after `?1` to `?2`, with the subjects that each
@@ -162,7 +161,8 @@ const IDS_IN_RANGE: &str = concat!(
 /// Makes the table, and gives a store with no mark its first one. A store
 /// that had no table gets the subject rows of each active journal row here,
 /// in the transaction that makes the table: no commit holds the table
-/// without them.
+/// without them. A mark of such a store names rows that the table does not
+/// hold, so it starts again at 0.
 pub(super) fn create_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     let existed: bool = transaction.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master
@@ -171,8 +171,10 @@ pub(super) fn create_schema(transaction: &Transaction<'_>) -> anyhow::Result<()>
         |row| row.get(0),
     )?;
     transaction.execute_batch(SCHEMA)?;
-    transaction.execute(FIRST_MARK, [existed])?;
-    if !existed {
+    if existed {
+        transaction.execute(FIRST_MARK, [])?;
+    } else {
+        transaction.execute(MOVE_MARK, [0])?;
         let newest: i64 = transaction.query_row(
             "SELECT COALESCE(MAX(sequence), 0) FROM session_journal",
             [],

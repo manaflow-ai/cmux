@@ -687,6 +687,16 @@ impl WorkspaceRegistry {
             tx.commit()?;
         }
         timings.lap("registry.resource_invariants");
+        // The subject rows that the last run did not write (it ended with no
+        // stop step), and those of the journal rows of this open: after this
+        // commit no journal row is after the mark, and the schema number is
+        // the plain one. The last write of an open, in a commit of its own.
+        {
+            let tx = connection.unchecked_transaction()?;
+            session_journal::subject_rows::write_tail(&tx)?;
+            tx.commit()?;
+        }
+        timings.lap("registry.journal_subject_rows");
         let generation = try_new_uuid_v4()?;
         Ok(Self {
             connection: RegistryConnection::new(connection, database_path.as_deref()),

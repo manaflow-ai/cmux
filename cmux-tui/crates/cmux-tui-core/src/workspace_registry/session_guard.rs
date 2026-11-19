@@ -125,15 +125,20 @@ fn open_existing_session_guard(lock_path: &Path) -> std::io::Result<File> {
 /// Whether a daemon owns the session whose guard file stem is `component`
 /// now, and nothing more: `Some(true)` only when the guard's lock is taken,
 /// `Some(false)` only when it is free, `None` for each doubt (no guard file,
-/// the path no longer names the opened file, an I/O error).
+/// the lock of the session-locks directory is busy past its short bound, the
+/// path no longer names the opened file, an I/O error).
 ///
-/// Unlike [`probe_session_owner`] it keeps no lock. Another process that
-/// holds the guard for a short time (a host sweep, a session reset) reads as
-/// an owner.
+/// Unlike [`probe_session_owner`] it keeps no lock: the lock it takes to see
+/// is free again while the directory's lock is still held. A daemon's start
+/// waits for the directory's lock before it tries the guard without waiting,
+/// so no start meets this probe's lock. Another process that holds the guard
+/// for a short time (a host sweep, a session reset) reads as an owner.
 pub(crate) fn session_owner_runs(root: &Path, component: &str) -> Option<bool> {
     let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
     let lock_path = session_guard_lock_component_path(&lock_dir, component);
     let file = open_existing_session_guard(&lock_path).ok()?;
+    let _coordinator =
+        SessionLease::acquire_coordinator(&session_guard_coordinator_path(&lock_dir)).ok()?;
     let taken = FileLock::held_elsewhere(&file, Kind::Exclusive).ok()?;
     validate_session_lock_file(&lock_path, &file).ok()?;
     Some(taken)
