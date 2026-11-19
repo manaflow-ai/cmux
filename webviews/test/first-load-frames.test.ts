@@ -79,6 +79,19 @@ describe("first load frames", () => {
     expect(metrics.shiftFrames).toBe(1);
   });
 
+  test("a row above a bottom row that held still moving counts as a shift", () => {
+    // A code block drawn at another height than the copy's: the bottom row holds, the rows above it move.
+    const settled = [{ ...ROWS[0]!, top: 90 }, { ...ROWS[1]!, top: 230 }, ROWS[2]!];
+    const metrics = classifyFrames([
+      frame(40, { copyShown: true }),
+      frame(56, { rows: settled }),
+      frame(72, { rows: settled }),
+    ]);
+    expect(metrics.shiftFrames).toBe(1);
+    expect(metrics.shiftAt[0]!.why).toContain("row user-117");
+    expect(metrics.finalFirstPaintMs).toBe(56);
+  });
+
   test("finalFirstPaintMs is the first frame of the last state, not of an earlier equal one", () => {
     const moved = ROWS.map((row) => ({ ...row, top: row.top - 200 }));
     const frames = [frame(40), frame(56, { rows: moved }), frame(72), frame(88), frame(104)];
