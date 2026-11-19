@@ -335,8 +335,6 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         var windowY: CGFloat
         var width: CGFloat
         var offsetY: CGFloat
-        /// The list's top inset (the bars over it): a search drawer that opens or closes moves it.
-        var insetTop: CGFloat
     }
     private var shiftSample: ShiftSample?
     /// Offset moves since the last sample that the scroll explains.
@@ -913,9 +911,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         let width = collectionView.bounds.width
         let current = referenceRow()
         let offsetY = collectionView.contentOffset.y
-        let insetTop = collectionView.adjustedContentInset.top
         defer {
-            shiftSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY, width: width, offsetY: offsetY, insetTop: insetTop) }
+            shiftSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY, width: width, offsetY: offsetY) }
             explained = 0
             pendingAdjustment = 0
             trail.removeAll(keepingCapacity: true)
@@ -925,15 +922,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         if let next = last.next, let gap = last.gap {
             guard let nextPath = dataSource.indexPath(for: next), nextPath.item - indexPath.item == gap else { return }
         }
-        // The bars over the list grew or shrank (the navigation bar's search drawer opening as the
-        // reader reaches the top, or closing as they leave it): UIKit moves the offset with them, so
-        // the rows go with the bar's edge, as in any list under that bar. Not a shift of the rows.
-        let chrome = insetTop - last.insetTop
-        let shift = (now - last.windowY) + explained - chrome
+        let shift = (now - last.windowY) + explained
         report(shift)
         if abs(shift) > 0.5, let detail = probe?.shiftDetail {
             let insets = collectionView.adjustedContentInset
-            detail(shift, "from=\(source) moved=\(now - last.windowY) explained=\(explained) chrome=\(chrome) offset=\(offsetY - last.offsetY) "
+            detail(shift, "from=\(source) moved=\(now - last.windowY) explained=\(explained) offset=\(offsetY - last.offsetY) "
                 + "pending=\(pendingAdjustment) follows=\(followsNewest) tracking=\(collectionView.isTracking) "
                 + "decelerating=\(collectionView.isDecelerating) spring=\(spring.isRunning) arriving=\(arriving) "
                 + "insetTop=\(insets.top) insetBottom=\(insets.bottom) gap=\(bottomGap) rows=\(order.count) "
@@ -1088,6 +1081,14 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             }
         } else {
             note("n", delta)
+            #if DEBUG
+            // A move none of the list's paths claims: name who made it (the stress bench's detail).
+            if probe?.shiftDetail != nil, abs(delta) > 0.5, trail.count < 24 {
+                let callers = Thread.callStackSymbols.dropFirst(2).prefix(14)
+                    .map { $0.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).prefix(1).joined() }
+                trail.append("n-by:" + callers.joined(separator: "<"))
+            }
+            #endif
         }
         pullToRefresh?.scrolled()
         // Only the person's moves decide whether the list follows its newest row: the list's own

@@ -80,7 +80,8 @@ import UIKit
         let home = try host(rows: 120)
         defer { home.window.isHidden = true }
         let rows = home.feed.rows ?? []
-        #expect(rows.prefix(4).allSatisfy(\.isPinned), "the rig pins four rows")
+        let pinnedCount = rows.prefix(4).filter { $0.isPinned }.count
+        #expect(pinnedCount == 4, "the rig pins four rows")
         let firstUnpinned = try #require(rows.first { !$0.isPinned }).id
         home.recorder.slides = []
         // An even tick: a new message, its Chief moves to the top of the unpinned rows.
