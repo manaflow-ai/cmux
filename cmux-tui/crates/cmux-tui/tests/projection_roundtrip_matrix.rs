@@ -578,7 +578,7 @@ fn a_new_name_that_folds_to_a_mac_name_is_a_conflict() {
 /// A file the Mac changed after the manifest and before the machine read it: the machine reads the
 /// new bytes (hard case 7).
 #[test]
-#[ignore = "hq#14025: no re-manifest yet; the Mac answers CHANGED and the machine's read fails with ESTALE"]
+#[ignore = "follow-up: no re-manifest yet; the Mac answers CHANGED and the machine's read fails with ESTALE"]
 fn a_file_changed_on_the_mac_after_the_manifest_reads_its_new_bytes() {
     let t = trip_or_skip!("remanifest", repo);
     std::thread::sleep(Duration::from_millis(20));
@@ -608,7 +608,7 @@ fn a_second_bring_back_takes_the_later_edits() {
 /// `~/Projects`' shape (hard case 12): a folder of repositories, not one itself. An edit in one of
 /// them comes back, and that repository's `git status` reads the same on both sides.
 #[test]
-#[ignore = "hq#14025: Bring Back fences nested repositories, so an edit inside one stays on the machine (copies too); needs a pull per repository"]
+#[ignore = "follow-up: Bring Back fences nested repositories, so an edit inside one stays on the machine (copies too); needs a pull per repository"]
 fn an_edit_in_a_repository_of_a_parent_folder_comes_back() {
     let t = trip_or_skip!("parent", |side, at| {
         for name in ["api", "web"] {
