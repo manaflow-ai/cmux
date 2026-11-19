@@ -209,7 +209,7 @@ mount_point() {
   while [[ -z "$found" && $(date +%s) -lt $end ]]; do
     found="$(hdiutil info -plist | python3 -I -c '
 import plistlib, sys
-for image in plistlib.load(sys.stdin.buffer).get("images", []):
+for image in plistlib.loads(sys.stdin.buffer.read()).get("images", []):
     if image.get("image-path") == sys.argv[1]:
         for entity in image.get("system-entities", []):
             if entity.get("mount-point"): print(entity["mount-point"]); sys.exit()' "$1")"
@@ -248,7 +248,10 @@ first() {
       mounted_by=open
     else
       mount="$OUT/mnt-$tag"
-      hdiutil attach "$dmgfile" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LF attach failed $tag"; return 1; }
+      # Bounded: an open whose own check still waits on an unanswered prompt holds the image, and an unbounded attach
+      # of it then waited past the step's 45 min silent limit (step c5408b53, 2026-11-19).
+      /usr/bin/perl -e 'alarm 120; exec @ARGV' hdiutil attach "$dmgfile" -nobrowse -readonly -mountpoint "$mount" >/dev/null \
+        || { echo "LF attach failed $tag (the volume's own check may still wait on a prompt)"; sweep_prompts Cancel "attach $tag"; return 1; }
     fi
   fi
   local found; found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
