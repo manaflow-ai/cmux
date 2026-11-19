@@ -650,14 +650,44 @@ class GalleryRenderPlanTests(unittest.TestCase):
     def test_a_before_whose_state_its_commit_added_is_named_not_rendered_at_the_parent(self):
         # agent-file-result-cards added its gallery file: at the parent there was nothing to render (2026-11-09).
         cases = [self.case("a.b", "x"), self.case("a.b", "y")]
-        rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p" * 40}]
-        for at_parent in (None, "y: {}\n"):
-            with self.subTest(at_parent=at_parent):
-                out, missing = self.tool.resolve(rows, cases, lambda rev, path: at_parent, {})
+        rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p" * 40, "commit": "c" * 40}]
+        out, missing = self.tool.resolve(rows, cases, lambda rev, path: None, {})
+        self.assertEqual(out, [])
+        self.assertEqual(len(missing), 1)
+        self.assertIn("h before: a.b/x is new in its commit, not in src/a.gallery.tsx at pppppppppppp", missing[0])
+        self.assertIn('"Before:"', missing[0])
+        # The file is at the parent without the state, but there is no copy to lay over it: a plan from before overlays
+        # (no commit), or a highlight commit whose copy lacks the variant (a later commit added it). Named, not overlaid.
+        at = {"p" * 40: "y: {}\n", "c" * 40: "y: {}\n"}
+        for row in ({k: v for k, v in rows[0].items() if k != "commit"}, rows[0]):
+            with self.subTest(commit=row.get("commit")):
+                out, missing = self.tool.resolve([row], cases, lambda rev, path: at.get(rev), {})
                 self.assertEqual(out, [])
-                self.assertEqual(len(missing), 1)
-                self.assertIn("h before: a.b/x is new in its commit, not in src/a.gallery.tsx at pppppppppppp", missing[0])
-                self.assertIn('"Before:"', missing[0])
+                self.assertIn("h before: a.b/x is new in its commit", missing[0])
+
+    def test_a_state_its_commit_added_to_a_file_already_there_renders_at_the_parent_from_the_commits_copy(self):
+        # new-tab-run-command (2026-11-17) added `typed-command` to NewTabScreen.gallery.ts and shipped with no before:
+        # the parent's New Tab page draws the old order for "git status" once the new variant's play runs there.
+        import contextlib, io, json
+        from pathlib import Path
+        cases = [self.case("a.b", "x"), self.case("a.b", "y")]
+        rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p", "commit": "c"},
+                {"id": "g", "role": "before", "state": "a.b/y", "parent": "p", "commit": "d"}]
+        files = {"p": "y: {}\n", "c": "x: {}\ny: {}\n", "d": "y: {}\n"}
+        out, missing = self.tool.resolve(rows, cases, lambda rev, path: files.get(rev), {})
+        self.assertEqual(missing, [])
+        self.assertEqual([(r["state"], r["parent"], r.get("overlay")) for r in out],
+                         [("a.b/x", "p", "webviews/src/a.gallery.tsx"), ("a.b/y", "p", None)])
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "plan.json"
+            plan.write_text(json.dumps(out + [{**out[0], "id": "k"}]))
+            printed = io.StringIO()
+            with contextlib.redirect_stdout(printed):
+                self.tool.main(["overlays", "--plan", str(plan), "--parent", "p"])
+                self.tool.main(["overlays", "--plan", str(plan), "--parent", "q"])
+        self.assertEqual(printed.getvalue(), "c webviews/src/a.gallery.tsx\n")
+        # The overlaid checkout's cases have the state, so the parent's manifest renders it.
+        self.assertEqual([c["id"] for c in self.tool.manifest(out, cases, "p")[0]], ["h--before", "g--before"])
 
     def test_parents_come_newest_highlight_first(self):
         import json
