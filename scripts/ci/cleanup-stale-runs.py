@@ -82,8 +82,12 @@ def classify_superseded(run: dict[str, Any], open_heads: dict[int, str], *, now:
     if run.get("event") != "pull_request" or run.get("status") != "queued":
         return None
     sha = str(run.get("head_sha") or "")
-    created_at = run.get("created_at")
-    if not sha or not created_at or (now - parse_time(created_at)).total_seconds() < SUPERSEDED_MIN_AGE_SECONDS:
+    try:
+        age = (now - parse_time(str(run.get("created_at") or ""))).total_seconds()
+    except ValueError:
+        # A missing or malformed time keeps the run rather than ending the job with a traceback.
+        return None
+    if not sha or age < SUPERSEDED_MIN_AGE_SECONDS:
         return None
     if PROTECTED_WORKFLOW.search(str(run.get("path") or "")) or PROTECTED_WORKFLOW.search(str(run.get("name") or "")):
         return None
@@ -183,6 +187,10 @@ def superseded_pass(janitor: GitHub, repo: str, *, cleanup: bool, limit: int) ->
                         live[number] = str(pr["head"]["sha"])
                     else:
                         del live[number]
+            # Any other pull request pushed back to this commit since the inventory makes it a live head again.
+            for pr in janitor.pull_requests_for_commit(str(current.get("head_sha") or "")):
+                if isinstance(pr, dict) and pr.get("state") == "open" and isinstance(pr.get("number"), int):
+                    live[pr["number"]] = str(pr["head"]["sha"])
             if not classify_superseded(current, live, now=dt.datetime.now(dt.timezone.utc)):
                 print(f"preserved run {run_id}: no longer a queued run at a superseded head")
                 continue
