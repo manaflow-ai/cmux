@@ -902,6 +902,9 @@ impl Hub {
                     // Read the old summaries once writers settled, then do all JSON projection and
                     // comparison work without it. The single-consumer notice loop keeps another
                     // notice for this peer from changing the baseline while this one is built.
+                    // Its closed rows past the bound are not taken, and go if held
+                    // (`peer_closed_bound.rs`).
+                    let past = super::peer_closed_bound::listed_past_bound(&list);
                     let (changed, gone) = loop {
                         let (mut old, epoch, purged) = {
                             let Some(current) =
@@ -936,7 +939,10 @@ impl Hub {
                         // object is skipped.
                         let mut listed = Vec::new();
                         let mut changed = Vec::new();
-                        for text in &list {
+                        for (n, text) in list.iter().enumerate() {
+                            if past.contains(&n) {
+                                continue;
+                            }
                             let Ok(s) = serde_json::from_str::<Value>(text) else { continue };
                             let summary = Self::remote_summary(&peer, s);
                             let Some(receipt) = session_receipt(&summary) else { continue };
@@ -1131,6 +1137,10 @@ impl Hub {
                     // The rest of its live asks that came before the session was listed, after
                     // the row.
                     self.release_held_peer_asks(&peer, generation);
+                    // A row that closed can put the peer's closed rows past the bound.
+                    if summary.get("status").and_then(Value::as_str) == Some("closed") {
+                        self.trim_closed_peer_rows(&peer, generation);
+                    }
                 }
                 // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
                 PeerNotice::Notification { method: m, params, .. }
