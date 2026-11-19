@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { isAllowedNativeScheme } from "../../../lib/native-callback";
 import {
   redeemNativeSignInCode,
+  restoreNativeSignInCode,
   type NativeSignInCodeStore,
 } from "../../../lib/native-sign-in-codes";
 import { hasAuthRateLimitSignal } from "../../../../services/vms/authErrors";
@@ -84,16 +85,27 @@ export function makeNativeTokenHandler(dependencies: NativeTokenHandlerDependenc
     if (typeof scheme !== "string" || !isAllowedNativeScheme(scheme.trim().toLowerCase(), request)) {
       return invalidGrant();
     }
+    let redeemed: Awaited<ReturnType<typeof redeemNativeSignInCode>>;
     try {
-      const redeemed = await redeemNativeSignInCode(store, { code, codeVerifier, scheme }, dependencies.now);
-      if (!redeemed) return invalidGrant();
+      redeemed = await redeemNativeSignInCode(store, { code, codeVerifier, scheme }, dependencies.now);
+    } catch {
+      console.error("auth.native_token.redeem_failed", { failure: "store_unavailable" });
+      return json({ error: "unavailable" }, 503);
+    }
+    if (!redeemed) return invalidGrant();
+    try {
       const tokens = await mintTokens(getUserById, redeemed.userId);
       if (!tokens) return invalidGrant();
       return json({ refresh_token: tokens.refreshToken, access_token: tokens.accessToken }, 200);
     } catch (error) {
-      const failure = hasAuthRateLimitSignal(error) ? "rate_limited" : "unavailable";
-      console.error("auth.native_token.redeem_failed", { failure });
-      return json({ error: "unavailable" }, 503);
+      // The verifier matched: keep the code redeemable so the app's retry
+      // with the same verifier can finish once the service recovers.
+      const throttled = hasAuthRateLimitSignal(error);
+      console.error("auth.native_token.redeem_failed", { failure: throttled ? "rate_limited" : "unavailable" });
+      await restoreNativeSignInCode(store, redeemed.record, dependencies.now).catch(() => undefined);
+      return throttled
+        ? json({ error: "rate_limited" }, 429)
+        : json({ error: "unavailable" }, 503);
     }
   };
 }

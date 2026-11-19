@@ -29,6 +29,17 @@ actor FakeCodeRedeemer: AuthCallbackCodeRedeeming {
     }
 }
 
+/// Answers 429 once, then tokens.
+actor FlakyCodeRedeemer: AuthCallbackCodeRedeeming {
+    private(set) var verifiers: [String] = []
+
+    func redeem(code: String, verifier: String) async throws -> AuthCallbackPayload {
+        verifiers.append(verifier)
+        if verifiers.count == 1 { throw AuthError.rateLimited }
+        return AuthCallbackPayload(refreshToken: "redeemed-refresh", accessToken: "redeemed-access")
+    }
+}
+
 @MainActor
 @Suite(.serialized) struct HostBrowserSignInFlowCodeExchangeTests {
     private static let code = String(repeating: "C", count: 43)
@@ -166,24 +177,56 @@ actor FakeCodeRedeemer: AuthCallbackCodeRedeeming {
         await harness.waitForCondition { harness.flow.isSigningIn == false }
 
         #expect(await harness.flow.handleCallbackURL(Self.codeCallback(state: state)))
-        await harness.flow.signOut()
+        // The same state again, with no sign-out in between: consumed, never redeemed twice.
         #expect(await harness.flow.handleCallbackURL(Self.codeCallback(state: state)) == false)
         #expect(await redeemer.redemptions.count == 1)
     }
 
-    @Test func legacyTokenCallbackStillSignsInDuringTheTransition() async {
-        // A cmux.com that predates PKCE ignores the challenge and returns tokens.
+    @Test func tokenPairPresentedWithAPKCEStateIsRejected() async {
+        // An app that caught the code callback cannot swap in its own tokens.
         let redeemer = FakeCodeRedeemer()
         let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: redeemer)
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()
         let session = harness.factory.sessions[0]
 
-        session.deliver(harness.callbackURL(state: harness.callbackState(session)))
+        let result = await harness.flow.handleCallbackURL(
+            URL(string: "cmux-dev://auth-callback?stack_refresh=planted-r&stack_access=planted-a&cmux_auth_state=\(harness.callbackState(session))")!
+        )
+
+        #expect(result == false)
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        #expect(harness.flow.lastFailure == .invalidCallback)
+        harness.flow.cancelSignIn()
+        _ = await attempt.value
+    }
+
+    @Test func approvedStatelessTokenCallbackStillWorks() async {
+        // Purchase returns carry no state and stay behind the user's approval.
+        let harness = HostBrowserSignInFlowHarness(
+            user: user,
+            approveUnsolicitedCallback: { _ in true },
+            codeRedeemer: FakeCodeRedeemer()
+        )
+
+        #expect(await harness.flow.handleCallbackURL(harness.fallbackCallbackURL()))
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+    }
+
+    @Test func transientRedemptionFailureIsRetriedWithTheSameVerifier() async {
+        let redeemer = FlakyCodeRedeemer()
+        let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: redeemer)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let session = harness.factory.sessions[0]
+
+        session.deliver(Self.codeCallback(state: harness.callbackState(session)))
 
         #expect(await attempt.value)
-        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
-        #expect(await redeemer.redemptions.isEmpty)
+        let verifiers = await redeemer.verifiers
+        #expect(verifiers.count == 2)
+        #expect(Set(verifiers).count == 1)
     }
 
     @Test func withoutARedeemerTheSignInURLIsUnchanged() async {

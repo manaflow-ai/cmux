@@ -421,7 +421,7 @@ function switchAccountHref(request: NextRequest): string | null {
 const NATIVE_SESSION_EXPIRES_IN_MILLIS = 30 * 24 * 60 * 60 * 1000;
 
 type ResolvedUser =
-  | { readonly kind: "user"; readonly user: StackAuthUserLike | null }
+  | { readonly kind: "user"; readonly user: StackAuthUserLike | null; readonly lookupFailed?: boolean }
   | { readonly kind: "response"; readonly response: NextResponse };
 
 /**
@@ -458,7 +458,7 @@ async function resolveSignedInUser(
       return { kind: "response", response: stackThrottledResponse(request, localizedMessages) };
     }
     console.error("[After Sign In] Failed to read the signed-in user", error);
-    return { kind: "user", user: null };
+    return { kind: "user", user: null, lookupFailed: true };
   }
 }
 
@@ -608,6 +608,8 @@ type NativeReturnContext = {
   readonly stackCookies: CookieStore;
   readonly nativeReturnTo: string;
   readonly user: StackAuthUserLike | null;
+  /** Reading the user failed for a reason other than a throttle. */
+  readonly userLookupFailed: boolean;
   readonly projectId: string;
   readonly dependencies: AfterSignInHandlerDependencies;
   readonly localizedMessages: LocalizedAfterSignInMessages;
@@ -625,6 +627,9 @@ function homeRedirect(request: NextRequest): NextResponse {
 async function nativeCodeHandoff(context: NativeReturnContext, codeChallenge: string): Promise<NextResponse> {
   const { request, nativeReturnTo, user, dependencies, localizedMessages } = context;
   const scheme = nativeReturnScheme(nativeReturnTo);
+  // A failed lookup is retried on this same callback rather than stranding
+  // the app's attempt on the home page.
+  if (context.userLookupFailed) return stackThrottledResponse(request, localizedMessages);
   if (!user?.id || !scheme) {
     console.error("auth.after_sign_in.native_code_unavailable", { failure: "no_user" });
     return homeRedirect(request);
@@ -699,6 +704,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
         stackCookies,
         nativeReturnTo,
         user: resolved.user,
+        userLookupFailed: resolved.lookupFailed === true,
         projectId,
         dependencies,
         localizedMessages,

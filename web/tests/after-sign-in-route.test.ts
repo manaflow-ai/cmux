@@ -57,10 +57,10 @@ const codeStore = {
   insert: async (record: NativeSignInCodeRecord) => {
     storedCodes.set(record.codeHash, record);
   },
-  consume: async (codeHash: string) => {
+  consume: async (codeHash: string, now: Date) => {
     const record = storedCodes.get(codeHash) ?? null;
     storedCodes.delete(codeHash);
-    return record;
+    return record && record.expiresAt > now ? record : null;
   },
 };
 
@@ -523,6 +523,19 @@ describe("after sign-in native handoff", () => {
     expect(createSession).not.toHaveBeenCalled();
     const code = new URL(response.headers.get("location")!).searchParams.get("code")!;
     expect(storedCodes.get(hashNativeSignInCode(code))?.userId).toBe("anon-1");
+  });
+
+  test("a failed user lookup answers the retry page, not home", async () => {
+    handoffCookie = "handoff-nonce";
+    getUserResponses = [new Error("Stack unavailable")];
+    const request = signInRequest("cmux://auth-callback?cmux_auth_state=s", "handoff-nonce");
+
+    const response = await GET(request);
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("location")).toBeNull();
+    expect(await response.text()).toContain(`${request.nextUrl.pathname}`);
+    expect(storedCodes.size).toBe(0);
   });
 
   test("answers a retry page when the code store is unavailable", async () => {

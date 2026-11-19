@@ -59,7 +59,7 @@ describe("native sign-in codes", () => {
     const store = memoryStore();
     const code = await issueNativeSignInCode(store, { userId: "u1", codeChallenge: RFC_CHALLENGE, scheme: "cmux" });
 
-    expect(await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux" })).toEqual({ userId: "u1" });
+    expect((await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux" }))?.userId).toBe("u1");
     expect(await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux" })).toBeNull();
   });
 
@@ -189,6 +189,57 @@ describe("POST /api/native/token", () => {
 
     expect(onProduction.status).toBe(400);
     expect(createSession).not.toHaveBeenCalled();
+  });
+
+  test("redeems a staging-only scheme on staging", async () => {
+    const code = await issued("cmux-next-dev");
+
+    const response = await handler()(
+      redeemRequest({ code, code_verifier: VERIFIER, scheme: "cmux-next-dev" }, {}, "https://cmux-staging.vercel.app"),
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  test("a throttled mint answers 429 and keeps the code for the same verifier's retry", async () => {
+    const code = await issued();
+    const throttled = Object.assign(new Error("Stack Auth rate limited"), { status: 429 });
+    let failNext = true;
+    const flaky = makeNativeTokenHandler({
+      store,
+      getUserById: async () => ({
+        createSession: async () => {
+          if (failNext) {
+            failNext = false;
+            throw throttled;
+          }
+          return createSession();
+        },
+      }),
+    });
+    const body = { code, code_verifier: VERIFIER, scheme: "cmux" };
+
+    const first = await flaky(redeemRequest(body));
+    expect(first.status).toBe(429);
+    expect(await first.text()).not.toContain("refresh");
+    expect(store.rows.size).toBe(1);
+
+    const retry = await flaky(redeemRequest(body));
+    expect(retry.status).toBe(200);
+    expect(store.rows.size).toBe(0);
+  });
+
+  test("a mint failure never restores a code for a wrong verifier", async () => {
+    const code = await issued();
+    const failing = makeNativeTokenHandler({
+      store,
+      getUserById: async () => {
+        throw new Error("unavailable");
+      },
+    });
+
+    expect((await failing(redeemRequest({ code, code_verifier: "y".repeat(43), scheme: "cmux" }))).status).toBe(400);
+    expect(store.rows.size).toBe(0);
   });
 
   test("refuses non-JSON and malformed bodies", async () => {

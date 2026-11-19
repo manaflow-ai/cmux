@@ -103,7 +103,7 @@ export async function redeemNativeSignInCode(
   store: NativeSignInCodeStore,
   input: { code: unknown; codeVerifier: unknown; scheme: unknown },
   now: () => number = Date.now,
-): Promise<{ userId: string } | null> {
+): Promise<{ userId: string; record: NativeSignInCodeRecord } | null> {
   const { code, codeVerifier, scheme } = input;
   if (!isValidNativeSignInCode(code) || typeof scheme !== "string") return null;
   const record = await store.consume(hashNativeSignInCode(code), new Date(now()));
@@ -113,5 +113,19 @@ export async function redeemNativeSignInCode(
   const challengeMatches = constantTimeStringEqual(s256CodeChallenge(codeVerifier), record.codeChallenge);
   const schemeMatches = constantTimeStringEqual(scheme.trim().toLowerCase(), record.scheme);
   if (!challengeMatches || !schemeMatches) return null;
-  return { userId: record.userId };
+  return { userId: record.userId, record };
+}
+
+/**
+ * Put back a code whose verifier matched but whose session could not be
+ * minted (a transient sign-in service failure), so the app's retry with the
+ * same verifier can still succeed before the code's original expiry.
+ */
+export async function restoreNativeSignInCode(
+  store: NativeSignInCodeStore,
+  record: NativeSignInCodeRecord,
+  now: () => number = Date.now,
+): Promise<void> {
+  if (record.expiresAt.getTime() <= now()) return;
+  await store.insert(record);
 }

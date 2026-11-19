@@ -354,6 +354,49 @@ public final class HostBrowserSignInFlow {
         return components.url ?? url
     }
 
+    /// Attempts the redemption allows: a transient failure (429, 5xx, network)
+    /// is retried with the same verifier; the server keeps a code whose
+    /// verifier matched until its session is minted.
+    private static let codeRedeemAttempts = 3
+
+    private func redeem(
+        code: String,
+        verifier: String,
+        with codeRedeemer: any AuthCallbackCodeRedeeming
+    ) async -> AuthCallbackPayload? {
+        var attempt = 1
+        while true {
+            do {
+                log.log("auth.callback.code.redeem.begin try=\(attempt)")
+                let payload = try await codeRedeemer.redeem(code: code, verifier: verifier)
+                log.log("auth.callback.code.redeem.end try=\(attempt)")
+                return payload
+            } catch {
+                log.log("auth.callback.code.redeem.failed try=\(attempt) error=\(error)")
+                let displaySafe = (error as? AuthError) ?? .serverError(0, "code_redeem_failed")
+                if attempt < Self.codeRedeemAttempts, Self.isTransientRedeemFailure(displaySafe), !Task.isCancelled {
+                    let delay = AuthRateLimit.delay(retryAfter: nil, retry: attempt, jitter: Double.random(in: 0.5...1.0))
+                    try? await clock.sleep(for: delay)
+                    attempt += 1
+                    continue
+                }
+                if displaySafe != .cancelled { lastFailure = displaySafe }
+                return nil
+            }
+        }
+    }
+
+    private static func isTransientRedeemFailure(_ error: AuthError) -> Bool {
+        switch error {
+        case .rateLimited, .networkError:
+            true
+        case let .serverError(status, _):
+            status >= 500
+        default:
+            false
+        }
+    }
+
     /// Whether `url` carries something that can sign in: a token pair, or a
     /// one-time code this flow can redeem.
     private func hasCallbackCredential(_ url: URL) -> Bool {
@@ -373,17 +416,15 @@ public final class HostBrowserSignInFlow {
                 lastFailure = .invalidCallback
                 return nil
             }
-            do {
-                log.log("auth.callback.code.redeem.begin")
-                let payload = try await codeRedeemer.redeem(code: code, verifier: verifier)
-                log.log("auth.callback.code.redeem.end")
-                return payload
-            } catch {
-                log.log("auth.callback.code.redeem.failed error=\(error)")
-                let displaySafe = (error as? AuthError) ?? .serverError(0, "code_redeem_failed")
-                if displaySafe != .cancelled { lastFailure = displaySafe }
-                return nil
-            }
+            return await redeem(code: code, verifier: verifier, with: codeRedeemer)
+        }
+        // A flow that sends challenges takes only a code for a stateful
+        // callback: a token pair presented with one of its states could be an
+        // app that caught the code callback and swapped in its own account.
+        if codeRedeemer != nil, authCallbackState(from: url) != nil {
+            log.log("auth.callback rejected: token pair for a PKCE attempt")
+            lastFailure = .invalidCallback
+            return nil
         }
         guard let payload = callbackRouter.callbackPayload(from: url) else {
             log.log("auth.callback rejected: invalid payload")
