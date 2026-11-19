@@ -746,6 +746,55 @@ class MarkerTest(unittest.TestCase):
         self.assertIn("app=1.2-345", hv.marker("a" * 40, "1.2 345", ["web"], "pr"))
 
 
+class WhyFailedTest(unittest.TestCase):
+    # The stderr of `cargo build --release -p cmux-tui` that `cmux app try .` ran on cmux17 (2026-11-19), cut.
+    ZIG_TOO_OLD = """warning: `cmux-supervise-core` (lib) generated 2 warnings
+error: failed to run custom build command for `ghostty-vt-sys v0.1.0 (/Users/cmux/try-bench/bench/cmux-tui/crates/ghostty-vt-sys)`
+
+Caused by:
+  process didn't exit successfully: `.../build-script-build` (exit status: 101)
+  --- stderr
+  src/build/Config.zig:132:17: error: invalid builtin function: '@backingInt'
+                  @backingInt(std.Target.wasm.Feature.simd128),
+  build.zig:28:45: error: no field named 'root' in struct 'Build'
+  src/build/zig.zig:13:9: error: Your Zig version v0.16.0 does not meet the required build version of v0.17.0
+          @compileError(std.fmt.comptimePrint(
+      4 reference(s) hidden; use '-freference-trace=6' to see all references
+
+  thread 'main' (10585823) panicked at crates/ghostty-vt-sys/build.rs:148:9:
+  zig build of libghostty-vt failed with exit status: 2
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+warning: build failed, waiting for other jobs to finish...
+"""
+
+    def test_a_failed_build_says_its_cause_not_its_last_lines(self):
+        old = self.ZIG_TOO_OLD.strip()[-300:]
+        self.assertNotIn("Your Zig version", old)  # what the engine printed before
+        said = hv.why_failed(self.ZIG_TOO_OLD, 300)
+        self.assertIn("Your Zig version v0.16.0 does not meet the required build version of v0.17.0", said)
+        self.assertIn("zig build of libghostty-vt failed", said)
+        self.assertLessEqual(len(said), 300)
+
+    def test_a_build_script_panic_keeps_its_message(self):
+        out = ("error: failed to run custom build command for `ghostty-vt-sys v0.1.0`\n"
+               "  thread 'main' panicked at crates/ghostty-vt-sys/build.rs:30:9:\n"
+               "  ghostty-next is not a checkout of manaflow-ai/ghostty-next. Run `git submodule update --init "
+               "ghostty-next` at the cmux repo root, or set CMUX_GHOSTTY_SRC to a manaflow-ai/ghostty-next checkout.\n"
+               "  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+               "warning: build failed, waiting for other jobs to finish...\n")
+        self.assertIn("git submodule update --init ghostty-next", hv.why_failed(out, 300))
+
+    def test_output_with_no_error_line_keeps_its_end(self):
+        self.assertEqual(hv.why_failed("one\ntwo\nthree", 5), "three")
+        self.assertEqual(hv.why_failed("", 300), "")
+        self.assertEqual(hv.why_failed(None, 300), "")
+
+    def test_rustc_and_git_errors_count(self):
+        self.assertEqual(hv.why_failed("ok\nerror[E0425]: cannot find value `x`\n  --> a.rs:1:1", 300),
+                         "error[E0425]: cannot find value `x`")
+        self.assertEqual(hv.why_failed("fatal: not a git repository\n", 300), "fatal: not a git repository")
+
+
 class BrowserEngineTest(unittest.TestCase):
     """The copy starts on WebKit unless the steps file says chromium: a Chromium-default NEXT nightly turns
     uncapturable 10-25 s after launch (the kit's CHROMIUM_UNCAPTURABLE), which failed the first fleet look."""
