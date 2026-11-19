@@ -1,4 +1,5 @@
 import CmuxAgentQuestion
+import CmuxMobileAgentChat
 import CmuxMobileFeed
 import CmuxMobileModel
 import CmuxMobileTransport
