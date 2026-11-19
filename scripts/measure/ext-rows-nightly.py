@@ -112,21 +112,36 @@ def socket_op(path: str, request: dict, timeout: float = 15) -> dict:
 def op(ctx: Ctx, request: dict) -> dict:
     """A daemon op through the CLI (`cmux-tui raw command --request-json`), as `{ok, data | error, via}`."""
     if ctx.raw_cli:
-        run = cli_json(ctx.raw_cli, ["--socket", ctx.daemon],
-                       ["raw", "command", "--request-json", json.dumps({"id": "ext-rows", **request}), "--json"],
-                       timeout=30)
-        answer = run.get("json")
-        if run.get("exit") == 0 and answer is not None:
-            return {"ok": True, "data": answer, "via": "cli"}
-        try:  # `--json` errors go to stderr as one envelope line
-            error = json.loads((run.get("stderr") or "").strip().splitlines()[-1])
-        except (ValueError, IndexError):
-            error = None
-        if run.get("exit") not in (0, None) and isinstance(error, dict):
+        argv = [str(ctx.raw_cli), "--socket", ctx.daemon, "raw", "command", "--request-json",
+                json.dumps({"id": "ext-rows", **request}), "--json"]
+        try:
+            run = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            run = None
+        # `--json` prints the events the connection gets (`apps-changed`) as lines before the answer, and an
+        # error as one envelope line on stderr.
+        stdout = last_json(run.stdout, skip_events=True) if run else None
+        if run and run.returncode == 0 and stdout is not None:
+            return {"ok": True, "data": stdout, "via": "cli"}
+        error = last_json(run.stderr) if run else None
+        if run and run.returncode != 0 and isinstance(error, dict):
             return {"ok": False, "error": error, "via": "cli"}
     reply = socket_op(ctx.daemon, request)
     reply["via"] = "socket"
     return reply
+
+
+def last_json(text: str, skip_events: bool = False):
+    """The last line of `text` that is JSON (and not an `{event: ...}` line when `skip_events`)."""
+    for line in reversed((text or "").strip().splitlines()):
+        try:
+            value = json.loads(line)
+        except ValueError:
+            continue
+        if skip_events and isinstance(value, dict) and "event" in value:
+            continue
+        return value
+    return None
 
 
 def store_op(ctx: Ctx, name: str, args: dict | None = None) -> dict:
@@ -386,16 +401,17 @@ def row_ext_new(ctx: Ctx) -> dict:
             "kinds": kinds, "per_kind": per_kind}
 
 
-# Row name: (its function, the PRs that closed it in code). One entry per row; order is run order (the rows
-# that rewrite the customize folder run one after another; ext_new uses its own folders).
+# Row name: (its function, the PRs that closed it in code). One entry per row; order is run order: each
+# customize row replaces the last one's sample, activation first (it checks no view is open), the rows that
+# open a tab last; ext_new uses folders of its own.
 ROWS = {
-    "web_pane": (row_web_pane, "#41546 #43033"),
     "activation": (row_activation, "#43018"),
     "opener": (row_opener, "#43007"),
-    "newtab": (row_newtab, "#42998"),
-    "ext_new": (row_ext_new, "#43371 #44828 #44877"),
     "composer": (row_composer, "#43032"),
     "chat_widget": (row_chat_widget, "#43030"),
+    "ext_new": (row_ext_new, "#43371 #44828 #44877"),
+    "newtab": (row_newtab, "#42998"),
+    "web_pane": (row_web_pane, "#41546 #43033"),
 }
 
 
