@@ -50,7 +50,7 @@ enum CloudGitHubHandlers {
                     switch AgentPaneGitHubConnect(await context.services.accounts.github.connectResult()) {
                     case .opened: return // the installation page is open in the browser; Set Up again once it is done
                     case .alreadyConnected: app = .ready // connected meanwhile: set up through the App now
-                    case .failed(let message): return CloudPresenter.show(CloudStrings.gitHubSetupTitle, message, failed: true, in: CloudHandlers.window(context))
+                    case let refused: return CloudPresenter.show(CloudStrings.gitHubSetupTitle, refused.message, failed: true, in: CloudHandlers.window(context))
                     }
                 }
                 let outcome = try await setUp(identity, app)

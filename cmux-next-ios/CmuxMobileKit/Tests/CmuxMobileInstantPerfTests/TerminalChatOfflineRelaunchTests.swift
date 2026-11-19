@@ -8,11 +8,12 @@ import Testing
 @testable import CmuxMobileWorkspaces
 
 /// A terminal running Claude Code or Codex, opened again after a relaunch with the Mac out of reach
-/// (Leo, 2026-11-14: the phone should rely less on the Mac and on a smooth network): the tab opens on
-/// its terminal (#43953), and when the person opens its chat face, it shows the turns this phone kept,
-/// read-only, at once. Before, the chat face needed the Mac's live chat list or this run's memory to
-/// know which chat shows the session, so it spun on "Opening chat…", then fell back to the terminal
-/// when the request failed.
+/// (Leo, 2026-11-14: the phone should rely less on the Mac and on a smooth network): a tab whose
+/// person chose its chat face opens on it with the turns this phone kept, read-only, at once. A face
+/// kept per tab wins over the default, which is the terminal (#43953); Leo, 2026-11-17: "A tab reopens
+/// on Chat or Terminal, whichever you left it on." Before, the chat face needed the Mac's live chat
+/// list or this run's memory to know which chat shows the session, so it spun on "Opening chat…",
+/// then fell back to the terminal when the request failed.
 ///
 /// The pairing is read from the real file the live backend keeps (`KeptTerminalChats`), off the main
 /// thread, so a tap on Chat can come before the read lands: it waits for the read, never asks the
@@ -24,7 +25,7 @@ import Testing
 struct TerminalChatOfflineRelaunchTests {
     /// A Mac's terminal chat backend: online it lists `listings`; offline it lists nothing and every
     /// request fails, as the live backend does with the link down. The pairing is kept as the live
-    /// backend keeps it: in `kept`, a file on disk, keyed by account and Mac.
+    /// backend keeps it, with each tab's face: in `kept`, a file on disk, keyed by account and Mac.
     @MainActor final class Backend: WorkspaceCreationBackend, TerminalChatBackend {
         let kept: KeptTerminalChats
         let listings: [TerminalChatListing]
@@ -51,6 +52,13 @@ struct TerminalChatOfflineRelaunchTests {
             guard let key = KeptTerminalChats.key("acct", macID, harness, session) else { return }
             kept.keepChat(chat, for: key)
         }
+        func keptTerminalChatFace(tabID: String, on macID: String) -> Bool? {
+            KeptTerminalChats.key("acct", macID, tabID).flatMap { kept.showsChat($0) }
+        }
+        func keepTerminalChatFace(_ showsChat: Bool, tabID: String, on macID: String) {
+            guard let key = KeptTerminalChats.key("acct", macID, tabID) else { return }
+            kept.keepFace(showsChat: showsChat, for: key)
+        }
         var keptTerminalChatsLoaded: Bool { kept.isLoaded }
         func loadKeptTerminalChats() async { await kept.load() }
     }
@@ -64,10 +72,15 @@ struct TerminalChatOfflineRelaunchTests {
     static func source(_ backend: Backend, sessions: AgentSessionDirectory) -> WorkspaceTabsSource {
         let store = AppStore.mock(tabMemory: .inMemory([:]))
         store.workspaces = [Workspace(id: "w", macID: "mac", title: "relay", directory: "/tmp/p",
-                                      tabs: [terminal("s1", agent: "claude-code", session: "h-1")],
+                                      tabs: [terminal("s1", agent: "claude-code", session: "h-1"),
+                                             terminal("s2", agent: "codex", session: "h-2"),
+                                             terminal("s3", agent: "claude-code", session: "h-3")],
                                       lastActivityAt: Date())]
-        return WorkspaceTabsSource(store: store, workspaceID: "w", sessions: sessions,
-                                   creator: WorkspaceCreator(store: store, backend: backend))
+        let source = WorkspaceTabsSource(store: store, workspaceID: "w", sessions: sessions,
+                                         creator: WorkspaceCreator(store: store, backend: backend))
+        // Settings → Terminal → Terminal and Chat Toggle (off by default) is on.
+        source.terminalChatToggleOn = { true }
+        return source
     }
 
     /// Turn `n` of chat `chat`: a prompt, its start, an answer, its result.
@@ -101,9 +114,9 @@ struct TerminalChatOfflineRelaunchTests {
     }
 
     static func waitUntil(_ timeout: Duration = .seconds(5), _ done: () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
+        var deadline = AwakeDeadline(timeout)
         while !done() {
-            guard ContinuousClock.now < deadline else { return false }
+            guard deadline.hasTimeLeft() else { return false }
             try? await Task.sleep(for: .microseconds(200)) // test: polls the condition until a deadline
         }
         return true
@@ -118,7 +131,8 @@ struct TerminalChatOfflineRelaunchTests {
         AgentTranscriptCache(directory: folder, writeDelay: .milliseconds(0))
     }
 
-    /// An earlier launch, online: the Mac's View Only chat a-1 shows terminal s1's session; the pairing
+    /// An earlier launch, online: the Mac's View Only chat a-1 shows terminal s1's session; the person
+    /// showed s1's chat face and s2's terminal face, and chose nothing for s3; the pairing, the faces
     /// and the chat's turns were kept on disk.
     static func keepEarlierLaunch(in folder: URL) async throws {
         let cache = Self.cache(folder)
@@ -129,6 +143,12 @@ struct TerminalChatOfflineRelaunchTests {
         let tab = try #require(source.workspaceTab("s1"))
         #expect(source.terminalChatSessionID(tab, in: workspace) == "a-1")
         source.openTerminalChatIfNeeded("s1")
+        #expect(!source.showsChatFace(tab, in: workspace), "a terminal opens on its terminal")
+        source.swapTerminalChat("s1", to: .chat)
+        #expect(source.showsChatFace(tab, in: workspace))
+        // s2 opens on its terminal too: to keep that choice the person goes to the chat and back.
+        source.swapTerminalChat("s2", to: .chat)
+        source.swapTerminalChat("s2", to: .terminal)
         let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac", tabID: "s1#chat:a-1"))
         let entry = try Self.kept(3, chat: "a-1")
         #expect(entry.records.count == 12)
@@ -137,6 +157,8 @@ struct TerminalChatOfflineRelaunchTests {
         await cache.terminalChats.flush()
         let pairing = try #require(KeptTerminalChats.key("acct", "mac", "claude", "h-1"))
         #expect(cache.terminalChats.chat(pairing) == "a-1", "the earlier launch kept the pairing on disk")
+        #expect(cache.terminalChats.showsChat("acct|mac|s1") == true && cache.terminalChats.showsChat("acct|mac|s2") == false
+            && cache.terminalChats.showsChat("acct|mac|s3") == nil, "the earlier launch kept the faces")
     }
 
     @Test func aRelaunchWithTheLinkDownOpensTheAgentTabOnItsKeptTurns() async throws {
@@ -159,12 +181,11 @@ struct TerminalChatOfflineRelaunchTests {
         let tab = try #require(source.workspaceTab("s1"))
         let faces = source.pairFaces(tab, in: workspace)
         #expect(faces.offered && faces.chatEnabled && faces.defaultFace == .terminal)
-        #expect(!source.showsChatFace(tab, in: workspace), "a terminal opens on its terminal")
-        // The person opens the chat face: it shows the kept chat, with nothing to ask the Mac.
-        source.swapTerminalChat("s1", to: .chat)
+        // The kept chat face shows over the terminal default once the file is read, on the kept
+        // chat: nothing to ask the Mac.
         source.openTerminalChatIfNeeded("s1")
         _ = await Self.waitUntil { kept.isLoaded && source.terminalChatSessionID(tab, in: workspace) != nil }
-        #expect(source.showsChatFace(tab, in: workspace))
+        #expect(source.showsChatFace(tab, in: workspace), "the kept chat face shows over the terminal default")
         guard let chat = source.terminalChatSessionID(tab, in: workspace) else {
             print("OFFLINECHAT cold_launch_to_first_kept_turn_ms=never")
             Issue.record("offline, the terminal's chat face has no chat to show: it spins on \"Opening chat…\"")
@@ -186,6 +207,13 @@ struct TerminalChatOfflineRelaunchTests {
         #expect(store.isOffline)
         #expect(backend.asked == 0)
         #expect(source.showsChatFace(tab, in: workspace))
+        // The face the person chose for s2 in the earlier launch (its terminal) shows again.
+        let other = try #require(source.workspaceTab("s2"))
+        #expect(!source.showsChatFace(other, in: workspace))
+        // s3, with nothing kept, opens on the default: its terminal.
+        let plain = try #require(source.workspaceTab("s3"))
+        #expect(source.pairFaces(plain, in: workspace).defaultFace == .terminal)
+        #expect(!source.showsChatFace(plain, in: workspace))
     }
 
     /// The pairing file is read off the main thread at launch. A tap on Chat before that read lands
