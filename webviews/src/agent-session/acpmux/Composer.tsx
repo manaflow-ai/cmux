@@ -1152,6 +1152,9 @@ function ComposerFrame({
         }
       },
     }),
+    // applyDraft, applyDraftRead and textNow are re-made every render and read the draft store
+    // live, so listing them would re-make this handle on every key: the per-key work this removes.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
     [setAttachments, attachLater, attachRefused, attach],
   );
   useEffect(() => {
@@ -1249,6 +1252,8 @@ function ComposerFrame({
         if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
         return null;
       }),
+    // textNow reads the draft store live, so the hold is armed once and still sees later typing.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
   // After the session effect, so a switch that ends with its session change still carries.
@@ -1280,6 +1285,9 @@ function ComposerFrame({
     return () => {
       current = false;
     };
+    // applyDraftRead is re-made every render and reads the draft store live; the chat and the
+    // action map's version are the triggers.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, draftActionsVersion, onDraftSettled]);
   // Every change of the draft is saved, as it was when the draft was React state and this ran as
   // an effect of it (`useDraftWrites`): the save now happens on the write instead of after a

@@ -29,8 +29,8 @@ export function createComposerDraftStore(text: string): ComposerDraftStore {
   let draft: ComposerDraft = { text, caret: text.length };
   const listeners = new Set<() => void>();
   const tell = () => {
-    // A listener that unsubscribes while this runs must not drop the one after it.
-    for (const listener of [...listeners]) listener();
+    // A listener that unsubscribes while this runs must not drop the one after it, so walk a copy.
+    for (const listener of Array.from(listeners)) listener();
   };
   return {
     get: () => draft,
@@ -114,5 +114,8 @@ export function useDraftWrites(store: ComposerDraftStore, run: (draft: ComposerD
       last = draft.text;
       latest.current(draft);
     });
+    // The caller's deps stand for `run`'s and are its own array: only what the old effect listed
+    // besides the draft re-arms this.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [store, ...deps]);
 }
