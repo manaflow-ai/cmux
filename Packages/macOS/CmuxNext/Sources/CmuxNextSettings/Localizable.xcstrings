@@ -228448,60 +228448,6 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "彈出框進度列填色"}}
       }
     },
-    "settings.appearance.metrics.paletteRowHeight": {
-      "comment": "Appearance metric: the height of one command palette result row",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Palette Row Height"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "ارتفاع صف لوحة الأوامر"}},
-        "bs": {"stringUnit": {"state": "translated", "value": "Visina reda palete"}},
-        "da": {"stringUnit": {"state": "translated", "value": "Højde på paletrækker"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Höhe der Palettenzeilen"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Altura de las filas de la paleta"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Hauteur des lignes de la palette"}},
-        "it": {"stringUnit": {"state": "translated", "value": "Altezza delle righe della palette"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "パレットの行の高さ"}},
-        "km": {"stringUnit": {"state": "translated", "value": "កម្ពស់ជួរផ្ទាំងពាក្យបញ្ជា"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "팔레트 행 높이"}},
-        "nb": {"stringUnit": {"state": "translated", "value": "Høyde på palettrader"}},
-        "pl": {"stringUnit": {"state": "translated", "value": "Wysokość wierszy palety"}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "Altura das linhas da paleta"}},
-        "ru": {"stringUnit": {"state": "translated", "value": "Высота строк палитры"}},
-        "th": {"stringUnit": {"state": "translated", "value": "ความสูงแถวพาเลต"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "Palet satır yüksekliği"}},
-        "uk": {"stringUnit": {"state": "translated", "value": "Висота рядків палітри"}},
-        "vi": {"stringUnit": {"state": "translated", "value": "Chiều cao hàng bảng lệnh"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "面板行高"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "面板列高"}}
-      }
-    },
-    "settings.appearance.metrics.panelCornerRadius": {
-      "comment": "Appearance metric: the corner radius of floating panels",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Panel Corner Radius"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "نصف قطر زاوية اللوحة"}},
-        "bs": {"stringUnit": {"state": "translated", "value": "Zaobljenost uglova panela"}},
-        "da": {"stringUnit": {"state": "translated", "value": "Panelernes hjørneradius"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Eckenradius der Bereiche"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Radio de las esquinas de los paneles"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Rayon des coins des panneaux"}},
-        "it": {"stringUnit": {"state": "translated", "value": "Raggio degli angoli dei pannelli"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "パネルの角の半径"}},
-        "km": {"stringUnit": {"state": "translated", "value": "កាំជ្រុងផ្ទាំង"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "패널 모서리 반경"}},
-        "nb": {"stringUnit": {"state": "translated", "value": "Panelenes hjørneradius"}},
-        "pl": {"stringUnit": {"state": "translated", "value": "Promień narożników paneli"}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "Raio dos cantos dos painéis"}},
-        "ru": {"stringUnit": {"state": "translated", "value": "Радиус углов панелей"}},
-        "th": {"stringUnit": {"state": "translated", "value": "รัศมีมุมแผง"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "Panel köşe yarıçapı"}},
-        "uk": {"stringUnit": {"state": "translated", "value": "Радіус кутів панелей"}},
-        "vi": {"stringUnit": {"state": "translated", "value": "Bán kính góc bảng"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "面板圆角半径"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "面板圓角半徑"}}
-      }
-    },
     "settings.choice.muted": {
       "comment": "Settings choice: drawn in a quieter, gray ink",
       "extractionState": "manual",

@@ -207,14 +207,6 @@ extension LayoutMetricSetting {
     public nonisolated static let sidebarRowHeightPath = ["appearance", "metrics", "sidebarRowHeight"]
     public nonisolated static let sidebarRowHeightRange: ClosedRange<Double> = 20...48
     public nonisolated static let sidebarRowHeightPlaceholder: Double = 24
-    /// `appearance.metrics.paletteRowHeight`: One command palette result row. The app reads it already (MetricKey.paletteRowHeight); this row lets a theme file and cmux settings set it.
-    public nonisolated static let paletteRowHeightPath = ["appearance", "metrics", "paletteRowHeight"]
-    public nonisolated static let paletteRowHeightRange: ClosedRange<Double> = 26...48
-    public nonisolated static let paletteRowHeightPlaceholder: Double = 28
-    /// `appearance.metrics.panelCornerRadius`: Floating panels' corner (the palette, notifications, settings cards). Unset: the surface corner radius. The app reads it already (MetricKey.panelCornerRadius).
-    public nonisolated static let panelCornerRadiusPath = ["appearance", "metrics", "panelCornerRadius"]
-    public nonisolated static let panelCornerRadiusRange: ClosedRange<Double> = 0...20
-    public nonisolated static let panelCornerRadiusPlaceholder: Double = 10
 }
 
 extension BordersSetting {

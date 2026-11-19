@@ -410,9 +410,8 @@ fn with_no_theme_file_nothing_changes() {
 /// Leo's Claude desktop menu as a theme file fragment (a dark ~#2b2b2b panel, a 12 pt corner, a
 /// subtle edge, 30 pt rows, an 8 pt hover corner, muted shortcuts and section labels, thin
 /// separators, flush submenus, a muted second line, the usage popover's strong header and thicker
-/// track): every `appearance.menu.*` and `appearance.popover.*` key is a look a theme file sets,
-/// and the proportions the app already read (`appearance.metrics.paletteRowHeight`,
-/// `panelCornerRadius`) are too. The look packs copy this fragment.
+/// track): every `appearance.menu.*` and `appearance.popover.*` key is a look a theme file sets.
+/// The look packs copy this fragment.
 const CLAUDE_MENU_FRAGMENT: &str = r##"{
   "appearance.menu.cornerRadius": 12,
   "appearance.menu.borderOpacity": 0.1,
@@ -430,22 +429,19 @@ const CLAUDE_MENU_FRAGMENT: &str = r##"{
   "appearance.popover.padding": 12,
   "appearance.popover.header": "strong",
   "appearance.popover.progressHeight": 6,
-  "appearance.popover.progressFill": "standard",
-  "appearance.metrics.paletteRowHeight": 30,
-  "appearance.metrics.panelCornerRadius": 12
+  "appearance.popover.progressFill": "standard"
 }"##;
 
 #[test]
 fn a_theme_file_sets_the_menu_and_popover_look() {
     let file = overlay(CLAUDE_MENU_FRAGMENT);
     assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
-    assert_eq!(file.keys().len(), 19, "{:?}", file.keys());
+    assert_eq!(file.keys().len(), 17, "{:?}", file.keys());
     let root = file.applied(&json!({}), &none());
     assert_eq!(at(&root, "appearance.menu.cornerRadius"), Some(&json!(12)));
     assert_eq!(at(&root, "appearance.menu.fill"), Some(&json!("#2b2b2b")));
     assert_eq!(at(&root, "appearance.menu.submenu"), Some(&json!("flush")));
     assert_eq!(at(&root, "appearance.popover.progressHeight"), Some(&json!(6)));
-    assert_eq!(at(&root, "appearance.metrics.panelCornerRadius"), Some(&json!(12)));
     // Nested, as cmux-next.json writes it, reads the same.
     let nested = overlay(r#"{ "appearance": { "menu": { "rowHeight": 28, "shadow": "none" } } }"#);
     assert!(nested.diagnostics.is_empty(), "{:?}", nested.diagnostics);

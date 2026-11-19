@@ -908,8 +908,6 @@
         "appearance.metrics.dividerHitWidth",
         "appearance.metrics.titlebarHeight",
         "appearance.metrics.sidebarRowHeight",
-        "appearance.metrics.paletteRowHeight",
-        "appearance.metrics.panelCornerRadius",
         "browser.toolbar.back",
         "browser.toolbar.forward",
         "browser.toolbar.reload",
