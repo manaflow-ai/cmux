@@ -99,6 +99,8 @@ cmux-transport = { path = "../cmux-transport" }
 # Where the running cmux link registers its socket (`peer_carriers.rs`).
 cmux-tui-platform.workspace = true
 cmux-file-lock.workspace = true
+# Session Info's process windows, invalidated by session tag (`hub/processes.rs` `WindowCache`).
+cmux-tag-cache.workspace = true
 cmux-supervise-core.workspace = true
 cmux-git.workspace = true
 cmux-worktree-care.workspace = true

@@ -58,6 +58,7 @@ dependencies = [
  "cmux-signed-bundle",
  "cmux-source-scan",
  "cmux-supervise-core",
+ "cmux-tag-cache",
  "cmux-tailnet",
  "cmux-transport",
  "cmux-tui-platform",
@@ -2211,6 +2212,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "cmux-tag-cache"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-tailnet"
