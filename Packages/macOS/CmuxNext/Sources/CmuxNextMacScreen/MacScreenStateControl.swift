@@ -73,6 +73,9 @@ extension MacScreenPages {
         let started = session.timings.startedAt != nil || session.phase != .ended
         row["phase"] = started ? .string(phaseName(session.phase)) : .null
         row["connected"] = .bool(session.phase == .connected)
+        // Where a connect is (no_answer, no_link, no_frame, shown), and where one that timed out stopped.
+        row["connect_stage"] = .string(session.connectStage.name)
+        row["timed_out_at"] = session.timedOutStage.map { .string($0.name) } ?? .null
         row["path"] = .string(session.streamPath)
         let timings = session.timings
         row["connect_started_at"] = timings.startedAt.map { .string($0.formatted(.iso8601)) } ?? .null
