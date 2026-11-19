@@ -17,7 +17,9 @@
 //! `cargo test -p acpmux --release --test app_stream_bytes -- --ignored --nocapture`
 //! (`ACPMUX_BENCH_CHATS`, `ACPMUX_BENCH_SHOWN`, `ACPMUX_BENCH_TICKS`, `ACPMUX_BENCH_TICK_MS`;
 //! `ACPMUX_BENCH_QUIET=0` attaches as a pane before `quietHidden`, the before of the same build;
-//! `ACPMUX_BENCH_IDLE_SECS`, the idle arm after the streams: every pane open, nothing streaming).
+//! `ACPMUX_BENCH_IDLE_SECS`, the idle arm after the streams: every pane open, nothing streaming;
+//! `ACPMUX_BENCH_WATCHERS`, the app-level watchers of each `rows` mode beside the panes: the
+//! unix socket watches of the harness settings and the feed bridge, which draw no row).
 //! It prints one `app-stream-bytes: {json}` line and one `app-stream-bytes-kind:` line per kind.
 //! The plain tests below hold the fix: a hidden
 //! pane hears no stream of its chat until it is shown, and then it is told to read again.
@@ -33,6 +35,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_BENCH_TICK_MS",
     "ACPMUX_BENCH_QUIET",
     "ACPMUX_BENCH_IDLE_SECS",
+    "ACPMUX_BENCH_WATCHERS",
 ]);
 
 use futures_util::{SinkExt, StreamExt};
@@ -63,13 +66,17 @@ struct Daemon {
 
 impl Daemon {
     fn start(tag: &str) -> Self {
+        Self::start_with(tag, "approve-all")
+    }
+
+    fn start_with(tag: &str, policy: &str) -> Self {
         let home = std::env::temp_dir().join(format!("asb-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(home.join("work")).unwrap();
         std::fs::write(
             home.join("config.json"),
             json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake",
-                "permissionPolicy": "approve-all"})
+                "permissionPolicy": policy})
             .to_string(),
         )
         .unwrap();
@@ -431,6 +438,94 @@ impl Pane {
     }
 }
 
+/// What one app-level watcher received.
+#[derive(Default)]
+struct WatchCounts {
+    /// Every byte since `take_bytes`.
+    bytes: u64,
+    /// `_acpmux/session_changed` notices, and the `kind` of each.
+    rows: Vec<String>,
+    /// Of those, the ones whose `session` held more than its `sessionId` (a row).
+    full_rows: u64,
+    /// Each `session` an ids notice carried (the notice's other keys are checked as sent).
+    sessions: Vec<Value>,
+    harnesses: u64,
+    /// `_acpmux/permission_pending` params.
+    pending: Vec<Value>,
+}
+
+/// An app-level watcher, as the app's harness settings (`AcpmuxEnvironment+Harnesses.swift`) and
+/// its permission feed bridge (`AcpmuxPermissionFeedBridge`) open one: the unix socket,
+/// `initialize`, then `_acpmux/watch {enabled, limit: 1, rows}`. It draws no row.
+struct Watcher {
+    counts: Arc<Mutex<WatchCounts>>,
+    _wr: tokio::net::unix::OwnedWriteHalf,
+}
+
+impl Watcher {
+    async fn open(d: &Daemon, rows: Option<&str>) -> Self {
+        let s = tokio::net::UnixStream::connect(&d.socket).await.expect("connect to daemon socket");
+        let (rd, mut wr) = s.into_split();
+        let counts = Arc::new(Mutex::new(WatchCounts::default()));
+        let counted = counts.clone();
+        let (watched_tx, watched) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let mut lines = tokio::io::BufReader::new(rd).lines();
+            let mut watched_tx = Some(watched_tx);
+            while let Ok(Some(line)) = lines.next_line().await {
+                let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+                let mut c = counted.lock().unwrap();
+                c.bytes += line.len() as u64 + 1;
+                let params = v.get("params").unwrap_or(&Value::Null);
+                match v.get("method").and_then(Value::as_str) {
+                    Some("_acpmux/session_changed") => {
+                        c.rows.push(params["kind"].as_str().unwrap_or("").to_owned());
+                        let session = params.get("session").cloned().unwrap_or(Value::Null);
+                        if session.as_object().is_some_and(|o| o.keys().any(|k| k != "sessionId")) {
+                            c.full_rows += 1;
+                        }
+                        c.sessions.push(session);
+                    }
+                    Some("_acpmux/harnesses_changed") => c.harnesses += 1,
+                    Some("_acpmux/permission_pending") => c.pending.push(params.clone()),
+                    Some(_) => {}
+                    None if v.get("id") == Some(&json!(2)) => {
+                        assert!(v.get("error").is_none(), "the watch failed: {v}");
+                        if let Some(tx) = watched_tx.take() {
+                            let _ = tx.send(());
+                        }
+                    }
+                    None => {}
+                }
+            }
+        });
+        let mut watch = json!({"enabled": true, "limit": 1});
+        if let Some(rows) = rows {
+            watch["rows"] = json!(rows);
+        }
+        for request in [
+            json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1,
+                "clientInfo": {"name": "cmux-next-feed-bridge", "version": "1"}, "clientCapabilities": {}}}),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch", "params": watch}),
+        ] {
+            wr.write_all(format!("{request}\n").as_bytes()).await.unwrap();
+        }
+        tokio::time::timeout(Duration::from_secs(30), watched)
+            .await
+            .expect("the watch answered in time")
+            .unwrap();
+        Self { counts, _wr: wr }
+    }
+
+    fn take_bytes(&self) -> u64 {
+        std::mem::take(&mut self.counts.lock().unwrap().bytes)
+    }
+}
+
+/// The `rows` modes of the bench's app-level watchers: `full` is the watch as it was (and as an
+/// older app asks it), the before; `ids` and `none` the after.
+const WATCH_MODES: [&str; 3] = ["full", "ids", "none"];
+
 async fn new_chat(rpc: &mut Rpc, d: &Daemon, n: usize) -> String {
     let r = rpc
         .call(
@@ -470,6 +565,9 @@ struct Report {
     /// Every pane's bytes over `idle_seconds` after the streams ended and settled (`IDLE_SETTLE`).
     idle_bytes: u64,
     idle_seconds: f64,
+    /// The app-level watchers' bytes by `rows` mode: (while streaming, idle), summed over the
+    /// mode's watchers.
+    watchers: BTreeMap<&'static str, (u64, u64)>,
 }
 
 /// After the last turn ends, what its end still sends (usage reads, unread) before the idle arm.
@@ -494,6 +592,7 @@ async fn measure(
     tick_ms: usize,
     quiet: bool,
     idle: Duration,
+    watchers: usize,
 ) -> Report {
     let d = Daemon::start("bench");
     let mut rpc = Rpc::connect(&d).await;
@@ -507,8 +606,17 @@ async fn measure(
     for (n, id) in ids.iter().enumerate() {
         panes.push((n < shown, Pane::open(&d, id, n < shown, quiet).await));
     }
+    let mut watches = Vec::new();
+    for mode in WATCH_MODES {
+        for _ in 0..watchers {
+            watches.push((mode, Watcher::open(&d, Some(mode)).await));
+        }
+    }
     for (_, p) in &panes {
         p.counting(true);
+    }
+    for (_, w) in &watches {
+        w.take_bytes();
     }
     let cpu0 = d.cpu();
     let t0 = Instant::now();
@@ -524,7 +632,11 @@ async fn measure(
         hidden: BTreeMap::new(),
         idle_bytes: 0,
         idle_seconds: 0.0,
+        watchers: BTreeMap::new(),
     };
+    for (mode, w) in &watches {
+        report.watchers.entry(*mode).or_default().0 += w.take_bytes();
+    }
     for (visible, p) in &panes {
         p.counting(false);
         let into = if *visible { &mut report.shown } else { &mut report.hidden };
@@ -539,8 +651,14 @@ async fn measure(
     for (_, p) in &panes {
         p.take_bytes();
     }
+    for (_, w) in &watches {
+        w.take_bytes();
+    }
     tokio::time::sleep(idle).await;
     report.idle_bytes = panes.iter().map(|(_, p)| p.take_bytes()).sum();
+    for (mode, w) in &watches {
+        report.watchers.entry(*mode).or_default().1 += w.take_bytes();
+    }
     report.idle_seconds = idle.as_secs_f64();
     report
 }
@@ -556,7 +674,8 @@ async fn app_stream_bytes_bench() {
     let tick_ms = env_usize("ACPMUX_BENCH_TICK_MS", 10);
     let quiet = env_usize("ACPMUX_BENCH_QUIET", 1) == 1;
     let idle = Duration::from_secs(env_usize("ACPMUX_BENCH_IDLE_SECS", 5) as u64);
-    let r = measure(chats, shown, ticks, tick_ms, quiet, idle).await;
+    let watchers = env_usize("ACPMUX_BENCH_WATCHERS", 5);
+    let r = measure(chats, shown, ticks, tick_ms, quiet, idle, watchers).await;
     let s = r.seconds;
     let idle_per_min =
         (r.idle_seconds > 0.0).then(|| (r.idle_bytes as f64 * 60.0 / r.idle_seconds).round());
@@ -571,6 +690,18 @@ async fn app_stream_bytes_bench() {
         "idleBytesPerMin": idle_per_min,
     });
     println!("app-stream-bytes: {out}");
+    // Per watcher of each mode: what one app-level watch receives while the chats stream, and a
+    // minute of the idle arm.
+    for (mode, (streaming, idle_bytes)) in &r.watchers {
+        let per = watchers.max(1) as f64;
+        println!(
+            "app-stream-bytes-watcher: {}",
+            json!({"rows": mode, "watchers": watchers,
+                "bytesPerSecEach": (*streaming as f64 / per / s).round(),
+                "idleBytesPerMinEach": (r.idle_seconds > 0.0)
+                    .then(|| (*idle_bytes as f64 / per * 60.0 / r.idle_seconds).round())})
+        );
+    }
     for (scope, kinds) in [("shown", &r.shown), ("hidden", &r.hidden)] {
         for kind in as_rows(kinds, s) {
             println!(
@@ -598,7 +729,12 @@ async fn three_panes(d: &Daemon) -> (Vec<String>, Pane, Pane, Pane) {
 
 /// Waits up to 2 s for `done`.
 async fn until(done: impl Fn() -> bool) {
-    for _ in 0..100 {
+    until_for(100, done).await;
+}
+
+/// Waits up to `ticks` times 20 ms for `done`.
+async fn until_for(ticks: usize, done: impl Fn() -> bool) {
+    for _ in 0..ticks {
         if done() {
             return;
         }
@@ -726,4 +862,99 @@ async fn idle_panes_are_sent_nothing() {
     tokio::time::sleep(Duration::from_secs(3)).await;
     let bytes: Vec<u64> = panes.iter().map(|p| p.take_bytes()).collect();
     assert_eq!(bytes, [0, 0, 0], "bytes sent to idle panes (quiet hidden, hidden, shown)");
+}
+
+/// The app's watchers that draw no row (the harness settings' `harnesses_changed` reader, the
+/// permission feed bridge) heard every chat's whole row on every change, as the panes did. A watch
+/// with `rows: "none"` hears no row change, one with `rows: "ids"` hears each with the chat's ids
+/// and `kind` and no row, and both still hear `harnesses_changed` and `permission_pending`. A watch
+/// that names no `rows` (an older app) hears the rows as before.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_notice_only_watcher_hears_harnesses_and_permissions_but_no_row() {
+    let d = Daemon::start_with("notice", "ask");
+    let mut rpc = Rpc::connect(&d).await;
+    let chat = new_chat(&mut rpc, &d, 0).await;
+    let old = Watcher::open(&d, None).await;
+    let full = Watcher::open(&d, Some("full")).await;
+    let ids = Watcher::open(&d, Some("ids")).await;
+    let none = Watcher::open(&d, Some("none")).await;
+    let all = [&old, &full, &ids, &none];
+    // A harness profile written: every watcher hears `harnesses_changed`.
+    rpc.call("_acpmux/harness/add", json!({"id": "notice-probe", "command": "/bin/echo"})).await;
+    until_for(1000, || all.iter().all(|w| w.counts.lock().unwrap().harnesses > 0)).await;
+    for (name, w) in [("old", &old), ("full", &full), ("ids", &ids), ("none", &none)] {
+        assert!(w.counts.lock().unwrap().harnesses > 0, "{name} heard no harnesses_changed");
+    }
+    // A prompt asks: every watcher hears `permission_pending` and the ask's row change.
+    let mut turn_rpc = Rpc::connect(&d).await;
+    let asked = chat.clone();
+    let turn = tokio::spawn(async move {
+        turn_rpc
+            .call(
+                "session/prompt",
+                json!({"sessionId": asked, "prompt": [{"type": "text", "text": "ask: run it"}]}),
+            )
+            .await;
+    });
+    until_for(1000, || all.iter().all(|w| !w.counts.lock().unwrap().pending.is_empty())).await;
+    for (name, w) in [("old", &old), ("full", &full), ("ids", &ids), ("none", &none)] {
+        assert!(!w.counts.lock().unwrap().pending.is_empty(), "{name} heard no permission_pending");
+    }
+    let pending = ids.counts.lock().unwrap().pending[0].clone();
+    assert_eq!(pending["sessionId"], json!(chat), "{pending}");
+    assert!(pending["permissionId"].as_str().is_some(), "{pending}");
+    // The ask's own row change (`permission_request`): what the feed bridge's withdraw keys on is
+    // its kind and ids. The prompt is left unanswered: only the cmux app may allow it
+    // (`permission.person_required`), and the daemon ends with the test.
+    let decided =
+        |w: &Watcher| w.counts.lock().unwrap().rows.iter().any(|k| k == "permission_request");
+    until_for(1000, || decided(&old) && decided(&full) && decided(&ids)).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    turn.abort();
+    // `full` and an older app's watch: rows as before.
+    for (name, w) in [("old", &old), ("full", &full)] {
+        let heard = decided(w);
+        let c = w.counts.lock().unwrap();
+        assert!(heard, "{name} heard no ask's row change: {:?}", c.rows);
+        assert!(c.full_rows > 0, "{name} heard no row: {:?}", c.rows);
+    }
+    // `ids`: the same notices, the chat's id and kind only (what the feed bridge reads).
+    {
+        let heard = decided(&ids);
+        let c = ids.counts.lock().unwrap();
+        assert!(heard, "ids heard no ask's row change: {:?}", c.rows);
+        assert_eq!(c.full_rows, 0, "an ids watcher heard a row: {:?}", c.sessions);
+        assert!(
+            c.sessions.iter().all(|s| s == &json!({"sessionId": chat})),
+            "an ids notice's session is its id alone: {:?}",
+            c.sessions
+        );
+    }
+    // `none`: no row change at all.
+    let c = none.counts.lock().unwrap();
+    assert!(c.rows.is_empty(), "a rows: none watcher heard row changes: {:?}", c.rows);
+}
+
+/// A `rows` the daemon does not know is refused, not read as `full`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_watch_refuses_an_unknown_rows_mode() {
+    let d = Daemon::start("rows-bad");
+    let s = tokio::net::UnixStream::connect(&d.socket).await.unwrap();
+    let (rd, mut wr) = s.into_split();
+    let mut lines = tokio::io::BufReader::new(rd).lines();
+    let request = json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/watch",
+        "params": {"enabled": true, "limit": 1, "rows": "some"}});
+    wr.write_all(format!("{request}\n").as_bytes()).await.unwrap();
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), lines.next_line())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(1)) {
+            assert!(v.get("error").is_some(), "rows: some was accepted: {v}");
+            return;
+        }
+    }
 }
