@@ -13,8 +13,9 @@ import CmuxNextSettings
 ///   Mac numbered that never showed here), `frame` (the stream's pixel size);
 /// - `rtt_ms_window`, `frame_interval_ms` and `present_ms` (decoded to shown): {count, p50, p95,
 ///   max} over the last 60 round trips and 120 frames; null before the first sample.
-/// No credential, no device address, no pixel of the screen. Nothing here connects, disconnects or
-/// sends input: those stay the person's clicks in the pane (and `debug.mac_screen` in DEV builds).
+/// No credential, no device address, no pixel of the screen. Nothing here connects or disconnects:
+/// that stays the person's clicks in the pane. An agent's screenshot and input on a tab the person
+/// connected are `mac_screen.frame` and `mac_screen.input` (MacScreenAgentControl.swift).
 extension MacScreenPages {
     /// The methods every build registers. The CLI's `app mac-screens` reads the first
     /// (`MAC_SCREENS_METHOD` in cmux-tui's cli/app.rs; a test holds the two equal).
@@ -35,6 +36,8 @@ extension MacScreenPages {
                 return await stateAnswer(call.params)
             },
         ])
+        // `cmux rd screenshot|click|type|key` on a tab the person opened (MacScreenAgentControl.swift).
+        registerAgent(on: router)
     }
 
     func stateAnswer(_ params: [String: JSONValue]) -> JSONValue {

@@ -146,6 +146,36 @@ channel is open. This compatibility bridge is deliberate: switching
 `remoteHosted` to the worker's older `ScreenStreamHost` path would make a
 Release viewer connect to a host speaking a different protocol.
 
+## An agent on a shared screen
+
+`cmux rd` gives an agent four verbs on the screen of another of the person's
+devices (a Mac or a Linux machine) that a Screen Sharing tab shows. Its skill is
+[skills/cmux-screen-sharing](../skills/cmux-screen-sharing/SKILL.md).
+
+| Command | What it does | Needs |
+| --- | --- | --- |
+| `cmux rd screenshot --device X [--out F]` | Saves the tab's newest picture as PNG | a streaming tab (View Only is enough) |
+| `cmux rd click --device X --x 0.5 --y 0.25 [--button left\|right\|middle] [--double]` | Clicks at fractions of the shared display (0 the left or top edge, 1 the right or bottom) | Full Control |
+| `cmux rd type --device X TEXT` | Types TEXT as committed text, in any keyboard layout | Full Control |
+| `cmux rd key --device X cmd+shift+4` | Presses a combo, in cmux Computer Use's key vocabulary | Full Control |
+
+Each takes `--json`: a result is one object on stdout, and a refusal is
+`{error, reason, next}` on stderr, where `next` is the one command that moves
+the agent on (beside the CLI's usual `code`, `message`, `details` and
+`retryable`). For example a View Only tab refuses `click` with
+`next: cmux tab new-mac-screen --device X --scope full`, a tab waiting for the
+host's owner answers `next` with the same command again and `retryable: true`,
+and a signed-out Mac answers `next: cmux login`.
+
+The verbs act only through a tab that is already connected. They never open a
+tab, ask the device hub for a session or a scope, or answer the host's
+approval: control stays the host owner's grant, as it is for a person's
+clicks. The CLI reads the tab with `mac_screen.state`, takes the picture with
+`mac_screen.frame` and sends input with `mac_screen.input`, the same
+`cmux.rd/1` input path the pane uses (MacScreenAgentControl.swift). A click is
+mapped to stream pixels against the picture size the CLI read; if the display
+changed size meanwhile the app refuses it and the CLI maps once more.
+
 ## Settings and controls
 
 Every control exists in the command palette, the CLI and MCP:

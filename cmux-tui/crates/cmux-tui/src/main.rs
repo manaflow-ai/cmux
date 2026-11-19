@@ -2066,8 +2066,11 @@ fn run_main() {
     }
     // `cmux rd serve|connect`: Mac Screen sessions on the cmux.rd/1 engine, which the app
     // starts from its bundled bin/cmux (plans/cmux-next/remote-desktop-mac-host.md).
+    // `rd screenshot|click|type|key` (and `rd help`) are the CLI's agent verbs (cli/rd_agent.rs).
     #[cfg(target_os = "macos")]
-    if raw_args.first().map(String::as_str) == Some("rd") {
+    if raw_args.first().map(String::as_str) == Some("rd")
+        && !cli::rd_agent::owns(raw_args.get(1).map(String::as_str))
+    {
         client_log::exit(cmux_rd_host::run_cli(&raw_args[1..]));
     }
     if remote_cli::is_remote_invocation(&raw_args) {

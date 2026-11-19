@@ -277,6 +277,11 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
     ),
     ("cmux-live/SKILL.md", include_str!("../../../../skills/cmux-live/SKILL.md")),
+    // `cmux rd screenshot|click|type|key` on a device a Screen Sharing tab shows.
+    (
+        "cmux-screen-sharing/SKILL.md",
+        include_str!("../../../../skills/cmux-screen-sharing/SKILL.md"),
+    ),
     // Diagrams, charts, math, decks, documents and opening pages beside the chat (hq
     // docs/design/next-rich-output.md). The deck template is a file the agent copies.
     ("cmux-rich-output/SKILL.md", include_str!("../skills/cmux-rich-output/SKILL.md")),

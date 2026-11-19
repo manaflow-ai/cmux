@@ -78,6 +78,8 @@ cmux-cloud-start-core.workspace = true
 ghostty-vt.workspace = true
 cmux-theme-tokens.workspace = true
 png.workspace = true
+# `cmux rd key`: cmux Computer Use's key combo vocabulary (cli/rd_agent.rs).
+cmux-computer-use.workspace = true
 cmux-tui-core.workspace = true
 # The tab a pane shows after a close (close_focus::tab), the app's and the daemon's rule.
 cmux-focus-core.workspace = true

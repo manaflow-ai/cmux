@@ -181,6 +181,7 @@ public final class MacScreenPane {
         session?.frameCounter = counter
         let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
             presenter.present(frame)
+            counter.keep(frame)
             // The stats and the first picture, without a main-actor hop per frame.
             guard counter.tick(frame: frame.frame, decodedAtNanos: frame.decodedAtNanos) else { return }
             Task { @MainActor [weak self] in self?.framesShown(counter) }

@@ -195,6 +195,8 @@ mod pane_context;
 mod pane_identify;
 mod raw;
 #[cfg(unix)]
+pub(crate) mod rd_agent;
+#[cfg(unix)]
 mod remote_host;
 #[cfg(unix)]
 mod remote_host_grants;
@@ -880,6 +882,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
         .or_else(|| computer_use::run_if_requested(args))
+        .or_else(|| rd_agent::run_if_requested(args))
         .or_else(|| attention::run_if_requested(args))
         .or_else(|| notification_banners::run_if_requested(args))
         .or_else(|| status::run_args(args))
