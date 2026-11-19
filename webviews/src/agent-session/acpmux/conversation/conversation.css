@@ -6619,7 +6619,7 @@ a.cv-sha:focus-visible {
   pointer-events: auto;
 }
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-jump-latest {
-  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
+  --glass-tint: color-mix(in srgb, var(--agent-page-bg) var(--ds-glass-popover-tint), transparent);
 }
 /* Hover lays a wash of the text over the glass, in every mode. */
 .acpmux-jump-latest:hover {

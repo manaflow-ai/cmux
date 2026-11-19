@@ -146,7 +146,11 @@ export function ChiefPetCard({
   const feed = rowsByKey.get(CHIEF_FEED_IN_CHIEF);
   const feedRow = visibleRows === null || visibleRows.has(CHIEF_FEED_IN_CHIEF) ? feed : undefined;
   return (
-    <section className="group chief-pet ui-glass" data-card="chief-pet" data-enabled={enabled ? "true" : "false"}>
+    <section
+      className="group chief-pet ui-glass ui-glass-content"
+      data-card="chief-pet"
+      data-enabled={enabled ? "true" : "false"}
+    >
       <h3 className="group-title">{t("settingsPage.chief.look")}</h3>
       {showPetToggle && (
         <>

@@ -579,7 +579,12 @@ export function PermissionCard({
   );
 
   return (
-    <PermissionCardFrame ref={group} className="acpmux-permission-ask ui-glass" ariaLabel={title} focusable>
+    <PermissionCardFrame
+      ref={group}
+      className="acpmux-permission-ask ui-glass ui-glass-content"
+      ariaLabel={title}
+      focusable
+    >
       <div className="acpmux-permission-request" data-harness={harness || undefined}>
         <div className="acpmux-permission-request-head">
           <span className="acpmux-permission-request-icon" aria-hidden="true">

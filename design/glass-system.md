@@ -28,8 +28,10 @@ tooltip) is not changed by this page.
    `backdrop-filter`. A page's `backdrop-filter` cannot see native glass under a see-through web
    view (the page root is a backdrop root), so a web tint there is glass on glass.
 2. **Web glass is for floating things.** Menus, popovers, hover cards, tooltips, and the composer
-   while it floats. Cards, rows and bubbles in the content layer get a solid or near-solid surface,
-   not glass.
+   while it floats. Cards, rows and bubbles in the content layer get a near-solid surface, not
+   glass: `.ui-glass.ui-glass-content`, the menu level's tint (80% / 72%) with no `backdrop-filter`
+   (they scroll, rule 7) and the hairline ring alone. Never opaque (the glass rule's 90% cap); off
+   and Reduce Transparency draw the opaque surface as for every `.ui-glass`.
 3. **Five levels, one saturation (1.6), light and dark apart.** Dark glass reads denser at the same
    alpha, so each level runs a few points clearer in dark.
 4. **One edge.** The host's hairline ring (`--glass-edge`, the card rim; transparent with borders
@@ -146,9 +148,9 @@ surface takes after this change.
 | Summary popover | chrome via `.ui-glass-floats`, page blurs in place | popover | chrome numbers now 62% / 55%, 1.6; level name is a follow-up |
 | Workflow side tab; thread minimap card; image viewer; chat gallery | popover 70%, 24 px | popover | 72% / 70%, 1.6 |
 | PDF viewer, paste view, tool visual card | chrome plus 70% underlay | popover | 62% / 55% over 40% underlay |
-| Jump to latest, jump up, since-divider pill, needs-you pill | page background at 72% (clear over art), fisheye lens | chip | none: the fisheye is its own mode |
+| Jump to latest, jump up, since-divider pill, needs-you pill | page background at a private 72% (clear over art), fisheye lens | popover | the popover level (72% / 70%); the fisheye stays its own mode |
 | Selection reply pill | surface at 90%, `blur(6px) saturate(1.4)` | chip, 5 | saturation now the one 1.6; 90% kept (its contrast test) |
-| Chief dock rail and cards | text 7-8% over surface at 64%, chrome blur | popover | chrome blur now 1.6; tint follow-up |
+| Chief dock rail and cards | text 7-8% over surface at a private 64%, chrome blur | popover | the popover level (72% / 70%); chrome blur now 1.6 |
 | Changelog lightbox, Home channels lightbox | surface at 60% / 72% plus chrome blur | scrim | follow-up: the scrim level |
 | Files sidebar scrim | 38% black plus `blur(2px)` | scrim | none (allowlisted softening) |
 | Diff hunk pill, Stage-all bar | text at 4% plus 20 px blur, underlay | chip | follow-up |
@@ -178,16 +180,22 @@ look people see daily:
 - Table tools pill: text at 8%. No change.
 - Reply media glass, play glyphs, video tiles (bare `.ui-glass`): over media, where glass is the
   rule's exception (controls over rich media). No change.
-- Paste-loading tile; permission ask card; turn error card (card arm); saved environment panel;
-  cloud start sheet arm; cloud progress card; New Tab stage hover card; Settings Chief and Chief Pet
-  cards (chrome glass); onboarding import list (62% with the popover blur); changelog media,
-  compare switch, cards and clips; App scene panel (card veil); Chief web: glass in the page.
-  Follow-up: a near-solid content surface for each, with gallery captures.
+- Now `.ui-glass-content` (near-solid, no blur): permission ask card (`PermissionCard.tsx`), turn
+  error card arm (`TurnRows.tsx`), Settings Chief and Chief Pet cards (`ChiefsCard.tsx`,
+  `ChiefPetCard.tsx`), changelog media figures (`ReleaseParts.tsx`), cloud progress card
+  (`CloudProgressPage.tsx`).
+- Onboarding import list and options: the surface at a private 62% with the popover blur, now the
+  chrome level (62% / 55%, its 20 px blur). It sits over the wallpaper, not over text, so it stays
+  glass; off and Reduce Transparency still turn it solid.
+- Left as they are: paste-loading tile, saved environment panel, cloud start sheet arm and the New
+  Tab stage hover card (they float or their placement varies), the compare switch and clips (controls
+  over media), App scene panel (a native card veil), Chief web's guest composer (a composer).
 
 ### Web tint over native glass
 
-1. Sidebar Updated card: the page paints the composer tint and rim over the App's untinted glass.
-   Follow-up (needs a Mac capture).
+1. Sidebar Updated card: the page paints the composer tint and rim over the App's untinted glass
+   (`SidebarUpdatedCardHost.swift`, `updateSurfaces.css` `.wn-card.wn-updated`). The fix is native
+   (tint the `GlassPanelView`, then drop the page's tint), and it needs a Mac capture: handed off.
 2. Agent-pane host glass: the page lays the 40% veil on the App's glass under menus and hover
    cards (`--host-glass-fill`). This is the one deliberate veil (gallery `ui.menu-material`,
    `host-veil`), kept.
