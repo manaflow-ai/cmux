@@ -360,6 +360,16 @@ extension AgentPaneModel {
         String(localized: "agentPane.github.connectPending", defaultValue: "Finish connecting GitHub in your browser.", bundle: .module)
     }
 
+    /// Connect GitHub with no cmux account signed in and no sign-in to start (`github.signed_out`).
+    static var gitHubSignedOutMessage: String {
+        String(localized: "agentPane.github.signedOut", defaultValue: "Sign in to cmux to connect GitHub.", bundle: .module)
+    }
+
+    /// Connect GitHub where this Cloud service has no cmux GitHub App (`github.not_configured`).
+    static var gitHubNotConfiguredMessage: String {
+        String(localized: "agentPane.github.notConfigured", defaultValue: "GitHub isn't set up for this Cloud service yet.", bundle: .module)
+    }
+
     /// A chat here asked for a GitHub repository (`github:owner/name`) as its folder: only Cloud clones one.
     static var gitHubFolderCloudOnlyMessage: String {
         String(localized: "agentPane.github.cloudOnly", defaultValue: "Choose Cloud to start a chat in a GitHub repository.", bundle: .module)

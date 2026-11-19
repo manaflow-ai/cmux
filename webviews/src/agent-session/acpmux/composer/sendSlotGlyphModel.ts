@@ -1,4 +1,5 @@
 import { type SendStopMorphArm } from "./sendStopMorph.experiment";
+import { MOTION_MS } from "../../../motion/scale.generated";
 
 export type SlotGlyph = "stop" | "stopping" | "return" | "arrow" | "play";
 
@@ -16,7 +17,7 @@ export type SlotMemory = {
 };
 
 /// The motion scale's structural step (foundations.md, --cmux-motion-standard).
-export const MORPH_MS = 180;
+export const MORPH_MS = MOTION_MS.standard;
 /// A change this soon after a chat switch or read is the chat's state arriving, not a change.
 export const SETTLE_MS = 300;
 /// Claude's look empties the slot on a send until the turn's Stop arrives: a Stop this soon after
