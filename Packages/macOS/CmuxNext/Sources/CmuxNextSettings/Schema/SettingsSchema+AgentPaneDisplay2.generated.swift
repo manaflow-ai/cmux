@@ -280,6 +280,31 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "presentation", "messages", "bubbles", "chat", "tools"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.transcriptLookPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.transcriptLook", "Transcript Look"),
+                help: SettingsText.keyed("settings.agentPane.display.transcriptLook.help", "How messages, cards and spacing look."),
+                kind: .choice([
+                    SettingChoice("cmux", "cmux"),
+                    SettingChoice("claude", "Claude"),
+                    SettingChoice("codex", "Codex"),
+                    SettingChoice("studio", "Studio"),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.transcriptLookDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "look", "style", "preset", "claude", "codex", "studio", "bubble", "density", "spacing"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.transcriptTokensPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.transcriptTokens", "Transcript Look Tokens"),
+                help: SettingsText.keyed("settings.agentPane.display.transcriptTokens.help", "Token values that override the transcript look."),
+                kind: .text,
+                default: AgentPaneDisplaySettingsSchema.transcriptTokensDefault,
+                keywords: ["agent", "chat", "acp", "display", "reading", "look", "token", "theme", "bubble", "radius", "spacing"]
+            ).hiddenFromSettingsPage("an object of look tokens, edited in cmux-next.json or a theme file"),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.promptCoachPath,
                 section: .appearance,
                 group: group,
