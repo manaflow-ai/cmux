@@ -113,44 +113,86 @@ struct NewTabCommandListKeptTests {
                 "the hold started \(after.started - before.started) listings and read \(after.actionsRead - before.actionsRead) catalog actions again")
     }
 
-    /// A hold of the New Tab key in a window that has no list yet: ten pages, one each two frames from the first
-    /// frame on, ask while the first listing is read and handed over. One listing serves them all.
-    @Test func aHoldOfTenPagesWithNoListYetIsOneListing() async throws {
+    /// What a hold of the New Tab key did, as its driver saw it.
+    @MainActor private final class Hold {
+        var pages: [NativeNewTabModel] = []
+        var asks = 0
+        /// Frames the lister had a task for.
+        var frames = 0
+        /// The lister's counts in the turn of the hand-over.
+        var handed: AgentPaneNewTabActions.Counts?
+        var failure: String?
+    }
+
+    /// A hold of the New Tab key in a window that has no list yet, for as long as the listing takes: an ask each two
+    /// frames from the first frame until the hand-over (the first ten are pages). One listing serves them all, and
+    /// no finished list is dropped.
+    @Test func aHoldWithNoListYetIsOneListing() async throws {
         let app = try await Self.shown()
         defer { app.close() }
         let services = app.services
         let lister = services.newTabActions
         let start = lister.counts
-        // The row waits as one more page of the hold: it asks in the turn of the first page's ask, so it adds no
-        // ask of its own at a later frame.
-        let waiter = Self.ask(services)
-        var pages: [NativeNewTabModel] = []
-        for _ in 0..<10 {
-            let page = try Self.openPage(app)
-            page.loadPaletteActions()
-            pages.append(page)
-            // A held key gives a page each 33 ms: two frames at 60 Hz. No turn of the main thread ends in the
-            // hold, so a listing whose last slice is in it cannot hand over before the next page asks.
-            services.mainWork.frameDidFire()
-            services.mainWork.frameDidFire()
+        let limit = Self.frameLimit(services)
+        let hold = Hold()
+        let (lists, feed) = AsyncStream.makeStream(of: Listed.self)
+        // The held key and the display in one: it ends only when the row cancels it.
+        let key = Task { @MainActor in
+            while !Task.isCancelled {
+                if hold.handed == nil, hold.failure == nil {
+                    if hold.pages.count < 10 {
+                        do {
+                            let page = try Self.openPage(app)
+                            page.loadPaletteActions()
+                            hold.pages.append(page)
+                        } catch {
+                            hold.failure = "page \(hold.pages.count + 1) of the hold did not open: \(error)"
+                            feed.finish()
+                        }
+                    }
+                    // The row's ask, as a page's: every waiter gets the list in the turn of the hand-over.
+                    lister.list(wanted: { true }) { list in
+                        guard hold.handed == nil else { return }
+                        hold.handed = lister.counts
+                        feed.yield(list)
+                        feed.finish()
+                    }
+                    hold.asks += 1
+                }
+                // A held key gives a page each 33 ms: two frames at 60 Hz. No turn of the main thread ends between
+                // an ask and its two frames; one ends after them (the list's JSON comes back to the main thread there).
+                for _ in 0..<2 {
+                    if services.mainWork.frames.activeClients.contains(Self.lister) {
+                        hold.frames += 1
+                        if hold.frames == limit + 1 {
+                            hold.failure = "no hand-over in \(limit) frames with a lister task"
+                            feed.finish()
+                        }
+                    }
+                    services.mainWork.frameDidFire()
+                }
+                await Task.yield()
+            }
         }
-        let inTheHold = lister.counts
-        let held = await Self.handOver(to: waiter, services)
-        let list = try #require(held.list, "the hold's listing never handed its list over")
-        let end = lister.counts
-        let without = pages.filter { $0.page.omnibar.actions != list.actions }.count
-        print("new-tab-list: a hold of 10 pages with no list yet: \(end.started - start.started) listings started, \(end.dropped - start.dropped) lists dropped, "
-            + "\(end.actionsRead - start.actionsRead) catalog actions read, \(without) pages without the list at the end; "
-            + "the read \(inTheHold.actionsRead > start.actionsRead ? "ended in the hold's 20 frames" : "went on after the hold's 20 frames"), "
-            + "\(held.frames) frames with a lister task after them")
-        #expect(end.started == start.started + 1, "the hold started \(end.started - start.started) listings")
-        #expect(end.dropped == start.dropped, "the hold dropped \(end.dropped - start.dropped) finished lists")
-        #expect(without == 0, "\(without) of the 10 pages do not have the list after its hand-over")
+        var got: Listed?
+        for await list in lists { got = list }
+        key.cancel()
+        await key.value
+        let now = lister.counts
+        let end = hold.handed ?? now
+        print("new-tab-list: a hold with no list yet: \(hold.asks) asks, one each 2 frames, until the hand-over; "
+            + "\(end.started - start.started) listings started, \(end.dropped - start.dropped) lists dropped, "
+            + "\(end.actionsRead - start.actionsRead) catalog actions read, \(hold.frames) frames with a lister task")
+        let list = try #require(got, "\(hold.failure ?? "no hand-over"); \(hold.asks) asks; listings started = \(now.started - start.started), lists dropped = \(now.dropped - start.dropped)")
+        let without = hold.pages.filter { $0.page.omnibar.actions != list.actions }.count
+        #expect(end.started == start.started + 1, "the hold started \(end.started - start.started) listings in \(hold.asks) asks")
+        #expect(end.dropped == start.dropped, "the hold dropped \(end.dropped - start.dropped) finished lists in \(hold.asks) asks")
+        #expect(without == 0, "\(without) of the hold's \(hold.pages.count) pages do not have the list after its hand-over")
     }
 
     // MARK: - The app
 
-    private struct App {
+    @MainActor private struct App {
         let services: AppServices
         let pane: PaneController
         let close: @MainActor () -> Void
