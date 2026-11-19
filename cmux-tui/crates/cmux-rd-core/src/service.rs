@@ -35,9 +35,12 @@ pub mod caps {
     /// viewer draws the cursor itself. A viewer that does not offer it keeps the cursor in
     /// the picture.
     pub const CURSOR: &str = "cursor";
+    /// Clipboard text both ways (`clipboard` control messages, cmux-rd-proto `clipboard`):
+    /// the host applies the viewer's text and sends its own only in a control session.
+    pub const CLIPBOARD_TEXT: &str = "clipboard.text";
     /// Every named cap.
-    pub const ALL: [&str; 8] =
-        [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP, CURSOR];
+    pub const ALL: [&str; 9] =
+        [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP, CURSOR, CLIPBOARD_TEXT];
 }
 
 /// Why a hello is refused.

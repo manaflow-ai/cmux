@@ -16,5 +16,7 @@
   {"name": "stream_opened", "json": {"t": "stream_opened", "stream": 100}},
   {"name": "stream_refused", "json": {"t": "stream_refused", "stream": 101, "reason": "unsupported"}},
   {"name": "stream_close", "json": {"t": "stream_close", "stream": 100}},
-  {"name": "cursor_shape", "json": {"t": "cursor_shape", "shape": 3735928559, "width": 2, "height": 1, "hot_x": 1, "hot_y": 0, "rgba": "AAAA//////8="}}
+  {"name": "cursor_shape", "json": {"t": "cursor_shape", "shape": 3735928559, "width": 2, "height": 1, "hot_x": 1, "hot_y": 0, "rgba": "AAAA//////8="}},
+  {"name": "clipboard", "json": {"t": "clipboard", "seq": 1, "text": "héllo \"world\"\n"}},
+  {"name": "clipboard_part", "json": {"t": "clipboard", "seq": 2, "text": "abc", "offset": 16384, "total": 20000}}
 ]

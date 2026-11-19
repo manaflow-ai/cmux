@@ -392,7 +392,8 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         include_str!("line_reader_ffi.rs"),
         include_str!("session_ffi.rs"),
         include_str!("upstream_ffi.rs"),
-        include_str!("bulk_ffi.rs")
+        include_str!("bulk_ffi.rs"),
+        include_str!("clipboard_ffi.rs")
     );
     let declared: std::collections::BTreeSet<&str> = header
         .lines()
@@ -419,6 +420,7 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_ERR_STREAM", CMUX_RD_ERR_STREAM),
         ("CMUX_RD_ERR_CONSENT", CMUX_RD_ERR_CONSENT),
         ("CMUX_RD_ERR_FULL", CMUX_RD_ERR_FULL),
+        ("CMUX_RD_ERR_TOO_LARGE", CMUX_RD_ERR_TOO_LARGE),
     ] {
         assert!(header.contains(&format!("#define {name} ({value})")), "{name}");
     }
@@ -428,6 +430,8 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_BULK_MAX_TRANSFERS", CMUX_RD_BULK_MAX_TRANSFERS),
         ("CMUX_RD_BULK_FRAME_MAX", CMUX_RD_BULK_FRAME_MAX),
         ("CMUX_RD_BULK_CREDIT_MAX", CMUX_RD_BULK_CREDIT_MAX),
+        ("CMUX_RD_CLIPBOARD_MAX_TEXT", CMUX_RD_CLIPBOARD_MAX_TEXT),
+        ("CMUX_RD_CLIPBOARD_FRAME_MAX", CMUX_RD_CLIPBOARD_FRAME_MAX),
     ] {
         assert!(header.contains(&format!("#define {name} {value}u")), "{name}");
     }

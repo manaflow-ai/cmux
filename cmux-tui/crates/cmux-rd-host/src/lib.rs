@@ -49,6 +49,8 @@ mod capture;
 mod capture_backend;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod carrier;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod clipboard;
 mod clock;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod connect;

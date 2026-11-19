@@ -11,6 +11,7 @@
 //! a time, so an entry point has its handle to itself for the call.
 
 mod bulk_ffi;
+mod clipboard_ffi;
 mod input;
 mod input_ffi;
 mod line_reader_ffi;
@@ -26,6 +27,7 @@ use cmux_rd_core::reassembly::CompleteFrame;
 use cmux_rd_proto::{STREAM_BULK, STREAM_CONTROL, STREAM_DATAGRAM, encode_stream_frame};
 
 pub use bulk_ffi::*;
+pub use clipboard_ffi::*;
 pub use input::InputChannel;
 pub use input_ffi::*;
 pub use line_reader_ffi::*;
@@ -36,7 +38,7 @@ pub use session_ffi::*;
 pub use upstream_ffi::*;
 
 /// Version of the C ABI (`CMUX_RD_FFI_ABI_VERSION`).
-pub const ABI_VERSION: u32 = 5;
+pub const ABI_VERSION: u32 = 6;
 
 pub const CMUX_RD_OK: i32 = 0;
 pub const CMUX_RD_ERR_NULL: i32 = -1;
@@ -493,6 +495,8 @@ pub unsafe extern "C" fn cmux_rd_encode_stream_frame(
 
 #[cfg(test)]
 mod bulk_tests;
+#[cfg(test)]
+mod clipboard_tests;
 #[cfg(test)]
 mod input_tests;
 #[cfg(test)]

@@ -444,6 +444,11 @@ fn serve_session(
     if crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
+    // Clipboard text where this host has a clipboard it can watch (macOS). A `view` scope
+    // session still never applies or sends one: it never holds control (clipboard.rs).
+    if crate::clipboard::available() {
+        host_caps.push(cmux_rd_core::service::caps::CLIPBOARD_TEXT);
+    }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
