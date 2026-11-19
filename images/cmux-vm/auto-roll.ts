@@ -144,6 +144,15 @@ function validLarge(large: unknown, imageSnapshot: string): large is LargeVarian
   );
 }
 
+/** Whether the Worker source beside this wrangler.jsonc decodes an entry's `large` (src/upstream/live-images.ts). */
+export function workerTakesLarge(wrangler: string): boolean {
+  try {
+    return /^\s*large: Schema\.optional\(/mu.test(readFileSync(path.join(path.dirname(wrangler), "src/upstream/live-images.ts"), "utf8"));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The candidate's large image as an entry lists it, or undefined: only one whose own smoke passed (the bake records
  * `large` in channel-dev.json only then, and this checks it again), with its own snapshot and a whole size.
@@ -495,7 +504,13 @@ async function main(argv: string[]): Promise<number> {
       console.error(`approve: the lock here (${digest.slice(0, 12)}) is not the lock the image was baked from (${candidate.lock_sha256.slice(0, 12)}); the tip moved its image inputs`);
       return 4;
     }
-    const entry = rolledImage(candidate, arg(rest, "--revision"), pinnedCmuxTui(lockText), arg(rest, "--run"), arg(rest, "--attempt"));
+    const rolled = rolledImage(candidate, arg(rest, "--revision"), pinnedCmuxTui(lockText), arg(rest, "--run"), arg(rest, "--attempt"));
+    // The list is deployed with the Worker source beside it (cmux's, or cmux-platform's copy with --wrangler). A
+    // Worker from before the large image refuses the whole list over one unknown field, so it is listed only there.
+    const takesLarge = workerTakesLarge(wrangler);
+    if (rolled.large !== undefined && !takesLarge) console.error(`approve: ${rolled.id} is listed without its large image: the Worker beside ${wrangler} does not take one`);
+    const { large: _large, ...withoutLarge } = rolled;
+    const entry: BootImage = takesLarge ? rolled : withoutLarge;
     const before = readFileSync(wrangler, "utf8");
     const { text, previousFirst, large } = approve(before, entry);
     writeFileSync(wrangler, text);

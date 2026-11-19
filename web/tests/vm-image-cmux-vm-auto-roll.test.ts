@@ -21,6 +21,7 @@ import {
   rollback,
   rolledImage,
   settle,
+  workerTakesLarge,
   type BootImage,
   type SettleInput,
 } from "../../images/cmux-vm/auto-roll";
@@ -220,6 +221,20 @@ describe("auto-roll approve", () => {
     const { text, large } = approve(tight, withLarge("40"));
     expect(large).toBe(false);
     expect(locate(text, "staging").images.at(-1)).toEqual({ ...entry("40"), services: ["cloud-platform-dev", "cloud-platform-staging"] });
+  });
+
+  test("a large image is listed only beside a Worker source that takes one", () => {
+    // This checkout's Worker does; a copy from before it (cmux-platform's, until its next sync) refuses the whole list.
+    expect(workerTakesLarge(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url).pathname)).toBe(true);
+    const dir = mkdtempSync(path.join(tmpdir(), "auto-roll-old-worker-"));
+    try {
+      expect(workerTakesLarge(path.join(dir, "wrangler.jsonc"))).toBe(false);
+      mkdirSync(path.join(dir, "src/upstream"), { recursive: true });
+      writeFileSync(path.join(dir, "src/upstream/live-images.ts"), "const Entry = Schema.Struct({\n  inputs_sha256: Schema.optional(Schema.Unknown),\n});\n");
+      expect(workerTakesLarge(path.join(dir, "wrangler.jsonc"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("a list with a large image reads back, and a malformed one is refused", () => {
