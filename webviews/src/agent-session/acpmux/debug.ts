@@ -6,6 +6,7 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { takeNativePosts } from "./native";
+import { pageDrawPacer } from "./schedule";
 import type { StreamOptions } from "./streamDebug";
 import type { LoadRunOptions, LoadTickOptions } from "./loadDebug";
 import { shownPresence } from "./multiplayer/livePresenceModel";
@@ -335,13 +336,19 @@ export function createAcpmuxDebug(
     typingStats() {
       acpmuxPerf.enable();
       // With what the keys asked of the app since the reset (native.ts).
-      return { ...typingSummary(acpmuxPerf.typing), native_posts: takeNativePosts() };
+      // And how often the stream's draws gave way to the keys (schedule/drawPacer.ts).
+      return {
+        ...typingSummary(acpmuxPerf.typing),
+        native_posts: takeNativePosts(),
+        draw_pacer: pageDrawPacer()?.stats(),
+      };
     },
 
     resetTyping() {
       acpmuxPerf.enable();
       acpmuxPerf.typing.length = 0;
       takeNativePosts();
+      pageDrawPacer()?.resetStats();
       return { keys: 0 };
     },
 

@@ -46,8 +46,19 @@ export interface DrawPacer {
   /** Schedules `run` for a frame; `paced` marks it as stream work that may wait (see above). */
   schedule(run: () => void, paced?: boolean): () => void;
   /** The last draw's cost, ms, and how many paced draws waited (for the debug surface and tests). */
-  stats(): { last_draw_ms: number; paced_waits: number; input_waits: number; starved_runs: number };
+  stats(): DrawPacerStats;
+  /** Zeroes the wait counts (the debug surface's resetTyping). */
+  resetStats(): void;
 }
+
+export type DrawPacerStats = {
+  draws: number;
+  last_draw_ms: number;
+  max_draw_ms: number;
+  paced_waits: number;
+  input_waits: number;
+  starved_runs: number;
+};
 
 export function createDrawPacer(env: DrawPacerEnv): DrawPacer {
   let lastCost = 0;
@@ -56,6 +67,8 @@ export function createDrawPacer(env: DrawPacerEnv): DrawPacer {
   let pacedWaits = 0;
   let inputWaits = 0;
   let starvedRuns = 0;
+  let draws = 0;
+  let maxCost = 0;
 
   function measured(run: () => void): void {
     const start = env.now();
@@ -69,6 +82,8 @@ export function createDrawPacer(env: DrawPacerEnv): DrawPacer {
           measuring = false;
           lastEnd = env.now();
           lastCost = lastEnd - start;
+          draws += 1;
+          maxCost = Math.max(maxCost, lastCost);
         });
       }
     }
@@ -123,12 +138,32 @@ export function createDrawPacer(env: DrawPacerEnv): DrawPacer {
       };
     },
     stats: () => ({
+      draws,
       last_draw_ms: Math.round(lastCost * 100) / 100,
+      max_draw_ms: Math.round(maxCost * 100) / 100,
       paced_waits: pacedWaits,
       input_waits: inputWaits,
       starved_runs: starvedRuns,
     }),
+    resetStats() {
+      draws = 0;
+      maxCost = 0;
+      pacedWaits = 0;
+      inputWaits = 0;
+      starvedRuns = 0;
+    },
   };
+}
+
+/** The page's pacer, once the pane made it (mountModel.tsx), for the debug surface. */
+let pagePacer: DrawPacer | undefined;
+
+export function setPageDrawPacer(pacer: DrawPacer | undefined): void {
+  pagePacer = pacer;
+}
+
+export function pageDrawPacer(): DrawPacer | undefined {
+  return pagePacer;
 }
 
 /** One channel for the page: the first task after the current one, in order (as lanes.ts `messageTask`). */
