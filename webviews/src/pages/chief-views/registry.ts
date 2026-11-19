@@ -21,7 +21,9 @@ import { WhereIsEverybodyView } from "./views/WhereIsEverybody";
 export type ChiefViewProps = {
   data: ChiefViewsSnapshot;
   strings: Strings;
-  now: number;
+  /** Local midnight of today; it moves at midnight. A row's "4 min" stamp keeps its own clock
+   * (parts.tsx Ago), so no view takes the minute. */
+  today: number;
   /** Where it shows now: a sidebar draws narrow rows. */
   placement: Placement;
   onOpenAgent: (agent: ChiefAgent) => void;

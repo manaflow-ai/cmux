@@ -7,6 +7,12 @@ public final class AppSceneHostingView: NSView {
     public let model: AppSceneModel
     /// Runs when the content's height may have changed (a new scene, a status change).
     public var onContentSizeChange: (() -> Void)?
+    /// The scene's root fills the host's bounds (a widget tile has a fixed size; its frame's spacers
+    /// take the room left) instead of taking its own height (a sidebar section).
+    public var fillsBounds: Bool {
+        get { native.fillsBounds }
+        set { native.fillsBounds = newValue }
+    }
     private let native: AppSceneNativeView
 
     /// - Parameters:
