@@ -176,6 +176,7 @@ fn test_session_with_abort_and_context(
         retired_surfaces: Mutex::new(HashSet::new()),
         retire_surface_test_marker: Mutex::new(None),
         tree: Mutex::new(RemoteTreeCache::default()),
+        held_tree: Mutex::new(held_tree::HeldTrees::default()),
         browser_sources: Mutex::new(HashMap::new()),
         tree_refresh: Mutex::new(()),
         tree_stale: AtomicBool::new(true),

@@ -79,6 +79,8 @@ ghostty-vt.workspace = true
 cmux-theme-tokens.workspace = true
 png.workspace = true
 cmux-tui-core.workspace = true
+# The held remote tree (session/remote/held_tree.rs).
+cmux-tag-cache.workspace = true
 # The tab a pane shows after a close (close_focus::tab), the app's and the daemon's rule.
 cmux-focus-core.workspace = true
 # The daemon client every SDK user shares (cli/chief/link.rs talks through it).

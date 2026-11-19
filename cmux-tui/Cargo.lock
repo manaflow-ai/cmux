@@ -2529,6 +2529,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-tag-cache",
  "cmux-terminal-client",
  "cmux-theme-tokens",
  "cmux-tui-cdp",

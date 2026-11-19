@@ -19,6 +19,8 @@ struct StubDaemon {
     unchanged: usize,
     /// Each `list-workspaces` request's `known`, `Value::Null` when it sent none.
     known_sent: Vec<Value>,
+    /// Answers `unchanged` to any `known`, even one naming another tree (a broken daemon).
+    unchanged_to_any_known: bool,
     /// What building a whole tree costs (the slow read).
     build: Duration,
 }
@@ -39,7 +41,7 @@ impl StubDaemon {
         let known = request.get("known").cloned().unwrap_or(Value::Null);
         self.known_sent.push(known.clone());
         let identity = self.identity();
-        if !known.is_null() && known == identity {
+        if !known.is_null() && (known == identity || self.unchanged_to_any_known) {
             self.unchanged += 1;
             let mut reply = identity;
             reply["unchanged"] = json!(true);
@@ -226,4 +228,49 @@ fn refreshes_of_an_unchanged_tree_do_not_wait_for_the_whole_read() {
     assert_eq!(daemon.whole, 1, "only the first refresh reads the whole tree");
     assert_eq!(daemon.unchanged, REFRESHES - 1);
     assert!(elapsed < build * 5, "{REFRESHES} refreshes took {elapsed:?}");
+}
+
+#[test]
+fn a_tree_event_marks_the_held_tree_stale_and_the_next_read_holds_it_fresh() {
+    let (session, daemon) = session_with(&[KNOWN], Duration::ZERO);
+    assert_eq!(session.held_tree_state(), None);
+    session.refresh_tree().unwrap();
+    assert_eq!(session.held_tree_state(), Some(true));
+
+    for event in [
+        json!({"event": "tree-changed"}),
+        json!({"event": "layout-changed"}),
+        json!({"event": "surface-exited", "surface": 5}),
+    ] {
+        session.handle_line(event.clone());
+        assert_eq!(session.held_tree_state(), Some(false), "{event}");
+        // A held tree the client knows changed is read whole, with no `known`.
+        session.refresh_tree().unwrap();
+        assert!(daemon.lock().unwrap().known_sent.last().unwrap().is_null(), "{event}");
+        assert_eq!(session.held_tree_state(), Some(true), "{event}");
+    }
+    session.invalidate_tree();
+    assert_eq!(session.held_tree_state(), Some(false));
+}
+
+#[test]
+fn an_unchanged_answer_that_names_another_tree_is_refused_and_keeps_the_cached_tree() {
+    let (session, daemon) = session_with(&[KNOWN], Duration::ZERO);
+    let first = session.refresh_tree().unwrap();
+    {
+        let mut daemon = daemon.lock().unwrap();
+        daemon.revision += 1;
+        daemon.unchanged_to_any_known = true;
+    }
+
+    let error = session.refresh_tree().unwrap_err();
+
+    assert!(error.to_string().contains("unchanged"), "{error}");
+    assert_eq!(tab_titles(&session.cached_tree()), tab_titles(&first));
+    assert_eq!(session.held_tree_state(), None, "the held tree is dropped");
+    assert!(session.tree_is_stale(), "the refresh is retried");
+    // The retry holds no tree, sends no known and reads the whole tree.
+    daemon.lock().unwrap().unchanged_to_any_known = false;
+    session.refresh_tree().unwrap();
+    assert!(daemon.lock().unwrap().known_sent.last().unwrap().is_null());
 }
