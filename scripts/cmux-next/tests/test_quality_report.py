@@ -347,6 +347,42 @@ class Inputs(unittest.TestCase):
         self.assertIn("v2.pr01.measure", md)
         self.assertIn("the gate did not report a measure", md)
 
+    def test_god_vs_small_lists_the_homes_errors(self):
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
+        r["god_vs_small"] = qr.god_vs_small({"rows": [
+            {"name": "v2.pr01.measure", "small_p95": 100, "god_p95": 110},
+        ], "errors": ["unknown v2 gate row v2.pr99.renamed", 7]}, None)
+        self.assertEqual(r["god_vs_small"]["errors"], ["unknown v2 gate row v2.pr99.renamed"])
+        for public in (False, True):
+            self.assertIn("unknown v2 gate row v2.pr99.renamed", qr.render_markdown(r, public=public))
+        self.assertEqual(qr.god_vs_small(None, "no input given")["errors"], [])
+        no_rows = qr.god_vs_small({"errors": ["unknown v2 gate row v2.x"]}, None)
+        self.assertEqual(no_rows["errors"], ["unknown v2 gate row v2.x"])
+
+    def test_merge_god_small_keeps_rows_and_errors_of_every_input(self):
+        """The nightly workflow merges the v2 home's input and the degenerate lab's with merge-god-small; the home's
+        `errors` reached the report only through its last stderr line before."""
+        with tempfile.TemporaryDirectory() as d:
+            home, lab, out = (os.path.join(d, name) for name in ("v2.json", "lab.json", "god-small.json"))
+            with open(home, "w") as f:
+                json.dump({"rows": [{"name": "v2.a", "small_p95": 1, "god_p95": 1}],
+                           "errors": ["unknown v2 gate row v2.b"]}, f)
+            with open(lab, "w") as f:
+                json.dump([{"name": "lab.c", "small_p95": 2, "god_p95": 2}], f)
+            self.assertEqual(qr.main(["merge-god-small", "--out", out, home, lab]), 0)
+            with open(out) as f:
+                merged = json.load(f)
+        self.assertEqual([row["name"] for row in merged["rows"]], ["v2.a", "lab.c"])
+        self.assertEqual(merged["errors"], ["unknown v2 gate row v2.b"])
+        self.assertEqual(qr.god_vs_small(merged, None)["errors"], ["unknown v2 gate row v2.b"])
+
+    def test_the_workflow_merges_through_merge_god_small(self):
+        path = os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-quality-report.yml")
+        with open(path) as f:
+            workflow = f.read()
+        self.assertIn('quality-report.py merge-god-small --out "$out/god-small.json" "${god_inputs[@]}"', workflow)
+        self.assertNotIn('json.dump({"rows": rows}', workflow)
+
     def test_anim_coverage_shapes(self):
         self.assertEqual(qr.anim_coverage({"coverage": 0.875}, None)["value"], 0.875)
         self.assertEqual(qr.anim_coverage({"covered": 3, "total": 4}, None)["value"], 0.75)
@@ -396,6 +432,56 @@ class Sticky(unittest.TestCase):
         r = self.report(10, 1)
         self.assertNotIn("aaaaaaaaaa", qr.render_markdown(r, public=True))
         self.assertIn("aaaaaaaaaa", qr.render_markdown(r, public=False))
+
+    def test_done_today_requires_a_written_home_row(self):
+        missing = self.report(9, 1)
+        self.assertFalse(qr.sticky_done_today(qr.sticky_body(missing, "md", ""), "2026-11-10"))
+        good = self.report(10, 1)
+        good["v2_home"] = {"status": "wrote", "exit": 0, "error": None, "why": None}
+        self.assertTrue(qr.sticky_done_today(qr.sticky_body(good, "md", ""), "2026-11-10"))
+        bad = self.report(10, 1)
+        bad["v2_home"] = {"status": "no report", "exit": 124, "error": "ran past 17 minutes", "why": None}
+        self.assertFalse(qr.sticky_done_today(qr.sticky_body(bad, "md", ""), "2026-11-10"))
+
+    def test_write_sticky_keeps_good_day_against_bad_run(self):
+        good = self.report(10, 1)
+        good["v2_home"] = {"status": "wrote", "exit": 0, "error": None, "why": None}
+        old_body = qr.sticky_body(good, "good", "")
+        bad = self.report(10, 2)
+        bad["v2_home"] = {"status": "no report", "exit": 124, "error": "ran past 17 minutes", "why": None}
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append((cmd, kw.get("input")))
+            if cmd[2] == "list":
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps([{"number": 7, "title": qr.STICKY_TITLE,
+                                                                                "body": old_body}]), stderr="")
+            raise AssertionError("a good sticky row must not be edited by a bad run")
+
+        with mock.patch("sys.stdout", new_callable=__import__("io").StringIO) as output:
+            self.assertEqual(qr.write_sticky(bad, "bad", "o/r", run=run), "#7")
+        self.assertEqual(len(calls), 1)
+        self.assertIn("kept", output.getvalue())
+        self.assertTrue(qr.sticky_done_today(old_body, "2026-11-10"))
+
+    def test_write_sticky_replaces_bad_day_with_good_run(self):
+        bad = self.report(10, 1)
+        bad["v2_home"] = {"status": "no report", "exit": 124, "error": "ran past 17 minutes", "why": None}
+        old_body = qr.sticky_body(bad, "bad", "")
+        good = self.report(10, 2)
+        good["v2_home"] = {"status": "wrote", "exit": 0, "error": None, "why": None}
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append((cmd, kw.get("input")))
+            if cmd[2] == "list":
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps([{"number": 7, "title": qr.STICKY_TITLE,
+                                                                                "body": old_body}]), stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        self.assertEqual(qr.write_sticky(good, "good", "o/r", run=run), "#7")
+        self.assertEqual(calls[-1][0][2], "edit")
+        self.assertTrue(qr.sticky_done_today(calls[-1][1], "2026-11-10"))
 
 
 class V2Home(unittest.TestCase):
@@ -455,6 +541,22 @@ class V2Home(unittest.TestCase):
         self.assertIn("did not finish", state["error"])
         self.assertIn("running 40 rows", state["error"])
 
+    def test_a_home_cut_by_its_timeout_names_the_limit(self):
+        state = qr.v2_home(124, "Compiling acpmux v0.1.0\n", None, seconds=1020, limit=1020)
+        self.assertEqual(state["status"], "no report")
+        self.assertIn("ran past 17 minutes", state["error"])
+
+    def test_home_seconds_and_limit_are_in_metrics_and_first_lines(self):
+        with tempfile.TemporaryDirectory() as d:
+            output = os.path.join(d, "v2-god-small.json")
+            with open(output, "w") as f:
+                f.write('{"rows": []}')
+            state = qr.v2_home(0, "", output, seconds=800, limit=1020)
+        self.assertEqual((state["seconds"], state["limit"]), (800, 1020))
+        r = self.report(state)
+        self.assertEqual((r["v2_home"]["seconds"], r["v2_home"]["limit"]), (800, 1020))
+        self.assertIn("over 70% of the 17-minute limit", qr.render_markdown(r, public=False))
+
     def test_a_long_error_is_cut_and_no_run_is_no_line(self):
         state = qr.v2_home(2, "v2 bench: " + "x" * 1000, None)
         self.assertEqual(len(state["error"]), qr.V2_HOME_ERROR_MAX)
@@ -472,12 +574,29 @@ class V2Home(unittest.TestCase):
             # No gh on PATH: the hang-watch read fails as a source error, with no network.
             with mock.patch.dict(os.environ, {"PATH": d, "SENTRY_AUTH_TOKEN": ""}):
                 code = qr.main(["report", "--json", out_json, "--md", out_md, "--v2-home-exit", "2",
-                                "--v2-home-stderr", err, "--v2-home-output", os.path.join(d, "v2-god-small.json")])
+                                "--v2-home-stderr", err, "--v2-home-output", os.path.join(d, "v2-god-small.json"),
+                                "--v2-home-seconds", "800", "--v2-home-limit", "1020"])
             self.assertEqual(code, 0)
             with open(out_md) as f:
                 self.assertIn("**v2 gates: no report.**", f.read())
             with open(out_json) as f:
-                self.assertEqual(json.load(f)["v2_home"]["exit"], 2)
+                report = json.load(f)
+                self.assertEqual(report["v2_home"]["exit"], 2)
+                self.assertEqual(report["v2_home"]["seconds"], 800)
+
+
+class WorkflowRepair(unittest.TestCase):
+    def test_home_uses_gate_timeout_and_sticky_done_check(self):
+        path = os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-quality-report.yml")
+        with open(path) as f:
+            workflow = f.read()
+        self.assertIn("cargo bench --profile gate -p acpmux --bench v2", workflow)
+        self.assertNotIn("cargo bench -q -p acpmux --bench v2", workflow)
+        self.assertIn("timeout --signal=TERM", workflow)
+        self.assertIn("v2-home.seconds", workflow)
+        self.assertIn("done-today", workflow)
+        self.assertNotIn("actions/cache/restore", workflow)
+        self.assertNotIn("actions/cache/save", workflow)
 
 
 def ci_commit(oid, at, suites):

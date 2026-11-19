@@ -45,6 +45,7 @@ import kit_downloads  # noqa: E402
 
 STORE_EXTENSION = ("eimadpbcbfnmbkopoojfekhnkhdbieeh", "Dark Reader")  # MV3 on the store
 UBO_NAME = "uBlock Origin"
+UBO_ID = "cjpalhdlnbpafiamejdnhcphjbkeiagm"  # the Web Store id the built-in copy keeps
 # Public ad block score pages: informational only (third-party pages that can
 # change or stop running; d3ward's is archived and shows no score). The gating checks are the
 # local ad page and dynamic filtering.
@@ -483,22 +484,53 @@ def run_phase(job, steps, cleanup=()):
     return job.finish()
 
 
-def phase_store(_args):
+def appearance_shots(job, session, name):
+    """The page in the app's light and dark appearance (`debug.appearance`), back to the system's after."""
+    for mode in ("light", "dark"):
+        job.call("debug.appearance", {"mode": mode})
+        time.sleep(2)  # proof capture only: the page repaints in the new scheme before the shot
+        # The viewport as the person sees it (a clipped 2x capture of the layout viewport came out blank).
+        try:
+            data = session.call("Page.captureScreenshot", {"format": "png"}, timeout=30)["data"]
+            with open(os.path.join(job.out, f"{name}-{mode}.png"), "wb") as png:
+                png.write(base64.b64decode(data))
+        except Exception as error:  # noqa: BLE001 - a shot is evidence, not a check
+            log(f"page shot {name}-{mode} failed: {error!r}")
+    job.call("debug.appearance", {"mode": "system"})
+
+
+def phase_store(args):
     job = Job("store")
-    ext_id, _ = STORE_EXTENSION
+    ext_id = getattr(args, "store_id", None) or STORE_EXTENSION[0]
     state = {}
 
     def install():
         session = job.open_tab(f"https://chromewebstore.google.com/detail/{ext_id}", match=ext_id, timeout=45)
         try:
-            find = ("(() => { const b = [...document.querySelectorAll('button')].find(e => /add to chrome/i.test(e.innerText));"
+            # "Add to cmux" since 2026-11-16 (BrowserWebStoreLabels); "Add to Chrome" on a build before it.
+            find = ("(() => { const b = [...document.querySelectorAll('button')].find(e => /add to (chrome|cmux)/i.test(e.innerText));"
                     " if (!b) return null; b.scrollIntoView({block: 'center'}); const r = b.getBoundingClientRect();"
                     " return [r.x + r.width / 2, r.y + r.height / 2, b.innerText.trim()]; })()")
             button = poll(session, find, 45)
-            job.page_shot(session, "store-detail")
-            job.row("store: Add to Chrome button", bool(button), button or "no button within 45 s")
+            job.row("store: install button", bool(button), button or "no button within 45 s")
             if not button:
                 return "stop"
+            # The store's "Switch to Chrome" banner is a server flag; the shim's headers and
+            # sec-ch-ua brand turn it off (CEFShim/src/webstore_headers.h).
+            # The page's own flag (IJ_values[24], true when the store saw Google Chrome) and its text.
+            banner = session.evaluate(
+                "(() => { const t = [...document.scripts].map(x => x.textContent).find(x => x.includes('IJ_values')) || '';"
+                " const m = t.match(/IJ_values = (\\[[\\s\\S]*?\\]);/); let flag = null;"
+                " try { flag = m ? Function('return ' + m[1])()[24] : null; } catch (e) { flag = String(e); }"
+                " return {flag, text: /Switch to Chrome/i.test(document.body.innerText)}; })()")
+            job.row("store: no Switch to Chrome banner", banner == {"flag": True, "text": False}, banner)
+            job.row("store: the install button says Add to cmux", button[2] == "Add to cmux", button[2])
+            # The Google bar's "Switch to Chrome?" card (an ogs.google.com callout iframe) opens a few
+            # seconds after load when the page does not see the Google Chrome brand.
+            time.sleep(8)
+            card = session.evaluate("document.getElementsByName('callout').length")
+            job.row("store: no Switch to Chrome? card", card == 0, {"callout_frames": card})
+            appearance_shots(job, session, "store-detail")
             time.sleep(1)
             button = poll(session, find, 5) or button
             session.click(button[0], button[1])  # a trusted click: user gesture
@@ -523,7 +555,10 @@ def phase_store(_args):
             errors = poll(session, "(() => { const t = document.body.innerText;"
                                    " const m = t.match(/Could not install package[^\\n]*/); return m ? m[0] : ''; })()", 2)
             job.row("store: no install error on the page", not errors, errors or "none", gating=False)
-            job.page_shot(session, "store-after-install")
+            removed = poll(session, "(() => { const b = [...document.querySelectorAll('button')]"
+                                    ".find(e => /remove from (chrome|cmux)/i.test(e.innerText)); return b ? b.innerText.trim() : ''; })()", 20)
+            job.row("store: after install the button says Remove from cmux", removed == "Remove from cmux", removed or "none in 20 s")
+            appearance_shots(job, session, "store-after-install")
             job.window_shot("store-window")
         finally:
             session.close()
@@ -573,7 +608,7 @@ def phase_ublock(args):
         if not ubo:
             return "stop"
         if not args.ubo:
-            job.row("builtin: the bundled copy keeps the Web Store id", ubo["id"] == "cjpalhdlnbpafiamejdnhcphjbkeiagm", ubo)
+            job.row("builtin: the bundled copy keeps the Web Store id", ubo["id"] == UBO_ID, ubo)
         ctx["id"] = ubo["id"]
         ctx["prefix"] = f"chrome-extension://{ubo['id']}/"
 
@@ -855,7 +890,7 @@ def phase_ublock(args):
 
     def menu_note():
         """The Extensions menu says the full uBlock Origin is built in (the Web Store
-        lists only uBlock Origin Lite)."""
+        lists only uBlock Origin Lite): the note is the uBlock Origin row's tooltip."""
         job.call("debug.extensions.click", {"button": "extensions"})
         state = {}
         deadline = time.monotonic() + 5
@@ -864,10 +899,11 @@ def phase_ublock(args):
             time.sleep(0.25)
         shot = job.window_shot("builtin-extensions-menu", popups=True)
         job.call("debug.extensions.menu", {"dismiss": True})
-        note = [i for i in state.get("items", []) if isinstance(i, dict) and str(i.get("identifier", "")).endswith(".builtInAdBlocker")]
+        rows = [i for i in state.get("items", []) if isinstance(i, dict) and i.get("extension") == UBO_ID]
+        note = [i for i in rows if i.get("tooltip")]
         want = getattr(main, "menu_note", None) or "present"
         job.row(f"menu: the built-in line is {want} (built-in copy {'loaded' if want == 'present' else 'skipped'})",
-                bool(state.get("open")) and bool(note) == (want == "present"), {"note": note, "shot": shot, "open": state.get("open")})
+                bool(state.get("open")) and bool(note) == (want == "present"), {"note": note, "rows": rows, "shot": shot, "open": state.get("open")})
 
     def dashboard():
         """Automation may not open extension pages as tabs; a person's tab is
@@ -912,6 +948,7 @@ def ads_check_jq(job, url):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("phase", choices=["store", "baseline", "ublock", "builtin"])
+    parser.add_argument("--store-id", help="store: the Web Store item to install (default Dark Reader)")
     parser.add_argument("--ubo", help="ublock: unpacked uBlock Origin directory")
     parser.add_argument("--label", help="artifact folder name (default: the phase)")
     parser.add_argument("--load-unpacked", help="builtin: first Load Unpacked this folder as the person's own copy")

@@ -134,6 +134,11 @@ pub struct ConnectionState {
     /// The room a request answered later holds for its reply until the reply is queued.
     held: usize,
     unanswered: usize,
+    /// The room a relayed list page holds for its reply, at most its `max_bytes` (decision
+    /// 299): apart from a chat's, so neither waits for the other.
+    relay_held: usize,
+    /// A relayed page is unanswered: another answers `busy` at once.
+    relay_waiting: bool,
     /// A later reply did not fit: the connection ends with `ReplyBudget`, as a reply that
     /// does not fit on the request's own turn ends it.
     broken: bool,
@@ -161,6 +166,8 @@ impl ConnectionState {
             reserved: 0,
             held: 0,
             unanswered: 0,
+            relay_held: 0,
+            relay_waiting: false,
             broken: false,
             reply_control: None,
             identity: None,
@@ -332,7 +339,11 @@ impl ConnectionState {
         Offer::Taken
     }
     pub(super) fn request_room(&self) -> bool {
-        self.queued_bytes.saturating_add(self.held).saturating_add(MAX_FRAME_BYTES) <= self.budget
+        self.queued_bytes
+            .saturating_add(self.held)
+            .saturating_add(self.relay_held)
+            .saturating_add(MAX_FRAME_BYTES)
+            <= self.budget
     }
     /// A chat's `page` or `blob` waits for its actor: the room this request reserved moves to
     /// the request and stays held until its reply is queued.
@@ -360,6 +371,32 @@ impl ConnectionState {
     pub(super) fn answer_held(&mut self, frame: Frame) -> Result<(), ConnError> {
         self.held = 0;
         self.unanswered = self.unanswered.saturating_sub(1);
+        self.queue_later(frame)
+    }
+    /// A relayed list page takes up to `max_bytes` of the request's room and holds it until its
+    /// reply is queued. False while another relayed page is unanswered: it holds nothing.
+    pub(super) fn hold_relay(&mut self, max_bytes: usize) -> bool {
+        if self.relay_waiting {
+            return false;
+        }
+        let room = max_bytes.min(self.reserved);
+        self.reserved -= room;
+        self.relay_held = room;
+        self.relay_waiting = true;
+        true
+    }
+    /// The source answered the relayed page at once: its room is the request's again.
+    pub(super) fn unhold_relay(&mut self) {
+        self.reserved = self.reserved.saturating_add(std::mem::take(&mut self.relay_held));
+        self.relay_waiting = false;
+    }
+    /// The reply to a page held by [`Self::hold_relay`], as [`Self::answer_held`] queues one.
+    pub(super) fn answer_relay(&mut self, frame: Frame) -> Result<(), ConnError> {
+        self.relay_held = 0;
+        self.relay_waiting = false;
+        self.queue_later(frame)
+    }
+    fn queue_later(&mut self, frame: Frame) -> Result<(), ConnError> {
         let result = if self.queued_bytes.saturating_add(frame.encoded_len()) > self.budget {
             self.broken = true;
             self.metrics.failed_replies.fetch_add(1, Ordering::Relaxed);

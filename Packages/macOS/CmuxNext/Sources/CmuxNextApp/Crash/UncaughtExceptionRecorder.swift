@@ -1,25 +1,8 @@
 import CmuxNextControl
 import CmuxNextCrashReporting
 import Foundation
+import ObjectiveC
 import os
-
-/// An Objective-C exception that ended the previous run: what the
-/// `run.exception` file holds (crash-elimination class b: NSRangeException,
-/// unrecognized selector). Holds the exception's name, reason and call stack
-/// frames only; the reason is AppKit's text and the frames are "image
-/// function + offset" lines (``StackSymbolicator``).
-nonisolated struct RecordedException: Codable, Equatable, Sendable {
-    var name: String
-    var reason: String
-    var frames: [String]
-
-    /// "NSRangeException: <reason>", trimmed to one line for the notice.
-    var summary: String {
-        let line = reason.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
-        let text = line.isEmpty ? name : "\(name): \(line)"
-        return text.count > 200 ? String(text.prefix(199)) + "…" : text
-    }
-}
 
 /// Records an uncaught Objective-C exception into `run.exception` beside the
 /// run marker before the process ends, so the next launch's report and
@@ -28,61 +11,72 @@ nonisolated struct RecordedException: Codable, Equatable, Sendable {
 /// launch after it is read.
 ///
 /// Swift cannot catch an Objective-C exception, so this records and lets the
-/// process end; it never resumes.
+/// process end; it never resumes. It also keeps the main-thread throws inside
+/// Swift jobs (``JobThrowLog``) that name what left an executor record dead (#44060).
 nonisolated enum UncaughtExceptionRecorder {
-    /// Frames kept from the exception's call stack.
-    static let frameLimit = 64
-    private static let file = OSAllocatedUnfairLock<URL?>(initialState: nil)
+    /// The file ``handle(_:)`` writes, the preprocessor this one chains to, the kept job throws and
+    /// where a lost-executor report goes. C callbacks with no context reach it: process-wide.
+    private struct State {
+        var file: URL?
+        var previous: objc_exception_preprocessor?
+        var jobThrows = JobThrowLog()
+        var send: (@Sendable (String, String, String) -> Void)?
+    }
+    // Short critical sections from any thread; the function pointers it holds are never mutated after install.
+    private static let file = OSAllocatedUnfairLock<State>(uncheckedState: State())
 
-    /// Sets the handler that writes into `url`. No other code in the app
-    /// installs an uncaught-exception handler (CEF and Ghostty do not).
+    /// Sets the handler that writes into `url`, and an exception preprocessor (chained to the one it
+    /// replaces) that keeps main-thread throws inside Swift jobs. No other code in the app installs
+    /// an uncaught-exception handler (CEF and Ghostty do not).
     static func install(writingTo url: URL) {
-        file.withLock { $0 = url }
+        file.withLock { state in
+            state.file = url
+            if state.previous == nil { state.previous = objc_setExceptionPreprocessor(jobThrowPreprocessor) }
+        }
         // The crash has begun (CrashReporter.uncaughtException starts the crash deadline).
         NSSetUncaughtExceptionHandler { CrashReporter.uncaughtException($0, then: UncaughtExceptionRecorder.handle) }
     }
 
     /// Stops recording (a clean exit).
     static func uninstall() {
-        file.withLock { $0 = nil }
+        file.withLock { $0.file = nil }
     }
 
     /// The handler body: writes `exception` into the installed file, once.
     static func handle(_ exception: NSException) {
         guard let url = file.withLock({ state -> URL? in
-            defer { state = nil }
-            return state
+            defer { state.file = nil }
+            return state.file
         }) else { return }
-        record(exception, to: url)
+        RecordedException(exception).write(to: url)
     }
 
-    /// Encodes `exception` into `url`. Tests call it with their own folder
-    /// (the installed file is process-wide, and suites run in parallel).
-    static func record(_ exception: NSException, to url: URL) {
-        let record = RecordedException(name: exception.name.rawValue, reason: exception.reason ?? "",
-                                       frames: frames(of: exception))
-        do {
-            // concurrency-allow: the process is ending; one small write of the exception record.
-            try JSONEncoder().encode(record).write(to: url, options: .atomic)
-        } catch {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
-                .fault("uncaught exception record write failed: \(String(describing: error), privacy: .public)")
-        }
+    /// The preprocessor's body: keeps `exception` when the main thread runs a Swift job.
+    static func noteThrow(_ exception: AnyObject) {
+        if let thrown = JobThrow.capture(exception) { file.withLock { $0.jobThrows.note(thrown) } }
     }
 
-    /// Up to ``frameLimit`` frames named through the app symbol map
-    /// (``StackSymbolicator``): `callStackSymbols` has no names for the
-    /// release executable, which ships stripped.
-    static func frames(of exception: NSException) -> [String] {
-        let addresses = exception.callStackReturnAddresses.prefix(frameLimit).map { $0.uintValue }
-        guard !addresses.isEmpty else { return Array(exception.callStackSymbols.prefix(frameLimit)) }
-        return StackSymbolicator().frames(for: addresses).map(\.description)
+    /// The preprocessor this one chains to. Not visible to tests: Swift 6.3.3 on Linux crashes loading
+    /// a C function pointer result from another module.
+    fileprivate static func chained() -> objc_exception_preprocessor? { file.withLock { $0.previous } }
+
+    /// The kept job throws.
+    static var jobThrows: JobThrowLog { file.withLock { $0.jobThrows } }
+
+    /// Sends each lost-executor report through `send` too (a handled crash-report event).
+    static func reportLostExecutors(through send: @escaping @Sendable (String, String, String) -> Void) {
+        file.withLock { $0.send = send }
     }
 
-    /// The record in `url`, or nil when there is none or it does not decode.
-    static func read(_ url: URL) -> RecordedException? {
-        // concurrency-allow: once at launch before the first window, a file of a few KB.
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(RecordedException.self, from: data)
+    /// Names the throw that left the executor record `dead` (``JobThrowLog/reportLost(_:send:)``).
+    static func reportLostExecutor(_ dead: UInt) {
+        let (log, send) = file.withLock { ($0.jobThrows, $0.send) }
+        log.reportLost(dead, send: send)
     }
+}
+
+/// The Objective-C runtime calls it for every exception thrown, before the throw unwinds.
+private nonisolated let jobThrowPreprocessor: objc_exception_preprocessor = { exception in
+    UncaughtExceptionRecorder.noteThrow(exception as AnyObject)
+    return UncaughtExceptionRecorder.chained()?(exception) ?? exception
 }

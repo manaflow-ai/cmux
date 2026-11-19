@@ -18,6 +18,7 @@ mod platform_shares;
 mod preface;
 mod serve;
 mod service;
+pub(crate) mod share_approval;
 mod shares;
 #[cfg(test)]
 mod teammate_tests;

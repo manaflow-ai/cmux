@@ -550,17 +550,137 @@ export type GitHubConnectionState = {
   busy: boolean;
   connect: string;
   disconnect: string;
+  /** Reconfigure's title (absent from an older host, which has no Reconfigure). */
+  reconfigure?: string;
   confirm: string;
   cancel: string;
   refresh: string;
   canConnect: boolean;
-  connections: Array<{ id: string; account: string; status: string; permissions: string[]; canDisconnect: boolean }>;
+  connections: Array<{
+    id: string;
+    account: string;
+    status: string;
+    permissions: string[];
+    canDisconnect: boolean;
+    /** An active connection: Reconfigure opens its installation's page on GitHub (repositories, account access). */
+    canReconfigure?: boolean;
+  }>;
   /** The Sign In button's title while nobody is signed in to cmux; null (or absent from an older host) otherwise. */
   signIn?: string | null;
 };
 
+/** One agent's team key as the host draws it: never the key, only whether one is set and its summary. */
+export type TeamAgentKeyRow = {
+  agent: "claude" | "codex";
+  name: string;
+  set: boolean;
+  status: string;
+  /** Kind, last four characters (admins only) and when it changed; null when unset. */
+  detail: string | null;
+  error: string | null;
+  notice: string | null;
+};
+
+/**
+ * Settings > Accounts > Team agent keys: the active team's shared Claude and Codex keys, which the
+ * team's Cloud machines use in place of members' own. Gestures: `agentKeySave` (`provider` = agent,
+ * `name` = kind, `secret` = the pasted key, sent once and cleared), `agentKeyRemove` (`provider`),
+ * `agentKeyRefresh`. Admins (`canManage`) change keys; members read `note`.
+ */
+export type TeamAgentKeysState = {
+  title: string;
+  detail: string;
+  /** Signed out, personal team, or read-only member copy; null otherwise. */
+  note: string | null;
+  signIn: string | null;
+  busy: boolean;
+  canManage: boolean;
+  error: string | null;
+  refresh: string;
+  labels: {
+    add: string;
+    replace: string;
+    remove: string;
+    confirmRemove: string;
+    cancel: string;
+    save: string;
+    kind: string;
+    secret: string;
+    placeholder: string;
+  };
+  kinds: Array<{ id: "api_key" | "oauth"; title: string }>;
+  agents: TeamAgentKeyRow[];
+};
+
+/** Which way of paying for a model a Settings > Models connection is (cmux-tui/docs/model-connections.md). */
+export type ModelConnectionKind =
+  | "codex-login"
+  | "claude-login"
+  | "subscription"
+  | "chatgpt-plan"
+  | "claude-token"
+  | "api-key";
+
+/** A model provider a connection pays (product names, shown as they are). */
+export type ModelProvider = "openai" | "anthropic" | "openrouter" | "google" | "xai";
+
+/** One of the person's connections (acpmux `_acpmux/connections`), in the order threads use them. */
+export type ModelConnection = {
+  /** The acpmux route id. */
+  id: string;
+  kind: ModelConnectionKind;
+  provider: ModelProvider;
+  families: string[];
+  label: string;
+  /** Shown on this local page only. */
+  email: string | null;
+  plan: string | null;
+  signedIn: boolean;
+  /** The routing switch: a disabled connection serves no thread. */
+  enabled: boolean;
+  defaultFor: string[];
+  /** False: only this Mac's own chats can use it (a Mac login Cloud threads cannot reach). */
+  servesCloud: boolean;
+};
+
+/** Settings > Models (`cmux.settings.models.state`): the person's connections, the organization's,
+ * the members policy, and a ChatGPT sign-in in flight. */
+export type ModelsState = {
+  /** `available`: false when this Mac's daemon does not list connections. */
+  personal: { connections: ModelConnection[]; spread: boolean; available: boolean };
+  organization: {
+    team: { id: string; name: string } | null;
+    canEdit: boolean;
+    keys: { agent: "claude" | "codex"; set: boolean; last4: string | null }[];
+  };
+  /** Null without a team. */
+  members: { ownConnections: boolean; chooseRunout: boolean; canEdit: boolean } | null;
+  /** `attempt`: a Continue with ChatGPT sign-in waiting on the browser; `error`: the last one's
+   * failure code (`access_denied`, `no_chatgpt_account`, ...). */
+  chatgpt: { attempt: string | null; error: string | null };
+};
+
+/** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
+ * the app moves it into the Keychain and passes acpmux or the team only a reference.
+ * `claudeSetupToken` opens a cmux terminal tab running `claude setup-token`. */
+export type ModelsRun =
+  | { action: "order"; ids: string[] }
+  | { action: "spread"; on: boolean }
+  | { action: "enable"; id: string; on: boolean }
+  | { action: "remove"; id: string }
+  | { action: "connectChatGPT"; id?: string }
+  | { action: "cancelChatGPT" }
+  | { action: "connectClaude" }
+  | { action: "claudeSetupToken" }
+  | { action: "addClaudeToken"; token: string; label?: string }
+  | { action: "addKey"; provider: ModelProvider; key: string; label?: string }
+  | { action: "orgKey"; agent: "claude" | "codex"; key: string | null }
+  | { action: "members"; ownConnections?: boolean; chooseRunout?: boolean };
+
 export type AccountsState = {
   github?: GitHubConnectionState;
+  /** Older hosts omit it. */
+  agentKeys?: TeamAgentKeysState | null;
   teams: AccountsTeams | null;
   /** Older hosts omit it. */
   teamList?: AccountsTeamList | null;
@@ -1180,6 +1300,40 @@ export type IntegrationsState = {
   providers: IntegrationRow[];
 };
 
+/** One saved MCP server (Settings > MCP Servers; optchat-chief `settings_row`). Never a secret. */
+export type McpServerRow = {
+  name: string;
+  /** `remote`: a URL; `local`: a command on this Mac. */
+  kind: "remote" | "local";
+  address: string;
+  /** The publisher's domain, or `local`. */
+  publisher: string;
+  /** The address is exactly the one cmux knows for that service. */
+  verified: boolean;
+  state: "connected" | "signInNeeded" | "failed" | "unknown";
+  /** Why the last connect failed, in the server's own words. */
+  problem: string | null;
+  /** Who has it, as the person chose on the connect card. */
+  scope: "chat" | "chief" | "allChiefs" | "agents" | "everywhere";
+  tools: number;
+  /** A sign-in waits for the person; `page` is its sign-in page. */
+  signingIn: boolean;
+  page: string | null;
+  /** The last gesture's refusal ("" when it gave no words of its own). */
+  error: string | null;
+};
+
+/** Settings > MCP Servers (`SettingsMcpServers.state`). */
+export type McpServersState = {
+  loading: boolean;
+  /** `unavailable`: this build has no Chief helper; `failed`: the list did not answer. */
+  problem: "unavailable" | "failed" | null;
+  servers: McpServerRow[];
+};
+
+/** One MCP Servers gesture; sign in and remove run only on a click. */
+export type McpServersRun = { action: "refresh" } | { action: "signin" | "remove"; name: string };
+
 /** One Agent integrations gesture; each runs only on a click. */
 export type IntegrationsRun = { action: "refresh" } | { action: "install" | "repair" | "remove"; id: string };
 
@@ -1324,6 +1478,10 @@ export type SettingsOps = {
   "cmux.settings.agents.state": [Record<string, never>, AgentsState];
   /** Native: one Agents gesture; a daemon refusal rejects with `cmux.agents.<code>` and its text. */
   "cmux.settings.agents.run": [AgentsRun, unknown];
+  /** Native: Settings > Models, the person's and the organization's connections (model-connections.md). */
+  "cmux.settings.models.state": [Record<string, never>, ModelsState];
+  /** Native: one Settings > Models gesture; a refusal rejects with the host's text. */
+  "cmux.settings.models.run": [ModelsRun, unknown];
   /** Native: acpmux's harnesses (Settings > Agents). */
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */
@@ -1373,6 +1531,10 @@ export type SettingsOps = {
   "cmux.settings.integrations.state": [Record<string, never>, IntegrationsState];
   /** Native: one Agent integrations gesture (`agent hook install|uninstall <id>`, or a refresh). */
   "cmux.settings.integrations.run": [IntegrationsRun, unknown];
+  /** Native: the person's saved MCP servers (Settings > MCP Servers). */
+  "cmux.settings.mcp.state": [Record<string, never>, McpServersState];
+  /** Native: one MCP Servers gesture (`optchat-chief integrations --json signin|remove`, or a refresh). */
+  "cmux.settings.mcp.run": [McpServersRun, unknown];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */
@@ -1455,6 +1617,8 @@ export type SettingsStreams = {
   "cmux.settings.harnesses.changed": HarnessesState;
   /** The Devices part changed (the event carries the new state). */
   "cmux.settings.devices.changed": DevicesState;
+  /** Settings > Models changed (a connection, the order, a ChatGPT sign-in finishing). */
+  "cmux.settings.models.changed": ModelsState;
   /** A key request arrived or ended (the page reads `cmux.settings.keys.list` again). */
   "cmux.settings.keys.changed": { revision: number };
   /** The host lists changed (the event carries the new lists). */

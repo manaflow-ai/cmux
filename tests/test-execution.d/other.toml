@@ -14,6 +14,10 @@ path = "tests/test_appcast_minimum_system_version.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_appcast_require_arm64.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_asc_developer_id_app.py"
 lane = "linux-guard"
 
@@ -232,6 +236,10 @@ path = "tests/test_generated_files_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_generated_merge.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_git_fetch_retry.py"
 lane = "linux-guard"
 
@@ -268,6 +276,11 @@ reason = "No new CI tests (Lawrence 2026-10-23). Checks that a shell guard's mes
 [[test]]
 path = "tests/test_guards_new_reds.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_hook_python.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/git-hooks/hook_python.sh, the hooks' per-host Python pick, and scans scripts/ and .github/ for per-host interpreter paths; run python3 tests/test_hook_python.py yourself after changing the hooks' interpreter handling (about a second, no build)."
 
 [[test]]
 path = "tests/test_hosted_queue_wait.py"
@@ -490,6 +503,10 @@ path = "tests/test_nushell_shim_path_refront.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_one_permission_identity.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_outbound_hosts.py"
 lane = "linux-guard"
 
@@ -503,6 +520,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pairing_scheme_lint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_payload_advisories.py"
 lane = "linux-guard"
 
 [[test]]
@@ -734,6 +755,11 @@ lane = "manual"
 reason = "Run by the lane that changes side-instance.sh (no new CI tests): python3 tests/test_side_instance_remake_clears_old_identity.py; needs only bash and python3."
 
 [[test]]
+path = "tests/test_side_instance_stale_default.py"
+lane = "manual"
+reason = "Run by the lane that changes side-instance.sh (no new CI tests): python3 tests/test_side_instance_stale_default.py; needs only bash and python3."
+
+[[test]]
 path = "tests/test_sidebar_row_oracle.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Synthetic films for scripts/cmux-next/sidebar_row_oracle.py, the independent judge of sidebar row insert and remove (cmux-ad m23); run python3 -I tests/test_sidebar_row_oracle.py yourself after changing the oracle (under 2 s, no app, no build)."
@@ -854,6 +880,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ui_review_advisory.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_unittest_shard.py"
+lane = "manual"
+reason = "Run by the lane that changes tests/unittest_shard.py (no new CI tests): python3 -I tests/test_unittest_shard.py; needs only python3."
 
 [[test]]
 path = "tests/test_update_release_tag.py"
