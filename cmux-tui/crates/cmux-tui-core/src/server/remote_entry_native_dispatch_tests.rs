@@ -578,7 +578,12 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "put-blob",
     "put-frontend-projection",
     "put-session",
+    "quick-terminal",
     "remote-host-app",
+    // This Mac's Computer Use settings and saved approvals: the verified local app only
+    // (origin.forbidden otherwise); another machine reaches Computer Use through the relay.
+    "computer-use-config",
+    "computer-use-approvals",
     "remote-host-call",
     "remote-host-config",
     "remote-host-status",

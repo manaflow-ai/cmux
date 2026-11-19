@@ -25,7 +25,8 @@ cmux-app-ffi-<commit>). For a commit SHA this part:
   swap     quits the app keeping its sessions (`cmux app quit --keep-sessions` from the app's own bin), renames
            the library into place, opens the app again (through launchd's GUI domain where `open` fails: in a
            terminal of the app itself, or over ssh) and waits until its control socket answers from a new pid
-           that stays up STAY_SECONDS. The daemon and its terminals never stop.
+           that stays up STAY_SECONDS. The daemon and its terminals never stop. An app that is not running is
+           not opened: it loads the library at its next launch.
 
 This is a warm swap, not a live one: the C ABI holds state, so the new library loads with the app. A failed check
 after the swap puts the old library (and the old signature) back and opens the app again.
@@ -66,6 +67,16 @@ def carries_dylib(app: Path) -> bool:
 def executable(app: Path) -> Path:
     with open(app / "Contents/Info.plist", "rb") as handle:
         return app / "Contents/MacOS" / plistlib.load(handle)["CFBundleExecutable"]
+
+
+# The app's code, which links the library: CmuxNextApp.framework behind a stub executable (CMUX-629),
+# or the executable itself in a static (live code) build.
+CODE_FRAMEWORK_BINARY = "Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp"
+
+
+def code_image(app: Path) -> Path:
+    framework = app / CODE_FRAMEWORK_BINARY
+    return framework if framework.is_file() else executable(app)
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -231,8 +242,9 @@ def archs(path: Path) -> list[str]:
 
 
 def imports(app: Path) -> set[str]:
-    """The symbols the app's executable binds to libcmux_app_ffi (nm -m: `(from libcmux_app_ffi)`)."""
-    out = _run("nm", "-m", "-u", "-arch", host_arch(), str(executable(app))).stdout
+    """The symbols the app's code binds to libcmux_app_ffi (nm -m: `(from libcmux_app_ffi)`). The stub
+    executable binds none, so it is the code image's, or every library would pass this check."""
+    out = _run("nm", "-m", "-u", "-arch", host_arch(), str(code_image(app))).stdout
     return {line.split()[2] for line in out.splitlines() if line.rstrip().endswith("(from libcmux_app_ffi)")}
 
 
@@ -450,7 +462,7 @@ def swap(app: Path, new: Path, state: Path, how: str, identity: str | None, phas
         if not copy.is_file():
             copy.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(dest, copy)
-        undo = {"copy": str(copy), "sha256": prior, "how": how}
+        undo = {"copy": str(copy), "sha256": prior, "how": how, "was_running": app_pid(app) is not None}
         if how == "reseal":
             undo["signature"] = keep_signature(app, state)
     with tempfile.TemporaryDirectory(prefix="hot-apply-ffi.") as work:
@@ -472,8 +484,13 @@ def swap(app: Path, new: Path, state: Path, how: str, identity: str | None, phas
                     reseal(app, Path(work))
             if sha256_file(dest) != to:
                 raise RuntimeError(f"{DYLIB} does not hash to the library put in ({to})")
-            with phases("launch"):
-                step["launch"] = launch(app, step["quit_pid"])
+            if step["quit_pid"] is None:
+                # An app that was not running stays stopped and loads the library when it opens (hot-verify.py puts
+                # a lagging NIGHTLY's copy on its branch's pinned release before the copy's first launch).
+                step["launch"] = None
+            else:
+                with phases("launch"):
+                    step["launch"] = launch(app, step["quit_pid"])
         except Exception as error:
             error.undo = undo  # type: ignore[attr-defined]
             raise
@@ -493,4 +510,6 @@ def put_back(app: Path, undo: dict) -> dict:
         restore_signature(app, undo["signature"])
     if sha256_file(dest) != undo["sha256"]:
         raise RuntimeError(f"{DYLIB} does not hash to the library put back ({undo['sha256']})")
+    if old is None and not undo.get("was_running", True):
+        return {"ok": True, "running_sha256": undo["sha256"], "launch": None}  # it was not running: it stays stopped
     return {"ok": True, "running_sha256": undo["sha256"], "launch": launch(app, old)}

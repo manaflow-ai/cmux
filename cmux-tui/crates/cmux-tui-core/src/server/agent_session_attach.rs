@@ -45,11 +45,11 @@ pub use agent_session_folders::AGENT_SESSION_FOLDERS_CAPABILITY;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
     AGENT_SESSION_PREWARM_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
-    AGENT_SESSION_START_MODE_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
-    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
-    AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
-    AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
+    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY,
+    AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 pub use agent_session_trust::{
     AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY,
@@ -422,6 +422,14 @@ impl Attachment {
         }
     }
 
+    /// Ends the attachment after a push to its stream failed. The client always hears it: the
+    /// stream's own `overflow` notice when the queue already sent it, else `send_failed`. A
+    /// silent end left a client holding a dial that answered requests and a chat that never
+    /// moved, with nothing that told it to attach again (cloud-carrier-chaos-staging, drop 60 s).
+    pub(super) fn end_unsent(&self) {
+        self.end(unsent_reason(&self.outbound));
+    }
+
     /// A newer live record arriving before an older one leaves the client with
     /// no way to recover the gap from the stream. End the attachment so its
     /// normal after-seq replay fetches the missing records. A record at or
@@ -448,6 +456,12 @@ impl Attachment {
 /// with `after_seq` = the newest seq it holds.
 fn closed_event(surface: SurfaceId, reason: &str) -> Value {
     json!({"event": "agent-session-closed", "surface": surface, "reason": reason})
+}
+
+/// The close reason the client still needs after a failed push to `stream`: none when the
+/// stream's own overflow notice is already queued (`terminal_enqueued`), else `send_failed`.
+fn unsent_reason(stream: &OutboundStream) -> Option<&'static str> {
+    (!stream.terminal_enqueued.load(Ordering::Acquire)).then_some("send_failed")
 }
 
 // MARK: Requests
@@ -2192,5 +2206,25 @@ impl Mux {
     pub(crate) fn serves_owner_cloud_start(&self) -> bool {
         self.serves_agent_session_start()
             && self.control_clients.agent_sessions.starts.owner_cloud(true)
+    }
+}
+
+#[cfg(test)]
+mod unsent_tests {
+    use super::*;
+    use crate::server::RenderService;
+
+    /// A failed push whose stream never queued its own overflow notice still closes with a
+    /// reason, so the client attaches again after the seq it holds; one that did is not told twice.
+    #[test]
+    fn a_failed_push_always_leaves_the_client_a_close_reason() {
+        let service = RenderService::new();
+        let overflow = closed_event(7, "overflow");
+        let stream = OutboundStream::new(1, service.serialize_control(&overflow).unwrap());
+        assert_eq!(unsent_reason(&stream), Some("send_failed"));
+        stream.close();
+        assert_eq!(unsent_reason(&stream), Some("send_failed"), "closed with no notice queued");
+        stream.terminal_enqueued.store(true, Ordering::Release);
+        assert_eq!(unsent_reason(&stream), None, "the overflow notice already told it");
     }
 }
