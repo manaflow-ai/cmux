@@ -355,7 +355,8 @@ impl Hub {
             // Whether this update changed which background subagents run: a root learned late
             // drops its phantom with no subagent event of its own (`SubagentTree::set_root`).
             let mut background_changed = false;
-            // Whether it changed how many subagents run (`subagents_running`, the hover card's count).
+            // Whether it changed how many subagents run (`subagents_running`, the hover card's count)
+            // or the latest ones the sidebar nests under the chat (`recentSubagents`).
             let mut running_changed = false;
             // The plan a harness's own todo call makes where its adapter sends none
             // (`acp_todo_plan.rs`): logged after the call's result.
@@ -387,11 +388,15 @@ impl Hub {
                 tree.set_own(own.as_deref());
                 let before = tree.background_running();
                 let running_before = tree.running_count();
+                let recent_before = tree.recent_revision();
                 tree.set_roots(own.iter().chain(&retired).map(String::as_str));
                 tree.set_clock(crate::store::now_ms());
                 subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
                 background_changed = tree.background_running() != before;
-                running_changed = tree.running_count() != running_before;
+                // A subagent that ended and one that started in its place keep the count but
+                // change the list the sidebar nests under the chat (`recentSubagents`).
+                running_changed = tree.running_count() != running_before
+                    || tree.recent_revision() != recent_before;
                 drop(tree);
                 // The chat's own words in a turn the person did not start (`background_turn.rs`).
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {

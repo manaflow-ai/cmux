@@ -973,13 +973,17 @@ impl Hub {
         // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
         // being able to see the # of associated subagents and whatnot"): its running subagents,
         // their first names, and its running background commands (`running_work`).
-        let work = running_work(
-            session,
-            summary.get("turn").is_some_and(Value::is_object),
-            self.running_processes_read(session),
-        );
+        let turn_runs = summary.get("turn").is_some_and(Value::is_object);
+        let work = running_work(session, turn_runs, self.running_processes_read(session));
         summary.set("subagentsRunning", json!(work.subagents));
         summary.set("subagentNames", json!(work.names));
+        // Its latest subagents, live and finished, and how many it started: the sidebar nests them
+        // under the chat's row (`subagents_recent.rs`; Leo 2026-11-19: "the nested sessions").
+        {
+            let tree = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+            summary.set("recentSubagents", json!(tree.recent(turn_runs)));
+            summary.set("subagentsSeen", json!(tree.seen()));
+        }
         summary.set("commandsRunning", json!(work.commands));
         // The build its live agent host runs, and whether it differs from this daemon's: a
         // host that has not hibernated since an update (`views/host_build.rs`).
