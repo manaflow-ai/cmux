@@ -960,3 +960,34 @@ fn a_running_unit_is_the_joins_only_when_cmux_rd_records_that_join() {
     assert!(!rd_signed_in_for(&dir, &mark));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// An app channel that subscribes and then never reads: the host relays 100k pushes of 1 KB
+/// (about 100 MB). The channel holds at most `SUBSCRIBER_BYTES` of them, then is dropped, so the
+/// app reconnects and subscribes again rather than the daemon keeping every push for it.
+#[test]
+fn a_subscriber_that_stops_reading_holds_bounded_bytes_and_is_dropped() {
+    let home = tempfile::tempdir().unwrap();
+    let shared = shared(home.path());
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    shared.subscribe(tx);
+    let text = "x".repeat(1024);
+    for _ in 0..100_000 {
+        shared.relay(&text);
+    }
+    let mut held = 0usize;
+    let mut ended = false;
+    loop {
+        match rx.try_recv() {
+            Ok(line) => held += line.len(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                ended = true;
+                break;
+            }
+        }
+    }
+    eprintln!("bytes held for a stalled subscriber: {held}");
+    assert!(held <= super::state::SUBSCRIBER_BYTES, "a stalled subscriber held {held} bytes");
+    assert!(ended, "a stalled subscriber's channel stays open");
+    assert!(!shared.app_attached());
+}

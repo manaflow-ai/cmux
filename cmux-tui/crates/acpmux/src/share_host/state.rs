@@ -13,6 +13,10 @@ use tokio::sync::mpsc::UnboundedSender;
 /// The status JSON's schema.
 pub(crate) const SCHEMA: &str = "acpmux.share-host.status/1";
 
+/// The most push bytes an app channel holds unread. Pushes are a few KB; a channel past this
+/// has stopped reading and is dropped, so a stalled app costs this much and no more.
+pub(crate) const SUBSCRIBER_BYTES: usize = 4 << 20;
+
 /// The link's state, as `share-host status` names it.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Link {
