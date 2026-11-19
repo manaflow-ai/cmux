@@ -132,6 +132,24 @@ class RetryPolicyTests(unittest.TestCase):
             with self.subTest(jobs=jobs):
                 self.assertEqual(retry.decide(run(conclusion="cancelled"), jobs, {}).action, "skip")
 
+    def test_a_superseded_cancelled_run_is_not_retried(self):
+        # 2026-11-19: the lane label handed runners out oldest first to about 240 queued feat-cmux-next
+        # push runs and channels/mac-live.json was 22 h behind the tip. A newer push's mac-live.json covers
+        # an older commit (live_from), and supersede-feat-runs cancels such runs on purpose: none is rerun.
+        jobs = tree_jobs(job(2, "cancelled"), job(3, "skipped"))
+        cancelled = run(conclusion="cancelled", id=100, head_sha="a" * 40)
+        newer = {"id": 200, "head_sha": "b" * 40}
+        decision = retry.decide(cancelled, jobs, {}, newer)
+        self.assertEqual(decision.action, "skip")
+        self.assertIn("superseded", decision.reason)
+        # The newest run itself, a same-commit newest run, or an unreadable newest run: retried as before.
+        for newest in ({"id": 100, "head_sha": "a" * 40}, {"id": 200, "head_sha": "a" * 40}, None):
+            with self.subTest(newest=newest):
+                self.assertEqual(retry.decide(cancelled, jobs, {}, newest).action, "rerun-failed-jobs")
+        # A failed (not cancelled) run keeps its retry whatever is newer.
+        failed = retry.decide(run(id=100, head_sha="a" * 40), tree_jobs(job(2, "failure")), {}, newer)
+        self.assertEqual(failed.action, "rerun-failed-jobs")
+
     def test_a_cancelled_run_is_retried_only_on_feat_pushes(self):
         for overrides in ({"head_branch": "cmux-tui-pin-0123456789ab"}, {"head_branch": "op-next-theme/accent"},
                           {"event": "workflow_dispatch"}):

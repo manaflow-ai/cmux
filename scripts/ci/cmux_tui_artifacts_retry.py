@@ -64,14 +64,26 @@ def queue_orphaned(jobs: list[dict]) -> list[dict]:
     return cancelled
 
 
-def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]]) -> Decision:
-    """Pure policy: what to do with one workflow run."""
+def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]], newest: dict | None = None) -> Decision:
+    """Pure policy: what to do with one workflow run.
+
+    NEWEST is the newest feat-cmux-next push run of the same workflow (None when it could not be read).
+    """
     branch = run.get("head_branch") or ""
     # A cancelled feat-cmux-next tree run whose cancelled jobs never got a runner lost its queue, not its
     # build: "Re-run failed jobs" reruns them on attempt 2, which takes the Blacksmith route (the workflow's
     # documented way out of a stuck owned queue). Every feat-cmux-next tip needs its tree and mac-live.json.
     if (run.get("status") == "completed" and run.get("conclusion") == "cancelled" and run.get("event") == "push"
             and branch == "feat-cmux-next" and any(job.get("name") == TREE_PREFLIGHT_JOB for job in jobs)):
+        # Latest wins (Leo: "if i wait for the nightly then i might as well just update to the thing"):
+        # a newer feat-cmux-next push's mac-live.json lists this commit in live_from, and the artifacts
+        # workflow's supersede-feat-runs cancels exactly such older never-started runs. Rerunning them
+        # would queue the backlog oldest first again, so only a run at the newest pushed commit is retried.
+        # An unreadable newest run keeps the old rule (retry): a missed rerun strands the tip.
+        if newest and newest.get("head_sha") and newest.get("head_sha") != run.get("head_sha") \
+                and int(newest.get("id") or 0) > int(run.get("id") or 0):
+            return Decision("skip", f"superseded: run {newest.get('id')} at {str(newest['head_sha'])[:12]} "
+                                    "is a newer feat-cmux-next push; its publication covers this commit")
         orphaned = queue_orphaned(jobs)
         if not orphaned:
             return Decision("skip", "run is completed/cancelled and a cancelled job had a runner: someone stopped it")
@@ -150,7 +162,15 @@ def main(argv: list[str]) -> int:
         for job in jobs
         if job.get("conclusion") == "failure"
     }
-    decision = decide(run, jobs, annotations)
+    newest = None
+    if run.get("conclusion") == "cancelled" and run.get("head_branch") == "feat-cmux-next":
+        try:
+            listed = _api("GET", f"{base}/actions/workflows/{run['workflow_id']}/runs?branch=feat-cmux-next"
+                                 "&event=push&per_page=1", token)
+            newest = ((listed or {}).get("workflow_runs") or [None])[0]
+        except (OSError, ValueError, KeyError) as error:
+            print(f"::warning::could not read the newest feat-cmux-next push run ({error}); deciding without it")
+    decision = decide(run, jobs, annotations, newest)
     print(f"run {args.run_id} attempt {run.get('run_attempt')}: {decision.action} ({decision.reason})")
     if decision.action == "refuse":
         print(f"::error title=cmux-tui publish not retried::run {args.run_id}: {decision.reason}")
