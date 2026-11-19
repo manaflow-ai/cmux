@@ -66,7 +66,7 @@ impl Brain {
             return;
         }
         self.tool_stopped = true;
-        self.interrupt.request();
+        self.interrupt.request_own();
         (self.log)(&format!("the Chief called {tool}: ending the running turn"));
     }
 

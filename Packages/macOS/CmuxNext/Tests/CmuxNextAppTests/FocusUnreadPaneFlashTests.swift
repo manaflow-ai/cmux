@@ -100,7 +100,8 @@ struct FocusUnreadPaneFlashTests {
     /// one looked at, so focusing it reads its notification and its ring goes.
     @Test func aPageWindowHoldingTheKeyStillReadsTheFocusedPane() async throws {
         let fixture = try await Self.open()
-        let page = NSWindow(contentRect: CGRect(x: 300, y: 300, width: 200, height: 200), styleMask: [.borderless], backing: .buffered, defer: true)
+        // A Chromium page window by class (`CefNSWindow`): only one holds its cmux window's keyboard (5a229741).
+        let page = try WindowHoldsKeyboardTests.pageWindowClass().init(contentRect: CGRect(x: 300, y: 300, width: 200, height: 200), styleMask: [.borderless], backing: .buffered, defer: true)
         page.isReleasedWhenClosed = false
         defer {
             fixture.services.keyWindowSource = { nil }

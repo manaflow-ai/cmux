@@ -2000,6 +2000,10 @@ SEED_DUE_SCRIPT = ROOT / "scripts/cmux-next/fast-tier-seed-due.py"
 FAST_TIER_SCRIPT = ROOT / "scripts/cmux-next/fast-tier.py"
 FAST_CACHE_DIRS = {"swift": "Packages/macOS/CmuxNext/.build", "home": "Packages/Shared/CmuxHomeRender/.build"}
 FAST_CACHE_MANIFEST = "Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json"
+# Owned minis that hold the seed root build there (owned_spm_scratch.py seed_lease), so a restore path names the
+# root, defaulting to the checkout.
+FAST_CACHE_PATHS = {name: "${{ format('{0}/%s', steps.spm-root.outputs.root || github.workspace) }}" % path
+                    for name, path in FAST_CACHE_DIRS.items()}
 NEXT_BUCKET = "cmux-ci-cache-next"
 NEXT_PUBLIC_URL = "https://ci-cache-next.cmux.com"
 NEXT_WRITER = "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}"
@@ -2301,7 +2305,7 @@ class FastTierStartsWarm(unittest.TestCase):
         job = self.fast_tier()
         steps = job["steps"]
         restores = [s for s in steps if is_cache_restore(s)]
-        self.assertEqual(sorted(cache["with"]["path"] for cache in restores), sorted(FAST_CACHE_DIRS.values()))
+        self.assertEqual(sorted(cache["with"]["path"] for cache in restores), sorted(FAST_CACHE_PATHS.values()))
         key_step = steps[index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))]
         for restore in restores:
             with self.subTest(restore=restore["name"]):
@@ -2320,13 +2324,13 @@ class FastTierStartsWarm(unittest.TestCase):
         steps = self.fast_tier()["steps"]
         key_id = steps[index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))]["id"]
         by_path = {s["with"]["path"]: s for s in steps if is_cache_restore(s)}
-        swift = by_path[FAST_CACHE_DIRS["swift"]]
+        swift = by_path[FAST_CACHE_PATHS["swift"]]
         self.assertEqual(swift["with"]["key"], "${{ steps.%s.outputs.swift-key }}" % key_id)
         self.assertEqual(swift["with"]["restore-keys"], "${{ steps.%s.outputs.swift-prefix }}" % key_id)
         seed = steps[index_of(steps, lambda s: "cache-matched-key" in json.dumps(s.get("env", {})) and "commit=" in s.get("run", ""))]
         for name in ("home",):
             with self.subTest(name=name):
-                step = by_path[FAST_CACHE_DIRS[name]]
+                step = by_path[FAST_CACHE_PATHS[name]]
                 self.assertEqual(step["with"]["key"], "${{ steps.%s.outputs.%s-prefix }}${{ steps.%s.outputs.commit }}" % (key_id, name, seed["id"]))
                 self.assertFalse(step["with"].get("restore-keys"), "an exact key, never a prefix")
                 self.assertIn("steps.%s.outputs.commit != ''" % seed["id"], step.get("if", ""))
@@ -2867,10 +2871,12 @@ class PortablePlacementBootstrapAdmission(unittest.TestCase):
         jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())["jobs"]
         bootstrap = one_runs_on(jobs["portable-placement"])
         for fleet in ("", "cmux-fleet-linux-x64", "stale-fleet-label"):
-            for attempt, overflow, expected in ((1, "", "ubuntu-24.04"),
-                                                (1, "1", "ubuntu-24.04"),
-                                                (2, "", "blacksmith-8vcpu-ubuntu-2404"),
-                                                (2, "1", "blacksmith-16vcpu-ubuntu-2404")):
+            # Blacksmith on every attempt, never GitHub-hosted Ubuntu (it left the job queued for hours, cmux#45735).
+            # A few seconds of work: the 2 vCPU size like the other placement bootstraps, overflow or not.
+            for attempt, overflow, expected in ((1, "", "blacksmith-2vcpu-ubuntu-2404"),
+                                                (1, "1", "blacksmith-2vcpu-ubuntu-2404"),
+                                                (2, "", "blacksmith-2vcpu-ubuntu-2404"),
+                                                (2, "1", "blacksmith-2vcpu-ubuntu-2404")):
                 with self.subTest(fleet=fleet, attempt=attempt, overflow=overflow):
                     context = {"github.repository_owner": "manaflow-ai",
                                "github.event_name": "pull_request",

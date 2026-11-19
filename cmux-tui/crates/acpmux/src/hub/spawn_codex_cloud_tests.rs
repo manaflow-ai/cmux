@@ -91,6 +91,6 @@ async fn a_codex_with_no_sign_in_gets_the_team_key_in_its_launch_env() {
     std::fs::write(home.join(".codex/auth.json"), r#"{"tokens":{"access_token":"t"}}"#).unwrap();
     let got = hub.spawn_profile_for(&meta, &profile(&[]), &none).await.unwrap();
     assert_eq!(got.env.get("OPENAI_API_KEY"), None);
-    assert_eq!(got.argv, ["codex", "-c", "model_provider=\"openai\"", "app-server"]);
+    assert_eq!(got.argv, ["codex", "app-server", "-c", "model_provider=\"openai\""]);
     let _ = std::fs::remove_dir_all(&root);
 }
