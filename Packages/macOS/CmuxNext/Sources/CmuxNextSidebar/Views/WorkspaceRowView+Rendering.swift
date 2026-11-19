@@ -148,11 +148,7 @@ extension WorkspaceRowView {
         // `statusPlacement` `leading`: the status mark takes the icon's slot while it shows (read here, since a
         // static-look change shows or hides the status glyph with no configure). Set on every pass: the icon view's
         // configure skips an unchanged icon, so it would not show the icon again when the placement goes back to trailing.
-        // An agent mark standing in for the status shows again before the pick (configure shows it only with an image),
-        // then gives way when the row badge leads: the trailing layout skips it, so it would stay where it last drew.
-        if agentMarkVariant == .replacesStatus { agentMark.isHidden = agentMark.image == nil }
         let leadingMark = leadingStatusMark
-        if statusLeads, agentMarkVariant == .replacesStatus, leadingMark !== agentMark { agentMark.isHidden = true }
         icon.isHidden = !SidebarIconView.showsIcon(iconKind) || leadingMark != nil
         if let leadingMark { layoutLeadingStatus(leadingMark, leading: leading, slot: columns.iconBox, centerY: cy) }
         layoutTreeLine(leading: SidebarStyle.columns(rowWidth: b.width).lead)
