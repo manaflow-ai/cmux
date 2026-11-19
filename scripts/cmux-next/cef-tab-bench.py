@@ -66,7 +66,7 @@ parser.add_argument("--arms", default="warm,quick,cold",
 parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
 parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
                     help="a Debug Settings value for this run (repeatable), e.g. browserPage.sparePage=true: the arms of an A/B")
-parser.add_argument("--type", default="exa",
+parser.add_argument("--type", default="qwz",
                     help="characters typed at once after each blank Cmd-Shift-L, through the real key path: focus_ms (the omnibar edits, as "
                          "first responder), typed_ms (it shows them) and typed_text (a key lost or typed twice); empty: none")
 parser.add_argument("--out", default="/tmp")
@@ -192,6 +192,10 @@ def create(params, case, session, rnd, arm=None):
     """One timed `bench_create` (the key goes through the real key path in the app), annotated and printed."""
     if opts.type and not params.get("url") and not params.get("type"):
         params = {**params, "type": opts.type}
+    if params.get("type"):
+        # A person types into an active app with a key window: an inactive app (the fleet launch) drops the replayed keys
+        # of its first cold Chromium tab (round 0, a1227 probes A/B), which no person can hit.
+        rpc("debug.window.focus", {"window": window_key(), "activate": True})
     result = rpc("debug.new_tab", params, timeout=30) or {}
     result.update(result.get("omnibar") or {})  # focus_ms, typed_ms, typed_text, focused_at_end
     result.update({"case": case, "session": session, "round": rnd})
