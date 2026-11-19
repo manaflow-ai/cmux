@@ -134,7 +134,11 @@ export async function loadRun(
     toolEvery: Math.max(0, Math.floor(options.tool_every ?? 60)),
   });
   let streamDone = false;
-  void streaming.then(() => (streamDone = true));
+  void streaming.then(() => {
+    streamDone = true;
+    // A trace's mark for where the stream ended (test/chat-render-pipeline-budgets.test.ts splits stream from settle).
+    performance.mark("acpmux-load-stream-end");
+  });
   const timestamps: number[] = [];
   const work: number[] = [];
   const late: number[] = [];
