@@ -48,18 +48,16 @@ pub(super) fn handle(
         let meta = s.meta();
         (meta.last_seq, meta.created_at)
     };
-    // The prompt index (`Hub::prompt_index`): the newest prompts before `beforeSeq`, cut short,
-    // within `limit` and `maxBytes`, so the rail draws a long chat's turns before its history
-    // pages in; `hasMore` while older ones are left. A daemon without it reads `promptIndex` as
-    // nothing and answers the bounded page the pane also asks for.
+    // The prompt index (`Hub::prompt_index`): every prompt before `beforeSeq`, cut short, in one
+    // reply, so the rail draws a long chat's every turn before its history pages in. A daemon
+    // without it reads `promptIndex` as nothing and answers the bounded page the pane also asks for.
     if params.get("promptIndex").and_then(Value::as_bool) == Some(true) {
-        let page = hub
-            .prompt_index(&s.id, before, limit, max_bytes)
-            .map_err(|e| RpcError::internal(e.to_string()))?;
-        let through = newest_seq(&page.events);
+        let records =
+            hub.prompt_index(&s.id, before).map_err(|e| RpcError::internal(e.to_string()))?;
+        let through = newest_seq(&records);
         return Ok(json!({
-            "events": values(&s.id, page.events),
-            "hasMore": page.has_more,
+            "events": values(&s.id, records),
+            "hasMore": false,
             "lastSeq": last,
             "pageThrough": through,
             "createdAt": created,

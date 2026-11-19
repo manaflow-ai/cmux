@@ -693,7 +693,7 @@ fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
     for rec in &log {
         hub.store.append("c", rec).unwrap();
     }
-    let all = hub.prompt_index("c", None, usize::MAX, None).unwrap().events;
+    let all = hub.prompt_index("c", None).unwrap();
     assert_eq!(all.len(), 32);
     assert!(all.windows(2).all(|pair| pair[0].seq < pair[1].seq), "oldest first");
     assert_eq!(all[0].msg, json!({"text": "prompt 0"}));
@@ -703,7 +703,7 @@ fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
     assert!(cut.get("images").is_none() && cut.get("pasted").is_none());
     assert_eq!(all[31].msg["steer"], true);
     // `before` bounds it, as the pane asks for what precedes its open page.
-    let older = hub.prompt_index("c", Some(all[10].seq), usize::MAX, None).unwrap().events;
+    let older = hub.prompt_index("c", Some(all[10].seq)).unwrap();
     assert_eq!(older.len(), 10);
     assert_eq!(older.last().unwrap().seq, all[9].seq);
 }
@@ -725,7 +725,7 @@ fn the_prompt_index_reads_the_logs_copies_of_its_prompts() {
     }
     store.flush().unwrap();
     let hub = hub(Box::new(store));
-    let all = hub.prompt_index("c", None, usize::MAX, None).unwrap().events;
+    let all = hub.prompt_index("c", None).unwrap();
     assert_eq!(all.len(), 40);
     // A daemon's log load makes the copies (`hub/log_load.rs`); this scan stands for it.
     hub.store.scan_kinds("c", &["user_message"], &mut |_| true).unwrap();
@@ -743,14 +743,14 @@ fn the_prompt_index_reads_the_logs_copies_of_its_prompts() {
             .write_all(blank.as_bytes())
             .unwrap();
     }
-    let read = hub.prompt_index("c", None, usize::MAX, None).unwrap().events;
+    let read = hub.prompt_index("c", None).unwrap();
     assert_eq!(
         read.iter().map(|r| r.seq).collect::<Vec<_>>(),
         all.iter().map(|r| r.seq).collect::<Vec<_>>()
     );
     assert_eq!(read[0].msg, json!({"text": "prompt 0"}));
     // `before` still bounds it.
-    let older = hub.prompt_index("c", Some(all[10].seq), usize::MAX, None).unwrap().events;
+    let older = hub.prompt_index("c", Some(all[10].seq)).unwrap();
     assert_eq!(older.len(), 10);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -792,7 +792,7 @@ fn prompt_index_perf() {
         paged.push(started.elapsed().as_secs_f64() * 1000.0);
         pages_read = pages;
         let started = std::time::Instant::now();
-        assert_eq!(hub.prompt_index("c", None, usize::MAX, None).unwrap().events.len(), 1000);
+        assert_eq!(hub.prompt_index("c", None).unwrap().len(), 1000);
         indexed.push(started.elapsed().as_secs_f64() * 1000.0);
     }
     let best = |runs: &[f64]| runs.iter().copied().fold(f64::INFINITY, f64::min);
