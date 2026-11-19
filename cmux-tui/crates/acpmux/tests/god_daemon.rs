@@ -81,7 +81,7 @@ use acpmux::server::peer_auth::PeerAuth;
 use acpmux::server::{WsAuth, bind_ws, serve_ws_with};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
@@ -548,6 +548,7 @@ async fn peers(shape: &Shape, scratch: &Path, gate: Gate) -> (Value, Vec<Proxy>,
 struct Daemon {
     child: Child,
     socket: PathBuf,
+    log: PathBuf,
     spawned: Instant,
     socket_connect_us: u64,
 }
@@ -555,6 +556,8 @@ struct Daemon {
 impl Daemon {
     fn start(scratch: &Path, home: &Path, dhat: Option<&Path>) -> Self {
         let socket = scratch.join("s.sock");
+        let log = scratch.join("daemon.log");
+        let stderr = std::fs::OpenOptions::new().create(true).append(true).open(&log).unwrap();
         let binary = std::env::var_os("ACPMUX_GOD_DAEMON_BIN")
             .map(PathBuf::from)
             .unwrap_or_else(|| daemon_env::bin().to_path_buf());
@@ -566,7 +569,7 @@ impl Daemon {
             .env("ACPMUX_SOCKET", &socket)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::inherit());
+            .stderr(Stdio::from(stderr));
         if let Some(out) = dhat {
             command.env(acpmux::heap_profile::OUT_ENV, out);
         }
@@ -586,12 +589,13 @@ impl Daemon {
             if spawned.elapsed() >= STEP || child.try_wait().unwrap().is_some() {
                 let _ = child.kill();
                 let _ = child.wait();
+                print_daemon_log(&log);
                 panic!("the daemon did not bind its socket");
             }
             std::thread::sleep(Duration::from_millis(1));
         }
         let socket_connect_us = micros(spawned);
-        Self { child, socket, spawned, socket_connect_us }
+        Self { child, socket, log, spawned, socket_connect_us }
     }
 
     /// The daemon's CPU time so far, user and system, in seconds (`/proc/PID/stat`).
@@ -671,7 +675,25 @@ impl Drop for Daemon {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        if std::thread::panicking() {
+            print_daemon_log(&self.log);
+        }
     }
+}
+
+/// Keep failure evidence bounded even if a daemon repeatedly logs the same error.
+fn print_daemon_log(path: &Path) {
+    let Ok(mut file) = std::fs::File::open(path) else { return };
+    let len = file.metadata().map_or(0, |m| m.len());
+    let _ = file.seek(SeekFrom::Start(len.saturating_sub(16 * 1024)));
+    let mut tail = Vec::new();
+    let _ = file.take(16 * 1024).read_to_end(&mut tail);
+    eprintln!(
+        "daemon log {} (last {} bytes):\n{}",
+        path.display(),
+        tail.len(),
+        String::from_utf8_lossy(&tail)
+    );
 }
 
 /// How long the client waits for the marker's notice after the attaches.
@@ -1676,7 +1698,7 @@ fn timed_rounds(
     let (mut times, mut records, mut error) = (vec![], Value::Null, Value::Null);
     for round in 0..rounds {
         let asked = Instant::now();
-        let reply = rpc.call(method, params(round));
+        let reply = rpc.call_until(method, params(round), Some(asked + STEP));
         let us = micros(asked);
         rpc.notes.clear();
         match reply {
@@ -1912,7 +1934,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
     drop(rpc);
     daemon.stop();
     let home_bytes: u64 = home_files(&home).values().sum();
-    json!({
+    let result = json!({
         "size": label, "source": source, "bytes": bytes, "logBytes": w.bytes, "records": w.records,
         "turns": w.turns, "lastSeq": w.last_seq, "segments": segments,
         "bytesPerRecord": w.bytes / w.records.max(1), "recordsPerTurn": w.records / w.turns.max(1),
@@ -1940,7 +1962,42 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "restartSendError": restart_send.as_ref().err(),
         "restartRss": restart_rss, "restartPeakRss": restart_peak_rss,
         "homeBytes": home_bytes, "freeBytes": free,
-    })
+    });
+    if let Some(out) = std::env::var_os("FAST_CHECKS_OUT") {
+        let destination = PathBuf::from(out).join(format!("chat-size-{}-daemon.log", bytes));
+        // The sweep owns this artifact; preserve only the tail, never the generated chat.
+        if let Ok(mut file) = std::fs::File::open(&daemon.log) {
+            let len = file.metadata().map_or(0, |m| m.len());
+            let _ = file.seek(SeekFrom::Start(len.saturating_sub(64 * 1024)));
+            let mut tail = Vec::new();
+            file.take(64 * 1024).read_to_end(&mut tail).unwrap();
+            std::fs::write(&destination, tail).unwrap();
+            eprintln!("chat size {label}: daemon log {}", destination.display());
+        }
+    }
+    if size_failure(&result).is_some() {
+        print_daemon_log(&daemon.log);
+    }
+    result
+}
+
+fn size_failure(result: &Value) -> Option<String> {
+    if !result["skipped"].is_null() {
+        return Some(format!("skipped: {}", result["skipped"]));
+    }
+    if let Some(object) = result.as_object() {
+        for (key, value) in object {
+            if key.ends_with("Error") && !value.is_null() {
+                return Some(format!("{key}: {value}"));
+            }
+        }
+    }
+    for key in SIZE_RATIO_KEYS {
+        if result.pointer(key).and_then(Value::as_f64).is_none() {
+            return Some(format!("missing metric {key}"));
+        }
+    }
+    None
 }
 
 /// What each size costs against the first (1 MB): the numbers of the goal (open, scroll,
@@ -1997,12 +2054,16 @@ fn size_ratios(base: &Value, size: &Value) -> (Value, Option<(String, f64)>) {
 #[ignore = "manual: writes chats up to 4 GB; run on Linux CI"]
 fn chat_size_sweep() {
     let sizes = std::env::var("ACPMUX_CHAT_SIZES").unwrap_or_else(|_| CHAT_SIZES.to_owned());
+    assert_eq!(sizes.split(',').next().map(parse_size), Some(1 << 20), "the baseline must be 1 MB");
     let mut results: Vec<Value> = vec![];
     let mut worst: Option<(String, f64, String)> = None;
     for label in sizes.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         let result = size_run(label, parse_size(label));
         println!("CHAT-SIZE {result}");
-        if let Some(base) = results.first().filter(|_| result["skipped"].is_null()) {
+        if let Some(base) = results
+            .first()
+            .filter(|base| size_failure(base).is_none() && size_failure(&result).is_none())
+        {
             let (ratios, max) = size_ratios(base, &result);
             println!(
                 "CHAT-SIZE-RATIO {}",
@@ -2017,26 +2078,61 @@ fn chat_size_sweep() {
         }
         results.push(result);
     }
+    let failures: Vec<_> = results
+        .iter()
+        .filter_map(|r| size_failure(r).map(|why| format!("{}: {why}", r["size"])))
+        .collect();
+    if !failures.is_empty() {
+        println!("infinite_chat_size_ratio_max null incomplete");
+        panic!("incomplete size sweep: {}", failures.join("; "));
+    }
     match &worst {
         Some((key, r, label)) => println!("infinite_chat_size_ratio_max {r:.2} {key} {label}"),
         None => println!("infinite_chat_size_ratio_max null"),
     }
-    // A step that failed reads as no time at all: the run fails, every size printed.
-    for r in &results {
-        for key in [
-            "coldAttachError",
-            "attachError",
-            "newestPageError",
-            "scrollRecentError",
-            "scrollMidError",
-            "scrollDeepError",
-            "promptIndexError",
-            "forwardPageError",
-            "sendError",
-            "restartAttachError",
-            "restartSendError",
-        ] {
-            assert!(r[key].is_null(), "{}: {key} {}", r["size"], r[key]);
-        }
+    println!("CHAT-SIZE-TABLE-BEGIN");
+    println!(
+        "| Metric (Us = microseconds, Ms = milliseconds, RSS = bytes) | {} |",
+        results.iter().map(|r| r["size"].as_str().unwrap()).collect::<Vec<_>>().join(" | ")
+    );
+    println!("|---|{}", "---|".repeat(results.len()));
+    for key in SIZE_RATIO_KEYS {
+        let base = results[0].pointer(key).and_then(Value::as_f64).unwrap();
+        let cells: Vec<_> = results
+            .iter()
+            .map(|r| {
+                let value = r.pointer(key).and_then(Value::as_f64).unwrap();
+                if base > 0.0 {
+                    format!("{value:.0} ({:.2}x)", value / base)
+                } else {
+                    format!("{value:.0} (ratio unavailable)")
+                }
+            })
+            .collect();
+        println!("| {key} | {} |", cells.join(" | "));
     }
+    println!("CHAT-SIZE-TABLE-END");
+}
+
+#[test]
+fn incomplete_chat_sizes_cannot_be_reported_as_success() {
+    for result in [
+        json!({"size": "4G", "skipped": "disk"}),
+        json!({"size": "4G", "coldAllLogsError": {"timeoutMs": 1800000}}),
+        json!({"size": "4G", "restartAllLogsError": {"timeoutMs": 1800000}}),
+        json!({"size": "4G", "sendError": {"stage": "first token"}}),
+        json!({"size": "4G", "attachUs": {"p50": 20}}),
+    ] {
+        assert!(size_failure(&result).is_some(), "incomplete result: {result}");
+    }
+}
+
+#[test]
+fn chat_size_ratios_use_the_same_metric_and_baseline() {
+    let base = json!({"attachUs": {"p50": 20, "p95": 40}, "rssIdle": 100});
+    let larger = json!({"attachUs": {"p50": 30, "p95": 42}, "rssIdle": 200});
+    let (ratios, max) = size_ratios(&base, &larger);
+    assert_eq!(ratios["/attachUs/p50"], 1.5);
+    assert_eq!(ratios["/attachUs/p95"], 1.05);
+    assert_eq!(max, Some(("/rssIdle".into(), 2.0)));
 }

@@ -16,6 +16,8 @@ sizes="${1:-1M,100M,1G,4G}"
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 log="${FAST_CHECKS_OUT:-${TMPDIR:-/tmp}}/chat-size-sweep.log"
 [ -n "${FAST_CHECKS_OUT:-}" ] && exec > >(tee -a "$log") 2>&1
+echo "CHAT-SIZE-HEAD $(git -C "$root" rev-parse HEAD)"
+echo "CHAT-SIZE-HOST $(hostname) $(uname -sm)"
 df -h "${TMPDIR:-/tmp}" "$root" 2>/dev/null || true
 nproc 2>/dev/null || true
 sim_bin=""
