@@ -10,7 +10,8 @@ intent-to-add flags, and publishes it only after the final working-tree patch
 applies. A failed worktree apply leaves the original index byte-for-byte intact.
 Unmerged source indexes refuse with recovery guidance instead of losing conflict
 stages. Intent flags come from the index flags rather than differences between
-name lists: a path can already be in HEAD, with identical empty content. Unknown
+name lists: a path can already be in HEAD, with identical empty content. Only paths changed in the visible or invisible intent index views send debug
+metadata, so unchanged tracked paths do not grow the transfer. Unknown
 index debug formats refuse instead of silently losing flags. Raw path bytes and
 symlink modes survive through a scratch placeholder archive. Payloads stream through tar; no patch occupies a shell variable.
 File counts are the union of both patches' raw paths; byte counts include both and the intent-to-add path list.
@@ -22,7 +23,12 @@ refs independently. It covers canceling edits, staged binary edits, renames,
 additions followed by deletion, intent-to-add (including tracked replacements, symlinks, deleted and empty files),
 and unusual untracked paths. The companion
 failure tests cover preflight refusal, failure after candidate index preparation, retry, and
-changed target HEAD and existing target index locks. The ignored
+changed target HEAD (including during payload receipt) and existing target index locks.
+Intent-only carries explicitly compare the affected target index entries with the
+base under the lock before replacing flags; empty patches cannot bypass conflict
+detection. `intent_only_changes_never_overwrite_target_staging` guards target-only
+staged content and deletions; unrelated target staging remains intact.
+`index_flag_transfer_excludes_unchanged_files` bounds the transferred metadata. The ignored
 `carry_transport_before_after` test records the old shell-base64 transport and
 streamed tar transport timings for the same 16 MiB payload. Run through `cmux-ci test --setup rust -- bash -c
 'cd cmux-tui && cargo test -p acpmux --lib session_move_carry'`.

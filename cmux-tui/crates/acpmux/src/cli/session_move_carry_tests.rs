@@ -435,6 +435,113 @@ fn an_existing_target_index_lock_is_preserved() {
     assert_eq!(std::fs::read(dst.path().join("kept.txt")).unwrap(), b"one\n");
 }
 
+#[test]
+fn intent_only_changes_never_overwrite_target_staging() {
+    for (source, target) in [
+        (
+            "git rm -q --cached empty.txt && git add -N empty.txt",
+            "printf 'target-only-edit' > empty.txt && git add empty.txt && : > empty.txt",
+        ),
+        (
+            "touch new.txt && git add -N new.txt",
+            "printf 'target-only-edit' > new.txt && git add new.txt && rm new.txt",
+        ),
+        ("git rm -q --cached empty.txt && git add -N empty.txt", "git rm -q --cached empty.txt"),
+    ] {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        repo(src.path());
+        sh(src.path(), source);
+        let carry = snapshot(&here, src.path(), true).unwrap();
+        sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+        sh(dst.path(), target);
+        let index = std::fs::read(dst.path().join(".git/index")).unwrap();
+        let source_index = std::fs::read(src.path().join(".git/index")).unwrap();
+        let worktree = sh(dst.path(), "git diff HEAD --binary");
+        let refs = sh(dst.path(), "git show-ref --head");
+        let out = apply(dst.path(), &carry);
+        assert!(!out.ok && out.stderr.contains("target index changed"), "{}", out.stderr);
+        assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
+        assert_eq!(std::fs::read(src.path().join(".git/index")).unwrap(), source_index);
+        assert_eq!(sh(dst.path(), "git diff HEAD --binary"), worktree);
+        assert_eq!(sh(dst.path(), "git show-ref --head"), refs);
+        assert!(!dst.path().join(".git/index.lock").exists());
+        sh(dst.path(), "git reset -q HEAD");
+        assert!(apply(dst.path(), &carry).ok, "preserving the target edit permits a retry");
+    }
+}
+
+#[test]
+fn intent_changes_preserve_unrelated_target_staging() {
+    let src = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(src.path(), "git rm -q --cached empty.txt && git add -N empty.txt");
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    sh(
+        dst.path(),
+        "printf 'target-only-edit' > kept.txt && git add kept.txt && git show HEAD:kept.txt > kept.txt",
+    );
+    let out = apply(dst.path(), &carry);
+    assert!(out.ok, "{}", out.stderr);
+    assert_eq!(sh(dst.path(), "git show :kept.txt"), "target-only-edit");
+    assert_eq!(std::fs::read(dst.path().join("kept.txt")).unwrap(), b"one\n");
+    assert_eq!(sh(dst.path(), "git diff --cached --name-status -- empty.txt"), "D\tempty.txt\n");
+}
+
+#[test]
+fn target_head_moving_during_payload_receipt_refuses_under_the_lock() {
+    let src = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(src.path(), "printf 'staged\\n' >> kept.txt && git add kept.txt");
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    let next = sh(
+        dst.path(),
+        "git -c user.name=t -c user.email=t@t commit-tree HEAD^{tree} -p HEAD -m moved",
+    );
+    let index = std::fs::read(dst.path().join(".git/index")).unwrap();
+    let receipt = "tar -xf - -C \"$s\" staged patch intent intent-placeholders || exit 2";
+    let racing = APPLY_SCRIPT.replace(
+        receipt,
+        &format!("{receipt}\ngit -C \"$top\" update-ref HEAD {} || exit 2", next.trim()),
+    );
+    assert_ne!(racing, APPLY_SCRIPT);
+    let out = here(&racing, &apply_input(&dst.path().to_string_lossy(), &carry).unwrap()).unwrap();
+    assert!(!out.ok && out.stderr.contains("the new worktree is at"), "{}", out.stderr);
+    assert_eq!(sh(dst.path(), "git rev-parse HEAD"), next);
+    assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
+    assert_eq!(std::fs::read(dst.path().join("kept.txt")).unwrap(), b"one\n");
+    assert!(!dst.path().join(".git/index.lock").exists());
+}
+
+#[test]
+fn index_flag_transfer_excludes_unchanged_files() {
+    let src = tempfile::tempdir().unwrap();
+    repo(src.path());
+    for i in 0..2000 {
+        std::fs::write(src.path().join(format!("unchanged-{i}")), b"unchanged\n").unwrap();
+    }
+    sh(
+        src.path(),
+        "git add . && git commit -qm many && git rm -q --cached empty.txt && git add -N empty.txt",
+    );
+    let bounded = |script: &str, input: &[u8]| {
+        let out = here(script, input)?;
+        if script == PATCH_SCRIPT {
+            let metadata = decode(out.stdout.lines().nth(1).unwrap()).unwrap();
+            assert!(metadata.len() < 1024, "{} metadata bytes for one intent", metadata.len());
+            assert!(!metadata.windows(b"unchanged-".len()).any(|w| w == b"unchanged-"));
+        }
+        Ok(out)
+    };
+    let carry = snapshot(&bounded, src.path(), true).unwrap();
+    assert_eq!(carry.intent_to_add, b"empty.txt\0");
+    assert_eq!(carry.files, 1);
+}
+
 /// Same payload and process harness for both transports; run explicitly on the fleet.
 #[test]
 #[ignore = "transport timing receipt, not a correctness gate"]

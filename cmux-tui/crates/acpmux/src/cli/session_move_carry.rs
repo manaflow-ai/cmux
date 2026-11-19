@@ -99,7 +99,15 @@ if [ -s "$s/unmerged" ]; then
 fi
 g diff --cached --binary --ita-visible-in-index --full-index --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$base" >"$s/staged" || exit 3
 g diff --cached --name-only -z --no-renames --ita-visible-in-index "$base" >"$s/names" || exit 3
-g ls-files --stage --debug -z >"$s/index-entries" || exit 3
+# The two index views together include every intent entry, including an empty
+# tracked file replaced by intent. Send debug records only for changed candidates,
+# not stat metadata for every unchanged tracked file in a large checkout.
+g diff --cached --name-only -z --no-renames --ita-invisible-in-index "$base" >"$s/intent-candidates" || exit 3
+cat "$s/names" >>"$s/intent-candidates" || exit 2
+: >"$s/index-entries"
+if [ -s "$s/intent-candidates" ]; then
+  xargs -0 git -c core.fsmonitor=false ls-files --stage --debug -z -- <"$s/intent-candidates" >"$s/index-entries" || exit 3
+fi
 # `--sparse`: a sparse checkout's changes inside its cone carry like any other.
 g add --sparse --update -- . || exit 3
 if [ -n "$keep" ]; then
@@ -208,6 +216,7 @@ pub(crate) fn snapshot(exec: Exec<'_>, top: &Path, local: bool) -> Result<Carry>
 /// refuse rather than silently losing index flags. Paths remain raw bytes throughout.
 fn intent_payload(mut data: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
     let mut paths = Vec::new();
+    let mut seen = BTreeSet::new();
     let mut archive = tar::Builder::new(Vec::new());
     while !data.is_empty() {
         let nul = data.iter().position(|b| *b == 0).context("unterminated index entry")?;
@@ -231,7 +240,7 @@ fn intent_payload(mut data: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
             }
             data = &data[end + 1..];
         }
-        if flags & (1 << 29) == 0 {
+        if flags & (1 << 29) == 0 || !seen.insert(path.to_vec()) {
             continue;
         }
         let mut header = tar::Header::new_gnu();
@@ -294,10 +303,20 @@ if ! (set -C; : >"$real.lock") 2>/dev/null; then
   echo "the target index is locked: finish its Git operation, then move again" >&2; exit 5
 fi
 trap 'rm -f -- "$real.lock"; rm -rf -- "$s"' EXIT
+# A checkout can finish while the payload is arriving. Validate under our lock.
+head=$(git rev-parse HEAD) || exit 3
+if [ "$head" != "$base" ]; then echo "the new worktree is at $head, not $base" >&2; exit 4; fi
 GIT_INDEX_FILE="$s/index"; export GIT_INDEX_FILE
 GIT_LITERAL_PATHSPECS=1; export GIT_LITERAL_PATHSPECS
 if [ -f "$real" ]; then cp -- "$real" "$s/index" || exit 2
 else git read-tree "$base" || exit 3; fi
+if [ -s "$s/intent" ]; then
+  # An intent flag can change without either patch changing. Never overwrite an
+  # edit saved only in the target index, even when no patch would detect it.
+  if ! xargs -0 git -c core.fsmonitor=false diff --cached --quiet --no-ext-diff --no-textconv --ita-visible-in-index "$base" -- <"$s/intent"; then
+    echo "the target index changed at an intent-to-add path: preserve its staging before moving again" >&2; exit 5
+  fi
+fi
 if [ -s "$s/patch" ]; then
   git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn --check "$s/patch" || exit 5
 fi
