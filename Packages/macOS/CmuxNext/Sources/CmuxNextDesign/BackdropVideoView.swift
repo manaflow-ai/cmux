@@ -34,6 +34,13 @@ public final class BackdropVideoView: NSView {
     private var readyObservation: NSKeyValueObservation?
     /// The window's and the app's events, watched while in a window (Low Power Mode included).
     private lazy var signals = BackdropPlaybackSignals { [weak self] signal in self?.signalled(signal) }
+    /// The screens are asleep, or the login session is not the active one (watched while in a window).
+    public var screensAsleep: Bool { signals.screensAsleep }
+    public var sessionInactive: Bool { signals.sessionInactive }
+    /// Told after each change this view watches (visibility, power, heat, motion settings, closing),
+    /// so the living wallpaper in the same backdrop (``BackdropShaderView``) follows the same
+    /// observers instead of registering its own.
+    public var onSightChange: (@MainActor (_ closing: Bool) -> Void)?
     private var coverage = BackdropCoverage()
     private let coverageTimer = DemandTimer(owner: "backdrop-video-coverage")
 
@@ -206,12 +213,15 @@ public final class BackdropVideoView: NSView {
     private func signalled(_ signal: BackdropPlaybackSignals.Signal) {
         switch signal {
         // A closed window keeps its views: hand the shared player back now, not when the view goes.
-        case .closing: return detach()
+        case .closing:
+            detach()
+            return onSightChange?(true) ?? ()
         // A window brought to the front shows: play now; the next samples rest it again if needed.
         case .raised: coverage.reset()
         case .changed: break
         }
         update()
+        onSightChange?(false)
     }
 }
 

@@ -87,7 +87,7 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
         let options = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
                        kCGImageSourceThumbnailMaxPixelSize: 240] as CFDictionary
         guard let image = AppleWallpapers.isVideo(url.path) ? BackdropImageStore.poster(url, maxPixelSize: 240)
-            : CGImageSourceCreateWithURL(url as CFURL, nil).flatMap({ CGImageSourceCreateThumbnailAtIndex($0, 0, options) }) else { return nil }
+            : CGImageSourceCreateWithURL(BackdropShaderRenderer.prepared(url) as CFURL, nil).flatMap({ CGImageSourceCreateThumbnailAtIndex($0, 0, options) }) else { return nil }
         return image.pngData()
     }
 

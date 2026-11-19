@@ -98,7 +98,9 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
               [".cv-shell__body", 12],
               [".cv-shell__exit", 13],
               [".cv-tool-output", 12],
-              [".cv-command__line", 12.5],
+              // A command's line is the row's own text, as every row's label (Lucas, 2026-11-14: the
+              // "Ran" command in the same font as the rows).
+              [".cv-command__line", 14],
               [".cv-command__meta", 12],
               [".cv-code-plain", 12],
               [".cv-footnotes", 12.5],

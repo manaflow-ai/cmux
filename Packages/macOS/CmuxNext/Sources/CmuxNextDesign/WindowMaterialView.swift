@@ -69,6 +69,8 @@ public final class WindowMaterialView: NSView {
     private var applied: (backdrop: WindowBackdrop, tint: NSColor)?
     /// A video wallpaper over the art (its poster), playing while seen (``BackdropVideoView``).
     public let videoView: BackdropVideoView
+    /// A living wallpaper over the art (its still), drawn every frame while seen (``BackdropShaderView``).
+    public let shaderView: BackdropShaderView
     private(set) var artImage: NSImage?
     /// A video wallpaper plays over the art (pages get no still of it, `glassSource`).
     private(set) var showsVideo = false
@@ -76,6 +78,8 @@ public final class WindowMaterialView: NSView {
     public let liveView: BackdropLiveView
     /// A live wallpaper shows (pages get no still of it, `glassSource`).
     private(set) var showsLive = false
+    /// A living wallpaper draws over the art (pages get no still of it, `glassSource`).
+    private(set) var showsShader = false
     /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
     let glassFeeds = NSHashTable<GlassBackdropFeed>.weakObjects()
     private let images: BackdropImageStore
@@ -115,6 +119,7 @@ public final class WindowMaterialView: NSView {
         self.activeLook = activeLook
         videoView = BackdropVideoView(frame: frameRect, players: videos)
         liveView = BackdropLiveView(frame: frameRect, programs: images.livePrograms)
+        shaderView = BackdropShaderView(frame: frameRect, renderer: images.shaders)
         super.init(frame: frameRect)
         artView.wantsLayer = true
         artView.frame = bounds
@@ -129,6 +134,12 @@ public final class WindowMaterialView: NSView {
         liveView.frame = bounds
         liveView.autoresizingMask = [.width, .height]
         addSubview(liveView)
+        shaderView.frame = bounds
+        shaderView.autoresizingMask = [.width, .height]
+        addSubview(shaderView)
+        // The living wallpaper moves on the video wallpaper's terms, through its observers.
+        shaderView.sight = { [weak videoView] in (videoView?.screensAsleep ?? false, videoView?.sessionInactive ?? false) }
+        videoView.onSightChange = { [weak shaderView] closing in shaderView?.sightChanged(closing: closing) }
         glassTint.overlay.frame = bounds
         glassTint.overlay.autoresizingMask = [.width, .height]
         addSubview(glassTint.overlay)
@@ -311,12 +322,16 @@ public final class WindowMaterialView: NSView {
         // TODO(gcp-codex-lane-11/wallpaper-lighting): hand Wallpaper Lighting one 256-px-wide still per
         // wallpaper or theme change (LiveWallpaperRenderer.still, read with WallpaperLightField.read),
         // then artDidChange(), once WindowMaterialView.setArtLight lands from that lane.
+        let shader = hidesArt ? nil : shown?.shader
+        showsShader = shader != nil
+        shaderView.show(shader, dark: dark)
         // Window Glass: the desktop shows through the art. The model value only, so a fade-in in
         // flight runs on to it.
         artOpacity = Float(backdrop.artOpacity)
         if artView.layer?.opacity != artOpacity { artView.layer?.opacity = artOpacity }
         if videoView.layer?.opacity != artOpacity { videoView.layer?.opacity = artOpacity }
         if liveView.layer?.opacity != artOpacity { liveView.layer?.opacity = artOpacity }
+        if shaderView.layer?.opacity != artOpacity { shaderView.layer?.opacity = artOpacity }
         if backdrop.material != material {
             material = backdrop.material
             materialView?.removeFromSuperview()
@@ -377,7 +392,7 @@ public final class WindowMaterialView: NSView {
     private func applyArtBlur(_ radius: Int) {
         guard radius != artBlurRadius else { return }
         artBlurRadius = radius
-        for view in [artView, videoView as NSView, liveView as NSView] {
+        for view in [artView, videoView as NSView, liveView as NSView, shaderView as NSView] {
             if radius > 0 { view.layerUsesCoreImageFilters = true }
             // Clamped first: the blur then reads the edge pixels past the edge, not transparency,
             // so the picture keeps no translucent rim.

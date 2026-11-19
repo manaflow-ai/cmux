@@ -103,12 +103,12 @@ if [[ "$module" == auto ]]; then
   free=()
   for m in "${cands[@]}"; do imported "$m" || free+=("$m"); done
   (( ${#free[@]} )) || { echo "import-set-xcode.sh: every probe candidate is imported already; pass module=" >&2; exit 2; }
-  printf '%s\n' "${free[@]}" | xargs -P 8 -I{} /bin/bash -c '
+  printf '%s\n' ${free[@]+"${free[@]}"} | xargs -P 8 -I{} /bin/bash -c '
     printf "import %s\n" "$1" >"$2/$1.swift"
     xcrun swiftc -target arm64-apple-macos14.0 -sdk "$3" -Onone -parse-as-library -module-cache-path "$2/mc" \
       -module-name Probe$1 -c "$2/$1.swift" -o "$2/$1.o" >"$2/$1.err" 2>&1 || rm -f "$2/$1.o"' _ {} "$work/probe" "$sdk"
   module="" force_module=0
-  for m in "${free[@]}"; do
+  for m in ${free[@]+"${free[@]}"}; do
     [[ -f "$work/probe/$m.o" ]] || continue
     syms="$(python3 -I -c 'import re,sys; print(" ".join(sorted({m.decode() for m in re.findall(rb"__swift_FORCE_LOAD_\$_swift[A-Za-z0-9_]+", open(sys.argv[1],"rb").read())})))' "$work/probe/$m.o")"
     echo "==> probe import $m: force-load ${syms:-none}"

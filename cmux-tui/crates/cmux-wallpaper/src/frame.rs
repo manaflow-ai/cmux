@@ -158,7 +158,10 @@ impl PointerState {
         if self.has_sample {
             let gap = t - self.last_sample;
             if gap > 0.0 && gap < VELOCITY_GAP_S {
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "gap is under VELOCITY_GAP_S seconds, well inside f32"
+                )]
                 let dt = gap.max(1.0 / 240.0) as f32;
                 self.vx += ((x - self.x) / dt - self.vx) * VELOCITY_BLEND;
                 self.vy += ((y - self.y) / dt - self.vy) * VELOCITY_BLEND;
@@ -184,7 +187,10 @@ impl PointerState {
         if !t.is_finite() {
             return;
         }
-        #[allow(clippy::cast_possible_truncation)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "a frame interval in seconds; f32 keeps it to well under a microsecond"
+        )]
         let dt = (t - self.last_advance).max(0.0) as f32;
         self.last_advance = t;
         let target = if self.inside { 1.0 } else { 0.0 };
@@ -207,7 +213,10 @@ impl PointerState {
         if !self.has_sample {
             return MAX_SINCE_MOVED;
         }
-        #[allow(clippy::cast_possible_truncation)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "clamped to 0..MAX_SINCE_MOVED, an f32 value"
+        )]
         let s = (t - self.last_sample).clamp(0.0, f64::from(MAX_SINCE_MOVED)) as f32;
         s
     }
