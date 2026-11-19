@@ -45,23 +45,35 @@ plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$app/Contents/Info.plist"; }
 [[ -x "$app/Contents/MacOS/cmux-remote" ]] ||
   { echo "error: cmux Remote executable is missing or not executable" >&2; exit 1; }
 tree="$(plist CmuxRemoteSourceTree)"
-sdk="$(plist CmuxCuaDriverSDKSha256)"
-[[ "$tree" =~ ^[0-9a-f]{64}$ && "$sdk" =~ ^[0-9a-f]{64}$ ]] ||
-  { echo "error: Remote provenance keys are not sha256s" >&2; exit 1; }
+[[ "$tree" =~ ^[0-9a-f]{64}$ ]] || { echo "error: Remote provenance key CmuxRemoteSourceTree is not a sha256" >&2; exit 1; }
 
+# The Computer Use engine cmux Remote loads is one of two dylibs, never both:
+#   libcua_driver_sdk.dylib      the Cua Driver SDK (its tarball sha256 in CmuxCuaDriverSDKSha256)
+#   libcmux_computer_use.dylib   the Rust engine (cmux-tui/crates/cmux-computer-use-ffi, #37003),
+#                                built from the source tree, so no SDK key
 framework_dir="$app/Contents/Frameworks"
 [[ -d "$framework_dir" ]] || { echo "error: Remote has no Frameworks directory" >&2; exit 1; }
+engine=""
 framework_count=0
 for dylib in "$framework_dir"/*.dylib; do
   [[ -f "$dylib" ]] || continue
   case "${dylib##*/}" in
-    libWebRTC.dylib|libcua_driver_sdk.dylib) ;;
+    libWebRTC.dylib) ;;
+    libcua_driver_sdk.dylib|libcmux_computer_use.dylib)
+      [[ -z "$engine" ]] || { echo "error: Remote carries two Computer Use engines" >&2; exit 1; }
+      engine="${dylib##*/}"
+      ;;
     *) echo "error: unexpected Remote framework ${dylib##*/}" >&2; exit 1 ;;
   esac
   framework_count=$((framework_count + 1))
 done
-[[ "$framework_count" == 2 && -f "$framework_dir/libWebRTC.dylib" && -f "$framework_dir/libcua_driver_sdk.dylib" ]] ||
-  { echo "error: Remote Frameworks must contain exactly libWebRTC.dylib and libcua_driver_sdk.dylib" >&2; exit 1; }
+[[ "$framework_count" == 2 && -f "$framework_dir/libWebRTC.dylib" && -n "$engine" ]] ||
+  { echo "error: Remote Frameworks must contain exactly libWebRTC.dylib and one engine (libcua_driver_sdk.dylib or libcmux_computer_use.dylib)" >&2; exit 1; }
+sdk=""
+if [[ "$engine" == libcua_driver_sdk.dylib ]]; then
+  sdk="$(plist CmuxCuaDriverSDKSha256)"
+  [[ "$sdk" =~ ^[0-9a-f]{64}$ ]] || { echo "error: Remote provenance key CmuxCuaDriverSDKSha256 is not a sha256" >&2; exit 1; }
+fi
 frameworks_marker="$work/frameworks.marker"
 find "$app" -type d -name '*.framework' -print > "$frameworks_marker"
 if [[ -s "$frameworks_marker" ]]; then
@@ -72,7 +84,7 @@ fi
 sign() {
   codesign --force --options runtime --timestamp --keychain "$keychain" --sign "$identity" "$@"
 }
-sign "$framework_dir/libcua_driver_sdk.dylib"
+sign "$framework_dir/$engine"
 sign "$framework_dir/libWebRTC.dylib"
 sign "$app"
 codesign --verify --strict --deep --verbose=2 "$app"
@@ -93,20 +105,21 @@ sha="$(shasum -a 256 "$out/$asset" | awk '{print $1}')"
   "$(shasum -a 256 "$zip" | awk '{print $1}')" <<'PY'
 import json, sys
 path, sha, tree, sdk, signing, team, unsigned = sys.argv[1:]
+pin = {
+    "asset": "cmux-remote-dev-macos-arm64.zip",
+    "arch": "arm64",
+    "sha256": sha,
+    "r2_bucket": "cmux-cef",
+    "r2_key": f"cua-helper-dev/{sha}/cmux-remote-dev-macos-arm64.zip",
+    "bundle_id": "com.cmuxterm.remote.dev",
+    "remote_source_tree": tree,
+}
+# Only the Cua Driver SDK engine has an SDK tarball; the Rust engine's pin omits the field.
+if sdk:
+    pin["cua_driver_sdk_sha256"] = sdk
+pin.update({"signing": signing, "team_id": team, "unsigned_sha256": unsigned})
 with open(path, "w", encoding="utf-8") as f:
-    json.dump({
-        "asset": "cmux-remote-dev-macos-arm64.zip",
-        "arch": "arm64",
-        "sha256": sha,
-        "r2_bucket": "cmux-cef",
-        "r2_key": f"cua-helper-dev/{sha}/cmux-remote-dev-macos-arm64.zip",
-        "bundle_id": "com.cmuxterm.remote.dev",
-        "remote_source_tree": tree,
-        "cua_driver_sdk_sha256": sdk,
-        "signing": signing,
-        "team_id": team,
-        "unsigned_sha256": unsigned,
-    }, f, indent=2)
+    json.dump(pin, f, indent=2)
     f.write("\n")
 PY
 echo "signed $asset sha256 $sha"
