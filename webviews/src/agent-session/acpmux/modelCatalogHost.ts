@@ -74,6 +74,70 @@ export function useModelCatalogState(): State {
 export function resetModelCatalogForTests(): void {
   state = { catalog: BUNDLED_MODEL_CATALOG, user: undefined, provisional: true };
   pending = undefined;
+  lastPicker = undefined;
+}
+
+type PickerSession = Parameters<typeof usePickerCatalog>[1];
+
+let lastPicker:
+  | {
+      catalog: ModelCatalog;
+      user: unknown;
+      acpmux: AcpmuxSnapshot["catalog"];
+      harness?: string;
+      model?: string;
+      configOptions?: unknown;
+      workedKey: string;
+      provisional: boolean;
+      picker: PickerCatalog;
+    }
+  | undefined;
+
+/// The picker catalog for these inputs, built once for every reader of the same chat: the chat's composer
+/// chips and the pane each ask for it on their first frame, and each build walks the whole catalog
+/// (about 10 ms of a cold chat open in headless Chromium). Inputs are compared by identity, the session
+/// by its fields (each reader makes its own object), so a changed input builds a new one.
+function sharedPickerCatalog(
+  catalog: ModelCatalog,
+  user: unknown,
+  acpmux: AcpmuxSnapshot["catalog"],
+  session: PickerSession,
+  workedKey: string,
+  provisional: boolean,
+): PickerCatalog {
+  const last = lastPicker;
+  if (
+    last &&
+    last.catalog === catalog &&
+    last.user === user &&
+    last.acpmux === acpmux &&
+    last.harness === session?.harness &&
+    last.model === session?.model &&
+    last.configOptions === session?.configOptions &&
+    last.workedKey === workedKey &&
+    last.provisional === provisional
+  )
+    return last.picker;
+  const picker = buildPickerCatalog({
+    catalog,
+    user,
+    acpmux,
+    session,
+    worked: workedKey ? workedKey.split("\n") : [],
+    provisional,
+  });
+  lastPicker = {
+    catalog,
+    user,
+    acpmux,
+    harness: session?.harness,
+    model: session?.model,
+    configOptions: session?.configOptions,
+    workedKey,
+    provisional,
+    picker,
+  };
+  return picker;
 }
 
 /**
@@ -96,15 +160,7 @@ export function usePickerCatalog(
   const queryClient = useQueryClient();
   const workedKey = workedProfiles(sessions).join("\n");
   const picker = useMemo(
-    () =>
-      buildPickerCatalog({
-        catalog,
-        user,
-        acpmux,
-        session,
-        worked: workedKey ? workedKey.split("\n") : [],
-        provisional,
-      }),
+    () => sharedPickerCatalog(catalog, user, acpmux, session, workedKey, provisional),
     [catalog, user, acpmux, session, workedKey, provisional],
   );
   return {
