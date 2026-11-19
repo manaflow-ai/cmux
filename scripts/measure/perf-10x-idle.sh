@@ -29,6 +29,18 @@
 # days (days=DAYS, default 3) of switches, tab cycles, streaming turns and a sleep/wake, as INFINITE lines.
 # vmmap=KIND,KIND: after each app sample, vmmap --summary of every process of those kinds (bench_memory.py
 # --vmmap-kinds): where its footprint is, MALLOC against frameworks and stacks.
+# axes=AXIS,AXIS (chat-hidden, chat-visible, terminal-hidden, terminal-visible; axes=all for the four): what one
+# more idle item costs, per process (bench_memory.py --axis, one fresh app each): idle CPU %, footprint, RSS,
+# wakeups/s, disk bytes written and read per hour (proc_pid_rusage) and the GPU's utilization (ioreg; the Mac
+# has no per-process GPU time or frame count there, so the GPU process's CPU is its own row). Hidden axes sample
+# at items=COUNTS (default 1,10,100; each item a workspace of its own, the launch workspace shown) and again
+# settled=SECONDS later (default 90: past the hidden chat pages' 30 s freeze and 60 s release); visible axes at
+# visible_items=COUNTS (default 1,4,10; each item a pane of the launch workspace, as many as the window fits).
+# Writes .build/perf-idle/idle-axes.json and idle-axes.md (marginal cost per item, by process group: app,
+# cef-renderer, cef-gpu, acpmux, cmux-tui, terminal hosts), printed as PERF-IDLE-AXES lines. counts=none skips
+# the daemon and terminal-workspace runs, e.g.:
+#   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/perf-10x-idle.sh \
+#     --ref SHA --arg=counts=none --arg=axes=all --arg=measure=45
 # Output: PERF-IDLE lines (PERF-IDLE-PROC: the app's top processes with their commands, and VMMAP lines); JSON under
 # .build/perf-idle.
 set -euo pipefail
@@ -36,6 +48,7 @@ counts="1,10,50"
 measure=60
 agents=""
 infinite="" days=3
+axes="" items="1,10,100" visible_items="1,4,10" settled=90
 reload_config=() purge=() release=() attribute=() crash_env=() vmmap=()
 for arg in "$@"; do
   case "$arg" in
@@ -51,6 +64,11 @@ for arg in "$@"; do
     attribute=*) attribute=(--attribute --attribute-kinds "${arg#attribute=}") ;;
     chat_renderer_crash=1) crash_env=(CMUX_BENCH_CHAT_RENDERER_CRASH=1) ;;
     vmmap=*) vmmap=(--vmmap-kinds "${arg#vmmap=}") ;;
+    axes=all) axes="chat-hidden,chat-visible,terminal-hidden,terminal-visible" ;;
+    axes=*) axes="${arg#axes=}" ;;
+    items=*) items="${arg#items=}" ;;
+    visible_items=*) visible_items="${arg#visible_items=}" ;;
+    settled=*) settled="${arg#settled=}" ;;
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -80,9 +98,10 @@ tui="$app/Contents/Resources/bin/cmux-tui"
 [ -x "$tui" ] || { echo "perf-10x-idle: no bundled cmux-tui at $tui" >&2; exit 1; }
 status=0
 
-echo "PERF-IDLE-LOAD daemon $(uptime | sed 's/.*load averages*: //')"
 state_root="$(mktemp -d /private/tmp/pidl.XXXXXX)"
 trap 'rm -rf "$state_root"' EXIT
+if [[ "$counts" != none ]]; then
+echo "PERF-IDLE-LOAD daemon $(uptime | sed 's/.*load averages*: //')"
 # One daemon per count: bench-scale makes every workspace (one terminal each)
 # before its first step, so a single run with several counts measures the
 # largest count at every step.
@@ -118,8 +137,35 @@ data = json.load(open(sys.argv[1]))
 for s in data.get("samples", []):
     for kind, e in s["kinds"].items():
         print(f"PERF-IDLE app {s['label']} workspaces={s['workspaces']} kind={kind} n={e['count']} cpu_pct={e.get('cpu_pct')} "
-              f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']}")
+              f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']} "
+              f"disk_write_mb_per_h={e.get('disk_write_mb_per_h')} disk_read_mb_per_h={e.get('disk_read_mb_per_h')}")
 PY
+fi
+if [[ -n "$axes" ]]; then
+  # One fresh app per axis, so each starts from an idle launch (0 items).
+  IFS=, read -r -a axis_list <<< "$axes"
+  axis_reports=()
+  for axis in "${axis_list[@]}"; do
+    echo "PERF-IDLE-LOAD axis-$axis $(uptime | sed 's/.*load averages*: //')"
+    axis_args=(--axis "$axis" --items "$items")
+    case "$axis" in
+      *-hidden) axis_args+=(--settled-wait "$settled") ;;
+      *-visible) axis_args=(--axis "$axis" --items "$visible_items") ;;
+    esac
+    case "$axis" in
+      chat-*) axis_args+=(--fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py) ;;
+    esac
+    python3 scripts/cmux-next/bench_memory.py --app "$app" "${axis_args[@]}" --gpu \
+      --settle 20 --measure "$measure" --top 8 \
+      --out "$work/axis-$axis.json" > "$work/axis-$axis.log" 2>&1 || { status=$?; tail -n 60 "$work/axis-$axis.log"; }
+    [ -f "$work/axis-$axis.json" ] && axis_reports+=("$work/axis-$axis.json")
+  done
+  if (( ${#axis_reports[@]} )); then
+    python3 scripts/cmux-next/idle_axes_report.py --json "$work/idle-axes.json" --markdown "$work/idle-axes.md" \
+      --machine "$(git rev-parse HEAD) on $(scutil --get ComputerName 2>/dev/null || hostname), measure=${measure}s settled=${settled}s" \
+      "${axis_reports[@]}" | sed 's/^/PERF-IDLE-AXES /' || status=$?
+  fi
+fi
 if [[ -n "$agents" ]]; then
   echo "PERF-IDLE-LOAD agents $(uptime | sed 's/.*load averages*: //')"
   env ${crash_env[@]+"${crash_env[@]}"} python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \

@@ -483,6 +483,11 @@ change something" to a merged pull request, including what you can fix without a
 Mac. Then the [contributor guide](CONTRIBUTING.md) and
 [fast local checks](CONTRIBUTING.md#fast-checks-before-building-or-pushing).
 
+To run your change with no build, copy your nightly and swap your code in: `cmux app try .` in your checkout
+starts a copy of cmux NIGHTLY beside yours with your web UI and daemon code in (`--extract` keeps the code,
+`--stop` deletes the copy). Dev builds stay available for Swift changes
+([how it works](docs/cmux-next/hot-reload.md#the-loop)).
+
 Ways to get involved:
 
 - Follow us on X for updates [@lawrencecchen](https://x.com/lawrencecchen) and [@austinywang](https://x.com/austinywang)
