@@ -90,8 +90,8 @@ import Testing
     }
 
     /// A zoom and an unzoom each show in one frame, and neither changes a catcher panel window: not in its own turn, not
-    /// in the frame that shows it, and not in the frames of the dim around it (the dim comes over the other panes before
-    /// a zoom shows, and goes after an unzoom showed).
+    /// in the frame that shows it, and not in the frames of the dim that goes after an unzoom showed. This fixture asks
+    /// for no move of its panes, so its zoom has no dim.
     @Test func aZoomAndAnUnzoomMoveNoCatcherPanelForAParkedPage() throws {
         let layout = Layout(pageFrame: Self.parked)
         defer { layout.close() }
@@ -115,9 +115,9 @@ import Testing
         var unzoomShown: [PaneLayoutCommitTests.Frame] = []
         let unzoomFrames = layout.land { unzoomShown.append(PaneLayoutCommitTests.shown(screen)) }
         let unzoom = layout.catchers.panelUpdates + layout.catchers.panelsMade - count
-        // The zoom shows in one frame, its last: each frame before it (the dim comes) keeps every pane and divider where
-        // it was. The unzoom shows in its first frame, and no pane moves in the frames its dim takes to go. Each is over
-        // in 40 frames.
+        // The zoom shows in one frame, its last: a frame before it (the zoom waits for its panes) keeps every pane and
+        // divider where it was. The unzoom shows in its first frame, and no pane moves in the frames its dim takes to
+        // go. Each is over in 40 frames.
         #expect(zoomFrames.count <= 40 && zoomShown.dropLast().allSatisfy { PaneLayoutCommitTests.same($0, grid) },
                 "a zoom did not show in one frame: it took \(zoomFrames.count) frames, or a frame before its last one moved a pane or a divider")
         #expect(zoomShown.last?.panes.count == 1 && zoomShown.last?.dividers.isEmpty == true,

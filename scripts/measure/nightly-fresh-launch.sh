@@ -39,8 +39,11 @@ main() {
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   echo "NFL host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   if [[ "$dmg" == build ]]; then
-    # build_dmg resolves each side's acpmux with this copy: a base commit may predate resolve-acpmux.sh.
+    # build_dmg resolves each side's acpmux with this copy: a base commit may predate resolve-acpmux.sh. Each side's
+    # Screen Sharing helper phase runs this copy too (NFL_SCREEN_HELPER_PHASE).
     cp scripts/cmux-next/resolve-acpmux.sh "$out/resolve-acpmux.sh" && export NFL_RESOLVE_ACPMUX="$out/resolve-acpmux.sh"
+    cp scripts/cmux-next/bundle-screen-sharing-helper.sh "$out/bundle-screen-sharing-helper.sh" \
+      && export NFL_SCREEN_HELPER_PHASE="$out/bundle-screen-sharing-helper.sh"
     build_ab "$out" "$rounds" "$arms" "$base" "$config"
     return $?
   fi
@@ -93,8 +96,18 @@ build_dmg() {
     acpmux=(CMUX_NEXT_ACPMUX_BIN="$bin")
     echo "NFL acpmux $name $bin"
   fi
+  # The Screen Sharing helper phase from the copy taken before any checkout (NFL_SCREEN_HELPER_PHASE), on a commit
+  # that has the phase: one from before #45226 named the helper "File Doesn't Exist, Will Create: ..." when this
+  # DerivedData's second build found no Info.plist, and the head build failed (launch-ready A/Bs, 2026-11-17). The
+  # commit's own copy is back before the next checkout.
+  local phase=scripts/cmux-next/bundle-screen-sharing-helper.sh overlaid=0
+  if [[ -n "${NFL_SCREEN_HELPER_PHASE:-}" && -f "$NFL_SCREEN_HELPER_PHASE" && -f "$phase" ]] \
+    && ! cmp -s "$NFL_SCREEN_HELPER_PHASE" "$phase"; then
+    cp "$NFL_SCREEN_HELPER_PHASE" "$phase" && overlaid=1 && echo "NFL $name builds with this checkout's $phase"
+  fi
   local started=$SECONDS
   env ${acpmux[@]+"${acpmux[@]}"} CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag nflab --no-global-cli-links "${configuration[@]}" >>"$out/build-$name.log" 2>&1
+  [[ "$overlaid" == 0 ]] || git checkout --quiet -- "$phase"
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build-$name.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "NFL build $name failed: no app path" >&2
