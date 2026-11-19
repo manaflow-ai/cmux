@@ -152,6 +152,7 @@ import {
   type TurnEndCapture,
   type TurnEndFold,
 } from "./conversation/turnEndFold";
+import { revealHolds } from "./conversation/revealedMarkdownModel";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import { isEditRow } from "./turnChanges/sessionRows";
@@ -5066,7 +5067,19 @@ function TranscriptView({
             drainReply.current = reply;
             chaseAnchor.current = undefined;
             const chase = followChase.current;
-            if (chase && grew > 0.5) {
+            // While the fold holds the rows it would bring down (turnEndFold.ts `TurnEndHold`), the
+            // lines take up the room they would have come down into: the fold reads the rows again
+            // now, in the pass that placed them, and they stay where they were drawn. Lines past
+            // that room end the hold, and the fold raises the rows by them from there, on a clock
+            // of its own (the chase landed them at once, 12.7 px in a frame). It reads them in every
+            // pass of the drain, not only the one that read the growth: the reply's drawn height can
+            // grow a pass before the layout takes it, and the view's offset then moves to the new
+            // end in the next pass, in the same frame. The fold's own read of that move waits for
+            // the scroll event, a frame later, so the rows painted up by the offset's move and back
+            // down (agent-pane.streaming-follow-motion#eased-follow: 34.7 px up, 34.8 px down).
+            const fold = turnEnd.current;
+            if ((fold?.held?.() ?? 0) > 0) fold!.place?.();
+            else if (chase && grew > 0.5) {
               chase.resume();
               // After Jump to latest the reply's lines keep to the room (chaseHeld), as they do
               // while the turn runs: an unbounded draw-back drew the folded line under the card.
@@ -5437,7 +5450,20 @@ function TranscriptView({
     // them, until some later pass let it go (review of cmux#41034: a paused 40 px clip after
     // `settleTurnEnd`, the reader scrolled up mid-glide with the live line still in view).
     else tailGlide.current?.stop();
-    turnEnd.current = playTurnEnd(host, capture, sessionId, ref.current);
+    // The reply's last lines still to show at the followed bottom raise the rows the fold brings
+    // down: those rows wait for them where they were drawn (turnEndFold.ts `TurnEndHold`), so the
+    // two never play as opposite moves (a fold 11.7 px down, then the lines 8.4 px up).
+    let reply: string | undefined;
+    for (let index = rows.length - 1; followingRef.current && index >= Math.max(0, rows.length - 6); index -= 1)
+      if (rows[index]!.kind === "assistant") {
+        reply = rows[index]!.id;
+        break;
+      }
+    const hold =
+      reply !== undefined && performance.now() < chaseDrainUntil.current
+        ? { holds: () => revealHolds(reply), until: chaseDrainUntil.current }
+        : undefined;
+    turnEnd.current = playTurnEnd(host, capture, sessionId, ref.current, hold?.holds() ? hold : undefined);
     // The reply's last lines still revealing after the turn ended chase while the fold plays: the
     // chase reads the fold's move on its own frames and keeps each frame of the two together to the
     // fold's bound (followChase `alongside`), so the rows move as one motion, never the sum of two.
