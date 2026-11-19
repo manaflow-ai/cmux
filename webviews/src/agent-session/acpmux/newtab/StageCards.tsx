@@ -143,22 +143,11 @@ function labelOf(cwd: string): string {
   return parts[parts.length - 1] ?? cwd;
 }
 
-/// The suggested actions card: the chats waiting on the user (needs input, failed, lost its agent),
-/// then New terminal, New browser tab and New chat (cx-ag5.7), as icon and text rows.
-export function SuggestionsCard({
-  attention,
-  onOpen,
-  onCreate,
-  onChat,
-}: {
-  attention: ChatCard[];
-  onOpen(sessionId: string): void;
-  /// A blank terminal or browser tab; absent where the page cannot open one.
-  onCreate?: (kind: "terminal" | "browser") => void;
-  onChat(): void;
-}) {
+/// Chats waiting on the user: needs input, failed, or lost its agent.
+export function SuggestionsCard({ attention, onOpen }: { attention: ChatCard[]; onOpen(sessionId: string): void }) {
   const t = useT();
   const nt = useNt();
+  if (!attention.length) return null;
   return (
     <section className="nt-stage-card nt-suggest" aria-label={nt("suggest.label")}>
       {attention.map((card) => {
@@ -196,41 +185,6 @@ export function SuggestionsCard({
           </Tooltip>
         );
       })}
-      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      <div className="nt-create" role="group" aria-label={nt("create.label")}>
-        {onCreate && (
-          <>
-            <button
-              type="button"
-              className="nt-stage-row nt-tool"
-              data-create="terminal"
-              onClick={() => onCreate("terminal")}
-            >
-              <span className="nt-stage-icon" aria-hidden="true">
-                <Icon name="terminal" size={14} />
-              </span>
-              <span className="nt-stage-text">{nt("create.terminal")}</span>
-            </button>
-            <button
-              type="button"
-              className="nt-stage-row nt-tool"
-              data-create="browser"
-              onClick={() => onCreate("browser")}
-            >
-              <span className="nt-stage-icon" aria-hidden="true">
-                <Icon name="browser" size={14} />
-              </span>
-              <span className="nt-stage-text">{nt("create.browser")}</span>
-            </button>
-          </>
-        )}
-        <button type="button" className="nt-stage-row nt-tool" data-create="chat" onClick={onChat}>
-          <span className="nt-stage-icon" aria-hidden="true">
-            <Icon name="agent.chat" size={14} />
-          </span>
-          <span className="nt-stage-text">{nt("create.chat")}</span>
-        </button>
-      </div>
     </section>
   );
 }

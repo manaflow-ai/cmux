@@ -7,6 +7,18 @@ import CmuxNextAgentActivity
 /// All mutable state is confined to the private utility queue.
 public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable { // crash-allow: callbacks hop back to this serial queue before touching state
     public static let maxUndeliveredBytes = 1 << 20
+    /// The most one batch holds (``maxUndeliveredBytes`` unless the caller passes less; a pane's
+    /// chat host passes 64 KiB). A single change over it is a batch alone. One socket read is at
+    /// most this much too, so unread bytes stay within it.
+    public let maxBatchBytes: Int
+    /// Each change goes into a batch as a 4-byte big-endian length, then its bytes, instead of
+    /// joined by newlines: a chat blob change holds a newline. A framed batch takes no change
+    /// while it is out, so its acknowledgement covers exactly what was handed over.
+    private let framesChanges: Bool
+    /// The drop callback a ``reconnect(path:refused:)`` opens again with.
+    private var reopenClose: (@Sendable () -> Void)?
+    private var reads = 0
+    private var bytesRead = 0
     private let client: AcpmuxClient
     private let queue = DispatchQueue(label: "cmux.acpmux-client.driver", qos: .utility) // qos-allow: socket bytes are background transport work
     private var input = Data()
@@ -18,7 +30,11 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
     private var onClose: (@Sendable () -> Void)?
     private var closed = false
 
-    public init(client: AcpmuxClient) { self.client = client }
+    public init(client: AcpmuxClient, maxBatchBytes: Int = maxUndeliveredBytes, framesChanges: Bool = false) {
+        self.client = client
+        self.maxBatchBytes = max(1, maxBatchBytes)
+        self.framesChanges = framesChanges
+    }
 
     /// Feeds a received chunk through the same serial path used by the socket.
     /// Tests use this to replay recorded daemon bytes without making the test
@@ -35,34 +51,64 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
         }
     }
 
+    /// Waits until all previously queued test input has run on the driver queue.
+    /// Production callers use socket callbacks instead of this synchronization seam.
+    internal func flushForTesting() async {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume() }
+        }
+    }
+
     public func start(path: String, onChange: @escaping @Sendable (Data) -> Void,
                       onClose: @escaping @Sendable () -> Void) {
         queue.async { [self] in
             guard !closed else { return }
             self.onChange = onChange
             self.onClose = onClose
-            let connection = AgentActivityLineConnection(path: path)
-            self.connection = connection
-            guard client.connected() == 0 else {
-                fail()
-                return
-            }
-            var upgrade = Data()
-            while let bytes = client.takeSend() { upgrade.append(bytes) }
-            connection.startBytes(send: upgrade, onBytes: { [weak self] bytes in
-                self?.queue.async { self?.receive(bytes) }
-            }, onClose: { [weak self] in
-                self?.queue.async {
-                    guard let self, !self.closed else { return }
-                    self.closed = true
-                    self.client.setSendHandler(nil)
-                    _ = self.client.disconnected()
-                    self.onClose = nil
-                    onClose()
-                }
-            })
-            client.setSendHandler { [weak connection] bytes in connection?.send(bytes) }
+            open(path: path, onClose: onClose)
         }
+    }
+
+    /// Opens the socket again after it dropped (its `onClose` ran), on the same client: the core
+    /// resumes its subs, and the batch not yet acknowledged and the change it could not hold stay,
+    /// so nothing taken out of the core is lost. `refused` runs instead when the driver was
+    /// stopped or failed; the caller then makes a new one.
+    public func reconnect(path: String, refused: @escaping @Sendable () -> Void) {
+        queue.async { [self] in
+            guard closed, onChange != nil, let onClose = reopenClose else { return refused() }
+            reopenClose = nil
+            closed = false
+            input.removeAll()
+            self.onClose = onClose
+            open(path: path, onClose: onClose)
+        }
+    }
+
+    private func open(path: String, onClose: @escaping @Sendable () -> Void) {
+        let connection = AgentActivityLineConnection(path: path, readLimit: maxBatchBytes)
+        self.connection = connection
+        guard client.connected() == 0 else {
+            fail()
+            return
+        }
+        var upgrade = Data()
+        while let bytes = client.takeSend() { upgrade.append(bytes) }
+        connection.startBytes(send: upgrade, onBytes: { [weak self] bytes in
+            guard let self else { return }
+            self.queue.async { self.receive(bytes) }
+        }, onClose: { [weak self] in
+            guard let self else { return }
+            self.queue.async {
+                guard !self.closed else { return }
+                self.closed = true
+                self.client.setSendHandler(nil)
+                _ = self.client.disconnected()
+                self.onClose = nil
+                self.reopenClose = onClose
+                onClose()
+            }
+        })
+        client.setSendHandler { [weak connection] bytes in connection?.send(bytes) }
     }
 
     public func acknowledgeBatch() {
@@ -109,6 +155,8 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
 
     private func receive(_ bytes: Data) {
         guard !closed else { return }
+        reads += 1
+        bytesRead += bytes.count
         input.append(bytes)
         processInput()
     }
@@ -116,7 +164,9 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
     private func processInput() {
         guard !closed else { return }
         drainChanges()
-        while !input.isEmpty, pending.count < Self.maxUndeliveredBytes {
+        // The same guard as `drainChanges`: a framed batch that is out takes no read either, so a
+        // reconnect's first read stays unread until the batch is acknowledged.
+        while !input.isEmpty, pending.count < maxBatchBytes, !(framesChanges && pendingDelivery) {
             let result = client.received(input)
             guard result.isSuccess else {
                 fail()
@@ -140,18 +190,22 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
     }
 
     private func drainChanges() {
-        while pending.count < Self.maxUndeliveredBytes {
+        while pending.count < maxBatchBytes, !(framesChanges && pendingDelivery) {
             guard let change = deferredChange ?? client.nextChange() else { return }
-            let separator = pending.isEmpty ? 0 : 1
-            let fits = pending.count + separator + change.count <= Self.maxUndeliveredBytes
+            let separator = framesChanges ? 4 : (pending.isEmpty ? 0 : 1)
+            let fits = pending.count + separator + change.count <= maxBatchBytes
             // A single change is allowed to exceed the cap; combining it with
             // another change is never allowed to do so.
-            guard fits || (pending.isEmpty && separator == 0) else {
+            guard fits || pending.isEmpty else {
                 deferredChange = change
                 return
             }
             deferredChange = nil
-            if separator != 0 { pending.append(0x0a) }
+            if framesChanges {
+                withUnsafeBytes(of: UInt32(truncatingIfNeeded: change.count).bigEndian) { pending.append(contentsOf: $0) }
+            } else if separator != 0 {
+                pending.append(0x0a)
+            }
             pending.append(change)
         }
     }
@@ -178,5 +232,20 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
         onClose = nil
         pendingDelivery = false
         callback?()
+    }
+
+    /// What the driver holds now (tests): the batch, the change it could not hold, the bytes the
+    /// core has not taken, the number of socket reads so far and the bytes they held.
+    internal func heldForTesting() async -> (pending: Int, deferred: Int, input: Int, reads: Int, bytes: Int) {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                continuation.resume(returning: (pending.count, deferredChange?.count ?? 0, input.count, reads, bytesRead))
+            }
+        }
+    }
+
+    /// Fails the connection as bad bytes would (tests): it closes and `onClose` runs.
+    internal func failForTesting() {
+        queue.async { [self] in fail() }
     }
 }
