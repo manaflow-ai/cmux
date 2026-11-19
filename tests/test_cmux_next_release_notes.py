@@ -804,5 +804,54 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertEqual(result.summary, "")
 
 
+class OpenSSLOnAMacTests(unittest.TestCase):
+    """sign-release-notes and publish-nightly-reel run on the trusted signing Mac (2026-11-19), whose `openssl` is
+    LibreSSL: no ed25519 `pkeyutl -rawin`. release-notes.py signs and verifies with Homebrew's OpenSSL 3 there."""
+
+    def test_sign_and_verify_skip_a_libressl_openssl_on_path(self):
+        import contextlib, importlib.util, shutil
+        real = shutil.which("openssl")
+        if not real:
+            self.skipTest("no openssl to stand in for Homebrew's openssl@3")
+        spec = importlib.util.spec_from_file_location("release_notes_openssl", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        with tempfile.TemporaryDirectory() as tmp:
+            stub_dir = os.path.join(tmp, "bin")
+            os.mkdir(stub_dir)
+            stub = os.path.join(stub_dir, "openssl")
+            with open(stub, "w") as f:
+                f.write('#!/bin/sh\n[ "$1" = version ] && { echo "LibreSSL 3.3.6"; exit 0; }\n'
+                        'echo "pkeyutl: Unknown option: -rawin" >&2; exit 1\n')
+            os.chmod(stub, 0o755)
+            key = os.path.join(tmp, "key.pem")
+            subprocess.run([real, "genpkey", "-algorithm", "ed25519", "-out", key], check=True, capture_output=True)
+            der = subprocess.run([real, "pkey", "-in", key, "-pubout", "-outform", "DER"], check=True,
+                                 capture_output=True).stdout
+            public_key = base64.b64encode(der[-32:]).decode()
+            payload = os.path.join(tmp, "notes.json")
+            with open(payload, "w") as f:
+                f.write('{"build": "1"}')
+            old_env = dict(os.environ)
+            os.environ.pop("OPENSSL", None)
+            os.environ["PATH"] = stub_dir + os.pathsep + old_env.get("PATH", "/usr/bin:/bin")
+            try:
+                # Homebrew's openssl@3, as the Mac has it, with LibreSSL first on PATH.
+                notes.HOMEBREW_OPENSSL = (real,)
+
+                class Args:
+                    files = [payload]
+                Args.key = key
+                with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
+                    notes.sign(Args)
+                self.assertTrue(notes.verified(payload, public_key))
+                with open(payload, "w") as f:
+                    f.write('{"build": "2"}')
+                self.assertFalse(notes.verified(payload, public_key))
+            finally:
+                os.environ.clear()
+                os.environ.update(old_env)
+
+
 if __name__ == "__main__":
     unittest.main()

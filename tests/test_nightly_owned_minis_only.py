@@ -9,8 +9,12 @@ legacy-identity copies) on Linux.
 
 1. Each job's runs-on, evaluated for manaflow-ai over sampled attempts, refs, events and picker
    outputs, names a glaeda label (or a variable that holds one). Lawrence, 2026-11-04: "Never move a
-   nightly job to Blacksmith, a GitHub-hosted runner or another mini". HOSTED_TAIL_JOBS are the only
-   exceptions, each with its reason, and this list may only shrink. Each one holds a release secret
+   nightly job to Blacksmith, a GitHub-hosted runner or another mini". HOSTED_TAIL_JOBS and HOSTED_LOOP_JOBS
+   are empty since 2026-11-19: GitHub-hosted Ubuntu started none of the five for 224-444 min (runs
+   44333866030, 44359568082), so they take the trusted signing runner with the whole-Mac claim (claude-sr2-coord:
+   "Move those runs-on to our owned labels ... with a test that no nightly-gating job names a hosted label").
+   The history below is why they were hosted. HOSTED_TAIL_JOBS were exceptions, each with its reason, and the
+   list may only shrink. Each one holds a release secret
    (so never the nightly mini's shared light runners) and runs only in the tail (run_tail: on nightly-next
    the dispatched run outside the push group), so a hosted queue never holds the push group or the
    feed: GitHub-hosted ubuntu-24.04 had 307 jobs queued, the oldest for 39 min, on 2026-11-08. On the
@@ -62,22 +66,21 @@ RAW = yaml.safe_load(WORKFLOW_TEXT)
 
 # The only nightly.yml jobs on GitHub-hosted Ubuntu: secret jobs that run only in the tail, outside the push group,
 # whose whole-Mac hold on the trusted signing runner would be long or wait-bound. job -> why it stays hosted.
-HOSTED_TAIL_JOBS = {
-    "sentry-dsyms-nightly": "a Sentry upload of 10.8 and 19.7 min (runs 41471126151, 41466468306)",
-    "sign-release-notes": "a span fetch that waits through API rate limits (70 min), and release-notes.py's "
-                          "openssl pkeyutl -rawin, which macOS's LibreSSL lacks",
-    "publish-release-notes": "up to 130 min of publish-lease and API rate-limit waits",
-    "publish-nightly-reel": "an ffmpeg render of up to 90 min",
-}
+# Empty since 2026-11-19: the hosted pool started none of them for 224-444 min (runs 44333866030, 44359568082).
+# They were sentry-dsyms-nightly, sign-release-notes, publish-release-notes and publish-nightly-reel; each now holds
+# the whole signing Mac (EXCLUSIVE_PUBLISHERS), and release-notes.py takes Homebrew's OpenSSL 3 there.
+HOSTED_TAIL_JOBS: dict[str, str] = {}
 # Leo's override (2026-11-08, "no. if this is still a good idea, we can still do it."): a loop-run job on GitHub-hosted
 # Ubuntu. job -> why. Its whole-Mac hold on cmux15 (289-406 s a build, after 79-412 s queued behind keep-published-dsyms:
 # runs 42547726872, 42552327203, 42555458535, 42563930397) kept the signer from the next sign; a hosted job queued
 # 2-89 s in the same runs' tails. It holds the push group as before, so a hosted queue like 2026-11-08's 39 min would
 # hold it too: the stated cost.
-HOSTED_LOOP_JOBS = {
-    "publish-nightly-next-github": "uploads only, with the release App key that publish-release-notes already takes to "
-                                   "an ephemeral hosted VM; on the signer it held the whole Mac",
-}
+# Empty since 2026-11-19 (publish-nightly-next-github, with the four tail jobs above): a hosted queue that starts
+# nothing for hours costs more than its 289-406 s whole-Mac hold on the signer.
+HOSTED_LOOP_JOBS: dict[str, str] = {}
+# The jobs that left GitHub-hosted Ubuntu on 2026-11-19 for the trusted signing runner.
+LEFT_HOSTED = ("publish-nightly-next-github", "sentry-dsyms-nightly", "sign-release-notes", "publish-release-notes",
+               "publish-nightly-reel")
 # The secret-free runner preflight ahead of decide left GitHub-hosted Ubuntu on 2026-11-18: the org-wide hosted
 # queue held it 1h25m+ (run 44207617943), and every nightly with it, while the nightly Macs were idle. It now runs on
 # decide's own route: the nightly-only pool, or in one-mini mode vars.CI_NIGHTLY_MINI with the rest of the run
@@ -129,7 +132,7 @@ def manaflow_routes(name: str) -> list[str] | None:
 # GitHub-hosted Ubuntu until glaeda admitted them on the trusted signing runner; keep-published-dsyms holds the
 # push group (it runs in the loop run), republish-nightly-deltas follows generate-nightly-deltas' own hold.
 EXCLUSIVE_PUBLISHERS = ("promote-nightly-next", "publish-nightly",
-                        "keep-published-dsyms", "republish-nightly-deltas", "promote-nightly-next-acked")
+                        "keep-published-dsyms", "republish-nightly-deltas", "promote-nightly-next-acked", *LEFT_HOSTED)
 # Of those, the ones that need no sign pick: promote-nightly-next and its retired (if: false) acked twin share a route.
 PROMOTE_ROUTE = ("promote-nightly-next", "promote-nightly-next-acked")
 SIGNER = "glaeda-trusted-next-signing"
@@ -215,25 +218,19 @@ class EveryJobOnOurMinis(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertTrue(workflow_jobs.secret_names(JOBS[name]), "a hosted job without a secret moves to the light runners")
 
-    def test_the_hosted_loop_upload_never_reaches_a_mini(self) -> None:
-        # Leo's override covers this one job only, and only on a hosted VM: no variable, pick or one-mini mode may put
-        # the release App key on a mini without the whole-Mac claim, so its route is the literal hosted label.
-        self.assertEqual(set(HOSTED_LOOP_JOBS), {"publish-nightly-next-github"})
-        for name in HOSTED_LOOP_JOBS:
-            job = JOBS[name]
-            resolved = workflow_jobs.resolve(job, name)
+    def test_no_tail_or_loop_job_waits_on_github_hosted(self) -> None:
+        # 2026-11-18/19: GitHub-hosted Ubuntu started none of these for 224-444 min (runs 44333866030, 44359568082).
+        # Each now holds a release secret on the trusted signing runner, behind the whole-Mac claim.
+        self.assertEqual(HOSTED_TAIL_JOBS, {})
+        self.assertEqual(HOSTED_LOOP_JOBS, {})
+        for name in LEFT_HOSTED:
             with self.subTest(job=name):
-                self.assertEqual(resolved.runs_on_cells,
-                                 ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}"])
-                self.assertIn("secrets.CMUX_RELEASE_APP_KEY", json.dumps(job))
-                self.assertIn("release-next", resolved.environments)
-                self.assertEqual(resolved.environments_unresolved, set())
-                self.assertNotIn("pick-nightly-sign-runner", json.dumps(job))
-                # It stays in the loop run, which the next decide reads (tests/test_nightly_next_tail_off_push_group).
-                self.assertIn("needs.published-build.outputs.cross_run != 'true'", str(job.get("if")))
-                ids = [step.get("id") for step in steps(name)]
-                self.assertNotIn(CLAIM_GATE_ID, ids)
-                self.assertFalse(any(CLAIM in str(step.get("run", "")) for step in steps(name)))
+                self.assertIn(name, EXCLUSIVE_PUBLISHERS)
+                self.assertNotRegex(manaflow_route(name), NOT_OURS)
+                self.assertTrue(workflow_jobs.secret_names(JOBS[name]), "a secret-free job belongs on the light runners")
+        # publish-nightly-next-github stays in the loop run, which the next decide reads
+        # (tests/test_nightly_next_tail_off_push_group).
+        self.assertIn("needs.published-build.outputs.cross_run != 'true'", str(JOBS["publish-nightly-next-github"].get("if")))
 
     def test_a_hosted_job_runs_only_in_the_tail(self) -> None:
         # The push run holds the push group until its last job ends: a hosted queue there delays the next build.

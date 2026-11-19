@@ -21,7 +21,7 @@ from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 sys.path.insert(0, str(ROOT / "tests"))
-from runs_on_labels import resolve_labels  # noqa: E402
+from runs_on_labels import GITHUB_HOSTED, resolve_labels  # noqa: E402
 import workflow_jobs  # noqa: E402
 
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
@@ -56,6 +56,18 @@ PUBLICATION_POOL_JOBS = (
     "report-nightly-failure",
     "close-nightly-failure-issue",
 )
+
+# Jobs of a nightly workflow that may still resolve to a GitHub-hosted label in manaflow-ai, each with why. None of
+# them is on a nightly-next build's path. This list only shrinks
+# (test_no_nightly_job_can_queue_on_a_github_hosted_label).
+HOSTED_NIGHTLY_EXCEPTIONS = {
+    "nightly.yml#republish-nightly-deltas": "classic and RC tracks only (github.ref != nightly-next): their release "
+                                            "uploads wait out the rate limit for up to 360 min, which must not hold the "
+                                            "signing Mac; nightly-next takes the signer "
+                                            "(test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED)",
+    "cmux-tui-nightly.yml#publish-npm": "npm provenance accepts only a GitHub-hosted runner's OIDC",
+    "nightly-tag-permission-probe.yml#probe": "a dispatch-only diagnostic (probe_mode, default off); no nightly waits on it",
+}
 
 SINGLE_HOST = re.compile(r"cmux22|glaeda-runner-[a-z0-9][a-z0-9-]*", re.IGNORECASE)
 OLD_NIGHTLY_RUNNER = re.compile(r"CI_NIGHTLY_(?:NEXT_)?TRUSTED_(?:POOL|RUNNER)")
@@ -468,6 +480,52 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("scripts/cmux-next/request-nightly-next.sh --tree-ready", text)
         self.assertIn("cancel-in-progress: false", text)
+
+    def test_no_nightly_job_can_queue_on_a_github_hosted_label(self) -> None:
+        """No job of a nightly workflow can resolve to a GitHub-hosted label (ubuntu-*, macos-*, windows-*) in
+        manaflow-ai, but the few named in HOSTED_NIGHTLY_EXCEPTIONS, none of which a nightly-next build waits on.
+
+        2026-11-18/19: the hosted pool started nothing for hours, and nightly.yml's sentry-dsyms-nightly,
+        sign-release-notes and publish-release-notes sat queued 224-444 min on ubuntu-24.04 (runs 44359568082,
+        44333866030). claude-sr2-coord: "Move those runs-on to our owned labels ... with a test that no
+        nightly-gating job names a hosted label." The operator's hosted signing switches (vars.CI_NIGHTLY_MINI_SIGNER
+        == 'macos-26', vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04'; tests/test_nightly_owned_minis_only.py) count
+        as unset: each sends a job to a hosted label only while an operator sets it to exactly that label.
+        """
+        import yaml
+        switches_off = {"CI_NIGHTLY_MINI_SIGNER": [], "CI_NIGHTLY_MINI_PUBLISHER": []}
+        hosted = {}
+        for path in nightly_workflows():
+            jobs = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("jobs") or {}
+            for name, job in jobs.items():
+                job = job or {}
+                if job.get("uses"):
+                    continue  # a called workflow is checked as its own file
+                key = f"{path.name}#{name}"
+                cells = workflow_jobs.runs_on_cells(job)
+                if cells is None:
+                    self.assertIsNotNone(workflow_jobs.audited_matrix(path.name, name),
+                                         f"{key}: runs-on has a matrix value nothing resolves")
+                    continue
+                labels = {str(label) for cell in cells for label in resolve_labels(cell, variables=switches_off)
+                          if isinstance(label, str) and GITHUB_HOSTED.fullmatch(label)}
+                if labels:
+                    hosted[key] = sorted(labels)
+        self.assertEqual(sorted(set(hosted) - set(HOSTED_NIGHTLY_EXCEPTIONS)), [],
+                         "a nightly job can queue on GitHub-hosted runners: "
+                         + "; ".join(f"{k}: {v}" for k, v in sorted(hosted.items()) if k not in HOSTED_NIGHTLY_EXCEPTIONS))
+        # The list only shrinks: an exception that no longer resolves to a hosted label is removed.
+        self.assertEqual(sorted(set(HOSTED_NIGHTLY_EXCEPTIONS) - set(hosted)), [])
+
+    def test_the_hosted_label_check_fails_on_a_hosted_nightly_job(self) -> None:
+        for runs_on in ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}",
+                        "${{ vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || 'macos-26' }}",
+                        "windows-2022"):
+            with self.subTest(runs_on=runs_on):
+                labels = {label for label in resolve_labels(runs_on) if isinstance(label, str)}
+                self.assertTrue(any(GITHUB_HOSTED.fullmatch(label) for label in labels), labels)
+        owned = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-trusted-next-signing' }}"
+        self.assertFalse(any(GITHUB_HOSTED.fullmatch(str(label)) for label in resolve_labels(owned)))
 
     def test_no_workflow_reads_the_retired_decide_runner_variable(self) -> None:
         """CI_NIGHTLY_DECIDE_RUNNER named a Blacksmith pool and is deleted."""
