@@ -27,7 +27,7 @@ done
 [[ ${#dmgs[@]} -gt 0 ]] || { echo "give at least one dmg=https://..." >&2; exit 2; }
 echo "NWS host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
 status=0
-for url in "${dmgs[@]}"; do
+for url in ${dmgs[@]+"${dmgs[@]}"}; do
   name="$(basename "$url" .dmg)"
   dir="$out/$name"
   mkdir -p "$dir"

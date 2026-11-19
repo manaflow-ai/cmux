@@ -71,12 +71,12 @@ ensure_rust_targets --toolchain "$DIFF_RUST_TOOLCHAIN" aarch64-apple-darwin x86_
 rustup run "$DIFF_RUST_TOOLCHAIN" cargo --version
 rustup run "$DIFF_RUST_TOOLCHAIN" rustc --version
 
-# Every app build also runs scripts/build-cmux-cua.sh, which compiles the
-# bundled cmux-cua engine with Cargo (default toolchain). Verify a working
-# cargo is on PATH so the first tagged reload does not fail mid-build.
-echo "==> Checking for cargo (bundled cmux-cua)..."
+# A tagged reload compiles the bundled Rust helpers (acpmux and the cmux-tui
+# client, which carries cmux Computer Use) with Cargo. Verify a working cargo is
+# on PATH so the first tagged reload does not fail mid-build.
+echo "==> Checking for cargo (bundled Rust helpers)..."
 if ! command -v cargo &> /dev/null || ! cargo --version &> /dev/null; then
-    echo "Error: a working Rust toolchain (cargo) is required to build the bundled cmux-cua."
+    echo "Error: a working Rust toolchain (cargo) is required to build the bundled Rust helpers."
     echo "Install via rustup: https://rustup.rs"
     echo "(Homebrew's rustup is keg-only and ships no rustup-init: add"
     echo " \"\$(brew --prefix rustup)/bin\" to PATH, then run \`rustup default stable\`.)"
