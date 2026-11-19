@@ -172,9 +172,10 @@ PARTS = [
     # staged bundle deleted and copied again, so each launch is the first exec of new files (an update in place, the
     # first launch after a build) and pays the system's check of a new copy before main. Rows launch.cold.<mark>,
     # judged against LAUNCH_COLD_BUDGETS; the run also waits for Home on screen (reveal.home).
-    {"name": "launch-cold", "args": [*MEASURE, "--suite=launch", "--profile", "empty", "--mode", "cold", "--runs", "5",
-                                     "--timeout", "20", "--activation", "active", "--window-placement", "restore",
-                                     "--fresh-copy", "--ready-mark", "reveal.home"],
+    # One word per option (the controller's step takes at most 16 args).
+    {"name": "launch-cold", "args": [*MEASURE, "--suite=launch", "--profile=empty", "--mode=cold", "--runs=5", "--timeout=20",
+                                     "--activation=active", "--window-placement=restore", "--fresh-copy",
+                                     "--ready-mark=reveal.home"],
      "artifact": "artifacts/split-spring/report.json", "kind": "launch", "needs": "launch-cold"},
     # 400 workspaces, 6 scenarios: not timed against 900 s yet (perf-budgets' own per-bench cap is 900 s).
     {"name": "sidebar", "args": [*MEASURE, "--suite=budgets", "--only=sidebar"],

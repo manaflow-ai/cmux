@@ -287,10 +287,10 @@ class RowsTests(unittest.TestCase):
         a run that never showed Home is a missing_runs row, not a dropped value."""
         part = cron.PART_BY_NAME["launch-cold"]
         args = part["args"]
-        self.assertEqual(args[args.index("--mode") + 1], "cold")
-        self.assertIn("--fresh-copy", args)
-        self.assertEqual(args[args.index("--ready-mark") + 1], "reveal.home")
-        self.assertEqual(args[args.index("--activation") + 1], "active")
+        for word in ("--mode=cold", "--fresh-copy", "--ready-mark=reveal.home", "--activation=active",
+                     "--window-placement=restore"):
+            self.assertIn(word, args)
+        self.assertLessEqual(len(args) + 1, 16, "the controller's step takes at most 16 args (with --vdisplay-hold)")
         slow = {"split-spring": {"cold": [{"main_start": 1500, "first_window_frame_committed": v, "reveal.home": v + 150}
                                           for v in (2790, 2800, 2950)] + [{"main_start": 1490, "first_window_frame_committed": 2810}]},
                 "not_run": []}
