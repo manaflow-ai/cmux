@@ -78,7 +78,9 @@ jobs:
             for m in "${missing[@]}"; do echo "::error::$SHA has no $m"; done
             exit 1
           fi
-          VERSION="${INPUT_MARKETING_VERSION:-}"
+          # The App Store record's pending version is 1.0.0 (first release), whatever
+          # project.yml's MARKETING_VERSION says; the build must match it.
+          VERSION="${INPUT_MARKETING_VERSION:-1.0.0}"
           if [ -z "$VERSION" ]; then
             VERSION="$(awk '$0 == "    AppStore:" { inside = 1; next } inside { match($0, /^ */); if (RLENGTH <= 4 && length($0) > RLENGTH) exit } inside && /^      MARKETING_VERSION:/ { print $2; exit }' cmux-next-ios/project.yml)"
           fi
