@@ -40,7 +40,7 @@ sys.path.insert(0, HERE)
 import scenario  # noqa: E402
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--scenario", required=True, choices=["smoke", "soak", "interrupt", "codex6", "import", "effort", "warm20", "chiefux", "coordinator", "mcp"])
+ap.add_argument("--scenario", required=True, choices=["smoke", "soak", "interrupt", "codex6", "import", "effort", "warm20", "chiefux", "coordinator", "mcp", "responsive"])
 ap.add_argument("--out", required=True)
 ap.add_argument("--bins", required=True)
 ap.add_argument("--login-env", default="")
@@ -53,6 +53,7 @@ ap.add_argument("--max-settle", type=float, default=None, help="stop the run whe
 ap.add_argument("--mux-from", default="", help="start from a copy of this built memory (a kept MUX dir) instead of an empty one")
 ap.add_argument("--turns-during-import", type=int, default=0, help="import scenario: send this many short turns, one per minute, while the import builds")
 ap.add_argument("--keep-mux", default="", help="at the end, copy the brain's MUX dir (memory, traces) here")
+ap.add_argument("--idle", type=float, default=0, help="responsive: seconds of idle before the last probe (0: none)")
 ap.add_argument("--env", action="append", default=[], help="KEY=VALUE for the host (and so every turn and node); recorded in run.json")
 opts = ap.parse_args()
 # SIGTERM, SIGINT (Ctrl-C) and SIGHUP (a closed ssh session) run the cleanup
@@ -826,6 +827,19 @@ try:
         run["mcp"] = dict(proof, replies=[r1[:2000], r2[:2000], r3[:2000]], tool_calls=mcp_calls)
         json.dump(run, open(os.path.join(OUT, "run.json"), "w"), indent=1)
         raise SystemExit(0 if all(proof.values()) else 1)
+
+    if opts.scenario == "responsive":
+        # Felt responsiveness (measure/responsive.py): every sign the person sees,
+        # stamped from the daemon's subscribe stream; the trace says why.
+        import responsive  # noqa: E402
+        res = responsive.run({"log": log, "send": send, "conv": conv, "sock": SOCK, "work": WORK, "out": OUT,
+                              "trace_events": trace_events, "idle": idle, "last_seq": last_seq,
+                              "only": opts.only, "idle_s": opts.idle, "timeout": opts.turn_timeout})
+        run["end"] = now_ms()
+        run["probes"] = len(res)
+        shutil.copytree(TRACES, os.path.join(OUT, "traces"), dirs_exist_ok=True)
+        json.dump(run, open(os.path.join(OUT, "run.json"), "w"), indent=1)
+        raise SystemExit(0 if res and not any(r.get("timeout") for r in res) else 1)
 
     turns = scenario.turns(opts.scenario)
     if opts.only:
