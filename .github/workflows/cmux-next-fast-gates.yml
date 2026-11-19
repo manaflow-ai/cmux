@@ -245,8 +245,8 @@ jobs:
           { echo "head_sha=$head"; echo "base=$base"; echo "post=$post"; } >> "$GITHUB_OUTPUT"
           echo "head $head, base $base"
 
-  # A local test receipt (scripts/ci/ci_receipt.py). Leo: "if you test a change locally and it works or whatever,
-  # like we can just count that as a pass, as a skip in CI." Only for a same-repository pull request whose body names
+  # A local test receipt (scripts/ci/ci_receipt.py): a change tested locally counts as a CI pass, and the job is
+  # skipped. Only for a same-repository pull request whose body names
   # one (`CI-Receipt: fast-gates <Fast checks run URL>`), so every other run spends no runner and no API call here.
   # The receipt is a Fast checks run of the canonical `python3 scripts/ci/ci_receipt.py produce fast-gates` on this
   # head (`cmux-ci test`), which GitHub attests: no key. The verifier comes from the base commit, never the pull

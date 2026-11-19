@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local test receipts: a passing same-tree `cmux-ci test` run counts as the CI job it repeats.
 
-Leo: "if you test a change locally and it works or whatever, like we can just count that as a pass, as a skip in CI."
+A change tested locally (Leo) counts as a CI pass, and the CI job it repeats is skipped.
 
 A receipt is a Fast checks run (.github/workflows/fast-checks.yml), dispatched on main by the lane-gh broker for
 `cmux-ci test`, whose command is a job's canonical command below. GitHub is the signer: the run, its workflow file

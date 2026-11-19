@@ -28,8 +28,8 @@ env:
   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
-  # A local test receipt (scripts/ci/ci_receipt.py). Leo: "if you test a change locally and it works or whatever,
-  # like we can just count that as a pass, as a skip in CI." Only for a same-repository pull request whose body names
+  # A local test receipt (scripts/ci/ci_receipt.py): a change tested locally counts as a CI pass, and the job is
+  # skipped. Only for a same-repository pull request whose body names
   # one (`CI-Receipt: rust-workspaces <Fast checks run URL>`), so every other run spends no runner and no API call
   # here. The receipt is a Fast checks run of the canonical `python3 scripts/ci/ci_receipt.py produce rust-workspaces`
   # on this head (`cmux-ci test`), which GitHub attests: no key. It must have merged onto this run's very base (no
