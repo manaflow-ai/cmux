@@ -171,6 +171,7 @@ fn the_vm_limit_names_its_limit_and_the_vms_that_hold_it() {
             used: Some(20),
             orphans: Some(3),
             oldest_vm_age_s: Some(259_200),
+            ..Facts::default()
         }
     );
     let why = reason("cloud.quota.vm_limit", &facts).unwrap();
@@ -205,4 +206,26 @@ fn every_cap_has_a_reason_and_other_codes_keep_the_callers_words() {
         let expected = is_cap(refusal.code) || refusal.code == "cloud.rate_limited";
         assert_eq!(has, expected, "{}", refusal.code);
     }
+}
+
+/// A size the plan does not give names the size asked, the largest the plan gives and the plan that lifts it; a
+/// null upgrade (no plan lifts it) is kept apart from a body that says nothing.
+#[test]
+fn a_size_refusal_keeps_its_sizes_and_upgrade() {
+    let body = json!({"code": "cloud.size.locked", "retryable": false,
+        "details": {"memory_mb": 32768, "needed": "xl", "allowed": "lg", "upgrade_plan": "max", "plan": "max"}});
+    let facts = Facts::read(Some(&body), None);
+    assert_eq!(facts.needed, Some(LadderSize::Xl));
+    assert_eq!(facts.allowed, Some(LadderSize::Lg));
+    assert_eq!(facts.upgrade_plan, Some(UpgradePlan::Max));
+    let top =
+        json!({"code": "cloud.size.locked", "details": {"needed": "2xl", "upgrade_plan": null}});
+    let top = Facts::read(Some(&top), None);
+    assert_eq!(
+        (top.needed, top.allowed, top.upgrade_plan),
+        (Some(LadderSize::Xxl), None, Some(UpgradePlan::Nothing))
+    );
+    assert_eq!(Facts::read(Some(&json!({"details": {}})), None).upgrade_plan, None);
+    assert_eq!(serde_json::to_value(LadderSize::Xxl).unwrap(), "2xl");
+    assert_eq!(serde_json::to_value(UpgradePlan::Nothing).unwrap(), "nothing");
 }

@@ -70,7 +70,7 @@ extension CmuxRemoteActionEnvironment {
             .waiting(.externalProcess) {
                 let status = (try? await remote.status()) ?? .null
                 guard let window = environment.window() else { return nil }
-                let spec = CmuxDialogSpec(title: CmuxRemoteStrings.statusTitle, lines: CmuxRemoteStrings.statusLines(status),
+                let spec = CmuxDialogSpec(usesTransientMaterial: true, title: CmuxRemoteStrings.statusTitle, lines: CmuxRemoteStrings.statusLines(status),
                                           buttons: [CmuxDialogButton(id: "ok", title: CmuxRemoteStrings.done, role: .default)],
                                           identifier: "cmux.dialog.remote.status")
                 CmuxDialogCenter.shared.present(spec, in: .window(window)) { _ in }
@@ -91,10 +91,8 @@ extension CmuxRemoteActionEnvironment {
                 return .success([:])
             })
         })
-        _ = registry.bindEffect("macScreen.revokeViewer", unavailable: { environment.screenHost.noSessionReason }, effect: { _ in
-            _ = environment.screenHost.revokeViewer()
-            return .done
-        })
+        // `macScreen.revokeViewer` is MacScreenActions' (the same host, `macScreenPages.hubHost`): binding it here too
+        // was a second owner (CatalogRequestHandlersTests.everyRequestRowIsBound, `duplicateBindings`).
         _ = registry.bindEffect("macScreen.deviceAccess", effect: { _ in
             environment.openDevices()
             return .done
@@ -184,7 +182,7 @@ extension CmuxRemoteActionEnvironment {
     static func confirm(title: String, body: String, in window: NSWindow?) async -> Bool {
         guard let window else { return false }
         return await withCheckedContinuation { continuation in
-            let spec = CmuxDialogSpec(title: title, lines: [body],
+            let spec = CmuxDialogSpec(usesTransientMaterial: true, title: title, lines: [body],
                                       buttons: [.cancel(), CmuxDialogButton(id: "confirm", title: CmuxRemoteStrings.allow, role: .default)],
                                       identifier: Self.confirmIdentifier)
             CmuxDialogCenter.shared.present(spec, in: .window(window)) { answer in

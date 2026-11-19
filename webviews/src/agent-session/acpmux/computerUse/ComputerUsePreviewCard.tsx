@@ -4,8 +4,9 @@
 // card's label). The column keeps the card's room, so it covers no message (computerUsePreview.ts).
 // When the session ends, the window dims under the app's icon with a green check on the icon's
 // corner; the host hides a done card by itself after a while (ComputerUseLivePreview.autoHideDelay).
-// A click opens Agent Activity on the session; the close button (always shown, on the window's top
-// left corner) hides the card for that session. The host owns the card; a close hides it here at
+// A click enlarges the card over the chat's top right (as the Codex app enlarges its preview) and a
+// second click shrinks it back; the close button (always shown, on the window's top left corner)
+// hides the card for that session. A new session's card starts small. The host owns the card; a close hides it here at
 // once, before the host's next push. It eases in, and when it goes it plays a short exit first
 // (cardMotion.ts); a new frame shows once it has decoded, so the stream never blanks.
 // With Session Info open, the card sits directly under it (session-info/underSessionInfo.ts) and keeps
@@ -28,19 +29,20 @@ import "./computerUsePreview.css";
 
 export function ComputerUsePreviewCard({
   preview,
-  onOpen,
   onClose,
 }: {
   preview: ComputerUsePreview | null;
-  onOpen(session: string): void;
   onClose(session: string): void;
 }) {
   const t = useT();
   const [card, setCard] = useState<HTMLDivElement | null>(null);
+  // Enlarged, for the session it was enlarged for: another session's card starts small.
+  const [expandedSession, setExpandedSession] = useState<string | null>(null);
   const { card: shown, leaving } = useLeavingCard(preview, card);
   const frame = useLoadedFrame(shown?.frame);
   useUnderSessionInfoRoom(card);
   if (!shown) return null;
+  const expanded = expandedSession === shown.session;
   // The app's name is in the label only; with no name and no window title, the label names none
   // (never "Unknown app").
   const title = computerUsePreviewTitle(shown);
@@ -61,6 +63,7 @@ export function ComputerUsePreviewCard({
       ref={setCard}
       className="acpmux-cu-preview"
       data-done={shown.done ? "" : undefined}
+      data-expanded={expanded ? "" : undefined}
       data-leaving={leaving ? "" : undefined}
       inert={leaving || undefined}
     >
@@ -68,7 +71,8 @@ export function ComputerUsePreviewCard({
         type="button"
         className="acpmux-cu-preview__open"
         aria-label={label}
-        onClick={() => onOpen(shown.session)}
+        aria-expanded={expanded}
+        onClick={() => setExpandedSession(expanded ? null : shown.session)}
       >
         <span className="acpmux-cu-preview__frame" style={agent || person ? frameStyle : undefined}>
           <img src={frame} alt="" draggable={false} />
