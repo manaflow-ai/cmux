@@ -45,7 +45,7 @@ use std::collections::VecDeque;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
 /// A keystroke of a phrase that is not found counts as this many ms; it is also the longest the
@@ -66,6 +66,8 @@ const ANSWER_WORDS: usize = 120;
 const TOOL_BYTES: usize = 30_000;
 const VOCABULARY: usize = 20_000;
 const WINDOW_CHANGED: &str = "_acpmux/chats_window_changed";
+/// 2026-11-01T00:00:00Z, the fixture's first day, in Unix seconds.
+const NOV_1_2026_S: u64 = 1_793_491_200;
 
 struct Home(PathBuf);
 
@@ -102,13 +104,16 @@ impl Rng {
 }
 
 fn vocabulary(rng: &mut Rng) -> Vec<String> {
-    const ON: [&str; 16] = ["b", "c", "d", "f", "g", "k", "l", "m", "n", "p", "r", "s", "t", "v", "z", "h"];
+    const ON: [&str; 16] =
+        ["b", "c", "d", "f", "g", "k", "l", "m", "n", "p", "r", "s", "t", "v", "z", "h"];
     const NU: [&str; 6] = ["a", "e", "i", "o", "u", "ai"];
     (0..VOCABULARY)
         .map(|_| {
             let syllables = 1 + (rng.next() % 4) as usize;
             (0..syllables)
-                .map(|_| format!("{}{}", ON[(rng.next() % 16) as usize], NU[(rng.next() % 6) as usize]))
+                .map(|_| {
+                    format!("{}{}", ON[(rng.next() % 16) as usize], NU[(rng.next() % 6) as usize])
+                })
                 .collect()
         })
         .collect()
@@ -128,8 +133,14 @@ fn sentence(rng: &mut Rng, words: &[String], count: usize) -> String {
 /// The phrase planted in the n-th planted chat: words no other chat holds, in no vocabulary word.
 fn phrase(n: usize) -> String {
     const PLANTED: [&str; PHRASES] = [
-        "quorvax thrennel 7731", "wexmund plyratic jorvane", "zubrik halcyonde 4419", "fennowick sardaxis quell",
-        "trowbaine oxyllan vetch", "mirquade 2207 calloweth", "jusperin draxholm yewt", "orvelline kestrix 9058",
+        "quorvax thrennel 7731",
+        "wexmund plyratic jorvane",
+        "zubrik halcyonde 4419",
+        "fennowick sardaxis quell",
+        "trowbaine oxyllan vetch",
+        "mirquade 2207 calloweth",
+        "jusperin draxholm yewt",
+        "orvelline kestrix 9058",
     ];
     PLANTED[n].to_owned()
 }
@@ -140,12 +151,23 @@ struct Chat {
 }
 
 /// One chat's store, `bytes` long, with `planted` in an answer halfway through.
-fn write_chat(h: &Path, n: usize, bytes: usize, planted: Option<&str>, rng: &mut Rng, words: &[String]) -> String {
+fn write_chat(
+    h: &Path,
+    n: usize,
+    bytes: usize,
+    planted: Option<&str>,
+    rng: &mut Rng,
+    words: &[String],
+) -> String {
     let codex = n % 100 >= 54;
     let id = format!("{:08x}-0000-4000-8000-{:012x}", n, n);
     let project = h.join(format!("work/p{}", n % 40));
     let path = if codex {
-        h.join(format!(".codex/sessions/2026/11/{:02}/rollout-2026-11-{:02}T10-00-00-{id}.jsonl", 1 + n % 28, 1 + n % 28))
+        h.join(format!(
+            ".codex/sessions/2026/11/{:02}/rollout-2026-11-{:02}T10-00-00-{id}.jsonl",
+            1 + n % 28,
+            1 + n % 28
+        ))
     } else {
         h.join(format!(".claude/projects/-work-p{}/{id}.jsonl", n % 40))
     };
@@ -155,9 +177,15 @@ fn write_chat(h: &Path, n: usize, bytes: usize, planted: Option<&str>, rng: &mut
     let tool = "x".repeat(TOOL_BYTES);
     // Chat n was last active 20 minutes before chat n - 1, and its turns fit in those 20 minutes, so
     // the page lists the chats in order, newest first, over 28 days (past 2,016 chats they tie).
+    let minute = |turn: usize| (28 * 1440 - 1usize).saturating_sub(n * 20) + turn * 19 / turns;
     let at = |turn: usize| {
-        let minute = (28 * 1440 - 1usize).saturating_sub(n * 20) + turn * 19 / turns;
-        format!("2026-11-{:02}T{:02}:{:02}:00.000Z", 1 + minute / 1440, (minute / 60) % 24, minute % 60)
+        let minute = minute(turn);
+        format!(
+            "2026-11-{:02}T{:02}:{:02}:00.000Z",
+            1 + minute / 1440,
+            (minute / 60) % 24,
+            minute % 60
+        )
     };
     if codex {
         let meta = json!({"type": "session_meta", "payload": {"id": id, "cwd": project, "timestamp": at(0)}});
@@ -184,8 +212,14 @@ fn write_chat(h: &Path, n: usize, bytes: usize, planted: Option<&str>, rng: &mut
             };
             vec![
                 line("user", json!(prompt)),
-                line("assistant", json!([{"type": "tool_use", "id": format!("t{turn}"), "name": "Bash", "input": {}}])),
-                line("user", json!([{"type": "tool_result", "tool_use_id": format!("t{turn}"), "content": tool}])),
+                line(
+                    "assistant",
+                    json!([{"type": "tool_use", "id": format!("t{turn}"), "name": "Bash", "input": {}}]),
+                ),
+                line(
+                    "user",
+                    json!([{"type": "tool_result", "tool_use_id": format!("t{turn}"), "content": tool}]),
+                ),
                 line("assistant", json!([{"type": "text", "text": answer}])),
             ]
         };
@@ -194,6 +228,11 @@ fn write_chat(h: &Path, n: usize, bytes: usize, planted: Option<&str>, rng: &mut
         }
     }
     out.flush().expect("flush");
+    // The chat index stamps a chat by its file's mtime (cmux-chat-index `stamp.rs`): the store's mtime is
+    // its last turn's time, so the index's newest-first order is the fixture's, not the order of writing.
+    let last = NOV_1_2026_S + 60 * minute(turns - 1) as u64;
+    let file = out.into_inner().expect("store");
+    file.set_modified(UNIX_EPOCH + Duration::from_secs(last)).expect("mtime");
     if codex { format!("codex:{id}") } else { format!("claude-code:{id}") }
 }
 
@@ -201,7 +240,8 @@ fn fixture(h: &Path, chats: usize, scale: f64) -> Vec<Chat> {
     let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
     let words = vocabulary(&mut rng);
     // Planted chats spread from the newest to the oldest.
-    let planted_at: Vec<usize> = (0..PHRASES).map(|i| (i * 2 + 1) * chats / (PHRASES * 2)).collect();
+    let planted_at: Vec<usize> =
+        (0..PHRASES).map(|i| (i * 2 + 1) * chats / (PHRASES * 2)).collect();
     (0..chats)
         .map(|n| {
             let bytes = (MEDIAN_BYTES * (SIGMA * rng.normal()).exp()).min(MAX_BYTES) * scale;
@@ -242,7 +282,11 @@ impl Conn {
         let (out_tx, rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
         let mut conn = Self { tx, rx, id: 0, notes: VecDeque::new() };
-        conn.call(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "bench"}})).await;
+        conn.call(
+            method::INITIALIZE,
+            json!({"protocolVersion": 1, "clientInfo": {"name": "bench"}}),
+        )
+        .await;
         conn
     }
 
@@ -298,14 +342,17 @@ fn window(generation: u64, query: &str) -> Value {
 /// Types `phrase` a key at a time into the page's window: each key's ms to the window's first
 /// rows, and whether the finished phrase found `key` within [`MISS_MS`] (every key is
 /// [`MISS_MS`] when it did not).
-async fn type_into_window(conn: &mut Conn, generation: &mut u64, phrase: &str, key: &str) -> (Vec<f64>, bool) {
+async fn type_into_window(
+    conn: &mut Conn,
+    generation: &mut u64,
+    phrase: &str,
+    key: &str,
+) -> (Vec<f64>, bool) {
     let mut times = Vec::new();
     let mut found = false;
     for end in phrase.char_indices().map(|(i, c)| i + c.len_utf8()) {
+        // Every key counts, a space too: it adds no word, but the page still asks again and waits.
         let query = &phrase[..end];
-        if query.ends_with(' ') {
-            continue; // a space adds no word: the page sends the same query again
-        }
         *generation += 1;
         let started = Instant::now();
         let answer = conn.call("_acpmux/chats_window", window(*generation, query)).await;
@@ -338,18 +385,18 @@ async fn type_into_scan(conn: &mut Conn, phrase: &str, key: &str) -> (Vec<f64>, 
     let mut found = false;
     for end in phrase.char_indices().map(|(i, c)| i + c.len_utf8()) {
         let query = &phrase[..end];
-        if query.ends_with(' ') {
-            continue;
-        }
         let started = Instant::now();
-        let answer = conn.call("_acpmux/chats_search", json!({"query": query, "limit": 50, "budgetMs": 10_000})).await;
+        let answer = conn
+            .call("_acpmux/chats_search", json!({"query": query, "limit": 50, "budgetMs": 10_000}))
+            .await;
         let ms = started.elapsed().as_secs_f64() * 1000.0;
         assert!(answer.get("error").is_none(), "{query:?}: {answer}");
         let result = &answer["result"];
         let partial = result["partial"].as_bool().unwrap_or(false);
         if end == phrase.len() {
             let hits = result["hits"].as_array().into_iter().flatten();
-            found = !partial && hits.filter_map(|hit| hit["chat"]["key"].as_str()).any(|k| k == key);
+            found =
+                !partial && hits.filter_map(|hit| hit["chat"]["key"].as_str()).any(|k| k == key);
         }
         times.push(if partial { MISS_MS } else { ms });
     }
@@ -367,7 +414,10 @@ fn nearest_rank(sorted: &[f64], p: f64) -> f64 {
 fn row(name: &str, mut times: Vec<f64>, found: usize, phrases: usize) {
     times.sort_by(f64::total_cmp);
     let (p50, p95) = (nearest_rank(&times, 0.5), nearest_rank(&times, 0.95));
-    println!("{name}: {} keystrokes, {found}/{phrases} phrases found, p50 {p50:.1} ms, p95 {p95:.1} ms", times.len());
+    println!(
+        "{name}: {} keystrokes, {found}/{phrases} phrases found, p50 {p50:.1} ms, p95 {p95:.1} ms",
+        times.len()
+    );
     let line = json!({"name": name, "p50": p50, "p95": p95, "unit": "ms", "target": TARGET_MS});
     println!("PERF_ROW {line}");
 }
@@ -390,7 +440,11 @@ async fn the_chats_page_finds_a_chat_by_what_was_said_within_150_ms_a_keystroke(
     let started = Instant::now();
     let fixture = fixture(&h.0, chats, scale);
     let bytes: u64 = walk_bytes(&h.0);
-    println!("fixture: {chats} chats, {:.0} MB, written in {:.1} s", bytes as f64 / 1e6, started.elapsed().as_secs_f64());
+    println!(
+        "fixture: {chats} chats, {:.0} MB, written in {:.1} s",
+        bytes as f64 / 1e6,
+        started.elapsed().as_secs_f64()
+    );
     let planted: Vec<(&str, &str)> =
         fixture.iter().filter_map(|c| c.planted.as_deref().map(|p| (p, c.key.as_str()))).collect();
 
@@ -413,10 +467,17 @@ async fn the_chats_page_finds_a_chat_by_what_was_said_within_150_ms_a_keystroke(
     }
     match filled {
         Some((took, seen)) => {
-            let seen = if seen { "the oldest planted chat found" } else { "the oldest planted chat NOT found" };
+            let seen = if seen {
+                "the oldest planted chat found"
+            } else {
+                "the oldest planted chat NOT found"
+            };
             println!("fill: done {:.1} s after the daemon's start, {seen}", took.as_secs_f64());
             let ms = took.as_secs_f64() * 1000.0;
-            println!("PERF_ROW {}", json!({"name": "chat_search.fill", "p50": ms, "p95": ms, "unit": "ms"}));
+            println!(
+                "PERF_ROW {}",
+                json!({"name": "chat_search.fill", "p50": ms, "p95": ms, "unit": "ms"})
+            );
         }
         None => println!("fill: still filling after {} s", FILL_WAIT.as_secs()),
     }
