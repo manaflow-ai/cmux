@@ -33,7 +33,7 @@ def definitions(path, names):
 BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_applicable", "activate", "commit_frames",
                                                     "late_frames", "motion_arms", "commit_notes", "commit_placements",
                                                     "layout_spans", "windows_behind", "marker_color", "marker_command", "stills_facts",
-                                                    "stills_clock", "stills_cost", "docked_state", "cli_settings"})
+                                                    "stills_clock", "stills_cost", "docked_state", "cli_settings", "theme_facts"})
 ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
@@ -449,6 +449,28 @@ class DockedColumn(unittest.TestCase):
             self.assertEqual(state(unread)["panes"], [])
         self.assertEqual(state({"error": "unknown method"})["problem"], "unknown method")
         self.assertEqual(state(None)["problem"], "no reply of debug.dock: None")
+
+
+class ThemeFacts(unittest.TestCase):
+    """The theme that the app resolved: the settings answer says the theme's name, `debug.themes` says what the first
+    window and the terminals draw with."""
+
+    def setUp(self):
+        self.facts = loaded()["theme_facts"]
+
+    def test_the_first_windows_scope_and_each_terminals_theme(self):
+        window = {"spec": "Test Theme", "effective_spec": "Test Theme", "source": "settings", "window_background": "#102030",
+                  "text_primary": "#F0F0F0", "is_dark": True, "appearance": "NSAppearanceNameDarkAqua", "backdrop": {"picture": ""}}
+        themes = {"windows": [window, {"spec": "other"}], "ghostty_background": "#102030",
+                  "terminals": [{"tab": "t1", "surface_theme": "Test Theme"}, {"tab": "t2", "surface_theme": None}, {"tab": "t3", "surface_theme": "Test Theme"}]}
+        self.assertEqual(self.facts(themes), {"problem": None, "spec": "Test Theme", "effective_spec": "Test Theme", "source": "settings",
+                                              "window_background": "#102030", "is_dark": True, "appearance": "NSAppearanceNameDarkAqua",
+                                              "surface_themes": ["None", "Test Theme"], "terminal_background": "#102030"})
+
+    def test_an_answer_with_no_window_is_a_problem_and_no_fact(self):
+        for themes in (None, {}, {"error": "unknown method"}, {"windows": []}, {"windows": ["text"]}, "text"):
+            self.assertEqual(list(self.facts(themes)), ["problem"], themes)
+            self.assertIn("no window in debug.themes", self.facts(themes)["problem"])
 
 
 class CliSettings(unittest.TestCase):

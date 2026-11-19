@@ -1025,6 +1025,21 @@ def record(name, label, rounds=()):
     return kept
 
 
+def theme_facts(themes):
+    """What `debug.themes` says of the theme that the app resolved: the first window's theme (`spec`, `effective_spec`,
+    `source`), its background color, `is_dark` and its appearance's name, the theme of each terminal's surface (each
+    name one time), and the terminal's own background color. Only `problem` when the answer names no window."""
+    windows = themes.get("windows") if isinstance(themes, dict) else None
+    window = windows[0] if isinstance(windows, list) and windows and isinstance(windows[0], dict) else None
+    if window is None:
+        return {"problem": f"no window in debug.themes: {str(themes)[:120]}"}
+    terminals = themes.get("terminals") if isinstance(themes.get("terminals"), list) else []
+    return {"problem": None,
+            **{name: window.get(name) for name in ("spec", "effective_spec", "source", "window_background", "is_dark", "appearance")},
+            "surface_themes": sorted({str(terminal.get("surface_theme")) for terminal in terminals if isinstance(terminal, dict)}),
+            "terminal_background": themes.get("ghostty_background")}
+
+
 def cli_settings(cli, paths, env, run=None):
     """What the bundle's own CLI says for each settings path of `paths` (the look's): `config get PATH`, and
     `settings get PATH` when the CLI refuses the first word. One line for each call: the exit code and the first 300
@@ -1289,6 +1304,9 @@ def main():
     conditions["window_look"]["head"] = looks.look_head(look, seen)
     for line in conditions["window_look"]["head"]:
         print("APP-SETTINGS " + line, flush=True)
+    # The theme that the app resolved (the settings answer has only its name): what the window and the terminals draw with.
+    conditions["window_look"]["theme"] = theme_facts(rpc("debug.themes"))
+    print("APP-THEME " + json.dumps(conditions["window_look"]["theme"]), flush=True)
     conditions["window_look"]["cli"] = cli_settings(CLI, looks.look_paths(look), BENCH.launched_env or {})
     for line in conditions["window_look"]["cli"]:
         print("CLI-SETTINGS " + line, flush=True)
