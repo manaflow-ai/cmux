@@ -1,15 +1,18 @@
-name: iOS App Store NEXT review upload (rc)
+name: iOS App Store NEXT 1.0.0 upload (rc)
 
-# One-off App Store upload of cmux-next-ios (feat-cmux-next) to the "cmux" record
-# (com.cmux.app), run from an rc/ branch because the release environment admits
-# rc/** and #43514 (the main-branch version of this workflow) is not merged yet.
+# One-off App Store upload of cmux-next-ios (feat-cmux-next) version 1.0.0 to the
+# "cmux" record (com.cmux.app), run from an rc/ branch because the release
+# environment admits rc/** and #43514 (the main-branch version of this workflow)
+# is not merged yet. Copied from rc/cnx-ios-appstore-review (the 1.2.0 one-off);
+# the app commit is feat-cmux-next with #46743 (AppStore MARKETING_VERSION 1.0.0).
+# It uploads only: no App Store version, review notes or submission change.
 # Same jobs as #43514's ios-app-store.yml, trimmed to archive + sign + upload;
 # the App Store version, review notes and submission are done with the asc CLI.
 # Push-triggered: each push to this branch uploads one build of APP_SHA.
 
 on:
   push:
-    branches: [rc/cnx-ios-appstore-review]
+    branches: [rc/cmux-next-ios-appstore-100]
 
 concurrency:
   group: ios-app-store-production
@@ -46,7 +49,7 @@ jobs:
       - name: Checkout the app source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: bcf4680644b8f2ba538064a244914bfc4fa3e3fd
+          ref: 89cfd869f25e8805d5efd4da76d332e76d10f708
           persist-credentials: false
           # testflight-build.sh archives the commit with `git archive`, and
           # check-tabskit-sync.sh compares packages with their upstream branches.
@@ -84,6 +87,7 @@ jobs:
           fi
           [ -n "$VERSION" ] || VERSION="$(awk '/^    MARKETING_VERSION:/{print $2; exit}' cmux-next-ios/project.yml)"
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "::error::marketing version '$VERSION' is not X.Y.Z"; exit 1; }
+          [ "$VERSION" = 1.0.0 ] || { echo "::error::this one-off uploads 1.0.0; $SHA's AppStore configuration is $VERSION"; exit 1; }
           BUILD_NUMBER="${INPUT_BUILD_NUMBER:-$(date -u +%Y%m%d%H%M%S)}"
           [[ "$BUILD_NUMBER" =~ ^[0-9]+$ ]] || { echo "::error::build number '$BUILD_NUMBER' must be digits"; exit 1; }
           {
@@ -425,6 +429,43 @@ jobs:
           out="$(find "$RUNNER_TEMP/cmux-mobile-builds" -maxdepth 1 -type d -name "*-testflight" | head -1)"
           cat "$out/MANIFEST.md" >> "$GITHUB_STEP_SUMMARY"
           echo "final_build_number=$FINAL_BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "out=$out" >> "$GITHUB_OUTPUT"
+
+      # Proof of the exact IPA that was uploaded: identity, versions, every
+      # bundle's entitlements, the embedded profile's capabilities, the
+      # extensions, and the App Review gate on the binary. Nothing secret.
+      - name: Verify the uploaded IPA
+        if: always() && steps.upload.outputs.out != ''
+        env:
+          OUT: ${{ steps.upload.outputs.out }}
+        run: |
+          set -uo pipefail
+          proof="$RUNNER_TEMP/ipa-proof.txt"
+          x="$RUNNER_TEMP/ipa-x"; rm -rf "$x"; mkdir -p "$x"
+          ditto -x -k "$OUT/CmuxMobileApp.ipa" "$x"
+          app="$x/Payload/CmuxMobileApp.app"
+          {
+            echo "## IPA $(shasum -a 256 "$OUT/CmuxMobileApp.ipa" | cut -c1-16)"
+            for k in CFBundleIdentifier CFBundleShortVersionString CFBundleVersion CFBundleDisplayName DTSDKName DTXcodeBuild CmuxMobileSourceCommit; do
+              echo "app $k = $(plutil -extract "$k" raw -o - "$app/Info.plist" 2>/dev/null)"
+            done
+            echo "PlugIns: $(ls "$app/PlugIns" | tr '\n' ' ')"
+            for b in "$app" "$app"/PlugIns/*.appex; do
+              echo; echo "### $(basename "$b") $(plutil -extract CFBundleIdentifier raw -o - "$b/Info.plist") $(plutil -extract CFBundleShortVersionString raw -o - "$b/Info.plist") ($(plutil -extract CFBundleVersion raw -o - "$b/Info.plist"))"
+              codesign -d --entitlements - --xml "$b" 2>/dev/null | plutil -convert json -r -o - - 2>/dev/null
+              security cms -D -i "$b/embedded.mobileprovision" 2>/dev/null > "$RUNNER_TEMP/p.plist"
+              echo "profile: $(plutil -extract Name raw -o - "$RUNNER_TEMP/p.plist") expires $(plutil -extract ExpirationDate raw -o - "$RUNNER_TEMP/p.plist")"
+              echo "profile entitlement keys: $(plutil -extract Entitlements json -o - "$RUNNER_TEMP/p.plist" | python3 -I -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin))))')"
+            done
+            echo; echo "codesign --verify --strict --deep: $(codesign --verify --strict --deep "$app" 2>&1 && echo ok)"
+            echo; echo "## App Review gate (appstore lane, this IPA)"
+            python3 -I cmux-next-ios/scripts/app_review_gate.py lint --source-root . --lane appstore \
+              --ipa "$OUT/CmuxMobileApp.ipa" --expect-commit "$SHA" --json "$RUNNER_TEMP/gate.json" 2>&1 | sed -n '1,40p'
+            echo "gate exit: ${PIPESTATUS[0]}"
+          } > "$proof" 2>&1
+          cat "$proof"
+          { echo '```'; cat "$proof"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          rm -rf "$x" "$RUNNER_TEMP/p.plist"
 
       # The upload made the last signature. Later steps (review package,
       # validation, submission) run without the distribution identity.
@@ -442,6 +483,8 @@ jobs:
             ${{ runner.temp }}/cmux-mobile-builds/*-testflight/MANIFEST.md
             ${{ runner.temp }}/cmux-mobile-builds/*-testflight/ExportOptions.plist
             ${{ runner.temp }}/cmux-mobile-builds/*-testflight/logs/
+            ${{ runner.temp }}/ipa-proof.txt
+            ${{ runner.temp }}/gate.json
           if-no-files-found: ignore
 
       # The review package (App Review notes and store listing for NEXT) is the
