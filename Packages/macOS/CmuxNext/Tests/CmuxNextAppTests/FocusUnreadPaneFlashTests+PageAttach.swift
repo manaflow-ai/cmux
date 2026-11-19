@@ -29,10 +29,19 @@ extension FocusUnreadPaneFlashTests {
         try await PinnedPageTests.until({ !fixture.controller.focus.state.windowKey })
         fixture.content.layoutModel.focus(pane, source: .keyboard)
         try await PinnedPageTests.until({ fixture.controller.focus.state.pane == fixture.unread.id })
-        guard !fixture.window.isMainWindow else { return } // a main cmux window counts an unparented page window as its own
-        #expect(fixture.content.layoutModel.attention[pane] != nil, "the fixture viewed the pane before its page window was attached")
+        #expect(fixture.window is ShellWindow, "the fixture's window is not the app's main window class")
+        // A test window may still be main, where AppKit counts an unparented page window as the cmux window's own
+        // (`holdsKeyboard`); in the app the key page window has taken main from it. Either way the attach must make
+        // the viewed-tab rules look again: it is the only event that comes.
+        let viewedOnlyAfterAttach = !fixture.window.isMainWindow
+        if viewedOnlyAfterAttach {
+            #expect(fixture.content.layoutModel.attention[pane] != nil, "the pane was viewed before its page window was attached")
+        }
+        let revision = fixture.services.notifications.viewedRevision
         // The page loads and is attached: the cmux window holds the keyboard through it now.
         fixture.window.addChildWindow(page, ordered: .above)
+        #expect(fixture.services.notifications.viewedRevision != revision,
+                "attaching the chat's page window did not make the viewed-tab rules look again: its ring stays until the focus moves")
         try await PinnedPageTests.until({ fixture.content.layoutModel.attention[pane] == nil },
                                         report: { "the ring stayed after the chat's page window was attached, while its pane kept the focus" })
         #expect(fixture.unread.tabs.first?.showsUnread == false, "the chat kept its blue dot")
