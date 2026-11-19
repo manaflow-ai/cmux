@@ -25,6 +25,8 @@ class AppSceneNodeNSView: NSView {
     var isDecorationHovered = false
     /// The App's own glass under the node's content, while the node has a `glass` level.
     var decorationGlass: (level: GlassLevel, view: NSView)?
+    /// Draws a gradient `background` under the node's content; made the first time a node asks for one.
+    var decorationGradient: CAGradientLayer?
 
     init(id: String, node: AppSceneNode) {
         nodeID = id

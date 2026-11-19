@@ -10900,6 +10900,137 @@
           }
         }
       }
+    },
+    "cloud.seedRefused.pastPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This folder is %1$@, more than the largest machine your plan gives (%2$@) has room for. Choose a smaller folder."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم هذا المجلد %1$@، وهو أكبر مما يتسع له أكبر جهاز تتيحه خطتك (%2$@). اختر مجلدًا أصغر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova mapa ima %1$@, više nego što ima mjesta na najvećoj mašini koju vaš plan daje (%2$@). Odaberite manju mapu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne mappe fylder %1$@, mere end den største maskine i din plan (%2$@) har plads til. Vælg en mindre mappe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Ordner ist %1$@ groß, mehr als auf die größte Maschine deines Plans (%2$@) passt. Wähle einen kleineren Ordner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta carpeta ocupa %1$@, más de lo que cabe en la máquina más grande que da tu plan (%2$@). Elige una carpeta más pequeña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce dossier fait %1$@, plus que ce que peut contenir la plus grande machine de votre forfait (%2$@). Choisissez un dossier plus petit."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa cartella occupa %1$@, più di quanto possa contenere la macchina più grande del tuo piano (%2$@). Scegli una cartella più piccola."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダは %1$@ あり、プランで使える最大のマシン（%2$@）の容量を超えています。小さいフォルダを選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតនេះមានទំហំ %1$@ ដែលធំជាងម៉ាស៊ីនធំបំផុតដែលគម្រោងរបស់អ្នកផ្តល់ឱ្យ (%2$@) អាចផ្ទុកបាន។ សូមជ្រើសថតតូចជាងនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 폴더는 %1$@로, 요금제가 제공하는 가장 큰 머신(%2$@)의 공간보다 큽니다. 더 작은 폴더를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne mappen er %1$@, mer enn den største maskinen planen din gir (%2$@) har plass til. Velg en mindre mappe."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten folder ma %1$@, więcej niż zmieści największa maszyna w Twoim planie (%2$@). Wybierz mniejszy folder."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta pasta tem %1$@, mais do que cabe na maior máquina que seu plano oferece (%2$@). Escolha uma pasta menor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер этой папки — %1$@, больше, чем помещается на самой большой машине вашего тарифа (%2$@). Выберите папку поменьше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟลเดอร์นี้มีขนาด %1$@ ซึ่งมากกว่าที่เครื่องใหญ่ที่สุดในแผนของคุณ (%2$@) รองรับได้ เลือกโฟลเดอร์ที่เล็กกว่านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu klasör %1$@; planınızın verdiği en büyük makinenin (%2$@) alabileceğinden fazla. Daha küçük bir klasör seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір цієї папки — %1$@, більше, ніж вміщує найбільша машина вашого плану (%2$@). Виберіть меншу папку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư mục này có dung lượng %1$@, lớn hơn mức máy lớn nhất mà gói của bạn cung cấp (%2$@) có thể chứa. Hãy chọn thư mục nhỏ hơn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件夹大小为 %1$@，超出了你的套餐所提供的最大机器（%2$@）的容量。请选择更小的文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此資料夾大小為 %1$@，超出了你的方案所提供的最大機器（%2$@）的容量。請選擇較小的資料夾。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
