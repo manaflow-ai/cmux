@@ -549,6 +549,73 @@ fn a_plain_terminals_profile_browser_tab_opens_right_of_the_terminal() {
     assert_beta_still_focused(server, beta);
 }
 
+/// A profile browser tab is a daemon request, so the CLI applies the app's
+/// same-kind rule itself: beside a lone pane of another kind it gets a pane
+/// of its own below that pane, and the next one is a tab in that pane. It
+/// was a tab in the terminal pane on the right.
+#[test]
+fn a_profile_browser_tab_splits_below_a_lone_terminal_pane_on_the_right() {
+    let open = [
+        "browser",
+        "profile",
+        "open",
+        "https://example.com/",
+        "--profile",
+        "default",
+        "--engine",
+        "webkit",
+    ];
+    // An agent chat: the app names the pane on its right and what it holds.
+    let split = caller_in_alpha_beta_focused("place-profile-below-agent");
+    let Split { server, pane, alpha, .. } = &split;
+    let made = state_cli(server, None, &["pane", pane, "split", "--right"]);
+    let right = created_pane(&made).to_owned();
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let app = FakeApp::start(server, "app-lone-terminal", with_column(&caller, &right, "terminal"));
+    let first = run(server, &Who::agent().with_app(&app), &open);
+    drop(app);
+    let below = created_pane(&first).to_owned();
+    assert_ne!(below, right, "the page opened in the terminal pane: {first}");
+    assert_ne!(below, *pane, "{first}");
+    assert_eq!(workspace_of_pane(server, &below), *alpha, "{first}");
+    assert_eq!(tabs_and_panes(server, &below).0, 1, "the new pane holds the page alone");
+    // The column now holds a browser: the next page is a tab in that pane.
+    let panes = tabs_and_panes(server, &below).1;
+    let app = FakeApp::start(
+        server,
+        "app-two-panes",
+        json!({"caller": caller, "beside": {"pane": right, "placement": "existing_column",
+            "panes": [{"id": right, "kinds": ["terminal"]}, {"id": below, "kinds": ["browser"]}]}}),
+    );
+    let second = run(server, &Who::agent().with_app(&app), &open);
+    assert_eq!(created_pane(&second), below, "{second}");
+    assert_eq!(tabs_and_panes(server, &below), (2, panes), "{second}");
+
+    // A plain shell: the app answers `own_pane`, and the daemon says what is
+    // on the terminal's right.
+    let split = caller_in_alpha_beta_focused("place-profile-below-shell");
+    let Split { server, terminal, pane, alpha, .. } = &split;
+    let made = state_cli(server, None, &["pane", pane, "split", "--right"]);
+    let right = created_pane(&made).to_owned();
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let app = FakeApp::start(
+        server,
+        "app-shell-own-pane",
+        json!({"caller_placement": 2, "caller": caller,
+            "beside": {"pane": pane, "placement": "own_pane"}}),
+    );
+    let who = Who::terminal(terminal).with_app(&app);
+    let first = run(server, &who, &open);
+    let below = created_pane(&first).to_owned();
+    assert_ne!(below, right, "the page opened in the terminal pane: {first}");
+    assert_ne!(below, *pane, "{first}");
+    assert_eq!(workspace_of_pane(server, &below), *alpha, "{first}");
+    let panes = tabs_and_panes(server, &below).1;
+    let second = run(server, &who, &open);
+    assert_eq!(created_pane(&second), below, "{second}");
+    assert_eq!(tabs_and_panes(server, &below), (2, panes), "{second}");
+}
+
 /// The raw id of the pane whose public id is `pane` (the raw tree names
 /// each pane's public id as `resource_id`).
 fn raw_pane_id(server: &HeadlessServer, pane: &str) -> Value {

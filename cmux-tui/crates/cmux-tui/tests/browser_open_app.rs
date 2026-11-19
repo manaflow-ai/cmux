@@ -132,10 +132,42 @@ fn a_plain_terminals_browser_targets_its_own_tab_never_the_panes_shown_tab() {
 }
 
 #[test]
-fn a_browser_with_no_place_opens_in_the_column_right_of_its_caller() {
+fn an_app_that_places_callers_gets_no_pane_for_a_browser_right_of_a_terminal_pane() {
+    // The caller has one terminal pane on its right, and the app says so in
+    // `beside`. Naming that pane made the browser a tab in it: the app's own
+    // rule (a split below a lone pane of another kind, another agent's home,
+    // the person's link placement setting) never ran. The run carries the
+    // caller alone: the terminal's own tab, or the agent session.
+    let args = ["--json", "browser", "open", URL];
+    let run = Run::app(AppMode::PlacesCallersRightColumn)
+        .cli_as(&args, Caller::Terminal(CALLER_TERMINAL));
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [call] = run.runs()[..] else { panic!("one app run expected: {:?}", run.app) };
+    assert_eq!(call["params"]["target"], format!("tab:{CALLER_TAB}"), "{call}");
+    assert_eq!(call["params"]["caller"], json!({"terminal_id": CALLER_TERMINAL}), "{call}");
+
+    let run = Run::app(AppMode::PlacesCallersRightColumn).cli_as(&args, Caller::Agent);
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [call] = run.runs()[..] else { panic!("one app run expected: {:?}", run.app) };
+    assert!(call["params"].get("target").is_none(), "{call}");
+    assert_eq!(call["params"]["caller"]["agent_session"], "acp_agent_session_a", "{call}");
+
+    for caller in [Caller::Terminal(CALLER_TERMINAL), Caller::Agent] {
+        let run = Run::app(AppMode::PlacesCallersRightColumn).cli_as(&args, caller);
+        assert!(
+            !run.daemon.iter().any(|r| r["params"]["pane"] == RIGHT_PANE),
+            "the pane on the right was named: {:?}",
+            run.daemon
+        );
+    }
+}
+
+#[test]
+fn with_an_older_app_a_browser_with_no_place_opens_in_the_column_right_of_its_caller() {
     // Lawrence 2026-11-15: an agent's `cmux browser open`, run in a terminal
     // with a column on its right, put the page as a tab over that terminal.
-    // The CLI names the column's pane, for an agent chat and for a terminal.
+    // An app from before `caller_placement` places agent chats alone, so the
+    // CLI names the column's pane, for an agent chat and for a terminal.
     for caller in [Caller::Terminal(CALLER_TERMINAL), Caller::Agent] {
         let run =
             Run::app(AppMode::RightColumn).cli_as(&["--json", "browser", "open", URL], caller);
@@ -426,8 +458,12 @@ enum AppMode {
     /// (`system.identify` reports `caller_placement` 2): for a terminal no
     /// agent runs in, `beside` is its own pane (`own_pane`).
     PlacesTerminals,
-    /// `Workspace`, and a column (`RIGHT_PANE`) is right of the caller.
+    /// `Workspace` (an app from before `caller_placement`), and a column
+    /// (`RIGHT_PANE`) is right of the caller.
     RightColumn,
+    /// An app that places every caller (`caller_placement` 2), with one
+    /// terminal pane (`RIGHT_PANE`) on the caller's right.
+    PlacesCallersRightColumn,
     /// The app shows the agent nowhere: `system.identify` finds no caller
     /// and an untargeted openBrowser is refused with `caller_unavailable`.
     UnplacedAgent,
@@ -635,9 +671,12 @@ fn app_response(mode: AppMode, request: &Value) -> Value {
                 identity["beside"] = json!({"pane": PANE, "placement": "own_pane"});
             }
         }
-        if matches!(mode, AppMode::RightColumn) {
+        if matches!(mode, AppMode::RightColumn | AppMode::PlacesCallersRightColumn) {
             identity["beside"] = json!({"pane": RIGHT_PANE, "placement": "existing_column",
                 "panes": [{"id": RIGHT_PANE, "kinds": ["terminal"]}]});
+        }
+        if matches!(mode, AppMode::PlacesCallersRightColumn) {
+            identity["caller_placement"] = json!(2);
         }
         if matches!(mode, AppMode::UnplacedAgent) {
             identity = json!({"caller": {"is_caller": true,
@@ -652,6 +691,7 @@ fn app_response(mode: AppMode, request: &Value) -> Value {
     }
     let refused = match mode {
         AppMode::Workspace | AppMode::PlacesTerminals | AppMode::RightColumn => false,
+        AppMode::PlacesCallersRightColumn => false,
         AppMode::UnplacedAgent => false,
         AppMode::Home | AppMode::HomeNoReveal => {
             params["action"] == "openBrowser" && params.get("target").is_none()
