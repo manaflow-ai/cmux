@@ -307,6 +307,9 @@ export function generate(): Record<string, string> {
     // The older name of chat.list for a customize section's thread list: the daemon answers it
     // from the same chat index as chat.list (apps/routing.rs), shaped {chats: [...]}.
     "agent_chat.list": { scope: "agent_chat:read", class: "read" },
+    // The person's machines and how busy each is (the fleet.hosts signal source): the daemon asks
+    // acpmux's peer status at most once per 30 s for every app (cmux-tui-core apps/fleet_hosts.rs).
+    "fleet.hosts": { scope: "fleet:read", class: "read" },
     // A browser tab's page in the Mac app (PageAppOps in CmuxNextApps): reader-mode text and links,
     // and link hints drawn and followed by the built-in hints' own scripts. Hints and follow need a gesture.
     "page.read": { scope: "page:read", class: "read" },

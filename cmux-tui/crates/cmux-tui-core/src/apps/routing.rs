@@ -18,14 +18,17 @@ use crate::{Actor, MuxEvent, resource_router};
 
 use super::envelope::error;
 pub(crate) use super::envelope::{answer, is_daemon_op, request};
+use super::fleet_hosts::{self, FleetHosts};
 
 pub struct MuxRouter {
     mux: Weak<Mux>,
+    /// `fleet.hosts`: one kept answer for every app on this daemon (`fleet_hosts.rs`).
+    fleet: FleetHosts,
 }
 
 impl MuxRouter {
     pub fn new(mux: &Arc<Mux>) -> Self {
-        Self { mux: Arc::downgrade(mux) }
+        Self { mux: Arc::downgrade(mux), fleet: FleetHosts::default() }
     }
 }
 
@@ -44,6 +47,9 @@ impl OpRouter for MuxRouter {
             .ok_or_else(|| error("operation.failed", "the daemon is shutting down"))?;
         if op == AGENT_CHAT_LIST {
             return agent_chat_list(&mux, &params);
+        }
+        if op == fleet_hosts::OP {
+            return fleet_hosts_read(&self.fleet, &params, || mux.acp_peer_status());
         }
         // An app's call has origin app (request-origin.md): gate A2 refuses
         // the operations that need the user.
@@ -90,7 +96,7 @@ impl OpRouter for MuxRouter {
     }
 
     fn owns(&self, op: &str) -> bool {
-        is_daemon_op(op) || op == AGENT_CHAT_LIST
+        is_daemon_op(op) || op == AGENT_CHAT_LIST || op == fleet_hosts::OP
     }
 
     fn start_events(&self, publish: super::supervisor::StreamPublish) {
@@ -163,6 +169,24 @@ fn agent_chat_list(mux: &Mux, params: &Value) -> Result<Value, Value> {
         })
         .collect::<Vec<_>>();
     Ok(json!({ "value": { "chats": chats } }))
+}
+
+/// `fleet.hosts` (scope `fleet:read`, no params): the person's machines and how busy each is,
+/// from the router's one cache (`fleet_hosts.rs`); `call` asks acpmux only when it is stale.
+fn fleet_hosts_read(
+    cache: &FleetHosts,
+    params: &Value,
+    call: impl FnOnce() -> Result<Value, String>,
+) -> Result<Value, Value> {
+    if !(params.is_null() || params.as_object().is_some_and(serde_json::Map::is_empty)) {
+        return Err(error("validation.invalid", "fleet.hosts takes no params"));
+    }
+    match cache.get(std::time::Instant::now(), call) {
+        Ok(rows) => Ok(json!({ "value": rows })),
+        Err(message) => {
+            Err(json!({ "code": "upstream.failed", "message": message, "retryable": true }))
+        }
+    }
 }
 
 /// The streams a change to the workspace tree invalidates.
@@ -386,5 +410,37 @@ mod tests {
             streams(&MuxEvent::ChatsChanged { revision: 1 }),
             ["chat.changed", "agent_chat.changed"]
         );
+    }
+
+    /// `fleet.hosts` is the daemon's own op: no acpmux socket is a retryable `upstream.failed`
+    /// (the watch keeps its last value), params are refused before any call, and rows come back
+    /// as `{value: [...]}`.
+    #[test]
+    fn fleet_hosts_is_answered_by_the_daemon_from_its_cache() {
+        let mux = Mux::new_for_test("apps-fleet-hosts", crate::SurfaceOptions::default());
+        let router = MuxRouter::new(&mux);
+        assert!(router.owns("fleet.hosts"));
+        let err = router.route("a/b", "fleet.hosts", json!({}), None, Origin::Script).unwrap_err();
+        assert_eq!(
+            (err["code"].clone(), err["retryable"].clone()),
+            (json!("upstream.failed"), json!(true))
+        );
+
+        let cache = FleetHosts::default();
+        let calls = std::cell::Cell::new(0);
+        let call = || {
+            calls.set(calls.get() + 1);
+            Ok(json!({"hosts": [{"name": "m", "self": true, "reachable": true, "cpus": 8}]}))
+        };
+        let refused = fleet_hosts_read(&cache, &json!({"x": 1}), call).unwrap_err();
+        assert_eq!(refused["code"], "validation.invalid");
+        assert_eq!(calls.get(), 0, "refused params make no call");
+        let rows = fleet_hosts_read(&cache, &json!({}), call).unwrap();
+        assert_eq!(
+            (rows["value"][0]["name"].clone(), rows["value"][0]["cpus"].clone()),
+            (json!("m"), json!(8))
+        );
+        fleet_hosts_read(&cache, &Value::Null, call).unwrap();
+        assert_eq!(calls.get(), 1, "a second read inside the window is the kept answer");
     }
 }
