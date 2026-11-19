@@ -43,11 +43,13 @@ public final class AutomationsPageHost {
     ///   - local: This Mac's `cmux automation list --json` output.
     ///   - cloud: The `value` of a Cloud `automation.list` (``cloudValue(_:)`` unwraps the relay's answer).
     ///   - history: This Mac's `cmux automation history --json` output.
+    ///   - cloudHistory: Every Cloud run (`cmux automation history --target cloud --json`).
     ///   - cli: Runs `cmux --json WORDS…` (the page's buttons and form); nil: no buttons.
     public init(local: @escaping @Sendable () async throws -> Data, cloud: @escaping @Sendable () async throws -> Data,
                 history: (@Sendable () async throws -> Data)? = nil,
+                cloudHistory: (@Sendable () async throws -> Data)? = nil,
                 cli: (@Sendable ([String]) async throws -> Data)? = nil) {
-        model = AutomationsPage(local: local, cloud: cloud, history: history, cli: cli)
+        model = AutomationsPage(local: local, cloud: cloud, history: history, cloudHistory: cloudHistory, cli: cli)
     }
 
     /// The host over this Mac's bundled `cmux`: its store (`automation list`, `history`) and every
@@ -55,7 +57,8 @@ public final class AutomationsPageHost {
     public convenience init(bundled: BundledExecutable, cloud: @escaping @Sendable () async throws -> Data) {
         let cli = Self.cli(bundled)
         self.init(local: { try await cli(["automation", "list"]) }, cloud: cloud,
-                  history: { try await cli(["automation", "history", "--limit", "500"]) }, cli: cli)
+                  history: { try await cli(["automation", "history", "--limit", "500"]) },
+                  cloudHistory: { try await cli(["automation", "history", "--target", "cloud"]) }, cli: cli)
     }
 
     /// Runs `cmux --json WORDS…` with the bundled CLI; a failure throws its words as ``SourceError``.

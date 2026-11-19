@@ -25,8 +25,7 @@ struct AutomationFormView: View {
                         .focused($nameFocused).onSubmit(save)
                 }
 
-                field(strings.formWhatToDo, problem: problems.contains(.taskMissing) ? strings.problemTask
-                      : problems.contains(.cloudNeedsPrompt) ? strings.problemCloudPrompt : nil) {
+                field(strings.formWhatToDo, problem: problems.contains(.taskMissing) ? strings.problemTask : nil) {
                     VStack(alignment: .leading, spacing: 6) {
                         Picker(strings.formWhatToDo, selection: binding.isCommand) {
                             Text(strings.formPrompt).tag(false)
@@ -61,7 +60,7 @@ struct AutomationFormView: View {
                     .disabled(draft.editing != nil)
                 }
 
-                if !draft.cloud {
+                if !draft.cloud || draft.isCommand {
                     HStack(alignment: .top, spacing: 16) {
                         field(strings.formFolder, problem: nil) {
                             TextField(strings.formFolderPlaceholder, text: binding.folder).labelsHidden()

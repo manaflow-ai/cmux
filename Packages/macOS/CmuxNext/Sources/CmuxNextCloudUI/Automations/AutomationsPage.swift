@@ -44,6 +44,7 @@ public final class AutomationsPage {
     @ObservationIgnored private let local: @Sendable () async throws -> Data
     @ObservationIgnored private let cloud: @Sendable () async throws -> Data
     @ObservationIgnored private let history: (@Sendable () async throws -> Data)?
+    @ObservationIgnored private let cloudHistory: (@Sendable () async throws -> Data)?
     /// Runs `cmux --json WORDS…` and returns its stdout; throws ``AutomationsPageHost/SourceError``
     /// with the CLI's message when it fails. Nil: the page has no buttons.
     @ObservationIgnored public let cli: (@Sendable ([String]) async throws -> Data)?
@@ -54,13 +55,16 @@ public final class AutomationsPage {
     ///   - local: This Mac's `cmux automation list --json` output.
     ///   - cloud: The `value` of a Cloud `automation.list`.
     ///   - history: This Mac's `cmux automation history --json` output.
+    ///   - cloudHistory: Every Cloud run (`cmux automation history --target cloud --json`).
     ///   - cli: Runs one `cmux --json automation …` command (the buttons and the form).
     public init(local: @escaping @Sendable () async throws -> Data, cloud: @escaping @Sendable () async throws -> Data,
                 history: (@Sendable () async throws -> Data)? = nil,
+                cloudHistory: (@Sendable () async throws -> Data)? = nil,
                 cli: (@Sendable ([String]) async throws -> Data)? = nil) {
         self.local = local
         self.cloud = cloud
         self.history = history
+        self.cloudHistory = cloudHistory
         self.cli = cli
     }
 
@@ -73,10 +77,11 @@ public final class AutomationsPage {
 
     /// Loads both sources; one that fails keeps the other's rows and records why.
     public func reload(now: Date) async {
-        let (local, cloud, history) = (local, cloud, history)
+        let (local, cloud, history, cloudHistory) = (local, cloud, history, cloudHistory)
         async let mine = attempt(local)
         async let theirs = attempt(cloud)
         async let runs = attempt(history ?? { Data() })
+        async let cloudRuns = attempt(cloudHistory ?? { Data() })
         var next: [AutomationRow] = []
         var problems: [AutomationRow.Target: String] = [:]
         switch await mine {
@@ -93,8 +98,19 @@ public final class AutomationsPage {
             _ = await runs
         }
         switch await theirs {
-        case let .success(data): next += AutomationRow.cloud(data)
-        case let .failure(error): problems[.cloud] = (error as? AutomationsPageHost.SourceError)?.code ?? "unreachable"
+        case let .success(data):
+            let cloudRows = AutomationRow.cloud(data)
+            let commands = Set(cloudRows.filter { $0.kind == .command }.map(\.id))
+            let byAutomation = (try? (await cloudRuns).get()).map { AutomationRow.cloudRuns($0, commands: commands) } ?? [:]
+            next += cloudRows.map { row in
+                var row = row
+                row.runs = byAutomation[row.id] ?? []
+                if let newest = row.runs.first { row.last = newest.result }
+                return row
+            }
+        case let .failure(error):
+            problems[.cloud] = (error as? AutomationsPageHost.SourceError)?.code ?? "unreachable"
+            _ = await cloudRuns
         }
         rows = next
         self.problems = problems
@@ -180,7 +196,8 @@ public final class AutomationsPage {
         if shownLog?.run == run.id { shownLog = nil; return }
         guard let cli else { return }
         do {
-            let data = try await cli(["automation", "logs", run.id])
+            let cloud = rows.contains { $0.target == .cloud && $0.runs.contains { $0.id == run.id } }
+            let data = try await cli(["automation", "logs", run.id] + (cloud ? ["--target", "cloud"] : []))
             let text = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["log"] as? String ?? ""
             shownLog = (run.id, Self.tail(text))
         } catch {

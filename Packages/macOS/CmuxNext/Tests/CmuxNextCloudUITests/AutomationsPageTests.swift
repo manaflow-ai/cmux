@@ -185,6 +185,38 @@ import Testing
         AutomationsPage(local: { Self.list }, cloud: { Data() }, history: { Self.history }, cli: { words in try fake.run(words) })
     }
 
+    @Test func cloudCommandRunsShowWithTheirReasonAndTheirMachineLog() async throws {
+        let cloudList = Data("""
+        {"automations": [{"id": "auto_cccccccccccccccccccc", "name": "models-scout", "enabled": true,
+          "description": "Cloud command made with cmux automation: bash scripts/models/run-scout.sh",
+          "triggers": [{"spec": {"type": "cron", "expr": "0 1,7,13,19 * * *", "tz": "UTC"}}, {"spec": {"type": "manual"}}],
+          "body": {"type": "steps", "steps": []}, "next_run_at": \((Self.t0 + 3600) * 1000)}]}
+        """.utf8)
+        let cloudRuns = Data("""
+        {"runs": [
+          {"id": "run_c2", "automation": "auto_cccccccccccccccccccc", "state": "failed", "created_at": \(Self.t0 * 1000),
+           "started_at": \(Self.t0 * 1000), "finished_at": \((Self.t0 + 90) * 1000), "trigger": {"type": "cron", "scheduled_at": \(Self.t0 * 1000)},
+           "error": {"code": "machine.exit", "message": "step 1: exit 3: error: 2 tests failed"}},
+          {"id": "run_c1", "automation": "auto_cccccccccccccccccccc", "state": "succeeded", "created_at": \((Self.t0 - 21600) * 1000),
+           "started_at": \((Self.t0 - 21600) * 1000), "finished_at": \((Self.t0 - 21000) * 1000), "trigger": {"type": "manual"}}
+        ], "next_cursor": null}
+        """.utf8)
+        let fake = FakeCLI()
+        let page = AutomationsPage(local: { Self.list }, cloud: { cloudList }, history: { Self.history }, cloudHistory: { cloudRuns },
+                                   cli: { words in try fake.run(words) })
+        await page.reload(now: Date(timeIntervalSince1970: Self.t0))
+        let scout = try #require(page.rows.first { $0.name == "models-scout" })
+        #expect(scout.target == .cloud && scout.kind == .command && scout.task == "bash scripts/models/run-scout.sh")
+        #expect(scout.runs.map(\.id) == ["run_c2", "run_c1"])
+        #expect(scout.last == .failed && scout.needsYou, "its newest run failed")
+        #expect(scout.runs[0].reason == "step 1: exit 3: error: 2 tests failed")
+        #expect(scout.runs[0].trigger == "schedule" && scout.runs[1].trigger == "manual")
+        #expect(scout.runs[0].logPath != nil, "a Cloud command run has a log on its machine")
+        await page.toggleLog(scout.runs[0])
+        #expect(fake.calls.last == ["automation", "logs", "run_c2", "--target", "cloud"])
+        #expect(page.shownLog?.run == "run_c2")
+    }
+
     @Test func showByNameSelectsItAndOpensItsNewestLog() async throws {
         let fake = FakeCLI()
         let page = page(fake)
@@ -273,9 +305,11 @@ import Testing
         #expect(draft.arguments.contains("fri 17:00"))
         draft.cloud = true
         #expect(draft.arguments.suffix(2) == ["--target", "cloud"])
-        #expect(!draft.arguments.contains("--folder"), "Cloud runs have no folder of this Mac")
+        #expect(!draft.arguments.contains("--folder"), "a Cloud prompt runs in the Cloud Chief's chat, in no folder")
         draft.isCommand = true
-        #expect(draft.problems == [.cloudNeedsPrompt])
+        #expect(draft.problems.isEmpty, "a Cloud command runs on a Cloud machine")
+        #expect(draft.arguments == ["automation", "create", "Brief", "--command", "Summarize my PRs", "--folder", "~/code",
+                                    "--weekly", "fri 17:00", "--timeout", "30m", "--target", "cloud"])
         #expect(AutomationDraft(task: "x").problems == [.nameMissing])
         #expect(AutomationDraft(name: "x", task: "y", schedule: .every(minutes: 0)).problems == [.intervalTooShort])
 

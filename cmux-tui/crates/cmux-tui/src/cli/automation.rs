@@ -33,6 +33,8 @@ mod triggers;
 /// The runner never sleeps longer than this, so a new automation, a clock
 /// change or a wake from sleep is seen within a minute.
 const MAX_SLEEP: Duration = Duration::from_secs(60);
+/// A run's time limit when `--timeout` names none (here and on a Cloud machine).
+const DEFAULT_TIMEOUT_SECONDS: u64 = 30 * 60;
 /// The launchd label of `runner install`.
 const LAUNCHD_LABEL: &str = "com.cmuxterm.automations";
 
@@ -608,7 +610,11 @@ fn create(args: &[String], out: &Out) -> Outcome {
         trigger,
         body,
         catch_up: a.value("catch-up").map(parse_catch_up).transpose()?.unwrap_or_default(),
-        timeout_seconds: a.value("timeout").map(parse_duration).transpose()?.unwrap_or(30 * 60),
+        timeout_seconds: a
+            .value("timeout")
+            .map(parse_duration)
+            .transpose()?
+            .unwrap_or(DEFAULT_TIMEOUT_SECONDS),
         enabled: !a.flag("paused"),
         gate: triggers::gate(&a, Gate::default(), defaults)?,
     };
@@ -1394,16 +1400,16 @@ fn cloud_schedule(a: &Args) -> Result<Option<CloudSchedule>, Failure> {
         cmux_automations::CronExpr::parse(&expr).map_err(Failure::Usage)?;
         Ok(Some(CloudSchedule::Cron { expr, tz: tz.clone() }))
     };
-    for local_only in
-        ["every", "at", "in", "watch", "when", "debounce", "if", "cooldown", "max-runs"]
-    {
+    for local_only in ["at", "in", "watch", "when", "debounce", "if", "cooldown", "max-runs"] {
         if a.value(local_only).is_some() {
             return usage(messages().cloud_local_only.replace("{flag}", local_only));
         }
     }
-    let chosen =
-        ["daily", "weekdays", "weekly", "cron"].iter().filter(|f| a.value(f).is_some()).count()
-            + ["hourly", "manual", "webhook"].iter().filter(|f| a.flag(f)).count();
+    let chosen = ["daily", "weekdays", "weekly", "cron", "every"]
+        .iter()
+        .filter(|f| a.value(f).is_some())
+        .count()
+        + ["hourly", "manual", "webhook"].iter().filter(|f| a.flag(f)).count();
     if chosen > 1 {
         return usage(messages().one_schedule.replace("{flags}", "…"));
     }
@@ -1415,6 +1421,14 @@ fn cloud_schedule(a: &Args) -> Result<Option<CloudSchedule>, Failure> {
     }
     if a.flag("hourly") {
         return cron("0 * * * *".into());
+    }
+    if let Some(v) = a.value("every") {
+        // The Cloud's triggers are cron: an interval that divides an hour or a day is one.
+        let at = now();
+        return match teleport::every_as_cron(parse_duration(v)?, at - at.rem_euclid(60)) {
+            Some(expr) => cron(expr),
+            None => usage(messages().cloud_every.replace("{value}", v)),
+        };
     }
     if let Some(v) = a.value("daily") {
         let (h, m) = parse_clock(v)?;
@@ -1435,6 +1449,140 @@ fn cloud_schedule(a: &Args) -> Result<Option<CloudSchedule>, Failure> {
         return cron(v.to_string());
     }
     Ok(None)
+}
+
+/// `create NAME --command CMD --target cloud`: a command on one of the
+/// team's Cloud machines on each run (automation_cloud.rs, `CloudCommand`).
+fn cloud_command_create(
+    name: &str,
+    command: &str,
+    a: &Args,
+    global: &super::GlobalArgs,
+    out: &Out,
+) -> Outcome {
+    let schedule =
+        cloud_schedule(a)?.ok_or_else(|| Failure::Usage(messages().need_schedule.into()))?;
+    let timeout_seconds = match a.value("timeout") {
+        Some(v) => parse_duration(v)?,
+        None => DEFAULT_TIMEOUT_SECONDS,
+    };
+    if timeout_seconds > cloud::MAX_CLOUD_COMMAND_SECONDS {
+        return usage(
+            messages()
+                .cloud_timeout
+                .replace("{minutes}", &(cloud::MAX_CLOUD_COMMAND_SECONDS / 60).to_string()),
+        );
+    }
+    let repo = match (a.value("repo"), a.value("ref")) {
+        (Some(repo), branch) if repo.split('/').count() == 2 => {
+            Some((repo.to_string(), branch.unwrap_or("main").to_string()))
+        }
+        (Some(repo), _) => return usage(messages().cloud_repo.replace("{value}", repo)),
+        (None, Some(_)) => return usage(messages().cloud_repo.replace("{value}", "")),
+        (None, None) => None,
+    };
+    let machine = match cloud_machine(a.value("machine"), global)? {
+        Ok(machine) => machine,
+        Err(message) => return usage(message),
+    };
+    let body = cloud::CloudCommand {
+        command: command.to_string(),
+        folder: a.value("folder").map(str::to_string),
+        repo,
+        machine,
+        timeout_seconds,
+    };
+    let mut params =
+        cloud::command_create_params(name, &body, &schedule, a.value("catch-up"), a.flag("paused"));
+    team_fields(a, &mut params)?;
+    cloud_out(
+        cloud::call(global, "automation.create", params, Some(cloud::key(global, "create"))),
+        out,
+        |v| {
+            println!(
+                "{}",
+                messages()
+                    .cloud_created
+                    .replace("{name}", name)
+                    .replace("{id}", v.get("id").and_then(Value::as_str).unwrap_or("?"))
+            );
+            println!("{}", cloud_row(v));
+            println!("{}", messages().cloud_command_note.replace("{machine}", &body.machine));
+        },
+    )
+}
+
+/// The Cloud machine of a command automation: `--machine` (an id or a name),
+/// else the team's only one. `Err(message)` when none or several fit.
+fn cloud_machine(
+    wanted: Option<&str>,
+    global: &super::GlobalArgs,
+) -> Result<Result<String, String>, Failure> {
+    let wanted = wanted.map(|w| w.trim_start_matches("vm:").trim_start_matches("machine:"));
+    if let Some(id) = wanted.filter(|w| w.starts_with("vm_")) {
+        return Ok(Ok(id.to_string()));
+    }
+    let machines = super::app::connect_command(global)
+        .map_err(|e| e.get("message").and_then(Value::as_str).unwrap_or("no app").to_string())
+        .and_then(|mut stream| super::cloud_machines::cloud_machines(&mut stream));
+    let machines = match machines {
+        Ok(m) => m,
+        Err(reason) => return Ok(Err(messages().cloud_machine_read.replace("{reason}", &reason))),
+    };
+    let id = |m: &Value| m.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+    let title = |m: &Value| m.get("title").and_then(Value::as_str).unwrap_or_default().to_string();
+    let fits: Vec<&Value> = match wanted {
+        Some(w) => {
+            machines.iter().filter(|m| title(m).eq_ignore_ascii_case(w) || id(m) == w).collect()
+        }
+        None => machines.iter().collect(),
+    };
+    Ok(match fits.as_slice() {
+        [one] => Ok(id(one)),
+        _ => {
+            let names: Vec<String> =
+                machines
+                    .iter()
+                    .map(|m| {
+                        if title(m).is_empty() {
+                            id(m)
+                        } else {
+                            format!("{} ({})", title(m), id(m))
+                        }
+                    })
+                    .collect();
+            Err(messages().cloud_machine_pick.replace(
+                "{machines}",
+                &if names.is_empty() { "-".into() } else { names.join(", ") },
+            ))
+        }
+    })
+}
+
+/// `logs RUN --target cloud`: the log a command run left on its machine
+/// (a prompt run's result is in the Cloud Chief's chat).
+fn cloud_logs(a: &Args, global: &super::GlobalArgs, out: &Out) -> Outcome {
+    let run = a.one_word("RUN")?.to_string();
+    let got = match cloud::call(global, "run.get", json!({"run": run}), None) {
+        Ok(Answer::Value(v)) => v,
+        other => return cloud_out(other, out, |_| {}),
+    };
+    let body = got.get("body").or_else(|| got.get("run").and_then(|r| r.get("body")));
+    let Some(machine) = body.and_then(cloud::command_machine).map(str::to_string) else {
+        return usage(messages().cloud_logs_prompt);
+    };
+    let mut runner = super::cloud_start_chat::SelfRunner::new(global);
+    match super::cloud_start_chat::exec(&mut runner, &machine, &cloud::log_script(&run)) {
+        Ok(log) => {
+            if out.mode == OutputMode::Json {
+                println!("{}", json!({"run": run, "machine": machine, "log": log}));
+            } else {
+                print!("{log}");
+            }
+            Ok(0)
+        }
+        Err(error) => Ok(cloud::print_refusal(&error, out.mode)),
+    }
 }
 
 /// Prints a Cloud answer; refusals go through `print_refusal`.
@@ -1555,7 +1703,7 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Out
         return teleport::run(rest, global, out, true);
     }
     let mut valued = SPEC_VALUED.to_vec();
-    valued.extend(["limit", "key", "editor"]);
+    valued.extend(["limit", "key", "editor", "machine", "repo", "ref"]);
     let mut flags = SPEC_FLAGS.to_vec();
     flags.extend(["webhook", "private", "shared", "yes"]);
     let a = Args::parse(rest, &valued, &flags)?;
@@ -1569,8 +1717,8 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Out
                 .map(str::to_string)
                 .or_else(|| a.words.first().cloned())
                 .ok_or_else(|| Failure::Usage(messages().missing_word.replace("{what}", "NAME")))?;
-            if a.value("command").is_some() {
-                return usage(messages().cloud_no_command);
+            if let Some(command) = a.value("command") {
+                return cloud_command_create(&name, command, &a, global, out);
             }
             let prompt =
                 a.value("prompt").ok_or_else(|| Failure::Usage(messages().need_body.into()))?;
@@ -1763,14 +1911,23 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Out
                 }
             })
         }
-        "history" | "runs" => match target(&a)? {
+        "history" | "runs" => match if a.words.is_empty() {
+            Ok(Ok(String::new()))
+        } else {
+            target(&a)
+        }? {
+            // No AUTOMATION: every Cloud run, newest first (the Automations page reads it).
             Ok(id) => cloud_out(
-                cloud::call(
-                    global,
-                    "automation.runs.list",
-                    json!({"automation": id, "limit": 50}),
-                    None,
-                ),
+                if id.is_empty() {
+                    cloud::call(global, "run.list", json!({"limit": 100}), None)
+                } else {
+                    cloud::call(
+                        global,
+                        "automation.runs.list",
+                        json!({"automation": id, "limit": 50}),
+                        None,
+                    )
+                },
                 out,
                 |v| {
                     let runs = v.get("runs").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -1785,18 +1942,20 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Out
                             .and_then(Value::as_i64)
                             .map(|ms| when(ms / 1000))
                             .unwrap_or_default();
-                        let reason = r
-                            .get("error")
-                            .and_then(|e| e.get("code"))
-                            .and_then(Value::as_str)
-                            .map(|c| format!(" ({c})"))
-                            .unwrap_or_default();
+                        let error = r.get("error");
+                        let text = |k: &str| error.and_then(|e| e.get(k)).and_then(Value::as_str);
+                        let reason = match (text("code"), text("message")) {
+                            (Some(c), Some(m)) => format!(" ({c}: {m})"),
+                            (Some(c), None) => format!(" ({c})"),
+                            _ => String::new(),
+                        };
                         println!("{}  {at}  {}{reason}", s("id"), s("state"));
                     }
                 },
             ),
             Err(done) => done,
         },
+        "logs" | "log" => cloud_logs(&a, global, out),
         "delete" | "rm" => match target(&a)? {
             Ok(id) => cloud_out(
                 cloud::call(

@@ -224,7 +224,7 @@ public struct AutomationsPageView: View {
                 }
                 if let edit = actions.edit {
                     Button(strings.edit) { edit(row) }
-                } else if canAct, row.kind != .chief {
+                } else if canAct, row.target == .thisMac { // a Cloud edit changes the name only: delete and make it again
                     Button(strings.edit) { page.actionError = nil; page.draft = AutomationDraft(editing: row) }
                 }
                 if canAct {

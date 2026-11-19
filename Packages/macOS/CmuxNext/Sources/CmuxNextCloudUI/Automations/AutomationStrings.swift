@@ -90,7 +90,6 @@ public nonisolated struct AutomationStrings: Sendable {
     public var cronHelp: String { String(localized: "automations.form.cronHelp", defaultValue: "minute hour day month weekday, in this Mac's time zone", table: "Cloud", bundle: .module) }
     public var problemName: String { String(localized: "automations.problem.name", defaultValue: "Give it a name.", table: "Cloud", bundle: .module) }
     public var problemTask: String { String(localized: "automations.problem.task", defaultValue: "Say what it does.", table: "Cloud", bundle: .module) }
-    public var problemCloudPrompt: String { String(localized: "automations.problem.cloudPrompt", defaultValue: "Cloud runs an agent prompt, not a shell command.", table: "Cloud", bundle: .module) }
     public var problemInterval: String { String(localized: "automations.problem.interval", defaultValue: "At least 1 minute.", table: "Cloud", bundle: .module) }
     public var problemCron: String { String(localized: "automations.problem.cron", defaultValue: "Enter a cron schedule.", table: "Cloud", bundle: .module) }
     public var scheduleUnchanged: String { String(localized: "automations.schedule.unchanged", defaultValue: "As it is", table: "Cloud", bundle: .module) }
