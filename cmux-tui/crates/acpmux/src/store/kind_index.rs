@@ -349,7 +349,9 @@ impl LocalStore {
             }
             true
         };
-        for (index, path) in self.segments(id)?.into_iter().rev() {
+        let segments = self.segments(id)?;
+        let end = self.segment_starts.end(id, &segments, before)?;
+        for (index, path) in segments.into_iter().take(end).rev() {
             if self.segment_starts.first_seq(id, index, &path)?.is_some_and(|first| first >= before)
             {
                 continue;
