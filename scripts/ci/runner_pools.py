@@ -631,7 +631,8 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         dead |= stalls
         stalls = set()
         age = max(0.0, (now - generated).total_seconds() / 60)
-        started |= recently_started(snapshot, now=now)
+        recent = recently_started(snapshot, now=now)
+        started |= recent
         for label, load in (snapshot.get("pools") or {}).items():
             if not (isinstance(label, str) and EPHEMERAL.match(label) and isinstance(load, Mapping)):
                 continue
