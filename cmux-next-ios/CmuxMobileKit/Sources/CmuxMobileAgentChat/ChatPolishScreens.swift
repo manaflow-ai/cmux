@@ -247,28 +247,27 @@ struct EventInspectorScreen: View {
     var body: some View {
         Group {
             if let journal {
+                // Kept as records arrive (one redraw per frame, O(changed) per redraw), not
+                // filtered and reversed over every record per redraw.
                 let rows = memo.rows(journal)
+                let total = journal.count
                 List {
                     Section {
                         ForEach(rows.reversed()) { event in
                             NavigationLink {
                                 EventInspectorDetail(event: event)
                             } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(event.title).font(.subheadline.monospaced()).lineLimit(2)
-                                    Text("\(event.dir) · \(event.kind) · \(event.at.formatted(.dateTime.hour().minute().second()))")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
+                                EventInspectorRow(event: event)
                             }
                             .accessibilityIdentifier("chat.inspector.row")
                         }
                     } header: {
-                        Text(summary(shown: rows.count, total: journal.events.count, dropped: journal.dropped))
+                        Text(summary(shown: rows.count, total: total, dropped: journal.dropped))
                             .accessibilityIdentifier("chat.inspector.count")
                     }
                 }
                 .overlay {
-                    if journal.events.isEmpty {
+                    if total == 0 {
                         ContentUnavailableView("No events yet", systemImage: "list.bullet.rectangle",
                                                description: Text("Records from the Mac show here as they arrive."))
                     }
@@ -285,7 +284,7 @@ struct EventInspectorScreen: View {
                             }
                             .disabled(rows.isEmpty)
                             Button("Clear", systemImage: "trash", role: .destructive) { journal.clear() }
-                                .disabled(journal.events.isEmpty)
+                                .disabled(total == 0)
                         } label: {
                             Label("More", systemImage: "ellipsis")
                         }
@@ -314,6 +313,19 @@ struct EventInspectorScreen: View {
         var text = shown == total ? String(localized: "\(total) events") : String(localized: "\(shown) of \(total) events")
         if dropped > 0 { text += " · " + String(localized: "\(dropped) older dropped") }
         return text
+    }
+}
+
+/// One record's row: plain values, so a redraw for other records skips it.
+private struct EventInspectorRow: View {
+    let event: AgentInspectorEvent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(event.title).font(.subheadline.monospaced()).lineLimit(2)
+            Text("\(event.dir) · \(event.kind) · \(event.at.formatted(.dateTime.hour().minute().second()))")
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 }
 

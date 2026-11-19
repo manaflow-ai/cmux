@@ -29,9 +29,17 @@ final class DisplayFrame: NSObject {
 extension AgentChatStore {
     static var defaultNextFrame: (@MainActor () async -> Void)? { { await DisplayFrame.next() } }
 }
+
+extension AgentEventJournal {
+    static var defaultNextFrame: (@MainActor () async -> Void)? { { await DisplayFrame.next() } }
+}
 #else
 extension AgentChatStore {
     /// No display on the host running the tests: every event applies at once.
+    static var defaultNextFrame: (@MainActor () async -> Void)? { nil }
+}
+
+extension AgentEventJournal {
     static var defaultNextFrame: (@MainActor () async -> Void)? { nil }
 }
 #endif
