@@ -35,22 +35,34 @@ Claude Code turns user and local servers on and off per folder. Env and header v
 the agent's file and never printed. Every write keeps the file before it as <file>.cmux-backup.
 ";
 
+/// Takes `--json` out of `args`, only before `--`: after it, every word is the server's command.
+fn take_json_flag(args: &[String]) -> (bool, Vec<String>) {
+    let mut json = false;
+    let mut rest = Vec::with_capacity(args.len());
+    let mut words = args.iter();
+    for arg in words.by_ref() {
+        if arg == "--" {
+            rest.push(arg.clone());
+            break;
+        }
+        if arg == "--json" {
+            json = true;
+        } else {
+            rest.push(arg.clone());
+        }
+    }
+    rest.extend(words.cloned());
+    (json, rest)
+}
+
 /// `Some(exit code)` when `args` is `agent-config ...`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_action_globals(args).ok()?;
     if command_args.first().map(String::as_str) != Some("agent-config") {
         return None;
     }
-    let mut rest: Vec<String> = command_args[1..].to_vec();
-    let mut json_out = global.output == OutputMode::Json;
-    rest.retain(|arg| {
-        if arg == "--json" {
-            json_out = true;
-            false
-        } else {
-            true
-        }
-    });
+    let (json_flag, rest) = take_json_flag(&command_args[1..]);
+    let json_out = json_flag || global.output == OutputMode::Json;
     if rest.is_empty()
         || rest.iter().any(|a| a == "--help" || a == "-h") && !rest.contains(&"--".to_owned())
     {
@@ -297,6 +309,16 @@ mod tests {
 
     fn words(text: &str) -> Vec<String> {
         text.split_whitespace().map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn json_after_the_separator_is_the_servers_own() {
+        let (json, rest) = take_json_flag(&words("mcp add t --json --agent codex -- srv --json"));
+        assert!(json);
+        assert_eq!(rest, words("mcp add t --agent codex -- srv --json"));
+        let (json, rest) = take_json_flag(&words("mcp add t -- srv --json"));
+        assert!(!json);
+        assert_eq!(rest, words("mcp add t -- srv --json"));
     }
 
     #[test]

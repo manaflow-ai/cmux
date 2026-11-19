@@ -82,8 +82,9 @@ import Testing
         let model = Self.model(recorder)
         _ = try await model.run(["action": "add", "agent": "codex", "name": "fs", "scope": "user", "command": "npx",
                                  "args": ["-y", "@acme/fs"], "env": ["TOKEN=abc", "junk"]], context: Self.click)
+        // The folder and --json go before `--`, so the server's command keeps only its own words.
         #expect(recorder.calls.first == ["agent-config", "mcp", "add", "fs", "--agent", "codex", "--scope", "user", "--env", "TOKEN=abc",
-                                         "--", "npx", "-y", "@acme/fs", "--project", "/Users/me/src", "--json"])
+                                         "--project", "/Users/me/src", "--json", "--", "npx", "-y", "@acme/fs"])
         recorder.calls = []
         _ = try await model.run(["action": "add", "agent": "claude", "name": "docs", "scope": "local", "url": "https://d.example/mcp",
                                  "transport": "sse", "headers": ["X-Key=v"]], context: Self.click)
