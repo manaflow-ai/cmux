@@ -352,12 +352,11 @@ private struct FeedMoreMenu: View {
                 Button {
                     choosingWorkspaces = true
                 } label: {
-                    Label {
-                        Text("Workspaces")
-                        Text(workspacesSubtitle)
-                    } icon: {
-                        Image(systemName: "square.stack")
-                    }
+                    // A menu item reads its title, subtitle and icon from the label's views in this
+                    // order; a second Text inside a Label is dropped (fleet capture, iOS 26).
+                    Text("Workspaces")
+                    Text(workspacesSubtitle)
+                    Image(systemName: "square.stack")
                 }
                 .accessibilityIdentifier("feed.chooseWorkspaces")
             }
