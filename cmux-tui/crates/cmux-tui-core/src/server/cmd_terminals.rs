@@ -324,6 +324,7 @@ pub(super) fn create_terminal(
     // A plain shell (no command, no environment) from a creator not showing
     // it may wait for its first need (mux/terminal_respawn/lazy.rs).
     let _lazy = crate::mux::terminal_respawn::lazy::lazy_create_scope(
+        mux,
         !detached
             && argv.is_none()
             && env.is_empty()

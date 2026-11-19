@@ -120,6 +120,7 @@ pub(super) fn create(
     // need (mux/terminal_respawn/lazy.rs).
     let frontend_shell = frontend_shell(mux, client);
     let _lazy = crate::mux::terminal_respawn::lazy::lazy_create_scope(
+        mux,
         !crate::mux::terminal_respawn::lazy::actor_shows_what_it_creates(&actor)
             && !frontend_shell
             && env.as_ref().is_none_or(BTreeMap::is_empty)

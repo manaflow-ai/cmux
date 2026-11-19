@@ -320,20 +320,42 @@ thread_local! {
     /// Set by the request handlers that may create a never-started tab
     /// ([`lazy_create_scope`]).
     static LAZY_CREATE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The never-started runtimes this thread made in a scope, parked when
+    /// the scope ends.
+    static LAZY_PENDING: std::cell::RefCell<Vec<SurfaceId>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// While it lives, a terminal this thread creates may start lazily
 /// (`allow`); the handler decided it is a plain shell from a creator that
-/// is not showing it.
-pub(crate) struct LazyCreateScope(bool);
+/// is not showing it. When it ends, after the request placed its tabs, it
+/// parks every tab it left unstarted, so a creation path that places the
+/// tab after its last reap still reads parked (`relaunch.on_show`).
+pub(crate) struct LazyCreateScope {
+    previous: bool,
+    pending_from: usize,
+    mux: Arc<Mux>,
+}
 
-pub(crate) fn lazy_create_scope(allow: bool) -> LazyCreateScope {
-    LazyCreateScope(LAZY_CREATE.with(|cell| cell.replace(allow)))
+pub(crate) fn lazy_create_scope(mux: &Arc<Mux>, allow: bool) -> LazyCreateScope {
+    LazyCreateScope {
+        previous: LAZY_CREATE.with(|cell| cell.replace(allow)),
+        pending_from: LAZY_PENDING.with(|pending| pending.borrow().len()),
+        mux: mux.clone(),
+    }
 }
 
 impl Drop for LazyCreateScope {
     fn drop(&mut self) {
-        LAZY_CREATE.with(|cell| cell.set(self.0));
+        LAZY_CREATE.with(|cell| cell.set(self.previous));
+        let made = LAZY_PENDING.with(|pending| {
+            let mut pending = pending.borrow_mut();
+            let from = self.pending_from.min(pending.len());
+            pending.split_off(from)
+        });
+        for surface in made {
+            self.mux.finish_lazy_created_at(surface);
+        }
     }
 }
 
@@ -455,6 +477,7 @@ impl Mux {
             terminal_hex.to_string(),
             LazyCreated { incarnation: incarnation.clone(), cwd, parked: false },
         );
+        LAZY_PENDING.with(|pending| pending.borrow_mut().push(id));
         if let Err(error) = self.insert_created_terminal(surface.clone(), workspace_key) {
             self.forget_lazy_created(terminal_hex);
             failed("surface-insert-failed", Some(&incarnation));
