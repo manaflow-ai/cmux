@@ -16,24 +16,8 @@ import { useRowState, useStore, type RowState } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
 import { rowsByKey } from "../schema";
+import { lazyArt, NO_ART } from "../../shared/lazyArt";
 import { RowStatus, SettingRow } from "./SettingRow";
-import mascotFox from "../../../agent-session/acpmux/mascots/ChiefMascotFox.png";
-import mascotMachine from "../../../agent-session/acpmux/mascots/ChiefMascotMachine.png";
-import mascotMachineCyan from "../../../agent-session/acpmux/mascots/ChiefMascotMachineCyan.png";
-import mascotMachineBlue from "../../../agent-session/acpmux/mascots/ChiefMascotMachineBlue.png";
-import mascotMoon from "../../../agent-session/acpmux/mascots/ChiefMascotMoon.png";
-import mascotMoonBlue from "../../../agent-session/acpmux/mascots/ChiefMascotMoonBlue.png";
-import mascotMochi from "../../../agent-session/acpmux/mascots/ChiefMascotMochi.png";
-import mascotCaptain from "../../../agent-session/acpmux/mascots/ChiefMascotCaptain.png";
-import mascotSprout from "../../../agent-session/acpmux/mascots/ChiefMascotSprout.png";
-import mascotBolt from "../../../agent-session/acpmux/mascots/ChiefMascotBolt.png";
-import mascotFoxArctic from "../../../agent-session/acpmux/mascots/ChiefMascotFoxArctic.png";
-import mascotMachineViolet from "../../../agent-session/acpmux/mascots/ChiefMascotMachineViolet.png";
-import mascotMachineGold from "../../../agent-session/acpmux/mascots/ChiefMascotMachineGold.png";
-import mascotMoonRose from "../../../agent-session/acpmux/mascots/ChiefMascotMoonRose.png";
-import mascotOrb from "../../../agent-session/acpmux/mascots/ChiefMascotOrb.png";
-import mascotOrbSpark from "../../../agent-session/acpmux/mascots/ChiefMascotOrbSpark.png";
-import mascotOrbHood from "../../../agent-session/acpmux/mascots/ChiefMascotOrbHood.png";
 
 export const CHIEF_PET_ENABLED = "home.chiefPetEnabled";
 export const CHIEF_PET_MASCOT = "home.chiefPetMascot";
@@ -54,38 +38,46 @@ export const CHIEF_PET_ROWS: ReadonlySet<string> = new Set([
 ]);
 
 /** The characters in the setting's order (`HomeChiefPetSetting.mascots`: Series 1 without the orbs,
- * the animated sets, Series 2, then the orbs), with their art. Imported,
- * not `new URL(..., import.meta.url)`: the shipped page is one self-contained index.html whose CSP
- * allows `img-src data:` only, so its bundler (bundle.mjs) inlines each PNG as a data URL. */
-export const CHIEF_PET_MASCOTS: ReadonlyArray<{ id: string; art: string }> = [
-  { id: "fox", art: mascotFox },
-  { id: "machine", art: mascotMachine },
-  { id: "machine-cyan", art: mascotMachineCyan },
-  { id: "machine-blue", art: mascotMachineBlue },
-  { id: "moon", art: mascotMoon },
-  { id: "moon-blue", art: mascotMoonBlue },
-  { id: "mochi", art: mascotMochi },
-  { id: "captain", art: mascotCaptain },
-  { id: "sprout", art: mascotSprout },
-  { id: "bolt", art: mascotBolt },
-  { id: "fox-arctic", art: mascotFoxArctic },
-  { id: "machine-violet", art: mascotMachineViolet },
-  { id: "machine-gold", art: mascotMachineGold },
-  { id: "moon-rose", art: mascotMoonRose },
-  { id: "orb", art: mascotOrb },
-  { id: "orb-spark", art: mascotOrbSpark },
-  { id: "orb-hood", art: mascotOrbHood },
+ * the animated sets, Series 2, then the orbs). Their art is `useChiefPetArt`'s. */
+export const CHIEF_PET_MASCOTS: ReadonlyArray<{ id: string }> = [
+  { id: "fox" },
+  { id: "machine" },
+  { id: "machine-cyan" },
+  { id: "machine-blue" },
+  { id: "moon" },
+  { id: "moon-blue" },
+  { id: "mochi" },
+  { id: "captain" },
+  { id: "sprout" },
+  { id: "bolt" },
+  { id: "fox-arctic" },
+  { id: "machine-violet" },
+  { id: "machine-gold" },
+  { id: "moon-rose" },
+  { id: "orb" },
+  { id: "orb-spark" },
+  { id: "orb-hood" },
 ];
 
 /** The default character, orb (`HomeChiefPetSetting.defaultMascot`): by id, not the list's first. */
 export const CHIEF_PET_DEFAULT_MASCOT = "orb";
 
 /** The character `id` names; an unset or unknown id is the default, wherever it sits in the list. */
-export function chiefPetMascot(id: unknown): { id: string; art: string } {
+export function chiefPetMascot(id: unknown): { id: string } {
   return (
     CHIEF_PET_MASCOTS.find((entry) => entry.id === id) ??
     CHIEF_PET_MASCOTS.find((entry) => entry.id === CHIEF_PET_DEFAULT_MASCOT)!
   );
+}
+
+/** The characters' art (chiefPetArt.ts, about 850 KB of inlined PNGs), out of the page's first load
+ * (lazyArt.ts). */
+export const chiefPetArtChunk = lazyArt(() => import("./chiefPetArt").then((module) => module.CHIEF_PET_ART));
+
+/** `id`'s art as a data URL, once the art chunk is in (a transparent pixel until then). */
+export function useChiefPetArt(): (id: string) => string {
+  const art = chiefPetArtChunk.use();
+  return (id) => art?.[id] ?? NO_ART;
 }
 
 /** The rail under the pet, as the pet draws it: compose and the chevron. */
@@ -110,6 +102,7 @@ export function ChiefPetCard({
   visibleRows?: ReadonlySet<string> | null;
 }) {
   const store = useStore();
+  const art = useChiefPetArt();
   const shown = useRowState(CHIEF_PET_ENABLED);
   const character = useRowState(CHIEF_PET_MASCOT);
   // A search result (`?focus=`) lands on its control (Show/Hide, or the selected choice) once per
@@ -175,7 +168,11 @@ export function ChiefPetCard({
             data-enabled={enabled || live ? "true" : "false"}
             data-previewing={live ? "true" : "false"}
           >
-            <img className="chief-pet-art" src={preview.art} alt={t(`settings.choice.chiefPetMascot.${preview.id}`)} />
+            <img
+              className="chief-pet-art"
+              src={art(preview.id)}
+              alt={t(`settings.choice.chiefPetMascot.${preview.id}`)}
+            />
             <Rail />
           </div>
           <h3 className="group-title">{t("settingsPage.chiefPet.pets")}</h3>
@@ -197,7 +194,7 @@ export function ChiefPetCard({
                 onBlur={() => setPreviewed((id) => (id === entry.id ? null : id))}
               >
                 <span className="chief-pet-choice-art">
-                  <img src={entry.art} alt="" />
+                  <img src={art(entry.id)} alt="" />
                 </span>
                 <strong>{t(`settings.choice.chiefPetMascot.${entry.id}`)}</strong>
                 <span className="chief-pet-choice-help">{t(`settingsPage.chiefPet.about.${entry.id}`)}</span>

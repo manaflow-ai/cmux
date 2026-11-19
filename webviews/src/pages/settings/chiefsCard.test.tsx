@@ -137,8 +137,11 @@ const picture = (row: HTMLElement) => ({
   mascot: row.querySelector(".chiefs-picture img")?.hasAttribute("data-mascot") ?? false,
   initial: row.querySelector(".chiefs-initial")?.textContent ?? null,
 });
-const art = async (id: string) =>
-  (await import("./components/ChiefPetCard")).CHIEF_PET_MASCOTS.find((entry) => entry.id === id)!.art;
+// The art is a chunk of its own (lazyArt.ts); the rows draw it once it is in.
+const art = async (id: string) => (await import("./components/chiefPetArt")).CHIEF_PET_ART[id];
+await (
+  await import("./components/ChiefPetCard")
+).chiefPetArtChunk.loaded;
 
 test("a Chief with no picture of its own wears the chosen pet character, never a letter", async () => {
   // The default character (orb), with the pet itself off.
