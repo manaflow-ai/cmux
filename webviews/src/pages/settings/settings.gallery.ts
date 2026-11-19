@@ -564,7 +564,11 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
-  // Leo, 11-07: the profile menu's Personalization…, every visual choice on one page under a jump bar.
+  // Personalization opens its Theme panel by default and lists its panels in the sidebar.
+  "personalization-sidebar": variant("general", {
+    steps: [click('[data-section-link="personalization"]'), wait('[data-part-link="theme"][aria-current="page"]')],
+    note: "Open Personalization from General to expand the five sidebar links and show Theme.",
+  }),
   "personalization-background": variant("personalization", {
     focus: "personalization.background",
     workspace: "ws-1",
