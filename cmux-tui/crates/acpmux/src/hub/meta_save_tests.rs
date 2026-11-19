@@ -580,13 +580,64 @@ fn a_failed_metadata_save_stays_dirty_until_a_successful_save() {
     std::fs::rename(&backup, &path).unwrap();
     assert!(saved.is_err(), "a file could not replace a directory");
     assert!(session.meta_writer.needs_flush(&session));
-    assert!(
-        session.meta_writer.state.lock().unwrap().saved.as_ref().unwrap().composer_draft.is_none()
+    let mut before = session.meta();
+    before.composer_draft = None;
+    assert_eq!(
+        session.meta_writer.state.lock().unwrap().saved,
+        super::meta_digest(&before),
+        "the failed save left the last saved value's digest"
     );
     hub.flush();
     assert_eq!(saves.load(Ordering::Relaxed), 2, "one failed attempt and one retry");
     assert!(!session.meta_writer.needs_flush(&session));
     assert_eq!(on_disk(home.path(), &session.id)["composerDraft"], "keep this");
+}
+
+/// The writer keeps a digest of the last save, not a second copy of the chat's metadata
+/// (goals/infinite-items-flat): a change to what `session.json` holds still needs a save, a change
+/// only to what it never holds (`#[serde(skip)]`) does not, and the digest stays 32 bytes however
+/// large the metadata grows.
+#[test]
+fn the_writer_keeps_a_digest_of_the_last_save_not_a_copy() {
+    let (_home, hub, saves) = loaded_closed_chats(1);
+    let session = hub.resolve_here("chat-0").unwrap();
+    assert!(!session.meta_writer.needs_flush(&session));
+    // In memory only: the file never holds it, so there is nothing to save.
+    session.meta.lock().unwrap().title_asking = true;
+    assert!(
+        !session.meta_writer.needs_flush(&session),
+        "a change the file never holds made the chat dirty"
+    );
+    session.meta.lock().unwrap().composer_draft = Some("x".repeat(64 * 1024));
+    assert!(session.meta_writer.needs_flush(&session));
+    hub.flush();
+    assert_eq!(saves.load(Ordering::Relaxed), 1);
+    assert!(!session.meta_writer.needs_flush(&session));
+    assert_eq!(std::mem::size_of_val(&session.meta_writer.state.lock().unwrap().saved), 33);
+    assert_eq!(
+        session.meta_writer.state.lock().unwrap().saved,
+        session.read_meta(super::meta_digest),
+    );
+}
+
+/// A chat loaded from the store holds no inbound channel until something uses it
+/// (goals/infinite-items-flat: its first block of slots was most of each chat's own memory), and
+/// draining a chat that never had one returns at once instead of waiting out its 5 s bound.
+#[test]
+fn a_loaded_chat_makes_its_inbound_channel_at_first_use() {
+    let (_home, hub, _saves) = loaded_closed_chats(2);
+    let session = hub.resolve_here("chat-0").unwrap();
+    assert!(session.inbound.get().is_none(), "a loaded chat made its inbound channel");
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let started = Instant::now();
+    runtime.block_on(crate::hub::Hub::drain_inbound(&session));
+    assert!(started.elapsed() < Duration::from_secs(1), "drained a channel that never was");
+    assert!(session.inbound.get().is_none(), "a drain made the channel");
+    let other = hub.resolve_here("chat-1").unwrap();
+    let tx = other.inbound_tx().clone();
+    assert!(other.inbound.get().is_some());
+    assert!(other.inbound_rx().try_lock().unwrap().is_some(), "its receiver waits for a loop");
+    assert!(tx.same_channel(other.inbound_tx()), "one channel per chat");
 }
 
 /// Even when memory returns to its saved value, the writer's held copy can be different.
