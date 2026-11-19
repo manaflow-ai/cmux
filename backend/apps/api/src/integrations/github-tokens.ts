@@ -107,6 +107,18 @@ const retryAfter = (res: Response, now: number) => {
 }
 
 /**
+ * A connection's status_detail while its App installation is suspended (a refused mint or the
+ * `installation.suspend` webhook). `installation.unsuspend` lifts only a connection with this detail.
+ */
+export const GITHUB_SUSPENDED_DETAIL = "the GitHub App installation is suspended"
+
+/** The 409 a connection that needs a relink answers; a suspended installation says who can lift it, since a relink cannot. */
+const relinkFail = (c: Connection | undefined, fallback: string): TokenFail =>
+  c?.status_detail === GITHUB_SUSPENDED_DETAIL
+    ? fail(409, "needs_reauth", `the GitHub App installation on ${c.account?.name ?? "this account"} is suspended; an owner of ${c.account?.name ?? "the account"} can unsuspend it in its GitHub settings`)
+    : fail(409, "needs_reauth", fallback)
+
+/**
  * One reading of a GitHub refusal, for the token mint and repository listing alike: the installation
  * is gone (404), suspended (a 403 naming it) or, where `unauthorizedIsRelink`, refuses us (401): a
  * relink; a rate limit keeps GitHub's wait; another 403 or a 422 is a refusal; anything else an outage.
@@ -115,7 +127,7 @@ type Refusal = { readonly kind: "relink"; readonly detail: string } | { readonly
 const githubRefusal = async (res: Response, now: number, unauthorizedIsRelink: boolean): Promise<Refusal> => {
   const message = res.status === 403 ? String(((await res.clone().json().catch(() => ({}))) as { message?: unknown }).message ?? "") : ""
   if (res.status === 404) return { kind: "relink", detail: "the GitHub App installation is gone" }
-  if (res.status === 403 && /suspend/i.test(message)) return { kind: "relink", detail: "the GitHub App installation is suspended" }
+  if (res.status === 403 && /suspend/i.test(message)) return { kind: "relink", detail: GITHUB_SUSPENDED_DETAIL }
   if (unauthorizedIsRelink && res.status === 401) return { kind: "relink", detail: "GitHub refused the App installation" }
   if (res.status === 429 || (res.status === 403 && (res.headers.get("x-ratelimit-remaining") === "0" || res.headers.has("retry-after")))) return { kind: "rate", retry: retryAfter(res, now) }
   if (res.status === 403 || res.status === 422) return { kind: "denied" }
@@ -139,9 +151,9 @@ const authorize = (state: ConnectionsState, p: Principal, ask: TokenAsk): { c: C
   if (ask.connection !== undefined && selected === undefined)
     return fail(404, "integration.not_found", "the selected GitHub connection is not available")
   if (selected && selected.status !== "active")
-    return fail(409, "needs_reauth", "the selected GitHub connection needs to be linked again")
+    return relinkFail(selected, "the selected GitHub connection needs to be linked again")
   const active = all.filter((c) => c.status === "active")
-  if (active.length === 0) return fail(409, "needs_reauth", "the team's GitHub connection needs to be linked again")
+  if (active.length === 0) return relinkFail(all.find((c) => c.account?.name.toLowerCase() === repo.split("/")[0]!.toLowerCase()), "the team's GitHub connection needs to be linked again")
   // `repositories` names repositories inside the installation's own account: the owner must be that account (githubCovers, shared with Connect's reuse).
   const owned = ownerConnections(active, ask)
   if (selected && owned.length === 0 && selected.account?.name.toLowerCase() !== repo.split("/")[0]!.toLowerCase()) return otherOwner(selected, active, repo)

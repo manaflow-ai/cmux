@@ -17,7 +17,7 @@ import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredenti
 import * as ghTokens from "./integrations/github-tokens.ts"
 import { createConfigurePageTable, githubConnectTarget, installationConfigureUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, listeners, removeListener, type IntegrationChangedFrame } from "./integrations/github-push.ts"
-import { github, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
+import { github, githubScopesOf, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import { isAgentGatewayPrincipal, resolveConnectionPrincipal } from "./agent-gateway-principal.ts"
@@ -586,15 +586,18 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   async ingest(entity: string, connection: string, event: ProviderEvent): Promise<{ status: "forwarded" | "dropped"; runs: number }> {
     const bound = this.boundRow()
     if (!bound || bound.entity !== entity) return { status: "dropped", runs: 0 }
-    const c = this.bind(entity).currentState.connections[connection]
-    if (!c || c.status !== "active" || c.account?.key !== event.account) return { status: "dropped", runs: 0 }
-    if (!providerAllowed(policyOf(this.boundEngine!.currentState), c.provider)) return { status: "dropped", runs: 0 }
+    const engine = this.bind(entity)
+    const arrived = engine.currentState.connections[connection]
+    if (!arrived || arrived.account?.key !== event.account) return { status: "dropped", runs: 0 }
+    // The App installation's own lifecycle reaches a connection in any live status, so an unsuspend
+    // restores the connection its suspension marked; every other event needs an active connection.
+    if (event.provider === "github") this.githubInstallationEvent(arrived, event)
+    const c = engine.currentState.connections[connection] ?? arrived
+    if (arrived.status !== "active" && c.status !== "active") return { status: "dropped", runs: 0 }
+    if (!providerAllowed(policyOf(engine.currentState), c.provider)) return { status: "dropped", runs: 0 }
     // GitHub events from repositories outside the connection's scope never start automations.
     const repo = (event.payload as { repository?: { full_name?: unknown } } | null)?.repository?.full_name
-    if (event.provider === "github" && typeof repo === "string" && !githubRepoAllowed(c, policyOf(this.boundEngine!.currentState), repo)) return { status: "dropped", runs: 0 }
-    if (event.provider === "github" && event.event === "installation.deleted") {
-      this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail: "the GitHub App was uninstalled" }, `status:${c.id}:uninstalled:${event.delivery_id}`)
-    }
+    if (event.provider === "github" && typeof repo === "string" && !githubRepoAllowed(c, policyOf(engine.currentState), repo)) return { status: "dropped", runs: 0 }
     this.pushGithubChange(c, event)
     const scheduler = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(entity))
     const ev = { connection: c.id, sharing: c.sharing, created_by: c.created_by, ...event }
@@ -602,6 +605,48 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     // Chief jobs take the same events; a store failure propagates so the provider can retry the delivery.
     const chief = await chiefJobsEvent(this.env, entity, ev)
     return { status: "forwarded", runs: r.runs + chief }
+  }
+
+  /**
+   * What a GitHub App installation webhook changes on the connection linked to it (keys carry the
+   * delivery, so GitHub's redelivery is a replay):
+   * - `installation.deleted`: needs_reauth (uninstalled).
+   * - `installation.suspend`: an active connection is needs_reauth (suspended) at once, before a mint fails.
+   * - `installation.unsuspend`, or `installation.new_permissions_accepted` while the installation is not
+   *   suspended: a connection a suspension marked is active again; the granted permissions are synced.
+   * - `installation_repositories.removed`: the removed repositories leave the recorded list.
+   *   An added repository is not joined: under `linking_user_repos` the list is what the linking user
+   *   could reach, which only their own GitHub sign-in can tell (they relink, or Connect opens it);
+   *   under `installation` scope the list is not consulted.
+   */
+  private githubInstallationEvent(c: Connection, event: ProviderEvent): void {
+    if (c.status !== "active" && c.status !== "needs_reauth" && c.status !== "error") return
+    const p = (event.payload ?? {}) as { installation?: { permissions?: unknown; suspended_at?: unknown }; repositories_removed?: unknown }
+    const key = (what: string) => `${what}:${c.id}:${event.delivery_id}`
+    switch (event.event) {
+      case "installation.deleted":
+        this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail: "the GitHub App was uninstalled" }, `status:${c.id}:uninstalled:${event.delivery_id}`)
+        return
+      case "installation.suspend":
+        // A connection that already needs a relink for another reason keeps that reason.
+        if (c.status === "active") this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail: ghTokens.GITHUB_SUSPENDED_DETAIL }, key("status:suspended"))
+        return
+      case "installation.unsuspend":
+      case "installation.new_permissions_accepted": {
+        const perms = p.installation?.permissions
+        if (perms && typeof perms === "object") this.submitSystem("connection.github.sync", { connection: c.id, scopes_granted: githubScopesOf(perms as Record<string, unknown>) }, key("github-sync"))
+        const lifted = event.event === "installation.unsuspend" || p.installation?.suspended_at === null
+        if (lifted && c.status !== "active" && c.status_detail === ghTokens.GITHUB_SUSPENDED_DETAIL) this.submitSystem("connection.status", { connection: c.id, status: "active" }, key("status:unsuspended"))
+        return
+      }
+      case "installation_repositories.removed": {
+        const removed = Array.isArray(p.repositories_removed)
+          ? p.repositories_removed.map((r) => (r as { full_name?: unknown } | null)?.full_name).filter((n): n is string => typeof n === "string")
+          : []
+        if (removed.length > 0) this.submitSystem("connection.github.sync", { connection: c.id, repos_removed: removed }, key("github-sync"))
+        return
+      }
+    }
   }
 
   /** GitHub changes for watching feed sockets (integrations/github-push.ts): coalesced per listener. */
