@@ -28,7 +28,9 @@
 # syspolicyd, XprotectService, amfid and trustd spent across it. Before it, each binary's resident fraction
 # (t=prelaunch). Rows: LB-LOGIN, LB-COPY, LB-READ, LB-RESIDENT, LB-LAUNCH, LB-LATE (a wait whose time had passed),
 # LB-FAIL REASON (exit 3; 2 for a bad argument). The copy, probe and home live in LB_ROOT (default
-# ~/.cmux-launch-reboot), so the after step finds what the before step left.
+# /Users/Shared/cmux-launch-reboot-<uid>), so the after step finds what the before step left. Not under $HOME: a fleet
+# step's HOME is its own steps/<id>/home, removed when the step ends, so the after step found no copy and no probe.
+# A sudo refusal names the step user and the rules `sudo -n -l` lists (LB-SUDO rows), so the sudoers fix is plain.
 set -uo pipefail
 
 LB_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -36,7 +38,7 @@ LB_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=SCRIPTDIR/launch-premain.sh
 source "$LB_DIR/launch-premain.sh"
 
-ROOT="${LB_ROOT:-$HOME/.cmux-launch-reboot}"
+ROOT="${LB_ROOT:-/Users/Shared/cmux-launch-reboot-$(id -u)}"
 CONSOLE="${LB_CONSOLE:-scripts/ci/frame-pacing/console-session.sh}"
 TIME_BIN="${LB_TIME:-/usr/bin/time}"
 PLISTBUDDY="${LB_PLISTBUDDY:-/usr/libexec/PlistBuddy}"
@@ -77,7 +79,11 @@ fail() { echo "LB-FAIL reboot=${REBOOT:-?} $1"; exit 3; }
 
 before() {
   echo "LB host chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername) root=$ROOT"
-  sudo -n -l /sbin/shutdown -r now >/dev/null 2>&1 || fail "no passwordless sudo for /sbin/shutdown -r now"
+  if ! sudo -n -l /sbin/shutdown -r now >/dev/null 2>&1; then
+    echo "LB-SUDO user=$(id -un) uid=$(id -u) rules:"
+    sudo -n -l 2>&1 | sed 's/^/LB-SUDO   /'
+    fail "no passwordless sudo for /sbin/shutdown -r now"
+  fi
   { mkdir -p "$ROOT/copy" "$ROOT/home" && chmod 0777 "$ROOT" "$ROOT/home"; } || fail "cannot make $ROOT"
   xcrun swiftc -O -o "$PROBE" scripts/measure/launch-premain.swift >"$ROOT/swiftc.log" 2>&1 \
     || { cat "$ROOT/swiftc.log"; fail "probe build failed"; }

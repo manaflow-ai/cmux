@@ -26,7 +26,8 @@ stub ps 'case "$*" in
   *time=,comm=*) n=$(($(cat "$FAKE_PS_N" 2>/dev/null || echo 0) + 1)); echo $n >"$FAKE_PS_N"
     echo "0:0$n.00 /usr/libexec/syspolicyd"; echo "0:00.$n /usr/libexec/XprotectService"; echo "0:00.00 /usr/libexec/amfid" ;;
 esac'
-stub sudo 'exit 0'
+# sudo: allows everything; FAKE_SUDO_REFUSE=1 refuses the shutdown and lists one purge rule.
+stub sudo 'if [[ -n "${FAKE_SUDO_REFUSE:-}" ]]; then [[ "$*" == "-n -l" ]] && { echo "    (root) NOPASSWD: /usr/sbin/purge"; exit 0; }; exit 1; fi'
 stub stat 'f="${!#}"; /usr/bin/stat -L -c %s "$f"'
 stub xcrun 'while (($#)); do [[ "$1" == -o ]] && { cp "$FAKE_PROBE" "$2"; chmod +x "$2"; }; shift; done'
 stub curl 'out=""; url=""; while (($#)); do case "$1" in -o) out="$2"; shift ;; -A|-H|--proto|--retry) shift ;; -*) ;; *) url="$1" ;; esac; shift; done
@@ -77,6 +78,20 @@ done
 # The after phase with no copy yet.
 set +e; out="$(FAKE_BOOT=$(($(date +%s) - 100)) bash "$script" phase=after arm=noread reboot=1)"; rc=$?; set -e
 if [[ $rc != 3 ]] || ! grep -q '^LB-FAIL reboot=1 no probe' <<<"$out"; then die "missing copy: want LB-FAIL and exit 3, got $rc: $out"; fi
+
+# Before on a host whose sudoers refuse the shutdown: the step user and the rules, then LB-FAIL, nothing installed.
+: >"$calls"
+set +e; out="$(FAKE_SUDO_REFUSE=1 bash "$script" phase=before reboot=1)"; rc=$?; set -e
+if [[ $rc != 3 ]] || ! grep -q "^LB-SUDO user=$(id -un) uid=$(id -u) rules:$" <<<"$out" \
+  || ! grep -q '^LB-SUDO  *(root) NOPASSWD: /usr/sbin/purge$' <<<"$out" \
+  || [[ "$(tail -1 <<<"$out")" != "LB-FAIL reboot=1 no passwordless sudo for /sbin/shutdown -r now" ]]; then
+  die "sudo refused: want LB-SUDO rows, LB-FAIL and exit 3, got $rc: $out"
+fi
+grep -q '^curl' "$calls" && die "sudo refused: fetched the DMG anyway"
+
+# The default root is outside the step's HOME (a fleet step's HOME is removed when the step ends).
+set +e; out="$(LB_ROOT='' FAKE_SUDO_REFUSE=1 bash "$script" phase=before reboot=1)"; set -e
+grep -q "^LB host .* root=/Users/Shared/cmux-launch-reboot-$(id -u)$" <<<"$out" || die "default root: $out"
 
 # Before: installs the copy (reboot=1), primes it, exits 0, then the detached shutdown.
 : >"$calls"
