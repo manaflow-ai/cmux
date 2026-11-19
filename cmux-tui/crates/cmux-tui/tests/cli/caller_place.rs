@@ -503,6 +503,48 @@ fn an_app_that_places_terminals_decides_where_a_terminals_new_tab_goes() {
     assert_beta_still_focused(server, beta);
 }
 
+/// `browser profile open` goes to the daemon, so the CLI applies the rule
+/// the app applies to `browser open` from a terminal: the pane on its
+/// right, else a new pane right of it, never the terminal's own pane.
+#[test]
+fn a_plain_terminals_profile_browser_tab_opens_right_of_the_terminal() {
+    let split = caller_in_alpha_beta_focused("place-profile-right");
+    let Split { server, terminal, pane, alpha, beta } = &split;
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let app = FakeApp::start(
+        server,
+        "app-profile-own-pane",
+        json!({"caller_placement": 2, "caller": caller,
+            "beside": {"pane": pane, "placement": "own_pane"}}),
+    );
+    let who = Who::terminal(terminal).with_app(&app);
+    let open = [
+        "browser",
+        "profile",
+        "open",
+        "https://example.com/",
+        "--profile",
+        "default",
+        "--engine",
+        "webkit",
+    ];
+    // Nothing on its right: a new pane beside it, which holds only the page.
+    let first = run(server, &who, &open);
+    let right = created_pane(&first).to_owned();
+    assert_ne!(right, *pane, "the page opened over the terminal: {first}");
+    assert_eq!(workspace_of_pane(server, &right), *alpha, "{first}");
+    assert_eq!(tabs_and_panes(server, &right).0, 1, "the new pane holds the page alone");
+    // With that pane on its right: a tab there, and no third pane.
+    let panes = tabs_and_panes(server, &right).1;
+    let second = run(server, &who, &open);
+    assert_eq!(created_pane(&second), right, "{second}");
+    assert_eq!(tabs_and_panes(server, &right), (2, panes), "{second}");
+    // A new terminal from the same plain terminal is a tab in its own pane.
+    let tab = run(server, &who, &["tab", "create", "terminal"]);
+    assert_eq!(created_pane(&tab), pane, "{tab}");
+    assert_beta_still_focused(server, beta);
+}
+
 #[test]
 fn an_agents_profile_browser_tab_opens_in_a_pane_of_its_own_beside_the_chat() {
     let split = caller_in_alpha_beta_focused("place-agent-profile");

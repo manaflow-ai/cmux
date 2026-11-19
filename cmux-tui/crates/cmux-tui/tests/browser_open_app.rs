@@ -83,9 +83,10 @@ fn browser_open_from_a_caller_with_no_terminal_targets_the_apps_focused_pane() {
 }
 
 #[test]
-fn browser_open_from_a_terminal_with_an_older_app_targets_the_callers_pane() {
-    // An app from before `caller_placement` opens a run with no target in
-    // the focused pane, so the CLI names the terminal's own tab.
+fn browser_open_from_a_terminal_with_an_older_app_targets_its_own_tab() {
+    // An app from before `caller_placement` answers `new_column` for every
+    // caller and opens a run with no target in the focused pane: the run
+    // names the terminal's own tab, as for every app version.
     let run = Run::new(true).cli(&["--json", "browser", "open", URL], Some(CALLER_TERMINAL));
     assert!(run.output.status.success(), "{}", run.stderr());
     let [call] = run.runs()[..] else { panic!("one app run expected: {:?}", run.app) };
@@ -98,9 +99,13 @@ fn browser_open_from_a_terminal_with_an_older_app_targets_the_callers_pane() {
 }
 
 #[test]
-fn an_app_that_places_terminals_gets_the_caller_and_no_target() {
-    // The app opens the tab beside a terminal that runs an agent, and in the
-    // pane of a plain one; the CLI names the terminal and no place.
+fn a_plain_terminals_browser_targets_its_own_tab_never_the_panes_shown_tab() {
+    // For a terminal no agent runs in, the app answers `beside: {pane: <its
+    // own pane>, placement: "own_pane"}`. That pane is not a column right of
+    // the terminal: naming it made the run target the pane's SHOWN tab, and
+    // the app opened the browser in the terminal's pane. The run targets the
+    // terminal's own tab and names the terminal; the app then opens the
+    // browser where a Cmd-click there opens a link, right of the terminal.
     for args in [
         &["--json", "browser", "open", URL][..],
         &["--json", "tab", "create", "browser", "--url", URL][..],
@@ -109,8 +114,15 @@ fn an_app_that_places_terminals_gets_the_caller_and_no_target() {
         assert!(run.output.status.success(), "{}", run.stderr());
         let [call] = run.runs()[..] else { panic!("one app run expected: {:?}", run.app) };
         assert_eq!(call["params"]["action"], "openBrowser", "{call}");
-        assert!(call["params"].get("target").is_none(), "the CLI chose the place: {call}");
+        assert_eq!(call["params"]["target"], format!("tab:{CALLER_TAB}"), "{call}");
         assert_eq!(call["params"]["caller"], json!({"terminal_id": CALLER_TERMINAL}), "{call}");
+        assert!(
+            !run.daemon
+                .iter()
+                .any(|r| r["operation"] == "tab.get" && r["params"]["tab"] == "current"),
+            "the shown tab of a pane was read: {:?}",
+            run.daemon
+        );
         assert!(
             !run.daemon_operations().contains(&"tab.create_browser".to_string()),
             "{:?}",
@@ -149,27 +161,6 @@ fn an_agent_the_app_cannot_place_is_refused_and_opens_nothing() {
     assert!(run.stderr().contains("caller_unavailable"), "{}", run.stderr());
     let [call] = run.runs()[..] else { panic!("one refused app run expected: {:?}", run.app) };
     assert!(call["params"].get("target").is_none(), "{call}");
-    assert!(
-        !run.daemon.iter().any(|r| r["operation"] == "tab.get" && r["params"]["tab"] == "current"),
-        "the daemon's default pane was read: {:?}",
-        run.daemon
-    );
-}
-
-#[test]
-fn a_terminal_the_app_does_not_place_opens_the_tab_in_its_own_pane() {
-    // The app refuses the run it was to place (its window shows a page, or it
-    // does not know the terminal): the tab opens in the terminal's own pane,
-    // never in the daemon's default pane, which follows the person's focus.
-    let run = Run::app(AppMode::PlacesTerminalsOnPage)
-        .cli(&["--json", "browser", "open", URL], Some(CALLER_TERMINAL));
-    assert!(run.output.status.success(), "{}", run.stderr());
-    let [first, second] = run.runs()[..] else {
-        panic!("the refused run and the one in the terminal's pane expected: {:?}", run.app)
-    };
-    assert!(first["params"].get("target").is_none(), "{first}");
-    assert_eq!(second["params"]["target"], format!("tab:{CALLER_TAB}"), "{second}");
-    assert_ne!(second["params"]["idempotency_key"], first["params"]["idempotency_key"]);
     assert!(
         !run.daemon.iter().any(|r| r["operation"] == "tab.get" && r["params"]["tab"] == "current"),
         "the daemon's default pane was read: {:?}",
@@ -432,11 +423,9 @@ enum AppMode {
     /// `Home`, and its window cannot show the new tab (`tab.focus` fails).
     HomeNoReveal,
     /// `Workspace`, and the app places terminal callers itself
-    /// (`system.identify` reports `caller_placement` 2).
+    /// (`system.identify` reports `caller_placement` 2): for a terminal no
+    /// agent runs in, `beside` is its own pane (`own_pane`).
     PlacesTerminals,
-    /// `PlacesTerminals`, with the window on a page: openBrowser with no
-    /// target is refused.
-    PlacesTerminalsOnPage,
     /// `Workspace`, and a column (`RIGHT_PANE`) is right of the caller.
     RightColumn,
     /// The app shows the agent nowhere: `system.identify` finds no caller
@@ -640,8 +629,11 @@ fn app_response(mode: AppMode, request: &Value) -> Value {
             "terminal_id": params["caller"]["terminal_id"], "workspace": WORKSPACE,
             "screen": SCREEN, "pane": PANE, "tab": CALLER_TAB},
             "beside": {"pane": null, "placement": "new_column"}});
-        if matches!(mode, AppMode::PlacesTerminals | AppMode::PlacesTerminalsOnPage) {
+        if matches!(mode, AppMode::PlacesTerminals) {
             identity["caller_placement"] = json!(2);
+            if params["caller"]["terminal_id"].is_string() {
+                identity["beside"] = json!({"pane": PANE, "placement": "own_pane"});
+            }
         }
         if matches!(mode, AppMode::RightColumn) {
             identity["beside"] = json!({"pane": RIGHT_PANE, "placement": "existing_column",
@@ -661,7 +653,7 @@ fn app_response(mode: AppMode, request: &Value) -> Value {
     let refused = match mode {
         AppMode::Workspace | AppMode::PlacesTerminals | AppMode::RightColumn => false,
         AppMode::UnplacedAgent => false,
-        AppMode::Home | AppMode::HomeNoReveal | AppMode::PlacesTerminalsOnPage => {
+        AppMode::Home | AppMode::HomeNoReveal => {
             params["action"] == "openBrowser" && params.get("target").is_none()
         }
         AppMode::Refuse => true,
