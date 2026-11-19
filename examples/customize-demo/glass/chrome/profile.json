@@ -1,0 +1,7 @@
+{
+  "name": "glass-chrome",
+  "description": "Liquid Glass on the controls only: a glass sidebar with glass cards and group headers, a glass tab strip and address bar over Monet, and solid panes for everything you read.",
+  "settings": {
+    "appearance.themeFile": "glass-chrome"
+  }
+}
