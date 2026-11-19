@@ -50,6 +50,8 @@
 #![recursion_limit = "256"]
 #![cfg(unix)]
 
+#[path = "support/chat_size_seed.rs"]
+mod chat_size_seed;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // The prompt goes to tests/fake_agent.py; the sizes and the profile switch hold no credential.
@@ -1808,15 +1810,18 @@ fn send_first_token(rpc: &mut Rpc, id: &str, text: &str) -> Result<u64, Value> {
 fn write_size_chat(
     scratch: &Path,
     bytes: u64,
-) -> (PathBuf, chat_size_fixture::Written, &'static str) {
+) -> (PathBuf, chat_size_fixture::Written, &'static str, Value) {
     let Some(sim) = std::env::var_os("ACPMUX_CHAT_SIM_BIN").filter(|s| !s.is_empty()) else {
         let home = scratch.join("acpmux");
         let w = chat_size_fixture::write_chat(&home, &scratch.join("work"), bytes).unwrap();
-        return (home, w, "chat_size_fixture");
+        return (home, w, "chat_size_fixture", Value::Null);
     };
     let out = scratch.join("gen");
     let made = std::process::Command::new(&sim)
         .args(["gen", "--format", "acpmux", "--coordinators", "1", "--harness", "claude"])
+        // The generator otherwise increases its record cap with the target size. Keep
+        // the distribution fixed across this sweep; large single outputs are a separate workload.
+        .args(["--max-line", "20K"])
         .args(["--seed", "1", "--target-bytes", &bytes.to_string()])
         .arg("--out")
         .arg(&out)
@@ -1830,20 +1835,22 @@ fn write_size_chat(
     let chat = &manifest["coordinators"][0];
     let id = chat["id"].as_str().expect("the manifest names its chat").to_owned();
     let home = out.join("acpmux-home");
-    let meta: Value = serde_json::from_slice(
-        &std::fs::read(home.join("sessions").join(&id).join("session.json")).unwrap(),
-    )
-    .unwrap();
+    let settled = chat_size_seed::settle(&home, &id).expect("settle generated offline seed");
+    let preparation = json!({
+        "appended": settled.appended, "removedPrompts": settled.removed_prompts,
+        "removedInbox": settled.removed_inbox, "settledTurns": settled.settled_turns,
+        "transcriptSeq": settled.transcript_seq,
+    });
     let w = chat_size_fixture::Written {
         id,
-        bytes: chat["bytes"].as_u64().unwrap_or(0),
-        records: chat["lines"].as_u64().unwrap_or(0),
-        turns: meta["turnCount"].as_u64().unwrap_or(0),
-        last_seq: meta["lastSeq"].as_u64().unwrap_or(0),
+        bytes: settled.bytes,
+        records: settled.records,
+        turns: settled.turns,
+        last_seq: settled.last_seq,
         tool_outputs: 0,
         largest_output: 0,
     };
-    (home, w, "coord-sim")
+    (home, w, "coord-sim", preparation)
 }
 
 /// One size's run: write the chat, open it on a daemon that never read it (cold), measure every
@@ -1859,7 +1866,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
                       "freeBytes": free});
     }
     let written_at = Instant::now();
-    let (home, w, source) = write_size_chat(&scratch, bytes);
+    let (home, w, source, preparation) = write_size_chat(&scratch, bytes);
     let write_ms = ms(written_at);
     write_config(&home, json!({}));
     let id = w.id.clone();
@@ -1881,12 +1888,30 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let cold_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
     let (rss_after_load, _) = daemon.rss();
 
+    // Metadata saying idle is not enough: startup can restore queued work from the log.
+    // Reject that workload instead of attributing its work to opening a settled history.
+    let initial = rpc.call("_acpmux/attach", app_attach(&id));
+    let initial_state_error = match &initial {
+        Ok(reply)
+            if reply["session"]["status"] == "idle"
+                && reply["session"]["queued"].as_u64() == Some(0)
+                && reply["session"]["turn"].is_null() =>
+        {
+            Value::Null
+        }
+        Ok(reply) => json!({"reason": "fixture restored pending work", "session": {
+            "status": reply["session"]["status"], "queued": reply["session"]["queued"],
+            "turn": reply["session"]["turn"]}}),
+        Err(error) => error.clone(),
+    };
+    let last = initial.as_ref().ok().and_then(|r| r["lastSeq"].as_u64()).unwrap_or(w.last_seq);
+    rpc.notes.clear();
+
     // Settled: the log is read; what a long chat costs on its own.
     let rounds = ROUNDS as u64;
     let (attach_us, attach_records, attach_error) =
         timed_rounds(&mut rpc, "_acpmux/attach", rounds, |_| app_attach(&id));
     let (rss_idle, _) = daemon.rss();
-    let last = w.last_seq;
     let (newest_us, newest_records, newest_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, |_| older_params(&id, last + 1));
     // Warm pages at fixed proportional depths, as the repeated newest/attach reads above.
@@ -1961,6 +1986,8 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let result = json!({
         "size": label, "source": source, "bytes": bytes, "logBytes": w.bytes, "records": w.records,
         "turns": w.turns, "lastSeq": w.last_seq, "segments": segments,
+        "loadedLastSeq": last, "generatorMaxLineBytes": (source == "coord-sim").then_some(20 << 10),
+        "initialStateError": initial_state_error, "fixturePreparation": preparation,
         "bytesPerRecord": w.bytes / w.records.max(1), "recordsPerTurn": w.records / w.turns.max(1),
         "largestToolOutput": w.largest_output, "writeMs": write_ms,
         "coldAttachMs": cold_attach_ms, "coldAttachUs": cold_attach_us,
@@ -2140,13 +2167,24 @@ fn chat_size_sweep() {
 
 #[test]
 fn incomplete_chat_sizes_cannot_be_reported_as_success() {
-    for result in [
-        json!({"size": "4G", "skipped": "disk"}),
-        json!({"size": "4G", "coldAllLogsError": {"timeoutMs": 1800000}}),
-        json!({"size": "4G", "restartAllLogsError": {"timeoutMs": 1800000}}),
-        json!({"size": "4G", "sendError": {"stage": "first token"}}),
-        json!({"size": "4G", "attachUs": {"p50": 20}}),
+    let complete = json!({"size": "4G", "coldAttachMs": 10,
+        "attachUs": {"p50": 20, "p95": 30}, "newestPageUs": {"p50": 20},
+        "scrollRecentUs": {"p50": 20}, "scrollMidUs": {"p50": 20},
+        "scrollDeepUs": {"p50": 20}, "promptIndexUs": {"p50": 20},
+        "forwardPageUs": {"p50": 20}, "sendFirstTokenUs": {"p50": 20, "p95": 30},
+        "restartAttachMs": 10, "restartSendFirstTokenUs": 20,
+        "rssIdle": 100, "peakRss": 200, "restartPeakRss": 200});
+    assert!(size_failure(&complete).is_none());
+    for (key, value) in [
+        ("skipped", json!("disk")),
+        ("coldAllLogsError", json!({"timeoutMs": 1800000})),
+        ("restartAllLogsError", json!({"timeoutMs": 1800000})),
+        ("sendError", json!({"stage": "first token"})),
+        ("initialStateError", json!({"queued": 1})),
+        ("attachUs", json!({"p50": 20})),
     ] {
+        let mut result = complete.clone();
+        result[key] = value;
         assert!(size_failure(&result).is_some(), "incomplete result: {result}");
     }
 }

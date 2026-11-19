@@ -33,3 +33,13 @@ cmux-ci test --route fleet --timeout 7200 --artifact /tmp/chat-size-results -- b
 
 The daemon table does not establish app rendering, scroll-frame or keystroke
 latency. Those require a separate measurement of the published app.
+
+Fixture generation uses the same 20 KiB record cap at every size. Before the
+measured daemon starts, `tests/support/chat_size_seed.rs` finishes only unresolved
+queue/direct prompts, inbox items and the final interrupted turn from the pinned
+generator. It preserves the generated prefix and creates no journal, kind index
+or restore point. Completion counts and actual log bytes accompany each result.
+Unsupported lifecycle state fails preparation; the live attach must then report
+idle, no queued prompts and no active turn. This prevents recovered work from
+being misattributed to history size. The helper's idempotence/prefix tests and
+`initialStateError` rejection are the detectors.

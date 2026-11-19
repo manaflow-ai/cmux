@@ -45,7 +45,7 @@ class ChatSizeImportTest(unittest.TestCase):
         self.assertEqual(row["build"]["sha"], SHA)
 
     def test_failures_publish_no_partial_rows(self):
-        for error in ("sendError", "coldAllLogsError", "restartAllLogsError"):
+        for error in ("sendError", "coldAllLogsError", "restartAllLogsError", "initialStateError"):
             with self.subTest(error=error):
                 self.path.write_text(self.log(error))
                 with self.assertRaises(BenchError):
