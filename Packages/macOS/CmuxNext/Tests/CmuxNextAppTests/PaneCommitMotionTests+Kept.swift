@@ -8,72 +8,119 @@ import Testing
 /// `PaneCommitMotionTests`, the panes that a move keeps on the screen under the others (a pane that a close took out,
 /// a pane that a zoom covers): where they show, and what the rings of the other panes read of them.
 ///
-/// - A kept pane shows only where no pane of the layout shows. A pane's tab strip has no ground of its own, so a kept
-///   pane that shows under the pane that goes over it shows through that pane's tabs. A mask on the kept pane's clip
-///   takes out one hole, the box of the panes over it, and each edge of that hole goes with its pane: the same
-///   start, the same end, the same timing, also after a second act in the move.
+/// - A kept pane shows only where no pane over it shows. A pane's tab strip has no ground of its own, so a kept pane
+///   that shows under the pane that goes over it shows through that pane's tabs. A mask on the kept pane's clip
+///   leaves of it what no pane has yet, and each edge of that goes with the edge of a pane as the pane shows: the
+///   same start, the same end, the same timing, also when 2 acts move the pane (`PaneCommitMotionTests+KeptRoom`).
 /// - A pane's ring leaves out the rects of the panes in front of it (`ScreenContentView.panesAbove()`). Between the
 ///   turn of a change and the pass that shows it the screen shows the layout before the change, so the rings read the
 ///   panes as they show: a pane that left still covers, a pane that the move keeps under covers nothing.
 extension PaneCommitMotionTests {
-    // MARK: What the mask on a kept pane's clip cuts
+    // MARK: What the mask on a kept pane's clip leaves of it
 
-    /// The cut on the clip of a pane that a move keeps: a mask of 4 bands around one hole, in the order before the
-    /// hole in x, after it in x, before it in y, after it in y. A mask shows its layer where a band is, so the pane
-    /// shows nowhere in the hole. Each band has the moves of its edge at the hole; the mask's own layer has a move
-    /// when its pane still moves.
-    struct KeptCut {
-        /// The move of the mask's layer in the clip, and the origin of that layer's own coordinates.
-        var whole: Move
-        var origin: CGPoint
-        /// The moves of the 4 bands, in the mask's coordinates, and the timings of their animations.
-        var bands: [Move]
-        var timings: Set<String>
+    /// The act whose timing the animation with `key` has. A pane's own move has its act's number
+    /// (`pane.commit.N.position`); a move that a layer of a mask got from a pane's move has the number of that
+    /// move's act (`.kept.N`).
+    static func act(of key: String) -> Int? {
+        let words = key.components(separatedBy: ".")
+        guard words.count > 2, words[0] == "pane", words[1] == "commit" else { return nil }
+        if let kept = words.firstIndex(of: "kept"), kept + 1 < words.count { return Int(words[kept + 1]) }
+        return Int(words[2])
+    }
 
-        /// The hole, in the clip's coordinates, when each move is at `part` of its way (0: the start, 1: the end).
-        func hole(at part: CGFloat) -> CGRect {
-            let frame = whole.rect(at: part), rects = bands.map { $0.rect(at: part) }
-            let x = rects[0].maxX, y = rects[2].maxY
-            return CGRect(x: x + frame.minX - origin.x, y: y + frame.minY - origin.y, width: max(0, rects[1].minX - x), height: max(0, rects[3].minY - y))
+    /// The acts whose moves are on the pane hosts of `screen` now, in their order.
+    static func acts(on screen: ScreenContentView) -> [Int] {
+        let keys = screen.subviews.compactMap { ($0 as? PaneHostView)?.layer }.flatMap { $0.animationKeys() ?? [] }
+        return Set(keys.compactMap { Self.act(of: $0) }).sorted()
+    }
+
+    /// Where `layer` shows, in its superlayer, when the moves of each act on it are at `part(act)` of their way
+    /// (0: the start, 1: the end). Two acts in one move have two timings: they are at two parts in one frame.
+    static func rect(of layer: CALayer, at part: (Int) -> CGFloat) -> CGRect {
+        let keys = layer.animationKeys() ?? []
+        let end = move(of: layer, only: []).end
+        var rect = end
+        for number in Set(keys.compactMap({ Self.act(of: $0) })) {
+            let one = move(of: layer, only: Set(keys.filter { Self.act(of: $0) == number })).rect(at: part(number))
+            rect = CGRect(x: rect.minX + one.minX - end.minX, y: rect.minY + one.minY - end.minY,
+                          width: rect.width + one.width - end.width, height: rect.height + one.height - end.height)
         }
+        return rect
     }
 
-    /// The cut on the clip of `host`; nil: its clip has no mask of that kind.
-    static func keptCut(of host: PaneHostView) -> KeptCut? {
-        guard let mask = host.clipView.layer?.mask, mask.name == "pane.commit.cut", let bands = mask.sublayers, bands.count == 4 else { return nil }
-        let moves = bands.map { move(of: $0) }
-        return KeptCut(whole: move(of: mask), origin: mask.bounds.origin, bands: moves, timings: Set(moves.flatMap { $0.animations.map { timing($0) } }))
+    /// The origin of the own coordinates of `layer` at `part`: its `bounds.origin`, and each animation that adds to it.
+    /// A layer that moves, and whose origin moves as far, keeps the layers in it where they are.
+    static func origin(of layer: CALayer, at part: (Int) -> CGFloat) -> CGPoint {
+        var origin = layer.bounds.origin
+        for key in layer.animationKeys() ?? [] {
+            guard let animation = layer.animation(forKey: key) as? CABasicAnimation, animation.keyPath == "bounds.origin", animation.isAdditive,
+                  let from = (animation.fromValue as? NSValue)?.pointValue, let number = Self.act(of: key) else { continue }
+            let to = (animation.toValue as? NSValue)?.pointValue ?? .zero, way = part(number)
+            origin.x += from.x + (to.x - from.x) * way
+            origin.y += from.y + (to.y - from.y) * way
+        }
+        return origin
     }
 
-    /// Where a pane that a move keeps shows on its screen at one part of the moves, and the hole of its cut there.
-    struct Kept {
+    /// The rects in which `layer` shows with the layers in it, in its superlayer's coordinates, at `part`: a layer
+    /// with a colour shows in its rect, and a layer that clips shows the layers in it only inside its rect.
+    static func shown(_ layer: CALayer, at part: (Int) -> CGFloat) -> [CGRect] {
+        let frame = rect(of: layer, at: part), origin = origin(of: layer, at: part)
+        var rects = layer.backgroundColor == nil ? [] : [frame]
+        for inner in (layer.sublayers ?? []).flatMap({ shown($0, at: part) }) {
+            let moved = inner.offsetBy(dx: frame.minX - origin.x, dy: frame.minY - origin.y)
+            let rect = layer.masksToBounds ? moved.intersection(frame) : moved
+            if !rect.isNull, rect.width > 0, rect.height > 0 { rects.append(rect) }
+        }
+        return rects
+    }
+
+    /// The mask that a move puts on the clip of a pane that it keeps; nil: the clip has none.
+    static func keptMask(of host: PaneHostView) -> CALayer? {
+        guard let mask = host.clipView.layer?.mask, mask.name == "pane.commit.cut" else { return nil }
+        return mask
+    }
+
+    /// Each layer in `layer`, at each depth.
+    static func layers(in layer: CALayer) -> [CALayer] { (layer.sublayers ?? []).flatMap { [$0] + layers(in: $0) } }
+
+    /// Where a pane that a move keeps shows on its screen at one part of the moves.
+    @MainActor struct Kept {
+        /// The pane's clip in its layer's rect.
         var shows: CGRect
-        var hole: CGRect?
+        /// The rects of `shows` in which the pane shows: the whole, or what the mask on its clip leaves of it. A mask
+        /// shows its layer where a layer of the mask shows.
+        var parts: [CGRect]
 
         /// The area of `region` in which the pane shows.
         func area(in region: CGRect) -> CGFloat {
             let part = shows.intersection(region)
-            guard !part.isNull else { return 0 }
-            let cut = hole.map { part.intersection($0) } ?? .null
-            return part.width * part.height - (cut.isNull ? 0 : cut.width * cut.height)
+            guard !part.isNull, part.width > 0, part.height > 0 else { return 0 }
+            return part.width * part.height - PaneCommitMotionTests.uncovered(parts, in: part)
         }
     }
 
-    /// Where `host` shows on `screen` when each move is at `part` of its way: its clip, in its layer's rect. The clip
-    /// and its mask go with the layer.
-    static func kept(_ host: PaneHostView, on screen: ScreenContentView, at part: CGFloat) -> Kept {
-        let rect = host.layer.map { move(of: $0).rect(at: part) } ?? host.frame
+    /// Where `host` shows on `screen` when the moves of each act are at `part(act)` of their way: its clip, in its
+    /// layer's rect, as far as the mask on the clip shows it. The clip and its mask go with the layer.
+    static func kept(_ host: PaneHostView, on screen: ScreenContentView, at part: (Int) -> CGFloat) -> Kept {
+        let rect = host.layer.map { Self.rect(of: $0, at: part) } ?? host.frame
         let dx = rect.minX - host.frame.minX, dy = rect.minY - host.frame.minY
-        let clip = screen.convert(host.clipView.bounds, from: host.clipView).offsetBy(dx: dx, dy: dy)
-        let hole = keptCut(of: host).map { screen.convert($0.hole(at: part), from: host.clipView).offsetBy(dx: dx, dy: dy) }
-        return Kept(shows: clip.intersection(rect), hole: hole)
+        func onScreen(_ rect: CGRect) -> CGRect { screen.convert(rect, from: host.clipView).offsetBy(dx: dx, dy: dy) }
+        let shows = onScreen(host.clipView.bounds).intersection(rect)
+        guard let mask = keptMask(of: host) else { return Kept(shows: shows, parts: [shows]) }
+        return Kept(shows: shows, parts: shown(mask, at: part).map { onScreen($0).intersection(shows) }.filter { !$0.isNull })
+    }
+
+    /// The same, with the moves of each act at one `part`.
+    static func kept(_ host: PaneHostView, on screen: ScreenContentView, at part: CGFloat) -> Kept {
+        kept(host, on: screen) { _ in part }
     }
 
     /// A pane that left the layout shows nowhere under the pane that goes over it, and whole in the room that no pane
     /// has yet: at the start, at each quarter and at the end of the move of the pane over it. A zoom of the pane that
-    /// is under the other pane of a pair, and a close of the pane that is above the other. The cut goes with the pane:
-    /// one timing, and one animation at most for each edge of the hole. After the motion's end the pane that left has
-    /// no mask on its clip: a zoom's pane comes back whole.
+    /// is under the other pane of a pair, and a close of the pane that is above the other. The mask goes with the
+    /// pane: one timing, and one animation at most on each of its layers. After the motion's end the pane that left
+    /// has no mask on its clip: a zoom's pane comes back whole.
     @Test(arguments: [true, false])
     func aPaneThatLeftShowsNowhereUnderThePaneOverIt(zoomed: Bool) throws {
         let alone = try Self.alone(zoomed: zoomed)
@@ -90,11 +137,12 @@ extension PaneCommitMotionTests {
             let elsewhere = under.area(in: under.shows) - shown, room = Self.area(under.shows) - Self.area(under.shows.intersection(over))
             #expect(elsewhere >= room - 1, "at \(part) of the \(act)'s move the pane that left shows in \(elsewhere) pt2 of the \(room) pt2 of its place that no pane has yet")
         }
-        let cut = Self.keptCut(of: left)
+        let cut = Self.keptMask(of: left).map { Self.layers(in: $0).map { Self.move(of: $0) } } ?? []
+        let timings = Set(cut.flatMap { $0.animations.map { Self.timing($0) } })
         let pace: Set<String> = Set(move.animations.prefix(1).map { Self.timing($0) })
-        #expect(cut?.timings == pace, "the cut's moves are \(cut?.timings.sorted() ?? []); the move of the pane over it is \(pace.sorted())")
-        let count = cut?.bands.map(\.animations.count) ?? []
-        #expect(count.allSatisfy { $0 <= 1 }, "the 4 edges of the cut's hole have \(count) animations after one act")
+        #expect(timings == pace, "the mask's moves are \(timings.sorted()); the move of the pane over it is \(pace.sorted())")
+        let count = cut.map(\.animations.count)
+        #expect(count.allSatisfy { $0 <= 1 }, "the layers of the mask have \(count) animations after one act")
 
         _ = Self.toTheEnd(alone.harness, alone.screen)
         #expect(left.clipView.layer?.mask == nil, "after the motion's end the pane that left keeps a mask on its clip")
@@ -102,10 +150,10 @@ extension PaneCommitMotionTests {
 
     /// A hold of the close key: a second close in the first close's move, of the pane that the first close made grow
     /// over the first closed pane. That pane still moves when the move keeps it, so its clip and the mask on it move
-    /// too: the hole of its cut goes with the pane over it, not with that move. At the start, at each quarter and at
-    /// the end of the moves, each of the 2 panes that left shows nowhere under the pane of the layout, the first
-    /// nowhere under the second, and each shows whole in the room that no pane has yet. The mask's own move starts
-    /// when the first close's move started.
+    /// too: what its mask leaves of it goes with the pane over it, not with that move. At the start, at each quarter
+    /// and at the end of the moves, each of the 2 panes that left shows nowhere under the pane of the layout, the
+    /// first nowhere under the second, and each shows whole in the room that no pane has yet. The mask's own move
+    /// starts when the first close's move started.
     @Test func afterASecondCloseInTheMoveEachPaneThatLeftShowsNowhereUnderAPaneOverIt() throws {
         let harness = Commit.Harness(Commit.pairSplit(.horizontal), focused: Commit.right, holds: false)
         defer { harness.window.closeAfterTest() }
@@ -143,7 +191,7 @@ extension PaneCommitMotionTests {
             let open = a.area(in: a.shows) - a.area(in: front), most = Self.area(a.shows) - Self.area(a.shows.intersection(front))
             #expect(open >= most - 1, "at \(part) the first pane that left shows in \(open) pt2 of the \(most) pt2 of its place that no pane has yet")
         }
-        let own = Self.keptCut(of: second)?.whole.animations ?? []
+        let own = Self.keptMask(of: second).map { Self.move(of: $0).animations } ?? []
         let began = own.first?.beginTime ?? 0
         #expect(own.count == 1 && began >= before && began <= after,
                 "the mask of the second pane that left has \(own.count) moves of its own, from \(began); the first close's move began between \(before) and \(after)")
