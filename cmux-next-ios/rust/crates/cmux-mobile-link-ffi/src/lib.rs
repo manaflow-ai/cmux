@@ -16,6 +16,7 @@ mod browser;
 mod classic_leftovers;
 mod link_side;
 mod screen;
+mod screen_keys;
 mod terminal_chat;
 mod terminal_prediction;
 

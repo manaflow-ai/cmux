@@ -29,7 +29,12 @@
 //!   with `precise`;
 //! - `{"e":"key","usage":458756,"down":true}`: a USB HID usage, `page << 16 | id`
 //!   (`0x0007_0004` is A), so the meaning does not depend on the phone's layout;
-//! - `{"e":"text","text":"é"}`: committed text (IME, dictation).
+//! - `{"e":"text","text":"é"}`: committed text (IME, dictation), as the host takes it;
+//! - `{"e":"keysym","k":65,"down":true}`: an X11 keysym, the key that types it on a US layout
+//!   (with Shift around it when the key needs one), or the character as text when no key
+//!   does (CmuxScreenKit's keyboard bar and hardware keys speak keysyms);
+//! - `{"e":"type","text":"Hi"}`: typed text as key presses, character by character (the
+//!   Linux host applies no committed text); runs no US key types go as text.
 
 use std::net::SocketAddr;
 use std::os::fd::{AsRawFd, RawFd};
@@ -47,6 +52,7 @@ use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc;
 
 use crate::browser::BrowserFrame;
+use crate::screen_keys;
 use crate::{CmuxMobileError, on_runtime};
 
 /// How long a frame may wait for missing shards (`cmux-rd view`'s value), and when its
@@ -59,6 +65,8 @@ const INPUT_RESEND_US: u64 = 50_000;
 const CAP_CLOCK: &str = "clock";
 /// The viewer's datagram size: what `cmux-rd view` asks, which fits every path's MTU.
 const MAX_DATAGRAM: usize = MAX_DATAGRAM_VPC;
+/// The most characters one `type` input event takes (a paste of a few pages).
+const MAX_TYPED_CHARS: usize = 8_192;
 /// The close reason when the app closed the stream.
 pub const CLOSED_BY_APP: &str = "closed by the app";
 
@@ -304,8 +312,11 @@ impl ScreenStream {
                 message: "this stream only views the screen".into(),
             });
         }
-        let event = input_event(&json).map_err(|message| CmuxMobileError::InvalidArgument { message })?;
-        self.commands.send(Command::Input(event)).map_err(|_| closed())
+        let events = input_events(&json).map_err(|message| CmuxMobileError::InvalidArgument { message })?;
+        for event in events {
+            self.commands.send(Command::Input(event)).map_err(|_| closed())?;
+        }
+        Ok(())
     }
 
     /// Asks the host for a keyframe (the decoder lost its state).
@@ -353,8 +364,8 @@ fn closed() -> CmuxMobileError {
     CmuxMobileError::Closed { message: "the screen stream is closed".into() }
 }
 
-/// One desktop input event from its JSON form.
-fn input_event(json: &str) -> Result<InputEvent, String> {
+/// The desktop input events of one JSON form (a keysym or typed text can be several).
+fn input_events(json: &str) -> Result<Vec<InputEvent>, String> {
     let v: Value = serde_json::from_str(json).map_err(|e| format!("input: {e}"))?;
     let int = |name: &str| -> Result<i32, String> {
         v.get(name)
@@ -365,35 +376,52 @@ fn input_event(json: &str) -> Result<InputEvent, String> {
     let down =
         || v.get("down").and_then(Value::as_bool).ok_or_else(|| "input needs a boolean down".to_owned());
     match v.get("e").and_then(Value::as_str) {
-        Some("pointer") => Ok(InputEvent::Pointer { x: int("x")?, y: int("y")? }),
+        Some("pointer") => Ok(vec![InputEvent::Pointer { x: int("x")?, y: int("y")? }]),
         Some("button") => {
             let button = u8::try_from(int("button")?)
                 .ok()
                 .filter(|b| (1..=9).contains(b))
                 .ok_or("button is 1 to 9 (1 left, 2 middle, 3 right)")?;
-            Ok(InputEvent::Button { button, down: down()? })
+            Ok(vec![InputEvent::Button { button, down: down()? }])
         }
-        Some("scroll") => Ok(InputEvent::Scroll {
+        Some("scroll") => Ok(vec![InputEvent::Scroll {
             dx: int("dx").unwrap_or(0),
             dy: int("dy").unwrap_or(0),
             precise: v.get("precise").and_then(Value::as_bool).unwrap_or(false),
-        }),
+        }]),
         Some("key") => {
             let usage = v
                 .get("usage")
                 .and_then(Value::as_u64)
                 .and_then(|n| u32::try_from(n).ok())
                 .ok_or("input needs a HID usage (page << 16 | id)")?;
-            Ok(InputEvent::Key { usage, down: down()? })
+            Ok(vec![InputEvent::Key { usage, down: down()? }])
         }
         Some("text") => {
             let text = v.get("text").and_then(Value::as_str).ok_or("input needs text")?;
             if text.len() > cmux_rd_proto::MAX_TEXT_BYTES {
                 return Err(format!("text is at most {} bytes", cmux_rd_proto::MAX_TEXT_BYTES));
             }
-            Ok(InputEvent::Text(text.to_owned()))
+            Ok(vec![InputEvent::Text(text.to_owned())])
         }
-        other => Err(format!("unknown input event {other:?} (pointer, button, scroll, key, text)")),
+        Some("keysym") => {
+            let keysym = v
+                .get("k")
+                .and_then(Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok())
+                .ok_or("input needs an X11 keysym k")?;
+            screen_keys::keysym_events(keysym, down()?)
+        }
+        Some("type") => {
+            let text = v.get("text").and_then(Value::as_str).ok_or("input needs text")?;
+            if text.chars().count() > MAX_TYPED_CHARS {
+                return Err(format!("typed text is at most {MAX_TYPED_CHARS} characters"));
+            }
+            Ok(screen_keys::typed_events(text))
+        }
+        other => {
+            Err(format!("unknown input event {other:?} (pointer, button, scroll, key, text, keysym, type)"))
+        }
     }
 }
 
@@ -784,16 +812,24 @@ mod tests {
             (r#"{"e":"text","text":"é"}"#, InputEvent::Text("é".into())),
         ];
         for (json, event) in cases {
-            assert_eq!(input_event(json), Ok(event), "{json}");
+            assert_eq!(input_events(json), Ok(vec![event]), "{json}");
         }
+        // A keysym is its US-layout key, with Shift when the key needs it; typed text is key presses.
+        let shift = |down| InputEvent::Key { usage: 0x0007_00E1, down };
+        let a = |down| InputEvent::Key { usage: 0x0007_0004, down };
+        assert_eq!(input_events(r#"{"e":"keysym","k":65,"down":true}"#), Ok(vec![shift(true), a(true)]));
+        assert_eq!(input_events(r#"{"e":"keysym","k":97,"down":false}"#), Ok(vec![a(false)]));
+        assert_eq!(input_events(r#"{"e":"type","text":"a"}"#), Ok(vec![a(true), a(false)]));
         for bad in [
             "nope",
             r#"{"e":"wiggle"}"#,
             r#"{"e":"button","button":0,"down":true}"#,
             r#"{"e":"key","usage":4}"#,
             r#"{"e":"pointer","x":1}"#,
+            r#"{"e":"keysym","k":65}"#,
+            r#"{"e":"keysym","k":65104,"down":true}"#,
         ] {
-            assert!(input_event(bad).is_err(), "{bad}");
+            assert!(input_events(bad).is_err(), "{bad}");
         }
     }
 
