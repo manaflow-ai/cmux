@@ -907,18 +907,12 @@ export const CHAT_FLOWS_PAGE: LatencyPageSpec = {
   actions: flowActions,
 };
 
-// The model picker over a harness that lists 1,000 more models (flows.harness.ts `models=1000`):
-// opening it, opening its More models fold, and a key into its search, which lists every match.
-// Each should paint as fast as with a dozen models (constant cost as the list grows).
-const MODEL_MENU = ".acpmux-model .acpmux-mp";
-const MODEL_SEARCH = ".acpmux-mp-search input";
-const labRowShown = shown(".acpmux-mp-models .acpmux-mp-row[data-key^='model:lab-model-']");
-async function openModelMenu(page: Page): Promise<void> {
-  await flowChat(page);
-  await page.click(MODEL_PICKER);
-  await page.waitForSelector(MODEL_SEARCH);
-  await quiet(page);
-}
+// The model menu over a harness that lists 1,000 more models (flows.harness.ts `models=1000`): the
+// menu the chip opens (QuickModelColumns), and a key into its search, which lists every match under
+// its harness. Each should paint as fast as with a dozen models (constant cost as the list grows).
+const MODEL_MENU = ".acpmux-cols";
+const MODEL_SEARCH = ".acpmux-cols-search input";
+const MODEL_ROW = ".acpmux-cols .acpmux-cols-list .acpmux-cols-row[role='option']";
 async function closeModelMenu(page: Page): Promise<void> {
   await page.keyboard.press("Escape");
   if (await page.$(MODEL_MENU)) await page.keyboard.press("Escape");
@@ -926,30 +920,19 @@ async function closeModelMenu(page: Page): Promise<void> {
   await quiet(page);
 }
 const longModelActions: LatencyAction[] = [
-  pickerOpen("chat.picker.model.open.models-1000", "model picker open (1,000 models)", MODEL_PICKER, MODEL_MENU),
-  {
-    id: "chat.picker.model.more.models-1000",
-    name: "model picker More models (1,000 models)",
-    metricType: "target_painted",
-    requiredInstrumentation: requiredProfiled,
-    async prepare(page) {
-      await openModelMenu(page);
-      return labRowShown;
-    },
-    async input(page) {
-      await page.click(".acpmux-mp-older");
-    },
-    settle: closeModelMenu,
-  },
+  pickerOpen("chat.picker.model.open.models-1000", "model menu open (1,000 models)", MODEL_PICKER, MODEL_ROW),
   {
     id: "chat.picker.model.search.models-1000",
-    name: "model picker search key (1,000 models)",
+    name: "model menu search key (1,000 models)",
     metricType: "target_painted",
     requiredInstrumentation: requiredProfiled,
     async prepare(page) {
-      await openModelMenu(page);
+      await flowChat(page);
+      await page.click(MODEL_PICKER);
+      await page.waitForSelector(MODEL_ROW);
       await page.focus(MODEL_SEARCH);
-      return labRowShown;
+      await quiet(page);
+      return shown(".acpmux-cols .acpmux-cols-group");
     },
     async input(page) {
       await page.keyboard.press("l");

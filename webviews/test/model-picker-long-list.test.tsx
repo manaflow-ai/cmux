@@ -152,3 +152,48 @@ describe("the full model picker with 1,000 models", () => {
     expect(rows(doc).length).toBe(21);
   });
 });
+
+describe("the model menu the chip opens, with 1,000 models", () => {
+  async function openMenu(models: { id: string; name: string }[]) {
+    const { createRoot } = await import("react-dom/client");
+    const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ModelPicker
+          catalog={[{ id: "claude", name: "Claude Code", models, pickable: true }]}
+          harness="claude"
+          model={opus.id}
+          label={opus.name}
+          efforts={[]}
+          recents={[]}
+          onLand={() => {}}
+          onCombo={() => {}}
+          onHarness={() => {}}
+          onEffort={() => {}}
+          quick={{}}
+        />,
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+    await settle();
+    return dom.window.document;
+  }
+  const options = (doc: Document) => [...doc.querySelectorAll('.acpmux-cols-list [role="option"]')];
+
+  test("opens drawing only the rows in view, with the highlighted row among them", async () => {
+    const doc = await openMenu([opus, ...lab]);
+    const drawn = options(doc).length;
+    expect(drawn).toBeGreaterThan(0);
+    expect(drawn).toBeLessThan(100);
+    const field = doc.querySelector<HTMLInputElement>(".acpmux-cols-search input")!;
+    const active = field.getAttribute("aria-activedescendant");
+    expect(active).toBeTruthy();
+    expect(doc.getElementById(active!)).not.toBeNull();
+  });
+
+  test("a short tab still draws every row", async () => {
+    const doc = await openMenu([opus, ...lab.slice(0, 20)]);
+    expect(options(doc).length).toBe(21);
+  });
+});
