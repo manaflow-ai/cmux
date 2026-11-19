@@ -33,6 +33,10 @@ API = "https://api.github.com"
 PROTECTED_WORKFLOW = re.compile(r"nightly|promote|release|appcast|notariz|(?:^|[-_ /])dev(?:[-_ .]|$)", re.I)
 SUPERSEDED_MIN_AGE_SECONDS = 600
 SUPERSEDED_LIMIT_MAX = 500
+# GitHub's runs listing returns at most this many runs for one query, whatever total_count says.
+LIST_CAP = 1000
+# The superseded pass reads queued runs created this recently; older ones are the stale pass's.
+QUEUED_WINDOW_HOURS = 72
 
 
 def parse_time(value: str) -> dt.datetime:
@@ -119,17 +123,43 @@ class GitHub:
         except urllib.error.URLError as error:
             raise RuntimeError("GitHub API request failed") from error
 
-    def runs(self, status: str, pages: int = 10) -> list[dict[str, Any]]:
+    def runs(self, status: str, pages: int = 10, *, created: str | None = None) -> list[dict[str, Any]]:
         """The repository's pull_request runs in `status` (classify_run() keeps every other event)."""
         result: list[dict[str, Any]] = []
         for page in range(1, pages + 1):
-            query = urllib.parse.urlencode({"status": status, "event": "pull_request", "per_page": 100, "page": page})
+            params: dict[str, Any] = {"status": status, "event": "pull_request"}
+            if created:
+                params["created"] = created
+            query = urllib.parse.urlencode(params | {"per_page": 100, "page": page})
             payload = self.request("GET", f"/repos/{self.repo}/actions/runs?{query}")
             page_runs = payload.get("workflow_runs", [])
-            result.extend(page_runs)
-            if len(page_runs) < 100:
+            # A short page is not the last one: GitHub drops runs it hides from a page (98 of 100 on
+            # 2026-11-19), so only an empty page ends the listing.
+            if not page_runs:
                 break
+            result.extend(page_runs)
         return result
+
+    def queued_pull_request_runs(self, *, now: dt.datetime, hours: int = QUEUED_WINDOW_HOURS) -> list[dict[str, Any]]:
+        """Every queued pull_request run created in the last HOURS, read in created-time windows.
+
+        GitHub lists at most LIST_CAP runs for one query whatever total_count says: on 2026-11-19
+        cmux had more than 2,500 queued runs, page 11 came back empty, and the one-query listing saw
+        98 of them, none superseded, so the pass cancelled nothing. A window that fills the cap is
+        halved until each one is read whole."""
+        seen: dict[Any, dict[str, Any]] = {}
+        windows = [(now - dt.timedelta(hours=hours), now)]
+        while windows:
+            start, end = windows.pop()
+            created = f"{start.strftime('%Y-%m-%dT%H:%M:%SZ')}..{end.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+            runs = self.runs("queued", pages=LIST_CAP // 100, created=created)
+            if len(runs) >= LIST_CAP and end - start > dt.timedelta(minutes=1):
+                middle = start + (end - start) / 2
+                windows += [(start, middle), (middle, end)]
+                continue
+            for run in runs:
+                seen[run.get("id")] = run
+        return list(seen.values())
 
     def open_heads(self) -> dict[int, str]:
         """Every open pull request's number and head sha, paged until an empty page (at most 60 pages)."""
@@ -157,13 +187,13 @@ def superseded_pass(janitor: GitHub, repo: str, *, cleanup: bool, limit: int) ->
     try:
         open_heads = janitor.open_heads()
         now = dt.datetime.now(dt.timezone.utc)
-        eligible = [run for run in janitor.runs("queued", pages=25)
-                    if classify_superseded(run, open_heads, now=now)]
+        queued = janitor.queued_pull_request_runs(now=now)
+        eligible = [run for run in queued if classify_superseded(run, open_heads, now=now)]
     except RuntimeError as error:
         print(f"stale-run-janitor: superseded: {error}", file=sys.stderr)
         return 1
     print(f"stale-run-janitor: superseded {'CLEANUP' if cleanup else 'DRY-RUN'}; open_prs={len(open_heads)}; "
-          f"eligible={len(eligible)}; limit={limit}")
+          f"queued={len(queued)}; eligible={len(eligible)}; limit={limit}")
     if not cleanup:
         for run in eligible[:limit]:
             print(f"would cancel run {run.get('id')} ({run.get('path')}, {run.get('head_sha', '')[:12]}, superseded head)")

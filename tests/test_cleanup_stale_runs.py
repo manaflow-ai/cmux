@@ -182,7 +182,7 @@ class SupersededTests(unittest.TestCase):
     def test_cancel_rereads_the_run_and_its_pr(self):
         api = mock.Mock()
         api.open_heads.return_value = dict(self.heads)
-        api.runs.return_value = [self.run_data]
+        api.queued_pull_request_runs.return_value = [self.run_data]
         api.request.side_effect = [dict(self.run_data), {"state": "open", "head": {"sha": "new"}}, {}]
         self.assertEqual(self.run_main(api), 0)
         self.assertEqual(api.request.call_args_list, [
@@ -198,7 +198,7 @@ class SupersededTests(unittest.TestCase):
             with self.subTest(current=current, pr=pr):
                 api = mock.Mock()
                 api.open_heads.return_value = dict(self.heads)
-                api.runs.return_value = [self.run_data]
+                api.queued_pull_request_runs.return_value = [self.run_data]
                 api.request.side_effect = [current, pr]
                 self.assertEqual(self.run_main(api), 0)
                 self.assertNotIn("POST", [call.args[0] for call in api.request.call_args_list])
@@ -206,13 +206,13 @@ class SupersededTests(unittest.TestCase):
     def test_dry_run_and_schedule_never_cancel(self):
         api = mock.Mock()
         api.open_heads.return_value = dict(self.heads)
-        api.runs.return_value = [self.run_data]
+        api.queued_pull_request_runs.return_value = [self.run_data]
         self.assertEqual(self.run_main(api, cleanup="false"), 0)
         api.request.assert_not_called()
         environment = {"GH_TOKEN": "t", "GH_REPO": "test/repo", "CLEANUP": "true", "SUPERSEDED": "true",
                        "GITHUB_EVENT_NAME": "schedule"}
         api = mock.Mock()
-        api.runs.return_value = []
+        api.queued_pull_request_runs.return_value = []
         with mock.patch.dict(MODULE.os.environ, environment, clear=True), \
                 mock.patch.object(MODULE, "GitHub", return_value=api):
             self.assertEqual(MODULE.main(), 0)
@@ -233,6 +233,33 @@ class SupersededTests(unittest.TestCase):
             heads = client.open_heads()
         self.assertEqual(len(heads), 101)
         self.assertEqual(request.call_count, 3)
+
+
+class QueuedListingTests(unittest.TestCase):
+    def test_a_short_page_does_not_end_the_listing(self):
+        client = MODULE.GitHub("test-token", "test/repo")
+        pages = [{"workflow_runs": [{"id": i} for i in range(98)]}, {"workflow_runs": [{"id": 98}]}, {"workflow_runs": []}]
+        with mock.patch.object(client, "request", side_effect=pages):
+            self.assertEqual(len(client.runs("queued")), 99)
+
+    def test_a_window_that_fills_the_listing_cap_is_split(self):
+        # 2026-11-19: over 2,500 queued runs, but one query lists at most 1,000.
+        client = MODULE.GitHub("test-token", "test/repo")
+        now = dt.datetime(2026, 11, 19, 19, 0, tzinfo=dt.timezone.utc)
+        calls = []
+
+        def runs(status, pages=10, *, created=None):
+            calls.append(created)
+            if len(calls) == 1:
+                return [{"id": i} for i in range(MODULE.LIST_CAP)]
+            return [{"id": f"{created}-{i}"} for i in range(3)] + [{"id": "shared"}]
+
+        with mock.patch.object(client, "runs", side_effect=runs):
+            found = client.queued_pull_request_runs(now=now, hours=2)
+        self.assertEqual(calls[0], "2026-11-19T17:00:00Z..2026-11-19T19:00:00Z")
+        self.assertEqual(sorted(calls[1:]), ["2026-11-19T17:00:00Z..2026-11-19T18:00:00Z",
+                                             "2026-11-19T18:00:00Z..2026-11-19T19:00:00Z"])
+        self.assertEqual(len(found), 7)
 
 
 class WorkflowSafetyTests(unittest.TestCase):
