@@ -3,9 +3,10 @@
 
 No app, no display, no fleet: the frames are rows in the form that the app's frame_strip writes, and the app is a
 function that answers the tool's calls, with a list of tabs and a clock that only the tool's pauses move. The
-tool's sender of the New Tab keys runs here before the recording's call, on that clock, and not in a thread. So
-this proves the tool's own reading, its cases, the times at which it plans its keys and its INVALID rules, not
-that a recording on a Mac gives such rows or that the app takes the keys at those times.
+tool's sender of the New Tab keys runs here before the recording's call, on that clock, and not in a thread. A key
+sequence opens its tabs here at the call, with the times that the steps plan. So this proves the tool's own
+reading, its cases, the times at which it plans its keys and its INVALID rules, not that a recording on a Mac
+gives such rows, that the app takes the keys at those times, or that a sequence's keys come to the app's key path.
 
     python3 -I scripts/cmux-next/tests/test_close_tab_screen.py
 """
@@ -169,6 +170,8 @@ class CloseApp(base.FakeApp):
         # `closes`: False for a Close Tab key that closes nothing. `mark_before`: how long before the Close Tab key
         # the opening mark of a New Tab key of the last 50 ms starts (None: the recording has no such mark).
         self.closes, self.mark_before, self.focus = True, 100.0, True
+        # Each key sequence by `debug.key`: its params. `refuse_sequence`: the app's refusal of each one.
+        self.sequences, self.refuse_sequence = [], None
 
     def clock(self):
         return self.now
@@ -207,6 +210,18 @@ class CloseApp(base.FakeApp):
             mine = {"pane": "pane-1", "selected": self.shown, "tab_count": len(self.ids), "tabs": [f"{name}:{self.kinds[name]}" for name in self.ids]}
             other = {"pane": "pane-0", "selected": "far-0", "tab_count": 1, "tabs": ["far-0:terminal"]}
             return {"windows": [{"model": {"pane": "pane-1", "resolved_tab": self.shown}, "consistent": True, "topology": [other, mine]}] if self.focus else []}
+        if method == "debug.key" and "sequence" in params:
+            self.sequences.append(params)
+            if self.refuse_sequence:
+                return {"error": self.refuse_sequence}
+            at = self.now
+            for step in params["sequence"]:
+                at += step.get("after_ms", 0) / 1000
+                if step["key_code"] == 17 and step["down"]:  # a key-down of T, a repeat or not: one tab
+                    self.open("newTab")
+                    self.open_times.append(at)
+                    self.openings.append({"spare": True, "ms": 1000.0 + len(self.openings)})
+            return {"scheduled": len(params["sequence"]), "base_s": 5.0, "duration_ms": (at - self.now) * 1000, "key_window": params.get("key_window")}
         if method == "debug.key":
             self.keys.append(params)
             self.key_times.append(self.now)
@@ -239,7 +254,7 @@ class CloseApp(base.FakeApp):
 
 
 def options(folder, **changed):
-    return base.options(folder, **{**dict(keys="w", runs=1, close_cases="idle,key,hold", close_gap_ms=100.0, hold_keys=6,
+    return base.options(folder, **{**dict(keys="w", runs=1, close_cases="idle,key,downs,hold", close_gap_ms=100.0, hold_keys=6,
                                           hold_delay_ms=375.0, hold_repeat_ms=90.0), **changed})
 
 
@@ -261,35 +276,60 @@ class CloseScreenTests(unittest.TestCase):
             report = screen.run()
         return report, said.getvalue()
 
-    def test_the_close_tab_key_has_its_three_cases_and_each_row_says_which_tab_shows(self):
+    def test_the_close_tab_key_has_its_four_cases_and_each_row_says_which_tab_shows(self):
         app = CloseApp(self.folder)
         report, _ = self.run_mode(app)
-        self.assertEqual(list(report["cases"]), ["cmd-w/idle", "cmd-w/100 ms after a New Tab key",
-                                                 "cmd-w/100 ms after a hold of the New Tab key (6 key-downs)"])
+        # The name of a case says its sender: key-downs with no repeat flag are not a hold of the key.
+        self.assertEqual(list(report["cases"]), [
+            "cmd-w/idle", "cmd-w/100 ms after a New Tab key", "cmd-w/100 ms after 6 New Tab key-downs at a hold's times, no repeat flag",
+            "cmd-w/100 ms after a hold of the New Tab key (6 key-downs: 1 and 5 repeats with the repeat flag)"])
         rows = report["rows"]
-        self.assertEqual([row["label"] for row in rows], ["cmd-w-idle-0", "cmd-w-key100-0", "cmd-w-hold100-0"])
-        self.assertEqual([row["invalid"] for row in rows], [[], [], []])
-        self.assertEqual([row["close_tab"]["new_tab_keys"] for row in rows], [0, 1, 6])
+        self.assertEqual([row["label"] for row in rows], ["cmd-w-idle-0", "cmd-w-key100-0", "cmd-w-downs100-0", "cmd-w-hold100-0"])
+        self.assertEqual([row["invalid"] for row in rows], [[], [], [], []])
+        self.assertEqual([row["close_tab"]["new_tab_keys"] for row in rows], [0, 1, 6, 6])
         self.assertEqual([row["close_tab"]["shown_after"]["is"] for row in rows],
-                         ["the tab to the left of the closed tab", "the tab that was shown before the New Tab keys",
-                          "a new tab of the recording (place 5 of the 5 that are left, from the left)"])
-        self.assertEqual([row["close_tab"]["closed_is"] for row in rows], ["the shown tab (newTab)"] + ["a new tab of the recording"] * 2)
-        self.assertEqual([(row["close_tab"]["content_gone"], row["close_tab"]["content_shown"]) for row in rows], [(AT, AT)] * 3)
-        self.assertEqual([row["tabs_before"] for row in rows], [3, 2, 2])
+                         ["the tab to the left of the closed tab", "the tab that was shown before the New Tab keys"]
+                         + ["a new tab of the recording (place 5 of the 5 that are left, from the left)"] * 2)
+        self.assertEqual([row["close_tab"]["closed_is"] for row in rows], ["the shown tab (newTab)"] + ["a new tab of the recording"] * 3)
+        self.assertEqual([(row["close_tab"]["content_gone"], row["close_tab"]["content_shown"]) for row in rows], [(AT, AT)] * 4)
+        self.assertEqual([row["tabs_before"] for row in rows], [3, 2, 2, 2])
         # One recording for each row, of the Close Tab key alone: the app's recorder sends no second key.
         self.assertEqual([(asked["key"], asked.get("repeat"), asked["above"], asked["capture"], asked["duration_ms"]) for asked in app.asked],
-                         [("w", None, True, "screencapturekit", 2000.0)] * 3)
+                         [("w", None, True, "screencapturekit", 2000.0)] * 4)
         # Each recording's tabs are closed again, and no more of them than the tool opened.
-        self.assertEqual((app.closed, app.ids), ([1, 1, 6], ["tab-0"]))
+        self.assertEqual((app.closed, app.ids), ([1, 1, 6, 6], ["tab-0"]))
         self.assertEqual(report["cases"]["cmd-w/idle"]["close"]["shows"], {"the tab to the left of the closed tab": 1})
 
     def test_the_new_tab_keys_are_one_key_down_for_each_call_at_the_times_of_a_held_key(self):
         app = CloseApp(self.folder)
         report, _ = self.run_mode(app)
         sent = [row["close_tab"]["new_tab_keys_sent_ms"] for row in report["rows"]]
-        self.assertEqual(sent, [[], [-100.0], [-835.0, -460.0, -370.0, -280.0, -190.0, -100.0]])
-        # The idle case's own New Tab key (the tab that it closes) and the 7 of the two other cases: no repeat flag.
+        self.assertEqual(sent, [[], [-100.0]] + [[-835.0, -460.0, -370.0, -280.0, -190.0, -100.0]] * 2)
+        # The idle case's own New Tab key (the tab that it closes) and the 7 of the `key` and `downs` cases: no repeat flag.
         self.assertEqual(app.keys, [{"key": "t", "modifiers": ["command"]}] * 8)
+        self.assertEqual([row["close_tab"].get("new_tab_keys_by") for row in report["rows"]],
+                         [None] + ["one `debug.key` call for each key-down, by the tool's clock: no repeat flag, not the app's event queue"] * 2
+                         + ["one key sequence of `debug.key` in the app's event queue, by the app's clock: the first key-down, then repeats with the repeat flag"])
+
+    def test_the_hold_is_one_key_sequence_with_the_repeat_flag_in_the_shell_window(self):
+        app = CloseApp(self.folder)
+        report, _ = self.run_mode(app, close_cases="hold")
+        # Command down, T down, 5 repeats of T at a held key's times, T up and Command up before the Close Tab key.
+        t_down, t_again = {"key_code": 17, "down": True, "after_ms": 2.0}, {"key_code": 17, "down": True, "after_ms": 90.0, "repeat": True}
+        self.assertEqual(app.sequences, [{"key_window": "shell", "sequence": [
+            {"key_code": 55, "down": True}, t_down, {**t_again, "after_ms": 375.0}, t_again, t_again, t_again, t_again,
+            {"key_code": 17, "down": False, "after_ms": 40.0}, {"key_code": 55, "down": False, "after_ms": 5.0}]}])
+        self.assertEqual((app.keys, report["rows"][0]["invalid"]), ([], []))
+        self.assertEqual(report["rows"][0]["close_tab"]["sequence"], {"scheduled": 9, "key_window": "shell", "sent_ms": -837.0})
+        # The recording starts 120 ms before the Close Tab key's planned time: 20 ms before the last repeat.
+        self.assertAlmostEqual(app.strip_times[0] - app.open_times[-1], -0.02, places=6)
+
+    def test_a_key_sequence_that_the_app_refused_is_an_invalid_row_with_no_recording(self):
+        app = CloseApp(self.folder)
+        app.refuse_sequence = "the shell window did not become key"
+        report, _ = self.run_mode(app, close_cases="hold")
+        self.assertEqual(report["rows"][0]["invalid"], ['input: the app refused the hold\'s key sequence: "the shell window did not become key"'])
+        self.assertEqual((app.asked, app.closed, app.ids), ([], [1], ["tab-0"]))
         # The idle case's tab is there 1.5 s before its recording starts: its opening is in no frame of the recording.
         self.assertGreaterEqual(app.strip_times[0] - app.key_times[0], 1.5)
         self.assertEqual(report["rows"][0]["close_tab"]["new_tab_marks_before_ms"], [])
@@ -314,7 +354,7 @@ class CloseScreenTests(unittest.TestCase):
     def test_a_recording_that_the_app_refused_closes_what_the_tool_opened(self):
         app = CloseApp(self.folder)
         app.refused = {1}
-        report, _ = self.run_mode(app, close_cases="hold")
+        report, _ = self.run_mode(app, close_cases="downs")
         self.assertTrue(report["rows"][0]["invalid"][0].startswith("frame_strip: "), report["rows"][0]["invalid"])
         self.assertEqual((app.closed, app.ids), ([7], ["tab-0"]))
 
@@ -350,7 +390,7 @@ class CloseScreenTests(unittest.TestCase):
         # case keeps none, and the first row of the NEXT case keeps its own again.
         with mock.patch.object(new_surface_screen, "PICTURES_A_CASE", 4, create=True):
             report, _ = self.run_mode(CloseApp(self.folder), runs=2, keep_keys=2)
-        self.assertEqual([bool(row.get("kept_pictures")) for row in report["rows"]], [True, False] * 3)
+        self.assertEqual([bool(row.get("kept_pictures")) for row in report["rows"]], [True, False] * 4)
 
 
 if __name__ == "__main__":

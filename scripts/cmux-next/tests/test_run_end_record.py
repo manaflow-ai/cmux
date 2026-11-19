@@ -222,6 +222,11 @@ class RunEndTests(unittest.TestCase):
         self.left(RUN, signal.SIGTRAP)
         self.end.last(now=NOW)
         self.assertIn("LAST-END-RECORD run.json build: version 0.1 7; commit abc1234", self.said)
+        # A record with no commit says so, and the tool gives none.
+        self.said.clear()
+        self.left({key: value for key, value in RUN.items() if key != "commit"}, signal.SIGTRAP)
+        self.end.last(now=NOW)
+        self.assertIn("LAST-END-RECORD run.json build: version 0.1 7; commit: not in the record", self.said)
         self.assertIn("LAST-END-RECORD com.example.app.debug.demo_tag-app-20261118-101010-123.json build: version 0.1 7; commit: not in the report", self.said)
         self.assertIn("LAST-END-RECORD com.example.app.debug.demo_tag-app-20261118-101010-124.json build: version 0.1 8; commit abc1234", self.said)
         self.assertIn("LAST-END-RECORD demo-2026-11-18-060634.ips build: version 0.1 (7); the process demo; image uuid 0000-1111; "

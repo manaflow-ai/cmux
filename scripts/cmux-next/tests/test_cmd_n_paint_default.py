@@ -168,14 +168,17 @@ class DefaultPathTests(unittest.TestCase):
         mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
         got = outcome(str(HERE.parent), ["--screen", "--runs", "1", "--keys", "w", "--page-watch", "0"], bad=False, files=mode)
         self.assertEqual((got["exit"], got["stderr"]), (0, []))
-        self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 3 rows, 3 INVALID, 0 pictures kept")
+        self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 4 rows, 4 INVALID, 0 pictures kept")
         calls = [json.loads(call) for call in got["calls"]]
         new_tab = [params for method, params in calls if method == "debug.key" and params.get("key") == "t"]
-        self.assertEqual(new_tab, [{"key": "t", "modifiers": ["command"]}] * 8)  # 1 for the idle case's tab, 1, and a hold of 6
+        self.assertEqual(new_tab, [{"key": "t", "modifiers": ["command"]}] * 8)  # 1 for the idle case's tab, 1, and 6 key-downs
+        held = [params for method, params in calls if method == "debug.key" and "sequence" in params]
+        # The hold: one sequence in the shell window, 5 of its key-downs with the repeat flag.
+        self.assertEqual([(h["key_window"], len(h["sequence"]), sum(1 for step in h["sequence"] if step.get("repeat"))) for h in held], [("shell", 9, 5)])
         strips = [params for method, params in calls if params.get("action") == "frame_strip"]
-        self.assertEqual([(s["key"], s.get("repeat"), s["duration_ms"]) for s in strips], [("w", None, 2000)] * 3)
+        self.assertEqual([(s["key"], s.get("repeat"), s["duration_ms"]) for s in strips], [("w", None, 2000)] * 4)
         labels = [row["label"] for row in json.loads(got["report"])["rows"]]
-        self.assertEqual(labels, ["cmd-w-idle-0", "cmd-w-key100-0", "cmd-w-hold100-0"])
+        self.assertEqual(labels, ["cmd-w-idle-0", "cmd-w-key100-0", "cmd-w-downs100-0", "cmd-w-hold100-0"])
 
     def test_screen_refuses_what_it_cannot_count_before_a_call_to_the_app(self):
         mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
