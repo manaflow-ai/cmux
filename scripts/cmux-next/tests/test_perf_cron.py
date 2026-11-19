@@ -33,6 +33,14 @@ def confirm_all(state, regs, cur, run_url, t, regression):
     return [{**r, "confirmed": True} for r in regs], [], set()
 
 
+def single_part_wait(test):
+    """The host wait of one part (HOST_WAIT_HOURS): these tests are of the give-up bounds; a controller batch's longer
+    wait (batch_wait_hours) is ControllerRouteTests'."""
+    patcher = mock.patch.object(cron, "batch_wait_hours", lambda parts: cron.HOST_WAIT_HOURS)
+    patcher.start()
+    test.addCleanup(patcher.stop)
+
+
 class OneRunRule(unittest.TestCase):
     """One run opens a regression and one run closes it (RECOVER_RUNS 1): ConfirmTests test both rules."""
 
@@ -1655,18 +1663,87 @@ class ControllerRouteTests(unittest.TestCase):
                 return False
         with mock.patch.object(cron.urllib.request, "urlopen", lambda req, timeout=0: Answer(b'{"rows": []}')):
             cron.cmd_fetch_result(argparse.Namespace(result=self.result(), out=out))
-        with open(os.path.join(out, "result.json")) as f:
+        with open(os.path.join(out, "motion", "result.json")) as f:
             self.assertEqual(json.load(f)["state"], "done")
-        with open(os.path.join(out, "report.json")) as f:
+        with open(os.path.join(out, "motion", "report.json")) as f:
             self.assertEqual(json.load(f), {"rows": []})
 
     def test_fetch_result_without_a_readable_artifact_is_a_failed_part(self):
         out = tempfile.mkdtemp()
         cron.cmd_fetch_result(argparse.Namespace(result=self.result(artifact_url="http://plain.example/a"), out=out))
-        with open(os.path.join(out, "result.json")) as f:
+        with open(os.path.join(out, "motion", "result.json")) as f:
             result = json.load(f)
         self.assertEqual(result["state"], "failed")
-        self.assertFalse(os.path.exists(os.path.join(out, "report.json")))
+        self.assertFalse(os.path.exists(os.path.join(out, "motion", "report.json")))
+
+    # 2026-11-18 10:59Z to 11-19 07:00Z: one Mac part per GitHub round trip ran 2 of measurement 7c697af8's 13 Mac
+    # parts; the controller now runs them back to back and answers once.
+    def batch(self, *results):
+        return json.dumps({"results": [json.loads(r) for r in results]})
+
+    def test_the_controller_route_asks_for_every_mac_part_back_to_back(self):
+        state = cron.empty_state(T0)
+        parts = ["diff-viewer", "motion", "switch", "launch"]
+        d = cron.decide(state, T0, self.SHA, None, lambda sha: parts, None, controller_route=True)
+        self.assertEqual(d["part"], "build")
+        self.assertEqual(d["mac_parts"], ["build", "motion", "switch", "launch"], "the requested part first, no Linux part")
+        wait = cron.host_wait_hours(state["current"])
+        self.assertAlmostEqual(wait, cron.HOST_WAIT_HOURS + (1200 + 3 * 900) / 3600, places=2)
+        plain = cron.empty_state(T0)
+        self.assertEqual(cron.decide(plain, T0, self.SHA, None, lambda sha: parts, None)["mac_parts"], [],
+                         "the gateway route runs one part per tick")
+
+    def test_a_batch_request_is_not_given_up_while_its_parts_can_still_be_running(self):
+        state = cron.empty_state(T0)
+        parts = ["motion", "switch", "launch", "sidebar", "workspace-scaling"]
+        cron.decide(state, T0, self.SHA, None, lambda sha: parts, None, controller_route=True)
+        wait = cron.host_wait_hours(state["current"])
+        self.assertGreater(wait, cron.HOST_WAIT_HOURS + 2)
+        self.assertIsNone(cron.no_host_for_tip(state, at(cron.HOST_WAIT_HOURS + 0.5)), "the batch is still running")
+        self.assertIsNotNone(cron.no_host_for_tip(state, at(wait + 0.1)), "past the whole batch's run time")
+
+    def test_a_result_ends_the_batch_wait(self):
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, self.SHA, None, lambda sha: ["motion"], None, controller_route=True)
+        cur = state["current"]
+        cron.record_part(cur, "build", json.loads(self.result(part="build")) | {"worker": "cmux20-bench"}, "r", at(1))
+        self.assertNotIn("host_wait_hours", cur)
+        self.assertEqual(cron.host_wait_hours(cur), cron.HOST_WAIT_HOURS)
+
+    def test_a_batch_result_plans_every_part_to_do(self):
+        state = self.state_with(["build", "motion", "switch", "diff-viewer"])
+        raw = self.batch(self.result(part="build", step_id="s0"), self.result(part="motion", step_id="s1"),
+                         self.result(part="switch", step_id="s2", state="yielded", artifact_url=""))
+        plan = self.plan(state, raw)
+        self.assertEqual((plan["action"], plan["part"], plan["parts"]), ("result", "build", "build motion switch"))
+        state["current"]["parts"]["motion"] = {"state": "yielded", "step_id": "s1", "yields": 1}
+        self.assertEqual(self.plan(state, raw)["parts"], "build switch", "a step stored already is dropped")
+
+    def test_a_bad_batch_is_no_result(self):
+        for raw in (json.dumps({"results": []}), self.batch(self.result(), self.result(step_id="s2")),
+                    self.batch(self.result(), self.result(part="build", sha="d" * 40)),
+                    self.batch(self.result(), self.result(part="nope"))):
+            self.assertIsNone(cron.controller_results(raw), raw)
+        self.assertEqual(len(cron.controller_results(self.result())), 1, "one result is a batch of one")
+
+    def test_fetch_result_writes_each_part_of_a_batch(self):
+        out = tempfile.mkdtemp()
+
+        class Answer(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+        raw = self.batch(self.result(part="build", step_id="s0"), self.result(step_id="s1", state="failed", error="exit 1"))
+        with mock.patch.object(cron.urllib.request, "urlopen", lambda req, timeout=0: Answer(b'{"rows": []}')):
+            cron.cmd_fetch_result(argparse.Namespace(result=raw, out=out))
+        with open(os.path.join(out, "build", "result.json")) as f:
+            self.assertEqual(json.load(f)["state"], "done")
+        with open(os.path.join(out, "motion", "result.json")) as f:
+            self.assertEqual(json.load(f)["tail"], ["exit 1"])
+        self.assertTrue(os.path.exists(os.path.join(out, "build", "report.json")))
+        self.assertFalse(os.path.exists(os.path.join(out, "motion", "report.json")))
 
 
 
@@ -2479,6 +2556,7 @@ class HostWaitTests(unittest.TestCase):
 
     def setUp(self):
         self.state = cron.empty_state(T0)
+        single_part_wait(self)
 
     def regression_on(self, host):
         rng = {"good": "a" * 40, "bad": "b" * 40, "skip": [], "steps": 0}
@@ -2678,6 +2756,10 @@ class NoHostTipTests(OneRunRule):
 
     PARTS = ["build", "motion", "memory-agents", "web-ui-flat"]
     OLD, NEW = "a" * 40, "b" * 40
+
+    def setUp(self):
+        super().setUp()
+        single_part_wait(self)
 
     def stuck_tip(self):
         state = cron.empty_state(T0)

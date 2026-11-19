@@ -61,6 +61,9 @@ name: cmux-next perf cron
 # no answer, so the plan counts the time from a request to its result as a yield (perf-cron.py plan --controller). A
 # foreground step for the host preempts it. When the step ends, the controller dispatches this workflow with
 # perf_result; that run plans nothing, and its report job stores the part and starts the next tick at once.
+# The request job also prints the measurement's other Mac parts (`perf-cron-batch: ...`): the controller runs them
+# back to back on the same host while it stays idle and answers once, perf_result {"results": [...]}, instead of one
+# GitHub round trip (plan, request, result run, report, each waiting for a Linux runner) per part.
 
 on:
   workflow_dispatch:
@@ -328,6 +331,9 @@ jobs:
       part: ${{ steps.plan.outputs.part }}
       linux_part: ${{ steps.plan.outputs.linux_part }}
       worker: ${{ steps.plan.outputs.worker }}
+      # The measurement's Mac parts the controller runs back to back (the part first), and a result run's parts.
+      mac_parts: ${{ steps.plan.outputs.mac_parts }}
+      parts: ${{ steps.plan.outputs.parts }}
       args: ${{ steps.plan.outputs.args }}
       artifact: ${{ steps.plan.outputs.artifact }}
       run_seconds: ${{ steps.plan.outputs.run_seconds }}
@@ -489,10 +495,14 @@ jobs:
           SHA: ${{ needs.plan.outputs.sha }}
           PART: ${{ needs.plan.outputs.part }}
           WORKER: ${{ needs.plan.outputs.worker }}
+          MAC_PARTS: ${{ needs.plan.outputs.mac_parts }}
         run: |
+          # The controller reads this line from the job's log: it runs these parts back to back on the host that takes
+          # the first one, while that host stays idle, and answers with one result run (hq perf_cron_batch.go).
+          [ -z "$MAC_PARTS" ] || printf 'perf-cron-batch: %s\n' "$MAC_PARTS"
           { echo "### perf cron request"; echo
-            echo "Asked the build controller for part \`$PART\` at \`${SHA:0:12}\` on ${WORKER:-any idle measure worker}. It runs only while that host is idle;"
-            echo "its result starts a new run of this workflow."; } >> "$GITHUB_STEP_SUMMARY"
+            echo "Asked the build controller for part \`$PART\` at \`${SHA:0:12}\` on ${WORKER:-any idle measure worker}, then \`${MAC_PARTS:-nothing more}\` back to back. It runs only while that host is idle;"
+            echo "the results start a new run of this workflow."; } >> "$GITHUB_STEP_SUMMARY"
 
   # The frame-pacing bench (fling and golden interactions, 120 Hz virtual display, owned mini) left its fixed
   # daily schedule: the plan starts it at most once in 24 h, and only when no nightly or dev build waits for a
@@ -636,13 +646,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PART: ${{ (needs.measure.result != 'skipped' || needs.plan.outputs.action == 'result') && needs.plan.outputs.part || '' }}
+          RESULT_PARTS: ${{ needs.plan.outputs.action == 'result' && needs.plan.outputs.parts || '' }}
           LINUX_PART: ${{ needs.linux.result != 'skipped' && needs.plan.outputs.linux_part || '' }}
           FINISH: ${{ needs.plan.outputs.action == 'finish' && '--finish' || '' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           results=()
-          [ -z "$PART" ] || results+=(--result "$PART=$RUNNER_TEMP/perf-cron-part")
+          if [ -n "$RESULT_PARTS" ]; then
+            # The controller's result run: fetch-result wrote each part to its own folder.
+            for part in $RESULT_PARTS; do results+=(--result "$part=$RUNNER_TEMP/perf-cron-part/$part"); done
+          else
+            [ -z "$PART" ] || results+=(--result "$PART=$RUNNER_TEMP/perf-cron-part")
+          fi
           [ -z "$LINUX_PART" ] || results+=(--result "$LINUX_PART=$RUNNER_TEMP/perf-cron-linux")
           # shellcheck disable=SC2086 # FINISH is one flag or empty
           python3 -I scripts/cmux-next/perf-cron.py report --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/perf-cron" \

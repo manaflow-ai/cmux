@@ -1182,6 +1182,20 @@ def commit_failed(cur):
                for p in (cur.get("parts") or {}).values())
 
 
+def batch_wait_hours(parts):
+    """How long the cron waits for a host to answer a request of these Mac parts run back to back (pure):
+    HOST_WAIT_HOURS for the host to come free, plus every part's run cap (the controller answers once, after the
+    last part)."""
+    return round(HOST_WAIT_HOURS + sum(PART_BY_NAME[p].get("run_seconds", PART_RUN_SECONDS) for p in parts) / 3600, 3)
+
+
+def host_wait_hours(cur):
+    """The wait for the measurement's Mac request: its batch's (cur['host_wait_hours'], set by decide on the
+    controller route), else HOST_WAIT_HOURS."""
+    hours = cur.get("host_wait_hours")
+    return max(HOST_WAIT_HOURS, hours) if isinstance(hours, (int, float)) and not isinstance(hours, bool) else HOST_WAIT_HOURS
+
+
 def give_up_host(state, t):
     """End the pin of the measurement in flight when its host took none of its parts for HOST_WAIT_HOURS since the
     first request to it (cur['host_asked_since'], cleared by every Mac part result), or when the fleet check reported
@@ -1196,12 +1210,13 @@ def give_up_host(state, t):
         return None
     asked = parse_iso(cur.get("host_asked_since") or None)
     offline = host_unreachable(state, host, t)
-    if not offline and not (asked and hours_between(asked, t) > HOST_WAIT_HOURS):
+    if not offline and not (asked and hours_between(asked, t) > host_wait_hours(cur)):
         return None
-    why = f"{host} is offline" if offline else f"{host} took no part for {HOST_WAIT_HOURS} h"
+    why = f"{host} is offline" if offline else f"{host} took no part for {host_wait_hours(cur)} h"
     if not offline:
         mark_host(state, host, waited_at=iso(t))
-    cur.pop("host_asked_since", None)
+    for key in ("host_asked_since", "host_wait_hours"):
+        cur.pop(key, None)
     if cur["kind"] == "bisect":
         state.setdefault("history", []).append({"sha": cur["sha"], "kind": "bisect", "status": "waited", "at": iso(t),
                                                 "parts": sorted(cur.get("parts", {})), "note": why})
@@ -1228,20 +1243,21 @@ def no_host_for_tip(state, t):
     if not cur or cur.get("kind") != "tip" or not needs_mac(cur):
         return None
     asked = parse_iso(cur.get("host_asked_since") or None)
-    if not (asked and hours_between(asked, t) > HOST_WAIT_HOURS):
+    if not (asked and hours_between(asked, t) > host_wait_hours(cur)):
         return None
     host = cur.get("host")
     if host and not cur.get("gave_up"):
         return None
     tried = sorted({g.get("host") for g in cur.get("gave_up") or [] if isinstance(g, dict) and g.get("host")} | {host} - {None})
-    why = f"no measure host took a Mac part for {HOST_WAIT_HOURS} h" + (f" (gave up {', '.join(tried)})" if tried else "")
+    why = f"no measure host took a Mac part for {host_wait_hours(cur)} h" + (f" (gave up {', '.join(tried)})" if tried else "")
     if host:
         mark_host(state, host, waited_at=iso(t))
         cur.pop("host")
     for name in [p for p in cur["parts_todo"] if not is_linux_part(p)]:
         cur["parts"][name] = {"state": "no_host", "reason": why}
         cur["parts_todo"].remove(name)
-    cur.pop("host_asked_since", None)
+    for key in ("host_asked_since", "host_wait_hours"):
+        cur.pop(key, None)
     end_yield(cur, t)
     cur["no_host"] = {"at": iso(t), "why": why}
     return why
@@ -1360,8 +1376,13 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     if fleet:
         # give_up_host's clock for a pinned host, no_host_for_tip's for any host: cleared by the next Mac part result.
         cur.setdefault("host_asked_since", iso(t))
+    mac_parts = []
     if fleet and controller_route:
         start_yield(cur, t)
+        # The controller runs the measurement's Mac parts back to back on the host that takes the first one and
+        # answers with one result run (hq perf_cron_batch.go): the host's wait covers the whole batch's run time.
+        mac_parts = [fleet] + [p for p in cur["parts_todo"] if not is_linux_part(p) and p != fleet]
+        cur["host_wait_hours"] = batch_wait_hours(mac_parts)
     what = " and ".join(x for x in (fleet, linux) if x)
     waits = f"; {tree_wait}" if tree_wait else ""
     if github_busy and bench_only:
@@ -1369,6 +1390,7 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     elif github_busy and linux:
         waits = f"; the Mac parts wait: {github_busy}"
     return {"action": "part", "sha": cur["sha"], "kind": cur["kind"], "part": fleet, "linux_part": linux,
+            "mac_parts": mac_parts,
             "worker": (BENCH_WORKER if bench_only else cur.get("host") or "") if fleet else "",
             "reason": f"{cur['kind']} measurement of {cur['sha'][:12]}: part {what} ({done})" + waits}
 
@@ -2961,7 +2983,8 @@ def plan(o):
             # What this file asks the part to measure with: its rows carry it (a later tick may run a newer file).
             state["current"].setdefault("configs", {})[requested] = part_config(requested)
     out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""), "linux_part": d.get("linux_part", ""),
-           "worker": d.get("worker", ""), "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1),
+           "worker": d.get("worker", ""), "mac_parts": " ".join(d.get("mac_parts") or []),
+           "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1),
            "not_measuring": state.get("not_measuring") or ""}
     if d.get("part"):
         p = PART_BY_NAME[d["part"]]
@@ -3453,7 +3476,9 @@ def record_part(cur, part, result, run_url, t=None):
     if t is not None and not is_linux_part(part):
         end_yield(cur, t)
     if not is_linux_part(part) and (not cur.get("host") or result.get("worker") in (None, cur.get("host"))):
-        cur.pop("host_asked_since", None)  # the host answered (any result): give_up_host's wait starts again
+        # The host answered (any result): give_up_host's wait starts again, and a batch's longer wait ends.
+        for key in ("host_asked_since", "host_wait_hours"):
+            cur.pop(key, None)
     entry = dict(cur["parts"].get(part) or {"yields": 0})
     entry.update({"state": result["state"], "step_id": result.get("step_id"), "run_url": run_url,
                   "seconds": result.get("seconds")})
@@ -3817,13 +3842,18 @@ def next_now(state, fleet_done):
 # `perf cron request <sha> <part>[ on <worker>]` asks the controller for the part; it queues the background step on an
 # idle measure worker (the named one, else cmux20-bench first, then the others), and dispatches this workflow with
 # perf_result when the step ends. A request it does not queue gets no answer: decide counts the wait as a yield.
+# The request job also prints the measurement's other Mac parts (BATCH_PREFIX, the plan's mac_parts): the controller
+# runs them back to back on the same host while it stays idle (hq perf_cron_batch.go) and answers once, with
+# perf_result {"results": [one result per part, in run order]}. One GitHub round trip per part (plan, request, result
+# run, report: each a Linux job that waited 2 to 14 h for a runner on 2026-11-18) ran 2 Mac parts in 20 h.
 RESULT_STATES = ("done", "failed", "yielded")
+BATCH_PREFIX = "perf-cron-batch: "
 
 
 def controller_result(raw):
     """The controller's perf_result input as a dict, or None when it is not one (pure)."""
     try:
-        value = json.loads(raw)
+        value = json.loads(raw) if isinstance(raw, str) else raw
     except (TypeError, ValueError):
         return None
     if not isinstance(value, dict) or not is_sha(str(value.get("sha") or "")) or value.get("part") not in PART_BY_NAME \
@@ -3832,24 +3862,47 @@ def controller_result(raw):
     return value
 
 
+def controller_results(raw):
+    """The controller's perf_result as a list of results (pure): one result, or a batch {"results": [...]} of one
+    commit, each part once; None when it is neither."""
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if isinstance(value, dict) and isinstance(value.get("results"), list):
+        results = [controller_result(r) for r in value["results"]]
+        if not results or any(r is None for r in results) or len({r["sha"] for r in results}) != 1 \
+                or len({r["part"] for r in results}) != len(results):
+            return None
+        return results
+    one = controller_result(value)
+    return [one] if one else None
+
+
 def result_plan(o, state, t):
-    """A run the controller started with a part's result: plan nothing new; the report job stores the part. A
-    result for another measurement, or for a part not to do, is dropped (a late result after an abandon)."""
-    value = controller_result(o.perf_result)
+    """A run the controller started with Mac parts' results: plan nothing new; the report job stores them. A result
+    for another measurement, for a part not to do, or of a step stored already, is dropped (a late result after an
+    abandon, a result sent twice)."""
+    values = controller_results(o.perf_result)
     cur = state.get("current") or {}
-    out = {"action": "none", "sha": "", "part": "", "linux_part": "", "frame_pacing": "false", "stale_hours": round(stale_hours(state, t), 1)}
-    if value is None:
+    out = {"action": "none", "sha": "", "part": "", "parts": "", "linux_part": "", "frame_pacing": "false",
+           "stale_hours": round(stale_hours(state, t), 1)}
+    stored = {(e or {}).get("step_id") for e in (cur.get("parts") or {}).values()} - {None}
+    if values is None:
         out["reason"] = "the controller's perf_result is not a result"
-    elif value.get("step_id") and value["step_id"] in {(e or {}).get("step_id") for e in (cur.get("parts") or {}).values()}:
-        # The controller may send a result twice (a lost answer, a restart): the step was stored already.
-        out["reason"] = f"the controller's result of step {value['step_id']} was stored already; dropped"
-    elif value["sha"] != cur.get("sha") or value["part"] not in (cur.get("parts_todo") or []):
-        out["reason"] = (f"the controller's {value['part']} result for {value['sha'][:12]} is not for the measurement in "
-                         f"flight ({str(cur.get('sha') or 'none')[:12]}); dropped")
     else:
-        out.update({"action": "result", "sha": value["sha"], "part": value["part"],
-                    "reason": f"the controller's {value['state']} result of part {value['part']} at {value['sha'][:12]}"
-                              f" (step {value.get('step_id') or '?'})"})
+        keep = [v for v in values if v["sha"] == cur.get("sha") and v["part"] in (cur.get("parts_todo") or [])
+                and not (v.get("step_id") and v["step_id"] in stored)]
+        dropped = [v["part"] for v in values if v not in keep]
+        if not keep:
+            out["reason"] = (f"the controller's result of {', '.join(dropped)} at {values[0]['sha'][:12]} is not for a part to do "
+                             f"of the measurement in flight ({str(cur.get('sha') or 'none')[:12]}), or was stored already; dropped")
+        else:
+            parts = [v["part"] for v in keep]
+            what = ", ".join("{} ({})".format(v["part"], v["state"]) for v in keep)
+            out.update({"action": "result", "sha": keep[0]["sha"], "part": parts[0], "parts": " ".join(parts),
+                        "reason": f"the controller's result of {what}"
+                                  f" at {keep[0]['sha'][:12]}" + (f"; dropped {', '.join(dropped)}" if dropped else "")})
     json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
     print(f"perf-cron plan: {json.dumps(out)}")
     write_outputs(o.output, out)
@@ -3865,14 +3918,10 @@ def result_files(value):
             "build_failed": value.get("part") == "build" and value["state"] == "failed" and not value.get("timed_out")}
 
 
-def cmd_fetch_result(o):
-    """The report job's side of the controller route: result.json, and report.json from the step's signed artifact
-    URL. A done step whose artifact cannot be read is a failed part (its rows would be missing)."""
-    value = controller_result(o.result)
-    os.makedirs(o.out, exist_ok=True)
-    if value is None:
-        print("perf-cron fetch-result: not a result; nothing written")
-        return
+def fetch_one_result(value, out):
+    """Write out/result.json, and out/report.json from a done step's signed artifact URL. A done step whose
+    artifact cannot be read is a failed part (its rows would be missing). Returns the part's state."""
+    os.makedirs(out, exist_ok=True)
     result = result_files(value)
     if value["state"] == "done":
         url = str(value.get("artifact_url") or "")
@@ -3881,13 +3930,26 @@ def cmd_fetch_result(o):
                 raise ValueError("no https artifact URL")
             with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "cmux-perf-cron"}), timeout=120) as r:
                 report = json.load(r)
-            with open(os.path.join(o.out, "report.json"), "w") as f:
+            with open(os.path.join(out, "report.json"), "w") as f:
                 json.dump(report, f)
         except (OSError, ValueError, urllib.error.URLError) as error:
             result.update(state="failed", tail=result["tail"] + [f"artifact not read: {error!r}"])
-    with open(os.path.join(o.out, "result.json"), "w") as f:
+    with open(os.path.join(out, "result.json"), "w") as f:
         json.dump(result, f)
-    print(f"perf-cron fetch-result: part {value['part']} at {value['sha'][:12]}: {result['state']}")
+    return result["state"]
+
+
+def cmd_fetch_result(o):
+    """The report job's side of the controller route: each result's result.json and report.json, in out/<part>/
+    (the report's --result PART=out/PART)."""
+    values = controller_results(o.result)
+    os.makedirs(o.out, exist_ok=True)
+    if values is None:
+        print("perf-cron fetch-result: not a result; nothing written")
+        return
+    for value in values:
+        state = fetch_one_result(value, os.path.join(o.out, value["part"]))
+        print(f"perf-cron fetch-result: part {value['part']} at {value['sha'][:12]}: {state}")
 
 
 def cmd_dispatch_next(o):
