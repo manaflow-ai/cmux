@@ -43,6 +43,7 @@ import {
   newVertexModels,
   routerEntry,
   smokeBody,
+  withoutServerAdditions,
   type ScoutState,
   type SmokeResult,
 } from "./scout-lib";
@@ -235,7 +236,7 @@ async function main(): Promise<number> {
       const d = diffCatalogs(current, doc);
       if (env === "production") diff = d;
       const killed = killedHarnesses(current);
-      if (current && catalogContent(current, killed) === catalogContent(doc, killed)) {
+      if (current && catalogContent(withoutServerAdditions(current, doc), killed) === catalogContent(doc, killed)) {
         published[env] = { changed: false, version: current.version ?? null };
         continue;
       }
