@@ -12,8 +12,13 @@
 //!   (`turn_errors::resume_cause`), told apart from a provider's 529 or a gateway's 503.
 //! - The chat is then held ([`RateHold`]) until the reset: `retry-after` or the error's own reset
 //!   (`reset_hint.rs`), else the account's `rate_limit_event` window
-//!   (`claude_stdio/usage_limits.rs`), else the continuation's configured wait. One timer per chat,
-//!   whatever comes in meanwhile; a later 429 moves the same hold's deadline.
+//!   (`claude_stdio/usage_limits.rs`), else the session's backoff step. One timer per chat,
+//!   whatever comes in meanwhile; a later 429 moves the same hold's deadline, never earlier.
+//! - The backoff is the session's, not the turn's ([`RateHold::fail`]): each 429 since the chat's
+//!   last completed turn waits the next configured step, whichever turn hit it. A queued turn
+//!   that took a continuation's place and hit the limit again does not start over at the first
+//!   step (the 2026-11-19 NIGHTLY storm, cmux#47337: it did, and sent 46 full-context requests in
+//!   600 s where the per-prompt chain sent 38).
 //! - While held no turn starts (`queue.rs`): another agent's message, a background notice and
 //!   the person's own prompt all queue. Only acpmux's own continuation of the cut turn runs, once
 //!   the hold is due.
@@ -47,6 +52,12 @@ pub(crate) struct RateHold {
     due: Notify,
 }
 
+/// The configured wait `delays` gives the session's `step`th 429 in a row: past the last one,
+/// the last one again. None when the waits are off.
+pub(super) fn step_delay(delays: &[u64], step: usize) -> Option<u64> {
+    delays.get(step.min(delays.len().checked_sub(1)?)).copied()
+}
+
 #[derive(Default)]
 struct HoldState {
     /// Absolute ms; `None` when the chat is not held.
@@ -57,6 +68,8 @@ struct HoldState {
     timer: bool,
     /// A continuation waits for the deadline and ends the hold itself.
     continuation: bool,
+    /// 429s in a row since the chat's last completed turn, across turns: the backoff's step.
+    streak: usize,
 }
 
 impl RateHold {
@@ -68,11 +81,30 @@ impl RateHold {
     pub(crate) fn until(&self) -> Option<u64> {
         self.lock().until
     }
+
+    /// A turn failed on the rate limit: its backoff step, the 429s in a row before it.
+    fn fail(&self) -> usize {
+        let mut s = self.lock();
+        let step = s.streak;
+        s.streak = step.saturating_add(1);
+        step
+    }
+
+    /// The backoff step of the chat's latest 429 (0 with none).
+    pub(super) fn step(&self) -> usize {
+        self.lock().streak.saturating_sub(1)
+    }
+
+    /// A turn completed: the next 429 starts the backoff again at its first step.
+    pub(super) fn completed(&self) {
+        self.lock().streak = 0;
+    }
 }
 
 impl Hub {
     /// Holds `session` until `until` (absolute ms) for its cut turn `turn`: no turn starts
-    /// before. A held chat's deadline moves to `until`. One timer per chat.
+    /// before. A held chat's deadline moves to `until` when that is later, never earlier: a
+    /// continuation's own wait does not cut short what the failure set. One timer per chat.
     pub(super) fn hold_for_rate_limit(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -83,6 +115,7 @@ impl Hub {
         let hold = &session.rate_hold;
         let spawn = {
             let mut s = hold.lock();
+            let until = s.until.map_or(until, |held| held.max(until));
             let changed = s.until != Some(until);
             s.until = Some(until);
             s.turn = Some(turn.to_owned());
@@ -180,10 +213,10 @@ impl Hub {
         session.queue_moved.notify_waiters();
     }
 
-    /// Holds `session` the moment its turn `turn` failed on the rate limit, before its
-    /// continuation's wait is known: until the error's reset, else the account window's, else
-    /// the turn's `retry-after` (`not_before`), else [`MIN_HOLD_MS`] from now. Whatever comes in
-    /// meanwhile queues.
+    /// Holds `session` the moment its turn `turn` failed on the rate limit: until the error's
+    /// reset, else the account window's, else the turn's `retry-after` (`not_before`), else the
+    /// session's backoff step from now ([`RateHold::fail`]; [`MIN_HOLD_MS`] with the waits off).
+    /// Whatever comes in meanwhile queues.
     pub(super) fn hold_at_failure(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -194,7 +227,14 @@ impl Hub {
         let now = now_ms();
         let limits = session.meta().usage_limits;
         let reset = super::auto_resume::reset_hint::reset_at(error, limits.as_ref(), now);
-        let until = reset.max(not_before).unwrap_or(now + MIN_HOLD_MS);
+        let step = session.rate_hold.fail();
+        // The waits the continuation reads (`schedule_auto_resume`); while the config is being
+        // written this instant, the Settings' or the default's.
+        let configured = self.config.try_read().ok().and_then(|c| c.auto_resume_delays_ms.clone());
+        let delays = super::auto_resume::effective_delays(configured);
+        let backoff = step_delay(&delays, step)
+            .map_or(MIN_HOLD_MS, |d| super::auto_resume::staggered(d, &session.id));
+        let until = reset.max(not_before).unwrap_or(now.saturating_add(backoff));
         self.hold_for_rate_limit(session, turn, until, false);
     }
 

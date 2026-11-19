@@ -637,11 +637,24 @@ impl Hub {
                 return;
             };
             let attempt = done + 1;
+            // A rate limit backs off across the session, not per prompt (`rate_hold.rs`): a
+            // queued turn that took a continuation's place waits the session's next step, and
+            // never less than the hold its failure set.
+            let rate = reason == RetryReason::RateLimit;
+            let delay = if rate {
+                super::rate_hold::step_delay(&delays, done.max(session.rate_hold.step()))
+                    .unwrap_or(delay)
+            } else {
+                delay
+            };
             let now = super::now_ms();
             let limits = session.meta().usage_limits;
             let reset = reset_hint::reset_at(&error, limits.as_ref(), now).max(not_before);
-            let next_at =
-                now.saturating_add(staggered(delay, &session.id)).max(reset.unwrap_or(now));
+            let held = session.rate_hold.until().filter(|_| rate);
+            let next_at = now
+                .saturating_add(staggered(delay, &session.id))
+                .max(reset.unwrap_or(now))
+                .max(held.unwrap_or(now));
             let delay = next_at.saturating_sub(now);
             let retry = RetrySummary {
                 attempt: attempt as u64,

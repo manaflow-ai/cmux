@@ -1573,6 +1573,10 @@ impl Hub {
         }
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());
+        // A completed turn ends the rate limit's backoff: the next 429 waits the first step.
+        if result.is_ok() {
+            session.rate_hold.completed();
+        }
         // A cut turn goes on by itself (`auto_resume.rs`), unless carried on or cache_compact's.
         let goes_on = !trigger && !super::idle::cache_compact::is_own(run.provenance.as_ref());
         let cut = match (&result, detached) {
