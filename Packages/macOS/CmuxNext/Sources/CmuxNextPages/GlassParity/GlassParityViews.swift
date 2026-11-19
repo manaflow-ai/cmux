@@ -120,4 +120,40 @@ final class GlassParityTextView: NSView {
         }
     }
 }
+
+/// The native menu row's highlight in the Liquid Glass Parity playground's menu: what ``PopupRowView``
+/// draws for a highlighted row (the theme's hover fill) or a pressed one (its pressed fill), at
+/// `row` (flipped, in the menu's points) in the row's corner radius; nothing at rest.
+final class GlassParityRowFill: NSView {
+    var state: GlassParityPlayground.RowState = .rest {
+        didSet { if state != oldValue { needsDisplay = true } }
+    }
+    private let row: CGRect
+    private let radius: CGFloat
+
+    init(frame: NSRect, row: CGRect, radius: CGFloat) {
+        self.row = row
+        self.radius = radius
+        super.init(frame: frame)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard state != .rest else { return }
+        performWithTheme {
+            (state == .pressed ? Palette.pressedFill : Palette.hoverFill).setFill()
+            NSBezierPath(roundedRect: row, xRadius: radius, yRadius: radius).fill()
+        }
+    }
+}
 #endif

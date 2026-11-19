@@ -49,3 +49,13 @@ body {
   top: calc(var(--ds-space-2) + var(--text-body--line-height));
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 62%, transparent));
 }
+/* The menu's row at the native row's box (GlassParityPlayground.menuRow), under the text: its fill is the
+   web menu's own highlighted (and pressed) row (ui.css, popupSurface.css), nothing of this page's. */
+.glass-parity-surface.glass-parity-surface .glass-parity-row.glass-parity-row {
+  position: absolute;
+  box-sizing: border-box;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  box-shadow: none;
+}
