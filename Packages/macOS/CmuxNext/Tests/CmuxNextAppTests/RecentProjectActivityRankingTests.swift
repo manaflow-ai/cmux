@@ -1,6 +1,5 @@
-import CmuxNextOnboarding
+@testable import CmuxNextOnboarding
 import Foundation
-import Synchronization
 import Testing
 
 /// The first-run folder picker ranks the folders the user is most active in first
@@ -124,9 +123,9 @@ struct RecentProjectActivityRankingTests {
         var activity = FolderActivity()
         for path in protected { activity.add("~/\(path)", home: home, weight: 50, last: now) }
         activity.add(fine.path, home: home, weight: 1, last: now)
-        let touched = Mutex<[String]>([])
+        let touched = Touched()
         let live = ScanFileSystem.live
-        func record(_ path: String) { touched.withLock { $0.append(path) } }
+        func record(_ path: String) { touched.append(path) }
         var recording = ScanFileSystem(
             isDirectory: { record($0); return live.isDirectory($0) },
             exists: { record($0); return live.exists($0) },
@@ -138,9 +137,17 @@ struct RecentProjectActivityRankingTests {
         #expect(ranked.first == fine.path)
         #expect(!ranked.contains { $0.contains("/Desktop/") || $0.contains("/Downloads/") || $0.contains("Mobile Documents") })
         let lowered = ["Documents", "Desktop", "Downloads", "Library/Mobile Documents"].map { "\(home.path)/\($0)".lowercased() }
-        let leaks = touched.withLock { $0 }.filter { path in
+        let leaks = touched.paths.filter { path in
             lowered.contains { path.lowercased() == $0 || path.lowercased().hasPrefix($0 + "/") }
         }
         #expect(leaks.isEmpty, "probed inside a protected folder: \(leaks)")
     }
+}
+
+/// The paths a recording file system was asked about, from any thread.
+private final class Touched: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+    func append(_ path: String) { lock.withLock { recorded.append(path) } }
+    var paths: [String] { lock.withLock { recorded } }
 }

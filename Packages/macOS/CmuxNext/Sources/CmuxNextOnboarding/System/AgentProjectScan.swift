@@ -332,15 +332,15 @@ public struct RecentProjectScan: Sendable {
 
     /// Recency first, with agent sessions and shell visits as weight: a
     /// repository worked in today outranks one visited often months ago.
-    static func score(_ project: AgentProject, visits: Double, now: Date) -> Double {
+    nonisolated static func score(_ project: AgentProject, visits: Double, now: Date) -> Double {
         let days = max(0, now.timeIntervalSince(project.lastActive) / 86_400)
         return log2(1 + Double(project.sessions) + visits) - days / 14
     }
 
     /// The most visited folders read for a scan; the rest add nothing a user would pick.
-    static let maxVisitedFolders = 400
+    nonisolated static let maxVisitedFolders = 400
     /// How many folders up from a visited one a repository is looked for.
-    static let maxRepositoryClimb = 6
+    nonisolated static let maxRepositoryClimb = 6
 
     /// The repositories the shell visited, with their summed visits. A visited
     /// folder in a protected location, by its spelling or through a symlink,
