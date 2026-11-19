@@ -60,11 +60,16 @@ esac
 
 trap 'reset; echo; echo "Your setup is back."' EXIT INT TERM
 
+# A while-read loop, not mapfile: macOS's /bin/bash is 3.2.
+list=()
 if [[ -n "$only" ]]; then
-  mapfile -t list < <(printf '%s\n' "$only")
+  list=("$only")
 else
-  mapfile -t list < <(steps)
+  while IFS= read -r file; do
+    list+=("$file")
+  done < <(steps)
 fi
+[[ ${#list[@]} -gt 0 ]] || { echo "demo.sh: no setups found under $here" >&2; exit 1; }
 
 n=0
 for file in "${list[@]}"; do
