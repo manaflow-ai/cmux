@@ -9,7 +9,7 @@ import Testing
 /// it, and the reader reports a file it refuses with its size and the limit.
 @Suite
 struct SidebarSnapshotSizeLimitTests {
-    private final class Events: @unchecked Sendable {
+    private nonisolated final class Events: @unchecked Sendable {
         private let lock = NSLock()
         private var stored: [SidebarSnapshotFile.Event] = []
         var all: [SidebarSnapshotFile.Event] { lock.withLock { stored } }
