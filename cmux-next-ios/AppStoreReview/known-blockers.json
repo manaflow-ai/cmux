@@ -6,11 +6,6 @@
   ],
   "blockers": [
     {
-      "key": "metadata.screenshots|cmux-next-ios/AppStoreReview/screenshots/en-US/iphone",
-      "finding": "no iphone screenshots",
-      "fix": "#40927 (iPhone 6.9-inch screenshots)"
-    },
-    {
       "key": "uitest.failed|ipad|AppReviewGateUITests/testChiefOpensAndAMessageSendsWithAReply()",
       "finding": "AppReviewGateUITests.swift:201: XCTAssertEqual failed: (\"XCTWaiterResult(rawValue: 2)\") is not equal to (\"XCTWaiterResult(rawValue: 1)\") - the sent message must show",
       "fix": "Chief/Delete Account lane"
