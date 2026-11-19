@@ -753,6 +753,12 @@ jobs:
       - name: Newer deployment inputs already queued; skip
         if: steps.source.outputs.deploy == 'false'
         run: echo "::notice::A newer backend push supersedes this deployment."
+      # The pre-merge pipeline (backend-migrations.yml) applies a migration to staging and production
+      # only, and migrations-development runs only for previews, so nothing else brings development up
+      # to the tree: one landed migration refused every development deploy after it (0008_build_space,
+      # 2026-11-18). Every file in this tree is already applied to staging and production (the required
+      # `backend migrations applied` gate; a contract file only after production runs it), so apply the
+      # pending ones here, then verify.
       - name: Development schema matches this commit
         if: steps.source.outputs.deploy == 'true'
         working-directory: backend/db
@@ -760,7 +766,7 @@ jobs:
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
           SHA: ${{ github.sha }}
         run: |
-          if ! out=$(bun migrate.ts --env development --verify 2>&1); then
+          if ! out=$(bun migrate.ts --env development 2>&1 && bun migrate.ts --env development --verify 2>&1); then
             echo "$out"
             msg="Development deploy refused for ${SHA:0:11}: $(echo "$out" | tail -1)."
             echo "::error title=Development deploy refused::$msg"
@@ -962,6 +968,17 @@ jobs:
           bun ../../../scripts/cmux-next/release/worker-release.ts verify --worker cmux-api --url https://cloud-api.cmux.dev
           --routes release-smoke.json --previous-file "$RUNNER_TEMP/cmux-api-previous-version"
           --source-dir . --wrangler ./node_modules/.bin/wrangler
+      # The console (console.cmux.dev) ships with the same staging-proven commit as the API it calls; before
+      # 2026-11-19 only deploy-production (main, which has no dashboard) deployed it, so production ran hand
+      # builds (a1245, chat 40603). Runs only after the API smoke passed.
+      - name: Deploy the console (console.cmux.dev)
+        working-directory: backend/apps/dashboard
+        env:
+          VERCEL_PROJECT_ID: ${{ env.DASHBOARD_PROJECT_PRODUCTION }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: NITRO_PRESET=vercel bun run build && bunx vercel@58.8.0 deploy --prebuilt --prod --scope manaflow --token "$VERCEL_TOKEN"
+      - name: Console smoke
+        run: curl -fsS -o /dev/null https://console.cmux.dev/ && test "$(curl -s -o /dev/null -w '%{http_code}' -X POST https://console.cmux.dev/api/vertex/chat/completions)" = 401
 
   # One-command rollback of production cmux-api (HQ skills/infra/cloud-api-promote): back to the version
   # that served before the current code deployment. prod-promote.ts refuses across a Durable Object
