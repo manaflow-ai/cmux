@@ -207,6 +207,10 @@ pub struct Conn {
     created: StdMutex<std::collections::VecDeque<String>>,
     watch_all: AtomicBool,
     watch_tools: AtomicBool,
+    /// Other chats' row changes (`session_changed`) left out while every attachment here draws
+    /// nothing and is hidden (`Conn::leaves_out_row`); changed only under `subs`. The show that
+    /// ends it takes the count into one `_acpmux/lagged {watch: true}` (`view.rs`).
+    rows_left_out: std::sync::atomic::AtomicU64,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -740,6 +744,38 @@ impl Conn {
             _ => false,
         }
     }
+    /// Whether a change of another chat's row (`session_changed` of a chat not attached here) is
+    /// left out: the connection is attached, and every attachment draws nothing while hidden
+    /// (`SubOpts::quiet_hidden`, the app's pane) and is hidden now. Each app pane watches every
+    /// chat's row, so every row change went to every pane, shown or not: with 30 panes open, 30
+    /// copies of each ~7 KB row (Leo's Mac, 2026-11-19: about 280 MB a minute from acpmux to the
+    /// app). Counted under the lock `_acpmux/view` shows a chat under, so that show's
+    /// `_acpmux/lagged {watch: true}` covers every row left out (`view.rs`), and the page reads
+    /// the rows changed since its list cursor (direct.ts `resyncAfterLag`, `SessionPager.first`).
+    /// Rows left out before a change that is not a show (a detach, a new attach shown) are told
+    /// here, before the first row that goes out again.
+    fn leaves_out_row(&self, session_id: &str) -> bool {
+        let subs = self.subs.lock_or_recover();
+        if subs.contains_key(session_id) {
+            return false;
+        }
+        if !subs.is_empty() && subs.values().all(|sub| sub.quiet_hidden && sub.hidden) {
+            self.rows_left_out.fetch_add(1, Ordering::Relaxed);
+            return true;
+        }
+        let dropped = self.rows_left_out.swap(0, Ordering::Relaxed);
+        if dropped > 0 {
+            self.send(&rows_lag(dropped));
+        }
+        false
+    }
+
+    /// The other chats' row changes left out here so far (`leaves_out_row`), taken; the caller
+    /// holds `subs`.
+    fn take_rows_left_out(&self) -> u64 {
+        self.rows_left_out.swap(0, Ordering::Relaxed)
+    }
+
     /// This daemon's own chats this connection is attached to.
     fn local_attached_ids(&self) -> Vec<String> {
         let subs = self.subs.lock_or_recover();
@@ -1714,6 +1750,7 @@ async fn serve_connection_from(
         created: StdMutex::default(),
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
+        rows_left_out: std::sync::atomic::AtomicU64::new(0),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -2148,6 +2185,15 @@ async fn refuse_unauthenticated(
     .await;
 }
 
+/// The `_acpmux/lagged` that says other chats' row changes were left out (`Conn::leaves_out_row`):
+/// `watch` makes the page read its list again from its cursor; no chat's records were dropped.
+fn rows_lag(dropped: u64) -> Message {
+    Message::notification(
+        "_acpmux/lagged",
+        json!({"dropped": dropped, "reason": "hidden", "watch": true, "sessionIds": []}),
+    )
+}
+
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     conn.controls.event(hub, conn, &ev);
@@ -2162,7 +2208,8 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // notice goes out for it.
     if ev.record.dir == crate::hub::COLD_CHANGED {
         let attached = conn.sub_opts(&ev.session_id).is_some();
-        if (attached || conn.watch_all.load(Ordering::SeqCst))
+        if (attached
+            || (conn.watch_all.load(Ordering::SeqCst) && !conn.leaves_out_row(&ev.session_id)))
             && let Ok(s) = hub.resolve(&ev.session_id)
         {
             let session = if attached || conn.watch_tools.load(Ordering::SeqCst) {
@@ -2325,7 +2372,10 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             // such row (`peer.rs` `watch_sessions`), so each change of one peer's row went out on
             // every other peer's link for nothing (24 copies of every change with one daemon's
             // 25 peers, 2026-10-30), and the row's origin hears it from its own.
-            if rec.dir == "peer" && !view::a_link(conn) {
+            if rec.dir == "peer"
+                && !view::a_link(conn)
+                && (attached || !conn.leaves_out_row(&ev.session_id))
+            {
                 let sid = remote
                     .summary
                     .get("sessionId")
@@ -2353,12 +2403,14 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
+        let row_left_out = !attached && conn.leaves_out_row(&ev.session_id);
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
         let [list_row, full_row] = &*ev.row;
         let row = if full { full_row } else { list_row };
         let summary = match row.get() {
+            _ if row_left_out => None,
             Some(summary) => Some(summary),
             None => hub.resolve(&ev.session_id).ok().map(|s| {
                 row.get_or_init(|| {
