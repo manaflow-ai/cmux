@@ -28,16 +28,28 @@ final class TeamDrawerInviteUITests: XCTestCase {
         let suffix = look + (largeText ? "-ax" : "")
         XCUIDevice.shared.appearance = look == "dark" ? .dark : .light
         let app = XCUIApplication()
+        // The mock account, signed in and past setup, as the UI-state captures launch it.
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES"]
         app.launchArguments += ["-cmuxMobile.settings.appearance", look,
                                 "-cmux-mobile-tab", "workspaces", "-cmux-mobile-sidebar-open"]
         if largeText {
             app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"]
         }
         app.launch()
+        let choose = app.scrollViews["setup.teams.choose"]
+        if choose.waitForExistence(timeout: 5), app.buttons["Manaflow"].exists { app.buttons["Manaflow"].tap() }
 
-        // The header: "Teams", no wordmark.
+        // The header: "Teams", no wordmark. (Open the drawer if the launch didn't.)
         let title = app.staticTexts["Teams"].firstMatch
-        XCTAssertTrue(title.waitForExistence(timeout: 30), "drawer title\n\(app.debugDescription)")
+        let add = app.buttons["Add team"].firstMatch
+        if !add.waitForExistence(timeout: 15) || !add.isHittable {
+            let teams = app.buttons["Teams"].firstMatch
+            XCTAssertTrue(teams.waitForExistence(timeout: 30), "Teams button\n\(app.debugDescription)")
+            teams.tap()
+        }
+        XCTAssertTrue(add.waitForExistence(timeout: 10), "drawer + button\n\(app.debugDescription)")
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "drawer title\n\(app.debugDescription)")
         let wordmark = app.staticTexts.matching(identifier: "cmux").allElementsBoundByIndex
             .filter { abs($0.frame.midY - title.frame.midY) < 12 }
         XCTAssertTrue(wordmark.isEmpty, "the cmux wordmark is still in the drawer header")
@@ -47,8 +59,6 @@ final class TeamDrawerInviteUITests: XCTestCase {
         XCTAssertTrue(invite.waitForExistence(timeout: 10), "header Invite\n\(app.debugDescription)")
         XCTAssertEqual(invite.label, "Invite to Manaflow")
         XCTAssertTrue(invite.isHittable)
-        let add = app.buttons["Add team"].firstMatch
-        XCTAssertTrue(add.exists)
         XCTAssertEqual(invite.frame.midY, add.frame.midY, accuracy: 2, "Invite and + share the header row")
         XCTAssertLessThan(invite.frame.maxX, add.frame.minX, "Invite sits before +")
         XCTAssertLessThan(title.frame.maxX, invite.frame.minX, "the title is not under Invite")
@@ -61,8 +71,13 @@ final class TeamDrawerInviteUITests: XCTestCase {
         // the email alert or the share sheet.
         invite.tap()
         let toast = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Invite links need the cmux service")).firstMatch
-        XCTAssertTrue(toast.waitForExistence(timeout: 15), "the invite never started\n\(app.debugDescription)")
+        let emailAlert = app.alerts["Invite to Manaflow"]
+        let started = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in toast.exists || emailAlert.exists }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [started], timeout: 15), .completed,
+                       "the invite never started\n\(app.debugDescription)")
         attach(app, "02-invite-tapped-\(suffix)")
+        if emailAlert.exists { emailAlert.buttons["Cancel"].tap() }
         if largeText { return }
 
         // Another team: Invite follows the selection.
@@ -79,19 +94,19 @@ final class TeamDrawerInviteUITests: XCTestCase {
         attach(app, "04-header-personal-\(suffix)")
     }
 
-    /// Taps the team's row, then reopens the drawer if the switch closed it.
+    /// Taps the team's row; the switch closes the drawer (ShellModel.switchTeam),
+    /// so wait for it to leave the accessibility tree, then open it again.
     @MainActor
     private func switchTeam(_ app: XCUIApplication, to name: String) {
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 10), "\(name) row\n\(app.debugDescription)")
         row.tap()
-        let title = app.staticTexts["Teams"].firstMatch
-        if !title.waitForExistence(timeout: 2) || !title.isHittable {
-            let teams = app.buttons["Teams"].firstMatch
-            XCTAssertTrue(teams.waitForExistence(timeout: 10), "Teams button\n\(app.debugDescription)")
-            teams.tap()
-            XCTAssertTrue(title.waitForExistence(timeout: 10), "drawer reopened")
-        }
+        let add = app.buttons["Add team"].firstMatch
+        XCTAssertTrue(add.waitForNonExistence(timeout: 5), "the drawer stayed open after the switch")
+        let teams = app.buttons["Teams"].firstMatch
+        XCTAssertTrue(teams.waitForExistence(timeout: 10), "Teams button\n\(app.debugDescription)")
+        teams.tap()
+        XCTAssertTrue(add.waitForExistence(timeout: 10), "drawer reopened\n\(app.debugDescription)")
     }
 
     private func attach(_ app: XCUIApplication, _ name: String) {
