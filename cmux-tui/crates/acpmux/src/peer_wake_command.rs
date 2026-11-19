@@ -164,8 +164,8 @@ mod tests {
             wake = crate::peer::WAKE_ENV
         );
         let template = argv(&["/bin/sh", "-c", &script, "sh", "{peer}"]);
-        let argv = argv_for(&template, "lane-7").unwrap();
-        assert_eq!(run(&argv, "lane-7", Duration::from_secs(10)), Outcome::Exited(Some(3)));
+        let wake = argv_for(&template, "lane-7").unwrap();
+        assert_eq!(run(&wake, "lane-7", Duration::from_secs(10)), Outcome::Exited(Some(3)));
         assert_eq!(std::fs::read_to_string(&out).unwrap(), "lane-7 lane-7 1");
 
         let started = std::time::Instant::now();
