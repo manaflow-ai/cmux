@@ -1,0 +1,3 @@
+cmux-ci: step 261fc4405ef8e00697ab1bb2 (light, key hovercard-rb-red)
+cmux-ci: controller read failed (timed out); still following step 261fc4405ef8e00697ab1bb2
+cmux-ci: step 261fc4405ef8e00697ab1bb2 continues; re-attach with the same --key hovercard-rb-red (or cmux-ci wait 261fc4405ef8e00697ab1bb2); only `cmux-ci cancel 261fc4405ef8e00697ab1bb2` cancels it

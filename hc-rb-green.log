@@ -1,0 +1,2 @@
+cmux-ci: step ae6d43dd859b08238e330696 (light, key hovercard-rb-green)
+cmux-ci: step ae6d43dd859b08238e330696 continues; re-attach with the same --key hovercard-rb-green (or cmux-ci wait ae6d43dd859b08238e330696); only `cmux-ci cancel ae6d43dd859b08238e330696` cancels it
