@@ -62,7 +62,13 @@ export const toChat = (b: Json): Json | string => {
   if (system) messages.push({ role: "system", content: system })
   if (!Array.isArray(b.messages) || b.messages.length === 0) return "messages must be a non-empty array"
   for (const m of b.messages as Array<Json>) {
-    if (!m || (m.role !== "user" && m.role !== "assistant")) return "each message needs role user or assistant"
+    if (!m || (m.role !== "user" && m.role !== "assistant" && m.role !== "system")) return "each message needs role user, assistant or system"
+    // A system message inside the thread (Claude Code 2.1.3xx sends its reminders this way): text only, kept in place.
+    if (m.role === "system") {
+      const note = text(m.content)
+      if (note) messages.push({ role: "system", content: note })
+      continue
+    }
     if (typeof m.content === "string") {
       messages.push({ role: m.role, content: m.content })
       continue

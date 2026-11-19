@@ -19,6 +19,9 @@
     },
     "v20": {
       "reviewer": "cloud-clouddo lane 2026-11-03 (new_sqlite_classes TrajectoryDO from #25682; additive, no rename, delete or transfer; inert in production: CLOUD_TRAJECTORIES_ENABLED is set only in development, so cloud-trajectory.ts answers 404 cloud.trajectory.disabled and nothing instantiates the class)"
+    },
+    "v21": {
+      "reviewer": "lawrence 2026-11-19 via the chief (a1245, chat 40603: a live models backend we control): new_sqlite_classes ModelCatalogDO; additive, no rename, delete or transfer; one instance holds published model catalog versions, per-model kills and model scout runs; no user data"
     }
   },
   "guarded_vars": {
