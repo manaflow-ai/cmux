@@ -131,14 +131,19 @@ jobs:
             python3 scripts/measure/screen-stream-eval/probe.py "$out/results.json" "$out/probe.json"
             cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
             # The budget gate: every stage's p50 against its budget; one over fails the run and is named.
-            overrides=()
-            for pair in $BUDGET; do overrides+=(--budget "$pair"); done
-            gate=0
-            python3 scripts/measure/screen-stream-eval/budget_gate.py check "$out/results.json" \
-              --out "$out/gate.json" --summary "$GITHUB_STEP_SUMMARY" ${overrides[@]+"${overrides[@]}"} || gate=$?
-            [[ "$status" -eq 0 ]] && status=$gate
+            # It judges the rd target, so a dispatch without rd (targets=webrtc) stays a report.
+            if [[ ",${TARGETS// /}," == *",rd,"* ]]; then
+              overrides=()
+              for pair in $BUDGET; do overrides+=(--budget "$pair"); done
+              gate=0
+              python3 scripts/measure/screen-stream-eval/budget_gate.py check "$out/results.json" \
+                --out "$out/gate.json" --summary "$GITHUB_STEP_SUMMARY" ${overrides[@]+"${overrides[@]}"} || gate=$?
+              [[ "$status" -eq 0 ]] && status=$gate
+            fi
           else
             echo "::error title=screen stream eval::no results.json came back (step ${step:-none}, exit $status)"
+            # Nothing measured is never a pass, also when the fleet step itself exited 0.
+            [[ "$status" -eq 0 ]] && status=2
           fi
           exit "$status"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -103,8 +103,9 @@ class GateTests(unittest.TestCase):
         self.assertIn("screen share budget: Encode", printed)
 
     def test_unknown_override_is_refused(self):
-        with self.assertRaises(SystemExit):
-            gate.parse_overrides(["Warp=3"])
+        for pair in ("Warp=3", "Screen=nan", "Screen=inf", "Screen=-1", "Screen=fast"):
+            with self.assertRaises(SystemExit, msg=pair):
+                gate.parse_overrides([pair])
 
     def test_budget_record_lines_from_screen_share_vs(self):
         rows = [{"row": name, "budget_ms": ms, "cmux": {"null": "no ledger"}} for name, ms in gate.BUDGETS.items()]

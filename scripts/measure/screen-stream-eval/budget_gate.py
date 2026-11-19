@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -156,9 +157,12 @@ def parse_overrides(pairs):
         if stage is None:
             raise SystemExit(f"--budget {pair}: no stage {name!r} (stages: {', '.join(BUDGETS)})")
         try:
-            out[stage] = float(ms)
+            value = float(ms)
         except ValueError:
+            value = math.nan
+        if not math.isfinite(value) or value < 0:
             raise SystemExit(f"--budget {pair}: {ms!r} is not a number of ms")
+        out[stage] = value
     return out
 
 
