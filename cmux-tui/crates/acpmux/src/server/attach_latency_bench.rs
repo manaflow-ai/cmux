@@ -34,13 +34,25 @@ fn meta(id: &str) -> SessionMeta {
 }
 
 fn rec(seq: u64, dir: &str, kind: &str, msg: Value) -> crate::store::EventRecord {
-    crate::store::EventRecord { seq, at: seq, dir: dir.into(), kind: kind.into(), msg, host_seq: None }
+    crate::store::EventRecord {
+        seq,
+        at: seq,
+        dir: dir.into(),
+        kind: kind.into(),
+        msg,
+        host_seq: None,
+    }
 }
 
 /// One turn's three records from `seq`.
 fn turn_records(id: &str, seq: u64, n: u64, text: &str) -> [crate::store::EventRecord; 3] {
     [
-        rec(seq, "mux", "user_message", json!({"text": format!("prompt {n}"), "promptId": format!("p{n}")})),
+        rec(
+            seq,
+            "mux",
+            "user_message",
+            json!({"text": format!("prompt {n}"), "promptId": format!("p{n}")}),
+        ),
         rec(
             seq + 1,
             "in",
@@ -48,7 +60,12 @@ fn turn_records(id: &str, seq: u64, n: u64, text: &str) -> [crate::store::EventR
             json!({"method": "session/update", "params": {"sessionId": id, "update": {
                 "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}}),
         ),
-        rec(seq + 2, "mux", "turn_result", json!({"status": "completed", "turnId": format!("t{n}"), "turnSeq": n})),
+        rec(
+            seq + 2,
+            "mux",
+            "turn_result",
+            json!({"status": "completed", "turnId": format!("t{n}"), "turnSeq": n}),
+        ),
     ]
 }
 
@@ -142,7 +159,12 @@ async fn run(chats: usize) -> String {
     // Then about 25 MB of turns after it, as hours of an agent's work.
     let chunk = "streamed tool output and reply text ".repeat(28);
     for n in 2..=20_000u64 {
-        hub.append(&long, "mux", "user_message", json!({"text": format!("prompt {n}"), "promptId": format!("p{n}")}));
+        hub.append(
+            &long,
+            "mux",
+            "user_message",
+            json!({"text": format!("prompt {n}"), "promptId": format!("p{n}")}),
+        );
         hub.append(
             &long,
             "in",
@@ -150,7 +172,12 @@ async fn run(chats: usize) -> String {
             json!({"method": "session/update", "params": {"sessionId": LONG, "update": {
                 "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": chunk}}}}),
         );
-        hub.append(&long, "mux", "turn_result", json!({"status": "completed", "turnId": format!("t{n}"), "turnSeq": n}));
+        hub.append(
+            &long,
+            "mux",
+            "turn_result",
+            json!({"status": "completed", "turnId": format!("t{n}"), "turnSeq": n}),
+        );
     }
     let tail = long.meta().last_seq.saturating_sub(10);
 

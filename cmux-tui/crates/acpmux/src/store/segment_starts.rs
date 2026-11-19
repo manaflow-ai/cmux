@@ -87,12 +87,7 @@ impl SegmentStarts {
     /// segment, so every earlier one holds only records at or before `after`), else the first.
     /// A segment with no readable line counts as starting past `after`: the search then starts
     /// at or before the right segment, never past it, and the read skips by seq.
-    pub(crate) fn start(
-        &self,
-        id: &str,
-        segments: &[(u32, PathBuf)],
-        after: u64,
-    ) -> Result<usize> {
+    pub(crate) fn start(&self, id: &str, segments: &[(u32, PathBuf)], after: u64) -> Result<usize> {
         if after == 0 || segments.len() < 2 {
             return Ok(0);
         }

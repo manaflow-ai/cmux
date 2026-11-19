@@ -2448,9 +2448,9 @@ pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
+mod accounts;
 #[cfg(test)]
 mod attach_latency_bench;
-mod accounts;
 mod connections;
 mod mcp_connect;
 mod routes;

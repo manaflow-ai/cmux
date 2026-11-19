@@ -16,8 +16,7 @@ impl Drop for Home {
 
 /// A store of 4 KiB segments holding chat `id` with `records` records of ~400 bytes each.
 fn chat(id: &str, records: u64) -> (Home, LocalStore) {
-    let path =
-        std::env::temp_dir().join(format!("acpmux-segment-starts-{}", uuid::Uuid::now_v7()));
+    let path = std::env::temp_dir().join(format!("acpmux-segment-starts-{}", uuid::Uuid::now_v7()));
     let store = LocalStore::new(path.join("sessions"), 4096).unwrap();
     let meta = json!({
         "schema": META_SCHEMA, "id": id, "name": "long chat", "harness": "claude",
