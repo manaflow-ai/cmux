@@ -196,7 +196,9 @@ async fn follower_hears_each_update_once(mode: StoreMode, tag: &str) {
     let lines = heard.lock().unwrap().clone();
     let mut by_tag: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut order: Vec<String> = Vec::new();
-    for line in &lines {
+    // Only the stream's own frames: a chat's row (`_acpmux/session_changed`) quotes its newest
+    // reply, tool and plan step, and is not a second copy of the update.
+    for line in lines.iter().filter(|l| l.contains(r#""method":"_acpmux/event""#)) {
         for t in tags(line) {
             let seen = by_tag.entry(t.clone()).or_default();
             if seen.is_empty() {
