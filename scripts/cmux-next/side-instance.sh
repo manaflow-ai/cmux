@@ -4,9 +4,13 @@
 # try-pr.sh opens pull requests in one by default (docs/cmux-next/hot-reload.md, "Try a pull request").
 #
 #   side-instance.sh make NAME [--from APP] [--label TEXT] [--live-code] [--neutral-shell] [--swap BUILD]
+#                         [--customize]
 #                                   copy APP (default /Applications/cmux NEXT.app, refused when built
 #                                   over 7 days ago; --from takes any build) as NAME; remade
 #                                   from another app, it clears the state of the identity it replaces.
+#                                   --customize: its customize folder is NAME/customize (CMUX_CUSTOMIZE_DIR
+#                                   in its LSEnvironment), not the account's ~/.config/cmux/customize, so a
+#                                   measurement's extension saves never reach the Mac's own cmux
 #                                   --live-code: a live code build's copy watches live-code/ for
 #                                   Swift patches (docs/cmux-next/live-code.md)
 #                                   --neutral-shell: its terminals show a `$ ` prompt, never the
@@ -118,7 +122,7 @@ clear_state() {
 case "$cmd" in
   make)
     # SIDE_INSTANCE_DEFAULT_APP: a stand-in for tests (tests/test_side_instance_stale_default.py).
-    from="${SIDE_INSTANCE_DEFAULT_APP:-/Applications/cmux NEXT.app}" label="cmux $name" live="" neutral="" swap=""
+    from="${SIDE_INSTANCE_DEFAULT_APP:-/Applications/cmux NEXT.app}" label="cmux $name" live="" neutral="" swap="" own_customize=""
     chosen=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
@@ -126,6 +130,7 @@ case "$cmd" in
         --label) [[ $# -ge 2 ]] || usage 1; label="$2"; shift 2 ;;
         --live-code) live=1; shift ;;
         --neutral-shell) neutral=1; shift ;;
+        --customize) own_customize=1; shift ;;
         --swap) [[ $# -ge 2 ]] || usage 1; swap="$2"; shift 2 ;;
         *) usage 1 ;;
       esac
@@ -212,6 +217,11 @@ PY
     if [[ -n "$live" ]]; then
       mkdir -p "$dir/live-code"
       plist_set "$plist" LSEnvironment:CMUX_LIVE_CODE_DIR "$dir/live-code"
+    fi
+    # Its own customize folder (the daemon reads CMUX_CUSTOMIZE_DIR, cmux-tui-core apps/catalog.rs).
+    if [[ -n "$own_customize" ]]; then
+      mkdir -p "$dir/customize"
+      plist_set "$plist" LSEnvironment:CMUX_CUSTOMIZE_DIR "$dir/customize"
     fi
     # A neutral shell: zsh's default prompt `%n@%m %1~ %#` reads "cmux@cmux23 ~ %" on a fleet mini, and a
     # look's privacy check withholds every shot and the video that shows it. The app points its terminals'

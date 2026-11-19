@@ -109,7 +109,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `pane-overflow-fade.sh` | Native presentation-layer measurement of the pane overflow fade. | - | 2026-10-28 | active |
 | `pane-overflow-bundle-setup.py` | Keeps historical bundle installs from deleting tracked placeholder docs. | - | 2026-10-26 | active |
 | `fullscreen-transition.sh` | Full screen enter and leave: lag, layout passes, resizes. | fullscreen-lag | 2026-10-27 | active |
-| `edit-repaint.sh` | Edit to repaint for cmux-next.json edits and extension saves. | - | 2026-11-13 | active |
+| `edit-repaint.sh` | Edit to repaint for cmux-next.json edits and customize saves (section, rows, pane), a palette command and a key binding. | - | 2026-11-19 | active |
 | `replay-build-bench.sh` | terminal VT replay build time, one text layout against two. | - | 2026-11-01 | active |
 | `pane-main-profile.sh` | One Instruments profile of the pane's 20 MB prompt bench. | - | 2026-10-05 | stale |
 | `pane-native-transport.sh` | Agent pane native transport against the page-world WebSocket. | - | 2026-11-07 | active |
@@ -225,6 +225,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `try-pr-live-share.py` | Share of recent NEXT PRs that try-pr.sh puts in with no app build. | - | 2026-11-07 | active |
 | `try-pr-side-instance.sh` | try-pr.sh to a side instance, timed to loading the PR's page. | - | 2026-11-04 | active |
 | `ext-hot-reload.sh` | Extension hot reload read-back test from DEV and Release builds. | - | 2026-11-14 | active |
+| `ext-reload-nightly.sh` | Extension hot reload on a published NIGHTLY: the activity example read back through ext dev and ext shot, and edit-repaint.py in read-back mode. | - | 2026-11-19 | active |
+| `ext-reload-nightly.py` | App half of ext-reload-nightly.sh. | - | 2026-11-19 | active |
 | `rift-eval.sh` | APFS clone workspaces vs git worktree for an agent's first green build. | - | 2026-11-11 | active |
 | `nightly-cas-identity.sh` | Byte proof: a build with a reused compilation cache equals a clean build. | - | 2026-10-20 | active |
 | `import-set-xcode.sh` | Import-set check stub cost with Xcode incremental builds. | - | 2026-10-18 | active |

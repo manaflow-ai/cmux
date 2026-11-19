@@ -45,6 +45,10 @@ fn scripted_app_host() {
     // `renderHang`: the host stops answering anything (a render that never
     // returns, in a host that does not honor its deadline) until shut down.
     let mut hung = false;
+    // `SCENE_TEXT <word>` in the script: every view draws that word instead
+    // of its export's name, so a test can save a new script and see the open
+    // view draw it (a sidebar rows or pane save, as a person makes one).
+    let mut scene_text: Option<String> = None;
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { break };
         let message = serde_json::from_str::<ToHost>(&line).expect("protocol");
@@ -59,6 +63,11 @@ fn scripted_app_host() {
                 });
             }
             ToHost::Init { main, .. } => {
+                scene_text = main
+                    .split("SCENE_TEXT ")
+                    .nth(1)
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .map(String::from);
                 send(FromHost::Ready { runtime: "scripted".into() });
                 // Top-level code that subscribes, as `cmux.events.on(...)` does.
                 if let Some(stream) = main
@@ -105,9 +114,10 @@ fn scripted_app_host() {
                         filter: json!({}),
                     });
                 }
+                let text = scene_text.clone().unwrap_or(export);
                 send(FromHost::Scene {
                     mount: mount.clone(),
-                    ops: json!([{ "op": "create", "id": "n1", "type": "Text", "props": { "text": export } }, { "op": "root", "id": "n1" }]),
+                    ops: json!([{ "op": "create", "id": "n1", "type": "Text", "props": { "text": text } }, { "op": "root", "id": "n1" }]),
                 });
                 send(FromHost::Mounted { mount, error: None });
             }
@@ -325,6 +335,8 @@ struct Fixture {
     fetcher: Arc<FakeFetcher>,
     events: Receiver<Value>,
     state: PathBuf,
+    /// The customize folder, when the fixture has one (`fixture_customize`).
+    customize: Option<PathBuf>,
     _root: TempDir,
 }
 
@@ -356,6 +368,26 @@ fn fixture_with(defaults: &[&str], idle: Duration, root: TempDir) -> Fixture {
 /// `fixture_with`, with `CMUX_SAFE_MODE` as `safe_mode_env` says; the safe
 /// mode flag file is `<root>/safe-mode.json`.
 fn fixture_safe(defaults: &[&str], idle: Duration, root: TempDir, safe_mode_env: bool) -> Fixture {
+    fixture_sources(defaults, idle, root, safe_mode_env, false)
+}
+
+/// `fixture()` with a customize folder (`Fixture::customize`, `<root>/customize`)
+/// that the supervisor reads and watches as the person's own (`local/customize`).
+fn fixture_customize() -> Fixture {
+    fixture_sources(&[], Duration::from_secs(60), temp_dir(), false, true)
+}
+
+fn fixture_sources(
+    defaults: &[&str],
+    idle: Duration,
+    root: TempDir,
+    safe_mode_env: bool,
+    with_customize: bool,
+) -> Fixture {
+    let customize = with_customize.then(|| root.0.join("customize"));
+    if let Some(dir) = &customize {
+        std::fs::create_dir_all(dir).unwrap();
+    }
     let bundled = root.0.join("bundled");
     let state = root.0.join("state");
     std::fs::create_dir_all(state.join("apps/local")).unwrap();
@@ -395,7 +427,7 @@ fn fixture_safe(defaults: &[&str], idle: Duration, root: TempDir, safe_mode_env:
                 // `CMUX_APPS_DIRS`; empty until a test writes an app there.
                 extra: vec![root.0.join("extra")],
                 local: Some(state.join("apps/local")),
-                customize: None,
+                customize: customize.clone(),
                 defaults: Some(defaults.iter().map(|s| s.to_string()).collect()),
             },
             idle_stop: idle,
@@ -413,7 +445,7 @@ fn fixture_safe(defaults: &[&str], idle: Duration, root: TempDir, safe_mode_env:
         CLIENT,
         Arc::new(move |v: &Value| tx.lock().unwrap().send(v.clone()).is_ok()),
     );
-    Fixture { supervisor, router, fetcher, events: rx, state, _root: root }
+    Fixture { supervisor, router, fetcher, events: rx, state, customize, _root: root }
 }
 
 fn fixture() -> Fixture {
