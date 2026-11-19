@@ -41,7 +41,11 @@ fn send_event(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
     let _stream = durable_gate::stream_scope(&ev.record);
     #[cfg(test)]
     tests::panic_if_marked(&ev.session_id);
+    let row = ev.row.clone();
     deliver(hub, conn, ev);
+    // Queued what this connection owes for it: the last connection to get here times the
+    // event's fan-out (`gauges.fanout`).
+    row.fanout.taken();
 }
 
 pub(super) fn start(
@@ -49,13 +53,15 @@ pub(super) fn start(
     conn: Arc<Conn>,
     mut flushes: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
 ) -> tokio::task::JoinHandle<()> {
-    let mut rx = hub.subscribe();
+    let (mut rx, seat) = hub.subscribe_fanout();
     let mut harnesses = hub.subscribe_harness_changes();
     let mut peer_states = hub.peer_states().subscribe();
     let mut catalog = hub.catalog.subscribe();
     let mut inventory = hub.health.inventory_changes();
     let mut presence = hub.presence.subscribe();
     tokio::spawn(async move {
+        // Counted in each event's fan-out until this task ends.
+        let _seat = seat;
         loop {
             let ev = tokio::select! {
                 ev = rx.recv() => ev,
