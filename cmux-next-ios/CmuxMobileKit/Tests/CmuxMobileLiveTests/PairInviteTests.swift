@@ -299,8 +299,13 @@ import Testing
     }
 
     /// A code from the other build on a listed computer (MacRoster lists one build per computer)
-    /// dials that build, though the listed one keeps the focus, even while every link is taken.
-    @Test func aCodeFromTheOtherBuildOnAComputerDialsThatBuild() async throws {
+    /// dials that build, even while every link is taken, and moves the focus to it: the phone works
+    /// with the Mac whose code it holds, not the build of that computer that sorts first. The
+    /// 2026-11-18 report: a tagged dev phone launched with its same-tag Mac's code (`review.sh`)
+    /// paired that Mac but stayed focused on another tagged build of the same account on the same
+    /// computer (its id sorted first), dialed it without a code, and its Allow prompt appeared there.
+    /// Once the code is used the pick stays (remembered for the team).
+    @Test func aCodeFromTheOtherBuildOnAComputerDialsAndFocusesThatBuild() async throws {
         let userID = "user-a", teamID = "t-hidden-\(UUID().uuidString.prefix(8))"
         let pick = "cmuxMobile.live.mac.\(teamID)"
         defer { UserDefaults.standard.removeObject(forKey: pick) }
@@ -343,7 +348,12 @@ import Testing
         #expect(live.accept(invite))
         for _ in 0..<3000 where dialer.dialCount("m1b") == 0 { try? await Task.sleep(for: .milliseconds(1)) }
         #expect(dialer.dialCount("m1b") > 0)
-        #expect(live.focusedMacID == "m1")
+        #expect(live.focusedMacID == "m1b")
+        // The code used (paired, or dropped): the phone stays on that build, now as the team's pick.
+        live.pairing?.invites.drop()
+        live.retarget()
+        #expect(UserDefaults.standard.string(forKey: pick) == "m1b")
+        #expect(live.focusedMacID == "m1b")
     }
 }
 #endif
