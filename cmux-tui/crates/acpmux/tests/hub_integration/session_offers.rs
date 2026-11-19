@@ -402,13 +402,15 @@ async fn mcp_instructions(server: &str, session_env: &str) -> String {
     reply["result"]["instructions"].as_str().unwrap_or_default().to_owned()
 }
 
-/// The session servers tell the agent when to start a session and when to
-/// suggest one, and point at the cmux tools for reaching the user.
+/// The session servers tell the agent to start sub-sessions itself, never to
+/// ask the user first (Leo: "always start up sub sessions dont ask me"), and
+/// point at the cmux tools for reaching the user.
 #[cfg(unix)]
 #[tokio::test]
 async fn the_session_servers_say_when_to_start_and_when_to_suggest() {
     let sub = mcp_instructions("subsession-mcp", acpmux::subsession_mcp::SESSION_ENV).await;
-    assert!(sub.contains("start_session only when the user asked"), "{sub}");
+    assert!(sub.contains("without asking the user first"), "{sub}");
+    assert!(!sub.contains("only when the user asked"), "{sub}");
     for tool in [
         "workspace_open_url",
         "notification_create",
@@ -420,4 +422,8 @@ async fn the_session_servers_say_when_to_start_and_when_to_suggest() {
     }
     let offers = mcp_instructions("offer-mcp", acpmux::offer_mcp::SESSION_ENV).await;
     assert!(offers.contains("offer_session") && offers.contains("suggest_tasks"), "{offers}");
+    assert!(
+        offers.contains("start_session") && !offers.contains("only when the user asked"),
+        "{offers}"
+    );
 }
