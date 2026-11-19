@@ -147,6 +147,7 @@ const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElemen
 export function ThreadMinimap({
   rows,
   earlier = EMPTY_EARLIER,
+  later = EMPTY_EARLIER,
   promptCount,
   loadThrough,
   loadPromptIndex,
@@ -167,6 +168,9 @@ export function ThreadMinimap({
   rows: readonly AcpmuxRow[];
   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
   earlier?: readonly AcpmuxRow[];
+  /// The chat's prompts newer than `rows` (the snapshot's `laterPrompts`, a window the reader scrolled far up
+  /// holds): ticks after the loaded ones, each a jump to its page by seq (`loadThrough`).
+  later?: readonly AcpmuxRow[];
   /// The chat's prompt count while `rows` and `earlier` do not hold every prompt yet (the snapshot's
   /// `promptCount`): the prompts neither holds draw as pending resting ticks above the held ones
   /// (model.ts pendingCount), so the rail's first frame has its final length and tick rows. It
@@ -232,8 +236,8 @@ export function ThreadMinimap({
   // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
   // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
   const read = useMemo(
-    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlierRows, promptCount),
-    [rows, sessionId, change, earlierRows, promptCount],
+    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlierRows, promptCount, later),
+    [rows, sessionId, change, earlierRows, promptCount, later],
   );
   useLayoutEffect(() => {
     lastTurns.current = read;

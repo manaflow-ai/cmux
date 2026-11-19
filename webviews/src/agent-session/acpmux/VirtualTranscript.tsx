@@ -207,6 +207,7 @@ import { jumpPairLook } from "./jumpPair.experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
+import { heightLeftAbove, type NewerReserve, newerReserve, rowsReplaced } from "./conversation/newerReserve";
 import { OlderAhead } from "./conversation/olderAhead";
 import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
 import { type ChatOpen, type ChatRows, drawnKey, happenedAfterOpen, openChat } from "./conversation/openBreakpoint";
@@ -1501,6 +1502,7 @@ const LIST_PROPS: ReadonlySet<string> = new Set([
   "rows",
   "sourceRows",
   "earlier",
+  "later",
   "queuedTail",
   "queueIds",
   "queueWithdrawn",
@@ -1697,6 +1699,11 @@ function TranscriptView({
   readOnly = false,
   canLoadOlder = false,
   historyFrom,
+  canLoadNewer = false,
+  historyThrough,
+  later,
+  onLoadNewer,
+  onReturnToLatest,
   githubRepository,
   fallbackRepository,
   references,
@@ -1797,6 +1804,21 @@ function TranscriptView({
   /// at once rather than with the pages read after it.
   /// `rising`: the reader is scrolling up as it asks (OlderAhead), so the page is a big one, with more read ahead.
   onLoadOlder?: (fill: boolean, rising: boolean) => Promise<void>;
+  /// The chat goes on past the rows (AcpmuxSnapshot.canLoadNewer): a reader scrolled far up holds a window of it.
+  /// The rows that left are room under the last row (conversation/newerReserve.ts), and the view is never at the
+  /// latest message there.
+  canLoadNewer?: boolean;
+  /// The newest event seq held while `canLoadNewer` (AcpmuxSnapshot.historyThrough): a read that drew no row still
+  /// moves it.
+  historyThrough?: number;
+  /// The chat's prompts newer than `rows` while `canLoadNewer` (the snapshot's `laterPrompts`): the rail keeps
+  /// their ticks after the held ones.
+  later?: readonly AcpmuxRow[];
+  /// Reads the next newer page (canLoadNewer): asked once per page while the view is near the rows' end.
+  onLoadNewer?: () => Promise<void>;
+  /// The reader goes to the latest message while `canLoadNewer` (Jump to latest, End, a send): the pane reads the
+  /// chat's newest page in place of the window.
+  onReturnToLatest?: () => Promise<void>;
   /// How many prompts this pane has sent: each new one puts the view at the latest message.
   sends?: number;
   /// Keeps the parent send path in sync with the reader's current follow state.
@@ -4136,6 +4158,24 @@ function TranscriptView({
               return known?.collapsing === true && known.sessionId === sessionId && known.width === rowWidth;
             },
           );
+    // Rows that left the top of a window the reader scrolls down (direct.ts `shedWindowTop`): their height goes
+    // into the room above, so the rows in view and the scrollbar's thumb stay where they were.
+    const leftAbove =
+      last && last.sessionId === sessionId && last.width === rowWidth
+        ? heightLeftAbove(last.rows, (index) => last.layout.geometry.topAt(index), rows)
+        : 0;
+    // A rail jump made another page the held window (direct.ts `jumpWindow`): no row is the last pass's, so the
+    // room above is estimated again for the rows there now.
+    if (last && last.sessionId === sessionId && canLoadNewer && rowsReplaced(last.rows, rows))
+      olderRoom.current = undefined;
+    else if (leftAbove > 0 && olderRoom.current)
+      olderRoom.current = {
+        ...olderRoom.current,
+        room: olderRoom.current.room + leftAbove,
+        end: olderRoom.current.end + leftAbove,
+        height: olderRoom.current.height,
+        unseeded: undefined,
+      };
     // Gone until a page lands above the first row (a new first row): then estimated again, from the
     // rows that page brought.
     const gone =
@@ -4193,6 +4233,7 @@ function TranscriptView({
     promptCount,
     roomGone,
     roomRose,
+    canLoadNewer,
     draggedHeight,
   ]);
   // A chat held whole keeps each prompt's measured place (transcriptHeights.ts), so the next open on
@@ -4203,7 +4244,7 @@ function TranscriptView({
   useEffect(() => {
     // Rows away from the view still at another width's height (layoutConversation `near`) would keep
     // tops that are not this width's.
-    if (canLoadOlder || !sessionId || rows.length === 0 || estimated.layout.remembered) return;
+    if (canLoadOlder || canLoadNewer || !sessionId || rows.length === 0 || estimated.layout.remembered) return;
     const placed = measured.layout;
     const width = scaledRowWidth;
     const keep = () => {
@@ -4226,7 +4267,7 @@ function TranscriptView({
       clearTimeout(quiet);
       if (idle !== undefined) cancelIdleCallback(idle);
     };
-  }, [canLoadOlder, sessionId, rows, measured, estimated, scaledRowWidth]);
+  }, [canLoadOlder, canLoadNewer, sessionId, rows, measured, estimated, scaledRowWidth]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
@@ -4379,7 +4420,18 @@ function TranscriptView({
         )
       : grown;
   const room = sessionSwitched || following ? dockRoom - lifted - trayHold - cardHold - noticeHold : heldRoom.current;
-  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
+  // The room under the rows for the newer history a reader scrolled far up let go of (conversation/newerReserve.ts).
+  const newerRoomState = useRef<NewerReserve | undefined>(undefined);
+  const newerRoom = useMemo(() => {
+    const next = newerReserve(newerRoomState.current, {
+      sessionId,
+      height: measured.layout.totalHeight,
+      canLoadNewer,
+    });
+    newerRoomState.current = next;
+    return next.room;
+  }, [measured, sessionId, canLoadNewer]);
+  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room + newerRoom;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
   const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
   rowsEndRef.current = rowsEnd;
@@ -4625,6 +4677,8 @@ function TranscriptView({
   );
   /// Jump to latest (below), for the keys that go to the end.
   const jumpToLatestRef = useRef<(focused: boolean, path?: string) => void>(() => {});
+  /// A Jump to latest asked while the rows end in history (canLoadNewer), run once the newest page is in.
+  const latestAfterReturn = useRef<{ focused: boolean; path: string } | undefined>(undefined);
   const rowKeyDown = useCallback(
     (index: number, event: React.KeyboardEvent<HTMLElement>) => {
       // Buttons and links own their keyboard behavior. A focused row itself owns only the
@@ -5213,7 +5267,14 @@ function TranscriptView({
         // The rows went from the top and no row the reader saw is among them now (a reconnect's
         // shorter tail, a rebuild's empty frame): the reader's place is held, not the offset the
         // shrink clamped to the end (`heldPlace`). A row renamed in place keeps the first row.
-        if (kept === undefined && !heldPlace.current && oldRows.length > 0 && rows[0]?.id !== oldRows[0]?.id)
+        // Not for a rail jump that made the target's page the held window (canLoadNewer): the reader asked to leave.
+        if (
+          kept === undefined &&
+          !heldPlace.current &&
+          !canLoadNewer &&
+          oldRows.length > 0 &&
+          rows[0]?.id !== oldRows[0]?.id
+        )
           heldPlace.current = seenAnchor.current ?? restingAnchor(logicalTop, false, old, oldRows) ?? undefined;
         const held = heldPlace.current ? heldReaderPlace(heldPlace.current, rows, layout) : undefined;
         // Found, or no older page can bring it back (the history is whole): the hold goes, the view
@@ -6064,6 +6125,7 @@ function TranscriptView({
   const olderScrollTarget = useRef<number | undefined>(undefined);
   /// The older-history check (below), which every scroll event runs too.
   const checkOlderNow = useRef<() => void>(() => {});
+  const checkNewerNow = useRef<() => void>(() => {});
   /// The reader's speed up and how long pages take, which move the older-history ask further ahead.
   const [olderAhead] = useState(() => new OlderAhead());
   const handleScroll = (node: HTMLDivElement, immediate = false) => {
@@ -6110,6 +6172,7 @@ function TranscriptView({
     giveRoomNearTop();
     olderAhead.scrolled(paidAt, performance.now());
     checkOlderNow.current();
+    checkNewerNow.current();
     const next = node.scrollTop;
     trimFoldRoom(node);
     // A step of Jump to latest's glide: the view is following on its way to the end, not snapped
@@ -6231,6 +6294,12 @@ function TranscriptView({
   const jumpToLatest = (focused: boolean, path = "jump") => {
     const node = ref.current;
     if (!node) return;
+    // The rows end in history (canLoadNewer): the newest page comes first, then the jump runs to it.
+    if (canLoadNewer && onReturnToLatest) {
+      latestAfterReturn.current = { focused, path };
+      void onReturnToLatest();
+      return;
+    }
     olderScrollTarget.current = undefined;
     // Jump to latest is the reader leaving the Find match: end its hold, or the next tick pulls the
     // view back to the match and stops following again.
@@ -6951,6 +7020,56 @@ function TranscriptView({
     checkOlderNow.current();
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
   useEffect(() => () => clearTimeout(olderRecheck.current), []);
+  // Newer history a reader scrolled far up let go of (canLoadNewer) pages back in as the view nears the rows' end,
+  // as older history does at their top: within OLDER_AHEAD_VIEWPORTS of it, once per page (`newerLoadKey`), and
+  // asked again a moment after an ask that brought nothing.
+  const newerLoadKey = `${sessionKey}\u0000${rows.at(-1)?.id ?? ""}\u0000${historyThrough ?? ""}`;
+  const newerLoadRequested = useRef<string | undefined>(undefined);
+  const newerRecheck = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const checkNewer = () => {
+    const node = ref.current;
+    if (!canLoadNewer || !onLoadNewer || !node || node.clientHeight === 0) {
+      newerLoadRequested.current = undefined;
+      return;
+    }
+    // The rows' end, under the room the newer history left (conversation/newerReserve.ts).
+    const rowsEnd = measured.layout.totalHeight + THREAD_TOP + topInset;
+    if (rowsEnd - (layoutScrollTop(node) + node.clientHeight) >= node.clientHeight * OLDER_AHEAD_VIEWPORTS) {
+      newerLoadRequested.current = undefined;
+      return;
+    }
+    if (newerLoadRequested.current === newerLoadKey) return;
+    const asked = newerLoadKey;
+    newerLoadRequested.current = asked;
+    const settled = () => {
+      clearTimeout(newerRecheck.current);
+      newerRecheck.current = setTimeout(() => {
+        if (newerLoadRequested.current !== asked) return;
+        newerLoadRequested.current = undefined;
+        checkNewerNow.current();
+      }, OLDER_RECHECK_MS);
+    };
+    onLoadNewer().then(settled, settled);
+  };
+  useLayoutEffect(() => {
+    checkNewerNow.current = checkNewer;
+  });
+  useEffect(() => {
+    checkNewerNow.current();
+  }, [canLoadNewer, height, onLoadNewer, newerLoadKey, renderScroll.top]);
+  useEffect(() => () => clearTimeout(newerRecheck.current), []);
+  // The view went to the latest message (the reader scrolled to the end, a send) while the rows end in history: the
+  // pane reads the chat's newest page in place of the window (direct.ts `returnToLatest`).
+  useEffect(() => {
+    if (following && canLoadNewer) void onReturnToLatest?.();
+  }, [following, canLoadNewer, onReturnToLatest]);
+  // A Jump to latest pressed while the rows end in history waits for the newest page, then goes there.
+  useEffect(() => {
+    const pending = latestAfterReturn.current;
+    if (canLoadNewer || !pending) return;
+    latestAfterReturn.current = undefined;
+    jumpToLatestRef.current(pending.focused, pending.path);
+  }, [canLoadNewer]);
   useEffect(() => {
     olderAhead.reset();
   }, [olderAhead, sessionKey]);
@@ -7195,6 +7314,7 @@ function TranscriptView({
               <ThreadMinimap
                 rows={rows}
                 earlier={earlier}
+                later={canLoadNewer ? later : undefined}
                 promptCount={promptCount}
                 loadThrough={loadThrough}
                 loadPromptIndex={loadPromptIndex}
