@@ -186,3 +186,78 @@ async fn a_page_with_fields_sends_only_those_members() {
     let bad = json!({"limit": 5, "fields": "name"});
     assert!(hub.session_page_rows(&bad, false).is_err());
 }
+
+/// Every byte page of a whole read with no `limit`, following each `nextCursor`, as the reply
+/// texts: from the indexes (`indexed`), or from every row sorted as `list_guard::bounded` cuts
+/// them (the path any other whole read takes).
+fn whole_pages(hub: &Hub, budget: usize, own_only: bool, indexed: bool) -> Vec<String> {
+    let (mut pages, mut cursor) = (Vec::new(), Value::Null);
+    for _ in 0..10_000 {
+        let params = if cursor.is_null() { json!({}) } else { json!({"cursor": cursor}) };
+        let text = if indexed {
+            hub.session_list_text(&params, false, own_only, budget).unwrap()
+        } else {
+            let list = hub.list_rows(false, own_only);
+            let text = |row: &super::Unbuilt| list.text(hub, row, false);
+            super::super::list_guard::bounded(list.rows(), text, &params, budget).unwrap()
+        };
+        let reply: Value = serde_json::from_str(&text).unwrap();
+        cursor = reply.get("nextCursor").cloned().unwrap_or(Value::Null);
+        pages.push(text);
+        if cursor.is_null() {
+            return pages;
+        }
+    }
+    panic!("the pages never ended");
+}
+
+/// A whole read's byte pages from the indexes are the pages `bounded` cuts from every row
+/// sorted, byte for byte, at budgets from a row or two a page to the whole list in one, for the
+/// whole list and a peer link's own rows; and after rows move, close and go.
+#[tokio::test]
+async fn indexed_byte_pages_equal_the_pages_of_every_row_sorted() {
+    let hub = mixed_hub();
+    let check = |when: &str| {
+        for own_only in [false, true] {
+            for budget in [400, 1_500, 6_000, 1 << 30] {
+                let want = whole_pages(&hub, budget, own_only, false);
+                let got = whole_pages(&hub, budget, own_only, true);
+                assert_eq!(got, want, "{when}: budget {budget}, own_only {own_only}");
+            }
+        }
+        let whole = whole_pages(&hub, 1 << 30, false, true);
+        assert_eq!(whole.len(), 1, "a list that fits goes whole");
+    };
+    check("at first");
+    {
+        let mut rows = hub.remote_sessions.write();
+        let (key, row) = remote("peer2", "s05", 50_000, "running");
+        rows.insert(key, row);
+        rows.take("peer3/s07");
+    }
+    hub.edit_test_meta(&hub.session_by_id("s04").unwrap(), |m| m.updated_at = 70_000);
+    check("after rows moved and went");
+}
+
+/// A whole read of a big list reads a window of the page-key indexes: its first byte page holds
+/// the budget's rows, and its cursor goes on from there.
+#[tokio::test]
+async fn a_byte_page_of_a_big_list_reads_a_window() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    {
+        let mut rows = hub.remote_sessions.write();
+        for n in 0..20_000u64 {
+            let (key, row) = remote(&format!("p{}", n % 200), &format!("r{n:05}"), n, "idle");
+            rows.insert(key, row);
+        }
+    }
+    let (rows, complete) = hub.keyed_window(None, super::BYTE_WINDOW, false);
+    assert!(!complete);
+    assert!(rows.len() <= super::BYTE_WINDOW, "the window, not every row");
+    let pages = whole_pages(&hub, 64 << 10, false, true);
+    let listed: usize = pages
+        .iter()
+        .map(|p| serde_json::from_str::<Value>(p).unwrap()["sessions"].as_array().unwrap().len())
+        .sum();
+    assert_eq!(listed, 20_000, "every row once over the pages");
+}

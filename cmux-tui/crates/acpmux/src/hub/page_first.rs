@@ -265,6 +265,9 @@ impl Hub {
         own_only: bool,
         budget: usize,
     ) -> Result<String, RpcError> {
+        if let Some(text) = self.indexed_list_text(params, with_tools, own_only, budget) {
+            return Ok(text);
+        }
         let list = self.list_rows(excludes_closed(params), own_only);
         let text = |row: &Unbuilt| list.text(self, row, with_tools);
         super::list_guard::bounded(list.rows(), text, params, budget)
@@ -272,6 +275,145 @@ impl Hub {
 }
 
 impl Hub {
+    /// [`Self::session_list_text`] of the whole list with no filter (no `peer`, `status`,
+    /// `localOnly` or `excludeStatus`; no cursor, or a byte page's `h` cursor), read from the
+    /// indexes: the newest rows while the list fits in `budget` (`list_order.rs`,
+    /// `remote_rows.rs` list order), else the byte page from its cursor in page-key order
+    /// (the same indexes by `session_pages::page_key_of`). It reads the rows it sends and a
+    /// window more, never a clone, hash and sort of every row as `list_guard::bounded` does: a
+    /// whole read of 10,000 chats sorted all of them for each of its 27 pages. None: a read this
+    /// does not cover, which `bounded` answers as before.
+    fn indexed_list_text(
+        &self,
+        params: &Value,
+        with_tools: bool,
+        own_only: bool,
+        budget: usize,
+    ) -> Option<String> {
+        if !plain_whole(params) {
+            return None;
+        }
+        let cursor = match params.get("cursor") {
+            None | Some(Value::Null) => None,
+            Some(_) => Some(super::session_pages::hash_cursor(params)?),
+        };
+        let states = if own_only { HashMap::new() } else { self.peer_link_states() };
+        let list = ListRows { rows: Vec::new(), states };
+        let fit = |row: &Unbuilt| -> String {
+            let text = list.text(self, row, with_tools);
+            super::list_guard::fit_row(&text, row, budget).into_owned()
+        };
+        if cursor.is_none()
+            && let Some(whole) = self.newest_whole(own_only, budget, &fit)
+        {
+            return Some(super::list_guard::page_text(None, &whole));
+        }
+        let mut most = BYTE_WINDOW;
+        loop {
+            let (rows, complete) = self.keyed_window(cursor, most, own_only);
+            let (mut page, mut used, mut last) = (Vec::new(), 0_usize, None);
+            let mut ended = true;
+            for (hash, row) in &rows {
+                let text = fit(row);
+                let total = used.saturating_add(text.len()).saturating_add(1);
+                if last.is_some_and(|last| last != *hash) && total > budget {
+                    ended = false;
+                    break;
+                }
+                (used, last) = (total, Some(*hash));
+                page.push(text);
+            }
+            if !ended || complete {
+                let more = !ended || (complete && page.len() < rows.len());
+                let next = more.then(|| format!("h{:032x}", last.unwrap_or_default()));
+                let next = next.map(|next| Value::String(next).to_string());
+                return Some(super::list_guard::page_text(next, &page));
+            }
+            // The window ran out before the page's bytes did: a longer one.
+            most = most.saturating_mul(4);
+        }
+    }
+
+    /// Every row newest first, as a list that fits sends it, when it fits in `budget`; None
+    /// once the rows passed it. Reads in growing windows of the kept orders, so a big list
+    /// stops at its first budget's worth of rows.
+    fn newest_whole(
+        &self,
+        own_only: bool,
+        budget: usize,
+        fit: &dyn Fn(&Unbuilt) -> String,
+    ) -> Option<Vec<String>> {
+        let mut most = BYTE_WINDOW;
+        loop {
+            let (rows, all) = if own_only {
+                let (own, all) = self.own_rows_from(None, most);
+                (own.into_iter().map(|(s, at)| Unbuilt::placed(s, at)).collect::<Vec<_>>(), all)
+            } else {
+                let Window { list, all, .. } = self.window(None, most, false);
+                (list.rows, all)
+            };
+            let (mut page, mut used) = (Vec::new(), 0_usize);
+            for row in &rows {
+                let text = fit(row);
+                used = used.saturating_add(text.len()).saturating_add(1);
+                if used > budget {
+                    return None;
+                }
+                page.push(text);
+            }
+            if all {
+                return Some(page);
+            }
+            most = most.saturating_mul(4);
+        }
+    }
+
+    /// The rows past page key `after` in page-key order (ties by session id, then peer, one
+    /// row a pair), as `session_pages::byte_page` orders them: at most `most` of this daemon's
+    /// and `most` of the peers', cut where the first source that was not read to its end
+    /// stops (a row past there may lie in it), and the hub machines' past `after`. True when
+    /// every source was read to its end.
+    fn keyed_window(
+        &self,
+        after: Option<u128>,
+        most: usize,
+        own_only: bool,
+    ) -> (Vec<(u128, Unbuilt)>, bool) {
+        let (own, own_all) = self.own_rows_by_key(after, most);
+        let mut bound = (!own_all).then(|| own.last().map_or(0, |(key, _)| *key));
+        let mut rows: Vec<(u128, Unbuilt)> =
+            own.into_iter().map(|(key, s)| (key, Unbuilt::local(s))).collect();
+        if !own_only {
+            let remote = self.remote_sessions.snapshot();
+            let peers: Vec<(u128, Arc<RemoteSession>)> =
+                remote.by_page_key(after).take(most).map(|(key, r)| (key, r.clone())).collect();
+            drop(remote);
+            if peers.len() == most {
+                let last = peers.last().map_or(0, |(key, _)| *key);
+                bound = Some(bound.map_or(last, |bound| bound.min(last)));
+            }
+            rows.extend(peers.into_iter().map(|(key, r)| (key, Unbuilt::mirrored(r))));
+            let key = |r: &RemoteSession| {
+                super::session_pages::page_key_of(
+                    r.summary.session_id().unwrap_or(""),
+                    r.summary.peer(),
+                )
+            };
+            let past = |r: &RemoteSession| after.is_none_or(|after| key(r) > after);
+            rows.extend(
+                self.mesh_book_rows(past).into_iter().map(|r| (key(&r), Unbuilt::mirrored(r))),
+            );
+        }
+        let pair = |row: &Unbuilt| (row.session_id().to_owned(), row.peer().map(str::to_owned));
+        // Stable, so of a row listed twice the first (this daemon's, then a peer's) is kept.
+        rows.sort_by(|(a, ra), (b, rb)| a.cmp(b).then_with(|| pair(ra).cmp(&pair(rb))));
+        rows.dedup_by(|(_, a), (_, b)| pair(a) == pair(b));
+        if let Some(bound) = bound {
+            rows.retain(|(key, _)| *key <= bound);
+        }
+        (rows, bound.is_none())
+    }
+
     /// The rows `keys` name, as `_acpmux/sessions` writes them with `with_tools`: this daemon's
     /// session by its id ([`Hub::own_row_text`], a closed one from its cached bytes), a peer's
     /// or a hub machine's by its `PEER/ID` row key (the mirrored row, never asked of the peer).
@@ -387,6 +529,26 @@ fn only_fields(mut row: Value, fields: &HashSet<String>) -> Value {
         members.retain(|key, _| fields.contains(key));
     }
     row
+}
+
+/// The rows a whole read's window holds first ([`Hub::indexed_list_text`]); it grows fourfold
+/// while the page's bytes outlast it.
+const BYTE_WINDOW: usize = 512;
+
+/// A whole read with no filter: no `peer`, `status`, `localOnly` or `excludeStatus`, and no
+/// cursor but a byte page's (`h` and 32 hex digits, no `~k` filter).
+fn plain_whole(params: &Value) -> bool {
+    let empty = |k: &str| match params.get(k) {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => true,
+        Some(Value::String(s)) => s.is_empty(),
+        Some(Value::Array(a)) => a.is_empty(),
+        _ => false,
+    };
+    let cursor_ok = match params.get("cursor") {
+        None | Some(Value::Null) => true,
+        Some(_) => super::session_pages::hash_cursor(params).is_some(),
+    };
+    cursor_ok && ["peer", "status", "localOnly", "excludeStatus"].into_iter().all(empty)
 }
 
 /// `excludeStatus` holds `closed`.
