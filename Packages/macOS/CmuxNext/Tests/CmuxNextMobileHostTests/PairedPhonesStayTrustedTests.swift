@@ -295,7 +295,7 @@ import Testing
     /// restarted). Each build's list is sealed under its own bundle id; a build with no namespace keeps the
     /// name it always had.
     @Test func twoBuildsOnOneBackendSealTheirListsApart() throws {
-        final class Names: @unchecked Sendable {
+        nonisolated final class Names: @unchecked Sendable {
             let lock = NSLock()
             var all: [String] = []
             func add(_ name: String) { lock.withLock { all.append(name) } }
