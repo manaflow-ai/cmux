@@ -27,7 +27,10 @@
 #               CMUX_TICK_HARNESS=1, the suite's opt-in (it allocates and
 #               runs for seconds, so the kit's full run skips it)
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
-#               against a Debug app; with ui= and no only=, the kit run is skipped
+#               against a Debug app; with ui= and no only=, the kit run is skipped.
+#               A suite named *ColdUITests runs each of its test*Cold methods
+#               on a freshly booted iPhone, CMUX_LAUNCH_COLD_RUNS (10) times
+#               (LaunchTTIColdUITests); LAUNCHTTI lines go to launch-tti.jsonl
 #             video   record the UI tests' iPhone screen (simctl recordVideo)
 #               to ui-video.mp4 in the artifact: before/after videos of a change;
 #               with ffmpeg on the host (Homebrew), also ui-video-small.mp4:
@@ -206,6 +209,7 @@ fi
 kit_only=()
 kit_env=()
 ui_suites=()
+ui_cold=()
 ui_video=0
 ui_profile=0
 if [[ "$mode" == test && $# -gt 1 ]]; then
@@ -224,14 +228,16 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
         for item in "${items[@]}"; do
           [[ "$item" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+)?$ ]] ||
             { echo "cmux-next-ios-sim.sh: ui= wants CmuxMobileAppUITests suite names, got '$item'" >&2; exit 2; }
-          ui_suites+=("-only-testing:CmuxMobileAppUITests/$item")
+          # A suite named *ColdUITests runs each of its test*Cold methods on a freshly booted
+          # simulator, CMUX_LAUNCH_COLD_RUNS times (default 10): one cold launch per run.
+          if [[ "$item" == *ColdUITests ]]; then ui_cold+=("$item"); else ui_suites+=("-only-testing:CmuxMobileAppUITests/$item"); fi
         done ;;
       video) ui_video=1 ;;
       profile) ui_profile=1 ;;
       *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, video and profile, got '$sel'" >&2; exit 2 ;;
     esac
   done
-  if [[ $ui_profile -eq 1 && ${#ui_suites[@]} -eq 0 ]]; then
+  if [[ $ui_profile -eq 1 && $((${#ui_suites[@]} + ${#ui_cold[@]})) -eq 0 ]]; then
     echo "cmux-next-ios-sim.sh: profile records the UI test run; give it ui=SUITE,..." >&2; exit 2
   fi
 fi
@@ -343,7 +349,7 @@ if [[ "$mode" == clips ]]; then
     echo "cmux-next-ios-sim.sh: roles=...before needs base=SHA" >&2; exit 2
   fi
 fi
-if [[ ${#ui_suites[@]} -gt 0 && ${#kit_only[@]} -eq 0 ]]; then run_kit=0; fi
+if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 && ${#kit_only[@]} -eq 0 ]]; then run_kit=0; fi
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
@@ -1041,8 +1047,46 @@ ui_profile_finish() {
   rm -rf "$profile_trace"
 }
 
+# Cold suites (ui=*ColdUITests): each test*Cold method of the suite, once per fresh boot of the
+# UI tests' iPhone (shut down, booted, then the one test), CMUX_LAUNCH_COLD_RUNS times (default 10,
+# at most 30). The app's LAUNCHTTI lines from every run go to launch-tti.jsonl; each run's console
+# and per-test results to ui-cold/.
+ui_cold_tests() {
+  local runs="${CMUX_LAUNCH_COLD_RUNS:-10}" suite file test run status
+  [[ "$runs" =~ ^[0-9]+$ ]] && (( runs >= 1 && runs <= 30 )) || runs=10
+  mkdir -p "$out/ui-cold"
+  for suite in "${ui_cold[@]}"; do
+    file="$(grep -lw "class ${suite%%/*}" cmux-next-ios/UITests/*.swift | head -1)"
+    local tests=()
+    if [[ "$suite" == */* ]]; then
+      tests=("${suite#*/}")
+    elif [[ -n "$file" ]]; then
+      while IFS= read -r test; do tests+=("$test"); done < <(grep -oE 'func test[A-Za-z0-9_]*Cold\(' "$file" | sed -E 's/func (.*)\(/\1/')
+    fi
+    if [[ ${#tests[@]} -eq 0 ]]; then
+      note "- cold UI suite $suite: no test*Cold methods found"; ui_status=1; continue
+    fi
+    for test in "${tests[@]}"; do
+      for ((run = 1; run <= runs; run++)); do
+        xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
+        xcrun simctl boot "$ui_udid"
+        xcrun simctl bootstatus "$ui_udid" -b >/dev/null
+        local bundle="$work/ui-cold-${test}-${run}.xcresult"
+        xcodebuild test-without-building "${ui_xcodebuild[@]}" -resultBundlePath "$bundle" \
+          "-only-testing:CmuxMobileAppUITests/${suite%%/*}/$test" >"$work/ui-cold-${test}-${run}.log" 2>&1
+        status=$?
+        xcrun xcresulttool get log --type console --path "$bundle" > "$out/ui-cold/${test}-${run}-console.txt" 2>/dev/null || true
+        cp "$work/ui-cold-${test}-${run}.log" "$out/ui-cold/${test}-${run}.log" 2>/dev/null || true
+        (( status == 0 )) || { ui_status=$status; note "- cold $suite/$test run $run: exit $status"; }
+        rm -rf "$bundle"
+      done
+    done
+  done
+  note "- cold UI suites ${ui_cold[*]}: $runs runs per test, one fresh boot each"
+}
+
 # --- UI tests (test ui=...) -------------------------------------------------
-if [[ ${#ui_suites[@]} -gt 0 ]]; then
+if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   t0=$SECONDS
   # A Debug build of the app and its UI test bundle, on a new iPhone in the
   # default device set (xcodebuild sees no other), deleted by its UDID after.
@@ -1058,6 +1102,21 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= -quiet)
   ui_action=test
   ui_status=0
+  if [[ $ui_profile -eq 0 && ${#ui_cold[@]} -gt 0 ]]; then
+    # Cold suites run test-without-building once per fresh boot: built once, first.
+    ui_t0=$SECONDS
+    set +e
+    xcodebuild build-for-testing "${ui_xcodebuild[@]}" >"$work/ui-build.log" 2>&1
+    ui_status=$?
+    set -e
+    note "- UI test build (build-for-testing, for the cold suites): exit $ui_status, $((SECONDS - ui_t0)) s"
+    if [[ $ui_status -ne 0 ]]; then
+      tail -40 "$work/ui-build.log"
+      cp "$work/ui-build.log" "$out/ui-build.log" 2>/dev/null || true
+    else
+      ui_action=test-without-building
+    fi
+  fi
   if [[ $ui_profile -eq 1 ]]; then
     # Built first, so the recording (every host process) holds the tests and not the compiler.
     ui_t0=$SECONDS
@@ -1081,10 +1140,13 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   fi
   set +e
   ui_t0=$SECONDS
-  if [[ $ui_status -eq 0 ]]; then
+  if [[ $ui_status -eq 0 && ${#ui_suites[@]} -gt 0 ]]; then
     xcodebuild "$ui_action" "${ui_xcodebuild[@]}" -resultBundlePath "$work/ui.xcresult" \
       "${ui_suites[@]}" >"$work/ui-test.log" 2>&1
     ui_status=$?
+  fi
+  if [[ $ui_status -eq 0 && ${#ui_cold[@]} -gt 0 ]]; then
+    ui_cold_tests
   fi
   ui_seconds=$((SECONDS - ui_t0))
   if [[ -n "$recorder" ]]; then
@@ -1115,7 +1177,26 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   ui_udid=""
   keep_test_logs "$work/ui-test.log" "$work/ui.xcresult" ui
   grep -h "^FAILED:" -A3 "$out/ui-tests-failures.txt" 2>/dev/null || true
-  note "- UI tests ${ui_suites[*]}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), xcodebuild $ui_action $ui_seconds s, $((SECONDS - t0)) s in all"
+  note "- UI tests ${ui_suites[*]} ${ui_cold[*]}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), xcodebuild $ui_action $ui_seconds s, $((SECONDS - t0)) s in all"
+  # Launch marks (LaunchTTIUITests): every LAUNCHTTI line, and per flow and phase the p50 of each span.
+  cat "$out/ui-console.txt" "$out"/ui-cold/*-console.txt 2>/dev/null | grep -oE 'LAUNCHTTI \{.*\}' | sed 's/^LAUNCHTTI //' > "$out/launch-tti.jsonl" || true
+  if [[ -s "$out/launch-tti.jsonl" ]]; then
+    python3 - "$out/launch-tti.jsonl" <<'PY' | while IFS= read -r line; do note "$line"; done
+import json, sys
+rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+groups = {}
+for row in rows:
+    groups.setdefault((row["flow"], row["phase"]), []).append(row)
+print("- Launch to first interaction (LaunchTTIUITests, ms since process start, p50 [min-max], n):")
+for (flow, phase), items in sorted(groups.items()):
+    parts = []
+    for key in ["first_frame", "shell_frame", "list_ms", "open_ms", "echo_ms", "tti_ms"]:
+        values = sorted(item[key] for item in items if key in item)
+        if values:
+            parts.append("%s %.0f [%.0f-%.0f]" % (key, values[len(values) // 2], values[0], values[-1]))
+    print("  - %s %s (n=%d): %s" % (flow, phase, len(items), ", ".join(parts)))
+PY
+  fi
 fi
 
 # --- Chief layout benchmark -------------------------------------------------
