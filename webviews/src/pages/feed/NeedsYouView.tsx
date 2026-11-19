@@ -4,7 +4,7 @@
 // the first request (a click opens it). Past the limit the rest are only counted. It draws
 // nothing while nothing waits.
 import { cx } from "../../ui/cx";
-import { isPending, type FeedProps } from "./context";
+import { answerState, isPending, type FeedProps } from "./context";
 import { AnswerControls } from "./AnswerControls";
 import { answersInline, groupEntries, relativeTime, splitNeedsYou } from "./model";
 import { Glyph, RequestCard } from "./parts";
@@ -42,7 +42,15 @@ export function NeedsYouView(props: FeedProps) {
       </div>
       {shown.map((item) =>
         style === "cards" ? (
-          <RequestCard key={item.id} item={item} store={store} snap={snap} strings={strings} />
+          <RequestCard
+            key={item.id}
+            item={item}
+            store={store}
+            strings={strings}
+            time={relativeTime(item.created_at, snap.now, strings.language)}
+            pending={isPending(snap, item)}
+            {...answerState(snap, item)}
+          />
         ) : (
           <NeedsYouRow key={item.id} {...props} item={item} />
         ),
@@ -65,7 +73,7 @@ function NeedsYouRow({ store, snap, strings, item }: FeedProps & { item: ViewIte
       </button>
       {answersInline(item) ? (
         <div className="feed-needs-answers">
-          <AnswerControls item={item} store={store} snap={snap} strings={strings} density="inline" />
+          <AnswerControls item={item} store={store} strings={strings} density="inline" {...answerState(snap, item)} />
         </div>
       ) : null}
     </div>
