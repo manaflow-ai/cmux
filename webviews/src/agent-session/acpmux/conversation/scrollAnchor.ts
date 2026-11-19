@@ -1,5 +1,6 @@
 import type { AcpmuxRow } from "../model";
 import { geometryOf, type GeometrySource } from "../conversationGeometry";
+import { writeScrollTop } from "./scrollController";
 
 /** Keep the follow correction small enough to absorb layout rounding, but not a real measured gap. */
 export const FOLLOW_BOTTOM_DEADBAND_PX = 4;
@@ -20,7 +21,7 @@ export function settleFollowBottom(
   const domEnd = node.scrollHeight - node.clientHeight;
   const end = Math.max(0, node.scrollHeight > 0 ? domEnd : fallbackEnd);
   if (end === node.scrollTop || (!exact && Math.abs(end - node.scrollTop) <= FOLLOW_BOTTOM_DEADBAND_PX)) return false;
-  node.scrollTop = end;
+  writeScrollTop(node, end, "follow");
   return true;
 }
 
