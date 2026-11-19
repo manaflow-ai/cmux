@@ -688,7 +688,7 @@ impl MediaEngine {
             // A startup probe is emitted by the caller's next tick. Once a
             // refinement is scheduled, its media deadline wins so the probe
             // train cannot mask the encoder's one-frame interval.
-            .chain(self.probe_planner.next_deadline_us().filter(|_| {
+            .chain(self.probe_due_us().filter(|_| {
                 self.profile.is_ultra()
                     && self.frames == 0
                     && !self.streams.values().any(|state| state.refine_due_us.is_some())
@@ -1009,15 +1009,32 @@ impl MediaEngine {
         }
     }
 
+    /// When the active train's next datagram may leave; `None` once the whole train left
+    /// (it then only waits for feedback) or with no train.
+    fn probe_due_us(&self) -> Option<u64> {
+        self.probe_planner
+            .active()
+            .filter(|train| train.emitted_packets < train.packet_count)
+            .and_then(|_| self.probe_planner.next_deadline_us())
+    }
+
+    /// Emits the whole due probe train in one tick. The host wakes at millisecond
+    /// granularity, so a train spaced below that would leave one datagram per wakeup and
+    /// measure the wakeup rate, not the path. The train leaves back to back instead (at
+    /// most `MAX_PROBE_BYTES`); the planner times each datagram from its socket departure
+    /// (`datagram_sent`) and reads the path's capacity from the arrival dispersion. The
+    /// planner's spacing then only orders the enqueue stamps.
     fn emit_probe(&mut self, now_us: u64, out: &mut Output) {
-        let Some(deadline) = self.probe_planner.next_deadline_us() else { return };
-        if now_us < deadline {
+        let Some(first) = self.probe_due_us() else { return };
+        if now_us < first {
             return;
         }
-        let seq = self.packetizer.reserve_transport_seq(1);
-        let Some(probe) = self.probe_planner.next_packet(now_us, seq) else { return };
-        self.cc.on_sent_bytes(probe.transport_seq, now_us, probe.bytes.len());
-        out.datagrams.push(probe.bytes);
+        while let Some(due) = self.probe_due_us() {
+            let seq = self.packetizer.reserve_transport_seq(1);
+            let Some(probe) = self.probe_planner.next_packet(due.max(now_us), seq) else { return };
+            self.cc.on_sent_bytes(probe.transport_seq, now_us, probe.bytes.len());
+            out.datagrams.push(probe.bytes);
+        }
     }
 
     /// Input goes to the source now: with `input_frame_now`, every stream's gate opens its
