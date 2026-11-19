@@ -302,9 +302,17 @@ public final class GlassParityPlayground {
         }
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.frame = Self.surfaceRect(kind).offsetBy(dx: column.minX, dy: column.minY)
+        // Pinned to the content view: it is laid out later, and autoresizing from its empty first frame
+        // pushed the labels out of the surface.
         let text = GlassParityTextView(frame: CGRect(origin: .zero, size: surface.frame.size), title: Self.title(kind), detail: Self.detail(kind))
-        text.autoresizingMask = [.width, .height]
+        text.translatesAutoresizingMaskIntoConstraints = false
         surface.contentView.addSubview(text)
+        NSLayoutConstraint.activate([
+            text.leadingAnchor.constraint(equalTo: surface.contentView.leadingAnchor),
+            text.trailingAnchor.constraint(equalTo: surface.contentView.trailingAnchor),
+            text.topAnchor.constraint(equalTo: surface.contentView.topAnchor),
+            text.bottomAnchor.constraint(equalTo: surface.contentView.bottomAnchor),
+        ])
         return surface
     }
 
