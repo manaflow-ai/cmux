@@ -518,13 +518,12 @@ fn codex_layers(ctx: &Context) -> (Vec<Layer>, Vec<String>) {
     let user = toml_layer("user", "User", &ctx.homes.codex_config(), true);
     if let Ok(text) = fs::read_to_string(&user.path)
         && let Ok(doc) = text.parse::<toml_edit::DocumentMut>()
+        && (doc.contains_key("profile") || doc.contains_key("profiles"))
     {
-        if doc.contains_key("profile") || doc.contains_key("profiles") {
-            notes.push(
-                "Codex 0.164 refuses to load this config: `profile = ...` and `[profiles.*]` are legacy. Move each profile into NAME.config.toml beside config.toml and remove them."
-                    .to_owned(),
-            );
-        }
+        notes.push(
+            "Codex 0.164 refuses to load this config: `profile = ...` and `[profiles.*]` are legacy. Move each profile into NAME.config.toml beside config.toml and remove them."
+                .to_owned(),
+        );
     }
     layers.push(user);
     layers.push(toml_layer("system", "System", &ctx.codex_system, false));
@@ -612,7 +611,7 @@ fn toml_leaves(table: &dyn toml_edit::TableLike, parts: &mut Vec<String>, out: &
             toml_edit::Item::Table(inner) if !inner.is_empty() => toml_leaves(inner, parts, out),
             toml_edit::Item::Table(_) => out.push(leaf(parts, "{}".to_owned(), None)),
             toml_edit::Item::ArrayOfTables(items) => {
-                out.push(leaf(parts, count(items.len()), None))
+                out.push(leaf(parts, count(items.len()), None));
             }
             toml_edit::Item::Value(toml_edit::Value::InlineTable(inner)) if !inner.is_empty() => {
                 toml_leaves(inner, parts, out);
