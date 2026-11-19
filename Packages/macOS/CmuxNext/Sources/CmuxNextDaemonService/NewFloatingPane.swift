@@ -97,7 +97,7 @@ struct NewFloatingPane {
                         await store.applied(.generate(), connection: connection)
                         return created
                     },
-                    float: { _ = try await connection.floatPane($0, mode: .on) },
+                    float: { _ = try await connection.request(FloatPaneRequest(pane: $0, mode: .on)) },
                     focus: { surface in if let focus { focus(surface) } }
                 )
                 try await act.run(beside: pane)

@@ -19,7 +19,7 @@ extension DaemonService {
     /// Floats `pane` above the tiled panes of its screen, or puts a floating pane back into its place.
     public func toggleFloating(_ pane: PaneID) {
         guard floatsPanes else { return }
-        Task { await run("float-pane") { _ = try await $0.floatPane(pane) } }
+        Task { await run("float-pane") { _ = try await $0.request(FloatPaneRequest(pane: pane)) } }
     }
 
     /// Gives the floating pane `pane` the frame `frame` (fractions of its screen's pane area) and brings it to the
@@ -27,7 +27,7 @@ extension DaemonService {
     public func setFloatingFrame(of pane: PaneID, to frame: CGRect) {
         guard floatsPanes else { return }
         let wire = FloatingPaneSnapshot.Frame(x: Double(frame.minX), y: Double(frame.minY), w: Double(frame.width), h: Double(frame.height))
-        Task { await run("float-pane") { _ = try await $0.floatPane(pane, mode: .on, frame: wire) } }
+        Task { await run("float-pane") { _ = try await $0.request(FloatPaneRequest(pane: pane, mode: .on, frame: wire)) } }
     }
 
     /// Toggles the workspace's durable Quick Terminal on the screen shown by the app.
