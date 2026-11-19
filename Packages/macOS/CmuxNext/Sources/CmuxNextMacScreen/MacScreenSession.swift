@@ -36,7 +36,21 @@ public final class MacScreenSession {
         public var framesDropped: Double = 0
     }
 
+    /// Why the last session failed, in the words of the side that knew. The failed card says
+    /// it (``MacScreenPaneModel/failedDetail``); nil when nobody said, and the card falls back.
+    public enum FailureCause: Equatable, Sendable {
+        /// The host could not serve the session: its own cmux.rd/1 `ended` (`failed: <reason>`;
+        /// capture, encoder or helper trouble on that Mac). `reason` may be empty.
+        case host(String)
+        /// This Mac's link to the host failed (`cmux rd connect`'s words: no route, a timeout).
+        case link(String)
+    }
+
     public private(set) var phase: Phase = .ended
+    /// Set with a failed phase when a side said why; cleared by the next connect.
+    public private(set) var failureCause: FailureCause?
+    /// The secure link to the host came up in this session (`cmux rd connect` said `connected`).
+    public private(set) var linkConnected = false
     public private(set) var stats = LiveStats()
     /// The streamed display's size in pixels (zero until the first frame).
     public private(set) var frameSize: CGSize = .zero
@@ -108,6 +122,8 @@ public final class MacScreenSession {
             return
         }
         phase = .connecting
+        failureCause = nil
+        linkConnected = false
         timedOutStage = nil
         connectStage = .answer
         // The first decoder session in a process is the slow one: make it now, in parallel with
@@ -251,6 +267,7 @@ public final class MacScreenSession {
             if let candidate = line.candidate {
                 try? await signaling.send(.candidate(ScreenICECandidate(candidate: candidate, sdpMid: "cmux-rd", sdpMLineIndex: 0)))
             }
+            if line.connected == true { linkConnected = true }
             if line.listening == true {
                 logger.info("cmux rd: link listening for the pane")
                 attachTransport()
@@ -263,7 +280,13 @@ public final class MacScreenSession {
                 if let kind = path.kind { try? await signaling.send(.path(relay: Self.isRelayed(kind))) }
             }
             if let reason = line.ended {
-                end(reason)
+                switch Self.failureCause(ofEnded: reason) {
+                case let .host(why)?: hostFailed(why)
+                case let cause?:
+                    end(reason)
+                    if case .failed = phase { failureCause = cause }
+                case nil: end(reason)
+                }
                 return
             }
         }
@@ -331,10 +354,11 @@ public final class MacScreenSession {
                         timings.sampleRtt(Double(rtt))
                     }
                 case let .ended(why):
-                    if case .connectionLost = why {
-                        fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
-                    } else {
-                        end(String(describing: why))
+                    switch why {
+                    case .connectionLost: fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
+                    case let .hostFailed(reason): hostFailed(reason)
+                    case .hostStoppedSharing: end(L.t("macScreen.rd.hostEnded", "The other Mac ended the session."))
+                    default: end(String(describing: why))
                     }
                     return
                 case .connecting, .waitingForConsent:
@@ -355,6 +379,29 @@ public final class MacScreenSession {
     private func fail(_ message: String) {
         disconnect()
         phase = .failed(message: message, needsSignIn: false)
+    }
+
+    /// The host said it could not serve the session: a failure even after the picture started
+    /// (the host stopped, and why), never a plain Disconnected.
+    private func hostFailed(_ reason: String) {
+        logger.info("session ended: the host failed: \(reason, privacy: .public)")
+        fail(reason)
+        failureCause = .host(reason)
+    }
+
+    /// What `cmux rd connect`'s `ended` line says about who failed (cmux-rd-host `connect.rs`):
+    /// `host: failed: <reason>` is the host's own failure, `link failed: <why>` this Mac's
+    /// link, `failed: <error>` the link bridge's own error. Nil for every other end (the host
+    /// stopped, the viewer stopped, the pane closed), which needs no explanation.
+    nonisolated static func failureCause(ofEnded reason: String) -> FailureCause? {
+        if reason.hasPrefix("host: ") {
+            guard case let .hostFailed(why) = RemoteRdHandshake.hostEnd(String(reason.dropFirst("host: ".count))) else { return nil }
+            return .host(why)
+        }
+        for prefix in ["link failed: ", "failed: "] where reason.hasPrefix(prefix) {
+            return .link(String(reason.dropFirst(prefix.count)))
+        }
+        return nil
     }
 
     /// The connect got past a stage (never back: a late answer does not undo a link).

@@ -1,13 +1,13 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
-import CmuxNextSettings
+public import CmuxNextSettings
 import CmuxNextDesign
 
 /// `debug.page_popup`: each page menu showing past its window's edge (cx-6k6cg, WebPopupHost):
 /// its frame and its window's (screen points), its rows, whether every row shows (`clipped` false:
-/// the frame is as tall as the rows) and whether it is all on its screen.
-enum DebugPagePopup {
-    static func list() -> JSONValue {
+/// the frame is as tall as the rows) and whether it is all on its screen. (Moved from CmuxNextApp/Control.)
+public enum DebugPagePopup {
+    public static func list() -> JSONValue {
         .object(["popups": .array(NSApp.windows.compactMap { window -> JSONValue? in
             guard let panel = window as? WebPopupPanel, panel.isVisible, !panel.isClosing else { return nil }
             let screen = panel.screen?.visibleFrame ?? .zero

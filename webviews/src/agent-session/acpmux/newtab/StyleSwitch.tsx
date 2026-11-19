@@ -54,7 +54,7 @@ export function DotSwitch<Option extends string>({
   nameAside = false,
   onPick,
   onCancel,
-  onPointerPick = () => onCancel(),
+  onPointerPick,
   travel = "ease",
 }: {
   options: readonly Option[];
@@ -173,7 +173,9 @@ export function DotSwitch<Option extends string>({
                 // from Classic) has focused its field: arrow keys keep moving through the styles; a
                 // click goes back to the field.
                 const view = input.ownerDocument.defaultView;
-                view?.requestAnimationFrame(() => (fromKeys ? input.focus() : onPointerPick(view)));
+                view?.requestAnimationFrame(() =>
+                  fromKeys ? input.focus() : onPointerPick ? onPointerPick(view) : onCancel(),
+                );
               }}
             />
           </label>
