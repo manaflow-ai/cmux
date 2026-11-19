@@ -77,6 +77,21 @@ class RetryPolicyTests(unittest.TestCase):
                 self.assertEqual(decision.action, "skip")
                 self.assertIn("published", decision.reason)
 
+    def test_missing_mac_live_delivery_is_retried_after_tree_publication(self):
+        published = {"id": 7, "name": "publish tree-addressed cmux-tui", "conclusion": "success"}
+        delivery = {"id": 8, "name": "publish the Mac live update", "conclusion": "failure"}
+        jobs = tree_jobs(published, delivery)
+        self.assertEqual(retry.decide(run(), jobs, {}).action, "rerun-failed-jobs")
+        self.assertEqual(retry.decide(run(run_attempt=3), jobs, {}).action, "skip")
+        self.assertEqual(retry.decide(run(), jobs, {8: [{"title": "immutable-r2-conflict"}]}).action,
+                         "refuse")
+
+    def test_successful_mac_delivery_does_not_retry_a_recovered_build(self):
+        published = {"id": 7, "name": "publish tree-addressed cmux-tui", "conclusion": "success"}
+        delivery = {"id": 8, "name": "publish the Mac live update", "conclusion": "success"}
+        self.assertEqual(retry.decide(run(), tree_jobs(published, delivery, job(1, "failure")), {}).action,
+                         "skip")
+
     def test_only_feat_pushes_are_retried(self):
         # The runs nightly-next promotes from; a lane branch or PR red is usually a real failure.
         for overrides, action in (
