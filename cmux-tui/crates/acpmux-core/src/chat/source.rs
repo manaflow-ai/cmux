@@ -145,15 +145,17 @@ pub trait RawSource: Send + 'static {
     }
 }
 
+/// Each `raw.map` entry's number by its path and identity.
+type MapEntries = HashMap<(String, String), u32>;
+
 /// A durable source entry in `raw.map`. The map is append-only and synced before the first raw
 /// record names the returned number.
 pub struct RawMap {
     file: File,
     path: PathBuf,
     next: u32,
-    /// Every entry's number by its path and identity, read once at open. A lookup is one hash,
-    /// not a scan of the file.
-    entries: HashMap<(String, String), u32>,
+    /// Read once at open. A lookup is one hash, not a scan of the file.
+    entries: MapEntries,
     poisoned: bool,
 }
 
@@ -487,8 +489,8 @@ fn parse_map_entry(bytes: &[u8], fallback: u32) -> Option<(u32, String, String)>
 
 /// Read every entry once, at open. A torn or invalid last line is what a kill mid-write leaves:
 /// it is cut and every earlier entry kept. An invalid line before the last fails the open.
-/// Returns each entry's number by its path and identity, and the next number.
-fn read_map_entries(file: &mut File) -> io::Result<(HashMap<(String, String), u32>, u32)> {
+/// Returns the entries and the next number.
+fn read_map_entries(file: &mut File) -> io::Result<(MapEntries, u32)> {
     file.seek(SeekFrom::Start(0))?;
     let mut reader = BufReader::new(&mut *file);
     let mut entries = HashMap::new();
