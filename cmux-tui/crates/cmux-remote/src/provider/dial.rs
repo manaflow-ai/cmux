@@ -59,8 +59,9 @@ pub async fn resolve_dial_target(host: &str, port: u16) -> Result<Vec<SocketAddr
     Ok(addresses)
 }
 
-/// The operating system's TCP stack. Tries every resolved address in order,
-/// with Nagle disabled because the link carries keystrokes.
+/// The operating system's TCP stack, hedged over the resolved addresses
+/// ([`super::hedge`]: a new socket when one's SYN goes unanswered), with
+/// Nagle disabled because the link carries keystrokes.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OsTcpDialer;
 
@@ -72,20 +73,15 @@ impl Dialer for OsTcpDialer {
 
     async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError> {
         let addresses = resolve_dial_target(host, port).await?;
-        let mut last_error = None;
-        for address in addresses {
-            match TcpStream::connect(address).await {
-                Ok(stream) => {
-                    let _ = stream.set_nodelay(true);
-                    return Ok(Box::new(stream));
-                }
-                Err(error) => last_error = Some(error),
-            }
-        }
-        Err(LinkError::Transport(match last_error {
-            Some(error) => format!("connect {host}:{port}: {error}"),
-            None => format!("connect {host}:{port}: no addresses"),
-        }))
+        let stream = super::hedge::connect(
+            &addresses,
+            super::hedge::HedgePolicy::INTERNET,
+            TcpStream::connect,
+        )
+        .await
+        .map_err(|error| LinkError::Transport(format!("connect {host}:{port}: {error}")))?;
+        let _ = stream.set_nodelay(true);
+        Ok(Box::new(stream))
     }
 }
 

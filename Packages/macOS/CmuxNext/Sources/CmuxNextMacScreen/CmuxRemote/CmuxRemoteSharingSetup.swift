@@ -105,6 +105,8 @@ struct CmuxRemoteSharingSetup {
 
     enum Step: String, CaseIterable { case overview, screen, screenCheck, control, controlCheck }
 
+    nonisolated static func identifier(_ step: Step) -> String { "cmux.dialog.screenSharing.setup.\(step.rawValue)" }
+
     static func spec(_ step: Step) -> CmuxDialogSpec {
         let title: String, lines: [String], choices: [CmuxDialogButton]
         switch step {
@@ -124,7 +126,7 @@ struct CmuxRemoteSharingSetup {
             choices = [.init(id: "view", title: L.t("macScreen.setup.viewOnly", "Continue Without Control"))] + permissionButtons(check: step == .controlCheck)
         }
         return CmuxDialogSpec(title: title, lines: lines, buttons: [.cancel()] + choices,
-                              identifier: "cmux.dialog.screenSharing.setup.\(step.rawValue)")
+                              identifier: identifier(step))
     }
 
     private static func permissionButtons(check: Bool) -> [CmuxDialogButton] {
