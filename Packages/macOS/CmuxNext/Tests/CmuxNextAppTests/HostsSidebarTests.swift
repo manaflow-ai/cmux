@@ -67,4 +67,16 @@ struct HostsSidebarTests {
         host.open(Self.machine("offline", "Offline", connected: false))
         #expect(dialed == "m1" && connected == nil)
     }
+
+    @Test func meshOnlyJoinedNonMacsStayClosed() {
+        let joined = JoinedMachine(id: "linux-1", name: "Builder", state: .online, platform: "linux")
+        let row = MachineSectionRow.joined(joined, health: nil)
+        var connected: String?
+        var dialed: String?
+        let host = HostsSidebar.Host(rows: { [row] }, add: {}, openConnected: { connected = $0 }, openJoined: { dialed = $0.id })
+
+        host.open(row)
+        #expect(connected == nil)
+        #expect(dialed == nil)
+    }
 }
