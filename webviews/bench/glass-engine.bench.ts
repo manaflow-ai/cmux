@@ -2,8 +2,8 @@
 // What one frame of web glass costs on the GPU, the lens as it ships against the glass engine
 // (src/ui/glass/engine), in one harness: a 1440 x 900 page at 2x over a wallpaper still with the
 // art's blur, a composer, a menu and GLASS small glass (the chips and pills of a busy pane). For each
-// renderer and art blur it draws ROUNDS x 60 frames back to back, each read back so the GPU finished
-// it (glassLensDrawCost), and prints p50 / p95 / p99 of the per-frame ms over the rounds, and how many
+// renderer, glass mode (lens, spectrum) and art blur it draws ROUNDS x 120 frames back to back and
+// reads back after the last, so the GPU finished them all (glassLensDrawCost), and prints p50 / p95 / p99 of the per-frame ms over the rounds, and how many
 // panes redrawing in the same frame fit a 120 Hz frame (8.33 ms) at p95.
 //   bun bench/glass-engine.bench.ts [rounds=20]
 // BROWSER=chromium|webkit (default chromium); GLASS (default 30); LABEL names the run.
@@ -42,8 +42,8 @@ const chips = Array.from(
   (_, i) =>
     `<div class="ui-glass" style="position:absolute;left:${24 + (i % 10) * 138}px;top:${150 + Math.floor(i / 10) * 70}px;width:120px;height:48px;border-radius:${i % 3 ? 12 : 24}px"></div>`,
 ).join("");
-const html = (engine: boolean) =>
-  `<!doctype html><html data-glass="lens" ${engine ? "data-glass-engine" : ""} style="--cmux-surface-background:transparent;--cmux-surface-solid:rgb(30,31,36);--cmux-text:rgb(236,236,240)">
+const html = (engine: boolean, mode: string) =>
+  `<!doctype html><html data-glass="${mode}" ${engine ? "data-glass-engine" : ""} style="--cmux-surface-background:transparent;--cmux-surface-solid:rgb(30,31,36);--cmux-text:rgb(236,236,240)">
    <head><style>${css} body{margin:0}</style></head><body>
    <div class="ui-glass" style="position:absolute;right:60px;top:30px;width:220px;height:150px;border-radius:12px"></div>
    ${chips}
@@ -58,13 +58,21 @@ function percentile(values: number[], p: number): number {
 const type = BROWSER === "webkit" ? webkit : chromium;
 const browser = await type.launch({
   headless: true,
-  args: BROWSER === "webkit" ? [] : ["--enable-gpu", "--use-angle=metal", "--ignore-gpu-blocklist"],
+  // On a Mac, headless Chromium draws WebGL on the GPU (Metal) as the app does.
+  args:
+    BROWSER === "webkit" || process.platform !== "darwin"
+      ? []
+      : ["--enable-gpu", "--use-angle=metal", "--ignore-gpu-blocklist"],
 });
 const results: Record<string, unknown>[] = [];
-for (const blur of [0, 24]) {
+for (const [mode, blur] of [
+  ["lens", 0],
+  ["lens", 24],
+  ["spectrum", 24],
+] as const) {
   for (const engine of [false, true]) {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
-    await page.setContent(html(engine));
+    await page.setContent(html(engine, mode));
     await page.addScriptTag({ content: script });
     const renderer = await page.evaluate(
       async ({ image, blur }) => {
@@ -109,7 +117,7 @@ for (const blur of [0, 24]) {
         await page.evaluate(() =>
           (window as unknown as { glassLensDrawCost(d?: Document, n?: number): number }).glassLensDrawCost(
             document,
-            60,
+            120,
           ),
         ),
       );
@@ -119,6 +127,7 @@ for (const blur of [0, 24]) {
       browser: BROWSER,
       gpu: renderer,
       renderer: engine ? "engine" : "lens",
+      mode,
       artBlur: blur,
       glass: state.rects,
       p50: +percentile(samples, 50).toFixed(3),

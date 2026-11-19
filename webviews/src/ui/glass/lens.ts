@@ -439,8 +439,8 @@ class GlassLens {
     };
   }
 
-  /** Draws `count` frames back to back, each read back so the GPU finished it, and returns the mean
-   * ms a frame took (bench/glass-engine.bench.ts); null while nothing draws. */
+  /** Draws `count` frames back to back and reads one pixel after the last, so the GPU finished them
+   * all, and returns the mean ms a frame took (bench/glass-engine.bench.ts); null while nothing draws. */
   drawCost(count: number): number | null {
     const gpu = this.gpu;
     if (!this.drawing() || !gpu) return null;
@@ -451,10 +451,8 @@ class GlassLens {
     this.currentCount = measured;
     const pixel = new Uint8Array(4);
     const start = performance.now();
-    for (let index = 0; index < count; index++) {
-      this.draw();
-      gpu.gl.readPixels(0, 0, 1, 1, gpu.gl.RGBA, gpu.gl.UNSIGNED_BYTE, pixel);
-    }
+    for (let index = 0; index < count; index++) this.draw();
+    gpu.gl.readPixels(0, 0, 1, 1, gpu.gl.RGBA, gpu.gl.UNSIGNED_BYTE, pixel);
     return (performance.now() - start) / count;
   }
 
