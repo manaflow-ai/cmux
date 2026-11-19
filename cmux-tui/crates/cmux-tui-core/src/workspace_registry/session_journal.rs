@@ -2002,6 +2002,9 @@ mod digest_reader;
 pub(crate) mod kind_read;
 #[cfg(test)]
 pub(crate) mod kind_read_tests;
+// MEASURE, NOT FOR A MERGE.
+#[cfg(test)]
+mod commit_row_measure;
 mod live_terminal;
 pub(crate) mod reducer_records;
 mod resource_record;

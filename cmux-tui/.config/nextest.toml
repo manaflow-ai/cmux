@@ -255,3 +255,10 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/::late_subject_rows(_stop)?::/)'
 success-output = "final"
+
+# MEASURE, NOT FOR A MERGE: the commit row measure makes a fixture store of
+# 1,000,000 journal rows; 30 minutes is its limit, and its lines are its result.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/::commit_row_measure::/)'
+slow-timeout = { period = "60s", terminate-after = 30, grace-period = "5s" }
+success-output = "final"
