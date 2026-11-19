@@ -50,6 +50,7 @@ members = [
     "crates/cmux-tui-platform",
     "crates/cmux-tui-image-paste",
     "crates/cmux-tui-hooks",
+    "crates/cmux-agent-customize",
     "crates/cmux-tui-util",
     "crates/cmux-json",
     "crates/cmux-local-url",
@@ -180,6 +181,7 @@ default-members = [
     "crates/cmux-tui-platform",
     "crates/cmux-tui-image-paste",
     "crates/cmux-tui-hooks",
+    "crates/cmux-agent-customize",
     "crates/cmux-tui-util",
     "crates/cmux-json",
     "crates/cmux-local-url",
@@ -379,6 +381,7 @@ cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
 cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
+cmux-agent-customize = { path = "crates/cmux-agent-customize" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-json = { path = "crates/cmux-json" }
 cmux-local-url = { path = "crates/cmux-local-url" }

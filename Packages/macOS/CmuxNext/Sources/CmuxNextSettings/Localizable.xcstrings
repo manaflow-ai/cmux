@@ -228225,6 +228225,270 @@
           }
         }
       }
+    },
+    "settings.labs.agentCustomization": {
+      "comment": "Settings > Advanced > Labs: toggle that shows and edits Claude Code's and Codex's own MCP servers (product names, never translated)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code and Codex Customization"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تخصيص Claude Code وCodex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prilagođavanje za Claude Code i Codex"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpasning af Claude Code og Codex"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anpassung von Claude Code und Codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalización de Claude Code y Codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnalisation de Claude Code et Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizzazione di Claude Code e Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code と Codex のカスタマイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្ដូរ Claude Code និង Codex"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 및 Codex 사용자화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpasning av Claude Code og Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostosowanie Claude Code i Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalização do Claude Code e do Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройка Claude Code и Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การปรับแต่ง Claude Code และ Codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code ve Codex Özelleştirme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштування Claude Code і Codex"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tùy chỉnh Claude Code và Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 和 Codex 自定义"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 與 Codex 自訂"
+          }
+        }
+      }
+    },
+    "settings.labs.agentCustomization.help": {
+      "comment": "Settings > Advanced > Labs: help for the Claude Code and Codex Customization toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show and edit the MCP servers Claude Code and Codex use, in their own config files."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض خوادم MCP التي يستخدمها Claude Code وCodex وعدّلها، في ملفات إعدادهما."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikažite i uredite MCP servere koje Claude Code i Codex koriste, u njihovim konfiguracijskim datotekama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis og rediger de MCP-servere, Claude Code og Codex bruger, i deres egne konfigurationsfiler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP-Server, die Claude Code und Codex nutzen, in deren eigenen Konfigurationsdateien anzeigen und bearbeiten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra y edita los servidores MCP que usan Claude Code y Codex, en sus propios archivos de configuración."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affichez et modifiez les serveurs MCP qu'utilisent Claude Code et Codex, dans leurs propres fichiers de configuration."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra e modifica i server MCP usati da Claude Code e Codex, nei loro file di configurazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code と Codex が使う MCP サーバーを、それぞれの設定ファイルで表示・編集します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ និងកែម៉ាស៊ីនមេ MCP ដែល Claude Code និង Codex ប្រើ នៅក្នុងឯកសារកំណត់ផ្ទាល់ខ្លួនរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code와 Codex가 쓰는 MCP 서버를 각자의 설정 파일에서 보고 편집합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis og rediger MCP-serverne Claude Code og Codex bruker, i deres egne konfigurasjonsfiler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż i edytuj serwery MCP używane przez Claude Code i Codex, w ich własnych plikach konfiguracji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostre e edite os servidores MCP que o Claude Code e o Codex usam, nos próprios arquivos de configuração deles."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать и изменять серверы MCP, которые используют Claude Code и Codex, в их собственных файлах настроек."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงและแก้ไขเซิร์ฟเวอร์ MCP ที่ Claude Code และ Codex ใช้ ในไฟล์ตั้งค่าของแต่ละตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code ve Codex'in kullandığı MCP sunucularını kendi yapılandırma dosyalarında gösterin ve düzenleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати й редагувати сервери MCP, які використовують Claude Code і Codex, у їхніх власних файлах налаштувань."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện và sửa các máy chủ MCP mà Claude Code và Codex dùng, trong tệp cấu hình riêng của chúng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Claude Code 和 Codex 各自的配置文件中查看和编辑它们使用的 MCP 服务器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Claude Code 與 Codex 各自的設定檔中檢視和編輯它們使用的 MCP 伺服器。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

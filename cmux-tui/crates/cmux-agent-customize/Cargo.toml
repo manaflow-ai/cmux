@@ -1,0 +1,22 @@
+[package]
+name = "cmux-agent-customize"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Reads and edits what the person configured for Claude Code and Codex in those agents' own files (MCP servers first), for cmux Settings and `cmux agent-config`"
+
+[lints]
+workspace = true
+
+[dependencies]
+# The codex config.toml lock every cmux writer of that file takes.
+cmux-tui-platform.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml_edit.workspace = true
+wait-timeout.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
