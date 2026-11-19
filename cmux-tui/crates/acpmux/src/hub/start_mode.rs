@@ -968,7 +968,7 @@ impl Hub {
             let mut row = json!({"id": id});
             for key in ["name", "description"] {
                 if let Some(text) = m.get(key).and_then(Value::as_str) {
-                    row[key] = json!(text);
+                    row.set(key, json!(text));
                 }
             }
             Some(row)
