@@ -75,9 +75,16 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.idleInstallQuietSeconds` | real | `60` | 5 to 600 | Quiet Time Before Installing. How long you must be idle before a nightly installs. |
 | `announcements.enabled` | boolean | `true` |  | Show Announcements. Short cards from the cmux team above Settings, shown when the pointer is over the sidebar. |
 | `announcements.fetch` | boolean | `true` |  | Download Announcements. Off: cmux never asks the network for announcements. The request carries no identifiers. |
-| `computerUse.enabled` | boolean | `false` |  | Computer Use. Agents can see and use your apps. macOS asks for Accessibility and Screen Recording. |
-| `computerUse.driver` | string | `"upstream"` | `legacy`, `upstream` | Computer Use Driver. Upstream is the new helper; macOS asks for its permissions again. |
+| `computerUse.mode` | string | `"fullAccess"` | `fullAccess`, `approvedApps`, `askEveryTime`, `lookOnly`, `off` | Computer Use. What agents may do with the apps on this Mac. Denied apps are never used, in any mode. |
+| `computerUse.deniedApps` | array | `["com.apple.keychainaccess","com.apple.Passwords","com.1password.*","com.agilebits.onepassword*","com.bitwarden.*","com.dashlane.*","com.lastpass.*","com.nordpass.*","me.proton.pass","org.keepassxc.keepassxc","com.markmcguill.strongbox","in.sinew.enpass*","com.keepersecurity.*","1password.exe","bitwarden.exe","keepass.exe","keepassxc.exe","org.keepassxc.KeePassXC","1password","bitwarden","com.apple.systempreferences","com.apple.Terminal","com.googlecode.iterm2","com.mitchellh.ghostty","net.kovidgoyal.kitty","com.github.wez.wezterm","org.alacritty","dev.warp.*","windowsterminal.exe","cmd.exe","powershell.exe","pwsh.exe","org.gnome.Terminal","org.gnome.Ptyxis","org.kde.konsole","com.cmuxterm.app","com.cmuxterm.app.*"]` |  | Denied Apps. Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name. |
+| `computerUse.allowOwnMachines` | boolean | `true` |  | Allow My Other Machines. Agents on your other machines, signed in to the same account, may use this Mac's apps. |
+| `computerUse.pauseOnTakeover` | boolean | `true` |  | Pause When I Use the Mouse or Keyboard. While you use the mouse or keyboard, agents wait before their next click or key press. |
+| `computerUse.showCursor` | boolean | `true` |  | Show Agent Cursor. A blue cursor shows wherever an agent clicks or types. |
+| `computerUse.cursorTag` | string | `"hover"` | `hover`, `always`, `never` | Agent Cursor Tag. Each agent cursor can carry a tag: the agent's workspace name, or a tag the agent sets. Show it when your pointer is over the cursor, always, or never. |
+| `computerUse.settle` | string | `"adaptive"` | `adaptive`, `anthropic`, `openai` | After Each Action. What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing. |
 | `computerUse.livePreview` | boolean | `true` |  | Live Preview in Chat. A small live view of the app an agent uses. Click it for Agent Activity. |
+| `computerUse.menus` | string | `"open"` | `open`, `refuse` | Menus in Background Apps. Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background. |
+| `computerUse.allowForeground` | boolean | `false` |  | Allow Foreground Input. Advanced. Agents may bring an app to the front and move your pointer when it takes no background input. |
 | `freeModel.enabled` | boolean | `true` |  | Free AI Model Without Sign-In. Agents can use the free cmux model while signed out. cmux checks this is a real Mac. |
 | `sessions.keepAwake` | string | `"pluggedIn"` | `off`, `pluggedIn`, `always` | Keep Mac Awake While Agents Work. Stops idle sleep while an agent works. Closing the lid still sleeps the Mac. |
 | `sessions.keepAwakeForCommands` | boolean | `false` |  | Also While Terminal Commands Run. A build or test running over a minute keeps the Mac awake. |
@@ -661,6 +668,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `labs.voiceRoomURL` | string | `""` |  | Voice Room Address. The room's web address. Empty uses the room server on this Mac. |
 | `labs.machineJoin` | boolean | `false` |  | Screen Sharing for Joined Machines. Shows Screen sharing and Control in Settings > Devices once this Mac joins. |
 | `labs.liveCode` | boolean | `false` |  | Live Code. Swift changes you compile apply to the running app. Takes effect after cmux restarts. |
+| `customize.fromTheApp` | boolean | `false` |  | Customize From the Window. Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both. |
 | `feed.github.enabled` | boolean | `false` |  | GitHub Inbox. Inbox shows your GitHub notifications |
 | `feed.github.pollIntervalSeconds` | real | `120` | 60 to 900 | Refresh Interval. Seconds between GitHub refreshes. Refresh in the Inbox runs immediately. |
 | `agentPane.links.outsideRoots` | string | `"open"` | `confirm`, `text`, `open` | Files Outside the Project. What a link to a file outside the chat's folders does. Keys and .env files never open. |
@@ -683,6 +691,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.defaultPermissionMode` | string | `"fullAccess"` | `fullAccess`, `standard`, `ask` | Permission Mode for New Chats. What a new chat may do without asking. A mode you pick in a chat applies to that chat only. |
 | `agents.promptCache` | string | `"1h"` | `1h`, `5m` | Prompt Cache. One hour keeps replies after a pause cheap; its cache writes cost a little more. |
 | `agents.modelRouter.model` | string | `"deepseek/deepseek-v4.1-flash-1017"` | `deepseek/deepseek-v4.1-flash-1017`, `deepseek/deepseek-v4.1-flash`, `deepseek/deepseek-v4-flash`, `deepseek/deepseek-v4-pro` | cmux Model Router Model. The model new cmux model router chats start on. |
+| `agents.cmuxMcp` | string | `"ask"` | `ask`, `on`, `off` | cmux Tools for Agents in cmux. Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings. |
 | `diagnostics.hangReports` | boolean | `false` |  | Send Hang Reports. Nightly builds send daily hang stacks and timings, never your files, URLs or text. |
 | `diagnostics.usagePatterns` | boolean | `false` |  | Record Usage Patterns. Counts how you use cmux on this Mac. Nothing you type is recorded; nothing is sent. |
 | `developerTools.appPages` | boolean | `true` |  | Developer Tools for cmux Pages. Inspect Element and ⌥⌘I in chats, Home, Markdown and Settings. |

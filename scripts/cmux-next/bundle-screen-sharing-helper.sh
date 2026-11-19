@@ -1,69 +1,38 @@
 #!/usr/bin/env bash
 # Xcode "Bundle Screen Sharing helper" phase of the cmux-next target
-# (plans/cmux-next/screen-sharing-helper.md): places the cmux.rd/1 host executable
-# (build-screen-sharing-helper.sh) where its Screen Recording and Accessibility grants live.
+# (plans/cmux-next/screen-sharing-helper.md): wraps the cmux.rd/1 host executable
+# (build-screen-sharing-helper.sh) in
 #
-# One permission identity for screen sharing and computer use (Lawrence: "ensure screen
-# sharing + computer use uses same app for permissions"). A release, NIGHTLY or RC app carries
-# the Computer Use helper, and the executable ships inside it:
-#
-#   Contents/Library/cmux Computer Use.app       com.cmuxterm.cua, the same for every channel
-#     Contents/MacOS/cmux-cua                    the Computer Use driver (the bundle's executable)
-#     Contents/MacOS/cmux-screen-sharing         this executable, signed --identifier com.cmuxterm.cua
-#
-# so macOS asks for, lists and keeps both grants under "cmux Computer Use" whichever way it
-# attributes the process: by the outermost bundle (macOS 26) or by the code's own identifier
-# (older macOS). Anyone who allowed Computer Use already has both grants. The app starts it from
-# the Computer Use helper's copy outside the app with responsibility disclaimed
-# (MacScreenHelper.swift), so a grant never relaunches cmux.
-#
-# Release packaging puts it there (--into-computer-use, after build-cmux-cua.sh --helper-app).
-# The Xcode phase and --app wrap the executable in its own app, as before, which is what a DEV
-# build keeps: its Computer Use helper is the pinned "cmux Computer Use (dev).app"
-# (embed-cua-helper-dev.sh), signed with a certificate CI does not hold, so nothing can be added
-# to it, and reload.sh drops the ad hoc com.cmuxterm.cua helper it assembles, which would
-# otherwise take over the release row (scripts/cmux-cua-helper-trust.sh drop-unsigned).
-# verify-computer-use-helper.sh fails a release app that still carries the separate helper.
-#
-#   Contents/Library/<app name> Screen Sharing.app       ("cmux DEV x Screen Sharing.app")
+#   Contents/Library/<app name> Screen Sharing.app       ("cmux NIGHTLY Screen Sharing.app")
 #     Contents/MacOS/cmux-screen-sharing
 #     Contents/Info.plist   <app bundle id>.screen-sharing, LSUIElement
+#
+# Its own bundle id and signature make it its own app to macOS: the app starts it with
+# responsibility disclaimed (MacScreenHelper.swift), so Screen Recording and Accessibility are
+# asked for, listed and restarted under the helper's name, and a grant never relaunches cmux.
 #
 # Source: CMUX_NEXT_SCREEN_HELPER_BIN, else the cache build-screen-sharing-helper.sh fills on
 # CI and fleet builds. It never runs Cargo. A build without it is still a valid build: the app
 # then serves and checks permissions in its own process, as before the helper. Release builds
-# carry it only when CMUX_NEXT_SCREEN_HELPER_BIN names it: the nightly bundles it right after
-# the build (app-bundle-chief-and-mobile-host.sh), before the Computer Use helper exists, then
-# moves it into that helper once it is assembled (app-assemble-computer-use-helper.sh,
-# --into-computer-use). CMUX_NEXT_REQUIRE_SCREEN_HELPER=1 turns a missing binary into an error.
+# carry it only when CMUX_NEXT_SCREEN_HELPER_BIN names it (the nightly bundles it after the
+# build, app-bundle-chief-and-mobile-host.sh); CMUX_NEXT_REQUIRE_SCREEN_HELPER=1 turns a
+# missing binary into an error.
 #
-# Signing: with the build's identity for its own app (EXPANDED_CODE_SIGN_IDENTITY; ad hoc when
-# empty, hardened runtime with a real one). Inside the Computer Use helper it is signed ad hoc
-# with the helper's identifier and the helper is re-sealed ad hoc, as build-cmux-cua.sh signs
-# it; Release signing then signs the executable with Developer ID and --identifier
-# com.cmuxterm.cua before it seals the helper (sign-cmux-bundle.sh,
-# notarize-computer-use-helper.sh, release-signer/sign-app.sh, rcodesign-sign-bundle.sh).
+# Signing: with the build's identity (EXPANDED_CODE_SIGN_IDENTITY; ad hoc when empty, hardened
+# runtime with a real one). Release signing re-signs it with Developer ID
+# (sign-cmux-bundle.sh), after `--stamp <app>` renames it for the app's final bundle id and name
+# (nightly and RC rename the app after the build).
 #
-#   bundle-screen-sharing-helper.sh                          the Xcode phase (Xcode's variables)
-#   bundle-screen-sharing-helper.sh --app APP                bundles into the built APP, named
-#                                                            from its Info.plist: reload.sh's
-#                                                            fallback when the Xcode phase did
-#                                                            not run (writes no stamp)
-#   bundle-screen-sharing-helper.sh --into-computer-use APP  moves APP's separate helper (or
-#                                                            CMUX_NEXT_SCREEN_HELPER_BIN) into
-#                                                            APP's Computer Use helper
-#   bundle-screen-sharing-helper.sh --stamp APP              before Release signing: drops a
-#                                                            separate helper the Computer Use
-#                                                            helper replaces, else re-stamps it
-#                                                            from APP's Info.plist
+#   bundle-screen-sharing-helper.sh             the Xcode phase (Xcode's variables)
+#   bundle-screen-sharing-helper.sh --stamp APP re-stamps APP's helper from APP's Info.plist
+#   bundle-screen-sharing-helper.sh --app APP   bundles into the built APP, named from its
+#                                               Info.plist: reload.sh's fallback when the Xcode
+#                                               phase did not run (writes no stamp)
 set -euo pipefail
 
 repo_root="${SRCROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 EXECUTABLE=cmux-screen-sharing
 SUFFIX=" Screen Sharing"
-# The Computer Use helper (scripts/build-cmux-cua.sh --helper-app) and its one TCC identity.
-COMPUTER_USE="cmux Computer Use.app"
-COMPUTER_USE_ID=com.cmuxterm.cua
 
 # PlistBuddy on a Mac; plistlib elsewhere (the Linux release signer stamps before it signs). Empty for a plist that
 # is not there: PlistBuddy's Print then writes "File Doesn't Exist, Will Create: PATH" to stdout, which became the
@@ -123,76 +92,9 @@ remove_other_helpers() {
   done
 }
 
-# Prints <app>'s com.cmuxterm.cua Computer Use helper, or nothing (a DEV build, or none yet).
-computer_use_helper() {
-  local helper="$1/Contents/Library/$COMPUTER_USE"
-  [[ -d "$helper" && ! -L "$helper" && -x "$helper/Contents/MacOS/cmux-cua" ]] || return 0
-  [[ "$(plist_get "$helper/Contents/Info.plist" CFBundleIdentifier)" == "$COMPUTER_USE_ID" ]] || return 0
-  printf '%s\n' "$helper"
-}
-
-# into_computer_use <app> <helper> <executable>: copies <executable> into <helper>/Contents/MacOS,
-# signs it ad hoc with the helper's identifier, re-seals the helper ad hoc with the stable
-# requirement build-cmux-cua.sh gives it (Release signing replaces both with Developer ID), then
-# removes every separate helper of <app>: one identity, never two.
-into_computer_use() {
-  local app="$1" helper="$2" src="$3" dest
-  dest="$helper/Contents/MacOS/$EXECUTABLE"
-  if [[ "$src" != "$dest" ]]; then
-    cp "$src" "$dest.tmp.$$"
-    chmod 755 "$dest.tmp.$$"
-    mv -f "$dest.tmp.$$" "$dest"
-  fi
-  "$repo_root/scripts/codesign-retry.sh" --force --sign - --timestamp=none --identifier "$COMPUTER_USE_ID" "$dest"
-  "$repo_root/scripts/codesign-retry.sh" --force --sign - --timestamp=none --identifier "$COMPUTER_USE_ID" \
-    --requirements "=designated => identifier \"$COMPUTER_USE_ID\"" "$helper"
-  remove_other_helpers "$app"
-  echo "bundled $EXECUTABLE into $COMPUTER_USE ($COMPUTER_USE_ID) from $src"
-}
-
-# --into-computer-use APP: the executable moves into APP's Computer Use helper, from
-# CMUX_NEXT_SCREEN_HELPER_BIN or APP's separate helper (the nightly bundles that right after the
-# Release build, before it assembles the Computer Use helper).
-if [[ "${1:-}" == "--into-computer-use" ]]; then
-  app="${2:?usage: $0 --into-computer-use <app>}"
-  app="${app%/}"
-  helper="$(computer_use_helper "$app")"
-  src="${CMUX_NEXT_SCREEN_HELPER_BIN:-}"
-  if [[ -z "$src" ]]; then
-    for found in "$app/Contents/Library/"*"$SUFFIX.app/Contents/MacOS/$EXECUTABLE"; do
-      [[ -f "$found" ]] && src="$found"
-    done
-  fi
-  if [[ -z "$src" && -n "$helper" && -f "$helper/Contents/MacOS/$EXECUTABLE" ]]; then
-    src="$helper/Contents/MacOS/$EXECUTABLE"
-  fi
-  if [[ -z "$src" ]]; then
-    echo "note: $app carries no Screen Sharing helper"
-    exit 0
-  fi
-  [[ -n "$helper" ]] || { echo "error: $app has no $COMPUTER_USE ($COMPUTER_USE_ID) to carry $EXECUTABLE (scripts/build-cmux-cua.sh --helper-app first)" >&2; exit 1; }
-  /usr/bin/file -b "$src" | grep -q 'Mach-O' || { echo "error: the Screen Sharing helper source is not a Mach-O executable: $src" >&2; exit 1; }
-  # Copied aside first: the source may be inside the separate helper into_computer_use removes.
-  work="$(mktemp -d)"
-  trap 'rm -rf "$work"' EXIT
-  if [[ "$src" != "$helper/Contents/MacOS/$EXECUTABLE" ]]; then
-    cp "$src" "$work/$EXECUTABLE"
-    src="$work/$EXECUTABLE"
-  fi
-  into_computer_use "$app" "$helper" "$src"
-  exit 0
-fi
-
 # --stamp APP: the final app's id and name (after a nightly or RC rename), before Release signing.
 if [[ "${1:-}" == "--stamp" ]]; then
   app="${2:?usage: $0 --stamp <app>}"
-  helper="$(computer_use_helper "$app")"
-  if [[ -n "$helper" && -x "$helper/Contents/MacOS/$EXECUTABLE" ]]; then
-    # The Computer Use helper's identity is the same for every channel: nothing to re-stamp.
-    remove_other_helpers "$app"
-    echo "the Screen Sharing helper is in $COMPUTER_USE ($COMPUTER_USE_ID): nothing to stamp"
-    exit 0
-  fi
   found=""
   for helper in "$app/Contents/Library/"*"$SUFFIX.app"; do [[ -d "$helper" ]] && found="$helper"; done
   if [[ -z "$found" ]]; then

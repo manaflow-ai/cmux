@@ -32,5 +32,5 @@ cd "$root"
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 python3 scripts/measure/chat-disk-growth.py --acpmux "$target/release/acpmux" --rows "$rows" --turn-secs 30 \
-  --sample-turns 250 "${cold[@]}" --out "$out/chat-disk-growth.json"
+  --sample-turns 250 ${cold[@]+"${cold[@]}"} --out "$out/chat-disk-growth.json"
 python3 -c 'import json,sys; print(json.dumps({"rows": json.load(open(sys.argv[1]))["rows"]}))' "$out/chat-disk-growth.json"
