@@ -288,12 +288,45 @@ checker_delta() {
     printf "syspolicyd_ms=%d xprotect_ms=%d amfid_ms=%d trustd_ms=%d taskgated_ms=%d", y[1]-x[1], y[2]-x[2], y[3]-x[3], y[4]-x[4], y[5]-x[5] }'
 }
 
-# exe_stat APP: the main executable's hard-link count and ctime ("links:ctime"); a launch that changes either
-# (a code-sign clone that hard-links it) is what makes the checkers scan it again before the next launch.
-exe_stat() {
+# binary_paths APP: the binaries whose hard-link count, ctime and size LR-CHECKERS reports, one per line: the main
+# executable (exe), the framework that holds the app's code behind a stub executable (fw: CmuxNextApp.framework, absent
+# before it existed) and Chromium's framework (cef: large, on every build). A launch that changes a link count or
+# ctime (a code-sign clone that hard-links the file) may be what makes the checkers scan it again next launch.
+binary_paths() {
   local name
   name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$1/Contents/Info.plist" 2>/dev/null)"
-  stat -f '%l:%c' "$1/Contents/MacOS/$name" 2>/dev/null || echo unknown
+  printf '%s\n' "$1/Contents/MacOS/$name" "$1/Contents/Frameworks/CmuxNextApp.framework/CmuxNextApp" \
+    "$1/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework"
+}
+
+# exe_stat APP: "links:ctime:bytes" of each binary_paths binary, space-separated, "none" for one the app lacks.
+exe_stat() {
+  local path
+  while IFS= read -r path; do
+    stat -L -f '%l:%c:%z' "$path" 2>/dev/null || echo none
+  done < <(binary_paths "$1") | paste -sd ' ' -
+}
+
+# exe_delta BEFORE AFTER: exe_stat's two readings as "exe=B->A fw=B->A cef=B->A".
+exe_delta() {
+  awk -v b="$1" -v a="$2" 'BEGIN { split(b, x, " "); split(a, y, " "); split("exe fw cef", n, " ")
+    for (i = 1; i <= 3; i++) printf "%s%s=%s->%s", (i > 1 ? " " : ""), n[i], x[i], y[i] }'
+}
+
+# second_links OUT SIDE LABEL APP: for each binary with more than one link, the other paths of its inode under the
+# per-user temporary folders and the run's own directory (where a code-sign clone would be), 60 s at most each (perl's
+# alarm: macOS has no timeout):
+#   LR-LINK SIDE LABEL exe|fw|cef inode=N links=L other=PATH[,PATH] (or other=not-found)
+second_links() {
+  local out="$1" side="$2" label="$3" app="$4" path inode links other i=0 names=(exe fw cef)
+  while IFS= read -r path; do
+    i=$((i + 1))
+    read -r inode links < <(stat -L -f '%i %l' "$path" 2>/dev/null) || continue
+    [[ "${links:-1}" -gt 1 ]] || continue
+    other="$(/usr/bin/perl -e 'alarm shift; exec @ARGV' 60 find /private/var/folders "$out" -xdev -inum "$inode" 2>/dev/null \
+      | grep -vxF "$(/usr/bin/perl -MCwd -e 'print Cwd::abs_path(shift)' "$path")" | head -3 | paste -sd , -)"
+    echo "LR-LINK $side $label ${names[$((i - 1))]} inode=$inode links=$links other=${other:-not-found}"
+  done < <(binary_paths "$app")
 }
 
 # probe OUT SIDE LABEL SETTLE_S PROFILE: one launch of SIDE's copy with SIDE's home, in the console session; with
@@ -338,7 +371,8 @@ probe() {
   checkers="$(checker_cpu)" exe="$(exe_stat "$app")"
   line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" \
     $([[ "$LR_STATE" == bare ]] && echo shell) $([[ "$LR_LAYOUT" != 0 ]] && echo layout) $([[ "$LR_LAYOUT" == movequit ]] && echo movequit) 2>>"$out/probe.log" | grep '^LR-RUN ')"
-  checkers="$(checker_delta "$checkers" "$(checker_cpu)") exe=$exe->$(exe_stat "$app")"
+  checkers="$(checker_delta "$checkers" "$(checker_cpu)") $(exe_delta "$exe" "$(exe_stat "$app")")"
+  [[ "$label" != run1 ]] || second_links "$out" "$side" "$label" "$app"
   # Every launch snapshot path the launch left must be in its own home: one in the other side's means it read that.
   # Unsaved defaults fail the same way, and the stale copy goes: the side's next launch starts empty, not from it.
   if side_defaults "$out" save "$app" "$out/home-$side/defaults.plist"; then
