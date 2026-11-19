@@ -5,6 +5,13 @@ extension CmuxConfigSnapshot {
     /// `experiments.glassToolbarGroups`: Taste prototype: the agent chat header's buttons draw as round glass buttons, related actions share one glass capsule, with a search chip and shortcut keycaps (webviews useExperimentSwitch("glassToolbarGroups")). Off by default; off keeps today's header.
     public nonisolated static let glassToolbarGroupsPath = ["experiments", "glassToolbarGroups"]
     public nonisolated static let glassToolbarGroupsDefault = false
+    /// `experiments.paletteV2`: Taste prototype: the native command palette (CmuxNextPalette, PaletteV2Look) groups its results under Workspaces, Sessions, Commands and Agents, regrouping as you type, the top match selected, an Esc chip in the field. A: grouped list; B: a category rail with counts; C: grouped with a scope bar (All, This Workspace, Sessions) and typed tokens. Read on every open (PaletteSourcesBridge). Off by default; off keeps today's palette.
+    public nonisolated static let paletteV2Path = ["experiments", "paletteV2"]
+    public nonisolated static let paletteV2Default = "off"
+    public nonisolated static let paletteV2Values = ["off", "flat", "rail", "scoped"]
+    /// `experiments.palettePreview`: Taste prototype: the native command palette shows a detail pane beside the results with the selected workspace's or session's facts (PaletteItem.facts, built for the selected row only), and a footer pill with the primary action, a Return glyph and Actions with Command-K, which opens the Actions menu. Off by default; off keeps today's palette.
+    public nonisolated static let palettePreviewPath = ["experiments", "palettePreview"]
+    public nonisolated static let palettePreviewDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -22,6 +29,31 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.glassToolbarGroupsDefault),
                 keywords: ["experiments", "experimental", "prototype", "glass", "toolbar", "header", "buttons", "capsule", "keycaps"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.paletteV2Path,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.paletteV2", "Command Palette v2"),
+                help: SettingsText.keyed("settings.experiments.paletteV2.help", "Groups results under Workspaces, Sessions, Commands and Agents, regrouping as you type, with the top match selected."),
+                kind: .choice([
+                    SettingChoice("off", SettingsText.keyed("settings.choice.paletteV2.off", "Off")),
+                    SettingChoice("flat", SettingsText.keyed("settings.choice.paletteV2.flat", "A: Grouped List")),
+                    SettingChoice("rail", SettingsText.keyed("settings.choice.paletteV2.rail", "B: Category Rail")),
+                    SettingChoice("scoped", SettingsText.keyed("settings.choice.paletteV2.scoped", "C: Grouped with Scope Bar")),
+                ]),
+                default: .string(CmuxConfigSnapshot.paletteV2Default),
+                keywords: ["experiments", "experimental", "prototype", "command palette", "palette", "groups", "scope", "rail", "search"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.palettePreviewPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.palettePreview", "Command Palette Preview"),
+                help: SettingsText.keyed("settings.experiments.palettePreview.help", "Shows the selected workspace or session's details beside the results, with its primary action and Actions ⌘K at the bottom."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.palettePreviewDefault),
+                keywords: ["experiments", "experimental", "prototype", "command palette", "palette", "preview", "details", "actions"]
             ),
         ]
     }

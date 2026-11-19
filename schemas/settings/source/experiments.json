@@ -34,6 +34,85 @@
             "capsule",
             "keycaps"
           ]
+        },
+        {
+          "key": "experiments.paletteV2",
+          "note": "Taste prototype: the native command palette (CmuxNextPalette, PaletteV2Look) groups its results under Workspaces, Sessions, Commands and Agents, regrouping as you type, the top match selected, an Esc chip in the field. A: grouped list; B: a category rail with counts; C: grouped with a scope bar (All, This Workspace, Sessions) and typed tokens. Read on every open (PaletteSourcesBridge). Off by default; off keeps today's palette.",
+          "title": {
+            "key": "settings.experiments.paletteV2",
+            "text": "Command Palette v2"
+          },
+          "help": {
+            "key": "settings.experiments.paletteV2.help",
+            "text": "Groups results under Workspaces, Sessions, Commands and Agents, regrouping as you type, with the top match selected."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.paletteV2.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "flat",
+              "title": {
+                "key": "settings.choice.paletteV2.flat",
+                "text": "A: Grouped List"
+              }
+            },
+            {
+              "value": "rail",
+              "title": {
+                "key": "settings.choice.paletteV2.rail",
+                "text": "B: Category Rail"
+              }
+            },
+            {
+              "value": "scoped",
+              "title": {
+                "key": "settings.choice.paletteV2.scoped",
+                "text": "C: Grouped with Scope Bar"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "command palette",
+            "palette",
+            "groups",
+            "scope",
+            "rail",
+            "search"
+          ]
+        },
+        {
+          "key": "experiments.palettePreview",
+          "note": "Taste prototype: the native command palette shows a detail pane beside the results with the selected workspace's or session's facts (PaletteItem.facts, built for the selected row only), and a footer pill with the primary action, a Return glyph and Actions with Command-K, which opens the Actions menu. Off by default; off keeps today's palette.",
+          "title": {
+            "key": "settings.experiments.palettePreview",
+            "text": "Command Palette Preview"
+          },
+          "help": {
+            "key": "settings.experiments.palettePreview.help",
+            "text": "Shows the selected workspace or session's details beside the results, with its primary action and Actions ⌘K at the bottom."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "command palette",
+            "palette",
+            "preview",
+            "details",
+            "actions"
+          ]
         }
       ]
     }
