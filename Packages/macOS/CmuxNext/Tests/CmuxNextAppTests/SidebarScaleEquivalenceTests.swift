@@ -4,6 +4,7 @@ import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextDaemon
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
