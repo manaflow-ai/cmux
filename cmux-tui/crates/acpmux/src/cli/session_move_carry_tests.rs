@@ -266,7 +266,8 @@ fn index_and_worktree_snapshots_match_independently_for_every_change_kind() {
             carry.patch.len()
                 + carry.staged_patch.len()
                 + carry.intent_to_add.len()
-                + carry.intent_placeholders.len(),
+                + carry.intent_placeholders.len()
+                + carry.affected_paths.len(),
             "{name}"
         );
         sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
@@ -524,6 +525,97 @@ fn intent_only_changes_never_overwrite_target_staging() {
 }
 
 #[test]
+fn rename_to_intent_never_discards_target_only_staged_content() {
+    let src = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(src.path(), "git rm -q empty.txt && touch new.txt && git add -N new.txt");
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    sh(
+        dst.path(),
+        "printf 'only saved in index' > empty.txt && git add empty.txt && : > empty.txt",
+    );
+    let index = std::fs::read(dst.path().join(".git/index")).unwrap();
+    let out = apply(dst.path(), &carry);
+    assert!(!out.ok && out.stderr.contains("target index changed"), "{}", out.stderr);
+    assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
+    assert_eq!(sh(dst.path(), "git show :empty.txt"), "only saved in index");
+    assert_eq!(std::fs::read(dst.path().join("empty.txt")).unwrap(), b"");
+    assert!(!dst.path().join("new.txt").exists());
+    assert!(!dst.path().join(".git/index.lock").exists());
+}
+
+#[test]
+fn a_real_partial_write_restores_the_worktree_and_allows_retry() {
+    let src = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(
+        src.path(),
+        "printf 'base first\\n' > a-first.txt && printf 'base last\\n' > z-last.txt && git add . && git commit -qm files",
+    );
+    std::fs::write(src.path().join("a-first.txt"), b"changed first\n").unwrap();
+    std::fs::write(src.path().join("z-last.txt"), vec![b'x'; 128 * 1024]).unwrap();
+    sh(src.path(), "git add a-first.txt z-last.txt");
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    let index = std::fs::read(dst.path().join(".git/index")).unwrap();
+    // A real file-size write limit applies only to the final Git child. Its first
+    // write succeeds; the second hits SIGXFSZ after preflight and snapshotting.
+    let write = "git -c core.fsmonitor=false -c core.symlinks=true -C \"$top\" apply --binary --whitespace=nowarn \"$s/patch\"";
+    let failing = APPLY_SCRIPT.replace(
+        &format!("if ! {write}; then"),
+        &format!("if ! (ulimit -f 2; {write}); then\n    printf 'PARTIAL_WRITE:'; cat a-first.txt"),
+    );
+    assert_ne!(failing, APPLY_SCRIPT);
+    let out = here(&failing, &apply_input(&dst.path().to_string_lossy(), &carry).unwrap()).unwrap();
+    assert!(!out.ok);
+    assert!(out.stdout.contains("PARTIAL_WRITE:changed first"), "{} / {}", out.stdout, out.stderr);
+    assert_eq!(std::fs::read(dst.path().join("a-first.txt")).unwrap(), b"base first\n");
+    assert_eq!(std::fs::read(dst.path().join("z-last.txt")).unwrap(), b"base last\n");
+    assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
+    assert!(!dst.path().join(".git/index.lock").exists());
+    assert!(apply(dst.path(), &carry).ok, "retry after actual partial writes");
+    assert_eq!(std::fs::read(dst.path().join("z-last.txt")).unwrap(), vec![b'x'; 128 * 1024]);
+}
+
+#[test]
+fn submodule_patch_format_and_paths_ignore_display_preferences() {
+    let src = tempfile::tempdir().unwrap();
+    let module = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    repo(src.path());
+    repo(module.path());
+    sh(
+        src.path(),
+        &format!(
+            "git -c protocol.file.allow=always submodule add -q {} module && git commit -qm module",
+            module.path().display()
+        ),
+    );
+    sh(module.path(), "printf 'next\\n' >> kept.txt && git commit -qam next");
+    let next = sh(module.path(), "git rev-parse HEAD");
+    sh(
+        src.path(),
+        &format!(
+            "git -C module fetch -q && git -C module checkout -q {} && git add module && printf 'staged\\n' >> kept.txt && git add kept.txt && git config diff.submodule log && git config diff.ignoreSubmodules all",
+            next.trim()
+        ),
+    );
+    let index = std::fs::read(src.path().join(".git/index")).unwrap();
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    assert!(carry.affected_paths.split(|b| *b == 0).any(|p| p == b"module"));
+    assert!(String::from_utf8_lossy(&carry.staged_patch).contains("Subproject commit"));
+    sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    let out = apply(dst.path(), &carry);
+    assert!(out.ok, "{}", out.stderr);
+    assert_eq!(sh(dst.path(), "git ls-files --stage"), sh(src.path(), "git ls-files --stage"));
+    assert_eq!(std::fs::read(src.path().join(".git/index")).unwrap(), index);
+    assert_eq!(std::fs::read(dst.path().join("kept.txt")).unwrap(), b"one\nstaged\n");
+}
+
+#[test]
 fn intent_changes_preserve_unrelated_target_staging() {
     let src = tempfile::tempdir().unwrap();
     let dst = tempfile::tempdir().unwrap();
@@ -555,7 +647,7 @@ fn target_head_moving_during_payload_receipt_refuses_under_the_lock() {
         "git -c user.name=t -c user.email=t@t commit-tree HEAD^{tree} -p HEAD -m moved",
     );
     let index = std::fs::read(dst.path().join(".git/index")).unwrap();
-    let receipt = "tar -xf - -C \"$s\" staged patch intent intent-placeholders || exit 2";
+    let receipt = "tar -xf - -C \"$s\" staged patch intent intent-placeholders paths || exit 2";
     let racing = APPLY_SCRIPT.replace(
         receipt,
         &format!("{receipt}\ngit -C \"$top\" update-ref HEAD {} || exit 2", next.trim()),
@@ -604,6 +696,7 @@ fn carry_transport_before_after() {
         patch: vec![b'y'; 8 * 1024 * 1024],
         intent_to_add: vec![],
         intent_placeholders: vec![],
+        affected_paths: vec![],
         files: 1,
         left_out: vec![],
     };
@@ -619,7 +712,7 @@ printf '%s' "$staged" | base64 -d >"$s/staged"
 printf '%s' "$patch" | base64 -d >"$s/patch""#;
     let new_script = r#"s=$(mktemp -d); trap 'rm -rf -- "$s"' EXIT
 read -r d; read -r base
-tar -xf - -C "$s" staged patch intent intent-placeholders"#;
+tar -xf - -C "$s" staged patch intent intent-placeholders paths"#;
     for round in 0..3 {
         let start = std::time::Instant::now();
         assert!(here(old_script, old.as_bytes()).unwrap().ok);
@@ -759,6 +852,7 @@ fn a_base_that_moved_refuses() {
         staged_patch: vec![],
         intent_to_add: vec![],
         intent_placeholders: vec![],
+        affected_paths: vec![],
         files: 0,
         left_out: vec![],
     };

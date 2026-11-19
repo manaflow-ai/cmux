@@ -45,3 +45,21 @@ separate seed/sync paths are not changed or runtime-verified here.
 A passing script regression does not prove a real session moved. Runtime
 acceptance separately needs a built driver at the reviewed SHA, an owned source
 session and target, a successful move and reply, and index/worktree readback.
+
+Target conflicts are checked for every affected index path, including both sides
+of renames, before any patch or intent reconstruction. Machine-consumed patches
+explicitly disable rename inference and request short submodule diffs with no
+ignored submodule changes; user display preferences cannot drop staged pointers.
+`rename_to_intent_never_discards_target_only_staged_content` and
+`submodule_patch_format_and_paths_ignore_display_preferences` detect these cases.
+
+A successful `git apply --check` does not guarantee all writes will finish. Before
+writing, carry archives the affected regular files and symlinks and records absent
+paths; it never recurses into nested directories/submodules. Failure restores that
+snapshot, leaving the target index untouched. If restoration itself cannot finish,
+the private recovery archive and absent-path list remain and the error names them.
+`a_real_partial_write_restores_the_worktree_and_allows_retry` imposes a real file
+size limit on the final apply child, proves the first write occurred, and compares
+both original files and index bytes after recovery before retrying. The archive's
+temporary disk cost is the original affected file bytes plus tar headers, and it
+is removed on success or successful recovery.
