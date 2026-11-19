@@ -34,7 +34,12 @@ import CmuxNextWakeups
 @MainActor
 public final class GlassParityPlayground {
     nonisolated enum Kind: String, CaseIterable, Sendable {
-        case menu, popover, card, tooltip, dialog, toast
+        case menu, popover, card, tooltip, dialog, toast, chrome
+    }
+
+    /// The menu's row under the pointer: none, hovered (the highlight), or pressed (the press fill).
+    nonisolated enum RowState: String, CaseIterable, Sendable {
+        case rest, hover, pressed
     }
 
     nonisolated enum Backdrop: String, CaseIterable, Sendable {
@@ -62,6 +67,8 @@ public final class GlassParityPlayground {
         var offset: CGFloat = 0
         /// The window key and its app active, else inactive.
         var active = true
+        /// The menu's highlighted row (``menuRow``): none, hovered or pressed.
+        var row: RowState = .rest
 
         var stem: String {
             var parts = [backdrop.rawValue]
@@ -70,6 +77,7 @@ public final class GlassParityPlayground {
             if offset != 0 { parts.append("s\(Int(offset.rounded()))") }
             parts.append(mode.rawValue)
             parts.append(active ? "active" : "inactive")
+            if row != .rest { parts.append(row.rawValue) }
             return parts.joined(separator: "-")
         }
     }
@@ -83,6 +91,14 @@ public final class GlassParityPlayground {
     /// The content box inside a surface where its text draws (left out of the material diff).
     static let textInset = NSEdgeInsets(top: 8, left: 10, bottom: 0, right: 10)
     static let textHeight: CGFloat = 38
+    /// The menu's one row (in the menu, below its text): a native menu row's box at the menu's highlight
+    /// inset, where the hover and pressed cells draw its highlight.
+    static var menuRow: CGRect {
+        let inset = MenuMetrics.highlightInset
+        return CGRect(x: inset, y: 47, width: surfaceSize(.menu).width - inset * 2, height: 20)
+    }
+    /// The native row highlight's corner (``PopupRowView``'s, `PopupStyle.standard.rowCornerRadius`).
+    static var menuRowRadius: CGFloat { PopupStyle.standard.rowCornerRadius }
 
     static func surfaceSize(_ kind: Kind) -> CGSize {
         switch kind {
@@ -97,7 +113,7 @@ public final class GlassParityPlayground {
         case .popover, .card: Metrics.panelCornerRadius
         case .tooltip: 6
         case .dialog: 16
-        case .toast: Metrics.surfaceCornerRadius
+        case .toast, .chrome: Metrics.surfaceCornerRadius
         }
     }
 
@@ -124,6 +140,7 @@ public final class GlassParityPlayground {
         case .tooltip: "Tooltip"
         case .dialog: "Dialog"
         case .toast: "Toast"
+        case .chrome: "Chrome"
         }
     }
 
@@ -135,6 +152,8 @@ public final class GlassParityPlayground {
     var hosts: [Column: GlassParityHostLayer] = [:]
     private var backdropView: GlassParityBackdropView?
     private var nativeLayer: NSView?
+    /// The native menu's row highlight (``Scenario/row``).
+    private var menuRowView: GlassParityRowFill?
     private var ready: Set<Column> = []
     /// The Mac's desktop picture for the `image` backdrop, read off the main actor once.
     private var picture: NSImage?
@@ -155,10 +174,14 @@ public final class GlassParityPlayground {
                 "left": .number(rect.minX), "top": .number(rect.minY),
                 "width": .number(rect.width), "height": .number(rect.height),
                 "radius": .number(Self.radius(kind)),
+                "row": .string(kind == .menu ? scenario.row.rawValue : RowState.rest.rawValue),
                 "title": .string(Self.title(kind)), "detail": .string(Self.detail(kind)),
             ]
         }
-        return ["mode": .string(scenario.mode.rawValue), "cells": .array(cells)]
+        let row = Self.menuRow
+        return ["mode": .string(scenario.mode.rawValue), "cells": .array(cells),
+                "menu_row": ["left": .number(row.minX), "top": .number(row.minY), "width": .number(row.width),
+                             "height": .number(row.height), "radius": .number(Self.menuRowRadius)]]
     }
 
     /// A page's report of its surfaces' boxes (host mode): the App's glass goes there.
@@ -169,7 +192,7 @@ public final class GlassParityPlayground {
         var surfaces: [GlassParityHostLayer.Surface] = []
         for item in list {
             guard let id = item["id"]?.stringValue, let name = item["level"]?.stringValue,
-                  let level = GlassLevel(rawValue: name), level != .chrome,
+                  let level = GlassLevel(rawValue: name),
                   let left = item["left"]?.doubleValue, let top = item["top"]?.doubleValue,
                   let right = item["right"]?.doubleValue, let bottom = item["bottom"]?.doubleValue,
                   right >= left, bottom >= top else {
@@ -202,7 +225,7 @@ public final class GlassParityPlayground {
     /// is attached, and waits until both pages painted (and, in host mode, the App drew their glass).
     /// Answers what it shows.
     func show(_ scenario: Scenario, scale: CGFloat?) async -> JSONValue {
-        let reload = window == nil || scenario.mode != self.scenario.mode
+        let reload = window == nil || scenario.mode != self.scenario.mode || scenario.row != self.scenario.row
         self.scenario = scenario
         let window = window ?? makeWindow()
         self.window = window
@@ -219,6 +242,7 @@ public final class GlassParityPlayground {
             view.offset = scenario.offset
             view.needsDisplay = true
         }
+        menuRowView?.state = scenario.row
         if reload {
             ready = []
             for host in hosts.values { host.apply([]) }
@@ -289,6 +313,7 @@ public final class GlassParityPlayground {
         hosts = [:]
         backdropView = nil
         nativeLayer = nil
+        menuRowView = nil
         ready = []
     }
 
@@ -363,14 +388,30 @@ public final class GlassParityPlayground {
         case .menu: Glass.makeMenuPanel(cornerRadius: radius, interactive: false)
         // The native popovers' one transient material (the palette, page info, which-key).
         case .popover, .card: Glass.makeOverlayPanel(cornerRadius: radius, interactive: false, tone: .neutralGlass(.transient))
-        case .tooltip: Glass.makeSurface(.tooltip, cornerRadius: radius, interactive: false)
+        // The tooltip window's whole surface: its glass, legibility tint and shadow (TooltipPanel).
+        case .tooltip: Glass.makeTooltipGlass(cornerRadius: radius)
         case .dialog: Glass.makeSurface(.sheet, cornerRadius: radius, interactive: false)
         case .toast: Glass.makeSurface(.toast, cornerRadius: radius, interactive: false)
+        // Docked glass (the tab strip's, a drag ghost's): the theme's glass at the chrome level's tint.
+        case .chrome: Self.chromeGlass(cornerRadius: radius)
         }
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.frame = Self.surfaceRect(kind)
         // Pinned to the content view: it is laid out later, and autoresizing from its empty first frame
         // pushed the labels out of the surface.
+        if kind == .menu {
+            let row = GlassParityRowFill(frame: CGRect(origin: .zero, size: surface.frame.size), row: Self.menuRow, radius: Self.menuRowRadius)
+            row.state = scenario.row
+            row.translatesAutoresizingMaskIntoConstraints = false
+            surface.contentView.addSubview(row)
+            NSLayoutConstraint.activate([
+                row.leadingAnchor.constraint(equalTo: surface.contentView.leadingAnchor),
+                row.trailingAnchor.constraint(equalTo: surface.contentView.trailingAnchor),
+                row.topAnchor.constraint(equalTo: surface.contentView.topAnchor),
+                row.bottomAnchor.constraint(equalTo: surface.contentView.bottomAnchor),
+            ])
+            menuRowView = row
+        }
         let text = GlassParityTextView(frame: CGRect(origin: .zero, size: surface.frame.size), title: Self.title(kind), detail: Self.detail(kind))
         text.translatesAutoresizingMaskIntoConstraints = false
         surface.contentView.addSubview(text)
@@ -380,6 +421,14 @@ public final class GlassParityPlayground {
             text.topAnchor.constraint(equalTo: surface.contentView.topAnchor),
             text.bottomAnchor.constraint(equalTo: surface.contentView.bottomAnchor),
         ])
+        return surface
+    }
+
+    /// Docked glass as the native chrome draws it (the tab strip's, a drag ghost's): the theme's glass
+    /// at the chrome level's tint (``GlassLevel/chrome``).
+    private static func chromeGlass(cornerRadius: CGFloat) -> OverlaySurfaceView {
+        let surface = Glass.makeOverlayPanel(cornerRadius: cornerRadius, interactive: false)
+        surface.tintLevel = .chrome
         return surface
     }
 
@@ -403,7 +452,7 @@ public final class GlassParityPlayground {
 
     // MARK: Control
 
-    /// `debug.glass_parity {backdrop?, mode?, color?, opacity?, offset?, active?, scale?, measure?, dir?,
+    /// `debug.glass_parity {backdrop?, mode?, color?, opacity?, offset?, active?, row?, scale?, measure?, dir?,
     /// close?}` (the App routes it here): opens or reconfigures the playground (``show(_:scale:)``; a key
     /// left out keeps its value) and, with `measure`, captures every renderer and diffs them into `dir`
     /// (default a folder in the temporary directory). `close` closes it.
@@ -430,6 +479,10 @@ public final class GlassParityPlayground {
         if let opacity = params["opacity"]?.doubleValue { next.opacity = CGFloat(min(max(opacity, 0), 1)) }
         if let offset = params["offset"]?.doubleValue { next.offset = CGFloat(min(max(offset, -200), 200)) }
         if let active = params["active"]?.boolValue { next.active = active }
+        if let name = params["row"]?.stringValue {
+            guard let row = RowState(rawValue: name) else { return ["error": .string("unknown row \(name)")] }
+            next.row = row
+        }
         let scale = params["scale"]?.doubleValue.map { CGFloat($0) }
         let shown = await show(next, scale: scale)
         guard params["measure"]?.boolValue == true else { return shown }
