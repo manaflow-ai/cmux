@@ -99,30 +99,39 @@ await requireBrowserLane("composer-buttons-bottom.test.ts", async () => {
   const settle = (page: Page) =>
     page.waitForFunction(() => document.querySelector(".acpmux-md-field")!.getAnimations().length === 0);
 
-  /** Every frame's controls stand where `rest`'s do on screen, and as far off the box's bottom. */
-  /** How many of `all` moved a control off `rest`'s place, and the most it moved (px). Each case is
-   *  measured before any is judged, so a red run reports every case's numbers. */
+  /** Every case's numbers, printed together once the file ends (a fleet log keeps its tail). */
+  const summary: string[] = [];
+  afterAll(() => console.log(`composer-buttons-bottom summary\n${summary.join("\n")}`));
+
+  /** How many of `all` moved a control off `rest`'s place (on screen, or off the box's bottom edge),
+   *  and the most it moved (px). Each case is measured before any is judged, so a red run reports
+   *  every case's numbers. `screen` and `edge` say which way it moved; `box` is how far the box's
+   *  own bottom edge moved. */
   function still(label: string, rest: Frame, all: Frame[]) {
     expect(all.length).toBeGreaterThan(0);
     let worst = 0;
     let moved = 0;
+    let screen = 0;
+    let edge = 0;
+    let box = 0;
     for (const frame of all) {
       expect(frame.controls.length).toBe(rest.controls.length);
       let off = 0;
+      box = Math.max(box, Math.abs(frame.box.bottom - rest.box.bottom));
       frame.controls.forEach((control, index) => {
         const was = rest.controls[index]!;
-        off = Math.max(
-          off,
-          Math.abs(control.top - was.top),
-          Math.abs(frame.box.bottom - control.bottom - (rest.box.bottom - was.bottom)),
-        );
+        const onScreen = Math.abs(control.top - was.top);
+        const offEdge = Math.abs(frame.box.bottom - control.bottom - (rest.box.bottom - was.bottom));
+        screen = Math.max(screen, onScreen);
+        edge = Math.max(edge, offEdge);
+        off = Math.max(off, onScreen, offEdge);
       });
       worst = Math.max(worst, off);
       if (off > 0.5) moved++;
     }
-    console.log(
-      `composer-buttons-bottom ${label}: ${moved}/${all.length} frames moved a control, at most ${worst.toFixed(1)}px`,
-    );
+    const line = `${label}: ${moved}/${all.length} frames moved a control, at most ${worst.toFixed(1)}px (screen ${screen.toFixed(1)}, off the box's bottom ${edge.toFixed(1)}, box bottom ${box.toFixed(1)})`;
+    console.log(`composer-buttons-bottom ${line}`);
+    summary.push(line);
     return { label, moved, worst: Math.round(worst) };
   }
   type Result = ReturnType<typeof still>;
@@ -221,6 +230,7 @@ await requireBrowserLane("composer-buttons-bottom.test.ts", async () => {
                 `composer-buttons-bottom ${tile.label}: ${tile.moved}/${shown.length} frames moved it, at most ${tile.worst}px`,
               );
               results.push(tile);
+              summary.push(`${tile.label}: ${tile.moved}/${shown.length} frames moved it, at most ${tile.worst}px`);
               await record(page);
               await page.keyboard.press("Backspace");
               await page.waitForFunction(
