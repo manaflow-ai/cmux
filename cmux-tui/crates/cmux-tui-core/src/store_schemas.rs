@@ -37,6 +37,52 @@ pub fn readable() -> BTreeMap<String, i64> {
     STORES.iter().map(|(name, _, version)| ((*name).to_string(), *version)).collect()
 }
 
+/// A stopwatch for one part of a rollback check. In a test build its end
+/// counts the part and adds its time for the thread, so that a test can
+/// assert how many times each part ran and print where the time went
+/// ([`take_parts`]). In the product it holds nothing and does nothing.
+pub(crate) struct Part {
+    #[cfg(test)]
+    began: std::time::Instant,
+}
+
+impl Part {
+    pub(crate) fn start() -> Self {
+        Self {
+            #[cfg(test)]
+            began: std::time::Instant::now(),
+        }
+    }
+
+    /// Ends the part `name`. A part that an error leaves is not counted.
+    pub(crate) fn end(self, name: &'static str) {
+        #[cfg(test)]
+        PARTS.with(|parts| {
+            let mut parts = parts.borrow_mut();
+            let part = parts.entry(name).or_insert((0, Duration::ZERO));
+            part.0 += 1;
+            part.1 += self.began.elapsed();
+        });
+        #[cfg(not(test))]
+        let _ = name;
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The parts that the checks of this thread ended: how many times, and
+    /// their time in all.
+    static PARTS: std::cell::RefCell<BTreeMap<&'static str, (u64, Duration)>> =
+        const { std::cell::RefCell::new(BTreeMap::new()) };
+}
+
+/// The parts that the checks of this thread ended since the last call: for
+/// each name how many times, and their time in all.
+#[cfg(test)]
+pub(crate) fn take_parts() -> BTreeMap<&'static str, (u64, Duration)> {
+    PARTS.with(|parts| std::mem::take(&mut *parts.borrow_mut()))
+}
+
 /// The newest schema each store holds in any session under `state_root`.
 /// A store that no session has written yet is absent. A store that cannot be
 /// read is an error: the caller must not guess.
@@ -76,23 +122,33 @@ pub fn stored(state_root: &Path) -> anyhow::Result<BTreeMap<String, i64>> {
 /// `meta.schema_version` of the SQLite store at `path`, read-only; nil when
 /// the store has no schema yet.
 fn schema_version(path: &Path) -> anyhow::Result<Option<i64>> {
+    let part = Part::start();
     let connection = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .with_context(|| format!("open {}", path.display()))?;
     connection.busy_timeout(Duration::from_millis(500))?;
+    part.end("read: the open");
+    // The first statement of a connection reads the store's schema.
+    let part = Part::start();
     let has_meta: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta')",
         [],
         |row| row.get(0),
     )?;
+    part.end("read: the schema and the meta table's name");
     if !has_meta {
         return Ok(None);
     }
+    let part = Part::start();
     let value: Option<String> = connection
         .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |row| row.get(0))
         .optional()?;
+    part.end("read: the number");
+    let part = Part::start();
+    drop(connection);
+    part.end("read: the close");
     value
         .map(|value| {
             value.parse::<i64>().with_context(|| format!("{} schema is invalid", path.display()))

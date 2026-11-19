@@ -362,33 +362,33 @@ enum Found {
 #[cfg(test)]
 thread_local! {
     /// The journal rows after the mark that the reads of this thread took.
-    static ROWS_READ_AFTER_THE_MARK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static ROWS_READ_AFTER_THE_MARK: Cell<u64> = const { Cell::new(0) };
     /// The journal rows that the writes of subject rows of this thread took.
-    static ROWS_TAKEN_BY_WRITES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static ROWS_TAKEN_BY_WRITES: Cell<u64> = const { Cell::new(0) };
     /// The stores that the rollback's checks of this thread opened for a
     /// write.
-    static STORES_OPENED_FOR_A_WRITE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static STORES_OPENED_FOR_A_WRITE: Cell<u64> = const { Cell::new(0) };
 }
 
 /// The stores that the rollback's checks of this thread opened for a write
 /// of subject rows ([`stored_number_for_a_rollback`]).
 #[cfg(test)]
 pub(crate) fn stores_opened_for_a_write() -> u64 {
-    STORES_OPENED_FOR_A_WRITE.with(std::cell::Cell::get)
+    STORES_OPENED_FOR_A_WRITE.with(Cell::get)
 }
 
 /// The journal rows after the mark that the reads by subject of this thread
 /// took from the store and parsed.
 #[cfg(test)]
 pub(crate) fn rows_read_after_the_mark() -> u64 {
-    ROWS_READ_AFTER_THE_MARK.with(std::cell::Cell::get)
+    ROWS_READ_AFTER_THE_MARK.with(Cell::get)
 }
 
 /// The journal rows whose subjects the writes of subject rows of this thread
 /// took from the store ([`write_through`]).
 #[cfg(test)]
 pub(crate) fn rows_taken_by_writes() -> u64 {
-    ROWS_TAKEN_BY_WRITES.with(std::cell::Cell::get)
+    ROWS_TAKEN_BY_WRITES.with(Cell::get)
 }
 
 /// The one read of the table: the rows of the table that `statement` asks

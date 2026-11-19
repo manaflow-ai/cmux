@@ -243,7 +243,7 @@ fn terminal_output_records_after(
     max_bytes: u64,
 ) -> TerminalOutputRecordsWindow {
     let terminal = JournalSubject { kind: "terminal".into(), id: terminal_id.into() };
-    let page = crate::workspace_registry::session_journal::query_session_journal_after_subjects(
+    let page = session_journal::query_session_journal_after_subjects(
         &registry.connection.get(),
         0,
         1024,
