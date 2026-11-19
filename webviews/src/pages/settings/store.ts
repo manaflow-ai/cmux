@@ -88,6 +88,7 @@ import {
   type LibraryRun,
   type ModelsRun,
   type ModelsState,
+  type RowNoteData,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -123,6 +124,8 @@ export type SettingsState = {
   revision: number;
   rows: ReadonlyMap<string, ListRow>;
   diagnostics: ReadonlyMap<string, string[]>;
+  /** Row notes by schema row: where a value comes from, and why it does not draw (#44894). */
+  notes: ReadonlyMap<string, RowNoteData[]>;
   /** Every problem of the last load, in file order (Advanced lists them). */
   problems: ReadonlyArray<{ path: string; message: string }>;
   managed: ReadonlyMap<string, ManagedInfo>;
@@ -194,6 +197,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     revision: scope?.revision ?? 0,
     rows,
     diagnostics: scope?.diagnostics ?? new Map(),
+    notes: scope?.notes ?? new Map(),
     problems: scope?.problems ?? [],
     managed: scope?.managed ?? new Map(),
     errors: ui.errors,

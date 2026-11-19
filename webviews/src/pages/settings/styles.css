@@ -521,6 +521,12 @@ mark {
   flex: 1;
 }
 
+/* A row note (#44894): where the value comes from, or why it does not draw. Not a problem, so the
+   muted text color instead of the warning color. */
+.notice.row-note {
+  color: var(--muted-text);
+}
+
 .empty {
   color: var(--muted-text);
 }
