@@ -56,8 +56,8 @@ extension GitHubConnections {
     /// Finishes `url` when it is this build's GitHub completion link (false for any other URL) and shows its answer
     /// on the key window: Connect GitHub runs this connection's connect, Retry finishes the same link again.
     @MainActor public func finishCompletion(_ url: URL, auth: CloudAuth) -> Bool {
-        CloudGitHubCompletion.handle(url, auth: auth) { [weak self] answer in
-            guard let self, let notice = CompletionNotice(answer), let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        CloudGitHubCompletion.handle(url, auth: auth) { answer in
+            guard let notice = CompletionNotice(answer), let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
             let toast = CmuxToast(id: CompletionNotice.toastID, message: notice.message, action: CmuxToast.Action(title: notice.retryTitle),
                                   duration: .seconds(12), tone: notice.tone, oneWindow: true)
             CmuxToastCenter.shared.show(toast, in: window).onAction = { [weak self] in self?.retry(notice, url: url, auth: auth) }
