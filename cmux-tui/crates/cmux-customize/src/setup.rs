@@ -138,6 +138,7 @@ impl Setup {
 pub mod check;
 mod export;
 pub mod layers;
+pub mod looks;
 mod reference;
 mod secrets;
 pub use check::{

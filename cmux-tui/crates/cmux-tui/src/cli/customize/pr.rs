@@ -169,21 +169,26 @@ pub(super) fn failure(why: String) -> Failure {
     Failure::from(Error::Library(why))
 }
 
-/// GETs, one current-thread runtime per verb.
-pub(super) struct Http {
+/// GETs, one current-thread runtime per verb (`cmux setup preview` too).
+pub(in crate::cli) struct Http {
     runtime: tokio::runtime::Runtime,
     client: reqwest::Client,
 }
 
 impl Http {
     pub(super) fn new() -> Result<Http, Failure> {
+        Http::with_deadline(Duration::from_secs(300))
+    }
+
+    /// A client whose every request ends by `deadline`.
+    pub(in crate::cli) fn with_deadline(deadline: Duration) -> Result<Http, Failure> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|error| failure(format!("could not start a network runtime: {error}")))?;
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(300))
+            .timeout(deadline)
             .user_agent(concat!("cmux-customize/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|error| failure(format!("could not start an HTTP client: {error}")))?;
@@ -191,7 +196,7 @@ impl Http {
     }
 
     /// The body of `url`, `None` on a 404.
-    fn get(&self, url: &str, limit: u64) -> Result<Option<Vec<u8>>, Failure> {
+    pub(in crate::cli) fn get(&self, url: &str, limit: u64) -> Result<Option<Vec<u8>>, Failure> {
         self.runtime.block_on(async {
             let mut response = self
                 .client

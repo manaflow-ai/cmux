@@ -40,6 +40,7 @@ export const CATEGORY_CARDS = [
   "personalization",
   "sharedLinks",
   "customizeLibrary",
+  "looksGallery",
   "tailnet",
   "models",
   "keys",

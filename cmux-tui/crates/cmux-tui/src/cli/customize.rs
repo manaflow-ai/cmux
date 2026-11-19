@@ -14,7 +14,7 @@ mod ask;
 mod dir;
 mod expire;
 mod library;
-mod pr;
+pub(super) mod pr;
 mod render;
 mod source;
 #[cfg(test)]
