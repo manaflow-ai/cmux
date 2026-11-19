@@ -384,6 +384,7 @@ struct CloudMove {
             group.addTask { @MainActor in
                 do {
                     _ = try await connectedOnce(first, invocation)
+                    try Task.checkCancellation()
                     return Attempt(candidateID: firstID, connectedID: firstID, error: nil)
                 } catch {
                     return Attempt(candidateID: firstID, connectedID: nil, error: (error as? Failure)?.message)
@@ -397,6 +398,7 @@ struct CloudMove {
                     let id = second.machineID
                     do {
                         _ = try await connectedOnce(second, invocation)
+                        try Task.checkCancellation()
                         return Attempt(candidateID: id, connectedID: id, error: nil)
                     } catch {
                         return Attempt(candidateID: id, connectedID: nil, error: (error as? Failure)?.message)
@@ -419,6 +421,10 @@ struct CloudMove {
                 }
             }
             return (nil, candidates, lastError)
+        }
+        if Task.isCancelled {
+            for candidate in Set(result.candidates.filter { !$0.isEmpty }) { await hedge.delete(candidate) }
+            throw CancellationError()
         }
         if let winner = result.winner {
             for loser in Set(result.candidates.filter { !$0.isEmpty }).subtracting([winner]) { await hedge.delete(loser) }
