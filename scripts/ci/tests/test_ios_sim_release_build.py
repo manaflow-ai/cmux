@@ -271,6 +271,68 @@ class ReleaseBuildTests(unittest.TestCase):
                 self.assertNotIn("CODE_SIGNING_ALLOWED=NO", command)
                 self.assertIn(["xcrun", "simctl", "list", "-j", "runtimes", "devicetypes"], self.calls())
 
+    def fake_runtime_helper(self):
+        """The runtime helper records its arguments and refuses device=nope as the real one would."""
+        (self.script.parent / "ios_sim_runtime.py").write_text(
+            "import json, os, sys\n"
+            "json.load(sys.stdin)\n"
+            "open(os.path.join(os.environ['FIXTURE_ROOT'], 'helper-argv.json'), 'w').write(json.dumps(sys.argv[1:]))\n"
+            "if os.environ.get('FIXTURE_HELPER_STOP'):\n"
+            "    raise SystemExit('fixture: stop at the simulator choice')\n"
+            "if 'nope' in sys.argv:\n"
+            "    raise SystemExit('cmux-next-ios-sim.sh: device=nope: this runtime has no such device type; "
+            "available iPhone types: iPhone 16e, iPhone 17')\n"
+            "print('fixture-runtime fixture-device', 'Fixture Phone (2nd generation)')\n"
+        )
+        # listperf and energy check that the head has the list rig before anything else.
+        for rel in ("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/ListStressRig.swift",
+                    "cmux-next-ios/verify/feedperf/summarize.py"):
+            (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / rel).write_text("# fixture\n")
+        return self.root / "helper-argv.json"
+
+    def test_device_and_reducemotion_are_taken_out_for_every_simulator_mode(self):
+        argv = self.fake_runtime_helper()
+        for args in [("build", "device=iPhone,16e"), ("test", "only=A/B", "reducemotion=1", "device=iPhone 16e"),
+                     ("shots", "device=iPhone-SE-(3rd-generation)", "settings=-cmux-mobile-tab,settings"),
+                     ("listperf", "reps=1", "device=iPhone,17,Pro,Max"), ("energy", "device=iPhone,16e", "seconds=10")]:
+            with self.subTest(args=args):
+                # Each mode's own parsing accepted what was left (it refuses with exit 2 before the
+                # helper runs), so the step reached the simulator choice with the device named.
+                result = self.run_script(*args, FIXTURE_HELPER_STOP="1")
+                self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+                self.assertIn("fixture: stop at the simulator choice", result.stderr)
+                device = next(a for a in args if a.startswith("device="))[len("device="):]
+                self.assertEqual(json.loads(argv.read_text()), ["--with-name", "--device", device])
+
+    def test_the_log_names_the_chosen_device(self):
+        self.fake_runtime_helper()
+        result = self.run_script("build", "device=iPhone,16e", FIXTURE_BUILD_FAILURE="65")
+        self.assertIn("simulator device type: Fixture Phone (2nd generation) (fixture-device), from device=iPhone,16e",
+                      result.stdout)
+
+    def test_no_device_keeps_the_default_choice(self):
+        argv = self.fake_runtime_helper()
+        self.run_script("build", FIXTURE_HELPER_STOP="1")
+        self.assertEqual(json.loads(argv.read_text()), ["--with-name"])
+
+    def test_unknown_device_exits_3_with_the_list_before_the_build(self):
+        self.fake_runtime_helper()
+        result = self.run_script("shots", "device=nope", "settings=-cmux-mobile-tab,settings")
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+        self.assertIn("available iPhone types: iPhone 16e, iPhone 17", result.stderr)
+        self.assertFalse(any(c[0] == "xcodebuild" and c[1:] != ["-version"] for c in self.calls()))
+
+    def test_bad_simulator_options_are_refused_before_any_work(self):
+        for args, message in [(("release-build", "device=iPhone,16e"), "boots no simulator"),
+                              (("shots", "reducemotion=0", "a=b"), "only reducemotion=1"),
+                              (("build", "device=iPhone,16e", "device=iPhone,17"), "device= given twice"),
+                              (("build", "device=iPhone;rm"), "device= wants")]:
+            with self.subTest(args=args):
+                result = self.run_script(*args)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn(message, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
