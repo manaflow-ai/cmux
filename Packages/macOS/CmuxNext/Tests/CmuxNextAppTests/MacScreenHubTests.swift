@@ -545,6 +545,72 @@ struct MacScreenHubViewerTests {
         #expect(ends.items == ["s1 expired"])
     }
 
+    /// One Mac to another sat on Connecting forever (ask-a85f219369): an own-device session is
+    /// approved at once, and its ticket comes only as a push, which has no backlog. Past the wait the
+    /// viewer asks the hub for the ticket itself and streams.
+    @Test func anApprovedSessionWithNoTicketPushAsksTheHubForIt() async throws {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let asked = CallLog()
+        viewer.reattachSession = { _, id in
+            asked.items.append(id)
+            return ticket(id, scope: .full)
+        }
+        viewer.makeSignaling = { _, _ in IdleSignaling() }
+        let clock = ManualClock()
+        viewer.ticketDeadline = DemandTimer(owner: "test.mac-screen.hub-ticket-wait", clock: clock)
+        viewer.phase = .requesting(.full)
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .approved, scope: .full)), scope: .full, hub: hub)
+        #expect(viewer.phase == .approved(sessionID: "s1", scope: .full))
+        try await clock.waitForSleeper()
+        clock.advance(by: viewer.ticketWait)
+        for _ in 0..<500 where viewer.phase != .streaming(sessionID: "s1", scope: .full) { await Task.yield() }
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
+        #expect(asked.items == ["s1"])
+    }
+
+    /// The hub has no ticket either (the host went offline): the tab says so instead of Connecting.
+    @Test func anApprovedSessionTheHubCannotAdmitEndsWithItsReason() async throws {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let ends = CallLog()
+        viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        viewer.reattachSession = { _, _ in
+            throw DeviceHubError.server(status: 409, code: .hostOffline, message: "the host is not connected")
+        }
+        let clock = ManualClock()
+        viewer.ticketDeadline = DemandTimer(owner: "test.mac-screen.hub-ticket-wait", clock: clock)
+        viewer.phase = .requesting(.view)
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .approved, scope: .view)), scope: .view, hub: hub)
+        try await clock.waitForSleeper()
+        clock.advance(by: viewer.ticketWait)
+        for _ in 0..<500 where viewer.phase.isPending { await Task.yield() }
+        #expect(viewer.phase == .refused(.hostOffline, requested: .view))
+        #expect(ends.items == ["s1 failed"])
+    }
+
+    /// `/reattach` answers with the viewer ticket and also pushes it: the second copy of the ticket
+    /// for the stream already running starts nothing (a second connect would replay the ticket).
+    @Test func theReattachedTicketsPushStartsNoSecondStream() async throws {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        viewer.reattachSession = { _, id in ticket(id) }
+        viewer.makeSignaling = { _, _ in IdleSignaling() }
+        var started = 0
+        viewer.startStream = { started += 1 }
+        let clock = ManualClock()
+        viewer.ticketDeadline = DemandTimer(owner: "test.mac-screen.hub-ticket-wait", clock: clock)
+        viewer.phase = .requesting(.full)
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .approved, scope: .full)), scope: .full, hub: hub)
+        try await clock.waitForSleeper()
+        clock.advance(by: viewer.ticketWait)
+        for _ in 0..<500 where started == 0 { await Task.yield() }
+        // The push of the same ticket comes after the HTTP answer.
+        viewer.accept(ticket("s1"))
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
+        #expect(started == 1)
+    }
+
     /// Full lowered to View: the card says the access changed and offers View Only.
     @Test func accessLoweredToViewIsNotRemoved() {
         #expect(MacScreenPaneModel.hubCard(.revoked(reason: "permission_revoked"), access: .view) == .hubAccessLowered)
