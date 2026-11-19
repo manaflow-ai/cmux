@@ -13,10 +13,10 @@ struct HoverCardEntrancePlaygroundVariants {
     var all: [TabBarPlaygroundVariant] {
         [
             variant(String(localized: "tabs.playground.hoverCard.morph", defaultValue: "Grows out of the tab, settling like a drop",
-                           bundle: .localizedModule), .morph, shipped: true),
+                           bundle: .localizedModule), .morph),
             variant(String(localized: "tabs.playground.hoverCard.slide", defaultValue: "Fades in while it slides down from the tab",
                            bundle: .localizedModule), .slide),
-            variant(String(localized: "tabs.playground.hoverCard.fade", defaultValue: "Fades in where it rests", bundle: .localizedModule), .fade),
+            variant(String(localized: "tabs.playground.hoverCard.fade", defaultValue: "Fades in where it rests", bundle: .localizedModule), .fade, shipped: true),
             variant(String(localized: "tabs.playground.hoverCard.retarget.jump", defaultValue: "Switches to the next tab in place",
                            bundle: .localizedModule), .morph, retarget: .jump, shipped: true),
             variant(String(localized: "tabs.playground.hoverCard.retarget.crossfade",
