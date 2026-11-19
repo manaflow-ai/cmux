@@ -160,8 +160,9 @@ class Run:
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), storm.make_handler(self.ep))
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         base_url = f"http://127.0.0.1:{self.server.server_address[1]}"
-        app = next((p for p in Path(env["HOME"]).parent.rglob("*.app") if (p / "Contents" / "Info.plist").is_file()),
-                   None)
+        # The smoke's copy of the app under its private root (the outermost .app, not a helper inside it).
+        apps = [p for p in Path(env["HOME"]).parent.glob("**/*.app") if (p / "Contents" / "Info.plist").is_file()]
+        app = min(apps, key=lambda p: len(p.parts)) if apps else None
         app_bin = str(app / "Contents" / "Resources" / "bin") if app else ""
         claude_bin = shutil.which("claude") or ""
         path = [d for d in (os.path.dirname(claude_bin), app_bin) if d]
