@@ -19,11 +19,19 @@
 //! attached terminal should cost anything; a phase that grows with N is a
 //! bug.
 //!
+//! A view whose size differs from the terminal's (`CMUX_ATTACH_ECHO_BENCH_VIEWS`,
+//! default `80x24,120x40,60x20` against 80x24 terminals) makes the attach
+//! resize the terminal's host first: the daemon waits for the host's resize
+//! acknowledgement (`settle_hosted_viewer_size`) before it builds the
+//! replay. Each timed mismatch attach finds the terminal at 80x24: at N = 1 an
+//! untimed attach at 80x24 puts it back after each one.
+//!
 //! Off by default. Run on the fleet:
 //! `CMUX_ATTACH_ECHO_BENCH=1 cargo test -p cmux-tui --release --test relaunch_attach_echo_bench -- --ignored --nocapture`
 //! Knobs: `CMUX_ATTACH_ECHO_BENCH_SIZES` (default `1,120`),
 //! `CMUX_ATTACH_ECHO_BENCH_REPS` (default 12), `CMUX_ATTACH_ECHO_BENCH_SHELLS`
-//! (`sh,bash-norc,bash-rc`), `CMUX_ATTACH_ECHO_BENCH_MODES` (`bytes,snapshot`).
+//! (`sh,bash-norc,bash-rc`), `CMUX_ATTACH_ECHO_BENCH_MODES` (`bytes,snapshot`),
+//! `CMUX_ATTACH_ECHO_BENCH_VIEWS` (`COLSxROWS` list).
 //! Each table row prints medians and p90 in ms; `ATTACH-ECHO` lines carry the
 //! same numbers for scripts.
 
@@ -511,13 +519,21 @@ struct Phases {
     /// `echo` minus `reply`: the key's own round trip once attached.
     key_to_echo: f64,
     initial_kb: f64,
+    /// The grid the initial `vt-state` was built at (0 when not a `vt-state`).
+    replay_cols: u64,
+    replay_rows: u64,
 }
 
 fn ms(from: Instant, to: Instant) -> f64 {
     to.duration_since(from).as_secs_f64() * 1000.0
 }
 
-fn attach_once(daemon: &Daemon, terminal: &Terminal, snapshot: Option<u16>) -> Phases {
+fn attach_once(
+    daemon: &Daemon,
+    terminal: &Terminal,
+    snapshot: Option<u16>,
+    (cols, rows): (u16, u16),
+) -> Phases {
     let start = Instant::now();
     let mut conn = Conn::connect(&daemon.socket).unwrap();
     let connected = Instant::now();
@@ -547,7 +563,7 @@ fn attach_once(daemon: &Daemon, terminal: &Terminal, snapshot: Option<u16>) -> P
     };
     assert!(supports("attach-identity-v1"), "daemon lacks attach-identity-v1");
     let mut attach = json!({
-        "id": 3, "cmd": "attach-surface", "mode": "bytes", "cols": COLS, "rows": ROWS,
+        "id": 3, "cmd": "attach-surface", "mode": "bytes", "cols": cols, "rows": rows,
         "expected_generation": identity["generation"], "expected_terminal_id": terminal.terminal_id,
     });
     if let Some(version) = snapshot.filter(|_| supports("terminal-snapshot-history-v1")) {
@@ -557,12 +573,15 @@ fn attach_once(daemon: &Daemon, terminal: &Terminal, snapshot: Option<u16>) -> P
     conn.write_lines(&[attach]);
     let mut initial = None;
     let mut initial_bytes = 0;
+    let (mut replay_cols, mut replay_rows) = (0, 0);
     let replied = loop {
         let (at, line) = conn.next();
         let event = line.get("event").and_then(Value::as_str).unwrap_or_default();
         if initial.is_none() && matches!(event, "vt-state" | "snapshot") {
             initial = Some(at);
             initial_bytes = line.to_string().len();
+            replay_cols = line.get("cols").and_then(Value::as_u64).unwrap_or(0);
+            replay_rows = line.get("rows").and_then(Value::as_u64).unwrap_or(0);
         }
         if line.get("id").and_then(Value::as_u64) == Some(3) {
             assert_eq!(line["ok"], json!(true), "attach failed: {line}");
@@ -606,6 +625,8 @@ fn attach_once(daemon: &Daemon, terminal: &Terminal, snapshot: Option<u16>) -> P
         echo: ms(start, echoed),
         key_to_echo: ms(replied, echoed),
         initial_kb: initial_bytes as f64 / 1024.0,
+        replay_cols,
+        replay_rows,
     }
 }
 
@@ -633,10 +654,17 @@ fn relaunch_attach_echo_bench() {
         .unwrap_or(12);
     let shells = env_list("CMUX_ATTACH_ECHO_BENCH_SHELLS", "sh,bash-norc,bash-rc");
     let modes = env_list("CMUX_ATTACH_ECHO_BENCH_MODES", "bytes,snapshot");
+    let views: Vec<(u16, u16)> = env_list("CMUX_ATTACH_ECHO_BENCH_VIEWS", "80x24,120x40,60x20")
+        .iter()
+        .map(|view| {
+            let (cols, rows) = view.split_once('x').expect("a view is COLSxROWS");
+            (cols.parse().unwrap(), rows.parse().unwrap())
+        })
+        .collect();
     let version = ghostty_vt::snapshot_version();
     let mut table = String::from(
-        "| shell | N | mode | n | connect | hello | replay in | attach reply | echo | key to echo | replay KB |\n\
-         |---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|\n",
+        "| shell | N | mode | view | n | connect | hello | replay in | attach reply | echo | key to echo | replay KB |\n\
+         |---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|\n",
     );
     for kind in &shells {
         if kind.starts_with("bash") && Command::new("bash").arg("-c").arg(":").status().is_err() {
@@ -657,48 +685,78 @@ fn relaunch_attach_echo_bench() {
                     }
                     other => panic!("unknown mode {other}"),
                 };
-                // One untimed attach warms the daemon's code paths (not a terminal: at N > 1
-                // the timed attaches use others).
-                let offset = if mode == "snapshot" { reps } else { 0 };
-                attach_once(&daemon, &terminals[(offset + reps) % n], snapshot);
-                let runs: Vec<Phases> = (0..reps)
-                    .map(|i| attach_once(&daemon, &terminals[(offset + i) % n], snapshot))
-                    .collect();
-                let pick = |f: fn(&Phases) -> f64| -> Vec<f64> { runs.iter().map(f).collect() };
-                let cell = |values: Vec<f64>| {
-                    format!("{:.2} / {:.2}", percentile(&values, 0.5), percentile(&values, 0.9))
-                };
-                let columns = [
-                    cell(pick(|p| p.connect)),
-                    cell(pick(|p| p.hello)),
-                    cell(pick(|p| p.initial)),
-                    cell(pick(|p| p.reply)),
-                    cell(pick(|p| p.echo)),
-                    cell(pick(|p| p.key_to_echo)),
-                    format!("{:.1}", percentile(&pick(|p| p.initial_kb), 0.5)),
-                ];
-                table.push_str(&format!(
-                    "| {kind} | {n} | {mode} | {reps} | {} |\n",
-                    columns.join(" | ")
-                ));
-                println!(
-                    "ATTACH-ECHO shell={kind} n={n} mode={mode} reps={reps} \
-                     hello_p50={:.2} reply_p50={:.2} reply_p90={:.2} echo_p50={:.2} echo_p90={:.2} \
-                     key_to_echo_p50={:.2} key_to_echo_p90={:.2}",
-                    percentile(&pick(|p| p.hello), 0.5),
-                    percentile(&pick(|p| p.reply), 0.5),
-                    percentile(&pick(|p| p.reply), 0.9),
-                    percentile(&pick(|p| p.echo), 0.5),
-                    percentile(&pick(|p| p.echo), 0.9),
-                    percentile(&pick(|p| p.key_to_echo), 0.5),
-                    percentile(&pick(|p| p.key_to_echo), 0.9),
-                );
-                for (i, run) in runs.iter().enumerate() {
+                for (v, &view) in views.iter().enumerate() {
+                    let label = format!("{}x{}", view.0, view.1);
+                    let mismatch = view != (COLS, ROWS);
+                    // Each (mode, view) times its own terminals when N allows, so a
+                    // mismatch attach finds a terminal no view resized before.
+                    let offset = (v * modes.len() + usize::from(mode == "snapshot")) * (reps + 1);
+                    let attach = |i: usize| {
+                        let terminal = &terminals[(offset + i) % n];
+                        let phases = attach_once(&daemon, terminal, snapshot, view);
+                        if mismatch && n < (views.len() * modes.len()) * (reps + 1) {
+                            // A terminal comes again: put it back at its own size (untimed).
+                            attach_once(&daemon, terminal, snapshot, (COLS, ROWS));
+                        }
+                        phases
+                    };
+                    // One untimed attach warms the daemon's code paths.
+                    attach(reps);
+                    let runs: Vec<Phases> = (0..reps).map(attach).collect();
+                    if mode == "bytes" {
+                        for run in &runs {
+                            assert_eq!(
+                                (run.replay_cols, run.replay_rows),
+                                (u64::from(view.0), u64::from(view.1)),
+                                "the replay was not built at the view's grid"
+                            );
+                        }
+                    }
+                    let pick = |f: fn(&Phases) -> f64| -> Vec<f64> { runs.iter().map(f).collect() };
+                    let cell = |values: Vec<f64>| {
+                        format!("{:.2} / {:.2}", percentile(&values, 0.5), percentile(&values, 0.9))
+                    };
+                    let columns = [
+                        cell(pick(|p| p.connect)),
+                        cell(pick(|p| p.hello)),
+                        cell(pick(|p| p.initial)),
+                        cell(pick(|p| p.reply)),
+                        cell(pick(|p| p.echo)),
+                        cell(pick(|p| p.key_to_echo)),
+                        format!("{:.1}", percentile(&pick(|p| p.initial_kb), 0.5)),
+                    ];
+                    table.push_str(&format!(
+                        "| {kind} | {n} | {mode} | {label} | {reps} | {} |\n",
+                        columns.join(" | ")
+                    ));
                     println!(
-                        "ATTACH-ECHO-RUN shell={kind} n={n} mode={mode} i={i} connect={:.2} hello={:.2} \
-                         initial={:.2} reply={:.2} echo={:.2}",
-                        run.connect, run.hello, run.initial, run.reply, run.echo
+                        "ATTACH-ECHO shell={kind} n={n} mode={mode} view={label} reps={reps} \
+                         hello_p50={:.2} initial_p50={:.2} initial_p90={:.2} reply_p50={:.2} \
+                         reply_p90={:.2} echo_p50={:.2} echo_p90={:.2} key_to_echo_p50={:.2} \
+                         key_to_echo_p90={:.2}",
+                        percentile(&pick(|p| p.hello), 0.5),
+                        percentile(&pick(|p| p.initial), 0.5),
+                        percentile(&pick(|p| p.initial), 0.9),
+                        percentile(&pick(|p| p.reply), 0.5),
+                        percentile(&pick(|p| p.reply), 0.9),
+                        percentile(&pick(|p| p.echo), 0.5),
+                        percentile(&pick(|p| p.echo), 0.9),
+                        percentile(&pick(|p| p.key_to_echo), 0.5),
+                        percentile(&pick(|p| p.key_to_echo), 0.9),
                     );
+                    for (i, run) in runs.iter().enumerate() {
+                        println!(
+                            "ATTACH-ECHO-RUN shell={kind} n={n} mode={mode} view={label} i={i} \
+                             connect={:.2} hello={:.2} initial={:.2} reply={:.2} echo={:.2} grid={}x{}",
+                            run.connect,
+                            run.hello,
+                            run.initial,
+                            run.reply,
+                            run.echo,
+                            run.replay_cols,
+                            run.replay_rows
+                        );
+                    }
                 }
             }
         }
