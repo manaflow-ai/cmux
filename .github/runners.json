@@ -412,6 +412,10 @@
       "class": "apple-gui",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
+    "fast-checks.yml#checks-mac": {
+      "class": "macos-runtime-tests",
+      "placement_followup": "cmux-ci test --setup kernel-free asks for a Mac by name (the command may run macOS tools such as scripts/measure; the Validate request step refuses any other OS), and the portable route is the Linux checks job beside it; runs-on reads vars.CI_LIGHT_LANE_RUNNER directly (#46651), and a run no mini starts is moved by the cmux-ci client's fallback, not a placement job"
+    },
     "ios-app-store.yml#upload-and-validate": {
       "class": "apple-ios",
       "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"

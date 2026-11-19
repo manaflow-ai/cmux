@@ -449,10 +449,14 @@ jobs:
   # scratch snapshot it checks out, the runner hook refuses fork events on these minis, the token is read-only and
   # never persisted, and no secret, environment or provider credential reaches the command. The mini persists
   # (unlike the Linux job's VM), so the old .git goes before each checkout. A run that no mini starts stays queued
-  # until the cmux-ci client's fallback moves it to the build fleet, whose Linux pool may take it.
+  # until the cmux-ci client's fallback moves it to the build fleet, whose Linux pool may take it. The label is
+  # vars.CI_LIGHT_LANE_RUNNER (the light minis' side label, which ci.yml's portable placement reads too) only when
+  # it is a glaeda-side-light-* label, else glaeda-side-light-xcode-26.6: always the side-light pool, never a
+  # caller's label, and reached through a variable rather than named bare (check_no_self_hosted_fleet_runners in
+  # tests/test_ci_self_hosted_guard.sh).
   checks-mac:
     if: github.repository == 'manaflow-ai/cmux' && inputs.setup == 'kernel-free'
-    runs-on: glaeda-side-light-xcode-26.6
+    runs-on: ${{ startsWith(vars.CI_LIGHT_LANE_RUNNER, 'glaeda-side-light-') && vars.CI_LIGHT_LANE_RUNNER || 'glaeda-side-light-xcode-26.6' }}
     permissions:
       contents: read
     timeout-minutes: 195

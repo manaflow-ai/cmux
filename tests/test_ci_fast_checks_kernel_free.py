@@ -62,8 +62,13 @@ class KernelFreeMacRouteTests(unittest.TestCase):
             self.assertIn("github.repository == 'manaflow-ai/cmux'", jobs[name]["if"])
 
     def test_the_mac_job_runs_on_the_owned_side_light_pool(self) -> None:
-        # The one owned label: no caller-chosen label, variable or paid label reaches the Mac job.
-        self.assertEqual(document()["jobs"][MAC_JOB]["runs-on"], MAC_LABEL)
+        # Only the side-light pool: the light lane variable when it holds a glaeda-side-light-* label, else the
+        # same pool by name. No caller-chosen input or paid label reaches the Mac job, and the owned label is
+        # read through a repository variable, as check_no_self_hosted_fleet_runners requires.
+        self.assertEqual(
+            document()["jobs"][MAC_JOB]["runs-on"],
+            "${{ startsWith(vars.CI_LIGHT_LANE_RUNNER, 'glaeda-side-light-') && vars.CI_LIGHT_LANE_RUNNER || "
+            f"'{MAC_LABEL}' }}}}")
 
     def test_the_mac_job_holds_no_secret_or_write_token(self) -> None:
         job = document()["jobs"][MAC_JOB]

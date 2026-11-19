@@ -358,6 +358,10 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cmux-skill-contract.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-tui-sdks.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-tui-spec.yml": _POOL_READ_WHY,
+    ".github/workflows/fast-checks.yml":
+        "checks-mac runs only for a writer's cmux-ci test --setup kernel-free dispatch (no pull request, no push), on "
+        "the light minis' side label; the cmux-ci client that dispatched it waits on that run and moves one no mini "
+        "starts to the build fleet itself, so a rescue re-run would only race it, and main's copy is Linux only",
     ".github/workflows/fleet-test-compile.yml": _POOL_READ_WHY,
     ".github/workflows/gallery-health.yml": _POOL_READ_WHY,
     ".github/workflows/indexnow-tests.yml": _POOL_READ_WHY,
