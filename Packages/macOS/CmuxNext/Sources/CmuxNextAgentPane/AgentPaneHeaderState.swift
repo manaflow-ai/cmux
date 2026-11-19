@@ -53,10 +53,10 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     var reply: [String: Any] { json.foundationObject as? [String: Any] ?? [:] }
 
     /// `pullRequest` and `workspace` are always there, `null` when there is none, so the page drops what it kept.
-    var json: JSONValue {
-        ["pinned": .bool(pinned), "sideTabs": .bool(sideTabs), "lit": .array(lit.map(JSONValue.string)), "floatingChat": .bool(floatingChat),
+    var json: CmuxNextSettings.JSONValue {
+        ["pinned": .bool(pinned), "sideTabs": .bool(sideTabs), "lit": .array(lit.map(CmuxNextSettings.JSONValue.string)), "floatingChat": .bool(floatingChat),
          "inspector": .bool(sessionInfo), "headerControls": .string(headerControls.rawValue),
-         "headerMotion": .string(headerMotion.rawValue), "version": JSONValue(version),
+         "headerMotion": .string(headerMotion.rawValue), "version": CmuxNextSettings.JSONValue(version),
          "pullRequest": pullRequest?.json ?? .null, "workspace": workspace?.json ?? .null]
     }
 }
@@ -77,7 +77,7 @@ public struct AgentPaneHeaderWorkspace: Equatable, Sendable {
         self.init(title: workspace.displayName, chats: workspace.agentChatCount)
     }
 
-    var json: JSONValue { ["title": .string(title), "chats": JSONValue(chats)] }
+    var json: CmuxNextSettings.JSONValue { ["title": .string(title), "chats": CmuxNextSettings.JSONValue(chats)] }
 }
 
 extension AgentPageEvent {
