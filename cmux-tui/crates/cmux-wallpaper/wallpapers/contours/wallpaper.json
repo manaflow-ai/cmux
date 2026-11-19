@@ -1,0 +1,39 @@
+{
+  "id": "contours",
+  "name": "Contours",
+  "description": "A map of a place that is thinking: topographic contours, every 5th an index line, over a height field that swells and parts over minutes, on faintly tinted, hill-shaded paper. The pointer raises a gentle hill under it.",
+  "shader": "wallpaper.wgsl",
+  "fps": 15,
+  "scale": 0.5,
+  "interactive": true,
+  "idle_after": 20,
+  "params": [
+    { "name": "levels", "title": "Contours per unit of height", "default": 9, "min": 3, "max": 24 },
+    { "name": "line", "title": "Line width (points)", "default": 0.8, "min": 0.4, "max": 1.6 },
+    { "name": "contrast", "title": "Line contrast", "default": 0.24, "min": 0.06, "max": 0.5 },
+    { "name": "speed", "title": "Evolution speed", "default": 1.0, "min": 0, "max": 3 },
+    { "name": "hill", "title": "Pointer hill", "default": 0.7, "min": 0, "max": 1.5 },
+    { "name": "accent", "title": "Line toward accent", "default": 0.45, "min": 0, "max": 1 },
+    { "name": "tint", "title": "Paper tint", "default": 0.35, "min": 0, "max": 1 },
+    { "name": "hue", "title": "Tint hue turn (degrees)", "default": 0, "min": -180, "max": 180 }
+  ],
+  "still": { "time": 40.0, "pointer": [0.62, 0.44] },
+  "variants": [
+    {
+      "name": "Survey",
+      "accent": "#8A5A3C",
+      "params": { "levels": 9, "line": 0.8, "contrast": 0.24, "speed": 1.0, "hill": 0.7, "accent": 0.45, "tint": 0.35, "hue": 0 }
+    },
+    {
+      "name": "Night Chart",
+      "accent": "#4CC9E0",
+      "themes": ["dark"],
+      "params": { "levels": 11, "line": 0.7, "contrast": 0.3, "speed": 1.0, "hill": 0.7, "accent": 0.9, "tint": 0.9, "hue": 60 }
+    },
+    {
+      "name": "Ochre",
+      "accent": "#C68A3A",
+      "params": { "levels": 7, "line": 0.9, "contrast": 0.26, "speed": 0.8, "hill": 0.6, "accent": 0.75, "tint": 0.55, "hue": -10 }
+    }
+  ]
+}

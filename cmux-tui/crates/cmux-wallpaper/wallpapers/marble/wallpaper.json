@@ -1,0 +1,38 @@
+{
+  "id": "marble",
+  "name": "Marble",
+  "description": "Stone that breathes. A polished slab of domain-warped marble whose veins creep and re-route over minutes, each with a soft halo seen a little way into the stone; a broad sheen rests upper left and eases to the pointer.",
+  "shader": "wallpaper.wgsl",
+  "fps": 15,
+  "scale": 0.5,
+  "interactive": true,
+  "idle_after": 20,
+  "params": [
+    { "name": "palette", "title": "Stone (0 calacatta, 1 nero, 2 verde)", "default": 0, "min": 0, "max": 2 },
+    { "name": "scale", "title": "Vein scale", "default": 1.6, "min": 0.6, "max": 4 },
+    { "name": "drift", "title": "Drift", "default": 1.0, "min": 0, "max": 3 },
+    { "name": "contrast", "title": "Vein contrast", "default": 1.0, "min": 0.3, "max": 1.5 },
+    { "name": "sheen", "title": "Sheen", "default": 1.0, "min": 0, "max": 2 },
+    { "name": "warp", "title": "Warp", "default": 1.0, "min": 0.3, "max": 1.8 }
+  ],
+  "still": { "time": 20.0, "pointer": [0.3, 0.25] },
+  "variants": [
+    {
+      "name": "Calacatta",
+      "accent": "#C9A45C",
+      "params": { "palette": 0, "scale": 1.6, "drift": 1.0, "contrast": 1.0, "sheen": 1.0, "warp": 1.0 }
+    },
+    {
+      "name": "Nero",
+      "accent": "#9AA3B5",
+      "params": { "palette": 1, "scale": 1.9, "drift": 0.8, "contrast": 1.1, "sheen": 1.2, "warp": 1.2 },
+      "still": { "time": 35.0, "pointer": [0.3, 0.25] }
+    },
+    {
+      "name": "Verde",
+      "accent": "#3E9B7A",
+      "params": { "palette": 2, "scale": 2.4, "drift": 0.9, "contrast": 0.9, "sheen": 1.0, "warp": 1.4 },
+      "still": { "time": 50.0, "pointer": [0.3, 0.25] }
+    }
+  ]
+}

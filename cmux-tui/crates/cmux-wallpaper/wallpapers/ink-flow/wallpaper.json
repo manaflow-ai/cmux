@@ -1,0 +1,38 @@
+{
+  "id": "ink-flow",
+  "name": "Ink",
+  "description": "Slow liquid is the most hypnotic thing on a screen. Drops of ink bloom in still water and unfurl into filaments along a slow curl flow, sumi on paper in light, luminous pigment in dark; the pointer stirs a gentle eddy.",
+  "shader": "wallpaper.wgsl",
+  "fps": 20,
+  "scale": 0.375,
+  "interactive": true,
+  "idle_after": 20,
+  "params": [
+    { "name": "palette", "title": "Pigment (0 sumi, 1 indigo, 2 vermilion)", "default": 0, "min": 0, "max": 2 },
+    { "name": "speed", "title": "Flow speed", "default": 1.0, "min": 0, "max": 2 },
+    { "name": "density", "title": "Ink density", "default": 1.0, "min": 0.2, "max": 2 },
+    { "name": "flow_scale", "title": "Eddy scale", "default": 1.6, "min": 0.8, "max": 3 },
+    { "name": "stir", "title": "Stir", "default": 1.0, "min": 0, "max": 2 },
+    { "name": "texture", "title": "Paper texture", "default": 1.0, "min": 0, "max": 2 }
+  ],
+  "still": { "time": 31.0, "pointer": [0.6, 0.45] },
+  "variants": [
+    {
+      "name": "Sumi",
+      "accent": "#5E6470",
+      "params": { "palette": 0, "speed": 1.0, "density": 1.0, "flow_scale": 1.6, "stir": 1.0, "texture": 1.0 }
+    },
+    {
+      "name": "Indigo",
+      "accent": "#34529E",
+      "params": { "palette": 1, "speed": 0.9, "density": 1.1, "flow_scale": 1.9, "stir": 1.0, "texture": 0.8 },
+      "still": { "time": 44.0, "pointer": [0.6, 0.45] }
+    },
+    {
+      "name": "Vermilion",
+      "accent": "#E0482B",
+      "params": { "palette": 2, "speed": 0.8, "density": 0.9, "flow_scale": 1.4, "stir": 1.0, "texture": 1.2 },
+      "still": { "time": 23.0, "pointer": [0.6, 0.45] }
+    }
+  ]
+}

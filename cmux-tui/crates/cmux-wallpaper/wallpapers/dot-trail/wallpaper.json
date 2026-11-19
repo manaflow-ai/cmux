@@ -1,0 +1,38 @@
+{
+  "id": "dot-trail",
+  "name": "Comet Dust",
+  "description": "The room notices you. A fine field of dust-sized dots, almost invisible at rest; the pointer's path lights them hot at the head, cooling through the accent to a shifted afterglow, with light bleeding onto the paper and a long, lingering fade.",
+  "shader": "wallpaper.wgsl",
+  "fps": 30,
+  "scale": 0.5,
+  "interactive": true,
+  "idle_after": 2.5,
+  "params": [
+    { "name": "pitch", "title": "Dot pitch (points)", "default": 8, "min": 4, "max": 20 },
+    { "name": "dot", "title": "Dot radius (points)", "default": 0.55, "min": 0.3, "max": 1.5 },
+    { "name": "radius", "title": "Trail radius (points)", "default": 30, "min": 10, "max": 90 },
+    { "name": "linger", "title": "Linger", "default": 0.2, "min": 0, "max": 0.9 },
+    { "name": "glow", "title": "Glow", "default": 1.0, "min": 0, "max": 1.6 },
+    { "name": "shift", "title": "Afterglow hue shift (degrees)", "default": -35, "min": -180, "max": 180 },
+    { "name": "contrast", "title": "Field contrast", "default": 0.09, "min": 0.02, "max": 0.3 },
+    { "name": "jitter", "title": "Jitter", "default": 0.18, "min": 0, "max": 0.25 }
+  ],
+  "still": { "time": 0.0, "pointer": [0.64, 0.42] },
+  "variants": [
+    {
+      "name": "Ember",
+      "accent": "#FF7A3D",
+      "params": { "pitch": 8, "dot": 0.55, "radius": 30, "linger": 0.2, "glow": 1.0, "shift": -35, "contrast": 0.09, "jitter": 0.18 }
+    },
+    {
+      "name": "Glacier",
+      "accent": "#8FD8FF",
+      "params": { "pitch": 7, "dot": 0.5, "radius": 36, "linger": 0.3, "glow": 0.95, "shift": 45, "contrast": 0.08, "jitter": 0.12 }
+    },
+    {
+      "name": "Aurora",
+      "accent": "#4DFFB0",
+      "params": { "pitch": 9, "dot": 0.6, "radius": 40, "linger": 0.35, "glow": 1.1, "shift": 120, "contrast": 0.08, "jitter": 0.22 }
+    }
+  ]
+}

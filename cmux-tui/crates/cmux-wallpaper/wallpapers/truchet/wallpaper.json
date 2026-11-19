@@ -1,0 +1,38 @@
+{
+  "id": "truchet",
+  "name": "Truchet",
+  "description": "A pattern that rearranges while you aren't looking: quarter-circle Truchet tiles whose arcs join into rivers; now and then a tile eases through a quarter turn, as a slow front, and a faint glow drifts through the water. The pointer adds a pool of light.",
+  "shader": "wallpaper.wgsl",
+  "fps": 20,
+  "scale": 0.75,
+  "interactive": true,
+  "idle_after": 20,
+  "params": [
+    { "name": "tile", "title": "Tile size (points)", "default": 34, "min": 16, "max": 80 },
+    { "name": "line", "title": "Line width (points)", "default": 0.8, "min": 0.3, "max": 2 },
+    { "name": "river", "title": "River half-width (tile)", "default": 0.12, "min": 0, "max": 0.25 },
+    { "name": "contrast", "title": "Line contrast", "default": 0.22, "min": 0.05, "max": 0.45 },
+    { "name": "turns", "title": "Turns per minute per 100 tiles", "default": 3, "min": 0, "max": 30 },
+    { "name": "glow", "title": "Glow", "default": 0.6, "min": 0, "max": 1.5 },
+    { "name": "accent", "title": "Line toward accent", "default": 0.2, "min": 0, "max": 1 },
+    { "name": "fill", "title": "Water fill", "default": 0.4, "min": 0, "max": 1.5 }
+  ],
+  "still": { "time": 120.0, "pointer": [0.6, 0.45] },
+  "variants": [
+    {
+      "name": "Ink",
+      "accent": "#3B4CC0",
+      "params": { "tile": 34, "line": 0.8, "river": 0.12, "contrast": 0.22, "turns": 3, "glow": 0.6, "accent": 0.2, "fill": 0.4 }
+    },
+    {
+      "name": "Brass",
+      "accent": "#C9A14A",
+      "params": { "tile": 44, "line": 0.9, "river": 0.1, "contrast": 0.24, "turns": 2.5, "glow": 0.8, "accent": 0.7, "fill": 0.5 }
+    },
+    {
+      "name": "Lagoon",
+      "accent": "#2FB3A8",
+      "params": { "tile": 28, "line": 0.7, "river": 0.15, "contrast": 0.2, "turns": 4, "glow": 1.0, "accent": 0.5, "fill": 1.0 }
+    }
+  ]
+}

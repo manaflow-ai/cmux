@@ -1,0 +1,39 @@
+{
+  "id": "coral",
+  "name": "Coral",
+  "description": "Growth: reaction-diffusion coral without a simulation. Labyrinth stripes and budding spots of one wavelength, warped organic, with a slow growth wave that fills and thins them over minutes; translucent rim-and-core shading. The pointer feeds growth.",
+  "shader": "wallpaper.wgsl",
+  "fps": 15,
+  "scale": 0.5,
+  "interactive": true,
+  "idle_after": 20,
+  "params": [
+    { "name": "wavelength", "title": "Stripe wavelength (points)", "default": 16, "min": 6, "max": 40 },
+    { "name": "contrast", "title": "Contrast", "default": 0.26, "min": 0.06, "max": 0.6 },
+    { "name": "accent", "title": "Coral toward accent", "default": 0.8, "min": 0, "max": 1 },
+    { "name": "growth", "title": "Growth cycle (minutes)", "default": 10, "min": 2, "max": 40 },
+    { "name": "warp", "title": "Warp", "default": 1.0, "min": 0, "max": 2 },
+    { "name": "speed", "title": "Speed", "default": 1.0, "min": 0, "max": 3 },
+    { "name": "tint", "title": "Paper tint", "default": 0.35, "min": 0, "max": 1 },
+    { "name": "halo", "title": "Halo", "default": 0.6, "min": 0, "max": 1.5 }
+  ],
+  "still": { "time": 150.0, "pointer": [0.6, 0.45] },
+  "variants": [
+    {
+      "name": "Reef",
+      "accent": "#E46F5A",
+      "params": { "wavelength": 16, "contrast": 0.26, "accent": 0.8, "growth": 10, "warp": 1.0, "speed": 1.0, "tint": 0.35, "halo": 0.6 }
+    },
+    {
+      "name": "Bone",
+      "accent": "#CDBF9F",
+      "params": { "wavelength": 13, "contrast": 0.16, "accent": 0.35, "growth": 14, "warp": 1.2, "speed": 0.8, "tint": 0.4, "halo": 0.4 }
+    },
+    {
+      "name": "Bioluminescent",
+      "accent": "#34E0B0",
+      "themes": ["dark"],
+      "params": { "wavelength": 18, "contrast": 0.42, "accent": 1.0, "growth": 8, "warp": 0.9, "speed": 1.0, "tint": 0.5, "halo": 1.1 }
+    }
+  ]
+}

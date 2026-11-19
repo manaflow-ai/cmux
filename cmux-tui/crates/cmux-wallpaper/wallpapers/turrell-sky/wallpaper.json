@@ -1,0 +1,41 @@
+{
+  "id": "turrell-sky",
+  "name": "Skyspace",
+  "description": "One color, looked at long enough, becomes an event. A knife-edged aperture of luminous sky in a flat ceiling tinted by its light; the sky walks a slow dusk cycle over minutes, smooth OKLab gradients, dithered. Ganzfeld drops the frame and fills the window.",
+  "shader": "wallpaper.wgsl",
+  "fps": 15,
+  "scale": 0.5,
+  "interactive": true,
+  "idle_after": 20,
+  "params": [
+    { "name": "cycle", "title": "Cycle (minutes)", "default": 24, "min": 4, "max": 90 },
+    { "name": "aperture", "title": "Aperture size", "default": 0.62, "min": 0.3, "max": 0.9 },
+    { "name": "round", "title": "Roundness", "default": 0.35, "min": 0, "max": 1 },
+    { "name": "frame", "title": "Frame", "default": 1, "min": 0, "max": 1 },
+    { "name": "palette", "title": "Palette", "default": 0, "min": 0, "max": 2 },
+    { "name": "spill", "title": "Sky light on the frame", "default": 1.0, "min": 0, "max": 2 },
+    { "name": "edge", "title": "Edge softness", "default": 0, "min": 0, "max": 1 },
+    { "name": "vignette", "title": "Vignette", "default": 0.6, "min": 0, "max": 1.5 }
+  ],
+  "still": { "time": 350.0, "pointer": [0.5, 0.5] },
+  "variants": [
+    {
+      "name": "Dusk",
+      "accent": "#C9708A",
+      "params": { "cycle": 24, "aperture": 0.62, "round": 0.35, "frame": 1, "palette": 0, "spill": 1.0, "edge": 0, "vignette": 0.6 },
+      "still": { "time": 350.0, "pointer": [0.5, 0.5] }
+    },
+    {
+      "name": "Blue Hour",
+      "accent": "#4F6FD8",
+      "params": { "cycle": 30, "aperture": 0.7, "round": 1, "frame": 1, "palette": 1, "spill": 1.2, "edge": 0, "vignette": 0.5 },
+      "still": { "time": 500.0, "pointer": [0.5, 0.5] }
+    },
+    {
+      "name": "Ganzfeld",
+      "accent": "#A04FD0",
+      "params": { "cycle": 16, "aperture": 0.62, "round": 0.35, "frame": 0, "palette": 2, "spill": 1.0, "edge": 0, "vignette": 0.9 },
+      "still": { "time": 260.0, "pointer": [0.5, 0.5] }
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "id": "fireflies",
+  "name": "Fireflies",
+  "description": "The window is alive when your agents are. A few dozen soft motes drift on slow paths over a dusky field with low mist, glowing on and off over seconds; when agents work they brighten, stay lit and gather a little, and the nearby ones drift after the pointer and circle it.",
+  "shader": "wallpaper.wgsl",
+  "fps": 20,
+  "scale": 0.25,
+  "interactive": true,
+  "agents": true,
+  "idle_after": 20,
+  "params": [
+    { "name": "count", "title": "Motes", "default": 16, "min": 6, "max": 24 },
+    { "name": "size", "title": "Core radius (points)", "default": 3.2, "min": 1.5, "max": 8 },
+    { "name": "glow", "title": "Glow", "default": 1.0, "min": 0, "max": 2 },
+    { "name": "speed", "title": "Speed", "default": 1.0, "min": 0.2, "max": 2 },
+    { "name": "attract", "title": "Drawn to the pointer", "default": 0.45, "min": 0, "max": 0.8 },
+    { "name": "response", "title": "Agent response", "default": 1.0, "min": 0, "max": 1.5 },
+    { "name": "mist", "title": "Mist", "default": 0.5, "min": 0, "max": 1 },
+    { "name": "spread", "title": "Hue spread (degrees)", "default": 18, "min": 0, "max": 90 }
+  ],
+  "still": { "time": 30.0, "pointer": [0.62, 0.55] },
+  "variants": [
+    {
+      "name": "Meadow",
+      "accent": "#C8F060",
+      "params": { "count": 16, "size": 3.2, "glow": 1.0, "speed": 1.0, "attract": 0.45, "response": 1.0, "mist": 0.55, "spread": 18 }
+    },
+    {
+      "name": "Lantern",
+      "accent": "#FFB04A",
+      "params": { "count": 12, "size": 4.2, "glow": 1.25, "speed": 0.7, "attract": 0.5, "response": 1.0, "mist": 0.4, "spread": 12 }
+    },
+    {
+      "name": "Bioluminescent",
+      "accent": "#3CF0E0",
+      "params": { "count": 22, "size": 2.6, "glow": 1.1, "speed": 0.8, "attract": 0.4, "response": 1.2, "mist": 0.75, "spread": 40 }
+    }
+  ]
+}
