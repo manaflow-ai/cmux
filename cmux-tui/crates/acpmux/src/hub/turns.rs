@@ -1297,6 +1297,8 @@ impl Hub {
                 // Written: a notice this is went in, and what is new in the inbox may steer in
                 // behind it (`inbox.rs`).
                 self.inbox_prompt_written(session, &prompt_id);
+                // A Codex chat's stop condition becomes its goal now that a turn has its task.
+                self.codex_goal_after_prompt(session, &child, &agent_sid);
                 self.title_after_prompt(session)
             },
         )

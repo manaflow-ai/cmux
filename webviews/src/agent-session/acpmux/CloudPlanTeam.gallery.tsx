@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (a sample prompt and team names), not shipped UI.
 //
 // The pricing card (CloudStartView PlanCard): a Cloud send with no Cloud plan, the platform's refusal or the page's
-// own hold when `cloudMachine.list` says `plan.state` `none`, shows cmux NEXT Pro and Max with Subscribe each (the
+// own hold when `cloudMachine.list` says `plan.state` `none`, shows cmux NEXT Plus, Pro and Max with Subscribe each (the
 // classic Pro and Max only when a refusal names them). In a team that
 // is not the person's own it says "This team has no Cloud plan" and offers the person's own team first. Leo,
 // 2026-11-09: "i guess is team? it's kinda hard to realize tho". The looks compare where the words go; the pane
@@ -84,8 +84,13 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
   height: 260,
   variants: {
     pricing: {
-      note: "No Cloud plan (the page's hold at Send, or the platform's refusal): Cloud needs a plan, cmux NEXT Pro and cmux NEXT Max side by side with their price, the largest machine each includes and Subscribe (cmux NEXT Pro filled), then Run on This Mac and Not now.",
+      note: "No Cloud plan (the page's hold at Send, or the platform's refusal): Cloud needs a plan, cmux NEXT Plus, cmux NEXT Pro and cmux NEXT Max side by side (one under the other in a narrow pane) with their price, the largest machine each includes and Subscribe (cmux NEXT Plus, the first, filled), then Run on This Mac and Not now.",
       props: { start: noPlan, ...actions },
+      height: 460,
+    },
+    "pricing-two": {
+      note: "Before: a refusal that names only cmux NEXT Pro and cmux NEXT Max (a server from before cmux NEXT Plus), cmux NEXT Pro filled.",
+      props: { start: { ...noPlan, plans: ["next_pro", "next_max"] }, ...actions },
       height: 340,
     },
     "pricing-classic": {
@@ -132,7 +137,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
       props: { start: refused, ...actions, planTeamLook: "banner" },
     },
     "no-own-team": {
-      note: "The team menu lists no personal team (or the device is kept to one team): cmux NEXT Pro's Subscribe leads; the team is still named.",
+      note: "The team menu lists no personal team (or the device is kept to one team): the first plan's Subscribe (cmux NEXT Plus) leads; the team is still named.",
       props: { start: { ...refused, planTeam: { team: "cmux" } }, ...actions },
     },
     "long-names": {

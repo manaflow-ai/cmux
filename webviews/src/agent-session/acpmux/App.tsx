@@ -116,6 +116,7 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withCloudStartFolder, withDraftFolder } from "./newtab/draftFolder";
@@ -132,7 +133,7 @@ import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { goalHatPlace } from "./goalHat.experiment";
-import { githubFolderRepo } from "./githubRepos";
+import { githubFolderRepo, githubFolder } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -4718,6 +4719,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setChooseFolder(start.chooseFolder);
   }, []);
   const earlyNewTab = useEarlyNewTabContext(callNative, takeEarlyNewTab, markContextKnown);
+  // A context that came with no shared part while this document keeps none: asked again (newtab/sharedPart.ts).
+  const checkSharedPart = useLostSharedPart(callNative, setNewTab);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
     newTabStartGeneration.current += 1;
@@ -4853,11 +4856,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// before anything is said. Cloud is still this chat's choice: its first Send starts the chat on a
   /// Cloud machine, and the host closes this tab with the empty chat (`replacesChat`, AgentPaneHandOff).
   /// Sandboxed is not: its run's result would be this chat's, which already is one.
+  /// A model pick of another agent on the empty chat (GPT-6.1 Sol on a Claude page) opens that agent's session here
+  /// at once, and the switch stays in flight until it settles: the chat is still empty and still this one's to replace,
+  /// so Cloud stays picked through it. Before, a Send in that window went to the new local session (cmux#45774).
   const emptyLocalChat =
     freshChat &&
     Boolean(snapshot.sessionId) &&
-    snapshot.summary?.sessionId === snapshot.sessionId &&
-    snapshot.switching === undefined &&
+    (snapshot.summary?.sessionId === snapshot.sessionId || snapshot.switching !== undefined) &&
+    snapshot.switching?.phase !== "failed" &&
     sessionSelection?.state !== "pending" &&
     surface !== "quick" &&
     !snapshot.summary?.peer &&
@@ -5501,6 +5507,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     generation: newTabGeneration,
   });
   useEffect(() => {
+    // The empty chat's own first session (a model pick of another agent opened it at once, `emptyLocalChat`) is
+    // still this new chat: a Cloud start sent from it keeps its card, its held prompt and its reservation here.
+    // Dropping them hid the start and its failure, and the prompt with it (cmux#45774).
+    const shown = cloudShownView.current;
+    if (
+      shown.session === undefined &&
+      shown.generation === newTabGeneration &&
+      snapshot.sessionId !== undefined &&
+      sandbox.mode === "cloud" &&
+      emptyLocalChat
+    ) {
+      cloudShownView.current = { session: snapshot.sessionId, generation: newTabGeneration };
+      return;
+    }
     setSandboxDraftMoved(false);
     setSandboxViewing(false);
     sandboxWake.current = undefined;
@@ -7773,7 +7793,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // New Worktree while the host makes it (a git worktree add can take seconds): a line says so;
   // a newer folder pick ends it.
   /// A worktree being made, for the chat (visit) it was asked in: another fresh chat shows nothing of it.
-  const [worktreeCreating, setWorktreeCreating] = useState<false | { sessionId?: string; visit?: string }>(false);
+  /// `repo`: a GitHub repository's checkout (or clone) comes first, and the line names it.
+  const [worktreeCreating, setWorktreeCreating] = useState<
+    false | { sessionId?: string; visit?: string; repo?: string }
+  >(false);
   const worktreeCreatingHere = Boolean(
     inThisVisit(worktreeCreating, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId,
   );
@@ -7901,9 +7924,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// New Worktree (cx-lyqio.2): the new chat starts in a worktree of its folder, or says why not.
 
   /// `cwd`: the folder the worktree was asked for, which its Retry asks again.
-  const [worktreeError, setWorktreeError] = useState<{ cwd: string; sessionId?: string; visit?: string }>();
+  /// `github`: the GitHub repository picked for this chat on this Mac (githubRepos.ts), which Retry asks for again;
+  /// `message`: the host's words for why its clone failed.
+  const [worktreeError, setWorktreeError] = useState<{
+    cwd: string;
+    sessionId?: string;
+    visit?: string;
+    github?: { repo: string; candidates: string[] };
+    message?: string;
+  }>();
+  /// New Worktree, or a GitHub repository picked for a new chat on this Mac (`github`): this Mac's checkout of
+  /// it, cloned first when there is none, then the chat's worktree of that, as New Worktree makes one.
   const startInWorktree = useCallback(
-    (cwd: string) => {
+    (cwd: string, github?: { repo: string; candidates: string[] }) => {
       // A newer folder pick wins over this worktree, as between two picks; the request this one
       // replaces ends as cancelled.
       dropFolderRequest.current?.();
@@ -7920,7 +7953,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const asked = { sessionId, ...visitOf(visit) };
       const stillHere = () => inThisVisit(asked, shownSession.current, trustVisit());
       setWorktreeError(undefined);
-      setWorktreeCreating(asked);
+      setWorktreeCreating(github ? { ...asked, repo: github.repo } : asked);
       const use = (folder: string) => {
         // The person's pick: a send there makes it the New Tab default (newtab/startedProject.ts).
         pickedProject.current = folder;
@@ -7928,9 +7961,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (freshRef.current) setProjectDraft(folder);
         else void newChatInWorktree(callNative, folder, remote).catch(() => undefined);
       };
-      void newWorktree(callNative, cwd, (folder) => {
-        if (pick === folderPick.current && stillHere()) use(folder);
-      })
+      void newWorktree(
+        callNative,
+        cwd,
+        (folder) => {
+          if (pick === folderPick.current && stillHere()) use(folder);
+        },
+        github,
+      )
         .then(({ ask }) => {
           // The host asks about the worktree's folder first: the question shows as a picked folder's.
           if (ask && pick === folderPick.current) setFolderAsk({ ask, use, sessionId, ...visitOf(visit) });
@@ -7938,7 +7976,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         .catch((error: unknown) => {
           // The notice says it plainly with Retry; the host's own words go to the log.
           console.warn("agent pane: New Worktree failed", error);
-          if (pick === folderPick.current) setWorktreeError({ cwd, ...asked });
+          // A clone's failure says why (no access, offline, no free folder) in the host's own words; any other
+          // refusal reads as New Worktree's.
+          const code = (error as { code?: unknown } | null)?.code;
+          const cloneFailure = code === "github.clone_failed" || code === "github.clone_no_folder";
+          const message = github && cloneFailure ? errorMessage(error).trim() || undefined : undefined;
+          if (pick === folderPick.current)
+            setWorktreeError({ cwd, ...asked, ...(github ? { github } : {}), ...(message ? { message } : {}) });
         })
         .finally(() => {
           if (pick === folderPick.current) setWorktreeCreating(false);
@@ -8532,6 +8576,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // The early context lacks the folder the handshake filled in (seed, start folder) and, on a
         // cold page, the palette's actions whose places event came before its listener: add them.
         else if (!reconnect) setNewTab((current) => withHandshakeNewTab(current, host));
+        if (!reconnect) checkSharedPart(host.newTab);
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
@@ -9386,6 +9431,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           },
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),
+          // The catalog acpmux uses, for a host that does not serve `models.catalog`
+          // (modelCatalogHost.ts): a model the feed lists today shows without a page update.
+          "models.catalog": async ({ refresh }) => client.modelCatalog(refresh === true),
           // The picker's Refresh models: acpmux probes every agent again, then the catalog re-reads.
           "models.refresh": async () => {
             try {
@@ -10222,6 +10270,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     queryClient,
     toggleInspector,
     earlyNewTab,
+    checkSharedPart,
     restartGate,
     sandbox,
     cloudTypingPrewarm,
@@ -12593,8 +12642,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           />
         </Notice>
         {!showNewTab && folderAskView}
-        {/* The private folder's line is the folder chip's menu's (Composer `folderNote`); only the
-            host's refusal of its Choose folder… stands over the composer, with the line to retry. */}
+        {/* Only the host's refusal of the folder chip's Choose folder… stands over the composer,
+            with the line to retry. */}
         <Notice id="folder-choice" tier="error" when={folderChoiceOffered && folderError}>
           <FolderChoice error={folderError} onChoose={chooseWorkspaceFolder} />
         </Notice>
@@ -12621,7 +12670,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         {/* New Worktree: Creating worktree…, then the worktree recipe's setup in the same line
             (worktreeSetup.tsx), for the chat in that worktree, until it is dismissed. */}
         <Notice id="worktree-creating" tier="status" when={worktreeCreatingHere || worktreeSetupHere}>
-          <WorktreeSetupNotice callNative={callNative} folder={worktreeSetupFolder} creating={worktreeCreatingHere} />
+          <WorktreeSetupNotice
+            callNative={callNative}
+            folder={worktreeSetupFolder}
+            creating={worktreeCreatingHere}
+            {...(worktreeCreating && worktreeCreating.repo ? { cloning: worktreeCreating.repo } : {})}
+          />
         </Notice>
         <Notice
           id="worktree-error"
@@ -12629,7 +12683,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           when={inThisVisit(worktreeError, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId}
         >
           <WorktreeFailure
-            onRetry={() => worktreeError && startInWorktree(worktreeError.cwd)}
+            {...(worktreeError?.message ? { message: worktreeError.message } : {})}
+            onRetry={() => worktreeError && startInWorktree(worktreeError.cwd, worktreeError.github)}
             onDismiss={() => setWorktreeError(undefined)}
           />
         </Notice>
@@ -12787,12 +12842,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   (projectDraft ? cloudStartFolder(projectDraft) : composerCloudStartFolder(composerSnapshot.summary));
                 // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
                 cloudRetryFolder.current = folder;
+                const held = heldPick(composerSnapshot);
+                const shownModel = composerSnapshot.summary?.model;
+                const cloudShownAgent = {
+                  harness: held.harness ?? composerSnapshot.summary?.harness ?? healthHarness,
+                  model: held.model ?? (shownModel && shownModel !== "default" ? shownModel : undefined),
+                };
                 const started = sendToCloud(
                   text,
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   {
                     ...folder,
-                    ...heldPick(composerSnapshot),
+                    // The agent and model the composer shows, as the New Tab page's Cloud send names them
+                    // (cloudSendAgent): a pick held by a switch, else the chat's, else the picker's face. Before,
+                    // only a switch's pick went, so a page showing GPT-6.1 Sol started Claude on the machine.
+                    ...cloudSendAgent(
+                      composerSnapshot.catalog.find((entry) => entry.id === cloudShownAgent.harness)?.family,
+                      cloudShownAgent.harness ?? "",
+                      cloudShownAgent.model,
+                    ),
+                    // The Mode chip holds its pick under the chat's own harness (none on a blank page): the send
+                    // reads it there too, so a pick the chip shows is never dropped for the picker face's harness.
                     ...cloudStartModePick(composerSnapshot.summary?.harness),
                     // The picker's effort and account go with its model (cmux-tui/docs/model-connections.md).
                     ...cloudPickExtras(composerSnapshot.summary),
@@ -13182,6 +13252,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // A Cloud or SSH chat's worktree is made on its machine, beside its repository there
             // (cmuxterm-hq#7856: whatever works on a local chat works on a Cloud chat).
             onNewWorktree={freshChat && !quick ? startInWorktree : undefined}
+            // A GitHub repository picked for a new chat on this Mac: its checkout here (cloned first when
+            // there is none), then the chat's worktree of it.
+            {...(freshChat && !quick
+              ? {
+                  onGitHubHere: (repo: string, candidates: string[]) =>
+                    startInWorktree(githubFolder(repo), { repo, candidates }),
+                }
+              : {})}
             onConnect={connectMachine}
             // The floating chat has no tab to move.
             {...(quick
@@ -13217,7 +13295,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   },
                 }
               : {})}
-            {...(folderChoiceOffered ? { folderNote: t("agentHome.notice") } : {})}
             onBrowseProject={
               folderChoiceOffered
                 ? chooseWorkspaceFolder
@@ -14220,7 +14297,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     mounted: with no card it draws the last one's exit, then nothing (cardMotion.ts). */}
                 <ComputerUsePreviewCard
                   preview={previewShown ? computerUsePreview : null}
-                  onOpen={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "open" }))}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
                 />
                 {underHeader.watching && snapshot.summary?.watching && !snapshot.liveTakeOver && (
