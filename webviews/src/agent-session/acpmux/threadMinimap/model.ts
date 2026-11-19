@@ -8,6 +8,7 @@ import { rowsDelta } from "../conversation/rowsDelta";
 import { inboxCounts } from "../conversation/inboxNotice";
 import { MOTION_MS } from "../../../motion/scale.generated";
 import type { SenderReference } from "../senderIdentity";
+import { indexKeys, keyIndexOf, keysInFront } from "./keyIndex";
 
 export type ReplySpan = { text: string; bold: boolean; code?: true };
 export type ReplyBlock = { kind: "paragraph" | "item"; spans: ReplySpan[] };
@@ -23,8 +24,11 @@ export type MinimapTurnMetadata = {
   sender?: SenderReference;
 };
 export type MinimapTurn = {
-  /// The user row's index in the transcript rows (and in the layout's tops).
-  index: number;
+  /// The user row's place in the reading's fixed numbering of the rows: its index in the transcript
+  /// rows (and the layout's tops) is `slot - base` (MinimapTurns `base`, `turnRow`). A page of older
+  /// rows lowers `base` and moves no turn, so the turns after it are the same objects. Absent for a
+  /// prompt no row holds yet (an earlier or pending one).
+  slot?: number;
   id: string;
   /// The turn's stable key (turnKey): session id and the prompt's promptId, else its row id, since
   /// every session numbers its rows `user-<seq>` and a row's `at` is not stable across snapshots.
@@ -663,6 +667,8 @@ function promptText(row: AcpmuxRow): string {
 export type MinimapTurns = {
   rows: readonly AcpmuxRow[];
   sessionId: string;
+  /// Where the turns' row numbering starts: a turn's row index is `slot - base` (`turnRow`).
+  base: number;
   turns: readonly MinimapTurn[];
   ticks: readonly MinimapTick[];
   /// Prompts indexed by the rail but not materialized in the transcript yet.
@@ -678,6 +684,10 @@ export type MinimapTurns = {
   /// The list the next changed turns are written into (the one before `turns`), never `turns`.
   spare?: MinimapTurn[];
 };
+
+/// A turn's row index in a reading whose numbering starts at `base`, or -1 for a prompt no row holds.
+export const turnRow = (base: number, turn: Pick<MinimapTurn, "slot">): number =>
+  turn.slot === undefined ? -1 : turn.slot - base;
 
 /// For a list the next turns are written into, the list whose first `same` turns it holds.
 const agreed = new WeakMap<readonly MinimapTurn[], { list: readonly MinimapTurn[]; same: number }>();
@@ -718,10 +728,11 @@ export function minimapTurns(
   const reuse = prior
     ? {
         ...prior,
-        turns: prior.loadedTurns ?? prior.turns.filter((turn) => turn.index >= 0),
-        ticks: prior.loadedTicks ?? prior.ticks.filter((_, index) => prior.turns[index]?.index >= 0),
+        turns: prior.loadedTurns ?? prior.turns.filter((turn) => turn.slot !== undefined),
+        ticks: prior.loadedTicks ?? prior.ticks.filter((_, index) => prior.turns[index]?.slot !== undefined),
       }
     : undefined;
+  const was = reuse?.base ?? 0;
   let from = 0;
   if (reuse && change && change.base === reuse.rows && change.rows === rows) from = change.from;
   else if (reuse) while (from < rows.length && from < reuse.rows.length && rows[from] === reuse.rows[from]) from += 1;
@@ -734,7 +745,7 @@ export function minimapTurns(
     let high = reuse.turns.length;
     while (low < high) {
       const middle = (low + high) >>> 1;
-      if (reuse.turns[middle]!.index < from) low = middle + 1;
+      if (reuse.turns[middle]!.slot! - was < from) low = middle + 1;
       else high = middle;
     }
     keep = Math.max(0, Math.min(reuse.turns.length - 1, low - 1));
@@ -745,10 +756,12 @@ export function minimapTurns(
   let userIndex = 0;
   let reply: AcpmuxRow | undefined;
   let details: CardState | undefined;
+  /// The numbering of this reading's rows: the last reading's, less the rows a page put above them.
+  let base = was;
   const close = () => {
     if (!user) return;
     const kept = turnsByPrompt.get(user);
-    const same = kept && kept.sessionId === sessionId && kept.turn.index === userIndex;
+    const same = kept && kept.sessionId === sessionId && kept.turn.slot === userIndex + base;
     const nextMetadata = details?.metadata;
     const sameReply =
       same &&
@@ -762,7 +775,7 @@ export function minimapTurns(
       tail.push(kept.turn);
     } else {
       const turn: MinimapTurn = {
-        index: userIndex,
+        slot: userIndex + base,
         id: user.id,
         key: turnKey(sessionId, user),
         // Keep explicit prompt line breaks for the hover card; its CSS clamps the title without
@@ -781,10 +794,12 @@ export function minimapTurns(
     details = undefined;
   };
   // A page of older history above the rows (or rows taken from their head): the turns from the first
-  // one that starts after it are the last reading's, moved by the rows it added, and only the rows
-  // above that turn's prompt are read (rowsDelta.ts: the rows after the page are the same objects).
-  const head = reuse && !whole && from === 0 ? keptAfterHead(reuse.turns, reuse.rows, rows) : undefined;
-  const start = keep < (reuse?.turns.length ?? 0) ? reuse!.turns[keep]!.index : 0;
+  // one that starts after it are the last reading's, the same objects, and only the rows above that
+  // turn's prompt are read (rowsDelta.ts: the rows after the page are the same objects). The page
+  // moves the numbering's start (`base`), not the turns.
+  const head = reuse && !whole && from === 0 ? keptAfterHead(reuse.turns, reuse.rows, rows, was) : undefined;
+  if (head) base = was - head.by;
+  const start = keep < (reuse?.turns.length ?? 0) ? reuse!.turns[keep]!.slot! - was : 0;
   const stop = head ? head.at : rows.length;
   for (let index = head ? 0 : reuse && keep > 0 ? start : 0; index < stop; index += 1) {
     const row = rows[index]!;
@@ -835,7 +850,7 @@ export function minimapTurns(
   // two last differed, so a streamed token whose reply preview is still filling writes the live turn
   // alone, not a copy of every turn (#24058 review round 5), and `previous` stays the committed rows'
   // (round 6). A dropped render wrote only the spare, and its agreement says how far it still holds.
-  // The indexed prompts older than the held rows go first, as turns with no row (index -1), so the
+  // The indexed prompts older than the held rows go first, as turns with no row (no slot), so the
   // rail lays out every turn from the first frame. The combined list is a new array whenever the
   // earlier or the loaded turns change, never one a committed result still holds: the loaded turns'
   // own lists stay `spare`'s alone. With no earlier prompts the loaded lists are the result's.
@@ -844,21 +859,20 @@ export function minimapTurns(
     loadedTicks: readonly MinimapTick[],
     spare?: MinimapTurn[],
   ): MinimapTurns => {
-    const base = { rows, sessionId, loadedTurns, loadedTicks, ...(spare ? { spare } : {}) };
+    const result = { rows, sessionId, base, loadedTurns, loadedTicks, ...(spare ? { spare } : {}) };
     // The prompts the count names that neither the rows nor the index hold yet. They draw as resting
     // ticks above the held ones, so the rail has its final length and every tick its final row on the
     // first frame; the index or a page then names them in place (Leo, 2026-11-03: "mostly i just
     // don't like it when the thing shifts and whatnot trying to center itself").
     const pending = Math.max(0, promptCount - earlierRows.length - loadedTurns.length);
     if (!earlierRows.length)
-      return { ...base, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0, pendingCount: pending };
+      return { ...result, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0, pendingCount: pending };
     const sameEarlier = prior?.earlierRows === earlierRows && prior.earlierTurns !== undefined;
     if (sameEarlier && prior!.loadedTurns === loadedTurns && prior!.loadedTicks === loadedTicks)
-      return { ...prior!, ...base, pendingCount: pending };
+      return { ...prior!, ...result, pendingCount: pending };
     const earlier = sameEarlier
       ? prior!.earlierTurns!
       : earlierRows.map((row): MinimapTurn => ({
-          index: -1,
           id: row.id,
           key: turnKey(sessionId, row),
           prompt: promptText(row),
@@ -867,7 +881,7 @@ export function minimapTurns(
         }));
     const turns = [...earlier, ...loadedTurns];
     return {
-      ...base,
+      ...result,
       turns,
       // A token streaming into a reply leaves the prompts, and so the ticks, as they were.
       ticks: sameEarlier && prior!.loadedTicks === loadedTicks ? prior!.ticks : ticksOf(turns, prior?.ticks),
@@ -879,18 +893,28 @@ export function minimapTurns(
   };
   if (head) {
     if (!headHolds) return minimapTurns(rows, sessionId, previous, undefined, earlierRows, promptCount, true);
-    const list = [...tail, ...movedTurns(reuse!.turns, head.first, head.by, rows)];
-    return withEarlier(list, ticksOf(list, oldTicks));
+    // The page's turns, then the last reading's from the first one after the page: the same objects,
+    // put behind the page's in one copy of the list, and the same ticks behind the page's (pageTicks).
+    const kept = reuse!.turns;
+    const list = tail.concat(kept.slice(head.first));
+    notePage(list, tail.length, kept, head.first);
+    return withEarlier(list, pageTicks(tail, oldTicks!, head.first));
   }
   if (!old) {
     const loaded = ticksOf(tail, oldTicks);
     return withEarlier(tail, loaded);
   }
   if (sameTurns) return withEarlier(old, sameTicks ? oldTicks! : ticksOf(old, oldTicks), reuse!.spare);
-  const list = reuse!.spare ?? [];
+  let list = reuse!.spare ?? [];
   const agreement = agreed.get(list);
-  for (let at = agreement?.list === old ? Math.min(agreement.same, keep) : 0; at < keep; at += 1) list[at] = old[at]!;
-  list.length = keep;
+  const agrees = agreement?.list === old ? Math.min(agreement.same, keep) : 0;
+  // A spare that agrees with none of `old` (the first token after a page, whose list was a new one)
+  // is a new copy of `old`'s kept turns, made in one native copy, not a walk over every turn.
+  if (agrees === 0) list = old.slice(0, keep);
+  else {
+    for (let at = agrees; at < keep; at += 1) list[at] = old[at]!;
+    list.length = keep;
+  }
   for (const turn of tail) list.push(turn);
   agreed.set(list, { list: old, same: keep });
   agreed.set(old, { list, same: keep });
@@ -901,51 +925,70 @@ export function minimapTurns(
 /// Where the last reading's turns go on after a page of older history above its rows (or rows taken
 /// from their head): `first`, its first turn whose prompt is after the rows that changed, and every
 /// one after it, are the same turns `by` rows later, from row `at` of `rows` on. O(log turns).
+/// `base` is the last reading's.
 function keptAfterHead(
   turns: readonly MinimapTurn[],
-  base: readonly AcpmuxRow[],
+  rowsBefore: readonly AcpmuxRow[],
   rows: readonly AcpmuxRow[],
+  base: number,
 ): { first: number; at: number; by: number } | undefined {
-  if (!base.length || base === rows) return undefined;
-  const delta = rowsDelta(base, rows);
-  if (delta.from !== 0 || delta.baseEnd >= base.length) return undefined;
+  if (!rowsBefore.length || rowsBefore === rows) return undefined;
+  const delta = rowsDelta(rowsBefore, rows);
+  if (delta.from !== 0 || delta.baseEnd >= rowsBefore.length) return undefined;
   let low = 0;
   let high = turns.length;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if (turns[middle]!.index < delta.baseEnd) low = middle + 1;
+    if (turns[middle]!.slot! - base < delta.baseEnd) low = middle + 1;
     else high = middle;
   }
   if (low >= turns.length) return undefined;
   const by = delta.end - delta.baseEnd;
-  return { first: low, at: turns[low]!.index + by, by };
+  return { first: low, at: turns[low]!.slot! - base + by, by };
 }
 
-/// `turns` from `first` on, each `by` rows later (the same turn where `by` is 0), with what each
-/// turn's prompt and reply say of it (`turnsByPrompt`, `replyRows`) moved to it.
-function movedTurns(
-  turns: readonly MinimapTurn[],
-  first: number,
-  by: number,
-  rows: readonly AcpmuxRow[],
-): MinimapTurn[] {
-  const out: MinimapTurn[] = [];
-  for (let at = first; at < turns.length; at += 1) {
-    const turn = turns[at]!;
-    if (by === 0) {
-      out.push(turn);
-      continue;
+/// A rail list that is a page's items followed by the last list's from `from` on: its first `front`
+/// items are the page's, the rest `kept`'s own (by reference). Set by the page path (minimapTurns)
+/// for its turns and ticks, so the passes over them (foldIncoming, hasIncoming, the key maps) read
+/// the page alone and reuse what they read of `kept`.
+type Page<T> = { kept: readonly T[]; front: number; from: number };
+const pages = new WeakMap<readonly object[], Page<object>>();
+function notePage<T extends object>(list: readonly T[], front: number, kept: readonly T[], from: number): void {
+  pages.set(list, { kept, front, from });
+}
+const pageOf = <T extends object>(list: readonly T[]) => pages.get(list) as Page<T> | undefined;
+
+/// The ticks of a page's turns (`turns`) put in front of `previous` from `first` on, as ticksOf
+/// would make them for the whole list, reading only the page: the ticks after it keep their keys and
+/// stay the same objects (a tick keeps the key it had), and a page tick takes its own tick's key from
+/// before (the rows the page read again), else its turn's key unless a tick has it, else its repeat key.
+function pageTicks(turns: readonly MinimapTurn[], previous: readonly MinimapTick[], first: number): MinimapTick[] {
+  const had = new Map<string, MinimapTick>();
+  for (let at = 0; at < first; at += 1) had.set(previous[at]!.id, previous[at]!);
+  const taken = new Set<string>();
+  const isTaken = (key: string) => taken.has(key) || (keyIndexOf(previous, key) ?? -1) >= first;
+  const keys: (string | undefined)[] = [];
+  turns.forEach((turn, index) => {
+    const key = had.get(turn.id)?.key;
+    if (key === undefined || (key !== turn.key && key !== repeatKey(turn)) || isTaken(key)) return;
+    keys[index] = key;
+    taken.add(key);
+  });
+  const front = turns.map((turn, index): MinimapTick => {
+    let key = keys[index];
+    if (key === undefined) {
+      key = isTaken(turn.key) ? repeatKey(turn) : turn.key;
+      taken.add(key);
     }
-    const moved = { ...turn, index: turn.index + by };
-    const reply = replyRows.get(turn);
-    if (reply) replyRows.set(moved, reply);
-    const row = rows[moved.index]!;
-    const prompt = row.foldedPrompt ?? row;
-    const kept = turnsByPrompt.get(prompt);
-    if (kept?.turn === turn) turnsByPrompt.set(prompt, { ...kept, turn: moved });
-    out.push(moved);
-  }
-  return out;
+    const tick = had.get(turn.id);
+    return tick && tick.key === key && tick.prompt === turn.prompt && tick.from === turn.from
+      ? tick
+      : { key, id: turn.id, prompt: turn.prompt, ...(turn.from !== undefined ? { from: turn.from } : {}) };
+  });
+  const ticks = front.concat(previous.slice(first));
+  notePage(ticks, front.length, previous, first);
+  keysInFront(ticks, front.length, previous);
+  return ticks;
 }
 
 /// Whether `row` is the open fold's copy of `user`, the prompt the "Worked for" at `rows[at]` folds:
@@ -1011,7 +1054,7 @@ function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[]
     keys[index] = key;
     taken.add(key);
   });
-  return turns.map((turn, index) => {
+  const ticks = turns.map((turn, index) => {
     let key = keys[index];
     if (key === undefined) {
       key = taken.has(turn.key) ? repeatKey(turn) : turn.key;
@@ -1022,6 +1065,9 @@ function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[]
       ? tick
       : { key, id: turn.id, prompt: turn.prompt, ...(turn.from !== undefined ? { from: turn.from } : {}) };
   });
+  // Every tick's place by key, while this pass walks them anyway: a page then adds only its own.
+  indexKeys(ticks);
+  return ticks;
 }
 
 /// The turn the reader is in: the last prompt above a third of the way down the viewport.
@@ -1035,8 +1081,11 @@ export const rowTopsOf =
   (index) =>
     index >= 0 && index < geometry.count ? geometry.topAt(index) : undefined;
 
+/// The rail's turns as the band reads them: how many, and each one's prompt row (RailRows `rowAt`).
+export type TurnRows = { readonly length: number; rowAt(index: number): number };
+
 export function currentTurn(
-  turns: Pick<ReadonlyArray<MinimapTurn>, "length" | "at">,
+  turns: TurnRows,
   tops: RowTops,
   scrollTop: number,
   viewportHeight: number,
@@ -1049,7 +1098,7 @@ export function currentTurn(
   low = firstLoaded;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if ((tops(turns.at(middle)!.index) ?? 0) <= anchor) low = middle + 1;
+    if ((tops(turns.rowAt(middle)) ?? 0) <= anchor) low = middle + 1;
     else high = middle;
   }
   return Math.max(firstLoaded, low - 1);
@@ -1063,7 +1112,7 @@ export function currentTurn(
 /// layout top, so that is a layout top at or above `scrollTop + LANDING_OFFSET`. At the bottom a turn
 /// counts once its bubble is on screen: our turns have no block above the bubble to show first.
 export function visibleTurns(
-  turns: Pick<ReadonlyArray<MinimapTurn>, "length" | "at">,
+  turns: TurnRows,
   tops: RowTops,
   totalHeight: number,
   scrollTop: number,
@@ -1074,14 +1123,14 @@ export function visibleTurns(
   const bottom = scrollTop + viewportHeight - THREAD_PADDING_TOP;
   const first = currentTurn(turns, tops, scrollTop + LANDING_OFFSET, 0, firstLoaded);
   let last = first;
-  while (last + 1 < turns.length && (tops(turns.at(last + 1)!.index) ?? totalHeight) < bottom) last += 1;
+  while (last + 1 < turns.length && (tops(turns.rowAt(last + 1)) ?? totalHeight) < bottom) last += 1;
   return { first, last };
 }
 
-/// The scroll offset that lands a turn's prompt row (its images, else its bubble) LANDING_OFFSET
+/// The scroll offset that lands a turn's prompt row `row` (its images, else its bubble) LANDING_OFFSET
 /// below the viewport's top.
-export function turnScrollTop(turn: MinimapTurn, tops: RowTops): number {
-  return Math.max(0, THREAD_PADDING_TOP + (tops(turn.index) ?? 0) - LANDING_OFFSET);
+export function turnScrollTop(row: number, tops: RowTops): number {
+  return Math.max(0, THREAD_PADDING_TOP + (tops(row) ?? 0) - LANDING_OFFSET);
 }
 
 /// The start of a reply as blocks with bold/code spans; fenced code, heading marks and link targets drop.
@@ -1172,23 +1221,58 @@ function inlineSpans(text: string): ReplySpan[] {
 /// Built per change of `ticks` (a new prompt, older turns), never per streamed token: the run
 /// boundaries are read from the ticks, and with no run to fold both lists are returned as they are.
 /// With runs, a token rebuilds the turn list (one entry per tick) and reuses each folded turn while
-/// its members are the same objects.
+/// its members are the same objects. A page of older turns (minimapTurns' page path) folds only its
+/// own turns and the run it may join: past the first tick of the last reading that is no other chat's
+/// message, the fold is the last one's, the same list from there on.
 export function foldIncoming(
   turns: readonly MinimapTurn[],
   ticks: readonly MinimapTick[],
   loadedStart = 0,
 ): { turns: readonly MinimapTurn[]; ticks: readonly MinimapTick[] } {
   const runs = incomingRuns(ticks, loadedStart);
-  if (!runs.ranges.length) return { turns, ticks };
+  if (runs.ticks === ticks) return { turns, ticks };
+  const held = foldedLists.get(turns);
+  if (held?.runs === runs) return held.folded;
+  const folded = { turns: pageFoldedTurns(turns, runs) ?? foldTurns(turns, rangesOf(ticks, runs)), ticks: runs.ticks };
+  foldedLists.set(turns, { runs, folded });
+  return folded;
+}
+
+/// The folded turns of `turns` over `ranges` (runs of its ticks, in order).
+function foldTurns(turns: readonly MinimapTurn[], ranges: readonly (readonly [number, number])[], end = turns.length) {
   const folded: MinimapTurn[] = [];
   let at = 0;
-  for (const [start, end] of runs.ranges) {
+  for (const [start, stop] of ranges) {
     for (; at < start; at += 1) folded.push(turns[at]!);
-    folded.push(foldedTurn(turns.slice(start, end)));
-    at = end;
+    folded.push(foldedTurn(turns.slice(start, stop)));
+    at = stop;
   }
-  for (; at < turns.length; at += 1) folded.push(turns[at]!);
-  return { turns: folded, ticks: runs.ticks };
+  for (; at < end; at += 1) folded.push(turns[at]!);
+  return folded;
+}
+
+/// The last folded lists made from a turn list, and the ticks' runs they were made with.
+const foldedLists = new WeakMap<
+  readonly MinimapTurn[],
+  { runs: Runs; folded: { turns: readonly MinimapTurn[]; ticks: readonly MinimapTick[] } }
+>();
+
+/// A page's folded turns: its own folded, then the last reading's from the same place its ticks
+/// took theirs (`Runs.page`). Undefined when the turns are not that page's or the last fold is gone.
+function pageFoldedTurns(turns: readonly MinimapTurn[], runs: Runs): MinimapTurn[] | undefined {
+  const page = runs.page;
+  const turnsPage = pageOf(turns);
+  const tickPage = page && pageOf(page.ticks);
+  if (!page || !turnsPage || !tickPage || turnsPage.front !== tickPage.front || turnsPage.from !== tickPage.from)
+    return undefined;
+  const before =
+    page.before.ticks === tickPage.kept
+      ? turnsPage.kept
+      : foldedLists.get(turnsPage.kept)?.runs === page.before
+        ? foldedLists.get(turnsPage.kept)!.folded.turns
+        : undefined;
+  if (!before) return undefined;
+  return foldTurns(turns, page.ranges, page.end).concat(before.slice(page.at));
 }
 
 /// Whose prompts the rail shows, picked from its right-click menu (Leo, 2026-11-07: "when you
@@ -1219,42 +1303,115 @@ export function filterTurns(
   return { turns: keptTurns, ticks: keptTicks, loadedStart: start };
 }
 
-const runsByTicks = new WeakMap<
-  readonly MinimapTick[],
-  { loadedStart: number; ranges: [number, number][]; ticks: readonly MinimapTick[] }
->();
+/// The runs of a tick list and its folded ticks (`ticks` itself when nothing folds). `ranges` (each
+/// run's start and end) is read lazily for a page's list, whose folded ticks came from its own runs
+/// (`page.ranges`, up to `page.end`) and the last list's from `page.at` of its folded ticks on.
+type Runs = {
+  loadedStart: number;
+  ticks: readonly MinimapTick[];
+  ranges?: [number, number][];
+  page?: {
+    ticks: readonly MinimapTick[];
+    before: Runs;
+    ranges: [number, number][];
+    end: number;
+    at: number;
+  };
+};
+const runsByTicks = new WeakMap<readonly MinimapTick[], Runs>();
 
 /// The runs of two or more held ticks with a sender next to each other, and the folded ticks.
-function incomingRuns(ticks: readonly MinimapTick[], loadedStart: number) {
+function incomingRuns(ticks: readonly MinimapTick[], loadedStart: number): Runs {
   const held = runsByTicks.get(ticks);
   if (held && held.loadedStart === loadedStart) return held;
-  const ranges: [number, number][] = [];
-  for (let start = loadedStart; start < ticks.length;) {
-    if (ticks[start]!.from === undefined) {
-      start += 1;
-      continue;
-    }
-    let end = start + 1;
-    while (end < ticks.length && ticks[end]!.from !== undefined) end += 1;
-    if (end - start > 1) ranges.push([start, end]);
-    start = end;
-  }
-  let folded: readonly MinimapTick[] = ticks;
-  if (ranges.length) {
-    const list: MinimapTick[] = [];
-    let at = 0;
-    for (const [start, end] of ranges) {
-      for (; at < start; at += 1) list.push(ticks[at]!);
-      const run = ticks.slice(start, end);
-      list.push({ ...run[0]!, from: senders(run), members: run.map((tick) => tick.id) });
-      at = end;
-    }
-    for (; at < ticks.length; at += 1) list.push(ticks[at]!);
-    folded = list;
-  }
-  const result = { loadedStart, ranges, ticks: folded };
+  const result = (loadedStart === 0 && pageRuns(ticks)) || allRuns(ticks, loadedStart);
   runsByTicks.set(ticks, result);
   return result;
+}
+
+const rangesOf = (ticks: readonly MinimapTick[], runs: Runs) =>
+  (runs.ranges ??= runsIn(ticks, runs.loadedStart, ticks.length));
+
+/// The runs in `ticks` from `start` to `end`, which no run crosses.
+function runsIn(ticks: readonly MinimapTick[], start: number, end: number): [number, number][] {
+  const ranges: [number, number][] = [];
+  for (let at = start; at < end;) {
+    if (ticks[at]!.from === undefined) {
+      at += 1;
+      continue;
+    }
+    let stop = at + 1;
+    while (stop < end && ticks[stop]!.from !== undefined) stop += 1;
+    if (stop - at > 1) ranges.push([at, stop]);
+    at = stop;
+  }
+  return ranges;
+}
+
+/// The folded ticks of `ticks` up to `end` over `ranges`.
+function foldTicks(ticks: readonly MinimapTick[], ranges: readonly (readonly [number, number])[], end: number) {
+  const list: MinimapTick[] = [];
+  let at = 0;
+  for (const [start, stop] of ranges) {
+    for (; at < start; at += 1) list.push(ticks[at]!);
+    const run = ticks.slice(start, stop);
+    list.push({ ...run[0]!, from: senders(run), members: run.map((tick) => tick.id) });
+    at = stop;
+  }
+  for (; at < end; at += 1) list.push(ticks[at]!);
+  return list;
+}
+
+function allRuns(ticks: readonly MinimapTick[], loadedStart: number): Runs {
+  const ranges = runsIn(ticks, loadedStart, ticks.length);
+  return { loadedStart, ranges, ticks: ranges.length ? foldTicks(ticks, ranges, ticks.length) : ticks };
+}
+
+/// A page's runs (minimapTurns' page path), reading the page alone: the last list's ticks from its
+/// first one past the page that is no other chat's message (`kept[q]`) fold as they did, so the
+/// folded ticks from there are the last fold's. Only the page and the run it joins are read.
+function pageRuns(ticks: readonly MinimapTick[]): Runs | undefined {
+  const page = pageOf(ticks);
+  const before = page && runsByTicks.get(page.kept);
+  if (!page || !before || before.loadedStart !== 0) return undefined;
+  const kept = page.kept;
+  let q = page.from;
+  while (q < kept.length && kept[q]!.from !== undefined) q += 1;
+  if (q >= kept.length) return undefined;
+  const at = before.ticks === kept ? q : keyIndexOf(before.ticks, kept[q]!.key);
+  if (at === undefined || before.ticks[at] !== kept[q]) return undefined;
+  const end = page.front + (q - page.from);
+  const ranges = runsIn(ticks, 0, end);
+  const head = ranges.length ? foldTicks(ticks, ranges, end) : ticks.slice(0, end);
+  // Nothing folded on either side of the page's end: the folded ticks are the ticks.
+  if (!ranges.length && before.ticks === kept) return { loadedStart: 0, ticks, ranges: [] };
+  const folded = head.concat(before.ticks.slice(at));
+  if (folded.length === ticks.length) return { loadedStart: 0, ticks, ranges: [] };
+  keysInFront(folded, head.length, before.ticks);
+  return { loadedStart: 0, ticks: folded, page: { ticks, before, ranges, end, at } };
+}
+
+/// Whether any of `ticks` is another chat's message (the rail menu's filter): a page counts its own.
+export function hasIncoming(ticks: readonly MinimapTick[]): boolean {
+  return incomingCount(ticks) > 0;
+}
+const incomingCounts = new WeakMap<readonly MinimapTick[], number>();
+function incomingCount(ticks: readonly MinimapTick[]): number {
+  let count = incomingCounts.get(ticks);
+  if (count !== undefined) return count;
+  const page = pageOf(ticks);
+  const kept = page && incomingCounts.get(page.kept);
+  const counted = (from: number, to: number, list: readonly MinimapTick[]) => {
+    let sum = 0;
+    for (let at = from; at < to; at += 1) if (list[at]!.from !== undefined) sum += 1;
+    return sum;
+  };
+  count =
+    page && kept !== undefined
+      ? counted(0, page.front, ticks) + kept - counted(0, page.from, page.kept)
+      : counted(0, ticks.length, ticks);
+  incomingCounts.set(ticks, count);
+  return count;
 }
 
 /// The senders of a run, each once, in the order they first wrote.

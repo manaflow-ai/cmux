@@ -71,6 +71,7 @@ import {
   turnScrollTop,
   visibleTurns,
   foldIncoming,
+  hasIncoming,
   type MinimapTick as MinimapTickRow,
   type MinimapTurn,
   type MinimapTurns,
@@ -240,7 +241,7 @@ export function ThreadMinimap({
   }, [read]);
   // Read once per reading, not per render: a scroll frame renders the rail with the same turns, and
   // a filter over a long chat's turns on each one grew the frame with the chat.
-  const loadedTurns = useMemo(() => read.loadedTurns ?? read.turns.filter((turn) => turn.index >= 0), [read]);
+  const loadedTurns = useMemo(() => read.loadedTurns ?? read.turns.filter((turn) => turn.slot !== undefined), [read]);
   /// Whose prompts the rail shows (model.ts `RailFilter`), picked from its right-click menu.
   const [filter, setFilter] = useState<RailFilter>("all");
   // A run of other chats' messages next to each other draws as one tick (model.ts `foldIncoming`):
@@ -258,7 +259,10 @@ export function ThreadMinimap({
   // Prompts known only by count have no sender yet: a filtered rail draws none of them.
   const pendingCount = named.filtered ? 0 : (read.pendingCount ?? 0);
   const loadedStart = named.loadedStart + pendingCount;
-  const turns = useMemo(() => turnRows(named.turns, pendingCount, sessionId), [named.turns, pendingCount, sessionId]);
+  const turns = useMemo(
+    () => turnRows(named.turns, pendingCount, sessionId, read.base),
+    [named.turns, pendingCount, sessionId, read.base],
+  );
   const ticks = useMemo(() => tickRows(named.ticks, pendingCount, sessionId), [named.ticks, pendingCount, sessionId]);
   /// The row under the pointer, or the one a scrub is on.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
@@ -371,10 +375,10 @@ export function ThreadMinimap({
   /// Turn tops read from the transcript's geometry, a few turns at a time (nothing copies every row).
   const tops = useMemo(() => rowTopsOf(layoutGeometry(layout)), [layout]);
   const added = prependedBy(anchor.current, ticks);
-  const anchored = added === undefined ? undefined : turns.at(anchor.current!.index + added);
+  const anchored = added === undefined ? undefined : anchor.current!.index + added;
   const seen = domTop.current && domTop.current.sessionId === sessionId ? domTop.current.top : undefined;
-  if (anchored && seen !== undefined)
-    restoring.current = { from: seen, by: (tops(anchored.index) ?? 0) - anchor.current!.layoutTop };
+  if (anchored !== undefined && turns.at(anchored) && seen !== undefined)
+    restoring.current = { from: seen, by: (tops(turns.rowAt(anchored)) ?? 0) - anchor.current!.layoutTop };
   const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
   const top = (seen ?? scrollTop) + shift;
   const onScreen = visibleTurns(turns, tops, layout.totalHeight, top, viewportHeight, loadedStart);
@@ -429,13 +433,13 @@ export function ThreadMinimap({
   // Right-click: whose prompts it shows, then which edge it sits on. Only other agents' messages is
   // offered while the chat has one.
   // Once per tick list (a streamed token keeps it), not on every render.
-  const hasIncoming = useMemo(() => read.ticks.some((tick) => tick.from !== undefined), [read.ticks]);
+  const incoming = useMemo(() => hasIncoming(read.ticks), [read.ticks]);
   const menu: ContextMenuItem[] = [
     ...(["all", "mine", "agents"] as const).map((each) => ({
       id: `rail-filter-${each}`,
       label: t(RAIL_FILTER_LABEL[each]),
       checked: filter === each,
-      disabled: each === "agents" && !hasIncoming,
+      disabled: each === "agents" && !incoming,
       onSelect: () => setFilter(each),
     })),
     ...sideMenu.map((item, at) => (at === 0 ? { ...item, separatorBefore: true } : item)),
@@ -758,7 +762,7 @@ export function ThreadMinimap({
         advance(pending);
         return undefined;
       }
-      if (turn.index < 0) {
+      if (live.current.turns.rowAt(index) < 0) {
         const seq = Number(turn.id.slice(turn.id.indexOf("-") + 1));
         const load = loadThroughNow.current;
         if (!Number.isFinite(seq) || !load) return undefined;
@@ -775,13 +779,17 @@ export function ThreadMinimap({
         return undefined;
       }
       const targetRef: TickRef = { key: turn.key, id: turn.id };
+      const turnRowNow = live.current.turns.rowAt(index);
       // History prepended mid-ride moves the turn's index; read its top by key so the landing tracks it.
       const target = () => {
         const currentIndex = tickIndex(live.current.ticks, targetRef);
-        const currentTurn = (currentIndex >= 0 ? live.current.turns.at(currentIndex) : undefined) ?? turn;
+        const currentRow =
+          currentIndex >= 0 && live.current.turns.at(currentIndex)
+            ? live.current.turns.rowAt(currentIndex)
+            : turnRowNow;
         return physicalScrollTop(
           node,
-          Math.min(turnScrollTop(currentTurn, live.current.tops), Math.max(0, live.current.total - node.clientHeight)),
+          Math.min(turnScrollTop(currentRow, live.current.tops), Math.max(0, live.current.total - node.clientHeight)),
         );
       };
       let row = mountedRow(node, turn.id);
@@ -844,7 +852,7 @@ export function ThreadMinimap({
     // A message held only once its page loaded may have folded into a run's tick (model.ts
     // `foldIncoming`): that tick is its jump.
     const index = turns.findHeld(
-      (turn) => (turn.id === pending.id || turn.members?.includes(pending.id) === true) && turn.index >= 0,
+      (turn) => (turn.id === pending.id || turn.members?.includes(pending.id) === true) && turn.slot !== undefined,
     );
     if (index < 0) return;
     waiting.current = undefined;
@@ -855,7 +863,7 @@ export function ThreadMinimap({
     requestAnimationFrame(() => {
       if (waiting.current || !rail.current?.isConnected || live.current.sessionId !== pending.sessionId) return;
       const at = live.current.turns.findHeld(
-        (turn) => (turn.id === pending.id || turn.members?.includes(pending.id) === true) && turn.index >= 0,
+        (turn) => (turn.id === pending.id || turn.members?.includes(pending.id) === true) && turn.slot !== undefined,
       );
       if (at >= 0) jump(at, pending.how);
     });
@@ -882,18 +890,19 @@ export function ThreadMinimap({
       // at or above the view's top, forward goes to it (-1), and back has nowhere to go. Unfiltered,
       // that is only the chat's top, where the first prompt (under its date line) is the one read.
       const first = all.at(all.pendingCount);
-      const below = filtered && first !== undefined && turnScrollTop(first, tops) > top + LANDING_OFFSET;
+      const below =
+        filtered && first !== undefined && turnScrollTop(all.rowAt(all.pendingCount), tops) > top + LANDING_OFFSET;
       let reading = below ? -1 : Math.max(0, all.pendingCount - 1);
       if (stepping >= 0) reading = stepping;
       else
         for (let index = all.pendingCount; index < all.length; index += 1)
-          if (turnScrollTop(all.at(index)!, tops) <= top + 1) reading = index;
+          if (turnScrollTop(all.rowAt(index), tops) <= top + 1) reading = index;
       const start =
         reading < 0
           ? by > 0
             ? 0
             : -1
-          : by > 0 || stepping >= 0 || turnScrollTop(all.at(reading)!, tops) >= top - 1
+          : by > 0 || stepping >= 0 || turnScrollTop(all.rowAt(reading), tops) >= top - 1
             ? reading + by
             : reading;
       for (let index = start; index >= 0 && index < all.length; index += by) if (matches(index)) return index;
@@ -1008,7 +1017,7 @@ export function ThreadMinimap({
         tick: { key: ticks.at(onScreen.first)!.key, id: ticks.at(onScreen.first)!.id },
         first: { key: ticks.at(0)!.key, id: ticks.at(0)!.id },
         index: onScreen.first,
-        layoutTop: tops(first.index) ?? 0,
+        layoutTop: tops(turns.rowAt(onScreen.first)) ?? 0,
         y: railTop + onScreen.first * rowPitch - scrolled,
       };
   });
@@ -1231,6 +1240,7 @@ export function ThreadMinimap({
       <ScrollMap
         rows={rows}
         turns={loadedTurns}
+        base={read.base}
         layout={layout}
         scroller={scroller}
         viewportHeight={viewportHeight}

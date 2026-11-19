@@ -3,7 +3,7 @@
 // functions over the transcript's layout, so nothing here measures a row.
 import type { AcpmuxRow } from "../model";
 import { geometryOf, type GeometrySource } from "../conversationGeometry";
-import { THREAD_PADDING_TOP, type MinimapTurn } from "./model";
+import { THREAD_PADDING_TOP, turnRow, type MinimapTurn } from "./model";
 
 /// Space kept above and below the rail inside the transcript's viewport.
 export const MAP_MARGIN = 12;
@@ -94,6 +94,8 @@ export function mapMarks(
   turns: readonly MinimapTurn[],
   layout: GeometrySource & { readonly totalHeight: number },
   height: number,
+  /// Where the turns' row numbering starts (model.ts MinimapTurns `base`).
+  base = 0,
 ): MapMark[] {
   const marks: MapMark[] = [];
   let turn = -1;
@@ -103,7 +105,7 @@ export function mapMarks(
   const visit = (index: number, top: number) => {
     const row = rows[index]!;
     if (row.kind === "user") {
-      while (turn + 1 < turns.length && turns[turn + 1]!.index <= index) turn += 1;
+      while (turn + 1 < turns.length && turnRow(base, turns[turn + 1]!) <= index) turn += 1;
       marks.push({ kind: "user", row: index, turn, y: mapY(top, total, height) });
     } else if (row.kind === "assistant" && row.text) {
       const y = mapY(top, total, height);

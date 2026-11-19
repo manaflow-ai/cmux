@@ -9,7 +9,7 @@ import {
 } from "../src/agent-session/acpmux/conversation/transcriptRepositories";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { newReferenceScopeCache, referenceScopes } from "../src/agent-session/acpmux/conversation/bareReferences";
-import { minimapTurns, type MinimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
+import { minimapTurns, turnRow, type MinimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 import { movedHints, rowPresence, type RowPresenceHints } from "../src/agent-session/acpmux/conversation/rowPresence";
 
 const row = (id: string, text = "", kind = "assistant"): AcpmuxRow => ({ id, kind, text, version: 1, at: 0 });
@@ -258,7 +258,10 @@ describe("minimapTurns over a page above the rows", () => {
       return row(id, `reply **${id}** with \`code\``);
     });
   const plain = (read: MinimapTurns) => ({
-    turns: read.turns.map(({ index, id, key, prompt, reply, metadata }) => [index, id, key, prompt, reply, metadata]),
+    turns: read.turns.map((turn) => {
+      const { id, key, prompt, reply, metadata } = turn;
+      return [turnRow(read.base, turn), id, key, prompt, reply, metadata];
+    }),
     ticks: read.ticks.map(({ key, id, prompt }) => [key, id, prompt]),
   });
 

@@ -23,7 +23,7 @@ import { findMatches, isFindRow } from "../src/agent-session/acpmux/conversation
 import { incomingPrompt } from "../src/agent-session/acpmux/conversation/incomingMessage";
 import { inboxText } from "../src/agent-session/acpmux/conversation/inboxNotice";
 import { searchablePendingRows } from "../src/agent-session/acpmux/conversation/pendingMessages";
-import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
+import { minimapTurns, turnRow } from "../src/agent-session/acpmux/threadMinimap/model";
 
 afterEach(() => {
   globalThis.cmuxExperiments = undefined;
@@ -175,7 +175,7 @@ for (const family of ["codex", "claude"]) {
       const map = minimapTurns(rows, "chat", undefined, undefined, undefined, 2);
       expect(map.turns.map((turn) => turn.id)).toEqual(["prompt", "notice"]);
       expect(map.turns[1]!.from).toBe("build-box/nightly-watch, lane-box/ux-owner");
-      expect(rows[map.turns[1]!.index]!.kind).toBe(WORKED);
+      expect(rows[turnRow(map.base, map.turns[1]!)]!.kind).toBe(WORKED);
       expect(map.pendingCount).toBe(0);
     }
     // A turn one agent's message opened, as the prompt itself.

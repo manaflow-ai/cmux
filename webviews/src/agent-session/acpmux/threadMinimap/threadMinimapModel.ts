@@ -13,10 +13,16 @@ export type TickRef = Pick<MinimapTickRow, "key" | "id"> & Pick<Partial<MinimapT
 /// the key holds where acpmux's echo replaces this pane's row for a send (a new row, one promptId).
 export function tickIndex(ticks: readonly TickRef[] | RailRows<MinimapTickRow>, ref: TickRef, from = 0): number {
   if (ticks instanceof RailRows) {
-    const pending = ticks.keyIndex(ref.key);
-    if (pending !== undefined && pending < ticks.pendingCount && pending >= from && ticks.at(pending)!.id === ref.id)
-      return pending;
+    // The same three looks, each a lookup (keyIndex.ts), not a walk over the rows: a tick moved by
+    // older turns put above it or taken away is found in O(1), and one gone is known gone. A row id is
+    // one tick's own or one folded run's member, and a key one tick's.
+    const keyed = ticks.keyIndex(ref.key);
+    if (keyed !== undefined && keyed < ticks.pendingCount && keyed >= from && ticks.at(keyed)!.id === ref.id)
+      return keyed;
     from = Math.max(from, ticks.pendingCount);
+    const byId = ticks.idIndex(ref.id);
+    if (byId !== undefined && byId >= from) return byId;
+    return keyed !== undefined && keyed >= from ? keyed : -1;
   }
   for (let index = from; index < ticks.length; index += 1) if (ticks.at(index)!.id === ref.id) return index;
   // A tick folded into a run of other chats' messages since (model.ts `foldIncoming`) is that run's.
