@@ -12,14 +12,20 @@
 //!   daemon_ms: `daemon_at_ms - emit_us` (to the daemon's store record); behind_schedule_ms: `emit_us - due_us`.
 //! - events.lost: events the daemon never stored (`daemon_n == 0`, any source) plus agent events it stored that no
 //!   follower saw (`reader_n == 0`); events.duplicated: extra store records (`daemon_n - 1`) plus extra follower
-//!   arrivals of an agent event (`reader_n - 1`). Exact counts; each part is also reported on its own.
+//!   arrivals of an agent event (`reader_n - 1`). Exact counts; each part is also reported on its own, and split
+//!   for a run cut off before it drained: never_stored_but_seen (a follower saw it, the store had not caught up)
+//!   vs never_stored_unseen; unseen_gap (a later event of the same coordinator was seen: a real miss) vs
+//!   unseen_tail (after the coordinator's last seen event: cut-off backlog, or loss in a run that drained);
+//!   dup_events counts events seen more than once (duplicated counts the extra copies).
 //! - attach_ms: a reader's `open` (`_acpmux/attach` with the transcript) under load; first_paint_ms: the same when
 //!   its reply carried at least one event (the reader has something to draw).
 //! - scroll: `scroll` ops (one older page), their ms, pages per second of paging time, and ops over 16.7 / 33.3 ms.
 //! - typing: a `turn` event (the prompt) to its daemon record (ack_ms) and to a follower seeing it (echo_ms).
 //! - daemon: `role == "daemon"` samples: RSS, peak, baseline (the first sample, before the chats load), the RSS
-//!   least-squares slope in MB per minute (the leak signal), CPU %; per_chat: RSS over the baseline and CPU %, each
-//!   divided by the run's open chats (run.json `sessions`, else `coordinators`).
+//!   least-squares slope in MB per minute over the run's second half (the leak signal, once the chats have loaded;
+//!   the whole-run slope beside it), CPU % (proc.ndjson, else cpu.ndjson; run.json's daemon_cpu_s / daemon_wall_s
+//!   as mean_cpu_pct), peak queued MB and status-call ms; per_chat: RSS over the baseline and CPU %, each divided by
+//!   the run's open chats (run.json `sessions`, else `coordinators`).
 //! - ops: every op name's latency and failures (`ok == false`); follower: summed `notes`, `bytes`, `lagged`.
 //!
 //! A line that does not parse is counted in `bad_lines`, never fatal: a driver killed mid-write leaves half a line.
@@ -245,6 +251,8 @@ struct EventLine {
     #[serde(default)]
     src: String,
     #[serde(default)]
+    c: u64,
+    #[serde(default)]
     due_us: Option<u64>,
     #[serde(default)]
     emit_us: Option<u64>,
@@ -284,6 +292,17 @@ struct ProcLine {
     role: String,
     #[serde(default)]
     rss_kb: Option<f64>,
+    #[serde(default)]
+    cpu_pct: Option<f64>,
+    #[serde(default)]
+    queued_bytes: Option<f64>,
+    #[serde(default)]
+    status_ms: Option<f64>,
+}
+
+/// cpu.ndjson: the daemon's CPU % sampled on its own clock (the driver writes it beside proc.ndjson).
+#[derive(Deserialize)]
+struct CpuLine {
     #[serde(default)]
     cpu_pct: Option<f64>,
 }
@@ -389,6 +408,13 @@ pub fn report(dir: &Path) -> Result<Value, String> {
         mut dup_at_readers,
         mut received,
     ) = (0u64, 0u64, 0u64, 0u64, 0u64);
+    // Unseen agent events split by where they sit in their coordinator's stream: one followed by a later event a
+    // follower did see is a gap (a real miss); one after the last seen event is the run's tail (cut off before the
+    // followers drained, or lost at the end: a run that drains has none). The driver writes each coordinator's
+    // events in seq order, so a per-coordinator running count is enough (memory: one entry per coordinator).
+    let mut pending_unseen: BTreeMap<u64, u64> = BTreeMap::new();
+    let (mut unseen_gap, mut dup_events) = (0u64, 0u64);
+    let (mut never_stored_seen, mut never_stored_unseen) = (0u64, 0u64);
     let mut bad_events = 0u64;
     let events_present = each_line(&dir.join("events.ndjson"), |l| {
         let Ok(e) = serde_json::from_str::<EventLine>(l) else {
@@ -401,6 +427,11 @@ pub fn report(dir: &Path) -> Result<Value, String> {
         }
         *emitted.entry(e.src.clone()).or_insert(0) += 1;
         lost_in_daemon += u64::from(e.daemon_n == 0);
+        if e.daemon_n == 0 {
+            // Seen by a follower but missing from the store: the store had not caught up when the run ended.
+            never_stored_seen += u64::from(e.reader_n > 0);
+            never_stored_unseen += u64::from(e.reader_n == 0);
+        }
         dup_in_daemon += e.daemon_n.saturating_sub(1);
         if let Some(ms) = ms_between(e.emit_us, e.due_us) {
             behind.add(ms.max(0.0));
@@ -411,8 +442,12 @@ pub fn report(dir: &Path) -> Result<Value, String> {
             "agent" => {
                 if e.daemon_n > 0 && e.reader_n == 0 {
                     unseen_by_readers += 1;
+                    *pending_unseen.entry(e.c).or_insert(0) += 1;
+                } else if e.reader_n > 0 {
+                    unseen_gap += pending_unseen.remove(&e.c).unwrap_or(0);
                 }
                 dup_at_readers += e.reader_n.saturating_sub(1);
+                dup_events += u64::from(e.reader_n > 1);
                 received += u64::from(e.reader_n > 0);
                 if let Some(ms) = to_reader {
                     delivery.add(ms.max(0.0));
@@ -435,6 +470,7 @@ pub fn report(dir: &Path) -> Result<Value, String> {
     bad.insert("events", bad_events);
     let lost = lost_in_daemon + unseen_by_readers;
     let duplicated = dup_in_daemon + dup_at_readers;
+    let unseen_tail: u64 = pending_unseen.values().sum();
 
     // ops.ndjson
     let mut ops: BTreeMap<String, OpStats> = BTreeMap::new();
@@ -485,6 +521,9 @@ pub fn report(dir: &Path) -> Result<Value, String> {
     let mut peak_kb = 0.0f64;
     let mut baseline_kb: Option<f64> = None;
     let mut role_peak: BTreeMap<String, f64> = BTreeMap::new();
+    let mut status_ms = LogHist::default();
+    let mut peak_queued_b: Option<f64> = None;
+    let (mut daemon_t0, mut daemon_t1) = (u64::MAX, 0u64);
     let mut bad_proc = 0u64;
     let proc_present = each_line(&dir.join("proc.ndjson"), |l| {
         let Ok(p) = serde_json::from_str::<ProcLine>(l) else {
@@ -498,7 +537,15 @@ pub fn report(dir: &Path) -> Result<Value, String> {
         if p.role != "daemon" {
             return;
         }
+        if let Some(b) = p.queued_bytes {
+            peak_queued_b = Some(peak_queued_b.unwrap_or(0.0).max(b));
+        }
+        if let Some(ms) = p.status_ms {
+            status_ms.add(ms.max(0.0));
+        }
         if let Some(kb) = p.rss_kb {
+            daemon_t0 = daemon_t0.min(p.t_us);
+            daemon_t1 = daemon_t1.max(p.t_us);
             let base = *baseline_kb.get_or_insert(kb);
             rss.add(kb / 1024.0);
             slope.add(p.t_us as f64 / 60_000_000.0, kb / 1024.0);
@@ -515,6 +562,49 @@ pub fn report(dir: &Path) -> Result<Value, String> {
         }
     })?;
     bad.insert("proc", bad_proc);
+
+    // The whole-run slope counts the chats loading (first minutes: RSS climbs as transcripts arrive), which is not a
+    // leak. The leak signal is the slope over the run's second half, by then the chats are loaded: a second pass
+    // over proc.ndjson (a few samples a second, small) once the first has found the time range.
+    let mut steady = Slope::default();
+    if daemon_t1 > daemon_t0 {
+        let mid = daemon_t0 + (daemon_t1 - daemon_t0) / 2;
+        each_line(&dir.join("proc.ndjson"), |l| {
+            if let Ok(p) = serde_json::from_str::<ProcLine>(l)
+                && p.role == "daemon"
+                && p.t_us >= mid
+                && let Some(kb) = p.rss_kb
+            {
+                steady.add(p.t_us as f64 / 60_000_000.0, kb / 1024.0);
+            }
+        })?;
+    }
+
+    // cpu.ndjson: the daemon's CPU % when proc.ndjson carries none.
+    let mut bad_cpu = 0u64;
+    let proc_cpu = cpu.n() > 0;
+    if !proc_cpu {
+        each_line(&dir.join("cpu.ndjson"), |l| {
+            let Ok(c) = serde_json::from_str::<CpuLine>(l) else {
+                bad_cpu += 1;
+                return;
+            };
+            if let Some(pct) = c.cpu_pct {
+                cpu.add(pct.max(0.0));
+                if chats > 0 {
+                    per_chat_cpu.add(pct.max(0.0) / chats as f64);
+                }
+            }
+        })?;
+        bad.insert("cpu", bad_cpu);
+    }
+    // run.json's whole-run CPU: daemon CPU seconds over wall seconds.
+    let mean_cpu_pct = config
+        .get("daemon_cpu_s")
+        .and_then(Value::as_f64)
+        .zip(config.get("daemon_wall_s").and_then(Value::as_f64))
+        .filter(|(_, w)| *w > 0.0)
+        .map(|(c, w)| c / w * 100.0);
 
     let attach = ops
         .get("open")
@@ -557,9 +647,14 @@ pub fn report(dir: &Path) -> Result<Value, String> {
             "lost": lost,
             "duplicated": duplicated,
             "lost_in_daemon": lost_in_daemon,
+            "never_stored_but_seen": never_stored_seen,
+            "never_stored_unseen": never_stored_unseen,
             "unseen_by_readers": unseen_by_readers,
+            "unseen_gap": unseen_gap,
+            "unseen_tail": unseen_tail,
             "dup_in_daemon": dup_in_daemon,
             "dup_at_readers": dup_at_readers,
+            "dup_events": dup_events,
         },
         "follower": {"followers": followers, "notes": notes, "bytes": note_bytes, "lagged": lagged},
         "attach_ms": attach,
@@ -578,8 +673,13 @@ pub fn report(dir: &Path) -> Result<Value, String> {
             "rss_mb": rss.summary(),
             "peak_rss_mb": round3(has_rss.then_some(peak_kb / 1024.0)),
             "baseline_rss_mb": round3(baseline_kb.map(|b| b / 1024.0)),
-            "rss_slope_mb_per_min": round3(slope.slope()),
+            "rss_slope_mb_per_min": round3(steady.slope()),
+            "rss_slope_whole_run_mb_per_min": round3(slope.slope()),
             "cpu_pct": cpu.summary(),
+            "cpu_source": if proc_cpu { "proc.ndjson" } else if cpu.n() > 0 { "cpu.ndjson" } else { "none" },
+            "mean_cpu_pct": round3(mean_cpu_pct),
+            "peak_queued_mb": round3(peak_queued_b.map(|b| b / 1_048_576.0)),
+            "status_call_ms": status_ms.summary(),
         },
         "per_chat": {"rss_mb": per_chat_mb.summary(), "cpu_pct": per_chat_cpu.summary()},
         "peak_rss_mb_by_role": role_peak.iter().map(|(k, v)| (k.clone(), round3(Some(v / 1024.0)))).collect::<Map<_, _>>(),
@@ -791,6 +891,67 @@ mod tests {
         assert!((s.slope().unwrap() - 3.0).abs() < 1e-6);
     }
 
+    /// The shape of the first real driver runs (c3-r10, c20-r10 at f1318b58466): CPU in cpu.ndjson, not proc.ndjson;
+    /// RSS climbing while the chats load and then flat; a run cut off before the followers drained (each
+    /// coordinator's last events unseen) with one real gap; sends a follower saw that the store had not recorded.
+    #[test]
+    fn report_from_a_cut_off_run_with_cpu_ndjson() {
+        let run = r#"{"schema":"coord-sim-drive.v1","coordinators":2,"rate":10,"readers":4,"run_s":15,"daemon_cpu_s":30.0,"daemon_wall_s":12.0,"sessions":["s0","s1"]}"#;
+        let base = 1_795_093_875_000_000u64;
+        let mut ev = String::new();
+        for c in 0..2u32 {
+            for seq in 1..=100u64 {
+                let emit = base + seq * 10_000;
+                let seen = seq <= 80 && !(c == 0 && seq == 10);
+                ev.push_str(&if seen {
+                    event(c, seq, "agent", emit, 1, Some(emit + 1000), 1)
+                } else {
+                    event(c, seq, "agent", emit, 1, None, 0)
+                });
+            }
+            ev.push_str(&event(c, 200, "send", base + 2_000_000, 0, Some(base + 2_010_000), 20));
+        }
+        let mut procs = String::new();
+        let mut cpu = String::new();
+        for i in 0..=40u64 {
+            // 4 samples a second for 10 s: +100 MB over the first 5 s, then flat at 200 MB
+            let mb = if i < 20 { 100 + i * 5 } else { 200 };
+            procs.push_str(&format!("{{\"ok\":true,\"peak_rss_kb\":{},\"queued_bytes\":{},\"role\":\"daemon\",\"rss_kb\":{},\"status_ms\":{},\"t_us\":{}}}\n", mb * 1024, i * 1000, mb * 1024, i, base + i * 250_000));
+            cpu.push_str(&format!(
+                "{{\"t_ns\":{},\"cpu_pct\":{}}}\n",
+                (base + i * 250_000) * 1000,
+                if i % 2 == 0 { 100.0 } else { 300.0 }
+            ));
+        }
+        let d = run_dir(
+            "cut-off",
+            &[
+                ("run.json", run),
+                ("events.ndjson", &ev),
+                ("proc.ndjson", &procs),
+                ("cpu.ndjson", &cpu),
+            ],
+        );
+        let r = report(&d).unwrap();
+        let e = &r["events"];
+        assert_eq!(e["unseen_by_readers"], 41);
+        assert_eq!((e["unseen_gap"].as_u64(), e["unseen_tail"].as_u64()), (Some(1), Some(40)));
+        assert_eq!(
+            (e["never_stored_but_seen"].as_u64(), e["never_stored_unseen"].as_u64()),
+            (Some(2), Some(0))
+        );
+        // the second half is flat: no leak, though the whole run climbed 100 MB in 10 s
+        let steady = r["daemon"]["rss_slope_mb_per_min"].as_f64().unwrap();
+        assert!(steady.abs() < 0.01, "{steady}");
+        assert!(r["daemon"]["rss_slope_whole_run_mb_per_min"].as_f64().unwrap() > 100.0);
+        assert_eq!(r["daemon"]["cpu_source"], "cpu.ndjson");
+        assert_eq!(r["daemon"]["cpu_pct"]["n"], 41);
+        assert!((r["per_chat"]["cpu_pct"]["max"].as_f64().unwrap() - 150.0).abs() < 1.0);
+        assert_eq!(r["daemon"]["mean_cpu_pct"].as_f64(), Some(250.0));
+        assert!((r["daemon"]["peak_queued_mb"].as_f64().unwrap() - 0.038).abs() < 0.001);
+        assert_eq!(r["daemon"]["status_call_ms"]["n"], 41);
+    }
+
     #[test]
     fn report_from_a_fixture_run_dir() {
         let run = r#"{"schema":"coord-sim-drive.v1","coordinators":2,"rate":10,"readers":2,"run_s":30,"sessions":["s0","s1"]}"#;
@@ -860,6 +1021,13 @@ mod tests {
             (Some(1), Some(2))
         );
         assert_eq!(r["events"]["duplicated"], 3);
+        assert_eq!(r["events"]["dup_events"], 1);
+        // seq 51 of coordinator 1 is followed by seen events: a gap, not the tail
+        assert_eq!(
+            (r["events"]["unseen_gap"].as_u64(), r["events"]["unseen_tail"].as_u64()),
+            (Some(1), Some(0))
+        );
+        assert_eq!(r["events"]["never_stored_unseen"], 1);
         assert_eq!(r["bad_lines"]["events"], 1);
         assert_eq!(r["delivery_ms"]["n"], 198);
         let p95 = r["delivery_ms"]["p95"].as_f64().unwrap();
