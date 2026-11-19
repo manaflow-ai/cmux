@@ -67,7 +67,7 @@ pub struct Facts {
 }
 
 /// The toast's second line, and what it is made of.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Line {
     pub text: String,
