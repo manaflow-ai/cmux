@@ -1002,6 +1002,73 @@ class LiveFrom(unittest.TestCase):
                 self.assertEqual(hot.pins_daemon(Path(repo), sha), [path])
 
 
+class LiveFromWholeApp(unittest.TestCase):
+    """A bin-only live update must not claim changes it leaves in the app."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="live-from-whole-app-")
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        self.hot = load_hot("hot_apply_whole_app_under_test")
+        self.git("init", "-q")
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+        self.base = self.commit("README.md", "base\n")
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def commit(self, path, content):
+        target = self.repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+        self.git("add", ".")
+        self.git("commit", "-qm", "fixture")
+        return self.git("rev-parse", "HEAD")
+
+    def test_non_carried_layers_floor_the_published_list(self):
+        for path, content in (
+            ("Packages/macOS/CmuxNext/Sources/CmuxNextViews/Panel.swift", "struct Panel {}\n"),
+            ("Packages/macOS/CmuxNext/Resources/config.json", "{}\n"),
+            ("webviews/src/main.tsx", "export const panel = 1;\n"),
+            ("cmux-tui/frontends/web/src/main.ts", "export const panel = 1;\n"),
+        ):
+            with self.subTest(path=path):
+                native = self.commit(path, content)
+                daemon = self.commit("cmux-tui/crates/cmux-wg/src/lib.rs", native)
+                out = self.hot.live_from(self.repo, daemon, 3)
+                self.assertEqual(out["live_from"], [daemon, native])
+                self.assertEqual(out["floor"], native)
+                self.assertIn(path, out["floor_paths"])
+                self.assertEqual(self.hot.pins_daemon(self.repo, native), [])
+
+    def test_function_body_and_deleted_swift_also_need_the_full_app(self):
+        path = "Packages/macOS/CmuxNext/Sources/CmuxNextViews/Panel.swift"
+        before = self.commit(path, "func value() -> Int {\n    return 1\n}\n")
+        changed = self.commit(path, "func value() -> Int {\n    return 2\n}\n")
+        self.assertEqual(self.hot.live_from(self.repo, changed, 2)["live_from"], [changed])
+        self.git("rm", path)
+        self.git("commit", "-qm", "remove Swift")
+        deleted = self.git("rev-parse", "HEAD")
+        self.assertEqual(self.hot.live_from(self.repo, deleted, 2)["live_from"], [deleted])
+        self.assertNotEqual(before, changed)
+
+    def test_daemon_and_non_app_changes_remain_live(self):
+        daemon = self.commit("cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn daemon() {}\n")
+        docs = self.commit("docs/example.md", "documentation\n")
+        self.assertEqual(self.hot.live_from(self.repo, docs, 2)["live_from"], [docs, daemon])
+
+    def test_uncarried_helper_sets_a_floor_without_changing_daemon_compatibility(self):
+        path = "cmux-tui/crates/cmux-mobile-host/src/main.rs"
+        helper = self.commit(path, "fn main() {}\n")
+        with mock.patch.object(self.hot, "helper_rust", return_value=[path]):
+            out = self.hot.live_from(self.repo, helper, 2)
+            self.assertEqual(out["live_from"], [helper])
+            self.assertIn(path, out["floor_paths"])
+            self.assertEqual(self.hot.pins_daemon(self.repo, helper), [])
+
+
 class PinCompatibility(unittest.TestCase):
     """Missing historical pins and broken present pins never silently mean the same release."""
 
