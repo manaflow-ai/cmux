@@ -955,22 +955,31 @@ class LiveFrom(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout)
 
-    def test_an_ffi_source_only_change_does_not_set_a_floor(self):
+    def test_an_ffi_source_only_change_sets_a_full_app_floor(self):
+        hot = load_hot("hot_apply_ffi_floor_under_test")
         out = self.live_from(FFI, 2)
         self.assertEqual(out["live_from"][0], FFI)
-        self.assertEqual(len(out["live_from"]), 2)
-        self.assertNotEqual(out["floor"], FFI)
+        self.assertEqual(out["live_from"], [FFI])
+        self.assertEqual(out["floor"], FFI)
+        self.assertTrue(out["floor_paths"])
+        self.assertEqual(hot.pins_daemon(ROOT, FFI), [])
 
-    def test_the_remote_viewer_ffi_source_only_change_does_not_set_a_floor(self):
+    def test_the_remote_viewer_ffi_source_only_change_sets_a_full_app_floor(self):
+        hot = load_hot("hot_apply_ffi_floor_under_test")
         out = self.live_from(FFI_SOURCE_ONLY, 1)
         self.assertEqual(out["live_from"], [FFI_SOURCE_ONLY])
-        self.assertIsNone(out["floor"])
-        self.assertEqual(out["floor_paths"], [])
+        self.assertEqual(out["floor"], FFI_SOURCE_ONLY)
+        self.assertIn("cmux-tui/crates/cmux-rd-core/src/reassembly.rs", out["floor_paths"])
+        self.assertIn("cmux-tui/crates/cmux-rd-ffi/src/tests.rs", out["floor_paths"])
+        self.assertEqual(hot.pins_daemon(ROOT, FFI_SOURCE_ONLY), [])
 
     def test_a_repin_is_the_ffi_floor(self):
         out = self.live_from(FFI_REPIN, 1)
         self.assertEqual((out["live_from"], out["floor"]), ([FFI_REPIN], FFI_REPIN))
-        self.assertEqual(out["floor_paths"], ["Packages/macOS/CmuxNext/app-ffi-pin.json"])
+        self.assertEqual(out["floor_paths"], [
+            "Packages/macOS/CmuxNext/Package.swift",
+            "Packages/macOS/CmuxNext/app-ffi-pin.json",
+        ])
 
     def test_rust_the_swift_build_reads_outside_ffi_still_sets_a_floor(self):
         hot = load_hot("hot_apply_pins_daemon_under_test")
@@ -1013,7 +1022,13 @@ class LiveFromWholeApp(unittest.TestCase):
         project.write_text('"$(SRCROOT)/cmux-tui"\n'
                            '"$(SRCROOT)/cmux-tui/crates/cmux-mobile-host/src/main.rs"\n'
                            '"$(SRCROOT)/cmux-tui/Cargo.toml"\n'
-                           '"$(SRCROOT)/cmux-tui/Cargo.lock"\n')
+                           '"$(SRCROOT)/cmux-tui/Cargo.lock"\n'
+                           '"$(SRCROOT)/cmux-tui/crates/cmux-git"\n'
+                           '"$(SRCROOT)/Native/DiffSidecar"\n'
+                           '"$(SRCROOT)/Native/DiffSidecar/Cargo.toml"\n'
+                           '"$(SRCROOT)/Native/DiffSidecar/Cargo.lock"\n')
+        (self.repo / "cmux-tui/crates/cmux-git").mkdir(parents=True)
+        (self.repo / "Native/DiffSidecar").mkdir(parents=True)
         self.base = self.commit("README.md", "base\n")
 
     def git(self, *args):
@@ -1074,6 +1089,20 @@ class LiveFromWholeApp(unittest.TestCase):
                 out = self.hot.live_from(self.repo, head, 2)
                 self.assertEqual(out["live_from"], [head])
                 self.assertIn(path, out["floor_paths"])
+
+    def test_separately_bundled_helper_manifests_floor_the_published_list(self):
+        for path in (
+            "cmux-tui/crates/cmux-git/Cargo.toml",
+            "Native/DiffSidecar/Cargo.toml",
+            "Native/DiffSidecar/Cargo.lock",
+        ):
+            with self.subTest(path=path):
+                head = self.commit(path, "# changed helper dependency graph\n")
+                out = self.hot.live_from(self.repo, head, 2)
+                self.assertEqual(out["live_from"], [head])
+                self.assertEqual(out["floor"], head)
+                self.assertIn(path, out["floor_paths"])
+                self.assertEqual(self.hot.pins_daemon(self.repo, head), [])
 
 
 class PinCompatibility(unittest.TestCase):

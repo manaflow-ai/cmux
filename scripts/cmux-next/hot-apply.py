@@ -520,7 +520,19 @@ def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     """The changed Rust paths the app's other bundled helpers build from (the mobile host, the diff
     sidecar): those helpers keep the app's build."""
     import cmux_next_route as route
-    inputs = [i for i in route.scheme_phase_rust_inputs(repo) if not i.endswith(("Cargo.lock", "Cargo.toml"))]
+    # Manifests and lockfiles are helper inputs too.  A helper can keep an old binary when its
+    # source is unchanged but its dependency graph moves, so every named Cargo input must floor
+    # the signed app list just like the source directories do.
+    inputs = route.scheme_phase_rust_inputs(repo)
+    # The route helper intentionally narrows its Xcode scan to cmux-tui inputs for CI routing. The
+    # app also builds the separately bundled diff sidecar from Native/DiffSidecar and cmux-git;
+    # collect those explicit manifests here without treating the whole daemon tree as a helper.
+    try:
+        project = (repo / route.APP_PROJECT).read_text(encoding="utf-8")
+    except OSError:
+        project = ""
+    inputs.extend(path for path in re.findall(r'"\$\(SRCROOT\)/([^"]+Cargo\.(?:toml|lock))"', project)
+                  if path not in inputs)
     return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
 
 
@@ -720,7 +732,10 @@ def pins_daemon(repo: Path, commit: str, *, whole_app: bool = False) -> list[str
     uncarried = []
     if whole_app:
         uncarried = [path for kind in ("swift-live", "rebuild", "web-live") for path in files.get(kind, [])]
-        uncarried.extend(helper_rust(repo, daemon))
+        # Cargo.lock can classify as no-app even though a helper build consumes it. Include the
+        # complete diff for matching explicit helper inputs, while leaving unrelated no-app files
+        # out of the floor.
+        uncarried.extend(helper_rust(repo, daemon + files.get("no-app", [])))
         # The separately bundled helpers share the workspace dependency graph.
         uncarried.extend(path for path in daemon if path in ("cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock"))
     before, after = pinned_ffi_source(repo, parent), pinned_ffi_source(repo, commit)
