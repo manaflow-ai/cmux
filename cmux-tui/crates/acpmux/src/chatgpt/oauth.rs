@@ -625,60 +625,50 @@ impl Page {
     }
 
     pub(crate) fn html(&self) -> String {
-        let state = if self.ok { "ok" } else { "err" };
-        let badge = if self.ok {
-            r#"<path d="M5 10.5l3.2 3.2L15 7" />"#
-        } else {
-            r#"<path d="M10 5.5v5.5" /><path d="M10 14.2v.3" />"#
-        };
-        let detail = if self.detail.is_empty() {
-            String::new()
-        } else {
-            format!("<p>{}</p>", escape(&self.detail))
-        };
-        let code =
-            self.code.as_deref().map(|c| format!("<code>{}</code>", escape(c))).unwrap_or_default();
-        format!(
-            "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\">\
-<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
-<meta name=\"color-scheme\" content=\"light dark\"><title>{title} \u{b7} cmux</title>\
-<style>{PAGE_CSS}</style><body><main class=\"card {state}\">\
-<div class=\"mark\">{MARK_SVG}<span class=\"badge\" aria-hidden=\"true\">\
-<svg viewBox=\"0 0 20 20\">{badge}</svg></span></div>\
-<h1>{title}</h1>{detail}{code}</main>\
-<footer>cmux</footer></body></html>",
-            title = escape(&self.title),
-        )
+        auth_page(self.ok, &self.title, &self.detail, self.code.as_deref())
     }
 }
 
-const MARK_SVG: &str = r##"<svg class="logo" viewBox="0 0 256 256" role="img" aria-label="cmux"><defs><linearGradient id="cmux-chevron" x1="91" y1="128" x2="179" y2="128" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#12c7f5"/><stop offset="0.52" stop-color="#2d8cff"/><stop offset="1" stop-color="#6c5cff"/></linearGradient></defs><path d="M91 65 L179 128 L91 191 L91 151 L139 128 L91 105 Z" fill="url(#cmux-chevron)"/></svg>"##;
+/// The cmux NEXT sign-in page's frame (web/app/handler: `cmux-sign-in.tsx`'s `Page` and
+/// `Heading`, `auth-error/page.tsx`'s body, the "Last used" chip for the code) with the tokens of
+/// web/app/globals.css, for a page a loopback listener serves with no web build behind it.
+/// Keep in step with the copies in optchat-chief's `mcp_hub::oauth` and coderouter's `oauth`.
+pub(crate) fn auth_page(ok: bool, title: &str, detail: &str, code: Option<&str>) -> String {
+    let detail = if detail.is_empty() {
+        String::new()
+    } else {
+        format!("<p class=\"body\">{}</p>", escape(detail))
+    };
+    let code = code.map(|c| format!("<p class=\"code\">{}</p>", escape(c))).unwrap_or_default();
+    format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
+<meta name=\"color-scheme\" content=\"light dark\"><meta name=\"robots\" content=\"noindex\">\
+<title>{title} \u{b7} cmux</title><style>{AUTH_PAGE_CSS}</style></head>\
+<body><main><section data-auth-state=\"{state}\"><h1>{title}</h1>{detail}{code}</section></main></body></html>",
+        title = escape(title),
+        state = if ok { "ok" } else { "error" },
+    )
+}
 
-const PAGE_CSS: &str = "\
-:root{--bg:#f4f4f6;--card:#fff;--fg:#17171a;--muted:#6b6b73;--line:rgba(0,0,0,.08);\
---tile:#0f0f12;--ok:#1f9d55;--err:#d93f3f;--chip:rgba(0,0,0,.05)}\
-@media (prefers-color-scheme:dark){:root{--bg:#0b0b0d;--card:#151518;--fg:#f2f2f4;\
---muted:#9a9aa3;--line:rgba(255,255,255,.08);--tile:#000;--ok:#34c26f;--err:#ff6b6b;\
---chip:rgba(255,255,255,.06)}}\
-*{box-sizing:border-box}html,body{height:100%}\
-body{margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;\
-gap:20px;padding:24px;background:var(--bg);color:var(--fg);\
-font:15px/1.5 -apple-system,BlinkMacSystemFont,\"SF Pro Text\",system-ui,sans-serif;\
--webkit-font-smoothing:antialiased}\
-.card{width:100%;max-width:400px;padding:36px 32px 32px;text-align:center;background:var(--card);\
-border:1px solid var(--line);border-radius:16px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 32px rgba(0,0,0,.08)}\
-.mark{position:relative;width:64px;height:64px;margin:0 auto 20px;border-radius:15px;\
-background:var(--tile);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}\
-.logo{width:64px;height:64px;display:block}\
-.badge{position:absolute;right:-6px;bottom:-6px;width:24px;height:24px;border-radius:50%;\
-display:flex;align-items:center;justify-content:center;border:3px solid var(--card)}\
-.ok .badge{background:var(--ok)}.err .badge{background:var(--err)}\
-.badge svg{width:14px;height:14px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}\
-h1{margin:0 0 8px;text-wrap:balance;font-size:19px;font-weight:600;letter-spacing:-.01em}\
-p{margin:0;color:var(--muted);text-wrap:balance}\
-code{display:inline-block;margin-top:16px;padding:3px 8px;border-radius:6px;background:var(--chip);\
-color:var(--muted);font:12px ui-monospace,SFMono-Regular,Menlo,monospace}\
-footer{color:var(--muted);font-size:12px;letter-spacing:.02em;opacity:.7}";
+/// web/app/globals.css's tokens and the Tailwind classes of the sign-in page, written out, in
+/// the site's Geist (system fonts until it loads, or offline).
+pub(crate) const AUTH_PAGE_CSS: &str = "\
+@import url(\"https://fonts.googleapis.com/css2?family=Geist:wght@400;600&family=Geist+Mono&display=swap\");\
+:root{--background:#fafafa;--foreground:#171717;--muted:#707070;--border:#e5e5e5}\
+@media (prefers-color-scheme:dark){:root{--background:#0a0a0a;--foreground:#ededed;--muted:#a3a3a3;--border:#262626}}\
+*,::before,::after{box-sizing:border-box;margin:0;padding:0;border:0 solid}\
+html{line-height:1.5;-webkit-text-size-adjust:100%;\
+font-family:Geist,ui-sans-serif,system-ui,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\";\
+-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}\
+body{background:var(--background);color:var(--foreground)}\
+main{display:flex;min-height:100vh;align-items:center;justify-content:center;padding:48px 16px}\
+section{width:100%;max-width:340px}\
+h1{font-size:22px;font-weight:600;letter-spacing:-0.02em}\
+.body{margin-top:6px;font-size:14px;line-height:24px;color:var(--muted)}\
+.code{display:inline-block;margin-top:24px;border:1px solid var(--border);padding:0 6px;\
+font-family:\"Geist Mono\",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:18px;\
+color:var(--muted)}";
 
 fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
