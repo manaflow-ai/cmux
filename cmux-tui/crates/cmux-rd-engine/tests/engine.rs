@@ -797,6 +797,19 @@ fn standard_never_refines_and_carries_its_profile() {
 }
 
 #[test]
+fn ultra_engine_target_is_the_full_wire_budget_for_pacing() {
+    let mut e =
+        MediaEngine::new(EngineConfig { max_bps: 150_000_000, ..EngineConfig::default() }, 0);
+    e.set_profile(EncodeProfile::Ultra);
+    let req = e.start(0).expect("first frame");
+    assert_eq!(
+        e.target_bps(),
+        u64::from(req.target_kbps) * 1_000,
+        "pacer gets the full wire budget"
+    );
+}
+
+#[test]
 fn ultra_refines_a_still_screen_within_two_frames() {
     let mut e = engine();
     e.set_profile(EncodeProfile::Ultra);
@@ -853,4 +866,50 @@ fn leaving_ultra_drops_a_due_refinement() {
     e.set_profile(EncodeProfile::Standard);
     assert_eq!(e.next_deadline_us(), None);
     assert!(e.poll(1_000_000).is_none());
+}
+
+#[test]
+fn probe_planner_wiring_updates_ultra_capacity() {
+    fn run(stamp_departures: bool) -> (u64, usize, u64) {
+        let mut e = MediaEngine::new(
+            EngineConfig { start_bps: 8_000_000, max_bps: 150_000_000, ..EngineConfig::default() },
+            0,
+        );
+        e.set_profile(EncodeProfile::Ultra);
+        let start_bps = e.target_bps();
+        let _ = e.start(0).expect("startup request");
+        let mut probes = Vec::new();
+        for index in 0..16u64 {
+            let now_us = index * 100;
+            let out = e.tick(false, now_us);
+            for datagram in out.datagrams {
+                let (header, _) = DatagramHeader::decode(&datagram).expect("probe header");
+                if header.kind != DatagramKind::Probe {
+                    continue;
+                }
+                let departed_us = now_us + 10;
+                if stamp_departures {
+                    e.datagram_sent(&datagram, departed_us);
+                }
+                probes.push(header.transport_seq);
+            }
+        }
+        assert_eq!(probes.len(), 16, "one complete startup train is emitted");
+        let arrivals = probes
+            .iter()
+            .enumerate()
+            .map(|(index, &transport_seq)| cmux_rd_proto::Arrival {
+                transport_seq,
+                arrival_us: 10_000 + index as u32 * 200,
+            })
+            .collect();
+        e.on_datagram(&feedback(&Feedback { arrivals, ..Feedback::default() }), true, 20_000);
+        (e.target_bps(), probes.len(), start_bps)
+    }
+
+    let (without_departures, _, startup_bps) = run(false);
+    let (with_departures, probe_count, _) = run(true);
+    assert_eq!(without_departures, startup_bps, "enqueue-only probes cannot establish capacity");
+    assert!(with_departures > without_departures, "socket departures feed on_probe_capacity");
+    assert_eq!(probe_count, 16);
 }
