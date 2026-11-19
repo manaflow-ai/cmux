@@ -91,13 +91,32 @@ class Judge(unittest.TestCase):
         retry = log(binary(("hub::turn_cap_tests::caps", "ok")), binary(("agent_inbox::delivers", "ok")))
         own, notes = self.judge(HEAD, retry=retry)
         self.assertFalse(own)
-        self.assertEqual(sum("(flaky)" in n for n in notes), 2, notes)
+        self.assertEqual(sum("Known flake excused" in n for n in notes), 2, notes)
 
     def test_a_flake_and_a_base_red_together_pass(self):
         retry = log(binary(("hub::turn_cap_tests::caps", "FAILED")), binary(("agent_inbox::delivers", "ok")))
-        base = log(binary(("hub::turn_cap_tests::caps", "FAILED")), binary(total=0))
+        base = log(binary(("hub::turn_cap_tests::caps", "FAILED")), binary(("agent_inbox::delivers", "ok")))
         own, notes = self.judge(HEAD, retry=retry, base=base)
         self.assertFalse(own, notes)
+
+    def test_a_new_test_that_passes_alone_is_the_changes_own(self):
+        """A test the merge base does not have is never excused as a flake: its author fixes it before it lands."""
+        retry = log(binary(("hub::turn_cap_tests::caps", "ok")), binary(("agent_inbox::delivers", "ok")))
+        base = log(binary(("hub::turn_cap_tests::caps", "ok")), binary(total=0))
+        own, notes = self.judge(HEAD, retry=retry, base=base)
+        self.assertTrue(own, notes)
+        self.assertTrue(any(n.startswith("::error") and "(new flaky test)" in n and "agent_inbox::delivers" in n
+                            for n in notes), notes)
+        self.assertEqual([n for n in notes if "Known flake excused" in n],
+                         [f"::warning title=Known flake excused::hub::turn_cap_tests::caps ({JOB}) failed, then passed "
+                          "run again alone"])
+
+    def test_a_base_replay_that_never_ran_keeps_the_flake_excuse(self):
+        """A base that did not build (no `test result:` line) says nothing about which tests it has."""
+        retry = log(binary(("hub::turn_cap_tests::caps", "ok")), binary(("agent_inbox::delivers", "ok")))
+        own, notes = self.judge(HEAD, retry=retry, base="error[E0425]: cannot find value `x` in this scope\n")
+        self.assertFalse(own, notes)
+        self.assertEqual(sum("Known flake excused" in n for n in notes), 2, notes)
 
     def test_a_flake_does_not_hide_a_new_red(self):
         retry = log(binary(("hub::turn_cap_tests::caps", "FAILED")), binary(("agent_inbox::delivers", "ok")))
@@ -173,7 +192,7 @@ class ColouredSummary(unittest.TestCase):
                           "finished in 1.00s"])
         own, notes = verdict.judge(head, coloured(self.RETRY), coloured(self.BASE), JOB)
         self.assertFalse(own, notes)
-        self.assertEqual(sum("(flaky)" in n for n in notes), 1, notes)
+        self.assertEqual(sum("Known flake excused" in n for n in notes), 1, notes)
         self.assertEqual(sum("(base red)" in n for n in notes), 1, notes)
 
     def test_the_log_reader_strips_colour_once(self):

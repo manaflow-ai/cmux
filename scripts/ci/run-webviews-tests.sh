@@ -529,6 +529,30 @@ deadline_left() {
 timeout_retried=0
 timeout_retry_spent=0
 : > "$results/retry-passed"
+# A red file that passes its retry alone is excused, unless CMUX_WEB_TEST_NEW_SINCE (a pull request's merge parent)
+# does not have it: a test file the change adds must pass every run, so its pass alone keeps the first run's red and
+# react-apps-base-check charges it to the change (the base cannot replay a file it lacks). Unset, every pass alone
+# is excused as before.
+new_since="${CMUX_WEB_TEST_NEW_SINCE:-}"
+# retry_passed FILE FIRST_RESULT LOG: record FILE's pass alone, or put back its first red when it is new in the change.
+retry_passed() {
+  if [ -n "$new_since" ] && ! git cat-file -e "$new_since:$(git rev-parse --show-prefix)$1" 2> /dev/null; then
+    echo "::error title=Webview test (new flaky test)::$1 failed ($2), then passed run again alone, and the merge base" \
+      "does not have it: a test file this change adds must pass every run"
+    while read -r saved_result saved_file saved_log; do
+      if [ "$saved_file" = "$1" ]; then saved_result="$2"; fi
+      printf '%s %s %s\n' "$saved_result" "$saved_file" "$saved_log"
+    done < "$results/summary" > "$results/adjusted-summary"
+    mv "$results/adjusted-summary" "$results/summary"
+    { echo "--- first run: $2 ---"; cat "$3.first"; echo "--- retry, alone: passed (not excused: new file) ---"; cat "$3"; } > "$3.both"
+    mv "$3.both" "$3"
+    return
+  fi
+  # One title for every excused flake, on every workflow that excuses one: HQ's tap_flakes counts these annotations
+  # on pull request runs as the reruns the excuse saved (reruns avoided per week on NOW).
+  echo "::warning title=Known flake excused::Webview test $1 failed ($2), then passed run again alone"
+  echo "$1 (first run: $2)" >> "$results/retry-passed"
+}
 # Each red file whose retry was due but did not run to its end (a budget, the deadline or the retry cap stopped it):
 # its log holds only the first run, so webviews_test_results.py must not read that run's tally as the retry's (#34017).
 : > "$results/retry-skipped"
@@ -579,7 +603,7 @@ while read -r result file log; do
       bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
       if [ -n "$cache" ]; then rm -rf "$cache" || true; fi
       if grep -qxF "PASS $file $log" "$results/summary"; then
-        echo "$file (first run: TIMEOUT)" >> "$results/retry-passed"
+        retry_passed "$file" TIMEOUT "$log"
       else
         # TIMEOUT again stays TIMEOUT; a FAIL alone keeps the retry's named failures, as for a failed file.
         { echo "--- first run: TIMEOUT ---"; cat "$log.first"; echo "--- retry, alone ---"; cat "$log"; } > "$log.both"
@@ -621,7 +645,7 @@ while read -r result file log; do
     { echo "--- retry stopped at shared budget ---"; cat "$log"; echo "--- first failure retained ---"; cat "$log.first"; } > "$log.both"
     mv "$log.both" "$log"
   elif grep -qxF "PASS $file $log" "$results/summary"; then
-    echo "$file (first run: $result)" >> "$results/retry-passed"
+    retry_passed "$file" "$result" "$log"
   else
     { echo "--- first run: $result ---"; cat "$log.first"; echo "--- retry, alone ---"; cat "$log"; } > "$log.both"
     mv "$log.both" "$log"

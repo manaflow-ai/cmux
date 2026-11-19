@@ -17,7 +17,8 @@ on the head (the retry) and on the merge parent (the base), then asks this scrip
         prints GitHub annotations and exits 0 when no red is the change's own, 1 when one is.
 
 The verdict:
-- A test that failed on the head and passed when run again alone is a flake: it warns.
+- A test that failed on the head and passed when run again alone is a flake: it warns (title `Known flake excused`),
+  unless the merge base does not have it: a new test that flakes is the change's own red.
 - The rest are judged by scripts/ci/test_reds.py, the one per-test classifier for "red on the base, so not ours":
   a test the base fails too warns as a base red; a test that passes or does not exist on the base, a crash
   (signal, abort) and a cut-short run (a test binary that printed no `test result:`) are the change's own red.
@@ -454,14 +455,27 @@ def judge(head: str | None, retry: str | None, base: str | None, job: str) -> tu
         return True, [f"::error title={job}::the head's test log is missing or empty, so no test can be judged"]
     found = test_reds.read(head)
     flaky = found.failed & passed_names(retry)
-    notes = [f"::warning title={job} (flaky)::{name} failed, then passed run again alone" for name in sorted(flaky)]
+    # A test the merge base does not have is new in this change, and a new test that flakes is the change's to fix
+    # before it lands: no excuse for it, however its retry went. Only a base replay that ran (a `test result:` line)
+    # says a test is missing; with no base log, or one that never ran, a pass alone still excuses as before.
+    new = set()
+    if base and any(line.startswith("test result: ") for line in test_reds.log_lines(base)):
+        on_base = test_reds.read(base)
+        new = flaky - passed_names(base) - on_base.failed
+        flaky -= new
+    # One title for every excused flake, on every workflow that excuses one: HQ's tap_flakes counts these annotations
+    # on pull request runs as the reruns the excuse saved (reruns avoided per week on NOW).
+    notes = [f"::warning title=Known flake excused::{name} ({job}) failed, then passed run again alone"
+             for name in sorted(flaky)]
+    notes += [f"::error title={job} (new flaky test)::{name} failed, then passed run again alone, and the merge base "
+              "does not have it: a test this change adds must pass every run" for name in sorted(new)]
     if not found.failed and not found.crashes and not found.truncated:
         return True, notes + [f"::error title={job}::cargo test failed and named no failing test (a compile error?); "
                               "see the step's log"]
     verdict = test_reds.classify(without_failures(head, flaky), base, job, "the merge base")
     if verdict is None:
         # Every failing test was a flake.
-        return False, notes
+        return bool(new), notes
     if verdict.own:
         return True, notes + [f"::error title={job}::{reason}" for reason in verdict.reasons]
     return False, notes + [f"::warning title={job} (base red)::{name} fails on the merge base too"
