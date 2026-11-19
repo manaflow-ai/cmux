@@ -3,6 +3,8 @@
 //!
 //! - `cmux_launch_image_publish`: write a window's newest image (the app's PNG bytes) and get its
 //!   path and pixel size for the launch record's `image_path` / `image_pixel_*`.
+//! - `cmux_launch_image_publish_with`: the same, handing the image to the launch record before any
+//!   old image is removed (publishes to a folder take turns until the hand-off returns).
 //! - `cmux_launch_image_current`: a window's newest readable image, or false (no image is valid).
 //! - `cmux_launch_image_remove_window`, `cmux_launch_image_prune`: a closed window's images; every
 //!   image but the live windows'.
@@ -13,17 +15,18 @@
 //! used by one thread at a time. No function unwinds across the boundary.
 //!
 //! A capture: `take_due` (or `take_quit`) true, read `epoch`, capture and encode, then publish only
-//! while `is_current(epoch)` holds, hand the path to the launch record, and note 7 (done); note 6
-//! (failed) when nothing was published. Calls for one folder may run concurrently: a publish never
-//! reuses a path, and a prune leaves files younger than 60 s alone.
+//! while `is_current(epoch)` holds, with `publish_with` handing the path to the launch record, and
+//! note 7 (done); note 6 (failed) when nothing was published. Calls for one folder may run
+//! concurrently: a publish never reuses a path, never removes a path being handed to the record,
+//! and a prune leaves files younger than 60 s alone.
 
 use crate::schedule::{Event, Schedule};
 use crate::{Caps, Image, Store};
-use std::ffi::{CStr, c_char};
+use std::ffi::{CStr, c_char, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type or a function.
-pub const CMUX_LAUNCH_IMAGE_ABI_VERSION: u32 = 1;
+pub const CMUX_LAUNCH_IMAGE_ABI_VERSION: u32 = 2;
 /// The size of [`CmuxLaunchImage::path`], NUL included (the launch record's image path limit).
 pub const CMUX_LAUNCH_IMAGE_PATH_CAPACITY: usize = 1025;
 /// The age a file must reach before `cmux_launch_image_prune` removes it (60 s).
@@ -133,6 +136,48 @@ pub unsafe extern "C" fn cmux_launch_image_publish(
             }
             _ => None,
         };
+        // SAFETY: caller contract on `out`.
+        unsafe { fill(out, image) }
+    })
+}
+
+/// `cmux_launch_image_publish`, calling `hand_off(image, context)` with the new image before any
+/// old image is removed: write the launch record there. Publishes to `dir` take turns until
+/// `hand_off` returns, so a newer publish never removes the path the record is being given.
+/// `hand_off` gets the new image, valid only for the call, and `context`; it is not called when
+/// nothing was written, null skips it, and it must not publish to `dir`.
+///
+/// # Safety
+/// As `cmux_launch_image_publish`; `hand_off` is null or safe to call with `context` on this thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_launch_image_publish_with(
+    dir: *const c_char,
+    window_id: *const c_char,
+    png: *const u8,
+    len: usize,
+    out: *mut CmuxLaunchImage,
+    hand_off: Option<unsafe extern "C" fn(image: *const CmuxLaunchImage, context: *mut c_void)>,
+    context: *mut c_void,
+) -> bool {
+    // SAFETY: caller contract on `out`; zeroed first, so a panic below still leaves it zeroed.
+    unsafe { zero(out) };
+    guard(false, || {
+        // SAFETY: caller contract.
+        let (dir, id) = unsafe { (string(dir), string(window_id)) };
+        let (Some(dir), Some(id), false) = (dir, id, png.is_null()) else { return false };
+        // SAFETY: `png` is valid for reads of `len` bytes (caller contract).
+        let bytes = unsafe { std::slice::from_raw_parts(png, len) };
+        let image = store(dir)
+            .publish_with(id, bytes, |image| {
+                let Some(hand_off) = hand_off else { return };
+                let mut c = std::mem::MaybeUninit::<CmuxLaunchImage>::uninit();
+                // SAFETY: `c` is valid for writes of one `CmuxLaunchImage`; `fill` initializes all of it.
+                if unsafe { fill(c.as_mut_ptr(), Some(image.clone())) } {
+                    // SAFETY: caller contract on `hand_off` and `context`; `c` lives for the call.
+                    unsafe { hand_off(c.as_ptr(), context) };
+                }
+            })
+            .ok();
         // SAFETY: caller contract on `out`.
         unsafe { fill(out, image) }
     })

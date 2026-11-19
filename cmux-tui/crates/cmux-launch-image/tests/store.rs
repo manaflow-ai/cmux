@@ -30,7 +30,10 @@ fn png(width: u32, height: u32, len: usize) -> Vec<u8> {
 fn files(dir: &std::path::Path) -> Vec<String> {
     let mut names: Vec<String> = fs::read_dir(dir)
         .map(|r| {
-            r.filter_map(Result::ok).filter_map(|e| e.file_name().into_string().ok()).collect()
+            r.filter_map(Result::ok)
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|n| n != ".publish.lock")
+                .collect()
         })
         .unwrap_or_default();
     names.sort();
@@ -94,6 +97,13 @@ fn publish_is_an_atomic_replace_under_a_new_name() {
     assert_eq!(store.current("win"), Some(b));
     // The older path still holds its own bytes (the launch record may name it until rewritten).
     assert_eq!(fs::read(&a.path).unwrap(), a_bytes);
+    // Owner only: the folder 0700, each image 0600.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &std::path::Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!((mode(&dir), mode(&a.path)), (0o700, 0o600));
+    }
     // No partial file is left.
     assert!(files(&dir).iter().all(|n| !n.ends_with(".tmp")), "{:?}", files(&dir));
 }
@@ -107,6 +117,54 @@ fn each_window_keeps_its_newest_images_only() {
     }
     assert_eq!(files(&dir), ["win.4.png", "win.5.png"]);
     assert_eq!(store.current("win").unwrap().pixel_width, 5);
+}
+
+#[test]
+fn a_path_handed_to_the_record_survives_overlapping_publishes() {
+    use std::sync::{Arc, Mutex, mpsc};
+    use std::time::Duration;
+    let dir = fresh_dir("handoff");
+    let store = Arc::new(Store::new(&dir, Caps { keep_per_window: 2, ..Caps::default() }));
+    let record: Arc<Mutex<Option<PathBuf>>> = Arc::default();
+    let (in_hand_off, entered) = mpsc::channel();
+    let first = {
+        let (store, record) = (Arc::clone(&store), Arc::clone(&record));
+        std::thread::spawn(move || {
+            store
+                .publish_with("win", &png(1, 1, 40), |image| {
+                    in_hand_off.send(()).unwrap();
+                    // Two newer publishes of the window try to run while this record write is slow.
+                    std::thread::sleep(Duration::from_millis(300));
+                    assert!(
+                        image.path.exists(),
+                        "{:?} was pruned before the record named it",
+                        image.path
+                    );
+                    *record.lock().unwrap() = Some(image.path.clone());
+                })
+                .unwrap()
+        })
+    };
+    entered.recv().unwrap();
+    let later: Vec<_> = (2..=3)
+        .map(|w| {
+            let (store, record) = (Arc::clone(&store), Arc::clone(&record));
+            std::thread::spawn(move || {
+                store
+                    .publish_with("win", &png(w, w, 40), |image| {
+                        *record.lock().unwrap() = Some(image.path.clone());
+                    })
+                    .unwrap()
+            })
+        })
+        .collect();
+    first.join().unwrap();
+    for thread in later {
+        thread.join().unwrap();
+    }
+    let named = record.lock().unwrap().clone().unwrap();
+    assert!(named.exists(), "the record names {named:?}, which is gone: {:?}", files(&dir));
+    assert_eq!(files(&dir).len(), 2, "{:?}", files(&dir));
 }
 
 #[test]
@@ -167,7 +225,8 @@ fn concurrent_publishes_of_one_window_never_share_a_path() {
     let dir = fresh_dir("race");
     let store = Store::new(&dir, Caps { keep_per_window: 64, ..Caps::default() });
     let images: Vec<_> = std::thread::scope(|scope| {
-        let handles: Vec<_> = (0..8_u32)
+        // More than the 8 names a publish tries: publishes take turns, so none runs out.
+        let handles: Vec<_> = (0..24_u32)
             .map(|i| {
                 let store = &store;
                 scope.spawn(move || store.publish_at("win", &png(i + 1, 1, 40), 5).unwrap())
@@ -178,7 +237,7 @@ fn concurrent_publishes_of_one_window_never_share_a_path() {
     let mut paths: Vec<_> = images.iter().map(|i| i.path.clone()).collect();
     paths.sort();
     paths.dedup();
-    assert_eq!(paths.len(), 8, "every publish got its own path");
+    assert_eq!(paths.len(), 24, "every publish got its own path");
     for image in &images {
         let bytes = fs::read(&image.path).unwrap();
         assert_eq!(cmux_launch_image::png_pixel_size(&bytes), Some((image.pixel_width, 1)));

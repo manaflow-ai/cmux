@@ -15,7 +15,7 @@
 /*
  Bumped on any change to a type or a function.
  */
-#define CMUX_LAUNCH_IMAGE_ABI_VERSION 1
+#define CMUX_LAUNCH_IMAGE_ABI_VERSION 2
 
 /*
  The size of [`CmuxLaunchImage::path`], NUL included (the launch record's image path limit).
@@ -66,6 +66,24 @@ bool cmux_launch_image_publish(const char *dir,
                                const uint8_t *png,
                                size_t len,
                                CmuxLaunchImage *out);
+
+/*
+ `cmux_launch_image_publish`, calling `hand_off(image, context)` with the new image before any
+ old image is removed: write the launch record there. Publishes to `dir` take turns until
+ `hand_off` returns, so a newer publish never removes the path the record is being given.
+ `hand_off` gets the new image, valid only for the call, and `context`; it is not called when
+ nothing was written, null skips it, and it must not publish to `dir`.
+
+ # Safety
+ As `cmux_launch_image_publish`; `hand_off` is null or safe to call with `context` on this thread.
+ */
+bool cmux_launch_image_publish_with(const char *dir,
+                                    const char *window_id,
+                                    const uint8_t *png,
+                                    size_t len,
+                                    CmuxLaunchImage *out,
+                                    void (*hand_off)(const CmuxLaunchImage *image, void *context),
+                                    void *context);
 
 /*
  Fills `out` with window `window_id`'s newest readable image in `dir`. False, and `out` zeroed,
