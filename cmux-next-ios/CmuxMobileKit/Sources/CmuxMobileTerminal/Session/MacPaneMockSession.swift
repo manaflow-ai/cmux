@@ -46,13 +46,16 @@ public final class MacPaneMockSession: TerminalSession {
     /// The answer to the last resize still on its way (a newer one replaces it).
     private var answer: Task<Void, Never>?
 
-    public init(columns: Int = 120, rows: Int = 40, program: String? = nil, latency: Duration = .zero) {
+    /// `transcript`: the pane's history (lines, oldest first); a short shell
+    /// session by default.
+    public init(columns: Int = 120, rows: Int = 40, transcript: [String]? = nil, program: String? = nil,
+                latency: Duration = .zero) {
         paneGrid = (columns, rows)
         ptyGrid = paneGrid
-        transcript = Self.session
+        self.transcript = transcript ?? Self.session
         self.latency = latency
         if program == "htop" {
-            transcript.append(Self.prompt + "htop")
+            self.transcript.append(Self.prompt + "htop")
             programName = "htop"
             isAlternateScreen = true
         }

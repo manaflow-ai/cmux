@@ -122,24 +122,51 @@ public final class TerminalProjectingSession: TerminalSession {
     /// Older rows: the projection's own first (a re-wrap paints a window of
     /// the scrollback, so a rotation costs the same at any length), then the
     /// Mac's. Returns whether a reset with older rows follows (the
-    /// projection's re-wrap, one still being parsed, or the Mac's replay).
+    /// projection's re-wrap or the Mac's replay).
+    ///
+    /// The answer keeps the session contract the page is written against
+    /// (``TerminalSession/loadOlderHistory()``, as `DaemonTerminalSession`
+    /// keeps it): true means the reset comes *after* this call returns, never
+    /// inside it, and always comes. The page records that it asked only once
+    /// the call returns (`olderRowsAsked`), so a reset sent inside the call
+    /// was taken for some other replay and the page waited for one that never
+    /// came; and a call inside the throttle that answered true without a load
+    /// left it waiting too.
     @discardableResult
     public func loadOlderHistory() -> Bool {
         guard !shownAlternate, handler != nil else { return inner.loadOlderHistory() }
-        if projection.olderRows() > 0 {
-            let started = CFAbsoluteTimeGetCurrent()
-            // One chunk per replay: the page keeps calling while its reset is
-            // parsed. Inside the throttle, the answer is the last load's: true
-            // only while a reset it sent is still on its way.
-            if let last = lastOlderLoad, started - last < 0.5 { return lastOlderLoadReset }
-            lastOlderLoad = started
-            let segments = projection.loadOlder(hostRows: Self.olderChunkRows)
-            log.notice("projection: \(Self.olderChunkRows, privacy: .public) older rows re-wrapped in \(Int((CFAbsoluteTimeGetCurrent() - started) * 1000), privacy: .public) ms, \(self.projection.olderRows(), privacy: .public) left")
-            emit(segments)
-            lastOlderLoadReset = segments.contains { if case .reset = $0 { true } else { false } }
-            return lastOlderLoadReset
+        // One re-wrap at a time: the page keeps calling while the reset it
+        // asked for is on its way or being parsed; those calls join it.
+        if olderLoadScheduled { return true }
+        guard projection.olderRows() > 0 else { return inner.loadOlderHistory() }
+        olderLoadScheduled = true
+        // One chunk per replay (the page keeps calling while a replay is
+        // parsed): at most one re-wrap per `olderLoadInterval`, the next one
+        // when that has passed.
+        let now = CFAbsoluteTimeGetCurrent()
+        let wait = lastOlderLoad.map { max(0, $0 + Self.olderLoadInterval - now) } ?? 0
+        Task { @MainActor [weak self] in
+            if wait > 0 { try? await Task.sleep(for: .milliseconds(Int(wait * 1000))) }
+            self?.loadOlderNow()
         }
-        return inner.loadOlderHistory()
+        return true
+    }
+
+    /// The re-wrap ``loadOlderHistory()`` promised, on a later turn of the
+    /// main actor.
+    private func loadOlderNow() {
+        olderLoadScheduled = false
+        guard !shownAlternate, handler != nil else { return }
+        let started = CFAbsoluteTimeGetCurrent()
+        lastOlderLoad = started
+        guard projection.olderRows() > 0 else {
+            // A replay since the ask holds them all already: the Mac's own.
+            inner.loadOlderHistory()
+            return
+        }
+        let segments = projection.loadOlder(hostRows: Self.olderChunkRows)
+        log.notice("projection: \(Self.olderChunkRows, privacy: .public) older rows re-wrapped in \(Int((CFAbsoluteTimeGetCurrent() - started) * 1000), privacy: .public) ms, \(self.projection.olderRows(), privacy: .public) left")
+        emit(segments)
     }
 
     /// A claim on the Mac (alternate screen) keeps its lease: the page renews
@@ -155,8 +182,10 @@ public final class TerminalProjectingSession: TerminalSession {
     }
 
     private var lastOlderLoad: CFAbsoluteTime?
-    /// Whether the last ``loadOlderHistory()`` re-wrap sent a reset.
-    private var lastOlderLoadReset = false
+    /// A ``loadOlderHistory()`` re-wrap is promised and not sent yet.
+    private var olderLoadScheduled = false
+    /// The least time between two older-row re-wraps (seconds).
+    static let olderLoadInterval: CFAbsoluteTime = 0.5
 
     /// Mac scrollback rows each ``loadOlderHistory()`` re-wraps.
     static let olderChunkRows: UInt32 = 2_000
