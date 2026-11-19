@@ -844,8 +844,9 @@ impl Hub {
         let mut active = false;
         let mut reply = String::new();
         let mut message_open = false;
-        self.store
-            .scan_strict(&session.id, 0, &mut |record| {
+        // From byte 0 to the turn's end: off the runtime's workers (`qos::off_worker`).
+        crate::qos::off_worker(|| {
+            self.store.scan_strict(&session.id, 0, &mut |record| {
                 if record.dir == "mux" && record.kind == "turn_started" {
                     if record.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) {
                         turn = record.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
@@ -888,7 +889,8 @@ impl Hub {
                 }
                 true
             })
-            .map_err(workflow_error)?;
+        })
+        .map_err(workflow_error)?;
         if !active {
             return Err(RpcError::internal("workflow prompt has no exact persisted turn"));
         }

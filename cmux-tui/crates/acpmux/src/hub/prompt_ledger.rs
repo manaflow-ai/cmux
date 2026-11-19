@@ -258,12 +258,13 @@ impl Hub {
         let mut closed_window = false;
         let mut prompt_hash = None::<String>;
         let mut permissions = HashSet::<String>::new();
-        let scanned = self.store.scan_strict(&session.id, 0, &mut |rec| {
+        let mut visit = |rec: crate::store::EventRecord| {
             let field = |key: &str| rec.msg.get(key).and_then(Value::as_str);
             let mux = rec.dir == "mux";
             // Only daemon-authored admission records bind a delivery. A human prompt
             // or a harness event can reuse its promptId, but grants no trigger authority.
-            if mux && matches!(rec.kind.as_str(), "queued" | "user_message")
+            if mux
+                && matches!(rec.kind.as_str(), "queued" | "user_message")
                 && field("promptId") == Some(delivery)
             {
                 let provenance = crate::prompt_provenance::recorded(&rec.msg);
@@ -274,14 +275,17 @@ impl Hub {
                         && crate::prompt_provenance::of(
                             &json!({"_meta": {"acpmux": {"provenance": p}}}),
                             crate::prompt_provenance::Sender::Trigger,
-                        ).is_ok()
+                        )
+                        .is_ok()
                 });
                 if !started && result.is_none() && trusted {
                     if let (Some(id), Some(text)) = (field("turnId"), field("text")) {
                         let hash = format!("{:x}", sha2::Sha256::digest(text.as_bytes()));
                         if prompt_hash.as_ref().is_some_and(|prior| prior != &hash) {
                             state = "failed";
-                            result = Some(json!({"status": "failed", "error": "trigger prompt changed after admission"}));
+                            result = Some(
+                                json!({"status": "failed", "error": "trigger prompt changed after admission"}),
+                            );
                             return false;
                         }
                         prompt_hash = Some(hash);
@@ -292,7 +296,9 @@ impl Hub {
                     // A person's queue edit drops the trigger provenance. Do not
                     // attribute the edited prompt's output to the original delivery.
                     state = "failed";
-                    result = Some(json!({"status": "failed", "error": "trigger prompt ownership changed"}));
+                    result = Some(
+                        json!({"status": "failed", "error": "trigger prompt ownership changed"}),
+                    );
                     return false;
                 }
             }
@@ -303,14 +309,17 @@ impl Hub {
                 result = Some(json!({"status": "failed", "error": "trigger prompt was edited"}));
                 return false;
             }
-            if mux && rec.kind == "permission_decision"
+            if mux
+                && rec.kind == "permission_decision"
                 && let Some(permission) = field("permissionId")
             {
                 // Decisions omit turnId. Only IDs established by this exact turn's
                 // request may settle its attention, even after another turn starts.
                 permissions.remove(permission);
             }
-            if closed_window { return true; }
+            if closed_window {
+                return true;
+            }
             if mux && rec.kind == "turn_started" {
                 if started && !exact {
                     active = false;
@@ -321,7 +330,9 @@ impl Hub {
                     }
                     return true;
                 }
-                if exact && field("promptId") == Some(delivery) && rec.msg.get("trigger").and_then(Value::as_bool) == Some(true)
+                if exact
+                    && field("promptId") == Some(delivery)
+                    && rec.msg.get("trigger").and_then(Value::as_bool) == Some(true)
                     && result.is_none()
                 {
                     active = true;
@@ -329,36 +340,50 @@ impl Hub {
                     state = "running";
                 } else if exact && !started {
                     state = "failed";
-                    result = Some(json!({"status": "failed", "error": "trigger turn ownership changed"}));
+                    result = Some(
+                        json!({"status": "failed", "error": "trigger turn ownership changed"}),
+                    );
                     return false;
                 }
             }
-            if mux && matches!(rec.kind.as_str(), "permission_request" | "permission_reissued")
+            if mux
+                && matches!(rec.kind.as_str(), "permission_request" | "permission_reissued")
                 && exact
                 && let Some(permission) = field("permissionId")
             {
                 permissions.insert(permission.to_owned());
             }
-            if active && rec.dir == "in"
+            if active
+                && rec.dir == "in"
                 && rec.msg.get("method").and_then(Value::as_str) == Some("session/update")
                 && rec.msg.pointer("/params/_meta/acpmux/subagent").is_none()
                 && field("turnId").is_none_or(|turn| turn == id)
             {
                 match rec.kind.as_str() {
-                    "agent_message_chunk" if rec.msg.pointer("/params/update/sessionUpdate")
-                        .and_then(Value::as_str) == Some("agent_message_chunk") => {
-                        if let Some(text) = rec.msg.pointer("/params/update/content/text").and_then(Value::as_str) {
+                    "agent_message_chunk"
+                        if rec
+                            .msg
+                            .pointer("/params/update/sessionUpdate")
+                            .and_then(Value::as_str)
+                            == Some("agent_message_chunk") =>
+                    {
+                        if let Some(text) =
+                            rec.msg.pointer("/params/update/content/text").and_then(Value::as_str)
+                        {
                             if !reply_open {
                                 reply.clear();
                                 reply_chars = 0;
                                 reply_open = true;
                             }
-                            let chunk: String = text.chars().take(MAX_REPLY.saturating_sub(reply_chars)).collect();
+                            let chunk: String =
+                                text.chars().take(MAX_REPLY.saturating_sub(reply_chars)).collect();
                             reply_chars += chunk.chars().count();
                             reply.push_str(&chunk);
                         }
                     }
-                    "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan" => reply_open = false,
+                    "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan" => {
+                        reply_open = false
+                    }
                     _ => {}
                 }
             }
@@ -392,7 +417,9 @@ impl Hub {
                 }
             }
             true
-        });
+        };
+        // From byte 0: off the runtime's workers (`qos::off_worker`).
+        let scanned = crate::qos::off_worker(|| self.store.scan_strict(&session.id, 0, &mut visit));
         if scanned.is_err() {
             // A partial journal is not evidence of completion or of a safe resend.
             return json!({"delivery": delivery, "state": "failed", "error": "trigger delivery journal could not be read"});

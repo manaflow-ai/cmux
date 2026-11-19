@@ -2499,6 +2499,10 @@ mod list_web_page_tests;
 #[path = "ack_latency_bench.rs"]
 mod ack_latency_bench;
 
+#[cfg(test)]
+#[path = "log_read_ack_bench.rs"]
+mod log_read_ack_bench;
+
 #[cfg(all(test, target_os = "linux"))]
 #[path = "reader_bound_bench.rs"]
 mod reader_bound_bench;

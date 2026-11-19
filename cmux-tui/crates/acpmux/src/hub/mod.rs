@@ -2955,98 +2955,103 @@ impl Hub {
         let mut timing = history_timing::Timing::default();
         let mut turns: Vec<Value> = Vec::new();
         let mut cur: Option<serde_json::Map<String, Value>> = None;
-        let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
-            let mut opened = false;
-            match e.kind.as_str() {
-                "user_message" if e.msg.get("steer").and_then(Value::as_bool) != Some(true) => {
-                    if let Some(t) = cur.take() {
-                        turns.push(Value::Object(t));
-                    }
-                    let mut t = serde_json::Map::new();
-                    t.insert("seq".into(), json!(e.seq));
-                    t.insert("startedAt".into(), json!(e.at));
-                    t.insert(
-                        "prompt".into(),
-                        json!(short_text(
-                            e.msg.get("text").and_then(Value::as_str).unwrap_or(""),
-                            120
-                        )),
-                    );
-                    t.insert("toolCalls".into(), json!(0));
-                    t.insert("permissions".into(), json!(0));
-                    t.insert("status".into(), json!("running"));
-                    cur = Some(t);
-                    opened = true;
-                }
-                "tool_call" => {
-                    if let Some(t) = cur.as_mut() {
-                        let n = t.get("toolCalls").and_then(Value::as_u64).unwrap_or(0);
-                        t.insert("toolCalls".into(), json!(n + 1));
-                    }
-                }
-                "permission_request" | "permission_auto" => {
-                    if let Some(t) = cur.as_mut() {
-                        let n = t.get("permissions").and_then(Value::as_u64).unwrap_or(0);
-                        t.insert("permissions".into(), json!(n + 1));
-                    }
-                }
-                "usage_update" => {
-                    if let Some(t) = cur.as_mut()
-                        && let Some(u) =
-                            e.msg.pointer("/params/update/used").and_then(Value::as_u64)
-                    {
-                        t.insert("tokens".into(), json!(u));
-                    }
-                }
-                "turn_result" => {
-                    if let Some(t) = cur.as_mut() {
-                        if let Some(id) = e.msg.get("turnId") {
-                            t.insert("turnId".into(), id.clone());
+        // Unindexed kinds: the whole log, off the runtime's workers (`qos::off_worker`).
+        let _ = crate::qos::off_worker(|| {
+            self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+                let mut opened = false;
+                match e.kind.as_str() {
+                    "user_message" if e.msg.get("steer").and_then(Value::as_bool) != Some(true) => {
+                        if let Some(t) = cur.take() {
+                            turns.push(Value::Object(t));
                         }
+                        let mut t = serde_json::Map::new();
+                        t.insert("seq".into(), json!(e.seq));
+                        t.insert("startedAt".into(), json!(e.at));
                         t.insert(
-                            "status".into(),
-                            e.msg.get("status").cloned().unwrap_or(json!("completed")),
+                            "prompt".into(),
+                            json!(short_text(
+                                e.msg.get("text").and_then(Value::as_str).unwrap_or(""),
+                                120
+                            )),
                         );
-                        t.insert(
-                            "stopReason".into(),
-                            e.msg.get("stopReason").cloned().unwrap_or(Value::Null),
-                        );
-                        t.insert("endedAt".into(), json!(e.at));
-                        let started = t.get("startedAt").and_then(Value::as_u64).unwrap_or(e.at);
-                        t.insert("wallMs".into(), json!(e.at.saturating_sub(started)));
-                        if let Some(err) = e.msg.get("error") {
-                            t.insert("error".into(), err.clone());
-                        }
-                        // Why a failed turn ended with no answer (`outcome_unknown`: a daemon
-                        // restart cut it short), so a reader tells that from an agent error.
-                        if let Some(detail) = e.msg.get("detail") {
-                            t.insert("detail".into(), detail.clone());
+                        t.insert("toolCalls".into(), json!(0));
+                        t.insert("permissions".into(), json!(0));
+                        t.insert("status".into(), json!("running"));
+                        cur = Some(t);
+                        opened = true;
+                    }
+                    "tool_call" => {
+                        if let Some(t) = cur.as_mut() {
+                            let n = t.get("toolCalls").and_then(Value::as_u64).unwrap_or(0);
+                            t.insert("toolCalls".into(), json!(n + 1));
                         }
                     }
-                }
-                "turn_end" | "turn_error" => {
-                    // Older logs without turn_result.
-                    if let Some(t) = cur.as_mut()
-                        && t.get("endedAt").is_none()
-                    {
-                        let failed = e.kind == "turn_error";
-                        t.insert(
-                            "status".into(),
-                            json!(if failed { "failed" } else { "completed" }),
-                        );
-                        t.insert(
-                            "stopReason".into(),
-                            e.msg.get("stopReason").cloned().unwrap_or(Value::Null),
-                        );
-                        t.insert("endedAt".into(), json!(e.at));
-                        let started = t.get("startedAt").and_then(Value::as_u64).unwrap_or(e.at);
-                        t.insert("wallMs".into(), json!(e.at.saturating_sub(started)));
+                    "permission_request" | "permission_auto" => {
+                        if let Some(t) = cur.as_mut() {
+                            let n = t.get("permissions").and_then(Value::as_u64).unwrap_or(0);
+                            t.insert("permissions".into(), json!(n + 1));
+                        }
                     }
+                    "usage_update" => {
+                        if let Some(t) = cur.as_mut()
+                            && let Some(u) =
+                                e.msg.pointer("/params/update/used").and_then(Value::as_u64)
+                        {
+                            t.insert("tokens".into(), json!(u));
+                        }
+                    }
+                    "turn_result" => {
+                        if let Some(t) = cur.as_mut() {
+                            if let Some(id) = e.msg.get("turnId") {
+                                t.insert("turnId".into(), id.clone());
+                            }
+                            t.insert(
+                                "status".into(),
+                                e.msg.get("status").cloned().unwrap_or(json!("completed")),
+                            );
+                            t.insert(
+                                "stopReason".into(),
+                                e.msg.get("stopReason").cloned().unwrap_or(Value::Null),
+                            );
+                            t.insert("endedAt".into(), json!(e.at));
+                            let started =
+                                t.get("startedAt").and_then(Value::as_u64).unwrap_or(e.at);
+                            t.insert("wallMs".into(), json!(e.at.saturating_sub(started)));
+                            if let Some(err) = e.msg.get("error") {
+                                t.insert("error".into(), err.clone());
+                            }
+                            // Why a failed turn ended with no answer (`outcome_unknown`: a daemon
+                            // restart cut it short), so a reader tells that from an agent error.
+                            if let Some(detail) = e.msg.get("detail") {
+                                t.insert("detail".into(), detail.clone());
+                            }
+                        }
+                    }
+                    "turn_end" | "turn_error" => {
+                        // Older logs without turn_result.
+                        if let Some(t) = cur.as_mut()
+                            && t.get("endedAt").is_none()
+                        {
+                            let failed = e.kind == "turn_error";
+                            t.insert(
+                                "status".into(),
+                                json!(if failed { "failed" } else { "completed" }),
+                            );
+                            t.insert(
+                                "stopReason".into(),
+                                e.msg.get("stopReason").cloned().unwrap_or(Value::Null),
+                            );
+                            t.insert("endedAt".into(), json!(e.at));
+                            let started =
+                                t.get("startedAt").and_then(Value::as_u64).unwrap_or(e.at);
+                            t.insert("wallMs".into(), json!(e.at.saturating_sub(started)));
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
-            }
-            timing.note(&e, cur.as_mut(), opened);
-            true
+                timing.note(&e, cur.as_mut(), opened);
+                true
+            })
         });
         if let Some(t) = cur.take() {
             turns.push(Value::Object(t));

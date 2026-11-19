@@ -526,7 +526,8 @@ impl Hub {
         // Each subagent's last state and agent id, and whether acpmux's last entry left it open.
         let mut subs: HashMap<String, (Value, Value, bool)> = HashMap::new();
         let kinds = ["subagent_state_update"];
-        let scanned =
+        // An unindexed kind: the whole log, off the runtime's workers (`qos::off_worker`).
+        let scanned = crate::qos::off_worker(|| {
             self.scan_for_rebuild(session, &kinds, &mut |e: crate::store::EventRecord| {
                 let entries =
                     e.msg.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array);
@@ -545,7 +546,8 @@ impl Hub {
                     }
                 }
                 true
-            });
+            })
+        });
         if let Err(e) = scanned {
             tracing::warn!(session = %session.id, "settling subagent retries: {e}");
             return;

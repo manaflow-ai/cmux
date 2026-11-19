@@ -26,7 +26,8 @@ pub(super) fn load(
     attach(hub, conn, &s.id);
     // One record at a time, the first 100,000 as before: the log is never held whole.
     let mut left = 100_000usize;
-    hub.scan_events(&s.id, 0, &mut |rec| {
+    // The replay reads the log from disk: off the runtime's workers (`qos::off_worker`).
+    crate::qos::off_worker(|| hub.scan_events(&s.id, 0, &mut |rec| {
         left -= 1;
         if rec.dir == "mux" && rec.kind == "user_message" {
             let text = rec.msg.get("text").and_then(Value::as_str).unwrap_or("");
@@ -66,7 +67,7 @@ pub(super) fn load(
             conn.send(&Message::notification(method::SESSION_UPDATE, p));
         }
         left > 0
-    })
+    }))
     .map_err(|e| RpcError::internal(e.to_string()))?;
     Ok(opened(hub, &s))
 }

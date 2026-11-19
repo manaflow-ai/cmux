@@ -20,8 +20,9 @@ impl Hub {
         prompt_id: &str,
     ) -> Option<String> {
         let mut transcript = TranscriptBuilder::new(max_chars);
-        self.store
-            .scan_kinds(&session.id, KINDS, &mut |e: EventRecord| {
+        // Unindexed kinds: the whole log, off the runtime's workers (`qos::off_worker`).
+        crate::qos::off_worker(|| {
+            self.store.scan_kinds(&session.id, KINDS, &mut |e: EventRecord| {
                 match e.kind.as_str() {
                     "user_message"
                         if e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) => {}
@@ -50,7 +51,8 @@ impl Hub {
                 }
                 true
             })
-            .ok()?;
+        })
+        .ok()?;
         transcript.finish()
     }
 }
