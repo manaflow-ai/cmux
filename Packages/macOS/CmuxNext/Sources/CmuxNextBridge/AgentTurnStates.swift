@@ -527,6 +527,8 @@ public final class AgentTurnStateStore {
                 turnEnded(session, peer: name, folder: (detail ?? held.detail)?.cwd)
             }
             if held.peers[name] != peer { held.peers[name] = peer }
+            // Nor its chat facts: a mirrored chat of the same id keeps its own title, last message and detail.
+            guard held.source == source else { return }
             writeFacts(held, sessionName: sessionName, lastMessage: lastMessage, muted: muted, title: title, generatedTitle: generatedTitle, detail: detail)
             return
         }

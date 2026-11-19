@@ -196,8 +196,10 @@ struct PeerTurnEndTests {
         let ref = AgentSessionRef(host: "chief:1", session: "c1")
         turns.apply(session: "c1", state: .working, lastMessage: nil, muted: false, title: "Chief task", detail: nil, source: "chief:1")
         // A push of the lab's row of c1, then this Mac's own page, which lists none of its own.
-        turns.apply(session: "c1", state: .working, lastMessage: nil, muted: false, title: "Chief task", detail: nil,
+        turns.apply(session: "c1", state: .working, lastMessage: "the lab's last line", muted: false, title: "The lab's chat", detail: nil,
                     peer: AgentPeerRow(name: "lab", stale: false, state: .working), peerName: "lab")
+        #expect(turns.title(for: ref) == "Chief task", "a peer's push wrote its chat's title over the mirrored chat of the same id")
+        #expect(turns.lastMessage(for: ref) == nil, "a peer's push wrote its chat's last message over the mirrored chat of the same id")
         turns.replace(states: AgentTurnStates(), lastMessages: [:], muted: [], titles: [:], details: [:])
         #expect(turns.state(for: ref) == .working, "a peer's push took the mirrored chat's record, and this Mac's page cleared it")
         #expect(turns.title(for: ref) == "Chief task")
