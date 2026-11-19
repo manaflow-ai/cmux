@@ -508,9 +508,19 @@ pub fn stop_host() -> Res<()> {
 /// Installs the host's user unit (when missing or older) and starts it: with a desktop, as part
 /// of its graphical session; on a virtual display, from the user manager itself. Turns on
 /// lingering for a virtual display, so the host outlives the ssh session (warns if it cannot).
+/// The host unit `install_host` writes: the headless one for a virtual display (no ties to
+/// `graphical-session.target`, which never starts there), else the desktop's.
+pub fn host_unit_text(virtual_display: bool) -> String {
+    if virtual_display {
+        headless_host_unit()
+    } else {
+        HOST_UNIT_TEXT.to_owned()
+    }
+}
+
 pub fn install_host(virtual_display: bool) -> Res<()> {
     let dir = user_unit_dir()?;
-    let text = if virtual_display { headless_host_unit() } else { HOST_UNIT_TEXT.to_owned() };
+    let text = host_unit_text(virtual_display);
     write_if_changed(&dir.join(HOST_UNIT), &text)?;
     systemctl(&["daemon-reload"])?;
     // Drops the links of the other unit's [Install], such as graphical-session.target's.
@@ -608,6 +618,19 @@ mod tests {
             choose_desktop(None, None, Some(":99"), Some(99), &[x11]),
             Desktop::X11(Some(":0".into()))
         );
+    }
+
+    #[test]
+    fn a_headless_machine_with_its_virtual_display_in_display_gets_the_headless_unit() {
+        // set_up_for_join: `virtual_display = desktop == Desktop::None`, then install_host.
+        let desktop = choose_desktop(None, None, Some(":99"), Some(99), &[]);
+        let unit = host_unit_text(desktop == Desktop::None);
+        assert!(!unit.contains("graphical-session"), "{unit}");
+        assert!(unit.contains("\nWantedBy=default.target\n"), "{unit}");
+        // A person's desktop keeps the unit tied to its graphical session.
+        let desktop = choose_desktop(None, None, Some(":0"), Some(99), &[]);
+        assert!(host_unit_text(desktop == Desktop::None)
+            .contains("\nRequisite=graphical-session.target\n"));
     }
 
     #[test]
