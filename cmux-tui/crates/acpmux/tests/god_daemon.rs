@@ -1791,7 +1791,20 @@ fn send_first_token(rpc: &mut Rpc, id: &str, text: &str) -> Result<u64, Value> {
                 .unwrap_or("response");
             *kinds.entry(kind.to_owned()).or_default() += 1;
         }
-        json!(kinds)
+        // The chunks that did not match: whose they were and the start of their text.
+        let chunks: Vec<Value> = rpc
+            .notes
+            .iter()
+            .skip(seen)
+            .filter(|v| v["params"]["update"]["sessionUpdate"] == "agent_message_chunk")
+            .take(4)
+            .map(|v| {
+                let text = v["params"]["update"]["content"]["text"].as_str().unwrap_or("");
+                json!({"sessionId": v["params"]["sessionId"],
+                       "text": text.chars().take(160).collect::<String>()})
+            })
+            .collect();
+        json!({"kinds": kinds, "chunks": chunks})
     };
     let first = match first {
         Ok(first) => first,
