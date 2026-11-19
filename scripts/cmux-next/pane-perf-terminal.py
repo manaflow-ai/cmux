@@ -73,7 +73,13 @@ named look; the measures still run then, under the look's name. The conditions a
 app that is behind the window (`windows_behind`, from the screen's window list), and a run with a look has a row
 that passes when there is none. Each row and summary of such a run is named <layout>-look-<each named key and its
 value>, so it is never compared with an opaque window's rows. Without the option, or with `opaque`, the launch and
-each row's name stay as they were.
+each row's name stay as they were. The option's keys are window_look.py's (this script has no parser of its own): a
+key with a dot is any other path of the app's settings (`ui.animationSpeed=off`), and `name=WORD` is the look's
+name, which a row's name then has in place of each value (<layout>-look-<name>). Each run, with a look or opaque,
+prints `APP-SETTINGS` lines and keeps them in the conditions (`window_look.head`): each path that the launch wrote
+with the app's own answer beside it, each other setting that the app holds, and the speed that its motion runs at.
+`CLI-SETTINGS` lines (`window_look.cli`) are a try for the record: what the bundle's CLI answers for each path.
+With a look, an argument that this script does not know ends the run before the app starts.
 
 With --browser-engine webkit the probe page and the --pages pages are WebKit pages instead (no `debug.cef` counters
 change then; Lawrence 2026-11-05: "resize webviews (both chrome and webkit) more often").
@@ -132,8 +138,9 @@ parser.add_argument("--pane-motion", default=None,
 parser.add_argument("--window-look", default=None,
                     help="opaque (the default: the launch as it was) or KEY=VALUE[,KEY=VALUE...] with background=NAME, "
                          "opacity=0..1, blur=frosted|glass|glass-clear|none (the app config), terminal-opacity=0..1, "
-                         "terminal-blur=RADIUS (the terminal config file) and behind=desktop|checker|stripes: only the "
-                         "named keys are written; its rows are named <layout>-look-<each named key and its value>")
+                         "terminal-blur=RADIUS (the terminal config file), behind=desktop|checker|stripes, "
+                         "SETTINGS.PATH=VALUE (any other key of the app config) and name=WORD: only the named keys are "
+                         "written; its rows are named <layout>-look-<the name, or each named key and its value>")
 opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -141,6 +148,7 @@ CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, LaunchError  # noqa: E402  the shared GUI launch (session check, failure report)
 import bench_background  # noqa: E402  background daemon CPU per round (a reader drops a round over its limit)
+import window_look as looks  # noqa: E402  the window's look: the option's keys, the launch's config, the app's own answers
 
 
 def load_stress():
@@ -710,151 +718,6 @@ def set_pane_motion(on):
     return None if seen is on else f"pane_animations is {seen!r} after the call, not {on!r}"
 
 
-def window_look(value):
-    """`--window-look`: None for `opaque` (and for no option: the launch, the config and each row's name stay as they
-    were), or the keys that the option names, as KEY=VALUE parts with a comma between them. No key has a default:
-    a key that is not named is not written. `background` (`appearance.background`: a built-in picture's name, `none`,
-    `daily` or `desktop`), `opacity` (`appearance.backgroundOpacity`, 0 to 1) and `blur` (`appearance.backgroundBlur`:
-    frosted, glass, glass-clear or none) go to the app config; `terminal-opacity` and `terminal-blur` go to the
-    terminal config file (`background-opacity`, and `background-blur`: a radius). `behind` is what the window is
-    over: `desktop` (what the screen shows there; the same as no `behind`), or the app's own `checker` or `stripes`
-    panel. Another word, a key two times, or no config key at all, raises ValueError."""
-    if value is None or value == "opaque":
-        return None
-    refused = ValueError("--window-look takes opaque or KEY=VALUE[,KEY=VALUE...] with background=NAME, opacity=0..1, "
-                         "blur=frosted|glass|glass-clear|none, terminal-opacity=0..1, terminal-blur=RADIUS and "
-                         f"behind=desktop|checker|stripes (one config key at least), not {value!r}")
-    look = {}
-    for part in value.split(","):
-        key, equals, text = (piece.strip() for piece in part.partition("="))
-        key = key.replace("-", "_")
-        if not equals or key in look:
-            raise refused
-        try:
-            if key == "background":
-                found = text if text and not text.strip("abcdefghijklmnopqrstuvwxyz0123456789-") else None
-            elif key == "blur":
-                found = text if text in ("frosted", "glass", "glass-clear", "none") else None
-            elif key == "behind":
-                found = text if text in ("desktop", "checker", "stripes") else None
-            elif key == "terminal_blur":
-                found = int(text) if int(text) >= 0 else None
-            elif key in ("opacity", "terminal_opacity"):
-                found = float(text) if 0 <= float(text) <= 1 else None
-            else:
-                found = None
-        except ValueError:
-            found = None
-        if found is None:
-            raise refused
-        look[key] = found
-    if not set(look) - {"behind"}:
-        raise refused
-    return look
-
-
-def look_tag(look):
-    """The part a look adds to each row's layout name: each named key and its value in the option's order, then
-    what the window is over when that is not the desktop. An opaque window adds nothing."""
-    if not look:
-        return ""
-    parts = [f"{key.replace('_', '-')}-{format(value, 'g') if isinstance(value, float) else value}"
-             for key, value in look.items() if key != "behind"]
-    over = "" if look.get("behind", "desktop") == "desktop" else f"-over-{look['behind']}"
-    return "look-" + "-".join(parts) + over
-
-
-def look_config(config, look):
-    """The app config with the look's named keys of `appearance`: `background`, `backgroundOpacity` and
-    `backgroundBlur` (a copy; the other keys stay, and a key that the look does not name is not written). An opaque
-    window gets `config` itself: the launch default."""
-    if not look:
-        return config
-    appearance = dict(config.get("appearance") or {})
-    for key, name in (("background", "background"), ("opacity", "backgroundOpacity"), ("blur", "backgroundBlur")):
-        if key in look:
-            appearance[name] = look[key]
-    return {**config, "appearance": appearance} if appearance else dict(config)
-
-
-def look_terminal_lines(look):
-    """The look's lines of the terminal config file: an opacity and a blur radius, each only when the look names it.
-    None for an opaque window."""
-    lines = []
-    if look and "terminal_opacity" in look:
-        lines.append(f"background-opacity = {look['terminal_opacity']:g}")
-    if look and "terminal_blur" in look:
-        lines.append(f"background-blur = {look['terminal_blur']}")
-    return lines
-
-
-def look_problem(look, env, read=None):
-    """Why the launched app did not get the look (None when it did, and for an opaque window): the app config of
-    the launch's own environment must hold each named key, and its terminal config file each named line (a look
-    with no terminal line does not read that file)."""
-    if not look:
-        return None
-    read = read or (lambda path: open(path).read())
-    try:
-        terminal = read(env["CMUX_NEXT_GHOSTTY_CONFIG"]).splitlines() if look_terminal_lines(look) else []
-        appearance = json.loads(read(env["CMUX_NEXT_CONFIG_FILE"])).get("appearance") or {}
-    except (KeyError, OSError, ValueError) as error:
-        return f"the launch's config files were not read: {error!r}"
-    missing = [line for line in look_terminal_lines(look) if line not in terminal]
-    wanted = look_config({}, look).get("appearance") or {}
-    missing += [f"appearance.{key}" for key, value in wanted.items() if appearance.get(key) != value]
-    return f"not in the launch's config: {missing}" if missing else None
-
-
-def look_resolved(look, backdrop, settings):
-    """What the running app says that its window shows, and why that is not the look: (resolved, problem), problem
-    None when it is the look, and for an opaque window (which is read and never fails). `backdrop` is `debug.themes`'
-    `windows[0].backdrop`: `picture` is the id of the picture that the window shows (empty with none); the alpha of
-    `tint` (`#RRGGBBAA`: the theme tint over the picture or the desktop) is the opacity the app resolved, Liquid
-    Glass carries that tint itself (`glassTint`), and an opaque window paints its `sheet` and shows no tint.
-    `settings` is the app's own answer (`settings.get`) for each `appearance` key. `resolved` holds the background's
-    kind (`picture` or `none`), the picture's id, the opacity, `glass`, and `blur`: the app's settings answer, for
-    the debug read has no field for the blur. The look fails when a named settings key has another value in the
-    app, when `background` names a picture that the window does not show, or when the shown opacity is not the
-    named `opacity` (to 1.5 steps of the alpha's 255)."""
-    backdrop = backdrop if isinstance(backdrop, dict) else {}
-    settings = settings if isinstance(settings, dict) else {}
-
-    def alpha(name):
-        text = backdrop.get(name) or ""
-        try:
-            return int(text[7:9], 16) / 255 if isinstance(text, str) and len(text) == 9 and text[0] == "#" else None
-        except ValueError:
-            return None
-
-    picture = backdrop.get("picture") or ""
-    tint, glass = alpha("tint"), alpha("glassTint")
-    opacity = tint if tint is not None else glass if glass is not None else 1.0 if backdrop.get("sheet") else None
-    resolved = {"background": "picture" if picture else "none", "picture": picture,
-                "opacity": None if opacity is None else round(opacity, 3), "glass": tint is None and glass is not None,
-                "blur": settings.get("backgroundBlur"), "settings": settings}
-    if not look:
-        return resolved, None
-
-    def same(seen, value):
-        number = isinstance(value, float) and isinstance(seen, (int, float)) and not isinstance(seen, bool)
-        return abs(seen - value) <= 1e-9 if number else seen == value
-
-    wanted = look_config({}, look).get("appearance") or {}
-    faults = [f"appearance.{key} is {settings.get(key)!r} in the app's settings, not {value!r}"
-              for key, value in wanted.items() if not same(settings.get(key), value)]
-    name = look.get("background")
-    if name == "none" and picture:
-        faults.append(f"the window shows the picture {picture!r}, not none")
-    elif name in ("daily", "desktop") and not picture:
-        faults.append(f"the window shows no picture, not the {name} one")
-    elif name not in (None, "none", "daily", "desktop") and picture != name:
-        faults.append(f"the window shows the picture {picture!r}, not {name!r}")
-    if "opacity" in look and (opacity is None or abs(opacity - look["opacity"]) > 1.5 / 255):
-        faults.append(f"the window's opacity is {resolved['opacity']!r}, not {look['opacity']!r}")
-    return resolved, "; ".join(faults) or None
-
-
 def screen_windows():
     """Each on-screen window, front to back: layer, pid, owner and bounds {x, y, width, height} in top-left points
     (CGWindowList without the desktop's own elements: bounds, layers and owner names need no grant)."""
@@ -1162,6 +1025,28 @@ def record(name, label, rounds=()):
     return kept
 
 
+def cli_settings(cli, paths, env, run=None):
+    """What the bundle's own CLI says for each settings path of `paths` (the look's): `config get PATH`, and
+    `settings get PATH` when the CLI refuses the first word. One line for each call: the exit code and the first 300
+    characters of what it printed. A try for the record, in the launch's own environment: it reads only, it fails
+    no row, and a CLI that is not there or gives no answer in 10 s is said in the line."""
+    lines = []
+    run = run or subprocess.run
+    environment = {name: value for name, value in {**os.environ, **env}.items() if isinstance(value, str)}
+    for path in paths:
+        for word in ("config", "settings"):
+            done = None
+            try:
+                done = run([cli, "--json", word, "get", path], capture_output=True, text=True, timeout=10, env=environment)
+                said = f"exit {done.returncode}: {' '.join((done.stdout or done.stderr or '').split())[:300]}"
+            except (OSError, subprocess.SubprocessError) as error:
+                said = f"not run: {error!r}"[:300]
+            lines.append(f"{word} get {path}: {said}")
+            if done is not None and done.returncode == 0:
+                break
+    return lines
+
+
 def docked_state(reply):
     """What `debug.dock` says of the window's docked columns (`reply`), for --record-docked: `columns` (each column
     of each window's active screen as `EDGE MODE, shown or not shown, N panes`), `panes` (the panes of the ONE shown
@@ -1343,18 +1228,21 @@ def cleanup():
 def main():
     global app, SOCKET, BENCH, MEASURED
     arms = motion_arms(opts.pane_motion)  # another word than on or off ends the run here, before the app starts
-    look = window_look(opts.window_look)  # so does another word for the window's look
+    look = looks.window_look(opts.window_look)  # so does another word for the window's look
+    if look and _unknown:
+        # A value with a space that came as 2 arguments would be cut with no word: no measure of half a look.
+        raise ValueError(f"--window-look came with arguments that this script does not know: {_unknown}")
     os.makedirs(opts.out, exist_ok=True)
     # The shared launch (bench_launch.py): its bench environment, a session check that fails at once with
     # no-gui-session, the state-folder socket, and a BENCH-LAUNCH report (crash, sample, log tail) on failure.
     # The app activates and its window becomes key (no CMUX_NEXT_NO_ACTIVATE), as for a person; without
     # no-activate the app reads no test window placement, so the window is placed through the socket below.
-    BENCH = BenchApp(APP, out=opts.out, config=look_config(CONFIG, look), env={"CMUX_NEXT_NO_ACTIVATE": None},
+    BENCH = BenchApp(APP, out=opts.out, config=looks.look_config(CONFIG, look), env={"CMUX_NEXT_NO_ACTIVATE": None},
                      window=None, screen=None, log_name=f"app-{TAG}.log")
-    if look_terminal_lines(look):
+    if looks.look_terminal_lines(look):
         # A look's named terminal lines: the launch opens this file to append, so they stay in it.
         with open(os.path.join(BENCH.scratch, "ghostty"), "w") as terminal_config:
-            terminal_config.write("\n".join(look_terminal_lines(look)) + "\n")
+            terminal_config.write("\n".join(looks.look_terminal_lines(look)) + "\n")
     try:
         BENCH.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
     except LaunchError as error:
@@ -1372,12 +1260,12 @@ def main():
     behind = None
     if look:
         # No row of a look from the launch's opaque window: the launch's own config files hold the look, or the run ends.
-        problem = look_problem(look, BENCH.launched_env or {})
+        problem = looks.look_problem(look, BENCH.launched_env or {})
         if not problem and look.get("behind", "desktop") != "desktop":
             behind = rpc("debug.capture_backdrop", {"pattern": look["behind"]})  # before the app takes the front
             if not (isinstance(behind, dict) and behind.get("backdrop_number")):
                 problem = f"no {look['behind']} panel behind the window: {behind}"
-        row("the launch's config holds the window's look", look_tag(look), problem or "each named key and line", problem is None)
+        row("the launch's config holds the window's look", looks.look_tag(look), problem or "each named key and line", problem is None)
         if problem:
             UNMEASURED.append(f"window look: {problem}")
             return
@@ -1388,25 +1276,24 @@ def main():
     # was key when it started (`layouts`).
     conditions = {"env": BENCH.launched_env, "window": STRESS_MODULE.window_on_screen(placed) if isinstance(placed, dict) else None,
                   "layouts": {}}
-    # The window's look: its named keys, what the window is over, and what the app itself says it shows (`resolved`:
-    # `debug.themes`' backdrop and the app's own settings answer). A picture loads and a tint blends after the
-    # launch: a look waits for them (test harness: at most 10 s); an opaque window is read one time.
-    answer = rpc("settings.get", {"path": "appearance"})
-    settings = answer.get("value") if isinstance(answer, dict) and isinstance(answer.get("value"), dict) else {"not read": answer}
-    deadline = time.monotonic() + 10
-    while True:
-        themes = rpc("debug.themes")
-        shown = (themes.get("windows") or [{}])[0].get("backdrop") if isinstance(themes, dict) else None
-        resolved, look_fault = look_resolved(look, shown, settings)
-        blending = isinstance(shown, dict) and shown.get("blending") == "true"
-        if not look or not (look_fault or blending) or time.monotonic() > deadline:
-            break
-        time.sleep(0.5)  # test harness: the picture's load and the tint's blend
-    conditions["window_look"] = {"look": look_tag(look) or "opaque", **(look or {}),
-                                 "terminal_config": look_terminal_lines(look), "resolved": resolved, "backdrop_shown": shown,
-                                 "terminal_background": themes.get("ghostty_background") if isinstance(themes, dict) else None}
+    # The window's look: its named keys, what the window is over, and what the app itself says it shows and holds
+    # (window_look.py `shown_look`: `debug.themes`' backdrop, the app's own settings answers and the speed that its
+    # motion runs at). A picture loads and a tint blends after the launch: a look waits for them (test harness: at
+    # most 10 s); an opaque window is read one time.
+    seen, look_fault = looks.shown_look(rpc, look)
+    resolved, shown = seen["resolved"], seen["backdrop_shown"]
+    conditions["window_look"] = {"look": looks.look_tag(look) or "opaque", **(look or {}),
+                                 "terminal_config": looks.look_terminal_lines(look), "resolved": resolved, "backdrop_shown": shown,
+                                 "terminal_background": seen["terminal_background"]}
+    # The report's head: each key that the launch wrote with the app's own answer, and each other setting the app holds.
+    conditions["window_look"]["head"] = looks.look_head(look, seen)
+    for line in conditions["window_look"]["head"]:
+        print("APP-SETTINGS " + line, flush=True)
+    conditions["window_look"]["cli"] = cli_settings(CLI, looks.look_paths(look), BENCH.launched_env or {})
+    for line in conditions["window_look"]["cli"]:
+        print("CLI-SETTINGS " + line, flush=True)
     if look:
-        row("the app shows the window's look", look_tag(look),
+        row("the app shows the window's look", looks.look_tag(look),
             look_fault or f"{resolved['background']} {resolved['picture']!r}, opacity {resolved['opacity']}, blur {resolved['blur']!r}",
             look_fault is None)
     try:
@@ -1450,7 +1337,7 @@ def main():
         if name == "stress":
             # A bottom Dock over the window's lower edge, and chats the session replaced (none in STRESS).
             state.update(dock_overlap_pt=STRESS.get("dock_overlap_pt"), chat_fallbacks=STRESS.get("chat_fallbacks"))
-        label = f"{name}-{look_tag(look)}" if look else name  # a look's rows say each of its named values
+        label = f"{name}-{looks.look_tag(look)}" if look else name  # a look's rows say each of its named values
         label = label if state["window_key"] else f"{label}-inactive"
         # One pass for each arm in each round (--pane-motion): the off arm's rows are named <label>-motion-off.
         tags = {arm: label if arm != "off" else f"{label}-motion-off" for arm in arms or [None]}

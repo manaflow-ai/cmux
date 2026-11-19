@@ -32,10 +32,8 @@ def definitions(path, names):
 
 BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_applicable", "activate", "commit_frames",
                                                     "late_frames", "motion_arms", "commit_notes", "commit_placements",
-                                                    "layout_spans", "window_look", "look_tag", "look_config",
-                                                    "look_terminal_lines", "look_problem", "look_resolved",
-                                                    "windows_behind", "marker_color", "marker_command", "stills_facts",
-                                                    "stills_clock", "stills_cost", "docked_state"})
+                                                    "layout_spans", "windows_behind", "marker_color", "marker_command", "stills_facts",
+                                                    "stills_clock", "stills_cost", "docked_state", "cli_settings"})
 ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
@@ -252,162 +250,6 @@ class MotionArms(unittest.TestCase):
                 self.motion_arms(value)
 
 
-class WindowLook(unittest.TestCase):
-    """`--window-look`: the keys that the command line names, and no other key, written the ways the app reads them."""
-
-    PICTURE = "background=test-picture,opacity=0.5,blur=frosted"
-
-    def setUp(self):
-        namespace = loaded()
-        self.window_look, self.look_tag = namespace["window_look"], namespace["look_tag"]
-        self.look_config, self.look_terminal_lines = namespace["look_config"], namespace["look_terminal_lines"]
-
-    def test_opaque_is_the_default_and_changes_nothing(self):
-        # The launch, the config and each row's name stay as they were, so the old numbers compare.
-        config = {"layout": {"minimumPaneWidth": 80}}
-        for value in (None, "opaque"):
-            look = self.window_look(value)
-            self.assertIsNone(look)
-            self.assertEqual(self.look_tag(look), "")
-            self.assertIs(self.look_config(config, look), config)
-            self.assertEqual(self.look_terminal_lines(look), [])
-
-    def test_the_look_holds_each_named_key_and_no_other(self):
-        self.assertEqual(self.window_look(self.PICTURE), {"background": "test-picture", "opacity": 0.5, "blur": "frosted"})
-        self.assertEqual(self.window_look("opacity=0.25"), {"opacity": 0.25})
-        self.assertEqual(self.window_look(" blur = glass-clear , terminal-opacity=0.5,terminal-blur=8,behind=checker"),
-                         {"blur": "glass-clear", "terminal_opacity": 0.5, "terminal_blur": 8, "behind": "checker"})
-
-    def test_the_app_config_gets_the_named_keys_and_keeps_the_rest(self):
-        config = {"layout": {"minimumPaneWidth": 80}, "appearance": {"theme": "dark"}}
-        made = self.look_config(config, self.window_look(self.PICTURE))
-        self.assertEqual(made, {"layout": {"minimumPaneWidth": 80},
-                                "appearance": {"theme": "dark", "background": "test-picture", "backgroundOpacity": 0.5,
-                                               "backgroundBlur": "frosted"}})
-        self.assertEqual(config, {"layout": {"minimumPaneWidth": 80}, "appearance": {"theme": "dark"}})
-
-    def test_a_key_that_is_not_named_is_not_written(self):
-        self.assertEqual(self.look_config({}, self.window_look("background=test-picture")),
-                         {"appearance": {"background": "test-picture"}})
-        self.assertEqual(self.look_config({}, self.window_look("opacity=0.5")), {"appearance": {"backgroundOpacity": 0.5}})
-        self.assertEqual(self.look_config({}, self.window_look("terminal-blur=8")), {})
-
-    def test_no_terminal_line_is_written_unless_it_is_named(self):
-        self.assertEqual(self.look_terminal_lines(self.window_look(self.PICTURE)), [])
-        self.assertEqual(self.look_terminal_lines(self.window_look("terminal-opacity=0.5")), ["background-opacity = 0.5"])
-        self.assertEqual(self.look_terminal_lines(self.window_look("terminal-blur=8,terminal-opacity=1")),
-                         ["background-opacity = 1", "background-blur = 8"])
-
-    def test_the_rows_name_says_each_named_value(self):
-        self.assertEqual(self.look_tag(self.window_look(self.PICTURE)), "look-background-test-picture-opacity-0.5-blur-frosted")
-        self.assertEqual(self.look_tag(self.window_look("terminal-blur=8,opacity=1,behind=stripes")),
-                         "look-terminal-blur-8-opacity-1-over-stripes")
-
-    def test_another_word_is_refused(self):
-        for value in ("", "glass", "see-through", "opacity", "opacity=2", "opacity=-0.1", "opacity=nan", "blur=milk",
-                      "terminal-blur=-1", "terminal-blur=2.5", "shade=1", "opacity=0.5,opacity=0.6", "behind=wall",
-                      "behind=checker", "opaque,opacity=0.5", "opacity=0.5,", "background=", "background=A Picture",
-                      "background=../picture", "opacity=unset"):
-            with self.assertRaises(ValueError, msg=value):
-                self.window_look(value)
-
-
-class LookProblem(unittest.TestCase):
-    """A run with a look does not go on as an opaque one: the launch's own config files must hold each named key."""
-
-    ENV = {"CMUX_NEXT_CONFIG_FILE": "/scratch/cmux.json", "CMUX_NEXT_GHOSTTY_CONFIG": "/scratch/ghostty"}
-
-    def problem(self, value, files, env=None):
-        namespace = loaded(json=json)
-        return namespace["look_problem"](namespace["window_look"](value), self.ENV if env is None else env,
-                                         read=files.__getitem__)
-
-    def test_an_opaque_window_reads_no_file(self):
-        self.assertIsNone(self.problem("opaque", {}, env={}))
-
-    def test_the_files_hold_the_named_keys(self):
-        app = json.dumps({"layout": {}, "appearance": {"background": "test-picture", "backgroundOpacity": 0.5,
-                                                       "backgroundBlur": "frosted"}})
-        # No terminal line is named: the terminal config file is not read.
-        self.assertIsNone(self.problem("background=test-picture,opacity=0.5,blur=frosted", {"/scratch/cmux.json": app}))
-        files = {"/scratch/cmux.json": "{}", "/scratch/ghostty": "background-opacity = 0.5\nbackground-blur = 8\n"}
-        self.assertIsNone(self.problem("terminal-opacity=0.5,terminal-blur=8", files))
-
-    def test_a_missing_key_or_line_is_named(self):
-        files = {"/scratch/cmux.json": json.dumps({"appearance": {"background": "other-picture", "backgroundOpacity": 0.5}}),
-                 "/scratch/ghostty": "background-opacity = 0.5\n"}
-        problem = self.problem("background=test-picture,opacity=0.5,terminal-opacity=0.5,terminal-blur=8", files)
-        self.assertIn("background-blur = 8", problem)
-        self.assertIn("'appearance.background'", problem)
-        self.assertNotIn("backgroundOpacity", problem)
-        self.assertNotIn("background-opacity = 0.5", problem)
-
-    def test_a_file_that_is_not_there_is_a_problem(self):
-        self.assertIn("not read", self.problem("opacity=0.5", {}))
-        self.assertIn("not read", self.problem("opacity=0.5", {}, env={}))
-        self.assertIn("not read", self.problem("terminal-blur=8", {"/scratch/cmux.json": "{}"}))
-
-
-class LookResolved(unittest.TestCase):
-    """The look is what the running app says that its window shows, not what a file says: the picture's id and the
-    tint's alpha of `debug.themes`' backdrop, and the app's own settings answer for each named key."""
-
-    LOOK = "background=test-picture,opacity=0.5,blur=frosted"
-    BACKDROP = {"sheet": "", "tint": "#10203080", "glassTint": "", "picture": "test-picture", "blending": "false"}
-    SETTINGS = {"background": "test-picture", "backgroundOpacity": 0.5, "backgroundBlur": "frosted"}
-
-    def resolved(self, value, backdrop, settings):
-        namespace = loaded()
-        return namespace["look_resolved"](namespace["window_look"](value), backdrop, settings)
-
-    def test_the_picture_at_the_named_opacity_passes(self):
-        resolved, problem = self.resolved(self.LOOK, self.BACKDROP, self.SETTINGS)
-        self.assertIsNone(problem)
-        self.assertEqual((resolved["background"], resolved["picture"], resolved["blur"]), ("picture", "test-picture", "frosted"))
-        self.assertAlmostEqual(resolved["opacity"], 128 / 255, places=3)
-        self.assertFalse(resolved["glass"])
-
-    def test_no_picture_or_another_picture_fails(self):
-        resolved, problem = self.resolved(self.LOOK, {**self.BACKDROP, "picture": ""}, self.SETTINGS)
-        self.assertEqual(resolved["background"], "none")
-        self.assertIn("picture", problem)
-        self.assertIn("other-picture", self.resolved(self.LOOK, {**self.BACKDROP, "picture": "other-picture"}, self.SETTINGS)[1])
-
-    def test_another_opacity_fails(self):
-        self.assertIn("opacity", self.resolved(self.LOOK, {**self.BACKDROP, "tint": "#102030C0"}, self.SETTINGS)[1])
-        # An opaque window paints its sheet and shows no tint: its opacity is 1.
-        resolved, problem = self.resolved(self.LOOK, {**self.BACKDROP, "tint": "", "sheet": "#102030FF"}, self.SETTINGS)
-        self.assertEqual(resolved["opacity"], 1.0)
-        self.assertIn("opacity", problem)
-
-    def test_glass_carries_the_tint_itself(self):
-        backdrop = {**self.BACKDROP, "tint": "", "glassTint": "#10203080"}
-        resolved, problem = self.resolved("opacity=0.5,blur=glass", backdrop, {"backgroundOpacity": 0.5, "backgroundBlur": "glass"})
-        self.assertIsNone(problem)
-        self.assertTrue(resolved["glass"])
-
-    def test_a_named_key_that_the_app_did_not_take_fails(self):
-        problem = self.resolved(self.LOOK, self.BACKDROP, {**self.SETTINGS, "backgroundBlur": None})[1]
-        self.assertIn("appearance.backgroundBlur", problem)
-        self.assertNotIn("backgroundOpacity", problem)
-
-    def test_no_picture_is_a_look_too(self):
-        settings = {"background": "none", "backgroundOpacity": 0.5}
-        self.assertIsNone(self.resolved("background=none,opacity=0.5", {**self.BACKDROP, "picture": ""}, settings)[1])
-        self.assertIn("picture", self.resolved("background=none,opacity=0.5", self.BACKDROP, settings)[1])
-
-    def test_an_opaque_window_is_read_and_never_fails(self):
-        resolved, problem = self.resolved("opaque", {"sheet": "#102030FF", "tint": "", "picture": ""}, {})
-        self.assertIsNone(problem)
-        self.assertEqual((resolved["background"], resolved["opacity"]), ("none", 1.0))
-
-    def test_a_backdrop_that_was_not_read_fails_a_look(self):
-        for backdrop in (None, {}, {"error": "no window"}):
-            resolved, problem = self.resolved(self.LOOK, backdrop, self.SETTINGS)
-            self.assertIsNone(resolved["opacity"])
-            self.assertIn("picture", problem)
-
-
 class WindowsBehind(unittest.TestCase):
     """What a see-through window is over: the other apps' windows below it, from the screen's window list."""
 
@@ -607,6 +449,43 @@ class DockedColumn(unittest.TestCase):
             self.assertEqual(state(unread)["panes"], [])
         self.assertEqual(state({"error": "unknown method"})["problem"], "unknown method")
         self.assertEqual(state(None)["problem"], "no reply of debug.dock: None")
+
+
+class CliSettings(unittest.TestCase):
+    """A try for the record: what the bundle's own CLI says for each settings path of the look. It never raises."""
+
+    def lines(self, paths, answers):
+        import os
+        import subprocess
+        calls = []
+
+        def run(argv, **more):
+            calls.append((argv, sorted(more), more["env"].get("CMUX_NEXT_CONFIG_FILE"), None in more["env"].values()))
+            answer = answers[argv[2]]
+            if isinstance(answer, Exception):
+                raise answer
+            return SimpleNamespace(returncode=answer[0], stdout=answer[1], stderr=answer[2])
+
+        cli_settings = loaded(os=os, subprocess=subprocess)["cli_settings"]
+        return cli_settings("/app/bin/cmux", paths, {"CMUX_NEXT_CONFIG_FILE": "/scratch/cmux.json", "GONE": None}, run=run), calls
+
+    def test_each_path_is_asked_one_time_when_the_first_word_answers(self):
+        lines, calls = self.lines({"ui.animationSpeed": "off", "appearance.chromeStyle": "card"},
+                                  {"config": (0, '{"key": "ui.animationSpeed",\n "customized": true}\n', "")})
+        self.assertEqual(lines, ['config get ui.animationSpeed: exit 0: {"key": "ui.animationSpeed", "customized": true}',
+                                 'config get appearance.chromeStyle: exit 0: {"key": "ui.animationSpeed", "customized": true}'])
+        # The launch's own environment, with no variable that the launch took out; 10 s at most for each call.
+        self.assertEqual(calls[0], (["/app/bin/cmux", "--json", "config", "get", "ui.animationSpeed"],
+                                    ["capture_output", "env", "text", "timeout"], "/scratch/cmux.json", False))
+
+    def test_a_word_that_the_cli_refuses_gets_the_other_word_and_a_cli_that_does_not_run_is_said(self):
+        lines, calls = self.lines({"ui.animationSpeed": "off"}, {"config": (2, "", "unknown command config"), "settings": (0, "off", "")})
+        self.assertEqual(lines, ["config get ui.animationSpeed: exit 2: unknown command config", "settings get ui.animationSpeed: exit 0: off"])
+        lines, calls = self.lines({"ui.animationSpeed": "off"}, {"config": OSError("no such file"), "settings": OSError("no such file")})
+        self.assertEqual(len(lines), 2)
+        self.assertIn("config get ui.animationSpeed: not run: OSError('no such file')", lines[0])
+        # An opaque window has no path: no call.
+        self.assertEqual(self.lines({}, {}), ([], []))
 
 
 class Activate(unittest.TestCase):
