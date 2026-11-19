@@ -160,6 +160,8 @@ public final class MockTerminalSession: TerminalSession {
         case .vim(var vim):
             replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + vim.render(columns: columns, rows: rows)
             program = .vim(vim)
+        case .agent:
+            replay += "\u{1B}[?1049h" + agentScreen()
         }
         handler?(.output(Data(replay.utf8)))
     }
@@ -405,7 +407,10 @@ public final class MockTerminalSession: TerminalSession {
     /// The agent program's screen at the current grid: its header box on
     /// rows 1-3, transcript rows, and the input box on the last three rows
     /// with the cursor after its prompt.
-    private func drawAgent() {
+    private func drawAgent() { write(agentScreen()) }
+
+    /// The agent screen's bytes at the current grid.
+    private func agentScreen() -> String {
         let rule = String(repeating: "\u{2500}", count: max(10, min(60, columns - 2)))
         var out = "\u{1B}[H\u{1B}[2J"
         out += "\u{1B}[1;1H\u{256D}\(rule)\u{256E}"
@@ -421,7 +426,7 @@ public final class MockTerminalSession: TerminalSession {
         out += "\u{1B}[\(rows - 1);1H\u{2502} > "
         out += "\u{1B}[\(rows);1H\u{2570}\(rule)\u{256F}"
         out += "\u{1B}[\(rows - 1);5H"
-        write(out)
+        return out
     }
 
     private func startHtopTicker() {
