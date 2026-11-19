@@ -263,6 +263,138 @@
         }
       }
     },
+    "cloud.error.rateLimited": {
+      "comment": "A Cloud request refused because this account sent too many in a short time.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud is getting too many requests from this account right now. Wait a minute, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتلقى Cloud الآن طلبات كثيرة جدًا من هذا الحساب. انتظر دقيقة، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud trenutno prima previše zahtjeva s ovog računa. Sačekajte minutu, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud modtager for mange anmodninger fra denne konto lige nu. Vent et minut, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud erhält gerade zu viele Anfragen von diesem Konto. Warte eine Minute und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud está recibiendo demasiadas solicitudes de esta cuenta ahora mismo. Espera un minuto e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud reçoit trop de demandes de ce compte en ce moment. Patientez une minute, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud sta ricevendo troppe richieste da questo account in questo momento. Attendi un minuto, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "現在、このアカウントから Cloud へのリクエストが多すぎます。1 分ほど待ってから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud កំពុងទទួលសំណើច្រើនពេកពីគណនីនេះឥឡូវនេះ។ រង់ចាំមួយនាទី រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "지금 이 계정에서 Cloud로 보내는 요청이 너무 많습니다. 1분 정도 기다린 뒤 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud får for mange forespørsler fra denne kontoen akkurat nå. Vent et minutt, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud otrzymuje teraz zbyt wiele żądań z tego konta. Odczekaj minutę i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Cloud está recebendo solicitações demais desta conta agora. Aguarde um minuto e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud сейчас получает слишком много запросов с этой учётной записи. Подождите минуту и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขณะนี้ Cloud ได้รับคำขอจากบัญชีนี้มากเกินไป รอสักครู่หนึ่งนาที แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud şu anda bu hesaptan çok fazla istek alıyor. Bir dakika bekleyin, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud зараз отримує забагато запитів із цього облікового запису. Зачекайте хвилину й спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud đang nhận quá nhiều yêu cầu từ tài khoản này. Hãy đợi một phút rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 目前收到来自此账户的请求过多。请等待一分钟后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 目前收到來自此帳號的請求過多。請等待一分鐘後再試一次。"
+          }
+        }
+      }
+    },
     "cloud.error.machineLimit": {
       "extractionState": "manual",
       "localizations": {
