@@ -1,31 +1,26 @@
-//! `coord-sim report RUN_DIR [--out FILE]`: one JSON of numbers (schema coord-sim-run.v1) from a driver run.
+//! `coord-sim report RUN_DIR [--out FILE] [--rows] [--commit SHA] [--shape-hash H] [--seed N]`: one JSON of
+//! numbers (schema coord-sim-run.v1) from a `coord-sim drive` run.
 //!
-//! Reads the driver's raw files line by line, keeping only histograms and per-stream counters, so memory stays
-//! constant over multi-GB files (percentiles come from log buckets 1 % wide: within 0.5 % of the exact value).
-//! Writes RUN_DIR/report.json (or --out) and prints the same JSON.
+//! Reads the driver's raw files line by line (their format is documented at the top of drive.rs: events.ndjson,
+//! ops.ndjson, proc.ndjson, run.json), keeping only fixed log-bucket histograms and counters, so memory stays
+//! constant over multi-GB files (percentiles come from buckets 1 % wide: within 0.5 % of the exact value). Writes
+//! RUN_DIR/report.json (or --out) and prints the same JSON; with --rows it prints the report on one line and then
+//! its PERF_ROW rows as `{"rows": [...]}` on the last line (the perf cron's coord-sim part reads that line).
 //!
-//! # Raw format (the driver writes these; every time is wall-clock ms since the Unix epoch)
-//!
-//! `run.json`: the run's config, one object:
-//!   `{"schema":"coord-sim-drive.v1","coordinators":3,"rate":10,"shape_hash":"..","seed":1,"commit":"<sha>",
-//!     "target":"acpmux","readers":1,"started_at":ms,"ended_at":ms}` (every key optional; unknown keys kept as-is).
-//!
-//! `events.ndjson`: event flow, one object per line, `t` says which:
-//!   `{"t":"sent","c":C,"seq":N,"at":ms}`               coordinator C's agent wrote its event N into the daemon
-//!   `{"t":"attach","c":C,"r":R,"from_seq":N,"at":ms}`  reader R attached to C; it must see every seq >= N
-//!   `{"t":"recv","c":C,"r":R,"seq":N,"sent":ms,"at":ms}` reader R saw C's event N (sent = the agent's send time,
-//!                                                      carried in the event itself, so no join is needed)
-//!   `{"t":"detach","c":C,"r":R,"upto":N,"at":ms}`      reader R left C; it owed every seq <= N (default: the last sent)
-//!   Seqs below a reader's from_seq are history replay: not delivery, not lost or duplicated.
-//!
-//! `ops.ndjson`: timed operations, one per line, `ms` is its duration:
-//!   `{"op":"attach","c":C,"r":R,"at":ms,"ms":X,"first_paint_ms":Y}` attach to attached; to the first event shown
-//!   `{"op":"page","c":C,"r":R,"at":ms,"ms":X,"rows":N}`              one page of history (the reader scrolling up)
-//!   `{"op":"prompt","c":C,"at":ms,"ack_ms":X,"echo_ms":Y}`           a prompt sent: to the daemon's ack, to its echo
-//!
-//! `proc.ndjson`: process samples, one per line:
-//!   `{"at":ms,"role":"daemon|host|agent|reader","pid":P,"rss_kb":N,"cpu_ms":N,"sessions":N}`
-//!   cpu_ms is cumulative (user + system); sessions is the daemon's open chats at that moment.
+//! What each number is, from the driver's fields:
+//! - delivery_ms: an agent event's `reader_us - emit_us` (the agent wrote it to a reader first seeing it);
+//!   daemon_ms: `daemon_at_ms - emit_us` (to the daemon's store record); behind_schedule_ms: `emit_us - due_us`.
+//! - events.lost: events the daemon never stored (`daemon_n == 0`, any source) plus agent events it stored that no
+//!   follower saw (`reader_n == 0`); events.duplicated: extra store records (`daemon_n - 1`) plus extra follower
+//!   arrivals of an agent event (`reader_n - 1`). Exact counts; each part is also reported on its own.
+//! - attach_ms: a reader's `open` (`_acpmux/attach` with the transcript) under load; first_paint_ms: the same when
+//!   its reply carried at least one event (the reader has something to draw).
+//! - scroll: `scroll` ops (one older page), their ms, pages per second of paging time, and ops over 16.7 / 33.3 ms.
+//! - typing: a `turn` event (the prompt) to its daemon record (ack_ms) and to a follower seeing it (echo_ms).
+//! - daemon: `role == "daemon"` samples: RSS, peak, baseline (the first sample, before the chats load), the RSS
+//!   least-squares slope in MB per minute (the leak signal), CPU %; per_chat: RSS over the baseline and CPU %, each
+//!   divided by the run's open chats (run.json `sessions`, else `coordinators`).
+//! - ops: every op name's latency and failures (`ok == false`); follower: summed `notes`, `bytes`, `lagged`.
 //!
 //! A line that does not parse is counted in `bad_lines`, never fatal: a driver killed mid-write leaves half a line.
 
@@ -42,8 +37,18 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let dir = args
         .first()
         .filter(|a| !a.starts_with("--"))
-        .ok_or("usage: coord-sim report RUN_DIR [--out FILE]")?;
-    let report = report(Path::new(dir))?;
+        .ok_or("usage: coord-sim report RUN_DIR [--out FILE] [--rows]")?;
+    let mut report = report(Path::new(dir))?;
+    // What the driver's run.json does not carry: the harness passes it.
+    for (flag, key) in [("--commit", "commit"), ("--shape-hash", "shape_hash"), ("--seed", "seed")]
+    {
+        if let Some(v) = crate::flag(args, flag) {
+            let v = v.parse::<u64>().map(|n| json!(n)).unwrap_or_else(|_| json!(v));
+            if let Some(cfg) = report.get_mut("config").and_then(Value::as_object_mut) {
+                cfg.insert(key.into(), v);
+            }
+        }
+    }
     let text = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
     let out = crate::flag(args, "--out")
         .map(Path::new)
@@ -51,7 +56,6 @@ pub fn run(args: &[String]) -> Result<(), String> {
         .unwrap_or_else(|| Path::new(dir).join("report.json"));
     std::fs::write(&out, format!("{text}\n")).map_err(|e| format!("{}: {e}", out.display()))?;
     if args.iter().any(|a| a == "--rows") {
-        // For the perf cron (scripts/measure/coord-sim-linux.sh): the report on one line, then its rows last.
         println!("{}", serde_json::to_string(&report).map_err(|e| e.to_string())?);
         println!(
             "{}",
@@ -223,125 +227,57 @@ fn round3(v: Option<f64>) -> Value {
     }
 }
 
-// ---------- lost and duplicated events, per (coordinator, reader) ----------
-
-#[derive(Debug, Default)]
-struct Stream {
-    from: u64,
-    /// The highest seq seen (from - 1 before any).
-    max: u64,
-    /// Seqs above `from` and below `max` not seen yet, as inclusive ranges in order.
-    holes: Vec<(u64, u64)>,
-    upto: Option<u64>,
-    dup: u64,
-    late: u64,
-    recv: u64,
-}
-
-impl Stream {
-    fn new(from: u64) -> Self {
-        let from = from.max(1);
-        Stream { from, max: from - 1, ..Default::default() }
-    }
-
-    fn see(&mut self, seq: u64) -> bool {
-        if seq < self.from {
-            return false; // history replay
-        }
-        self.recv += 1;
-        if seq > self.max {
-            if seq > self.max + 1 {
-                self.holes.push((self.max + 1, seq - 1));
-            }
-            self.max = seq;
-            return true;
-        }
-        match self.holes.iter().position(|(a, b)| *a <= seq && seq <= *b) {
-            Some(i) => {
-                self.late += 1;
-                if let Some((a, b)) = self.holes.get(i).copied() {
-                    self.holes.remove(i);
-                    if seq < b {
-                        self.holes.insert(i, (seq + 1, b));
-                    }
-                    if a < seq {
-                        self.holes.insert(i, (a, seq - 1));
-                    }
-                }
-                true
-            }
-            None => {
-                self.dup += 1;
-                false
-            }
-        }
-    }
-
-    /// Seqs owed and never seen, owed up to `upto` (the detach's, else the coordinator's last sent seq).
-    fn lost(&self, last_sent: u64) -> u64 {
-        let upto = self.upto.unwrap_or(last_sent);
-        let holes: u64 = self
-            .holes
-            .iter()
-            .filter(|(a, _)| *a <= upto)
-            .map(|(a, b)| (*b).min(upto) - a + 1)
-            .sum();
-        holes + upto.saturating_sub(self.max)
-    }
-}
-
-// ---------- the raw lines ----------
+// ---------- the driver's raw lines ----------
 
 #[derive(Deserialize)]
 struct EventLine {
-    t: String,
     #[serde(default)]
-    c: u32,
+    src: String,
     #[serde(default)]
-    r: u32,
+    due_us: Option<u64>,
     #[serde(default)]
-    seq: u64,
+    emit_us: Option<u64>,
     #[serde(default)]
-    from_seq: Option<u64>,
+    daemon_at_ms: Option<u64>,
     #[serde(default)]
-    upto: Option<u64>,
+    daemon_n: u64,
     #[serde(default)]
-    sent: Option<f64>,
+    reader_us: Option<u64>,
     #[serde(default)]
-    at: Option<f64>,
+    reader_n: u64,
 }
 
 #[derive(Deserialize)]
 struct OpLine {
     op: String,
     #[serde(default)]
-    at: Option<f64>,
+    t_us: Option<u64>,
     #[serde(default)]
-    ms: Option<f64>,
+    latency_us: Option<u64>,
     #[serde(default)]
-    first_paint_ms: Option<f64>,
+    n: Option<u64>,
     #[serde(default)]
-    ack_ms: Option<f64>,
+    ok: Option<bool>,
     #[serde(default)]
-    echo_ms: Option<f64>,
+    notes: Option<u64>,
+    #[serde(default)]
+    bytes: Option<u64>,
+    #[serde(default)]
+    lagged: Option<u64>,
 }
 
 #[derive(Deserialize)]
 struct ProcLine {
-    at: f64,
+    t_us: u64,
     #[serde(default)]
     role: String,
     #[serde(default)]
-    pid: u64,
-    #[serde(default)]
     rss_kb: Option<f64>,
     #[serde(default)]
-    cpu_ms: Option<f64>,
-    #[serde(default)]
-    sessions: Option<u64>,
+    cpu_pct: Option<f64>,
 }
 
-/// Each line of an NDJSON file, through one reused buffer; a missing file is no lines.
+/// Each line of an NDJSON file, through one reused buffer; a missing file is no lines (Ok(false)).
 fn each_line(path: &Path, mut f: impl FnMut(&str)) -> Result<bool, String> {
     let file = match File::open(path) {
         Ok(f) => f,
@@ -363,14 +299,13 @@ fn each_line(path: &Path, mut f: impl FnMut(&str)) -> Result<bool, String> {
     }
 }
 
-// ---------- the report ----------
-
 const FRAME_60: f64 = 1000.0 / 60.0;
 const FRAME_30: f64 = 1000.0 / 30.0;
 
-/// Least squares slope of y over x, from running sums.
+/// Least squares slope of y over x, from running sums (x centred on its first value for precision).
 #[derive(Default)]
 struct Slope {
+    x0: Option<f64>,
     n: f64,
     sx: f64,
     sy: f64,
@@ -380,6 +315,7 @@ struct Slope {
 
 impl Slope {
     fn add(&mut self, x: f64, y: f64) {
+        let x = x - *self.x0.get_or_insert(x);
         self.n += 1.0;
         self.sx += x;
         self.sy += y;
@@ -396,10 +332,17 @@ impl Slope {
     }
 }
 
-pub fn report(dir: &Path) -> Result<Value, String> {
-    let mut bad: BTreeMap<&str, u64> = BTreeMap::new();
+#[derive(Default)]
+struct OpStats {
+    ms: LogHist,
+    failed: u64,
+}
 
-    // run.json
+fn ms_between(later_us: Option<u64>, earlier_us: Option<u64>) -> Option<f64> {
+    Some(later_us? as f64 / 1000.0 - earlier_us? as f64 / 1000.0)
+}
+
+pub fn report(dir: &Path) -> Result<Value, String> {
     let config: Map<String, Value> = match std::fs::read_to_string(dir.join("run.json")) {
         Ok(s) => match serde_json::from_str::<Value>(&s) {
             Ok(Value::Object(m)) => m,
@@ -408,190 +351,206 @@ pub fn report(dir: &Path) -> Result<Value, String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Map::new(),
         Err(e) => return Err(format!("{}: {e}", dir.join("run.json").display())),
     };
+    let chats = config
+        .get("sessions")
+        .and_then(|s| {
+            s.as_array().map(|a| a.len() as u64).or_else(|| s.as_object().map(|o| o.len() as u64))
+        })
+        .filter(|n| *n > 0)
+        .or_else(|| config.get("coordinators").and_then(Value::as_u64))
+        .unwrap_or(0);
+    let mut bad: BTreeMap<&str, u64> = BTreeMap::new();
+    let (mut t0, mut t1) = (u64::MAX, 0u64);
 
     // events.ndjson
-    let mut delivery = LogHist::default();
-    let mut streams: BTreeMap<(u32, u32), Stream> = BTreeMap::new();
-    let mut last_sent: BTreeMap<u32, u64> = BTreeMap::new();
-    let mut sent = 0u64;
-    let (mut t0, mut t1) = (f64::INFINITY, f64::NEG_INFINITY);
-    let mut span = |at: Option<f64>| {
-        if let Some(a) = at.filter(|a| a.is_finite()) {
-            t0 = t0.min(a);
-            t1 = t1.max(a);
-        }
-    };
-    let mut bad_events = 0u64;
-    let events_present = each_line(&dir.join("events.ndjson"), |l| {
-        let Ok(e) = serde_json::from_str::<EventLine>(l) else {
-            bad_events += 1;
-            return;
-        };
-        span(e.at);
-        match e.t.as_str() {
-            "sent" => {
-                sent += 1;
-                let m = last_sent.entry(e.c).or_insert(0);
-                *m = (*m).max(e.seq);
-            }
-            "attach" => {
-                streams.insert((e.c, e.r), Stream::new(e.from_seq.unwrap_or(1)));
-            }
-            "detach" => {
-                let s = streams.entry((e.c, e.r)).or_insert_with(|| Stream::new(1));
-                s.upto = Some(e.upto.unwrap_or(s.max));
-            }
-            "recv" => {
-                let s = streams.entry((e.c, e.r)).or_insert_with(|| Stream::new(1));
-                let first = s.see(e.seq);
-                if first && let (Some(sent), Some(at)) = (e.sent, e.at) {
-                    delivery.add((at - sent).max(0.0));
-                }
-            }
-            _ => bad_events += 1,
-        }
-    })?;
-    bad.insert("events", bad_events);
-    let (mut lost, mut dup, mut late, mut recv) = (0u64, 0u64, 0u64, 0u64);
-    for ((c, _), s) in &streams {
-        lost += s.lost(last_sent.get(c).copied().unwrap_or(0));
-        dup += s.dup;
-        late += s.late;
-        recv += s.recv;
-    }
-
-    // ops.ndjson
-    let (mut attach, mut paint, mut page, mut ack, mut echo) = (
+    let (mut delivery, mut daemon_ms, mut behind, mut ack, mut echo) = (
         LogHist::default(),
         LogHist::default(),
         LogHist::default(),
         LogHist::default(),
         LogHist::default(),
     );
+    let mut emitted: BTreeMap<String, u64> = BTreeMap::new();
+    let (
+        mut lost_in_daemon,
+        mut unseen_by_readers,
+        mut dup_in_daemon,
+        mut dup_at_readers,
+        mut received,
+    ) = (0u64, 0u64, 0u64, 0u64, 0u64);
+    let mut bad_events = 0u64;
+    let events_present = each_line(&dir.join("events.ndjson"), |l| {
+        let Ok(e) = serde_json::from_str::<EventLine>(l) else {
+            bad_events += 1;
+            return;
+        };
+        if let Some(t) = e.emit_us {
+            t0 = t0.min(t);
+            t1 = t1.max(t);
+        }
+        *emitted.entry(e.src.clone()).or_insert(0) += 1;
+        lost_in_daemon += u64::from(e.daemon_n == 0);
+        dup_in_daemon += e.daemon_n.saturating_sub(1);
+        if let Some(ms) = ms_between(e.emit_us, e.due_us) {
+            behind.add(ms.max(0.0));
+        }
+        let to_daemon = e.daemon_at_ms.zip(e.emit_us).map(|(d, t)| d as f64 - t as f64 / 1000.0);
+        let to_reader = ms_between(e.reader_us, e.emit_us);
+        match e.src.as_str() {
+            "agent" => {
+                if e.daemon_n > 0 && e.reader_n == 0 {
+                    unseen_by_readers += 1;
+                }
+                dup_at_readers += e.reader_n.saturating_sub(1);
+                received += u64::from(e.reader_n > 0);
+                if let Some(ms) = to_reader {
+                    delivery.add(ms.max(0.0));
+                }
+                if let Some(ms) = to_daemon {
+                    daemon_ms.add(ms.max(0.0));
+                }
+            }
+            "turn" => {
+                if let Some(ms) = to_daemon {
+                    ack.add(ms.max(0.0));
+                }
+                if let Some(ms) = to_reader {
+                    echo.add(ms.max(0.0));
+                }
+            }
+            _ => {}
+        }
+    })?;
+    bad.insert("events", bad_events);
+    let lost = lost_in_daemon + unseen_by_readers;
+    let duplicated = dup_in_daemon + dup_at_readers;
+
+    // ops.ndjson
+    let mut ops: BTreeMap<String, OpStats> = BTreeMap::new();
+    let mut paint = LogHist::default();
     let (mut page_ms_total, mut over_60, mut over_30) = (0.0f64, 0u64, 0u64);
+    let (mut notes, mut note_bytes, mut lagged, mut followers) = (0u64, 0u64, 0u64, 0u64);
     let mut bad_ops = 0u64;
     let ops_present = each_line(&dir.join("ops.ndjson"), |l| {
         let Ok(o) = serde_json::from_str::<OpLine>(l) else {
             bad_ops += 1;
             return;
         };
-        if let Some(a) = o.at.filter(|a| a.is_finite()) {
-            t0 = t0.min(a);
-            t1 = t1.max(a);
+        if o.op == "follower" {
+            followers += 1;
+            notes += o.notes.unwrap_or(0);
+            note_bytes += o.bytes.unwrap_or(0);
+            lagged += o.lagged.unwrap_or(0);
+            return;
         }
+        if let Some(t) = o.t_us {
+            t0 = t0.min(t);
+            t1 = t1.max(t);
+        }
+        let Some(lat) = o.latency_us else { return };
+        let ms = lat as f64 / 1000.0;
+        let s = ops.entry(o.op.clone()).or_default();
+        if o.ok == Some(false) {
+            s.failed += 1;
+            return; // a failed call's time is not a latency
+        }
+        s.ms.add(ms);
         match o.op.as_str() {
-            "attach" => {
-                if let Some(ms) = o.ms {
-                    attach.add(ms);
-                }
-                if let Some(ms) = o.first_paint_ms {
-                    paint.add(ms);
-                }
+            "open" if o.n.unwrap_or(0) > 0 => paint.add(ms),
+            "scroll" => {
+                page_ms_total += ms;
+                over_60 += u64::from(ms > FRAME_60);
+                over_30 += u64::from(ms > FRAME_30);
             }
-            "page" => {
-                if let Some(ms) = o.ms {
-                    page.add(ms);
-                    page_ms_total += ms.max(0.0);
-                    over_60 += u64::from(ms > FRAME_60);
-                    over_30 += u64::from(ms > FRAME_30);
-                }
-            }
-            "prompt" => {
-                if let Some(ms) = o.ack_ms {
-                    ack.add(ms);
-                }
-                if let Some(ms) = o.echo_ms {
-                    echo.add(ms);
-                }
-            }
-            _ => {} // ops this report does not read yet
+            _ => {}
         }
     })?;
     bad.insert("ops", bad_ops);
 
     // proc.ndjson
-    let mut daemon_rss = LogHist::default();
+    let (mut rss, mut cpu, mut per_chat_mb, mut per_chat_cpu) =
+        (LogHist::default(), LogHist::default(), LogHist::default(), LogHist::default());
     let mut slope = Slope::default();
-    let mut peak_rss_kb = 0.0f64;
+    let mut peak_kb = 0.0f64;
     let mut baseline_kb: Option<f64> = None;
-    let mut per_chat_mb = LogHist::default();
-    let mut per_chat_cpu = LogHist::default();
-    let mut daemon_cpu = LogHist::default();
-    let mut sessions_max = 0u64;
-    let mut prev_cpu: BTreeMap<u64, (f64, f64)> = BTreeMap::new();
     let mut role_peak: BTreeMap<String, f64> = BTreeMap::new();
-    let mut first_at: Option<f64> = None;
     let mut bad_proc = 0u64;
     let proc_present = each_line(&dir.join("proc.ndjson"), |l| {
         let Ok(p) = serde_json::from_str::<ProcLine>(l) else {
             bad_proc += 1;
             return;
         };
-        let rss = p.rss_kb.unwrap_or(0.0);
-        let peak = role_peak.entry(p.role.clone()).or_insert(0.0);
-        *peak = peak.max(rss);
+        if let Some(kb) = p.rss_kb {
+            let peak = role_peak.entry(p.role.clone()).or_insert(0.0);
+            *peak = peak.max(kb);
+        }
         if p.role != "daemon" {
             return;
         }
-        let t = *first_at.get_or_insert(p.at);
-        let sessions = p.sessions.unwrap_or(0);
-        sessions_max = sessions_max.max(sessions);
-        if p.rss_kb.is_some() {
-            daemon_rss.add(rss / 1024.0);
-            slope.add((p.at - t) / 60_000.0, rss / 1024.0);
-            peak_rss_kb = peak_rss_kb.max(rss);
-            if sessions == 0 {
-                baseline_kb = Some(baseline_kb.map_or(rss, |b: f64| b.min(rss)));
+        if let Some(kb) = p.rss_kb {
+            let base = *baseline_kb.get_or_insert(kb);
+            rss.add(kb / 1024.0);
+            slope.add(p.t_us as f64 / 60_000_000.0, kb / 1024.0);
+            peak_kb = peak_kb.max(kb);
+            if chats > 0 {
+                per_chat_mb.add((kb - base).max(0.0) / 1024.0 / chats as f64);
             }
         }
-        let mut cpu_pct = None;
-        if let Some(cpu) = p.cpu_ms {
-            if let Some((at0, cpu0)) = prev_cpu.insert(p.pid, (p.at, cpu))
-                && p.at > at0
-            {
-                cpu_pct = Some(((cpu - cpu0) / (p.at - at0) * 100.0).max(0.0));
-            }
-        }
-        if let Some(pct) = cpu_pct {
-            daemon_cpu.add(pct);
-        }
-        if sessions > 0 {
-            if p.rss_kb.is_some() {
-                per_chat_mb
-                    .add((rss - baseline_kb.unwrap_or(0.0)).max(0.0) / 1024.0 / sessions as f64);
-            }
-            if let Some(pct) = cpu_pct {
-                per_chat_cpu.add(pct / sessions as f64);
+        if let Some(pct) = p.cpu_pct {
+            cpu.add(pct.max(0.0));
+            if chats > 0 {
+                per_chat_cpu.add(pct.max(0.0) / chats as f64);
             }
         }
     })?;
     bad.insert("proc", bad_proc);
 
-    let duration_s = if t1 > t0 { Some((t1 - t0) / 1000.0) } else { None };
-    let pages_per_s =
-        if page_ms_total > 0.0 { Some(page.n() as f64 / (page_ms_total / 1000.0)) } else { None };
+    let attach =
+        ops.get("open").map(|s| s.ms.summary()).unwrap_or_else(|| LogHist::default().summary());
+    let scroll = ops
+        .get("scroll")
+        .map(|s| (s.ms.summary(), s.ms.n()))
+        .unwrap_or_else(|| (LogHist::default().summary(), 0));
     let frac =
-        |k: u64| if page.n() > 0 { round3(Some(k as f64 / page.n() as f64)) } else { Value::Null };
-
+        |k: u64| if scroll.1 > 0 { round3(Some(k as f64 / scroll.1 as f64)) } else { Value::Null };
+    let pages_per_s =
+        if page_ms_total > 0.0 { Some(scroll.1 as f64 / (page_ms_total / 1000.0)) } else { None };
+    let duration_s = if t1 > t0 { Some((t1 - t0) as f64 / 1e6) } else { None };
     let cfg = |k: &str| config.get(k).cloned().unwrap_or(Value::Null);
+    let has_rss = rss.n() > 0;
     Ok(json!({
         "schema": SCHEMA,
         "config": {
             "coordinators": cfg("coordinators"),
             "rate": cfg("rate"),
+            "readers": cfg("readers"),
             "shape_hash": cfg("shape_hash"),
             "seed": cfg("seed"),
             "commit": cfg("commit"),
             "target": cfg("target"),
-            "readers": cfg("readers"),
+            "run_s": cfg("run_s"),
+            "chats": chats,
             "duration_s": round3(duration_s),
-            "run": Value::Object(config.clone()),
         },
         "files": {"events": events_present, "ops": ops_present, "proc": proc_present},
-        "attach_ms": attach.summary(),
+        "delivery_ms": delivery.summary(),
+        "daemon_ms": daemon_ms.summary(),
+        "behind_schedule_ms": behind.summary(),
+        "events": {
+            "emitted": emitted,
+            "received": received,
+            "lost": lost,
+            "duplicated": duplicated,
+            "lost_in_daemon": lost_in_daemon,
+            "unseen_by_readers": unseen_by_readers,
+            "dup_in_daemon": dup_in_daemon,
+            "dup_at_readers": dup_at_readers,
+        },
+        "follower": {"followers": followers, "notes": notes, "bytes": note_bytes, "lagged": lagged},
+        "attach_ms": attach,
         "first_paint_ms": paint.summary(),
         "scroll": {
-            "page_ms": page.summary(),
+            "page_ms": scroll.0,
             "pages_per_s": round3(pages_per_s),
             "over_16_7ms": over_60,
             "over_33_3ms": over_30,
@@ -599,26 +558,17 @@ pub fn report(dir: &Path) -> Result<Value, String> {
             "jank_33_3_frac": frac(over_30),
         },
         "typing": {"ack_ms": ack.summary(), "echo_ms": echo.summary()},
-        "delivery_ms": delivery.summary(),
-        "events": {
-            "sent": sent,
-            "received": recv,
-            "streams": streams.len(),
-            "lost": lost,
-            "duplicated": dup,
-            "late": late,
-        },
         "daemon": {
-            "samples": daemon_rss.n(),
-            "rss_mb": daemon_rss.summary(),
-            "peak_rss_mb": round3(if daemon_rss.n() > 0 { Some(peak_rss_kb / 1024.0) } else { None }),
+            "samples": rss.n(),
+            "rss_mb": rss.summary(),
+            "peak_rss_mb": round3(has_rss.then_some(peak_kb / 1024.0)),
             "baseline_rss_mb": round3(baseline_kb.map(|b| b / 1024.0)),
             "rss_slope_mb_per_min": round3(slope.slope()),
-            "cpu_pct": daemon_cpu.summary(),
-            "sessions_max": sessions_max,
+            "cpu_pct": cpu.summary(),
         },
         "per_chat": {"rss_mb": per_chat_mb.summary(), "cpu_pct": per_chat_cpu.summary()},
         "peak_rss_mb_by_role": role_peak.iter().map(|(k, v)| (k.clone(), round3(Some(v / 1024.0)))).collect::<Map<_, _>>(),
+        "ops": ops.iter().map(|(k, s)| (k.clone(), json!({"ms": s.ms.summary(), "failed": s.failed}))).collect::<Map<_, _>>(),
         "bad_lines": bad,
     }))
 }
@@ -628,22 +578,32 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    fn run_dir(name: &str, run: &str, events: &str, ops: &str, procs: &str) -> std::path::PathBuf {
+    fn run_dir(name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
         let d =
             std::env::temp_dir().join(format!("coord-sim-metrics-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
-        for (f, s) in [
-            ("run.json", run),
-            ("events.ndjson", events),
-            ("ops.ndjson", ops),
-            ("proc.ndjson", procs),
-        ] {
-            if !s.is_empty() {
-                std::fs::write(d.join(f), s).unwrap();
-            }
+        for (f, s) in files {
+            std::fs::write(d.join(f), s).unwrap();
         }
         d
+    }
+
+    fn event(
+        c: u32,
+        seq: u64,
+        src: &str,
+        emit_us: u64,
+        daemon_n: u64,
+        reader_us: Option<u64>,
+        reader_n: u64,
+    ) -> String {
+        let daemon_at = if daemon_n > 0 { json!(emit_us / 1000 + 2) } else { Value::Null };
+        json!({"c": c, "seq": seq, "k": 0, "kind": "in:agent_message_chunk", "update": if src == "agent" { "agent_message_chunk" } else { src },
+            "src": src, "bytes": 100, "due_us": emit_us - 500, "emit_us": emit_us, "daemon_at_ms": daemon_at,
+            "daemon_n": daemon_n, "reader_us": reader_us, "reader_n": reader_n})
+        .to_string()
+            + "\n"
     }
 
     #[test]
@@ -664,123 +624,109 @@ mod tests {
     }
 
     #[test]
-    fn stream_counts_lost_dup_and_late_exactly() {
-        let mut s = Stream::new(5);
-        assert!(!s.see(3)); // history
-        for q in [5, 6, 8, 9, 7, 9, 12, 12] {
-            s.see(q);
+    fn slope_of_a_line() {
+        let mut s = Slope::default();
+        for m in 0..10 {
+            s.add(1.7e9 + m as f64, 100.0 + 3.0 * m as f64);
         }
-        assert_eq!((s.dup, s.late, s.recv), (2, 1, 8));
-        // owed 5..=14: missing 10, 11, 13, 14
-        assert_eq!(s.lost(14), 4);
-        s.upto = Some(12);
-        assert_eq!(s.lost(14), 2);
-    }
-
-    #[test]
-    fn hole_split_in_the_middle() {
-        let mut s = Stream::new(1);
-        s.see(1);
-        s.see(10); // hole 2..=9
-        s.see(5); // splits into 2..=4, 6..=9
-        assert_eq!(s.holes, vec![(2, 4), (6, 9)]);
-        assert_eq!(s.lost(10), 7);
+        assert!((s.slope().unwrap() - 3.0).abs() < 1e-6);
     }
 
     #[test]
     fn report_from_a_fixture_run_dir() {
-        let run = r#"{"schema":"coord-sim-drive.v1","coordinators":2,"rate":10,"shape_hash":"abc","seed":7,"commit":"deadbeef","target":"acpmux","readers":1}"#;
+        let run = r#"{"schema":"coord-sim-drive.v1","coordinators":2,"rate":10,"readers":2,"run_s":30,"sessions":["s0","s1"]}"#;
+        let base = 1_763_500_000_000_000u64;
         let mut ev = String::new();
-        ev.push_str("{\"t\":\"attach\",\"c\":0,\"r\":0,\"from_seq\":1,\"at\":1000}\n");
-        ev.push_str("{\"t\":\"attach\",\"c\":1,\"r\":0,\"from_seq\":1,\"at\":1000}\n");
         for seq in 1..=100u64 {
-            for c in 0..2 {
-                ev.push_str(&format!(
-                    "{{\"t\":\"sent\",\"c\":{c},\"seq\":{seq},\"at\":{}}}\n",
-                    1000 + seq * 10
-                ));
-                // coordinator 1 loses seq 50 and duplicates seq 60
-                if c == 1 && seq == 50 {
-                    continue;
-                }
-                let lat = seq; // 1..100 ms
-                let line = format!(
-                    "{{\"t\":\"recv\",\"c\":{c},\"r\":0,\"seq\":{seq},\"sent\":{},\"at\":{}}}\n",
-                    1000 + seq * 10,
-                    1000 + seq * 10 + lat
-                );
-                ev.push_str(&line);
-                if c == 1 && seq == 60 {
-                    ev.push_str(&line);
+            for c in 0..2u32 {
+                let emit = base + seq * 10_000;
+                let lat = seq * 1000; // 1..100 ms
+                match (c, seq) {
+                    (1, 50) => ev.push_str(&event(c, seq, "agent", emit, 0, None, 0)), // lost in the daemon
+                    (1, 51) => ev.push_str(&event(c, seq, "agent", emit, 1, None, 0)), // stored, never seen
+                    (1, 60) => ev.push_str(&event(c, seq, "agent", emit, 2, Some(emit + lat), 3)), // 1 + 2 extra
+                    _ => ev.push_str(&event(c, seq, "agent", emit, 1, Some(emit + lat), 1)),
                 }
             }
         }
-        ev.push_str("{\"t\":\"recv\",\"c\":0,\"r\":0,\"seq\":3,\"sen"); // half a line from a killed driver
+        for i in 0..10u64 {
+            ev.push_str(&event(
+                0,
+                1000 + i,
+                "turn",
+                base + i * 1_000_000,
+                1,
+                Some(base + i * 1_000_000 + (i + 1) * 5000),
+                1,
+            ));
+        }
+        ev.push_str("{\"c\":0,\"seq\":3,\"src\":\"age"); // half a line from a killed driver
         let mut ops = String::new();
         for i in 1..=20u64 {
-            ops.push_str(&format!(
-                "{{\"op\":\"attach\",\"c\":0,\"r\":0,\"at\":{},\"ms\":{},\"first_paint_ms\":{}}}\n",
-                2000 + i,
-                i * 10,
-                i * 12
-            ));
-            ops.push_str(&format!(
-                "{{\"op\":\"page\",\"c\":0,\"r\":0,\"at\":{},\"ms\":{},\"rows\":50}}\n",
-                3000 + i,
-                i * 2
-            )); // 2..40
-            ops.push_str(&format!(
-                "{{\"op\":\"prompt\",\"c\":1,\"at\":{},\"ack_ms\":{},\"echo_ms\":{}}}\n",
-                4000 + i,
-                i,
-                i * 3
-            ));
+            let t = base + i;
+            ops.push_str(&format!("{{\"op\":\"open\",\"reader\":0,\"c\":0,\"t_us\":{t},\"latency_us\":{},\"bytes\":10,\"n\":{},\"ok\":true,\"err\":null}}\n", i * 10_000, if i % 2 == 0 { 5 } else { 0 }));
+            ops.push_str(&format!("{{\"op\":\"scroll\",\"reader\":0,\"c\":0,\"t_us\":{t},\"latency_us\":{},\"bytes\":10,\"n\":50,\"ok\":true,\"err\":null}}\n", i * 2000));
         }
+        ops.push_str(&format!("{{\"op\":\"scroll\",\"reader\":0,\"c\":0,\"t_us\":{base},\"latency_us\":900000,\"bytes\":0,\"n\":null,\"ok\":false,\"err\":\"timeout\"}}\n"));
+        ops.push_str("{\"op\":\"follower\",\"c\":0,\"notes\":120,\"bytes\":5000,\"lagged\":3}\n{\"op\":\"follower\",\"c\":1,\"notes\":100,\"bytes\":4000,\"lagged\":0}\n");
         let mut procs = String::new();
-        procs.push_str("{\"at\":0,\"role\":\"daemon\",\"pid\":9,\"rss_kb\":102400,\"cpu_ms\":0,\"sessions\":0}\n");
-        for m in 1..=10u64 {
-            // +10 MB per minute, 4 sessions, 30 % CPU
-            procs.push_str(&format!(
-                "{{\"at\":{},\"role\":\"daemon\",\"pid\":9,\"rss_kb\":{},\"cpu_ms\":{},\"sessions\":4}}\n",
-                m * 60_000,
-                102400 + m * 10240,
-                m * 18_000
-            ));
+        for m in 0..=10u64 {
+            // +10 MB per minute from 100 MB, 30 % CPU; children alongside
+            procs.push_str(&format!("{{\"t_us\":{},\"role\":\"daemon\",\"pids\":[9],\"rss_kb\":{},\"cpu_ticks\":0,\"cpu_pct\":30.0}}\n", base + m * 60_000_000, 102_400 + m * 10_240));
+            procs.push_str(&format!("{{\"t_us\":{},\"role\":\"children\",\"pids\":[10,11],\"rss_kb\":2048,\"cpu_ticks\":0,\"cpu_pct\":5.0}}\n", base + m * 60_000_000));
         }
-        procs.push_str("{\"at\":5,\"role\":\"agent\",\"pid\":11,\"rss_kb\":2048}\n");
-        let d = run_dir("fixture", run, &ev, &ops, &procs);
+        let d = run_dir(
+            "fixture",
+            &[
+                ("run.json", run),
+                ("events.ndjson", &ev),
+                ("ops.ndjson", &ops),
+                ("proc.ndjson", &procs),
+            ],
+        );
         let r = report(&d).unwrap();
 
         assert_eq!(r["schema"], SCHEMA);
         assert_eq!(r["config"]["coordinators"], 2);
-        assert_eq!(r["config"]["commit"], "deadbeef");
-        assert_eq!(r["events"]["sent"], 200);
-        assert_eq!(r["events"]["lost"], 1);
-        assert_eq!(r["events"]["duplicated"], 1);
+        assert_eq!(r["config"]["chats"], 2);
+        assert_eq!(r["events"]["emitted"]["agent"], 200);
+        assert_eq!(r["events"]["emitted"]["turn"], 10);
+        assert_eq!(
+            (r["events"]["lost_in_daemon"].as_u64(), r["events"]["unseen_by_readers"].as_u64()),
+            (Some(1), Some(1))
+        );
+        assert_eq!(r["events"]["lost"], 2);
+        assert_eq!(
+            (r["events"]["dup_in_daemon"].as_u64(), r["events"]["dup_at_readers"].as_u64()),
+            (Some(1), Some(2))
+        );
+        assert_eq!(r["events"]["duplicated"], 3);
         assert_eq!(r["bad_lines"]["events"], 1);
-        assert_eq!(r["delivery_ms"]["n"], 199);
+        assert_eq!(r["delivery_ms"]["n"], 198);
         let p95 = r["delivery_ms"]["p95"].as_f64().unwrap();
         assert!((p95 - 95.0).abs() < 1.5, "{p95}");
+        assert_eq!(r["typing"]["ack_ms"]["n"], 10);
+        let echo = r["typing"]["echo_ms"]["p50"].as_f64().unwrap();
+        assert!((echo - 25.0).abs() < 0.5, "{echo}");
         let a95 = r["attach_ms"]["p95"].as_f64().unwrap();
         assert!((a95 - 190.0).abs() < 2.0, "{a95}");
-        assert_eq!(r["first_paint_ms"]["n"], 20);
-        // pages 2..40 ms: over 16.7 => 18..40 (12 values); over 33.3 => 34..40 (4)
+        assert_eq!(r["first_paint_ms"]["n"], 10); // the opens whose reply had events
+        // pages 2..40 ms: over 16.7 => 18..40 (12); over 33.3 => 34..40 (4); the failed page is no latency
+        assert_eq!(r["scroll"]["page_ms"]["n"], 20);
         assert_eq!(r["scroll"]["over_16_7ms"], 12);
         assert_eq!(r["scroll"]["over_33_3ms"], 4);
-        assert_eq!(r["typing"]["echo_ms"]["n"], 20);
+        assert_eq!(r["ops"]["scroll"]["failed"], 1);
+        assert_eq!(r["follower"]["lagged"], 3);
         let slope = r["daemon"]["rss_slope_mb_per_min"].as_f64().unwrap();
-        assert!((slope - 10.0).abs() < 0.5, "{slope}");
+        assert!((slope - 10.0).abs() < 0.01, "{slope}");
         assert_eq!(r["daemon"]["peak_rss_mb"].as_f64().unwrap(), 200.0);
         assert_eq!(r["daemon"]["baseline_rss_mb"].as_f64().unwrap(), 100.0);
-        assert_eq!(r["daemon"]["sessions_max"], 4);
-        let cpu = r["daemon"]["cpu_pct"]["p50"].as_f64().unwrap();
-        assert!((cpu - 30.0).abs() < 0.5, "{cpu}");
         let pc = r["per_chat"]["cpu_pct"]["p50"].as_f64().unwrap();
-        assert!((pc - 7.5).abs() < 0.1, "{pc}");
-        // per chat rss: (10..100 MB over baseline) / 4 => median 12.5..13.75
+        assert!((pc - 15.0).abs() < 0.2, "{pc}");
+        // per chat RSS over the baseline: 0..100 MB / 2 chats, median 25
         let pm = r["per_chat"]["rss_mb"]["p50"].as_f64().unwrap();
-        assert!((12.0..14.0).contains(&pm), "{pm}");
-        assert_eq!(r["peak_rss_mb_by_role"]["agent"].as_f64().unwrap(), 2.0);
+        assert!((24.0..26.0).contains(&pm), "{pm}");
+        assert_eq!(r["peak_rss_mb_by_role"]["children"].as_f64().unwrap(), 2.0);
 
         let rows = perf_rows(&r);
         let names: Vec<&str> = rows.iter().filter_map(|x| x["name"].as_str()).collect();
@@ -805,20 +751,29 @@ mod tests {
             );
             assert!(!n.ends_with(".frame") && !n.ends_with(".missed") && !n.ends_with(".dropped"));
         }
-        let lost = rows.iter().find(|x| x["name"] == "coord_sim.events.lost").unwrap();
-        assert_eq!((lost["p95"].as_f64(), lost["target"].as_f64()), (Some(1.0), Some(0.0)));
+        let ld = rows.iter().find(|x| x["name"] == "coord_sim.events.lost_or_duplicated").unwrap();
+        assert_eq!((ld["p95"].as_f64(), ld["target"].as_f64()), (Some(5.0), Some(0.0)));
 
-        // the CLI writes report.json
-        super::run(&[d.to_string_lossy().into_owned()]).unwrap();
+        // the CLI writes report.json, with what the harness passes
+        super::run(&[
+            d.to_string_lossy().into_owned(),
+            "--commit".into(),
+            "abc123".into(),
+            "--seed".into(),
+            "7".into(),
+        ])
+        .unwrap();
         let written: Value =
             serde_json::from_str(&std::fs::read_to_string(d.join("report.json")).unwrap()).unwrap();
-        assert_eq!(written["events"]["lost"], 1);
+        assert_eq!(written["events"]["lost"], 2);
+        assert_eq!(written["config"]["commit"], "abc123");
+        assert_eq!(written["config"]["seed"], 7);
         let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
     fn empty_run_dir_reports_nulls_not_errors() {
-        let d = run_dir("empty", "", "", "", "");
+        let d = run_dir("empty", &[]);
         let r = report(&d).unwrap();
         assert_eq!(r["files"]["events"], false);
         assert_eq!(r["delivery_ms"]["p95"], Value::Null);
@@ -830,18 +785,12 @@ mod tests {
 
     #[test]
     fn large_file_memory_is_constant() {
-        // 2M recv lines through one stream: only counters and fixed histograms are kept.
-        let d = run_dir("large", "{}", "", "", "");
+        // 2M event lines: only counters and fixed histograms are kept.
+        let d = run_dir("large", &[("run.json", "{}")]);
         let mut f = std::io::BufWriter::new(File::create(d.join("events.ndjson")).unwrap());
-        writeln!(f, "{{\"t\":\"attach\",\"c\":0,\"r\":0,\"from_seq\":1,\"at\":0}}").unwrap();
         for seq in 1..=2_000_000u64 {
-            writeln!(f, "{{\"t\":\"sent\",\"c\":0,\"seq\":{seq},\"at\":{seq}}}").unwrap();
-            writeln!(
-                f,
-                "{{\"t\":\"recv\",\"c\":0,\"r\":0,\"seq\":{seq},\"sent\":{seq},\"at\":{}}}",
-                seq + seq % 7
-            )
-            .unwrap();
+            let emit = 1_000_000 + seq * 1000;
+            writeln!(f, "{{\"c\":0,\"seq\":{seq},\"k\":0,\"src\":\"agent\",\"due_us\":{emit},\"emit_us\":{emit},\"daemon_at_ms\":{},\"daemon_n\":1,\"reader_us\":{},\"reader_n\":1}}", emit / 1000, emit + (seq % 7) * 1000).unwrap();
         }
         drop(f);
         let r = report(&d).unwrap();
