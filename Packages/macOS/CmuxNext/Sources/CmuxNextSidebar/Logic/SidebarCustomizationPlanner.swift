@@ -13,6 +13,7 @@ struct SidebarCustomizationPlanner {
         var hiddenWorkspaces: [String]
         var workspaceGroups: [String: String]
         var workspaceOrders: [String: Int]
+        var selectionSpared: Bool
 
         enum CodingKeys: String, CodingKey {
             case sectionOrder = "section_order"
@@ -20,13 +21,22 @@ struct SidebarCustomizationPlanner {
             case hiddenWorkspaces = "hidden_workspaces"
             case workspaceGroups = "workspace_groups"
             case workspaceOrders = "workspace_orders"
+            case selectionSpared = "selection_spared"
         }
     }
 
+    /// The customized rows, and whether the settings hide the selected workspace or its section and only the
+    /// selection keeps it shown (Rust's `selection_spared`): then the next selection change projects again, and a
+    /// selection change that is not one of these needs no projection (`SidebarModel.selectionReprojects`).
+    struct Projection {
+        var sections: [SidebarSection]
+        var selectionSpared = false
+    }
+
     static func apply(_ sections: [SidebarSection], customization: SidebarProjectionCustomization,
-                     selected: WorkspaceID?) -> [SidebarSection] {
+                      selected: WorkspaceID?) -> Projection {
         guard !customization.hiddenSections.isEmpty || !customization.sectionOrder.isEmpty || !customization.workspaces.isEmpty else {
-            return sections
+            return Projection(sections: sections)
         }
         let request = JSONValue.object([
             "sections": .object(["hidden": .array(customization.hiddenSections.map(JSONValue.string)),
@@ -38,7 +48,9 @@ struct SidebarCustomizationPlanner {
             "input": .array(sections.map(input)),
             "selected": selected.map { .string($0.rawValue) } ?? .null,
         ])
-        guard let reply = RustSidebarClient.call("sidebar_section_customization", request, as: Reply.self) else { return sections }
+        guard let reply = RustSidebarClient.call("sidebar_section_customization", request, as: Reply.self) else {
+            return Projection(sections: sections)
+        }
         let hiddenSections = Set(reply.hiddenSections)
         var result = sections.filter { !hiddenSections.contains(Self.id($0)) }
         let hiddenWorkspaces = Set(reply.hiddenWorkspaces.map(WorkspaceID.init))
@@ -60,28 +72,7 @@ struct SidebarCustomizationPlanner {
 
         // Group moves are valid only within their original section; the Rust
         // planner has already rejected unknown groups and cross-section moves.
-        for workspaceID in reply.workspaceGroups.keys.sorted() {
-            guard let targetID = reply.workspaceGroups[workspaceID],
-                  let workspace = find(workspaceID, in: result),
-                  result.indices.contains(workspace.section),
-                  let target = result[workspace.section].nodes.firstIndex(where: { node in
-                if case let .group(group) = node { return group.id.rawValue == targetID }
-                return false
-            }) else { continue }
-            // Resolve the destination before removing the source. If a live
-            // update changed the document between planning and projection,
-            // the original row remains visible instead of being dropped.
-            var candidate = result
-            guard let moved = remove(workspaceID, from: &candidate, section: workspace.section) else { continue }
-            guard let destination = candidate[workspace.section].nodes.firstIndex(where: { node in
-                if case let .group(candidate) = node { return candidate.id.rawValue == targetID }
-                return false
-            }), case let .group(group) = candidate[workspace.section].nodes[destination] else { continue }
-            var destinationGroup = group
-            destinationGroup.workspaces.append(moved)
-            candidate[workspace.section].nodes[destination] = .group(destinationGroup)
-            result = candidate
-        }
+        if !reply.workspaceGroups.isEmpty { moveIntoGroups(&result, reply.workspaceGroups) }
 
         for sectionIndex in result.indices {
             var section = result[sectionIndex]
@@ -109,7 +100,49 @@ struct SidebarCustomizationPlanner {
             guard seen.insert(id).inserted else { return nil }
             return byID[id]
         }
-        return orderedSections + result.filter { seen.insert(Self.id($0)).inserted }
+        return Projection(sections: orderedSections + result.filter { seen.insert(Self.id($0)).inserted },
+                          selectionSpared: reply.selectionSpared)
+    }
+
+    /// Moves each workspace in `moves` (workspace id to group id) out of its node to the end of its target group, in
+    /// the section that first lists it and in workspace-id order; a target this section lacks (a live update changed
+    /// the document after planning) leaves the row where it is. One pass over each section's rows: a move used to
+    /// search every section and copy the projection, so a regroup rule for every workspace cost the square of the
+    /// sidebar.
+    private static func moveIntoGroups(_ sections: inout [SidebarSection], _ moves: [String: String]) {
+        var listed = Set<String>() // a workspace's first listing decides its section
+        for sectionIndex in sections.indices {
+            var groupNodes: [String: Int] = [:]
+            for (index, node) in sections[sectionIndex].nodes.enumerated() {
+                if case let .group(group) = node, groupNodes[group.id.rawValue] == nil { groupNodes[group.id.rawValue] = index }
+            }
+            var arriving: [Int: [SidebarWorkspace]] = [:]
+            func leaves(_ workspace: SidebarWorkspace) -> Bool {
+                let id = workspace.id.rawValue
+                guard listed.insert(id).inserted, let target = moves[id].flatMap({ groupNodes[$0] }) else { return false }
+                arriving[target, default: []].append(workspace)
+                return true
+            }
+            var nodes: [SidebarNode?] = sections[sectionIndex].nodes.map { node in
+                switch node {
+                case let .workspace(workspace):
+                    return leaves(workspace) ? nil : node
+                case var .group(group):
+                    let count = group.workspaces.count
+                    group.workspaces.removeAll(where: leaves)
+                    return group.workspaces.count == count ? node : .group(group)
+                case .item:
+                    return node
+                }
+            }
+            guard !arriving.isEmpty else { continue }
+            for (target, workspaces) in arriving {
+                guard case var .group(group)? = nodes[target] else { continue }
+                group.workspaces += workspaces.sorted { $0.id.rawValue < $1.id.rawValue }
+                nodes[target] = .group(group)
+            }
+            sections[sectionIndex].nodes = nodes.compactMap { $0 }
+        }
     }
 
     private static func input(_ section: SidebarSection) -> JSONValue {
@@ -136,33 +169,6 @@ struct SidebarCustomizationPlanner {
         case let .custom(custom): custom.region.rawValue
         }
         return .object(["id": .string(Self.id(section)), "keys": .array(keys.map(JSONValue.string)), "region": .string(region), "nodes": .array(nodes)])
-    }
-
-    private static func find(_ id: String, in sections: [SidebarSection]) -> (section: Int, node: Int)? {
-        for (sectionIndex, section) in sections.enumerated() {
-            for (nodeIndex, node) in section.nodes.enumerated() where node.workspaces.contains(where: { $0.id.rawValue == id }) {
-                return (sectionIndex, nodeIndex)
-            }
-        }
-        return nil
-    }
-
-    private static func remove(_ id: String, from sections: inout [SidebarSection], section sectionIndex: Int) -> SidebarWorkspace? {
-        guard sections.indices.contains(sectionIndex) else { return nil }
-        for nodeIndex in sections[sectionIndex].nodes.indices {
-            switch sections[sectionIndex].nodes[nodeIndex] {
-            case let .workspace(workspace) where workspace.id.rawValue == id:
-                sections[sectionIndex].nodes.remove(at: nodeIndex); return workspace
-            case var .group(group):
-                if let index = group.workspaces.firstIndex(where: { $0.id.rawValue == id }) {
-                    let workspace = group.workspaces.remove(at: index)
-                    sections[sectionIndex].nodes[nodeIndex] = .group(group)
-                    return workspace
-                }
-            default: break
-            }
-        }
-        return nil
     }
 
     private static func ordered(_ workspaces: [SidebarWorkspace], by orders: [String: Int]) -> [SidebarWorkspace] {
