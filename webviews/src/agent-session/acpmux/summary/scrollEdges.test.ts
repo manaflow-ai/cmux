@@ -218,6 +218,20 @@ test("real vertical overflow follows top, middle and bottom and clears after res
   expect(listeners.size).toBe(0);
 });
 
+test("onEdges hears whether either vertical edge is marked, so an ancestor can carry it without :has()", () => {
+  installDom();
+  const { node, scroll } = scroller();
+  Object.assign(node, { scrollHeight: 300 });
+  const heard: boolean[] = [];
+  const stop = followScrollEdges(node, "y", { onEdges: (marked) => heard.push(marked) });
+  node.scrollTop = 100;
+  scroll();
+  Object.assign(node, { clientHeight: 300 });
+  resizes[0]!.callback();
+  expect(heard).toEqual([true, true, false]);
+  stop();
+});
+
 for (const direction of ["ltr", "rtl"] as const) {
   test(`real ${direction} horizontal overflow follows both edges`, () => {
     installDom();

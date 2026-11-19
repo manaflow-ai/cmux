@@ -1630,13 +1630,15 @@
   margin: var(--acpmux-prompt-control-top) var(--acpmux-composer-inset) 0 0;
 }
 /* A capped draft keeps the controls below its scrollbar. The edge marks exclude temporary
-   overflow while a short draft grows, so wrapping a line never moves the controls. */
-.acpmux-composer-box[data-composer-grid]:has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
+   overflow while a short draft grows, so wrapping a line never moves the controls. MarkdownField
+   mirrors the field's marks onto the box as data-field-capped: a :has() over them restyled the
+   pane on every scroll edge change, the transcript's included (pane-has-restyle.browser.test.ts). */
+.acpmux-composer-box[data-composer-grid][data-field-capped]
   .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   align-self: end;
   margin: 0 0 var(--acpmux-prompt-control-top) var(--acpmux-composer-inset);
 }
-.acpmux-composer-box[data-composer-grid]:has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
+.acpmux-composer-box[data-composer-grid][data-field-capped]
   .acpmux-composer-inner > .acpmux-composer-actions {
   align-self: end;
   margin: 0 var(--acpmux-composer-inset) var(--acpmux-prompt-control-top) 0;

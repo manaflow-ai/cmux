@@ -1535,14 +1535,24 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   // A long draft scrolls inside this box past its cap (markdownField.css): the edge with more draft
   // past it is marked, and the CSS fades it (Leo 2026-10-21). A DOM with no layout (the jsdom and
   // happy-dom unit tests) has no observers and nothing scrolls there.
-  useEffect(
-    () =>
-      wrapper.current && typeof ResizeObserver === "function" && typeof MutationObserver === "function"
-        ? // No mark while the field settles to a height its draft fits (composer/fieldGrowth.ts).
-          followScrollEdges(wrapper.current, "y", { quietWhile: SETTLING_SCROLLER_ATTRIBUTE })
-        : undefined,
-    [],
-  );
+  // The composer's box carries `data-field-capped` while either edge is marked, so its grid moves the controls
+  // below the scrollbar from an attribute of its own (composerLocation.css). A `:has()` over the field's marks
+  // made Chromium restyle on every `data-fade-*` change anywhere in the pane, the transcript's scroll edges
+  // included: a thread rail tick click took 30% longer.
+  useEffect(() => {
+    const node = wrapper.current;
+    if (!node || typeof ResizeObserver !== "function" || typeof MutationObserver !== "function") return undefined;
+    const box = node.closest<HTMLElement>(".acpmux-composer-box[data-composer-grid]");
+    // No mark while the field settles to a height its draft fits (composer/fieldGrowth.ts).
+    const stop = followScrollEdges(node, "y", {
+      quietWhile: SETTLING_SCROLLER_ATTRIBUTE,
+      onEdges: box ? (marked) => box.toggleAttribute("data-field-capped", marked) : undefined,
+    });
+    return () => {
+      stop();
+      box?.removeAttribute("data-field-capped");
+    };
+  }, []);
   // In the composer's box, its scrollbar runs down the box's right edge, clear of the actions
   // (composerScrollLane.ts).
   useEffect(
