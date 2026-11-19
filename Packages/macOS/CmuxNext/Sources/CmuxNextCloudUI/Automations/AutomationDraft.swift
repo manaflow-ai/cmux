@@ -122,7 +122,7 @@ public nonisolated struct AutomationDraft: Equatable, Sendable {
 
     /// The form's schedule for a stored trigger: the presets come back as presets (they are stored
     /// as cron), any other cron as Custom, a watch or event trigger as unchanged.
-    static func schedule(of trigger: [String: AnySendableJSON]) -> Schedule {
+    public static func schedule(of trigger: [String: AnySendableJSON]) -> Schedule {
         switch trigger["type"]?.string {
         case "manual": return .manual
         case "every": return .every(minutes: max(1, Int(trigger["seconds"]?.number ?? 60) / 60))
