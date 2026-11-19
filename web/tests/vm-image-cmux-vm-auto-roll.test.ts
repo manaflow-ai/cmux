@@ -7,6 +7,9 @@ import {
   AUTO_PREFIX,
   BOOT_ENTRY,
   KEEP_AUTO,
+  MIN_AUTO,
+  largeImageOn,
+  workerReadsLarge,
   MAX_BYTES,
   MAX_ROLLS_BEHIND,
   ROLLBACK_DEPLOYS,
@@ -44,6 +47,12 @@ const candidate = { snapshot_id: `sh-${"a".repeat(32)}`, lock_sha256: "0".repeat
 const tui = "1234567890abcdef1234567890abcdef12345678";
 const entry = (run: string, attempt = "1"): BootImage => rolledImage(candidate, `ci-${run}-${attempt}`, tui, run, attempt);
 const KEY = "c".repeat(64);
+/** The candidate's `large` member as cloud-vm-image-bake.yml writes it once large-smoke.ts passed on that snapshot. */
+const LARGE_CANDIDATE = { snapshot: "img-large", snapshot_id: `sh-${"b".repeat(32)}`, size: { vcpu: 4, mem_gib: 16, disk_gib: 64 }, smoke: { result: "PASSED" } };
+/** What the Worker reads on the entry: the large snapshot and the size a VM booted from it has. */
+const LARGE_ENTRY = { snapshotId: `sh-${"b".repeat(32)}`, vcpus: 4, memoryMib: 16384, diskMib: 65536 };
+/** A roll whose candidate records the inputs key and a smoked large image, with the roll's large switch on. */
+const sized = (run: string): BootImage => rolledImage({ ...candidate, inputs_sha256: KEY, large: LARGE_CANDIDATE }, `ci-${run}-1`, tui, run, "1", { large: true });
 /** A roll whose candidate records the image's inputs key (bake.ts bakeInputsSha256). */
 const keyed = (run: string): BootImage => rolledImage({ ...candidate, inputs_sha256: KEY }, `ci-${run}-1`, tui, run, "1");
 
@@ -157,6 +166,262 @@ describe("auto-roll approve", () => {
     const bad = { ...keyed("12"), inputs_sha256: "A".repeat(64) };
     expect(() => replaceList(text, "production", [bad, ...prod])).toThrow(/bad inputs_sha256/);
     expect(() => replaceList(text, "production", [{ ...entry("12"), extra: "x" } as BootImage, ...prod])).toThrow(/fields/);
+  });
+});
+
+// The large image (web/scripts/cmux-vm-image/large-image.ts): a second snapshot of the same bake, at the size a
+// default Cloud chat start asks for. The Worker boots it for a create that asks for exactly that size.
+describe("auto-roll large image", () => {
+  const autos = (list: BootImage[]) => list.filter((i) => i.id.startsWith(AUTO_PREFIX));
+  /** The Worker deployed with the list reads `large` (workerReadsLarge said so). */
+  const READS = { workerReadsLarge: true };
+  const bytes =(list: BootImage[]) => Buffer.byteLength(JSON.stringify(list));
+
+  test("the entry carries the candidate's large image, in the Worker's units, only with the switch on", () => {
+    expect(sized("1")).toEqual({ ...keyed("1"), large: LARGE_ENTRY });
+    // Switch off (auto-roll.json large_image: false), or no option at all: today's entry.
+    const off = rolledImage({ ...candidate, inputs_sha256: KEY, large: LARGE_CANDIDATE }, "ci-1-1", tui, "1", "1", { large: false });
+    expect(off).toEqual(keyed("1"));
+    expect(rolledImage({ ...candidate, inputs_sha256: KEY, large: LARGE_CANDIDATE }, "ci-1-1", tui, "1", "1")).toEqual(keyed("1"));
+    // Switch on and a candidate without one (the bake made none, or its smoke failed): today's entry.
+    expect(rolledImage({ ...candidate, inputs_sha256: KEY }, "ci-1-1", tui, "1", "1", { large: true })).toEqual(keyed("1"));
+  });
+
+  test("a large image the Worker would drop, or one that was not smoked, is left out and the image still rolls", () => {
+    const bad: unknown[] = [
+      { ...LARGE_CANDIDATE, snapshot_id: candidate.snapshot_id }, // the image's own snapshot
+      { ...LARGE_CANDIDATE, snapshot_id: "" },
+      { ...LARGE_CANDIDATE, snapshot_id: "snap large" },
+      { ...LARGE_CANDIDATE, smoke: { result: "FAILED" } },
+      { ...LARGE_CANDIDATE, smoke: undefined },
+      { ...LARGE_CANDIDATE, size: undefined },
+      { ...LARGE_CANDIDATE, size: { vcpu: 1, mem_gib: 16, disk_gib: 64 } },
+      { ...LARGE_CANDIDATE, size: { vcpu: 64, mem_gib: 16, disk_gib: 64 } },
+      { ...LARGE_CANDIDATE, size: { vcpu: 4, mem_gib: 2, disk_gib: 64 } },
+      { ...LARGE_CANDIDATE, size: { vcpu: 4, mem_gib: 128, disk_gib: 64 } },
+      { ...LARGE_CANDIDATE, size: { vcpu: 4, mem_gib: 16, disk_gib: 8 } },
+      { ...LARGE_CANDIDATE, size: { vcpu: 4, mem_gib: 16, disk_gib: 256 } },
+      { ...LARGE_CANDIDATE, size: { vcpu: 4.5, mem_gib: 16, disk_gib: 64 } },
+      { ...LARGE_CANDIDATE, size: { vcpu: "4", mem_gib: 16, disk_gib: 64 } },
+      "sh-large",
+      null,
+    ];
+    for (const large of bad)
+      expect(rolledImage({ ...candidate, inputs_sha256: KEY, large: large as typeof LARGE_CANDIDATE }, "ci-1-1", tui, "1", "1", { large: true })).toEqual(keyed("1"));
+  });
+
+  test("approve writes the large image on that revision's entry in both lists", () => {
+    const { text } = approve(wrangler, sized("100"), READS);
+    const prod = locate(text, "production").images;
+    const staging = locate(text, "staging").images;
+    expect(prod[0]).toEqual({ ...keyed("100"), large: LARGE_ENTRY, services: ["cloud-platform-production", "ci-product-smoke"] });
+    expect(staging.at(-1)).toEqual({ ...keyed("100"), large: LARGE_ENTRY, services: ["cloud-platform-dev", "cloud-platform-staging"] });
+    expect(prod.slice(1)).toEqual(locate(wrangler, "production").images);
+    expect(staging.slice(0, -1)).toEqual(locate(wrangler, "staging").images);
+    expect(skeleton(text)).toBe(skeleton(wrangler));
+  });
+
+  // A retry of a create in flight boots the snapshot its first attempt was journaled from, so a published
+  // revision's entry never gains or loses `large`: later rolls and another image's rollback pass it through.
+  test("a published revision keeps its large image, and one published without it never gains one", () => {
+    let text = approve(wrangler, entry("201")).text;
+    text = approve(text, sized("202"), READS).text;
+    // A later roll without a large image, by a roll that does not ask whether the Worker reads one.
+    text = approve(text, keyed("203")).text;
+    text = approve(text, sized("204"), READS).text;
+    // A rollback never asks either: it only takes an entry out.
+    text = rollback(text, keyed("203").id).text;
+    for (const env of ["staging", "production"] as const) {
+      const byId = new Map(locate(text, env).images.map((i) => [i.id, i]));
+      expect(byId.get(sized("202").id)!.large).toEqual(LARGE_ENTRY);
+      expect(byId.get(sized("204").id)!.large).toEqual(LARGE_ENTRY);
+      expect(byId.get(entry("201").id)).not.toHaveProperty("large");
+      expect(byId.has(keyed("203").id)).toBe(false);
+    }
+    expect(bootDrift(text).every((d) => d.ok)).toBe(true);
+    // A rollback takes the pair out as one entry: the entry before it boots again, its own large image with it.
+    const back = rollback(text, sized("204").id);
+    expect(bootedImage(back.text, "production")).toBe(sized("202").id);
+    expect(locate(back.text, "production").images[0]!.large).toEqual(LARGE_ENTRY);
+  });
+
+  test("a write that drops, replaces or adds the large image of a published revision is refused", () => {
+    let text = approve(wrangler, entry("211")).text;
+    text = approve(text, sized("212"), READS).text;
+    for (const env of ["staging", "production"] as const) {
+      const images = locate(text, env).images;
+      const rewrite = (id: string, change: (i: BootImage) => BootImage) => images.map((i) => (i.id === id ? change(i) : i));
+      const dropped = rewrite(sized("212").id, ({ large: _large, ...rest }) => rest);
+      const replaced = rewrite(sized("212").id, (i) => ({ ...i, large: { ...LARGE_ENTRY, snapshotId: `sh-${"d".repeat(32)}` } }));
+      const resized = rewrite(sized("212").id, (i) => ({ ...i, large: { ...LARGE_ENTRY, vcpus: 8 } }));
+      const added = rewrite(entry("211").id, (i) => ({ ...i, large: LARGE_ENTRY }));
+      for (const list of [dropped, replaced, resized, added]) {
+        expect(() => replaceList(text, env, list, READS)).toThrow(/already published/);
+        expect(() => replaceList(text, env, list)).toThrow(/already published/);
+      }
+      // The same list, and the list without that revision at all (a rollback or a trim), are written.
+      expect(locate(replaceList(text, env, images), env).images).toEqual(images);
+      const without = images.filter((i) => i.id !== sized("212").id);
+      expect(locate(replaceList(text, env, without), env).images).toEqual(without);
+    }
+  });
+
+  // Until the Worker's list schema names `large`, it refuses the whole list for one unknown entry field and every
+  // approved image is disabled (src/upstream/live-images.ts, onExcessProperty: "error").
+  test("a list that would newly carry a large image is refused unless the Worker deployed with it reads `large`", () => {
+    for (const options of [undefined, {}, { workerReadsLarge: false }]) {
+      expect(() => approve(wrangler, sized("220"), options)).toThrow(/would disable every image/);
+      for (const env of ["staging", "production"] as const) {
+        const images = locate(wrangler, env).images;
+        const services = images[0]!.services;
+        expect(() => replaceList(wrangler, env, [...images, { ...sized("220"), services }], options)).toThrow(/would disable every image/);
+        // The same roll without its large image is written as it is today.
+        expect(locate(replaceList(wrangler, env, [...images, { ...keyed("220"), services }], options), env).images.at(-1)!.id).toBe(keyed("220").id);
+      }
+    }
+    expect(locate(approve(wrangler, sized("220"), READS).text, "production").images[0]!.large).toEqual(LARGE_ENTRY);
+  });
+
+  test("whether the Worker reads `large` is asked of its own list parser, and anything else is a no", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "auto-roll-worker-"));
+    try {
+      const worker = (name: string, source: string | undefined) => {
+        const root = path.join(dir, name);
+        mkdirSync(path.join(root, "src/upstream"), { recursive: true });
+        if (source !== undefined) writeFileSync(path.join(root, "src/upstream/live-images.ts"), source);
+        return root;
+      };
+      // Today's Worker: one unknown entry field and the whole list is invalid.
+      const strict = `export const parseVmImages = (raw: string) => {
+        const list = JSON.parse(raw) as Array<Record<string, unknown>>;
+        return list.some((e) => "large" in e) ? { ok: false, images: [] } : { ok: true, images: list };
+      };`;
+      const reads = `export const parseVmImages = (raw: string) => ({ ok: true, images: JSON.parse(raw) });`;
+      // A Worker that tolerates the field and drops it would boot the small image and resize: nothing to publish for.
+      const drops = `export const parseVmImages = (raw: string) => ({ ok: true, images: (JSON.parse(raw) as Array<Record<string, unknown>>).map(({ large: _l, ...e }) => e) });`;
+      expect(await workerReadsLarge(worker("strict", strict))).toBe(false);
+      expect(await workerReadsLarge(worker("reads", reads))).toBe(true);
+      expect(await workerReadsLarge(worker("drops", drops))).toBe(false);
+      expect(await workerReadsLarge(worker("throws", `export const parseVmImages = () => { throw new Error("no"); };`))).toBe(false);
+      expect(await workerReadsLarge(worker("other", `export const somethingElse = 1;`))).toBe(false);
+      expect(await workerReadsLarge(worker("broken", `import "./not-there";`))).toBe(false);
+      expect(await workerReadsLarge(worker("empty", undefined))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the lists check passes a large image only beside a Worker that reads it", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "auto-roll-lists-"));
+    try {
+      const script = new URL("../../images/cmux-vm/auto-roll.ts", import.meta.url).pathname;
+      const file = path.join(dir, "wrangler.jsonc");
+      mkdirSync(path.join(dir, "src/upstream"), { recursive: true });
+      const parser = path.join(dir, "src/upstream/live-images.ts");
+      const lists = () => runChild("bun", [script, "lists", "--wrangler", file]);
+      // No large image anywhere: the check does not need the Worker.
+      writeFileSync(file, approve(wrangler, keyed("230")).text);
+      expect((await lists()).status).toBe(0);
+      writeFileSync(file, approve(wrangler, sized("230"), READS).text);
+      const refused = await lists();
+      expect(refused.status).toBe(1);
+      expect(refused.stderr).toMatch(/would disable every image/);
+      writeFileSync(parser, `export const parseVmImages = (raw: string) => ({ ok: true, images: JSON.parse(raw) });`);
+      const ok = await lists();
+      expect(ok.status).toBe(0);
+      expect(ok.stdout).toMatch(/staging VM_BOOT_IMAGES: \d+ bytes/);
+      expect(ok.stdout).toMatch(/production VM_BOOT_IMAGES: \d+ bytes/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a list is refused when an entry's large image is one the Worker would drop", () => {
+    const text = wrangler;
+    const prod = locate(text, "production").images;
+    const fresh = { ...keyed("300"), services: ["cloud-platform-production", "ci-product-smoke"] };
+    const withLarge = (large: unknown) => [{ ...fresh, large } as BootImage, ...prod];
+    for (const large of [
+      { ...LARGE_ENTRY, extra: 1 },
+      { snapshotId: LARGE_ENTRY.snapshotId, vcpus: 4, memoryMib: 16384 },
+      { ...LARGE_ENTRY, snapshotId: fresh.snapshotId },
+      { ...LARGE_ENTRY, snapshotId: "" },
+      { ...LARGE_ENTRY, vcpus: 1 },
+      { ...LARGE_ENTRY, vcpus: 33 },
+      { ...LARGE_ENTRY, memoryMib: 4095 },
+      { ...LARGE_ENTRY, memoryMib: 65537 },
+      { ...LARGE_ENTRY, diskMib: 16383 },
+      { ...LARGE_ENTRY, diskMib: 131073 },
+      { ...LARGE_ENTRY, vcpus: 4.5 },
+      { ...LARGE_ENTRY, vcpus: "4" },
+      "sh-large",
+      null,
+    ])
+      expect(() => replaceList(text, "production", withLarge(large), READS)).toThrow(/bad large/);
+    // The Worker's bounds, both ends: 2-32 vCPU, 4,096-65,536 MiB of memory, 16,384-131,072 MiB of disk.
+    for (const large of [{ ...LARGE_ENTRY, vcpus: 32, memoryMib: 65536, diskMib: 131072 }, { ...LARGE_ENTRY, vcpus: 2, memoryMib: 4096, diskMib: 16384 }])
+      expect(locate(replaceList(text, "production", withLarge(large), READS), "production").images[0]!.large).toEqual(large);
+    // A deployed commit's list still reads whatever Worker sits beside this checkout, so settle can roll it back.
+    expect(locate(approve(wrangler, sized("301"), READS).text, "production").images[0]!.large).toEqual(LARGE_ENTRY);
+  });
+
+  // Measured on the checked-in lists (2026-11-18): staging 4,915 bytes with 6 rolls, production 4,353. A large image
+  // is 105 bytes on its entry; on all 6 kept rolls staging would be 5,545, over the 5,120-byte binding limit that
+  // fails the whole deploy. So a roll that would not fit drops the oldest rolls first, never below MIN_AUTO.
+  test("rolls that all carry a large image stay within the binding limit by dropping the oldest rolls, never a hand-approved entry", () => {
+    let text = checkedIn;
+    for (let run = 1; run <= KEEP_AUTO + 2; run++) {
+      text = approve(text, sized(String(9200 + run)), READS).text;
+      for (const env of ["staging", "production"] as const) expect(bytes(locate(text, env).images)).toBeLessThanOrEqual(MAX_BYTES);
+    }
+    const hand = (list: BootImage[]) => list.filter((i) => !i.id.startsWith(AUTO_PREFIX));
+    for (const env of ["staging", "production"] as const) {
+      const images = locate(text, env).images;
+      const kept = autos(images);
+      expect(kept.every((i) => i.large !== undefined)).toBe(true);
+      expect(kept.length).toBeGreaterThanOrEqual(MIN_AUTO);
+      expect(kept.length).toBeLessThanOrEqual(KEEP_AUTO);
+      // The kept rolls are the newest ones, in the list's order, and the newest still boots.
+      const newest = Array.from({ length: kept.length }, (_, i) => sized(String(9200 + KEEP_AUTO + 2 - i)).id);
+      expect(kept.map((i) => i.id)).toEqual(env === "production" ? newest : [...newest].reverse());
+      expect(bootedImage(text, env)).toBe(sized(String(9200 + KEEP_AUTO + 2)).id);
+      expect(hand(images)).toEqual(hand(withFallback(locate(checkedIn, env).images, env)));
+      // No more is dropped than the limit needs: one more of the dropped size would not have fit.
+      if (kept.length < KEEP_AUTO) expect(bytes(images) + bytes([kept[0]!]) - 1).toBeGreaterThan(MAX_BYTES);
+    }
+    expect(bootDrift(text).every((d) => d.ok && d.behind === 0)).toBe(true);
+  });
+
+  test("the byte trim never goes below MIN_AUTO rolls: a list that still does not fit is refused", () => {
+    expect(MIN_AUTO).toBeGreaterThanOrEqual(MAX_ROLLS_BEHIND + 2);
+    const staging = locate(wrangler, "staging").images;
+    const filler = (n: number) => Array.from({ length: n }, (_, i) => ({ ...staging[0]!, id: `hand-${i}`, displayName: "x".repeat(100) }));
+    const withStaging = (list: BootImage[]) =>
+      wrangler.replace(/("staging": \{[\s\S]*?"VM_BOOT_IMAGES": )("(?:[^"\\\n]|\\.)*")/u, (_, head: string) => head + JSON.stringify(JSON.stringify(list)));
+    // Hand-approved entries that leave room for MIN_AUTO rolls with a large image, and not for one more.
+    const services = ["cloud-platform-dev", "cloud-platform-staging"];
+    const fits = (count: number) =>
+      bytes([...filler(count), { ...FALLBACK, services }, ...Array.from({ length: MIN_AUTO }, (_, i) => ({ ...sized(String(9301 + i)), services }))]) <= MAX_BYTES;
+    let n = 0;
+    while (fits(n + 1)) n++;
+    expect(n).toBeGreaterThan(0);
+    let text = withStaging(filler(n));
+    for (let run = 1; run <= MIN_AUTO + 2; run++) text = approve(text, sized(String(9300 + run)), READS).text;
+    expect(autos(locate(text, "staging").images).map((i) => i.id)).toEqual(Array.from({ length: MIN_AUTO }, (_, i) => sized(String(9300 + 3 + i)).id));
+    expect(autos(locate(text, "production").images)).toHaveLength(Math.min(KEEP_AUTO, MIN_AUTO + 2));
+    // One hand-approved entry more: MIN_AUTO rolls no longer fit, and the roll is refused rather than trimmed further.
+    let tight = withStaging(filler(n + 1));
+    expect(() => {
+      for (let run = 1; run <= MIN_AUTO; run++) tight = approve(tight, sized(String(9400 + run)), READS).text;
+    }).toThrow(/bytes, at most 5120/);
+  });
+
+  test("the roll's large switch is off unless auto-roll.json says large_image: true", () => {
+    expect(largeImageOn('{"mode":"live"}')).toBe(false);
+    expect(largeImageOn('{"mode":"live","large_image":false}')).toBe(false);
+    expect(largeImageOn('{"mode":"live","large_image":true}')).toBe(true);
+    expect(() => largeImageOn('{"mode":"live","large_image":"true"}')).toThrow(/large_image/);
+    expect(typeof largeImageOn(readFileSync(new URL("../../images/cmux-vm/auto-roll.json", import.meta.url), "utf8"))).toBe("boolean");
   });
 });
 
@@ -422,6 +687,18 @@ describe("auto-roll workflows", () => {
     expect(stepOf(bake.jobs["bake"]!, "roll_candidate").run).toContain('"$OUT_DIR/channel-dev.json"');
   });
 
+  test("the roll asks the bake for the large image only when the plan read the switch on", () => {
+    const roll = load("cloud-vm-image-roll.yml") as unknown as { jobs: { plan: { outputs: Record<string, string> }; bake: { with: Record<string, unknown> } } };
+    expect(roll.jobs.plan.outputs["large"]).toBe("${{ steps.plan.outputs.large }}");
+    expect(roll.jobs.bake.with["large_image"]).toBe("${{ needs.plan.outputs.large == 'true' }}");
+    expect(stepOf(load("cloud-vm-image-roll.yml").jobs["plan"]!, "plan").run).toContain('echo "large=$(jq -r .large "$RUNNER_TEMP/plan.json")"');
+  });
+
+  test("the deploy's short check runs the lists check, which knows what this commit's Worker reads", () => {
+    const check = vm.jobs["check"]!.steps.find((s) => s.name?.startsWith("Boot image lists and the image lock parse"))!;
+    expect(check.run).toContain("bun images/cmux-vm/auto-roll.ts lists");
+  });
+
   test("a roll's image id carries the run attempt", () => {
     const roll = load("cloud-vm-image-roll.yml");
     const promote = roll.jobs["promote"]!;
@@ -534,6 +811,77 @@ describe("auto-roll scripts", () => {
       expect(approved.image.id).toMatch(/^cloud-native-auto-[0-9a-f]{8}-4242-2$/);
     }), 60_000);
 
+  test("the push script's roll commit carries the candidate's large image only when the tip's switch is on and its Worker reads it", () =>
+    withDir(async (dir) => {
+      const src = path.join(dir, "src");
+      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/fallback-image.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
+        mkdirSync(path.dirname(path.join(src, file)), { recursive: true });
+        copyFileSync(path.join(repoRoot, file), path.join(src, file));
+      }
+      const switchFile = path.join(src, "images/cmux-vm/auto-roll.json");
+      const parser = path.join(src, "workers/cmux-vm/src/upstream/live-images.ts");
+      mkdirSync(path.dirname(parser), { recursive: true });
+      // The tip's state: the roll's switch, and whether the Worker deployed from that commit reads `large`
+      // (today's refuses the whole list for the unknown field).
+      const tip = (on: boolean, reads: boolean) => {
+        writeFileSync(switchFile, `${JSON.stringify({ mode: "live", large_image: on }, null, 2)}\n`);
+        writeFileSync(parser, reads
+          ? `export const parseVmImages = (raw: string) => ({ ok: true, images: JSON.parse(raw) });\n`
+          : `export const parseVmImages = (raw: string) => (raw.includes('"large"') ? { ok: false, images: [] } : { ok: true, images: JSON.parse(raw) });\n`);
+      };
+      // The push script starts every attempt from the fetched tip, so a new state has to land there.
+      const land = async (on: boolean, reads: boolean, message: string) => {
+        await git(src, "checkout", "-q", "-B", "feat-cmux-next", "origin/feat-cmux-next");
+        tip(on, reads);
+        await git(src, "add", ".");
+        await git(src, "commit", "-q", "-m", message);
+        await git(src, "push", "-q", "origin", "feat-cmux-next");
+      };
+      tip(false, true);
+      await git(dir, "init", "-q", "--bare", "remote.git");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", src);
+      await git(src, "add", ".");
+      await git(src, "commit", "-q", "-m", "base");
+      await git(src, "remote", "add", "origin", path.join(dir, "remote.git"));
+      await git(src, "push", "-q", "origin", "feat-cmux-next");
+      const lock = readFileSync(path.join(src, "images/cmux-vm/inputs.lock.json"));
+      const temp = path.join(dir, "runner-temp");
+      mkdirSync(temp);
+      writeFileSync(path.join(temp, "candidate.json"), JSON.stringify({ ...candidate, lock_sha256: createHash("sha256").update(lock).digest("hex"), large: LARGE_CANDIDATE }));
+      writeFileSync(path.join(temp, "message.txt"), "cmux-vm: image roll test\n");
+      const roll = async (run: string) => {
+        await runChildOk(
+          "bash",
+          ["images/cmux-vm/image-roll-push.sh", "roll", "--candidate", path.join(temp, "candidate.json"), "--revision", `ci-${run}-1`, "--run", run,
+            "--attempt", "1", "--message-file", path.join(temp, "message.txt"), "--dry-run"],
+          { cwd: src, env: { ...gitEnv, RUNNER_TEMP: temp, GITHUB_OUTPUT: path.join(temp, "output") } },
+        );
+        const text = (await git(src, "show", "HEAD:workers/cmux-vm/wrangler.jsonc")).stdout;
+        return {
+          approved: JSON.parse(readFileSync(path.join(temp, "approve.json"), "utf8")) as { image: { id: string; large?: unknown } },
+          prod: locate(text, "production").images[0]!,
+          staging: locate(text, "staging").images.at(-1)!,
+        };
+      };
+      // The switch is off at the tip, or it is on beside a Worker that would refuse the list: the same candidate
+      // rolls as it does today, in both lists.
+      const off = await roll("4301");
+      await land(true, false, "large on, a Worker that does not read it");
+      const unread = await roll("4302");
+      for (const [rolled, run] of [[off, "4301"], [unread, "4302"]] as const) {
+        expect(rolled.prod.id).toMatch(new RegExp(`-${run}-1$`));
+        expect(rolled.prod).not.toHaveProperty("large");
+        expect(rolled.staging).not.toHaveProperty("large");
+        expect(rolled.approved.image.large ?? null).toBeNull();
+      }
+      await land(true, true, "the Worker reads large");
+      const on = await roll("4303");
+      expect(on.prod.id).toMatch(/-4303-1$/);
+      expect(on.prod.large).toEqual(LARGE_ENTRY);
+      expect(on.staging.large).toEqual(LARGE_ENTRY);
+      expect(on.approved.image.large).toEqual(LARGE_ENTRY);
+    }), 60_000);
+
   test("platform mode pushes Wrangler first and leaves cmux with a lock-only commit", () =>
     withDir(async (dir) => {
       const src = path.join(dir, "src");
@@ -596,7 +944,9 @@ describe("auto-roll scripts", () => {
 
       const ok = await plan(full, older);
       expect(ok.status).toBe(0);
-      const decided = JSON.parse(ok.stdout) as { roll: boolean; reason: string };
+      const decided = JSON.parse(ok.stdout) as { roll: boolean; reason: string; large: unknown };
+      // The plan says whether the bake makes the large image (auto-roll.json large_image).
+      expect(typeof decided.large).toBe("boolean");
       expect(decided.roll).toBe(false);
       expect(decided.reason).toMatch(/older than the pinned/);
 
