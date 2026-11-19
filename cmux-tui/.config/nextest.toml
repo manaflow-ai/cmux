@@ -248,3 +248,10 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::disk_usage_read_cost::/)'
 success-output = "final"
+
+# DRILL, NOT FOR A MERGE: step 1 of the rollback drill (tests/rollback_drill_copy.rs) prints the
+# copy's size and SHA-256 (its `rollback drill copy` lines); a fleet step shows them only when a
+# passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui::rollback_drill_copy)'
+success-output = "final"
