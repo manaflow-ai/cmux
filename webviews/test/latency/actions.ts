@@ -907,6 +907,64 @@ export const CHAT_FLOWS_PAGE: LatencyPageSpec = {
   actions: flowActions,
 };
 
+// The model picker over a harness that lists 1,000 more models (flows.harness.ts `models=1000`):
+// opening it, opening its More models fold, and a key into its search, which lists every match.
+// Each should paint as fast as with a dozen models (constant cost as the list grows).
+const MODEL_MENU = ".acpmux-model .acpmux-mp";
+const MODEL_SEARCH = ".acpmux-mp-search input";
+const labRowShown = shown(".acpmux-mp-models .acpmux-mp-row[data-key^='model:lab-model-']");
+async function openModelMenu(page: Page): Promise<void> {
+  await flowChat(page);
+  await page.click(MODEL_PICKER);
+  await page.waitForSelector(MODEL_SEARCH);
+  await quiet(page);
+}
+async function closeModelMenu(page: Page): Promise<void> {
+  await page.keyboard.press("Escape");
+  if (await page.$(MODEL_MENU)) await page.keyboard.press("Escape");
+  await page.waitForSelector(MODEL_MENU, { state: "detached" });
+  await quiet(page);
+}
+const longModelActions: LatencyAction[] = [
+  pickerOpen("chat.picker.model.open.models-1000", "model picker open (1,000 models)", MODEL_PICKER, MODEL_MENU),
+  {
+    id: "chat.picker.model.more.models-1000",
+    name: "model picker More models (1,000 models)",
+    metricType: "target_painted",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      await openModelMenu(page);
+      return labRowShown;
+    },
+    async input(page) {
+      await page.click(".acpmux-mp-older");
+    },
+    settle: closeModelMenu,
+  },
+  {
+    id: "chat.picker.model.search.models-1000",
+    name: "model picker search key (1,000 models)",
+    metricType: "target_painted",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      await openModelMenu(page);
+      await page.focus(MODEL_SEARCH);
+      return labRowShown;
+    },
+    async input(page) {
+      await page.keyboard.press("l");
+    },
+    settle: closeModelMenu,
+  },
+];
+
+export const LONG_MODEL_PICKER_PAGE: LatencyPageSpec = {
+  name: "chat flows 1000 models",
+  path: "/test/latency/flows.html?mock&recents=demo&models=1000",
+  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+  actions: longModelActions,
+};
+
 function longScroll(resident: boolean): LatencyAction {
   return {
     id: `chat.scroll.3000.${resident ? "resident" : "paged"}`,
@@ -1366,6 +1424,8 @@ export const PAGES: LatencyPageSpec[] = [
   // demand with CMUX_LATENCY_EXPERIMENTS=1, never in the CI scoreboard.
   // Typing behind a long draft: run on demand with CMUX_LATENCY_DRAFTS=1, never in the CI scoreboard.
   ...(process.env.CMUX_LATENCY_DRAFTS === "1" ? DRAFT_TYPING_PAGES : []),
+  // A 1,000-model picker: run on demand with CMUX_LATENCY_PICKERS=1, never in the CI scoreboard.
+  ...(process.env.CMUX_LATENCY_PICKERS === "1" ? [LONG_MODEL_PICKER_PAGE] : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? CHAT_SWITCH_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? GLASS_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? LIVE_BACKGROUND_PAGES : []),

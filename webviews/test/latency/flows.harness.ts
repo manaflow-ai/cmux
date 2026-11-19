@@ -8,6 +8,21 @@ import type {} from "../../src/experiments/experiment";
 // experiment (chatSwitch.ts), set before the pane mounts, as the gallery's stage sets it.
 const switchArm = new URLSearchParams(location.search).get("switch");
 if (switchArm) globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "chat-switch-motion": switchArm };
+// LONG PICKERS: `models=1000` gives the chat's harness that many more models (a harness that lists
+// a whole provider's catalog), so the model picker's More models fold and its search list them all.
+const extraModels = Number(new URLSearchParams(location.search).get("models") ?? 0);
+if (extraModels) {
+  if (extraModels !== 1000) throw new Error("unsupported model list size");
+  const { claudeModels, codexModels } = await import("../../src/agent-session/acpmux/mockFixture");
+  const lab = Array.from({ length: extraModels }, (_, index) => {
+    const n = String(index + 1).padStart(4, "0");
+    return { id: `lab-model-${n}`, name: `Lab Model ${n}` };
+  });
+  (globalThis as { cmuxAcpmuxMockHarnesses?: unknown[] }).cmuxAcpmuxMockHarnesses = [
+    { id: "claude", name: "Claude Code", models: [...claudeModels, ...lab] },
+    { id: "codex", name: "Codex", models: codexModels },
+  ];
+}
 
 await import("../../src/agent-session/acpmux/dev");
 
