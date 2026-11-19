@@ -50,7 +50,7 @@ struct HighFrameRateStreamTests {
     /// scrolling text at 120 fps, scaled to the size Auto streams at 120 (2154×1392), as
     /// libwebrtc hands it over. Per frame, the time from `encode` to the encoder's output,
     /// and the frames' sizes. Prints MAC-SCREEN-120FPS encoder-compare lines.
-    @Test(.enabled(if: enabled), .timeLimit(.minutes(3)), arguments: [EncoderBench.Kind.webrtc, .lowLatency])
+    @Test(.enabled(if: enabled), .timeLimit(.minutes(3)), arguments: [EncoderBench.Kind.webrtc, .realTime])
     func theEncodersOnOneScrollingScreen(kind: EncoderBench.Kind) throws {
         let bench = EncoderBench(kind: kind, sourceWidth: 3456, sourceHeight: 2234, width: 2154, height: 1392, fps: 120)
         let result = try bench.run(frames: 1200)

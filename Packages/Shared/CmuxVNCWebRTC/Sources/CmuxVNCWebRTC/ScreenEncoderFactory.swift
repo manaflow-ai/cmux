@@ -29,9 +29,10 @@ final class ScreenEncoderFactory: NSObject, RTCVideoEncoderFactory {
     }
 
     /// Whether a stream negotiated as `info` is encoded by ``ScreenLowLatencyEncoder``
-    /// (VideoToolbox's low-latency mode): H.264 in a High profile (`profile_idc` 0x64,
-    /// the only profile that mode encodes) with packetization mode 1 (its frames' NAL
-    /// units are not sized to a packet). Anything else keeps libwebrtc's encoder.
+    /// (GPU scaling, speed-first VideoToolbox): H.264 in a High profile (`profile_idc`
+    /// 0x64, what the screen stream negotiates, and the only profile VideoToolbox's
+    /// low-latency mode encodes) with packetization mode 1 (its frames' NAL units are
+    /// not sized to a packet). Anything else keeps libwebrtc's encoder.
     static func usesLowLatencyEncoder(_ info: RTCVideoCodecInfo) -> Bool {
         #if DEBUG
         if usesWebRTCEncoder { return false }

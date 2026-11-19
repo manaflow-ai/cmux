@@ -5,30 +5,33 @@ import Foundation
 import VideoToolbox
 import WebRTC
 
-/// The Mac's H.264 encoder for a screen stream: VideoToolbox's hardware encoder in its
-/// low-latency mode, the mode Apple recommends for "ultra-low-latency conferencing and
-/// cloud gaming (cases where every millisecond counts)" (VTCompressionProperties.h).
+/// The Mac's H.264 encoder for a screen stream: VideoToolbox's hardware encoder set up
+/// for the shortest time from a captured frame to its encoded bytes.
 ///
-/// libwebrtc's own H.264 encoder (the M154 build this package pins) opens VideoToolbox
-/// as for live capture: `RealTime`, no reordering, an average bitrate and a one-second
-/// data rate limit, and nothing more; it never enables low-latency rate control (its
-/// binary does not reference `kVTVideoEncoderSpecification_EnableLowLatencyRateControl`).
-/// Here the session is created with that specification, plus `RealTime`,
-/// `PrioritizeEncodingSpeedOverQuality`, no frame reordering, the stream's frame rate
-/// as `ExpectedFrameRate` and libwebrtc's target as `AverageBitRate`. Low-latency rate
-/// control sizes each frame to the target as it encodes (frame-level rate control,
-/// infinite GOP, no lookahead), so a frame comes out sooner and a burst does not
-/// leave a long frame queued behind the pacer.
+/// libwebrtc's own H.264 encoder (the M154 build this package pins) scales every frame
+/// on the CPU (libyuv NV12 scaling of a 3456x2234 source to Auto's 2154x1392 at 120 fps)
+/// before VideoToolbox sees it, and opens the session with `RealTime` alone. Here the
+/// frame is scaled on the GPU (`VTPixelTransferSession`), and the session also has
+/// `PrioritizeEncodingSpeedOverQuality`, no frame reordering, the stream's rate as
+/// `ExpectedFrameRate`, libwebrtc's target as `AverageBitRate` and libwebrtc's own
+/// data rate limit (1.5x the target over a second). On the fleet's M4 that is 7.9 ms
+/// p50 / 10 ms p95 from `encode` to the encoded frame, against 18.5 / 31-35 ms for
+/// libwebrtc's encoder (`theRateControlsAtStreamBitrates`).
 ///
-/// Low-latency mode encodes High profile only, so this encoder is used only when the
-/// stream negotiated a High profile with packetization mode 1 (``ScreenEncoderFactory``);
-/// anything else keeps libwebrtc's encoder. VideoToolbox reports no per-frame QP, so
-/// libwebrtc's QP-based quality scaler is off for this encoder (`scalingSettings` nil):
-/// resolution still adapts to CPU load and to the bandwidth estimate.
+/// VideoToolbox's low-latency rate control (`EnableLowLatencyRateControl`, ``RateControl``)
+/// is faster still but drops every frame that would overshoot its share of the bitrate:
+/// at 2-12 Mbps on scrolling text it kept 30-210 of 240 frames, and a dropped frame
+/// never reaches the viewer, so a screen that then stops changing would show the frame
+/// before. It stays selectable for the bench, not for streams.
+///
+/// Used when the stream negotiated a High profile with packetization mode 1
+/// (``ScreenEncoderFactory``); anything else keeps libwebrtc's encoder. VideoToolbox
+/// reports no per-frame QP, so libwebrtc's QP-based quality scaler is off for this
+/// encoder (`scalingSettings` nil): resolution still adapts to CPU load and bandwidth.
 // crash-allow: libwebrtc calls start, encode, setBitrate and release on its one encoder queue; `callback` and the session's output (VideoToolbox's thread) meet only under `lock`.
 final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Sendable {
     // @unchecked: mutable state is behind `lock`.
-    static let implementation = "VideoToolbox low-latency"
+    static let implementation = "VideoToolbox screen"
 
     /// How VideoToolbox paces the bits.
     enum RateControl: String, CaseIterable, Sendable {
@@ -37,12 +40,12 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
         case lowLatency = "low-latency"
         /// The same, with the frame QP ceiling at 51 so it lowers quality before dropping.
         case lowLatencyQP51 = "low-latency-qp51"
-        /// The ordinary real-time session (libwebrtc's settings) with this encoder's GPU
-        /// scaling and speed priority; it overshoots instead of dropping.
+        /// The ordinary real-time session with this encoder's GPU scaling, speed priority
+        /// and libwebrtc's data rate limit; it never drops a frame. Streams use this one.
         case realTime = "real-time"
     }
 
-    static let defaultRateControl = RateControl.lowLatency
+    static let defaultRateControl = RateControl.realTime
     let rateControl: RateControl
 
     init(rateControl: RateControl = ScreenLowLatencyEncoder.defaultRateControl) {
@@ -190,6 +193,11 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
         let (bitrate, frameRate) = lock.withLock { (self.bitrate, self.frameRate) }
         if bitrate > 0 { VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrate as CFNumber) }
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: frameRate as CFNumber)
+        // libwebrtc's limit for its VideoToolbox encoder: 1.5x the target in any second.
+        if bitrate > 0, rateControl == .realTime {
+            let limits = [NSNumber(value: Double(bitrate) * 1.5 / 8), NSNumber(value: 1.0)] as CFArray
+            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limits)
+        }
     }
 
     /// The frame's pixels at the session's size: the source's own buffer when it fits,

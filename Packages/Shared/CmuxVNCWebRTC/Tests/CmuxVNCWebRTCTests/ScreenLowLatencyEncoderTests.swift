@@ -5,7 +5,7 @@ import Foundation
 import Testing
 import WebRTC
 
-/// The Mac's screen encoder: VideoToolbox's low-latency mode behind libwebrtc's
+/// The Mac's screen encoder: speed-first VideoToolbox with GPU scaling behind libwebrtc's
 /// encoder interface (``ScreenLowLatencyEncoder``).
 @Suite(.serialized)
 struct ScreenLowLatencyEncoderTests {
@@ -16,7 +16,7 @@ struct ScreenLowLatencyEncoderTests {
     @Test func aHighProfileStreamUsesTheLowLatencyEncoder() {
         #expect(ScreenEncoderFactory.usesLowLatencyEncoder(Self.info("640c34")))
         #expect(ScreenEncoderFactory.usesLowLatencyEncoder(Self.info("640C1F")), "hex case does not matter")
-        #expect(!ScreenEncoderFactory.usesLowLatencyEncoder(Self.info("42e01f")), "baseline: low-latency mode encodes High only")
+        #expect(!ScreenEncoderFactory.usesLowLatencyEncoder(Self.info("42e01f")), "baseline: the stream negotiates High; anything else keeps libwebrtc's encoder")
         #expect(!ScreenEncoderFactory.usesLowLatencyEncoder(Self.info("640c34", mode: "0")), "single NAL mode: frames are not sized to packets")
         #expect(!ScreenEncoderFactory.usesLowLatencyEncoder(RTCVideoCodecInfo(name: "VP8")))
         #expect(ScreenEncoderFactory().createEncoder(Self.info("640c34")) is ScreenLowLatencyEncoder)
@@ -27,7 +27,7 @@ struct ScreenLowLatencyEncoderTests {
     /// smaller size scaled from the source's full picture.
     @Test(.timeLimit(.minutes(1)))
     func itEncodesAnnexBWithKeyframesOnRequest() throws {
-        let bench = EncoderBench(kind: .lowLatency, sourceWidth: 1920, sourceHeight: 1200, width: 1280, height: 800, fps: 60)
+        let bench = EncoderBench(kind: .realTime, sourceWidth: 1920, sourceHeight: 1200, width: 1280, height: 800, fps: 60)
         let result = try bench.run(frames: 40, keyframesAt: [0, 20])
         #expect(result.outputs.count == 40, "every frame came out (\(result.outputs.count))")
         let first = try #require(result.outputs.first)
