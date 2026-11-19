@@ -304,6 +304,7 @@ cmux-ci test --setup playwright --artifact /tmp/golden -- bash -c 'cd webviews &
 bun run golden:looks --looks cmux,codex --setup ~/src/my-look   # an outside look beside the built-in ones
 bun run golden:looks --native DIR   # adds the native sidebar and tab bar (AAGoldenLookGalleryTests' PNGs) per look
 bun run golden:looks --every        # every look the checkout carries, as the contrast test draws them
+bun run golden:looks --setup ~/src/my-look --preview   # also writes ~/src/my-look/preview/golden-{light,dark}.png, the stills the Settings looks gallery shows
 ```
 
 `looks.golden-menus` (`src/gallery/golden/GoldenMenus.gallery.tsx`) is the golden screen's menus and

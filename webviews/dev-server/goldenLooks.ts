@@ -137,6 +137,7 @@ export function lookFromSetup(dir: string, base: Partial<RegistryLook> = {}): Go
     title: base.title ?? setup.name ?? path.basename(dir),
     note: base.note ?? setup.tagline ?? "",
     source: shown(dir),
+    setupDir: path.resolve(dir),
     settings,
     schemes,
     ...(fs.existsSync(css) ? { themeCSS: readText(css) } : {}),
@@ -239,6 +240,14 @@ export function drawnSchemes(look: GoldenLook): ("light" | "dark")[] {
 }
 
 export type GoldenLooks = { looks: GoldenLook[]; skipped: { id: string; reason: string }[] };
+
+/**
+ * Where `bun run golden:looks --setup DIR --preview` writes a look repo's own golden still: the path the
+ * Settings looks gallery reads for each look it lists (fallback `screenshots/chat.png`).
+ */
+export function previewPath(setupDir: string, scheme: "light" | "dark"): string {
+  return path.join(setupDir, "preview", `golden-${scheme}.png`);
+}
 
 /** Every look of the registry this checkout can draw, then each setup folder in `extraSetups`. */
 export function readGoldenLooks(

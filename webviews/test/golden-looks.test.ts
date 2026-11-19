@@ -9,6 +9,7 @@ import {
   drawnSchemes,
   lookFromSetup,
   parseJsonc,
+  previewPath,
   readGoldenLooks,
   schemeFromThemeFile,
 } from "../dev-server/goldenLooks";
@@ -63,6 +64,13 @@ test("a setup folder is a look: its theme file for the scheme it draws, its styl
   expect(look.themeCSS).toContain("--cv-user-bubble-radius");
   expect(look.settings).toEqual({ "agentPane.display.font.size": 13, "sidebar.density": "compact" });
   expect(lookDisplay(look)).toEqual({ "agentPane.display.font.size": 13 });
+  // The folder it came from, so `golden:looks --preview` writes the look repo's own stills.
+  expect(look.setupDir).toBe(path.resolve(dir));
+});
+
+test("a look repo's preview stills go where the looks gallery reads them", () => {
+  expect(previewPath("/src/my-look", "light")).toBe("/src/my-look/preview/golden-light.png");
+  expect(previewPath("/src/my-look", "dark")).toBe("/src/my-look/preview/golden-dark.png");
 });
 
 test("a scheme's colors go over its terminal theme; an unknown theme name keeps the base", () => {
