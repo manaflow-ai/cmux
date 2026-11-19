@@ -254,7 +254,7 @@ public final class MacScreenDevicesSettings {
         let sharing = hub.thisDevice.map { _ in
             State.Sharing(on: hubHost.isSharing, busy: hubHost.busy, permissions: [
                 .init(id: "screenRecording", title: L.t("macScreen.home.screenRecording", "Screen Recording"),
-                      detail: MacScreenGrantCopy.screenRecordingDetail(share.grantHolderName),
+                      detail: L.t("macScreen.home.screenRecordingDetail", "Lets cmux send this screen. macOS may ask you to quit and reopen cmux."),
                       granted: share.screenRecordingGranted),
                 .init(id: "accessibility", title: L.t("macScreen.home.accessibility", "Accessibility"),
                       detail: L.t("macScreen.home.accessibilityDetail", "Lets the other Mac click and type here. Without it, it can only watch."),
