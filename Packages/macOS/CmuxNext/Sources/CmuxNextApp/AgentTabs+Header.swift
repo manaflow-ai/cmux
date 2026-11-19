@@ -101,6 +101,17 @@ extension AgentTabStore {
                 created: { [weak self] key, decision in let scoped = AgentTabKey(machine: machine ?? "", key: key); created(key); SubagentTabTitles.shared.bind(agent, of: session, toTab: key) { [weak self] in self?.locateScoped(AgentTabKey(machine: scoped.machine, key: $0)) != nil }; if case .tab(.some) = decision, !focus { self?.selectInPaneScoped(scoped) } }, finished: finished) ?? false },
             column: { [weak self] in self?.rightColumnScoped(self?.tabKey($0, machine: machine) ?? AgentTabKey(machine: "", key: $0)) ?? .init() }, again: { [weak self] request in _ = self?.openSubagent(request.agent, of: session, focus: request.focus, asked: request.asked, beside: request.chat, machine: machine) })) }
 
+    /// A subagent's line under a chat row in the sidebar: opens `agent`'s pane beside chat tab `tab` with focus, through
+    /// the tracker the chat's own subagent cards use (``openSubagent(_:of:focus:asked:beside:machine:)``). False when the
+    /// tab shows no session.
+    @discardableResult
+    func openSubagentFromSidebar(_ agent: String, title: String?, chat tab: TabModel) -> Bool {
+        let key = tabKey(of: tab)
+        guard let session = session(of: key.key, machine: key.machine) ?? tab.agentSession?.session else { return false }
+        SubagentTabTitles.shared.name(agent, of: session, title: title)
+        return openSubagent(agent, of: session, focus: true, beside: key.key, machine: key.machine.isEmpty ? nil : key.machine)
+    }
+
     private func subagentTabIsBeside(_ source: String, _ candidate: String, machine: String? = nil) -> Bool { // AgentSubagentPanes.isBeside
         let at = { (found: (pane: PaneID, daemon: DaemonService)?) in found.map { (pane: $0.pane, owner: ObjectIdentifier($0.daemon)) } }
         let sourceKey = resolvedKey(AgentTabKey(machine: machine ?? "", key: source))

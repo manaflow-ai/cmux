@@ -180,6 +180,14 @@
   and `agentChip` never says done, so rows carry `agentDone` (the Priority view's done: idle, unread, not marked
   read) for the pill alone; the chip and the blue dot are unchanged. Tour `agent-badges` records
   Running, Needs approval and Done. `SidebarRowStatusTests.aFinishedUnseenChatMarksItsRowDoneForThePill`.
+- 2026-11-19 (lane/sidebar-subagents-rows, #46963): Sidebar-Look: Leo, 2026-11-19: "for claude there's the font and
+  the nested sessions and whatever". A chat's subagents list under its workspace row, as the Claude desktop app's
+  Code tab nests a chat's tasks: with the session tree on, an open row draws one line per subagent (status mark and
+  title, at most five, then "N more"), a folded one a single stacked line ("2 running"); with the tree off, the
+  stacked line shows only while one runs. The lines draw inside the row (`SidebarSubagentsView`, from
+  `rowContent`), so every placement gets them; selection and hover fill only the row's head. A press opens the
+  subagent's pane beside its chat. Debug `sidebar.subagents.look` compares rows / stacked / both (default both).
+  Regression: `SidebarSubagentRowsTests`.
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset
