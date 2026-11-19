@@ -223,11 +223,12 @@ impl TcpStack {
     }
 
     /// Hold every connection for a peer that goes silent on purpose (a phone
-    /// suspended in the background): no keepalive probe goes out, and a
-    /// connection is aborted only after `hold` without a segment from the
-    /// peer instead of its usual user timeout. `None` releases it: the
-    /// keepalive comes back at once (its first probe goes out now), and the
-    /// usual user timeout [`HOLD_RELEASE_GRACE`] later, once that probe's
+    /// suspended in the background): no keepalive probe goes out, data whose
+    /// ACK was lost is not retransmitted, and a connection is aborted only
+    /// after `hold` without a segment from the peer instead of its usual user
+    /// timeout. `None` releases it: the keepalive comes back at once (its
+    /// first probe goes out now), unacknowledged data is resent at once, and
+    /// the usual user timeout [`HOLD_RELEASE_GRACE`] later, once that probe's
     /// answer has made the peer recent again.
     pub(crate) fn set_hold(&mut self, hold: Option<Duration>) {
         let held = self.hold.or(hold);
@@ -239,9 +240,16 @@ impl TcpStack {
         for conn in &self.conns {
             let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
             match (hold, held) {
-                (Some(hold), _) => apply_hold(socket, Some(hold)),
-                // Released: probe now, keep the long timeout for the grace.
-                (None, Some(_)) => socket.set_keep_alive(Some(smol_duration(TCP_KEEP_ALIVE))),
+                (Some(hold), _) => {
+                    apply_hold(socket, Some(hold));
+                    socket.set_retransmit_paused(true);
+                }
+                // Released: probe and resend now, keep the long timeout for
+                // the grace.
+                (None, Some(_)) => {
+                    socket.set_keep_alive(Some(smol_duration(TCP_KEEP_ALIVE)));
+                    socket.set_retransmit_paused(false);
+                }
                 (None, None) => {}
             }
         }
