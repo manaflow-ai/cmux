@@ -2,7 +2,9 @@
 //! libfuse). Only the user who mounts it can reach it (no `allow_other`, which needs
 //! `user_allow_other` in `/etc/fuse.conf`). The session loop answers metadata itself; reads,
 //! writes and everything that may fetch from the Mac run on a small pool of threads, so one slow
-//! fetch does not stall `ls` or `stat`.
+//! fetch does not stall `ls` or `stat`. Reads and writes of a file already in the upper folder
+//! (one the agent made or changed) run on a pool of their own: they never wait for the Mac, so a
+//! stalled link that holds every fetch thread does not hold an editor's save.
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -23,8 +25,10 @@ use crate::overlay::{Attr, Overlay};
 
 /// How long the kernel may keep an answer.
 const TTL: Duration = Duration::from_secs(1);
-/// Threads that run reads and writes.
+/// Threads that run reads and writes that may fetch from the Mac.
 const WORKERS: usize = 16;
+/// Threads that run reads and writes of upper files (never a fetch).
+const LOCAL_WORKERS: usize = 4;
 
 type Job = Box<dyn FnOnce() + Send>;
 
@@ -52,21 +56,13 @@ impl Drop for Mounted {
 
 /// Mounts `overlay` at `at` (an existing, empty folder).
 pub fn mount(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
-    let (sender, receiver) = channel::<Job>();
-    let receiver = Arc::new(Mutex::new(receiver));
-    for index in 0..WORKERS {
-        let receiver = receiver.clone();
-        std::thread::Builder::new().name(format!("projection-io-{index}")).spawn(move || {
-            loop {
-                let job = receiver.lock().unwrap_or_else(PoisonError::into_inner).recv();
-                match job {
-                    Ok(job) => job(),
-                    Err(_) => return,
-                }
-            }
-        })?;
-    }
-    let fs = Fs { overlay, jobs: sender, listings: HashMap::new(), next_handle: AtomicU64::new(1) };
+    let fs = Fs {
+        overlay,
+        jobs: pool("projection-io", WORKERS)?,
+        local_jobs: pool("projection-local", LOCAL_WORKERS)?,
+        listings: HashMap::new(),
+        next_handle: AtomicU64::new(1),
+    };
     let options = [
         MountOption::FSName("cmux-projection".into()),
         MountOption::Subtype("cmux".into()),
@@ -76,6 +72,25 @@ pub fn mount(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
     ];
     let session = fuser::spawn_mount2(fs, at, &options)?;
     Ok(Mounted { session: Some(session) })
+}
+
+/// `count` threads named `name-N` that run the jobs sent to the returned sender until it drops.
+fn pool(name: &str, count: usize) -> std::io::Result<Sender<Job>> {
+    let (sender, receiver) = channel::<Job>();
+    let receiver = Arc::new(Mutex::new(receiver));
+    for index in 0..count {
+        let receiver = receiver.clone();
+        std::thread::Builder::new().name(format!("{name}-{index}")).spawn(move || {
+            loop {
+                let job = receiver.lock().unwrap_or_else(PoisonError::into_inner).recv();
+                match job {
+                    Ok(job) => job(),
+                    Err(_) => return,
+                }
+            }
+        })?;
+    }
+    Ok(sender)
 }
 
 /// Lazily unmounts whatever is mounted at `at` (a dead mount a daemon restart left), ignoring
@@ -93,6 +108,8 @@ pub fn unmount_stale(at: &Path) {
 struct Fs {
     overlay: Arc<Overlay>,
     jobs: Sender<Job>,
+    /// Jobs on upper files only, which never fetch.
+    local_jobs: Sender<Job>,
     /// Folder listings by handle, taken at `opendir` so paging is stable and cheap.
     listings: HashMap<u64, Vec<(u64, FileType, String)>>,
     next_handle: AtomicU64,
@@ -151,6 +168,16 @@ impl Fs {
         let overlay = self.overlay.clone();
         let _ = self.jobs.send(Box::new(move || job(&overlay)));
     }
+
+    /// Runs `job` on file `ino`: on the local pool when the file is in the upper folder already.
+    fn run_on(&self, ino: u64, job: impl FnOnce(&Overlay) + Send + 'static) {
+        if self.overlay.is_upper(ino) {
+            let overlay = self.overlay.clone();
+            let _ = self.local_jobs.send(Box::new(move || job(&overlay)));
+        } else {
+            self.run(job);
+        }
+    }
 }
 
 impl Filesystem for Fs {
@@ -187,7 +214,7 @@ impl Filesystem for Fs {
         reply: ReplyAttr,
     ) {
         let mtime = mtime.map(ns_of);
-        self.run(move |overlay| match overlay.setattr(ino, size, mode, mtime) {
+        self.run_on(ino, move |overlay| match overlay.setattr(ino, size, mode, mtime) {
             Ok(attr) => reply.attr(&TTL, &file_attr(&attr)),
             Err(errno) => reply.error(errno),
         });
@@ -286,7 +313,7 @@ impl Filesystem for Fs {
         reply: ReplyData,
     ) {
         let offset = u64::try_from(offset).unwrap_or(0);
-        self.run(move |overlay| match overlay.read(ino, offset, size) {
+        self.run_on(ino, move |overlay| match overlay.read(ino, offset, size) {
             Ok(bytes) => reply.data(&bytes),
             Err(errno) => reply.error(errno),
         });
@@ -306,7 +333,7 @@ impl Filesystem for Fs {
     ) {
         let offset = u64::try_from(offset).unwrap_or(0);
         let data = data.to_vec();
-        self.run(move |overlay| match overlay.write(ino, offset, &data) {
+        self.run_on(ino, move |overlay| match overlay.write(ino, offset, &data) {
             Ok(written) => reply.written(written),
             Err(errno) => reply.error(errno),
         });

@@ -438,6 +438,12 @@ impl Overlay {
         Ok(self.attr(&child, &node))
     }
 
+    /// Whether file `ino` is in the upper folder (reading or writing it never fetches).
+    #[must_use]
+    pub fn is_upper(&self, ino: u64) -> bool {
+        self.path_of(ino).is_ok_and(|path| fs::symlink_metadata(self.up(&path)).is_ok())
+    }
+
     pub fn getattr(&self, ino: u64) -> Result<Attr, i32> {
         let path = self.path_of(ino)?;
         let node = self.node(&path).ok_or(ENOENT)?;
