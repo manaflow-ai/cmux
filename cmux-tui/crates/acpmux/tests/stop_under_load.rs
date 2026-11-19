@@ -372,7 +372,10 @@ fn marks_ms(runs: &[Vec<(String, f64)>]) -> (Value, Vec<String>) {
         let samples: Vec<f64> =
             runs.iter().flatten().filter(|(n, _)| n == name).map(|(_, ms)| *ms).collect();
         let (p50, p95, _) = spread(&samples);
-        by_name.insert(name.clone(), json!({"p50": p50.round(), "p95": p95.round()}));
+        by_name.insert(
+            name.clone(),
+            json!({"p50": p50.round(), "p95": p95.round(), "n": samples.len()}),
+        );
         p50s.push((name.clone(), p50));
     }
     p50s.sort_by(|a, b| a.1.total_cmp(&b.1));

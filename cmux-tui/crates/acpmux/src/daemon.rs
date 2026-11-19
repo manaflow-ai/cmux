@@ -949,7 +949,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     let startup = {
         let (hub, fatal) = (hub.clone(), hub.fatal.clone());
         // A startup that panicked can never finish: the daemon stops for a restart.
-        crate::supervise::once("startup", &fatal, async move {
+        let work = async move {
             {
                 let _phase = gauges.phase("wait for store");
                 hub.wait_store().await;
@@ -1040,7 +1040,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             hub.spawn_startup_respawns();
             // Until shutdown aborts this task, on every path (a signal too).
             hub.run_after_startup().await;
-        })
+        };
+        // Measurement only: its polls and its drop are timed against the stop.
+        crate::supervise::once("startup", &fatal, stop_timeline::Polled::new("startup", work))
     };
     {
         let hub = hub.clone();
@@ -1217,6 +1219,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     #[cfg(all(unix, feature = "tailnet"))]
     let _ = tokio::time::timeout_at(cleanup_deadline, tailnet.fence()).await;
     stop_timeline::mark("daemon:fenced");
+    // Measurement only: the startup phases that run now, and when a task spawned now first runs.
+    for phase in crate::gauges::global().running() {
+        stop_timeline::note(format!("running:{phase}"), 1);
+    }
+    tokio::spawn(async { stop_timeline::mark("probe:spawned-task-ran") });
     // Its home is gone (`daemon/home_watch.rs`): no later daemon can adopt its agents from
     // there, so they end; and this shutdown removes nothing at the old paths, which may be
     // another daemon's now (`config::mark_home_lost` refuses its writes there).
