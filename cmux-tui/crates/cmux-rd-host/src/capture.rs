@@ -4,7 +4,8 @@ use crate::shm::{ServerAccess, ShmSeg};
 use crate::Res;
 use std::os::fd::{AsRawFd, RawFd};
 use x11rb::connection::Connection;
-use x11rb::protocol::damage::{ConnectionExt as _, ReportLevel};
+use x11rb::protocol::damage::{ConnectionExt as _, Damage, ReportLevel};
+use x11rb::protocol::xfixes::{ConnectionExt as _, Region};
 use x11rb::protocol::xproto::{ConnectionExt as _, ImageFormat, Window};
 use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
@@ -107,9 +108,45 @@ pub struct Capturer {
     readback: Option<Readback>,
     /// Core GetImage's copy of the last rect.
     core: Vec<u8>,
+    /// With [`Capturer::with_region`]: the damage object that accumulates the root's changes
+    /// in the server, and the XFixes region [`Capturer::take_damage`] moves them into.
+    region: Option<(Damage, Region)>,
 }
 
 impl Capturer {
+    /// Opens a pixel connection whose damage the server keeps as one region (`NON_EMPTY`: at
+    /// most one event between takes), so nothing queues while frames are not being captured,
+    /// and [`Capturer::take_damage`] returns every change made before it was called.
+    pub fn with_region(display: &str) -> Res<Self> {
+        let mut this = Self::new(display, false)?;
+        this.conn.xfixes_query_version(5, 0)?.reply()?;
+        this.conn.damage_query_version(1, 1)?.reply()?;
+        let damage = this.conn.generate_id()?;
+        this.conn.damage_create(damage, this.root, ReportLevel::NON_EMPTY)?.check()?;
+        let region = this.conn.generate_id()?;
+        this.conn.xfixes_create_region(region, &[])?.check()?;
+        this.region = Some((damage, region));
+        Ok(this)
+    }
+
+    /// Every rect the root changed in since the last take, and clears it. A round trip, so a
+    /// change the server applied before this request (any change another connection has
+    /// already seen) is in it. Empty without [`Capturer::with_region`].
+    pub fn take_damage(&mut self, out: &mut Vec<Rect>) -> Res<()> {
+        let Some((damage, region)) = self.region else { return Ok(()) };
+        self.conn.damage_subtract(damage, x11rb::NONE, region)?;
+        let reply = self.conn.xfixes_fetch_region(region)?.reply()?;
+        // The NON_EMPTY notifications only say "something changed"; the region holds what.
+        while self.conn.poll_for_event()?.is_some() {}
+        out.extend(reply.rectangles.iter().map(|a| Rect {
+            x: a.x.max(0) as u32,
+            y: a.y.max(0) as u32,
+            w: u32::from(a.width),
+            h: u32::from(a.height),
+        }));
+        Ok(())
+    }
+
     /// Opens a capture connection. With `damage`, subscribes to raw damage rectangles on the root.
     pub fn new(display: &str, damage: bool) -> Res<Self> {
         let (conn, screen_num) = x11rb::connect(Some(display))?;
@@ -135,6 +172,7 @@ impl Capturer {
             shm: None,
             readback: None,
             core: Vec::new(),
+            region: None,
         })
     }
 
@@ -192,7 +230,47 @@ impl Capturer {
 
 #[cfg(test)]
 mod tests {
-    use super::{readback_plan, Rect};
+    use super::{readback_plan, Capturer, Rect};
+
+    /// A change another connection has already been told about is in the next take, though
+    /// this connection read no event for it (review of cmux#47241: a drain of queued raw
+    /// events missed the newest change the gate had released, and it stayed unsent).
+    #[test]
+    #[ignore = "needs Xvfb; run with --ignored on a Linux host"]
+    fn a_take_holds_every_change_the_loop_connection_has_seen() {
+        use x11rb::connection::Connection;
+        use x11rb::protocol::xproto::{ConnectionExt as _, CreateGCAux, Rectangle};
+        let xvfb = crate::inject::tests::Xvfb::start();
+        let mut cap = Capturer::with_region(&xvfb.display).unwrap();
+        let loop_conn = Capturer::new(&xvfb.display, true).unwrap();
+        let mut first = Vec::new();
+        cap.take_damage(&mut first).unwrap();
+        let (draw, screen) = x11rb::connect(Some(&xvfb.display)).unwrap();
+        let root = draw.setup().roots[screen].root;
+        let gc = draw.generate_id().unwrap();
+        draw.create_gc(gc, root, &CreateGCAux::new().foreground(0xff_ff_ff)).unwrap();
+        for (x, y) in [(0, 0), (1000, 700)] {
+            let r = Rectangle { x, y, width: 8, height: 16 };
+            draw.poly_fill_rectangle(root, gc, &[r]).unwrap();
+        }
+        draw.get_input_focus().unwrap().reply().unwrap();
+        // The loop connection has both changes (its own round trip, then its queue).
+        loop_conn.conn.get_input_focus().unwrap().reply().unwrap();
+        let mut seen = Vec::new();
+        loop_conn.drain(&mut seen).unwrap();
+        assert!(seen.iter().any(|e| e.rect.x >= 1000), "the loop never saw the second change");
+        let mut taken = Vec::new();
+        cap.take_damage(&mut taken).unwrap();
+        for (x, y) in [(0, 0), (1000, 700)] {
+            let held = taken
+                .iter()
+                .any(|r| r.x <= x && r.y <= y && r.x + r.w >= x + 8 && r.y + r.h >= y + 16);
+            assert!(held, "the change at {x},{y} is not in the take: {taken:?}");
+        }
+        let mut again = Vec::new();
+        cap.take_damage(&mut again).unwrap();
+        assert!(again.is_empty(), "a take clears what it returned: {again:?}");
+    }
 
     fn r(x: u32, y: u32, w: u32, h: u32) -> Rect {
         Rect { x, y, w, h }
