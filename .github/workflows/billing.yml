@@ -16,10 +16,9 @@ name: Billing
 # - ios-billing (macOS): `swift test` for every Packages/iOS/*Billing* package
 #   when one changed, and the StoreKit Testing SLOT for the rewritten iOS
 #   billing client (SKTestSession + a .storekit file) on an iOS simulator. The
-#   slot runs on any iOS billing change once a target named
-#   BillingStoreKitTests exists under cmux-next-ios (a SwiftPM test directory,
-#   or an xcodegen target in cmux-next-ios/project.yml); until then
-#   billing_lane.py finds none and its steps skip.
+#   slot runs on any iOS billing change: billing_lane.py finds the target
+#   BillingStoreKitTests (Packages/iOS/CmuxMobileBilling/StoreKitTests, or one
+#   under cmux-next-ios); with none its steps skip.
 #
 # Both names are stable, so they can be made required later. Before that, drop
 # the pull_request path filter (tests/test_ci_required_checks_have_no_path_filters.py):
@@ -385,25 +384,28 @@ jobs:
           fi
 
       # -----------------------------------------------------------------------
-      # SLOT: StoreKit Testing for the rewritten iOS billing client.
-      # Contract for the rewrite: add a test target named BillingStoreKitTests
-      # that drives SKTestSession against a checked-in .storekit file, either as
-      # cmux-next-ios/<Package>/Tests/BillingStoreKitTests (run through the
-      # package's `<name>-Package` scheme) or as a BillingStoreKitTests target
-      # and scheme in cmux-next-ios/project.yml. Nothing else changes here.
-      # In a SwiftPM test bundle (no app host) load the .storekit file with
-      # SKTestSession(contentsOf: Bundle.module.url(...)), not
+      # StoreKit Testing for the iOS billing client: the test target
+      # BillingStoreKitTests drives SKTestSession against a checked-in
+      # .storekit file. It is the app-hosted xcodegen project
+      # Packages/iOS/CmuxMobileBilling/StoreKitTests (storekitd serves a
+      # StoreKit configuration only to an app installed for development, not
+      # to SwiftPM's xctest runner); billing_lane.py also finds a target under
+      # cmux-next-ios/<Package>/Tests (`<name>-Package` scheme) or in
+      # cmux-next-ios/project.yml.
+      # Load the .storekit file from the test bundle with
+      # SKTestSession(contentsOf: Bundle(for:).url(...)), not
       # SKTestSession(configurationFileNamed:), which searches the main bundle.
       # -----------------------------------------------------------------------
       # CmuxMobileKit, and the app project that depends on it, cannot load
       # without its gitignored FFI xcframework (cmux-next-ios-kit.yml builds it
-      # the same way, with the same cargo cache).
+      # the same way, with the same cargo cache). A Packages/iOS billing
+      # package does not link it, so these steps skip for one.
       - name: Set up pinned Rust
-        if: ${{ !cancelled() && env.STOREKIT_KIND != '' }}
+        if: ${{ !cancelled() && env.STOREKIT_KIND != '' && startsWith(env.STOREKIT_PATH, 'cmux-next-ios') }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Cache cargo
-        if: ${{ !cancelled() && env.STOREKIT_KIND != '' }}
+        if: ${{ !cancelled() && env.STOREKIT_KIND != '' && startsWith(env.STOREKIT_PATH, 'cmux-next-ios') }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
@@ -411,7 +413,7 @@ jobs:
           key: cmux-next-ios-kit
 
       - name: Build CmuxMobileLinkFFI.xcframework
-        if: ${{ !cancelled() && env.STOREKIT_KIND != '' }}
+        if: ${{ !cancelled() && env.STOREKIT_KIND != '' && startsWith(env.STOREKIT_PATH, 'cmux-next-ios') }}
         env:
           JOBS: "8"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
@@ -438,18 +440,29 @@ jobs:
           fi
           log_path="$RUNNER_TEMP/storekit-tests.log"
           common=(-destination "id=$udid,arch=arm64" -enableCodeCoverage NO
-                  -derivedDataPath "$RUNNER_TEMP/dd-storekit" CODE_SIGNING_ALLOWED=NO
+                  -derivedDataPath "$RUNNER_TEMP/dd-storekit"
                   -resultBundlePath "$RUNNER_TEMP/storekit.xcresult")
           cd "$STOREKIT_PATH"
           case "$STOREKIT_KIND" in
             package)
               package="$(swift package dump-package | python3 -c 'import json, sys; print(json.load(sys.stdin)["name"])')"
-              xcodebuild test -scheme "$package-Package" -only-testing:BillingStoreKitTests "${common[@]}" 2>&1 | tee "$log_path"
+              xcodebuild test -scheme "$package-Package" -only-testing:BillingStoreKitTests "${common[@]}" CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$log_path"
               ;;
             project)
               command -v xcodegen >/dev/null || brew install xcodegen
               xcodegen generate -q
-              xcodebuild test -project CmuxMobileApp.xcodeproj -scheme BillingStoreKitTests "${common[@]}" 2>&1 | tee "$log_path"
+              if [[ "$STOREKIT_PATH" == cmux-next-ios ]]; then
+                xcodebuild test -project CmuxMobileApp.xcodeproj -scheme BillingStoreKitTests "${common[@]}" CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$log_path"
+              else
+                # A billing package's own project (Packages/iOS/*Billing*/
+                # StoreKitTests), named in its project.yml. Its project.yml
+                # signs the host app ad hoc, not unsigned: storekitd serves
+                # the StoreKit configuration only to an app whose signature
+                # carries get-task-allow ("installed for development"); with
+                # CODE_SIGNING_ALLOWED=NO every product load comes back empty.
+                project="$(sed -n 's/^name:[[:space:]]*//p' project.yml | head -n 1).xcodeproj"
+                xcodebuild test -project "$project" -scheme BillingStoreKitTests "${common[@]}" 2>&1 | tee "$log_path"
+              fi
               ;;
             *)
               echo "::error::unknown StoreKit target kind: $STOREKIT_KIND"
