@@ -90,6 +90,27 @@ import Testing
         #expect(!model.error)
     }
 
+    /// cmuxterm-hq#13941: any other refusal (`auth.forbidden`, a policy) is final: no `:plain` ask, nothing opens, the
+    /// card shows the error.
+    @Test func aForbiddenConnectSendsNoPlainRetry() async {
+        var keys: [String?] = []
+        var opened: [URL] = []
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, key in
+            if op == "integration.connect" {
+                keys.append(key)
+                throw GitHubConnections.GitHubFailure.refused
+            }
+            return self.listing
+        }, open: { opened.append($0) })
+        model.completionLink = "cmux-dev-x://integration/complete"
+        await model.perform("githubRefresh")
+        await model.perform("githubConnect")
+        #expect(keys.count == 1)
+        #expect(!keys.contains { $0?.hasSuffix(":plain") == true })
+        #expect(opened.isEmpty)
+        #expect(model.error)
+    }
+
     @Test func aResponseForTheOldAccountCannotPopulateTheNewAccount() async {
         var current: GitHubConnections.Scope? = self.scope
         let model = GitHubConnections(scope: { current }, call: { _, _, _, _ in
