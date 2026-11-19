@@ -575,9 +575,11 @@ extension SettingsController {
             let file = "\(ThemeFileSetting.folderName)/\(name).\(ThemeFileSetting.fileExtension)"
             let densityPath = DensitySetting.configPath.joined(separator: ".")
             let ownDensity = overlay.density(under: managed) != nil && !overlay.values.contains { $0.path == DensitySetting.configPath }
-            diagnostics = overlay.diagnostics + (overlay.values.map { $0.path.joined(separator: ".") } + (ownDensity ? [densityPath] : []))
-                .filter { id in !managed.contains { $0 == id || id.hasPrefix($0 + ".") || $0.hasPrefix(id + ".") } }
-                .map { id in
+            var ids: [String] = overlay.values.map { $0.path.joined(separator: ".") }
+            if ownDensity { ids.append(densityPath) }
+            let shown: [String] = ids.filter { id in !managed.contains { $0 == id || id.hasPrefix($0 + ".") || $0.hasPrefix(id + ".") } }
+            diagnostics = overlay.diagnostics + shown
+                .map { (id: String) -> SettingsDiagnostic in
                     exceptions.contains(id)
                         ? SettingsDiagnostic(kind: .overThemeFile, path: id,
                                              message: "your value applies over the theme file's; Reset returns to the file's", file: file)
