@@ -76,6 +76,20 @@ pub fn reports_cursor() -> bool {
     }
 }
 
+/// Whether this OS's frame source encodes the resolution ladder's smaller picture
+/// (`FrameSource::set_picture`), so a host offers the `video.scaled` cap: the macOS capture
+/// scales on the GPU; the Linux, Windows and synthetic sources always encode the full stream.
+pub fn scales_pictures() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        synthetic_size().is_none()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
 /// Receives capture setup states (`state` code, sentence) while a desktop opens: `cmux-rd serve`
 /// prints them as `{"status":..}` lines for the app. Unset, the portal logs them on stderr.
 /// Only the portal backend (feature `portal`, Linux) has setup states.

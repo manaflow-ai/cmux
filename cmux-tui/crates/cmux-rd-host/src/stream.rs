@@ -213,6 +213,13 @@ fn wants_cursor(negotiated_caps: &[String]) -> bool {
         && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::CURSOR)
 }
 
+/// Whether the session runs the resolution ladder: the host asked for it and the viewer scales
+/// a smaller picture to the stream's size (cap `video.scaled`). A viewer without the cap maps
+/// input from the decoded picture's size, so a smaller picture would move its clicks.
+fn wants_ladder(asked: bool, negotiated_caps: &[String]) -> bool {
+    asked && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::VIDEO_SCALED)
+}
+
 fn now_us() -> u64 {
     now_ns() / 1000
 }
@@ -282,8 +289,7 @@ impl MediaSession {
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
                 input_frame_now: cfg.input_frame_now,
-                resolution_ladder: cfg
-                    .resolution_ladder
+                resolution_ladder: wants_ladder(cfg.resolution_ladder, negotiated_caps)
                     .then(|| LadderConfig { max_qp: Some(cfg.max_qp), ..LadderConfig::default() }),
                 ..EngineConfig::default()
             },
@@ -749,12 +755,21 @@ impl MediaSession {
 
 #[cfg(test)]
 mod tests {
-    use super::viewer_silent_too_long;
+    use super::{viewer_silent_too_long, wants_ladder};
 
     #[test]
     fn viewer_silence_allows_the_ninety_second_reattach_window() {
         assert!(!viewer_silent_too_long(90_000_000));
         assert!(viewer_silent_too_long(90_000_001));
+    }
+
+    #[test]
+    fn the_ladder_runs_only_for_a_viewer_that_scales_a_smaller_picture() {
+        let scaled = vec!["cursor".to_string(), "video.scaled".to_string()];
+        let old = vec!["cursor".to_string()];
+        assert!(wants_ladder(true, &scaled));
+        assert!(!wants_ladder(true, &old), "an old viewer's clicks would move");
+        assert!(!wants_ladder(false, &scaled), "off unless the host asks for it");
     }
 }
 
