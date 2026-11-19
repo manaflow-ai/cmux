@@ -17,19 +17,24 @@ request job reads it with its own read-only token. The pull request names the ru
   verify JOB      in CI, before any heavy runner is taken. Exit 0 always; writes `valid=`, `audit=`, `base=`,
                   `run_url=`, `producer=` and `reason=` to --output. A receipt counts only when every check holds:
                     - the run is fast-checks.yml in this repository, a workflow_dispatch on main, completed success;
-                    - its run-name names this pull request's head (`tests OWNER/REPO@HEAD`, which the workflow's
-                      "Confirm the tested commit" step proves), and its `checks` job passed;
-                    - the job log's FAST_CHECKS_COMMAND (the workflow's own env header, printed before the command
-                      runs) is the job's canonical command word for word, in the checkout's root;
+                    - its run-name names a tested commit (`tests OWNER/REPO@SHA`, which the workflow's "Confirm the
+                      tested commit" step proves), and its `checks` job passed;
+                    - the job log's env header of the "Run fast checks" step (GitHub prints it before the command
+                      runs) is exactly FAST_CHECKS_COMMAND, _DIRECTORY, _TIMEOUT, _SOURCE, _OUT, one line each, in
+                      that order: COMMAND the job's canonical command character for character, DIRECTORY `.`. A
+                      command with a newline in it prints extra header lines and is refused (it would run a second
+                      line after the canonical one);
                     - the workflow's own FAST_CHECKS_RECEIPT (its last line, printed after the command's process group
-                      is gone) has exit 0, an unmoved HEAD, and the head's tree;
-                    - the command's CMUX_CI_RECEIPT names this job and this head, and its merge tree is this run's
+                      is gone) has exit 0, an unmoved HEAD, and this head's tree: a receipt is keyed on the tree, so a
+                      commit with the same tree (an empty commit pushed after the body names the receipt) keeps it;
+                    - the command's CMUX_CI_RECEIPT names this job and a commit of this tree, and its merge tree is this run's
                       merge tree: with the same base, the tree must equal ours; with an older base (fast gates only),
                       that base must be an ancestor of ours, and the status names it (`base SHA`) so mergers apply
                       their freshness rule to it as to any fast-gates status.
                   Anything else (no pointer, a forged or replayed run, another tree or command, an API failure) is
                   `valid=false` with the reason, and the job runs in full.
-                  `audit=true` for CI_RECEIPT_AUDIT_PERCENT of valid receipts (default 10, seeded by the CI run id):
+                  `audit=true` for CI_RECEIPT_AUDIT_PERCENT of valid receipts (default 10, seeded by the head and the
+                  receipt run, so pushing or reopening again does not re-roll it):
                   the job still runs in full, and a red there names the receipt and its producer.
 """
 from __future__ import annotations
@@ -39,7 +44,6 @@ import hashlib
 import json
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -55,7 +59,7 @@ WORKFLOW_PATH = ".github/workflows/fast-checks.yml"
 RECEIPT_WORKFLOW_BRANCH = "main"
 JOB_NAME = "checks"
 JOBS = ("fast-gates", "rust-workspaces")
-# The command each job's receipt must have run, word for word (shlex-split, so quoting style does not matter).
+# The command each job's receipt must have run, character for character.
 CANONICAL = {job: f"python3 scripts/ci/ci_receipt.py produce {job}" for job in JOBS}
 POINTER = re.compile(r"^\s*CI-Receipt:\s*(?P<job>[a-z-]+)\s+(?:https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/actions/runs/)?"
                      r"(?P<run>[0-9]{1,15})(?:/\S*)?\s*$", re.M)
@@ -78,15 +82,32 @@ class Rejected(Exception):
 Fetch = Callable[[str], bytes]
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, D102
+        return None
+
+
 def github_fetch(token: str, api: str = "https://api.github.com") -> Fetch:
+    opener = urllib.request.build_opener(_NoRedirect)
+
     def fetch(path: str) -> bytes:
         request = urllib.request.Request(f"{api}/{path.lstrip('/')}", headers={
             "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-ci-receipt"})
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with opener.open(request, timeout=30) as response:
                 return response.read()
         except urllib.error.HTTPError as error:
+            location = error.headers.get("Location") if error.code in (301, 302, 303, 307, 308) else None
+            if location and location.startswith("https://"):
+                # A job log answers with a signed storage URL; it must be read without the token (urllib would
+                # send the Authorization header on, which the storage host refuses).
+                try:
+                    with urllib.request.urlopen(urllib.request.Request(
+                            location, headers={"User-Agent": "cmux-ci-receipt"}), timeout=60) as response:
+                        return response.read()
+                except (urllib.error.URLError, TimeoutError) as again:
+                    raise Rejected(f"the redirect for {path} did not answer: {again}") from again
             raise Rejected(f"GitHub answered {error.code} for {path}") from error
         except (urllib.error.URLError, TimeoutError) as error:
             raise Rejected(f"GitHub did not answer for {path}: {error}") from error
@@ -103,42 +124,56 @@ def pointers(body: str, job: str, repo: str) -> list[str]:
 
 
 def same_command(text: str, job: str) -> bool:
-    try:
-        return shlex.split(text) == shlex.split(CANONICAL[job])
-    except ValueError:
-        return False
+    return text == CANONICAL[job]
+
+
+# The "Run fast checks" step's env block ends with these, in this order (fast-checks.yml), one line each.
+STEP_ENV = ("FAST_CHECKS_COMMAND", "FAST_CHECKS_DIRECTORY", "FAST_CHECKS_TIMEOUT", "FAST_CHECKS_SOURCE",
+            "FAST_CHECKS_OUT")
+ENV_LINE = re.compile(r"^  (?P<key>[A-Za-z_][A-Za-z0-9_]*): (?P<value>.*)$")
+
+
+class LogShape(Exception):
+    pass
 
 
 def parse_log(text: str) -> dict:
     """The fields of a fast-checks `checks` job log a receipt rests on.
 
-    command/directory: the first env header of the "Run fast checks" step (GitHub prints it inside the step's
-    ##[group] before the command starts, so the command's own output cannot come first). fast_checks: the last
-    FAST_CHECKS_RECEIPT line (the workflow prints it after the command's process group is stopped). receipt: the
-    last CMUX_CI_RECEIPT line before it."""
+    The "Run fast checks" step is the one ##[group] titled `Run umask 022` (its script's first line). Its env block
+    (after `env:`, up to ##[endgroup]) must be `  KEY: value` lines only, and end with STEP_ENV exactly once each, in
+    order: GitHub prints a value with a newline in it as extra lines, so a command with a second line is refused here.
+    fast_checks: the last FAST_CHECKS_RECEIPT line (the workflow prints it after the command's process group is
+    stopped). receipt: the last CMUX_CI_RECEIPT line before it. Raises LogShape when the step is not found once."""
     lines = [TIMESTAMP.sub("", line, count=1) for line in text.splitlines()]
-    command = directory = None
-    in_header = False
-    for line in lines:
-        if line.startswith("##[group]Run "):
-            in_header = True
-            continue
-        if line.startswith("##[endgroup]"):
-            if command is not None:
-                break
-            in_header = False
-            continue
-        if in_header:
-            if line.startswith("  FAST_CHECKS_COMMAND: "):
-                command = line[len("  FAST_CHECKS_COMMAND: "):]
-            elif line.startswith("  FAST_CHECKS_DIRECTORY: "):
-                directory = line[len("  FAST_CHECKS_DIRECTORY: "):]
+    steps = [index for index, line in enumerate(lines) if line == "##[group]Run umask 022"]
+    if len(steps) != 1:
+        raise LogShape(f"{len(steps)} 'Run fast checks' steps in the log")
+    index = steps[0] + 1
+    while index < len(lines) and lines[index] != "env:":
+        if lines[index].startswith("##[endgroup]"):
+            raise LogShape("the 'Run fast checks' step has no env block")
+        index += 1
+    env: list[tuple[str, str]] = []
+    index += 1
+    while index < len(lines) and not lines[index].startswith("##[endgroup]"):
+        line = lines[index]
+        match = ENV_LINE.match(line)
+        if not match or "\r" in line:
+            raise LogShape(f"the 'Run fast checks' env block has a line that is not KEY: value ({line[:120]!r}): "
+                           "a command with a newline in it")
+        env.append((match["key"], match["value"]))
+        index += 1
+    keys = [key for key, _ in env]
+    if keys[-len(STEP_ENV):] != list(STEP_ENV) or any(keys.count(key) != 1 for key in STEP_ENV):
+        raise LogShape(f"the 'Run fast checks' env block is {keys[-8:]}, not {list(STEP_ENV)} once each")
+    values = dict(env)
     fast_checks = receipt = None
     fast_index = -1
-    for index, line in enumerate(lines):
+    for at, line in enumerate(lines):
         if line.startswith("FAST_CHECKS_RECEIPT="):
-            fast_checks, fast_index = line[len("FAST_CHECKS_RECEIPT="):], index
-    for line in lines[:fast_index if fast_index >= 0 else len(lines)]:
+            fast_checks, fast_index = line[len("FAST_CHECKS_RECEIPT="):], at
+    for line in lines[index:fast_index if fast_index >= 0 else len(lines)]:
         if line.startswith("CMUX_CI_RECEIPT="):
             receipt = line[len("CMUX_CI_RECEIPT="):]
 
@@ -149,10 +184,14 @@ def parse_log(text: str) -> dict:
             return None
         return parsed if isinstance(parsed, dict) else None
 
-    return {"command": command, "directory": directory, "fast_checks": load(fast_checks), "receipt": load(receipt)}
+    return {"command": values["FAST_CHECKS_COMMAND"], "directory": values["FAST_CHECKS_DIRECTORY"],
+            "source": values["FAST_CHECKS_SOURCE"], "fast_checks": load(fast_checks), "receipt": load(receipt)}
 
 
-def check_run(fetch: Fetch, *, repo: str, run_id: str, job: str, head: str, head_tree: str, base: str,
+TESTED = re.compile(r" tests (?P<repo>[^@\s]+)@(?P<sha>[0-9a-f]{40})$")
+
+
+def check_run(fetch: Fetch, *, repo: str, run_id: str, job: str, head_tree: str, base: str,
               merge_tree: str) -> dict:
     """Every check a receipt must pass; raises Rejected naming the first that fails. Returns the receipt's base, the
     run's URL and its producer."""
@@ -169,26 +208,31 @@ def check_run(fetch: Fetch, *, repo: str, run_id: str, job: str, head: str, head
                        f"{RECEIPT_WORKFLOW_BRANCH} (its workflow file is {RECEIPT_WORKFLOW_BRANCH}'s)")
     if run.get("status") != "completed" or run.get("conclusion") != "success":
         raise Rejected(f"{where} is {run.get('status')}/{run.get('conclusion')}, not a pass")
-    if not str(run.get("display_title", "")).endswith(f" tests {repo}@{head}"):
-        raise Rejected(f"{where} tests {run.get('display_title')!r}, not this head {head}")
+    tested = TESTED.search(str(run.get("display_title", "")))
+    if not tested or tested["repo"] != repo:
+        raise Rejected(f"{where} is {run.get('display_title')!r}, which names no tested commit of {repo}")
     jobs = json.loads(fetch(f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=20")).get("jobs") or []
     checks = [each for each in jobs if each.get("name") == JOB_NAME]
     if len(checks) != 1 or checks[0].get("conclusion") != "success":
         raise Rejected(f"{where} has no passing {JOB_NAME!r} job")
-    found = parse_log(fetch(f"repos/{repo}/actions/jobs/{checks[0]['id']}/logs").decode("utf-8", "replace"))
-    if found["command"] is None or not same_command(found["command"], job):
+    try:
+        found = parse_log(fetch(f"repos/{repo}/actions/jobs/{checks[0]['id']}/logs").decode("utf-8", "replace"))
+    except LogShape as error:
+        raise Rejected(f"{where}: {error}") from error
+    if not same_command(found["command"], job):
         raise Rejected(f"{where} ran {found['command']!r}, not {job}'s canonical {CANONICAL[job]!r}")
-    if found["directory"] not in (".", None):
+    if found["directory"] != ".":
         raise Rejected(f"{where} ran in {found['directory']!r}, not the checkout's root")
     fast = found["fast_checks"] or {}
-    if fast.get("exit_code") != 0 or fast.get("source_tree") != head_tree or fast.get("head_after") != fast.get("source_sha"):
+    if fast.get("exit_code") != 0 or fast.get("source_tree") != head_tree or fast.get("source_sha") != found["source"] \
+            or fast.get("head_after") != fast.get("source_sha"):
         raise Rejected(f"{where}: the workflow's FAST_CHECKS_RECEIPT is not a pass on this head's tree {head_tree} "
                        f"({json.dumps(fast, sort_keys=True)[:300]})")
     receipt = found["receipt"] or {}
     if receipt.get("job") != job:
         raise Rejected(f"{where} is a receipt for {receipt.get('job')!r}, not {job}")
-    if receipt.get("head") != head:
-        raise Rejected(f"{where} merged head {receipt.get('head')!r}, not {head}")
+    if receipt.get("head") != tested["sha"]:
+        raise Rejected(f"{where} merged {receipt.get('head')!r}, not the commit it tested ({tested['sha']})")
     receipt_base, receipt_tree = receipt.get("base"), receipt.get("tree")
     if not (isinstance(receipt_base, str) and SHA.match(receipt_base) and isinstance(receipt_tree, str)
             and SHA.match(receipt_tree)):
@@ -208,6 +252,7 @@ def check_run(fetch: Fetch, *, repo: str, run_id: str, job: str, head: str, head
 
 
 def audited(seed: str, head: str, percent: int) -> bool:
+    """Seeded by the head and the receipt run: the same receipt on the same head always gets the same answer."""
     digest = int(hashlib.sha256(f"{seed}:{head}".encode()).hexdigest()[:8], 16)
     return digest % 100 < max(0, min(100, percent))
 
@@ -233,8 +278,8 @@ def verify(args: argparse.Namespace, fetch: Fetch | None = None) -> dict:
     # The last line names the newest receipt; read back from it.
     for run_id in reversed(runs[-3:]):
         try:
-            found = check_run(fetch, repo=args.repo, run_id=run_id, job=args.job, head=args.head,
-                              head_tree=args.head_tree, base=args.base, merge_tree=args.merge_tree)
+            found = check_run(fetch, repo=args.repo, run_id=run_id, job=args.job, head_tree=args.head_tree,
+                              base=args.base, merge_tree=args.merge_tree)
         except Rejected as error:
             reasons.append(str(error))
             continue
@@ -243,7 +288,7 @@ def verify(args: argparse.Namespace, fetch: Fetch | None = None) -> dict:
             continue
         out.update(found, valid="true", reason=f"receipt run {found['run_url']} (by {found['producer']}) covers "
                                                 f"{args.job} on head {args.head}, base {found['base']}")
-        out["audit"] = "true" if audited(args.seed, args.head, args.audit_percent) else "false"
+        out["audit"] = "true" if audited(run_id, args.head, args.audit_percent) else "false"
         return out
     out["reason"] = "; ".join(reasons)
     return out
@@ -288,7 +333,9 @@ def merge_worktree(repo: Path, remote: str, head: str, into: Path) -> str:
     depth = [f"--depth={gates.FETCH_DEPTH}", gates.DEEPEN_FILTER] if shallow else []
     git(repo, "fetch", "--no-tags", "--quiet", *depth, remote, f"+refs/heads/{BRANCH}:{ref}")
     base = git(repo, "rev-parse", ref).stdout.strip()
-    gates.deepen(repo, remote, [f"+refs/heads/{BRANCH}:{ref}"], head, base)
+    # The tested commit's own history is cut at depth 2 too: deepen both sides until they meet.
+    gates.deepen(repo, remote, [f"+refs/heads/{BRANCH}:{ref}", head], head, base)
+    git(repo, "worktree", "prune")
     git(repo, "worktree", "add", "--quiet", "--detach", str(into), base)
     merged = git(into, *MERGE_IDENTITY, "merge", "--no-ff", "--no-edit", "--quiet", head, check=False)
     if merged.returncode != 0:
@@ -327,7 +374,18 @@ def produce_rust_workspaces(work: Path, head: str, base: str) -> int:
                                         capture_output=True, text=True).stdout)
     for entry in planned:
         log(f"ci-receipt: rust workspace {entry['root']}")
-        code = subprocess.run([*script, "run", entry["root"]], cwd=work).returncode
+        # rust-workspaces.yml's workspace job setup: its apt packages and the ghostty-next submodule.
+        if entry.get("apt"):
+            code = subprocess.run(["sudo", "apt-get", "install", "-y", *entry["apt"].split()]).returncode
+            if code != 0:
+                return code
+        if entry.get("ghostty"):
+            code = subprocess.run(["bash", "scripts/ci/init-submodule.sh", "ghostty-next"], cwd=work).returncode
+            if code != 0:
+                return code
+        env = {**os.environ, "GHOSTTY_ZIG_SOURCE": "ghostty-next", "CMUX_GHOSTTY_SRC": ""}
+        subprocess.run(["rustup", "toolchain", "install"], cwd=work / entry["root"], env=env)
+        code = subprocess.run([*script, "run", entry["root"]], cwd=work, env=env).returncode
         if code != 0:
             return code
     return 0
@@ -352,7 +410,9 @@ def produce(args: argparse.Namespace) -> int:
     print("CMUX_CI_RECEIPT=" + json.dumps({"v": 1, "job": args.job, "head": head, "base": base, "tree": tree},
                                           sort_keys=True), flush=True)
     print(f"ci-receipt: passed. Add this line to the pull request body (the run's URL is in cmux-ci's output):\n"
-          f"  CI-Receipt: {args.job} https://github.com/manaflow-ai/cmux/actions/runs/{os.environ.get('GITHUB_RUN_ID', 'RUN_ID')}",
+          f"  CI-Receipt: {args.job} https://github.com/manaflow-ai/cmux/actions/runs/{os.environ.get('GITHUB_RUN_ID', 'RUN_ID')}\n"
+          "then push (an empty commit keeps the tree, and with it the receipt): the run reads the body its event "
+          "carries",
           flush=True)
     return 0
 
@@ -371,7 +431,6 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--head-tree", required=True)
     check.add_argument("--merge-tree", required=True)
     check.add_argument("--body-file", help="the pull request body (default: $PR_BODY)")
-    check.add_argument("--seed", default=os.environ.get("GITHUB_RUN_ID", ""))
     check.add_argument("--audit-percent", type=lambda v: int(v) if v.strip() else DEFAULT_AUDIT_PERCENT,
                        default=DEFAULT_AUDIT_PERCENT)
     check.add_argument("--output", type=Path)

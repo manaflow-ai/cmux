@@ -318,8 +318,9 @@ jobs:
   fast-gates:
     name: fast gates
     needs: [resolve, receipt]
-    # Skipped before it takes a runner when a valid local test receipt covers it (receipt job), unless audited.
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true') }}
+    # Skipped before it takes a runner when a valid local test receipt covers it and the receipt job posted its
+    # status (a receipt job that failed, the status post included, runs everything), unless audited.
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true') }}
     outputs:
       ratchet: ${{ steps.prepare.outputs.ratchet }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
@@ -486,7 +487,7 @@ jobs:
     name: post cmux-next/fast-gates
     needs: [resolve, receipt, fast-gates, panic-ratchet, portable-placement]
     # A valid receipt posted the status itself; an audited one is judged here again by the gates.
-    if: ${{ always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' && (needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true') }}
+    if: ${{ always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true') }}
     # A light job: the reconciled Linux pool on every attempt (it holds no secret), never GitHub-hosted
     # Ubuntu (it left light jobs queued for hours, cmux#45735). On 2026-11-02 this queued on RUNNER_POOLS.linux's
     # saturated blacksmith-4vcpu-ubuntu-2404 (hundreds of jobs deep) for a few seconds of work.

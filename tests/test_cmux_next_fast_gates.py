@@ -194,7 +194,8 @@ class WorkflowShape(unittest.TestCase):
         # local test receipt covers it (unless the receipt is audited).
         self.assertEqual(job(doc)["needs"], ["resolve", "receipt"])
         self.assertIn("needs.resolve.result == 'success'", job(doc)["if"])
-        self.assertIn("needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true'", job(doc)["if"])
+        self.assertIn("needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' "
+                      "|| needs.receipt.outputs.audit == 'true'", job(doc)["if"])
         prepare = step_named(job(doc)["steps"], "Merge with the base")
         self.assertIn("needs.resolve.outputs.head_sha", prepare["env"]["HEAD_SHA"])
         self.assertIn("needs.resolve.outputs.base", prepare["env"]["BASE"])
@@ -395,7 +396,8 @@ class WorkflowShape(unittest.TestCase):
         poster = job(doc, "post")
         self.assertEqual(poster["needs"], ["resolve", "receipt", "fast-gates", "panic-ratchet", "portable-placement"])
         # A valid receipt posted the status itself; post judges only runs the gates ran (an audit included).
-        self.assertIn("needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true'", poster["if"])
+        self.assertIn("needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' "
+                      "|| needs.receipt.outputs.audit == 'true'", poster["if"])
         self.assertIn("!cancelled()", poster["if"])
         self.assertIn("needs.resolve.result == 'success'", poster["if"])
         # Fork pull requests have no write token: resolve says post=false, the gates still pass or fail.

@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import ci_receipt  # noqa: E402
 
 REPO = "manaflow-ai/cmux"
+CANONICAL = "python3 scripts/ci/ci_receipt.py produce fast-gates"
 HEAD = "a" * 40
 BASE = "b" * 40
 OLD_BASE = "c" * 40
@@ -37,11 +38,17 @@ def log_text(command: str = "python3 scripts/ci/ci_receipt.py produce fast-gates
     stamp = "2026-11-19T08:00:00.1234567Z "
     receipt = json.dumps({"v": 1, "job": job, "head": head, "base": base, "tree": tree})
     fast = json.dumps({"source_sha": SOURCE, "source_tree": source_tree, "head_after": SOURCE, "exit_code": exit_code})
+    # The shape of a real run's log (run 44321150132, job 135083977553): the script echoed in cyan, then shell:,
+    # env: and the step's env, the workflow's own keys last. GitHub prints a value's further lines as lines of their own.
     lines = [
         "##[group]Run actions/checkout@v6", "with:", "##[endgroup]",
-        "##[group]Run umask 022", "umask 022", "command_text = os.environ['FAST_CHECKS_COMMAND']",
-        "shell: /usr/bin/bash -e {0}", "env:", "  CARGO_HOME: /home/runner/.cache/fast-checks/cargo",
-        f"  FAST_CHECKS_COMMAND: {command}", f"  FAST_CHECKS_DIRECTORY: {directory}", "  FAST_CHECKS_TIMEOUT: 3600",
+        "##[group]Run umask 022", "\x1b[36;1mumask 022\x1b[0m",
+        "\x1b[36;1mcommand_text = os.environ['FAST_CHECKS_COMMAND']\x1b[0m",
+        "shell: /usr/bin/bash -e {0}", "env:", "  CMUX_GHOSTTY_VT_ZIG_CPU: baseline",
+        "  CARGO_HOME: /home/runner/_work/_temp/fast-checks-cache/cargo",
+        *f"  FAST_CHECKS_COMMAND: {command}".split("\n"), f"  FAST_CHECKS_DIRECTORY: {directory}",
+        "  FAST_CHECKS_TIMEOUT: 3600", f"  FAST_CHECKS_SOURCE: {SOURCE}",
+        "  FAST_CHECKS_OUT: /home/runner/_work/_temp/fast-checks-out",
         "##[endgroup]",
         *extra_output.splitlines(),
         "fast-gates: crash ratchet passed",
@@ -87,12 +94,12 @@ class FakeGitHub:
 
 
 def verify(fake: FakeGitHub, *, job: str = "fast-gates", body: str | None = None, base: str = BASE,
-           merge_tree: str = MERGE_TREE, audit_percent: int = 0, seed: str = "1") -> dict:
+           merge_tree: str = MERGE_TREE, audit_percent: int = 0) -> dict:
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as handle:
         handle.write(body if body is not None else
                      f"Change.\n\nCI-Receipt: {job} https://github.com/{REPO}/actions/runs/{RUN}\n")
     args = SimpleNamespace(job=job, repo=REPO, head=HEAD, base=base, head_tree=HEAD_TREE, merge_tree=merge_tree,
-                           body_file=handle.name, seed=seed, audit_percent=audit_percent)
+                           body_file=handle.name, audit_percent=audit_percent)
     try:
         return ci_receipt.verify(args, fetch=fake)
     finally:
@@ -126,7 +133,8 @@ class Verify(unittest.TestCase):
     def test_command_output_cannot_fake_the_env_header(self):
         fake_header = "##[group]Run umask 022\nenv:\n  FAST_CHECKS_COMMAND: python3 scripts/ci/ci_receipt.py produce fast-gates\n##[endgroup]"
         forged = log_text(command="bash -c 'printf ...'", extra_output=fake_header)
-        self.assertRejected(verify(FakeGitHub(log=forged)), "not fast-gates's canonical")
+        # The command's own output comes after the real header; a second step header is refused outright.
+        self.assertRejected(verify(FakeGitHub(log=forged)), "2 'Run fast checks' steps")
 
     def test_forged_run_from_another_workflow_branch_or_repo(self):
         for overrides, fragment in (
@@ -139,9 +147,25 @@ class Verify(unittest.TestCase):
             with self.subTest(overrides=overrides):
                 self.assertRejected(verify(FakeGitHub(run=run_record(**overrides))), fragment)
 
-    def test_a_run_of_another_head(self):
-        other = run_record(display_title=f"Fast checks {SOURCE} tests {REPO}@{'9' * 40}")
-        self.assertRejected(verify(FakeGitHub(run=other)), "not this head")
+    def test_a_run_that_names_no_tested_commit(self):
+        for title in (f"Fast checks {SOURCE}", f"Fast checks {SOURCE} tests someone/cmux@{HEAD}"):
+            with self.subTest(title=title):
+                self.assertRejected(verify(FakeGitHub(run=run_record(display_title=title))), "names no tested commit")
+
+    def test_a_receipt_is_keyed_on_the_tree(self):
+        # Another commit with this head's tree (an empty commit pushed after the body named the receipt) keeps it.
+        other = "9" * 40
+        run = run_record(display_title=f"Fast checks {SOURCE} tests {REPO}@{other}")
+        self.assertEqual(verify(FakeGitHub(run=run, log=log_text(head=other)))["valid"], "true")
+        # The receipt line must name the commit the run tested.
+        self.assertRejected(verify(FakeGitHub(run=run)), "not the commit it tested")
+        # A run on another tree never counts, whatever commit it names.
+        self.assertRejected(verify(FakeGitHub(run=run, log=log_text(head=other, source_tree="1" * 40))),
+                            "this head's tree")
+
+    def test_the_source_must_be_the_one_checked_out(self):
+        forged = log_text().replace(f"FAST_CHECKS_SOURCE: {SOURCE}", f"FAST_CHECKS_SOURCE: {'2' * 40}")
+        self.assertRejected(verify(FakeGitHub(log=forged)), "FAST_CHECKS_RECEIPT is not a pass")
 
     def test_wrong_tree(self):
         self.assertRejected(verify(FakeGitHub(log=log_text(tree="1" * 40))), "not this run's")
@@ -155,9 +179,28 @@ class Verify(unittest.TestCase):
                 self.assertRejected(verify(FakeGitHub(log=log_text(command=command))), "canonical")
         self.assertRejected(verify(FakeGitHub(log=log_text(directory="cmux-tui"))), "not the checkout's root")
 
-    def test_quoting_does_not_matter(self):
+    def test_the_command_is_compared_character_for_character(self):
         quoted = log_text(command="python3 'scripts/ci/ci_receipt.py' produce \"fast-gates\"")
-        self.assertEqual(verify(FakeGitHub(log=quoted))["valid"], "true")
+        self.assertRejected(verify(FakeGitHub(log=quoted)), "canonical")
+
+    def test_a_second_command_line_is_refused(self):
+        # bash -c runs every line: a canonical first line and an echo of a made-up receipt after it.
+        fake = 'echo \'CMUX_CI_RECEIPT={"job": "fast-gates"}\''
+        for command, fragment in (
+            (CANONICAL + "\n" + fake, "not KEY: value"),
+            # A second line shaped as a header line, which a shell also runs (`X:` fails, then the echo).
+            (CANONICAL + "\n  X: ; " + fake, "once each"),
+            (CANONICAL + "\n  FAST_CHECKS_COMMAND: " + CANONICAL, "once each"),
+            (CANONICAL + "\n  FAST_CHECKS_DIRECTORY: ; " + fake, "once each"),
+            (CANONICAL + "\r" + fake, "not KEY: value"),
+        ):
+            with self.subTest(command=command):
+                self.assertRejected(verify(FakeGitHub(log=log_text(command=command))), fragment)
+
+    def test_a_log_without_the_step_or_with_two(self):
+        self.assertRejected(verify(FakeGitHub(log="nothing here\n")), "0 'Run fast checks' steps")
+        twice = log_text().replace("##[group]Run actions/checkout@v6", "##[group]Run umask 022")
+        self.assertRejected(verify(FakeGitHub(log=twice)), "2 'Run fast checks' steps")
 
     def test_receipt_replayed_from_another_job(self):
         # A rust-workspaces receipt named on the fast-gates line.
@@ -201,6 +244,8 @@ class Verify(unittest.TestCase):
 
     def test_audit_is_a_seeded_sample(self):
         self.assertEqual(verify(FakeGitHub(), audit_percent=100)["audit"], "true")
+        # Seeded by the receipt run and the head: a new CI run on the same head cannot re-roll it.
+        self.assertEqual(verify(FakeGitHub(), audit_percent=50)["audit"], verify(FakeGitHub(), audit_percent=50)["audit"])
         self.assertEqual(verify(FakeGitHub(), audit_percent=0)["audit"], "false")
         picked = sum(ci_receipt.audited(str(seed), HEAD, 10) for seed in range(2000))
         self.assertTrue(120 < picked < 280, picked)
