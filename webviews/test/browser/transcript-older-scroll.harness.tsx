@@ -7,7 +7,7 @@
 // For transcript-older-scroll.test.ts's reconnect case: `__older.live()` appends a turn, as a reply
 // streaming on does, and `__older.reconnect("tail" | "empty")` draws what a reconnect or a rebuild
 // draws first: only the chat's newest tail (the older pages read so far gone), or no rows for a frame.
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useState, useEffect, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import { syntheticRows } from "../../src/agent-session/acpmux/synthetic";
@@ -16,6 +16,9 @@ import "../../src/pages/shared/desktop.css";
 import "../../src/agent-session/shared/styles.css";
 import "../../src/agent-session/acpmux/styles.css";
 import "../../src/agent-session/acpmux/conversation/conversation.css";
+// The prompt rail lies over the transcript as the app draws it (dev.tsx); unstyled, it sat in flow
+// above the rows and moved them down by its height.
+import "../../src/agent-session/acpmux/threadMinimap/threadMinimap.css";
 
 const root = document.getElementById("root")!;
 document.documentElement.style.height = document.body.style.height = "100%";
