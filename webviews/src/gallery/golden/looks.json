@@ -113,6 +113,66 @@
       "setup": "examples/looks/paper"
     },
     {
+      "id": "tachyon-addon",
+      "title": "Tachyon (add-on)",
+      "note": "The Tachyon example add-on, drawn from captured references (examples/looks/tachyon/README.md).",
+      "setup": "examples/looks/tachyon"
+    },
+    {
+      "id": "kerf-addon",
+      "title": "Kerf (add-on)",
+      "note": "The Kerf example add-on, drawn from captured references (examples/looks/kerf/README.md).",
+      "setup": "examples/looks/kerf"
+    },
+    {
+      "id": "prism-addon",
+      "title": "Prism (add-on)",
+      "note": "The Prism example add-on, drawn from captured references (examples/looks/prism/README.md).",
+      "setup": "examples/looks/prism"
+    },
+    {
+      "id": "hush-addon",
+      "title": "Hush (add-on)",
+      "note": "The Hush example add-on, drawn from captured references (examples/looks/hush/README.md).",
+      "setup": "examples/looks/hush"
+    },
+    {
+      "id": "basalt-addon",
+      "title": "Basalt (add-on)",
+      "note": "The Basalt example add-on, drawn from captured references (examples/looks/basalt/README.md).",
+      "setup": "examples/looks/basalt"
+    },
+    {
+      "id": "linen-addon",
+      "title": "Linen (add-on)",
+      "note": "The Linen example add-on, drawn from captured references (examples/looks/linen/README.md).",
+      "setup": "examples/looks/linen"
+    },
+    {
+      "id": "docket-addon",
+      "title": "Docket (add-on)",
+      "note": "The Docket example add-on, drawn from captured references (examples/looks/docket/README.md).",
+      "setup": "examples/looks/docket"
+    },
+    {
+      "id": "ember-addon",
+      "title": "Ember (add-on)",
+      "note": "The Ember example add-on, drawn from captured references (examples/looks/ember/README.md).",
+      "setup": "examples/looks/ember"
+    },
+    {
+      "id": "folio-addon",
+      "title": "Folio (add-on)",
+      "note": "The Folio example add-on, drawn from captured references (examples/looks/folio/README.md).",
+      "setup": "examples/looks/folio"
+    },
+    {
+      "id": "tandem-addon",
+      "title": "Tandem (add-on)",
+      "note": "The Tandem example add-on, drawn from captured references (examples/looks/tandem/README.md).",
+      "setup": "examples/looks/tandem"
+    },
+    {
       "id": "shadcn-addon",
       "title": "shadcn (add-on)",
       "note": "The shadcn/ui exemplar look, from its setup folder alone: neutral tokens, hairline cards, Geist, a muted tab track.",
