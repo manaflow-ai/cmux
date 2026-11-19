@@ -133,10 +133,12 @@ impl Hub {
         // sort alike, the one a whole list puts first stays first (a stable sort).
         let mut rows: Vec<Unbuilt> = own.into_iter().map(Unbuilt::local).collect();
         if !own_only {
-            let open = |r: &RemoteSession| !live_only || r.summary.status() != Some("closed");
+            // The peers' rows in list order from their index (`remote_rows.rs`): a live list reads
+            // no closed row.
             let remote = self.remote_sessions.snapshot();
-            rows.extend(remote.values().filter(|r| open(r)).cloned().map(Unbuilt::mirrored));
+            rows.extend(remote.in_order(None, live_only).cloned().map(Unbuilt::mirrored));
             drop(remote);
+            let open = |r: &RemoteSession| !live_only || !r.summary.closed();
             rows.extend(self.mesh_book_rows(open).into_iter().map(Unbuilt::mirrored));
         }
         sort_rows(&mut rows);
@@ -145,11 +147,12 @@ impl Hub {
     }
 
     /// The page `params` picks, and the rows it is picked from. A newest-first page by `limit`
-    /// of a list with its closed rows (the app's first page, and each page after it) is picked
-    /// from a window of the kept order (`list_order.rs`) from its cursor: the rows it may hold
-    /// and some more, not every chat. A window too short for the page (filters left too few of
-    /// its rows) is read again four times longer, until the page is full or the order ends. Any
-    /// other page is picked from every row.
+    /// (the app's first page and each after it, a live list's pages) is picked from a window of
+    /// the list from its cursor: this daemon's rows from the kept order (`list_order.rs`, or its
+    /// live rows for a live list) and the peers' from their index (`remote_rows.rs`), the rows it
+    /// may hold and some more, not every chat. A window too short for the page (filters left too
+    /// few of its rows) is read again four times longer, until the page is full or the list ends.
+    /// Any other page is picked from every row.
     fn picked_page(&self, params: &Value) -> Result<(ListRows, Picked), RpcError> {
         let ordered = params.get("orderBy").is_some_and(|order| !order.is_null());
         let limit = params.get("limit").and_then(Value::as_u64);
@@ -157,18 +160,16 @@ impl Hub {
         let from = super::session_pages::page_from(params);
         if let (Some(limit), Some(from)) = (limit, from)
             && !ordered
-            && !excludes_closed(params)
         {
+            let open_only = excludes_closed(params);
             let mut most = limit.saturating_add(WINDOW_ROOM);
             loop {
-                let (own, all) = self.own_rows_from(from, most);
+                let Window { list, all, past } = self.window(from, most, open_only);
                 // A page starts past its cursor's row, found by its `updatedAt` and id key: many
                 // rows of one `updatedAt` may come before it. The window holds it, or has passed
                 // its `updatedAt` (it moved or went: the page starts at the first row no newer,
                 // as a pick from every row does). Before, a window of only that `updatedAt` started
                 // pages at its first row, and they repeated it (#42131 review, F1).
-                let past = own.last().is_some_and(|(_, at)| from.is_some_and(|from| *at < from));
-                let list = self.window_rows(own, all, from);
                 let named = |row: &Unbuilt| super::session_pages::names_cursor(params, row);
                 let reached = from.is_none() || past || list.rows().iter().any(named);
                 let picked = pick_page(list.rows(), params)?;
@@ -184,26 +185,48 @@ impl Hub {
         Ok((list, picked))
     }
 
-    /// The window `own` (the kept order's rows from `from`, all of them when `all`) and the peers'
-    /// rows that sort among them, sorted: the start of the list from `from`.
-    fn window_rows(&self, own: Vec<(Arc<Session>, u64)>, all: bool, from: Option<u64>) -> ListRows {
-        let last = if all { None } else { own.last().map(|(s, at)| (*at, s.id.clone())) };
-        let mut rows: Vec<Unbuilt> =
-            own.into_iter().map(|(s, at)| Unbuilt::placed(s, at)).collect();
-        // A peer's row sorts before the window's last own row when newer, or as new and a lower id.
-        let within = |r: &RemoteSession| {
-            let (at, id) = (r.summary.updated_ms(), r.summary.session_id().unwrap_or(""));
-            from.is_none_or(|from| at <= from)
-                && last.as_ref().is_none_or(|(last_at, last_id)| {
-                    at > *last_at || (at == *last_at && id < last_id.as_str())
-                })
+    /// The first `most` rows of the list from `from` (no closed one when `open_only`), sorted:
+    /// at most `most` of this daemon's and `most` of the peers', each read in order from where
+    /// `from` starts, and the hub machines' from there. Costs `most`, not the list.
+    fn window(&self, from: Option<u64>, most: usize, open_only: bool) -> Window {
+        let (own, own_all) = if open_only {
+            self.own_live_from(from, most)
+        } else {
+            let (own, all) = self.own_rows_from(from, most);
+            (own.into_iter().map(|(s, at)| Unbuilt::placed(s, at)).collect(), all)
         };
+        let mut rows = own;
         let remote = self.remote_sessions.snapshot();
-        rows.extend(remote.values().filter(|r| within(r)).cloned().map(Unbuilt::mirrored));
+        let before = rows.len();
+        rows.extend(remote.in_order(from, open_only).take(most).cloned().map(Unbuilt::mirrored));
+        let remote_all = rows.len() - before < most;
         drop(remote);
+        let within = |r: &RemoteSession| {
+            from.is_none_or(|from| r.summary.updated_ms() <= from)
+                && (!open_only || !r.summary.closed())
+        };
         rows.extend(self.mesh_book_rows(within).into_iter().map(Unbuilt::mirrored));
         sort_rows(&mut rows);
-        ListRows { rows, states: self.peer_link_states() }
+        let all = own_all && remote_all && rows.len() <= most;
+        rows.truncate(most);
+        let past = rows.last().is_some_and(|row| from.is_some_and(|from| row.updated_at < from));
+        Window { list: ListRows { rows, states: self.peer_link_states() }, all, past }
+    }
+
+    /// At most `most` of this daemon's live rows in list order from the first no newer than
+    /// `from`, and whether they are all of them: the live rows are few, read from their index
+    /// (`live_session_ids`), none closed.
+    fn own_live_from(&self, from: Option<u64>, most: usize) -> (Vec<Unbuilt>, bool) {
+        let mut rows: Vec<Unbuilt> = self
+            .live_session_handles()
+            .into_iter()
+            .map(Unbuilt::local)
+            .filter(|row| from.is_none_or(|from| row.updated_at <= from))
+            .collect();
+        sort_rows(&mut rows);
+        let all = rows.len() < most;
+        rows.truncate(most);
+        (rows, all)
     }
 
     /// The rows of the page `params` asks for (`session_pages::pick_page`: filters, cursor, order
@@ -292,9 +315,9 @@ impl Hub {
     /// ones (which the v2 list does not hold: a form that walks its whole view reads v1 while
     /// any is listed).
     pub(crate) fn closed_listed(&self, own: usize) -> ClosedListed {
-        let closed = |row: &RemoteSession| row.summary.status() == Some("closed");
-        let peers = self.remote_sessions.read().values().filter(|row| closed(row)).count();
-        let remote = peers + self.mesh_book_count(closed);
+        // The peers' closed rows are counted as they are written (`remote_rows.rs`).
+        let peers = self.remote_sessions.read().closed_count();
+        let remote = peers + self.mesh_book_count(|row| row.summary.closed());
         ClosedListed { all: own + remote, remote }
     }
 }
@@ -304,6 +327,14 @@ impl Hub {
 pub(crate) struct ClosedListed {
     pub(crate) all: usize,
     pub(crate) remote: usize,
+}
+
+/// [`Hub::window`]: the rows, whether they are every row from its start, and whether its last row
+/// is older than its start.
+struct Window {
+    list: ListRows,
+    all: bool,
+    past: bool,
 }
 
 /// The rows a window of the kept order holds past a page's `limit`: a filter or two may leave a
@@ -329,3 +360,7 @@ fn excludes_closed(params: &Value) -> bool {
         .and_then(Value::as_array)
         .is_some_and(|values| values.iter().any(|value| value.as_str() == Some("closed")))
 }
+
+#[cfg(test)]
+#[path = "page_window_tests.rs"]
+mod window_tests;

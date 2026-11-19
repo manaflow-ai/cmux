@@ -39,6 +39,40 @@ pub(crate) struct RemoteRows {
     /// the rows that changed (`row_log.rs`), so the rest are put back as they were. Any other
     /// write of the row drops it.
     stale_from: PMap<String, Arc<RemoteSession>>,
+    /// Every row's key in list order (newest first, ties by session id, then by peer, as
+    /// `page_first.rs` sorts), the closed rows apart: a page reads its own rows from here and a
+    /// live list (`excludeStatus: [closed]`) reads no closed row, never a sort of every row.
+    open_order: PSet<ListPlace>,
+    closed_order: PSet<ListPlace>,
+    /// How many rows each peer lists, kept by every write: `_acpmux/status` reads it per peer,
+    /// not per row.
+    per_peer: PMap<String, usize>,
+}
+
+/// A row's place in list order: newest first, then its session id, then its peer (none first),
+/// then its key (two rows alike in all three stay apart).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct ListPlace {
+    at: std::cmp::Reverse<u64>,
+    id: Box<str>,
+    peer: Option<Box<str>>,
+    key: Box<str>,
+}
+
+impl ListPlace {
+    fn of(key: &str, row: &RemoteSession) -> Self {
+        Self {
+            at: std::cmp::Reverse(row.summary.updated_ms()),
+            id: row.summary.session_id().unwrap_or("").into(),
+            peer: row.summary.peer().map(Box::from),
+            key: key.into(),
+        }
+    }
+
+    /// The first place of a row no newer than `at`.
+    fn from(at: u64) -> Self {
+        Self { at: std::cmp::Reverse(at), id: "".into(), peer: None, key: "".into() }
+    }
 }
 
 impl std::ops::Deref for RemoteRows {
@@ -60,9 +94,16 @@ impl RemoteRows {
         if let Some(pair) = row.summary.pair() {
             self.by_pair.entry(pair).or_default().insert(key.clone());
         }
+        *self.per_peer.entry(row.peer.clone()).or_default() += 1;
         let peer = self.by_peer.entry(row.peer.clone()).or_default();
         peer.entry(row.receipt.mux_session_id.clone()).or_default().insert(key.clone());
         self.names.add(&key, &row);
+        let place = ListPlace::of(&key, &row);
+        if row.summary.closed() {
+            self.closed_order.insert(place);
+        } else {
+            self.open_order.insert(place);
+        }
         self.rows.insert(key, row);
     }
 
@@ -76,12 +117,24 @@ impl RemoteRows {
         self.stale_from.remove(key);
         self.writes += 1;
         self.names.remove(key, &row);
+        let place = ListPlace::of(key, &row);
+        if row.summary.closed() {
+            self.closed_order.remove(&place);
+        } else {
+            self.open_order.remove(&place);
+        }
         if let Some(pair) = row.summary.pair()
             && let Some(keys) = self.by_pair.get_mut(&pair)
         {
             keys.remove(key);
             if keys.is_empty() {
                 self.by_pair.remove(&pair);
+            }
+        }
+        if let Some(count) = self.per_peer.get_mut(&row.peer) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.per_peer.remove(&row.peer);
             }
         }
         if let Some(peer) = self.by_peer.get_mut(&row.peer) {
@@ -183,12 +236,29 @@ impl RemoteRows {
         keys.into_iter().filter_map(|key| self.take(&key).map(|row| (key, row))).collect()
     }
 
-    /// How many rows each peer lists.
+    /// The rows in list order from the first no newer than `from` (the top when None), the
+    /// closed ones too unless `open_only`: each read costs the rows it takes, never a walk or a
+    /// sort of every row.
+    pub(crate) fn in_order<'a>(
+        &'a self,
+        from: Option<u64>,
+        open_only: bool,
+    ) -> impl Iterator<Item = &'a Arc<RemoteSession>> + 'a {
+        let start = ListPlace::from(from.unwrap_or(u64::MAX));
+        let range = |set: &'a PSet<ListPlace>| set.range(start.clone()..);
+        let open = range(&self.open_order).peekable();
+        let closed = (!open_only).then(|| range(&self.closed_order)).into_iter().flatten();
+        Merged { a: open, b: closed.peekable() }.filter_map(|place| self.rows.get(&*place.key))
+    }
+
+    /// How many rows are closed, counted as they are written.
+    pub(crate) fn closed_count(&self) -> usize {
+        self.closed_order.len()
+    }
+
+    /// How many rows each peer lists: one read per peer, counted as rows are written.
     pub(crate) fn peer_counts(&self) -> HashMap<String, usize> {
-        self.by_peer
-            .iter()
-            .map(|(peer, ids)| (peer.clone(), ids.values().map(|keys| keys.len()).sum()))
-            .collect()
+        self.per_peer.iter().map(|(peer, count)| (peer.clone(), *count)).collect()
     }
 
     /// The rows tagged with `pair`.
@@ -244,6 +314,23 @@ impl RemoteRows {
     #[cfg(test)]
     pub(crate) fn pairs(&self) -> usize {
         self.by_pair.len()
+    }
+}
+
+/// Two iterators in ascending order, merged into one.
+struct Merged<A: Iterator, B: Iterator<Item = A::Item>> {
+    a: std::iter::Peekable<A>,
+    b: std::iter::Peekable<B>,
+}
+
+impl<T: Ord, A: Iterator<Item = T>, B: Iterator<Item = T>> Iterator for Merged<A, B> {
+    type Item = T;
+    fn next(&mut self) -> Option<T> {
+        match (self.a.peek(), self.b.peek()) {
+            (Some(a), Some(b)) if b < a => self.b.next(),
+            (Some(_), _) => self.a.next(),
+            (None, _) => self.b.next(),
+        }
     }
 }
 
@@ -440,6 +527,28 @@ mod tests {
         if rows.peer_counts() != counts {
             return fail(format!("peer_counts {:?} != model {counts:?}", rows.peer_counts()));
         }
+        // The list order, closed rows too and live ones only, from the top: a sort of every row.
+        let place = |r: &RemoteSession| {
+            (
+                std::cmp::Reverse(r.summary.updated_ms()),
+                r.summary.session_id().unwrap_or("").to_owned(),
+                r.summary.peer().map(str::to_owned),
+                r.receipt.qualified_id(),
+            )
+        };
+        for open_only in [false, true] {
+            let mut want: Vec<_> =
+                model.values().filter(|r| !open_only || !r.summary.closed()).map(place).collect();
+            want.sort();
+            let got: Vec<_> = rows.in_order(None, open_only).map(|r| place(r)).collect();
+            if got != want {
+                return fail(format!("in_order(open_only {open_only}) {got:?} != {want:?}"));
+            }
+        }
+        let closed = model.values().filter(|r| r.summary.closed()).count();
+        if rows.closed_count() != closed {
+            return fail(format!("closed_count {} != model {closed}", rows.closed_count()));
+        }
         for p in 0..PEERS {
             let peer = peer_of(p);
             let mut want: Vec<&String> =
@@ -497,12 +606,14 @@ mod tests {
         match *op {
             Op::Insert(p, m, s, pair) => {
                 let (key, mut r) = row(&peer_of(p), &format!("s{m}"), STATUSES[s as usize]);
+                let mut summary = r.summary.value();
+                // A few times, with ties: the list order moves with each write.
+                summary["updatedAt"] = json!((u64::from(m) * 7 + u64::from(s)) % 5);
                 if let Some(pair) = pair {
                     let (parent, handle) = pair_of_ix(pair);
-                    let mut summary = r.summary.value();
                     summary["tags"] = json!({"mux.parent": parent, "mux.handle": handle});
-                    r.summary = summary.into();
                 }
+                r.summary = summary.into();
                 model.insert(key.clone(), r.clone());
                 rows.insert(key, r);
             }
