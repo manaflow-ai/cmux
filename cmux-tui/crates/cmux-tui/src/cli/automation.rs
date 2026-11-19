@@ -11,11 +11,12 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use cmux_automations::exec::{ProcessExecutor, run_job};
+use cmux_automations::exec::{ProcessExecutor, run_job, session_name};
 use cmux_automations::watch::Watches;
 use cmux_automations::{
-    Automation, AutomationSpec, Body, CatchUp, EventOutcome, Gate, Run, RunState, RunnerLock,
-    Store, StoreError, Trigger, Zone, recover_orphans, start_event, start_manual_with_event, tick,
+    Automation, AutomationSpec, Body, CatchUp, EventOutcome, Gate, Run, RunState, RunnerBeat,
+    RunnerHealth, RunnerLock, Store, StoreError, Trigger, Zone, recover_orphans, runner_health,
+    start_event, start_manual_with_event, tick, unread_failures,
 };
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
@@ -331,6 +332,7 @@ fn dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Outcome {
         "test" | "dry-run" => triggers::test(rest, out),
         "events" | "event" => events::run(rest, global, out),
         "logs" | "log" => logs(rest, out),
+        "seen" | "read" => seen(rest, out),
         "delete" | "rm" => delete(rest, out),
         "webhook" | "webhooks" => automation_webhook::webhook(rest, global, out),
         "teleport" | "move" => teleport::run(rest, global, out, false),
@@ -522,6 +524,39 @@ fn automation_json(store: &Store, a: &Automation) -> Value {
             json!(store.state(&a.id).map(|s| s.dropped).unwrap_or(0)),
         );
         map.insert("last_run".into(), serde_json::to_value(last).unwrap_or(Value::Null));
+        // Failed runs a person has not looked at (`automation seen`): the page's unread mark.
+        let seen_at = store.seen_at(&a.id).unwrap_or(0);
+        let unread = store.runs(&a.id).map(|r| unread_failures(&r, seen_at)).unwrap_or(0);
+        map.insert("seen_at".into(), json!(seen_at));
+        map.insert("unread_failures".into(), json!(unread));
+    }
+    v
+}
+
+/// The runner's health as `list --json` and `runner status --json` give it.
+fn runner_json(store: &Store) -> Value {
+    let held = runner_running(store);
+    let beat = store.beat().ok().flatten();
+    let health = runner_health(held, beat.as_ref(), now());
+    json!({
+        "health": health.name(),
+        "running": health == RunnerHealth::Running,
+        "beat_at": beat.as_ref().map(|b| b.beat_at),
+        "pid": beat.as_ref().filter(|_| held).map(|b| b.pid),
+        "version": beat.as_ref().map(|b| b.version.clone()),
+    })
+}
+
+/// A run as `history --json` gives it: the record, its automation's name, its
+/// log file, and for a prompt run that started, the agent chat it is.
+fn run_json(store: &Store, a: &Automation, r: &Run) -> Value {
+    let mut v = serde_json::to_value(r).unwrap_or(Value::Null);
+    if let Value::Object(map) = &mut v {
+        map.insert("automation_name".into(), json!(a.name));
+        map.insert("log_path".into(), json!(store.log_path(&a.id, &r.id)));
+        if matches!(a.body, Body::Prompt { .. }) && r.started_at.is_some() {
+            map.insert("session".into(), json!(session_name(&a.id, &r.id)));
+        }
     }
     v
 }
@@ -617,7 +652,7 @@ fn list(args: &[String], out: &Out) -> Outcome {
     let moved = store.moved(now_ms())?;
     if output == OutputMode::Json {
         out.value(
-            &json!({ "automations": all.iter().map(|x| automation_json(&store, x)).collect::<Vec<_>>(), "moved": moved, "runner_running": runner_running(&store) }),
+            &json!({ "automations": all.iter().map(|x| automation_json(&store, x)).collect::<Vec<_>>(), "moved": moved, "runner_running": runner_running(&store), "runner": runner_json(&store) }),
         );
         return Ok(0);
     }
@@ -846,11 +881,11 @@ fn history(args: &[String], out: &Out) -> Outcome {
         [one] => vec![store.find(one)?],
         [_, extra, ..] => return usage(messages().unexpected_argument.replace("{value}", extra)),
     };
-    let mut rows: Vec<(String, Run)> = Vec::new();
+    let mut rows: Vec<(&Automation, Run)> = Vec::new();
     for t in &targets {
         for r in store.runs(&t.id)? {
             if a.value("state").is_none_or(|s| s == r.state.name()) {
-                rows.push((t.name.clone(), r));
+                rows.push((t, r));
             }
         }
     }
@@ -859,13 +894,14 @@ fn history(args: &[String], out: &Out) -> Outcome {
     });
     rows.truncate(limit);
     if output == OutputMode::Json {
-        out.value(&json!({ "runs": rows.iter().map(|(_, r)| r).collect::<Vec<_>>() }));
+        out.value(&json!({ "runs": rows.iter().map(|(x, r)| run_json(&store, x, r)).collect::<Vec<_>>() }));
         return Ok(0);
     }
     if rows.is_empty() {
         println!("{}", messages().no_runs);
     }
-    for (name, r) in &rows {
+    for (x, r) in &rows {
+        let name = &x.name;
         let at = when(r.started_at.or(r.scheduled_at).unwrap_or(r.created_at));
         let late = if r.late_seconds > 120 && r.state != RunState::Skipped {
             messages().late.replace("{minutes}", &(r.late_seconds / 60).to_string())
@@ -915,6 +951,22 @@ fn logs(args: &[String], out: &Out) -> Outcome {
     Ok(0)
 }
 
+/// `seen AUTOMATION`: its failed runs so far are read (the Automations page
+/// calls it when a person opens the automation).
+fn seen(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
+    let a = Args::parse(args, &[], &[])?;
+    let store = open_store()?;
+    let x = store.find(a.one_word("AUTOMATION")?)?;
+    store.mark_seen(&x.id, now())?;
+    if output == OutputMode::Json {
+        out.value(&automation_json(&store, &x));
+    } else if output != OutputMode::Quiet {
+        println!("{}", messages().seen_done.replace("{name}", &x.name));
+    }
+    Ok(0)
+}
+
 fn delete(args: &[String], out: &Out) -> Outcome {
     let output = out.mode;
     // `--yes`: scripts confirm up front; the CLI does not ask.
@@ -940,7 +992,43 @@ fn exec(args: &[String]) -> Outcome {
     let [automation, run] = args else { return usage("_exec AUTOMATION RUN") };
     let store = open_store()?;
     run_job(&store, automation, run)?;
+    if let (Ok(a), Ok(Some(r))) = (store.get(automation), store.run(automation, run)) {
+        notify_failure(&a, &r);
+    }
     Ok(0)
+}
+
+/// A failed run posts one cmux notification (a session row in the app and a
+/// banner), so a failure is seen without opening the Automations page. Best
+/// effort: with no app running there is nothing to tell, and the run's record
+/// and log already hold the failure.
+fn notify_failure(a: &Automation, r: &Run) {
+    // `CMUX_AUTOMATION_NOTIFY=off`: tests and scripts that expect failures.
+    if r.state != RunState::Failed
+        || std::env::var("CMUX_AUTOMATION_NOTIFY").is_ok_and(|v| v == "off")
+    {
+        return;
+    }
+    let reason = r.reason.clone().unwrap_or_default();
+    let title = if reason == "needs_permission" {
+        messages().notify_needs_you
+    } else {
+        messages().notify_failed
+    };
+    let Ok(exe) = std::env::current_exe() else { return };
+    // The notify call answers at once; one that hangs (an app that is not
+    // answering) is ended by the drop after 5 s.
+    if let Ok(mut child) = cmux_process::Command::new(exe)
+        .args(["notify", "--title", title, "--subtitle", &a.name, "--body"])
+        .arg(reason.replace('_', " "))
+        .args(["--workspace", "current"])
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .spawn()
+    {
+        let _ = child.wait_timeout(Duration::from_secs(5));
+    }
 }
 
 fn runner(args: &[String], out: &Out) -> Outcome {
@@ -952,16 +1040,24 @@ fn runner(args: &[String], out: &Out) -> Outcome {
         Some("uninstall") => uninstall(out),
         Some("status") => {
             let store = open_store()?;
-            let running = runner_running(&store);
+            let health = runner_json(&store);
+            let running = health["running"].as_bool().unwrap_or(false);
             if output == OutputMode::Json {
-                out.value(
-                    &json!({ "running": running, "launchd_label": LAUNCHD_LABEL, "plist": plist_path() }),
-                );
+                let mut v = json!({ "running": running, "launchd_label": LAUNCHD_LABEL, "plist": plist_path() });
+                v.set("health", health["health"].clone());
+                v.set("beat_at", health["beat_at"].clone());
+                v.set("pid", health["pid"].clone());
+                out.value(&v);
             } else {
-                println!(
-                    "{}",
-                    if running { messages().runner_running } else { messages().runner_stopped }
-                );
+                let line = match health["health"].as_str() {
+                    Some("running") => messages().runner_running.to_string(),
+                    Some("stalled") => messages().runner_stalled.replace(
+                        "{time}",
+                        &health["beat_at"].as_i64().map(when).unwrap_or_default(),
+                    ),
+                    _ => messages().runner_stopped.to_string(),
+                };
+                println!("{line}");
             }
             Ok(if running { 0 } else { 1 })
         }
@@ -988,7 +1084,21 @@ fn serve(once: bool, out: &Out) -> Outcome {
         .unwrap_or_else(|_| "cmux".to_string());
     let mut watches = Watches::new(store.clone()).with_program(program);
     let mut next_tick_ms = 0i64;
+    // The heartbeat (`.runner.json`): at least once a minute, as the loop wakes
+    // at least that often, so a hung runner shows as stalled.
+    let started_at = now();
+    let mut beat_at = 0i64;
     loop {
+        if now() - beat_at >= 30 {
+            beat_at = now();
+            let _ = store.put_beat(&RunnerBeat {
+                pid: std::process::id(),
+                host: cmux_automations::hostname(),
+                started_at,
+                beat_at,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            });
+        }
         if now_ms() >= next_tick_ms {
             let _ = store.prune_moved(now_ms());
             let report = tick(&store, now(), &mut exec)?;

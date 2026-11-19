@@ -3,8 +3,10 @@
 //! ```text
 //! <root>/
 //!   .runner.lock              file lock: one runner per machine
+//!   .runner.json              the runner's heartbeat (atomic replace, about once a minute)
 //!   auto_…/automation.json    the definition (atomic replace)
 //!   auto_…/state.json         the schedule cursor (atomic replace)
+//!   auto_…/seen.json          when a person last looked at its runs (atomic replace)
 //!   auto_…/runs.jsonl         run history, append-only, locked while appending
 //!   auto_…/logs/run_….log     each run's output
 //!   auto_…/logs/watch.log     a watch command's stderr
@@ -75,6 +77,63 @@ pub struct AutomationState {
     /// the next run's prompt says how many.
     #[serde(default)]
     pub dropped: u64,
+}
+
+/// The runner's heartbeat: it rewrites this at least once a minute, so a
+/// runner that holds its lock but stopped looping (hung) shows as stalled.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunnerBeat {
+    pub pid: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// When this runner process started (unix seconds).
+    pub started_at: i64,
+    /// Its last beat (unix seconds).
+    pub beat_at: i64,
+    /// The cmux version that runs it.
+    #[serde(default)]
+    pub version: String,
+}
+
+/// A runner that has not beaten for this long while holding its lock is stalled.
+pub const STALL_SECONDS: i64 = 180;
+
+/// Whether this machine's runner starts anything.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunnerHealth {
+    /// It holds the lock and beats.
+    Running,
+    /// It holds the lock but has not beaten for [`STALL_SECONDS`]: hung.
+    Stalled,
+    /// Nothing holds the lock: no schedule or event starts a run.
+    Stopped,
+}
+
+impl RunnerHealth {
+    /// The lowercase name (`running`).
+    pub fn name(self) -> &'static str {
+        match self {
+            RunnerHealth::Running => "running",
+            RunnerHealth::Stalled => "stalled",
+            RunnerHealth::Stopped => "stopped",
+        }
+    }
+}
+
+/// The runner's health from whether its lock is held and its last beat. A
+/// runner from before heartbeats (lock held, no beat file) counts as running.
+pub fn runner_health(lock_held: bool, beat: Option<&RunnerBeat>, now: i64) -> RunnerHealth {
+    match (lock_held, beat) {
+        (false, _) => RunnerHealth::Stopped,
+        (true, Some(b)) if now - b.beat_at > STALL_SECONDS => RunnerHealth::Stalled,
+        (true, _) => RunnerHealth::Running,
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct Seen {
+    seen_at: i64,
 }
 
 /// How long `moved` lists a tombstone, in milliseconds (30 days).
@@ -619,6 +678,39 @@ impl Store {
             self.put_state(id, &state)?;
         }
         Ok(n)
+    }
+
+    /// Write the runner's heartbeat.
+    pub fn put_beat(&self, beat: &RunnerBeat) -> Result<(), StoreError> {
+        let json = serde_json::to_vec(beat).map_err(|e| StoreError::Io(e.to_string()))?;
+        Ok(write_atomic(&self.root.join(".runner.json"), &json)?)
+    }
+
+    /// The runner's last heartbeat, if any runner ever wrote one.
+    pub fn beat(&self) -> Result<Option<RunnerBeat>, StoreError> {
+        match fs::read(self.root.join(".runner.json")) {
+            Ok(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// A person looked at this automation's runs at `now`: failures before it
+    /// are read. Its own file, so the runner's cursor writes never undo it.
+    pub fn mark_seen(&self, id: &str, now: i64) -> Result<(), StoreError> {
+        create_private_dir(&self.dir(id))?;
+        let seen = Seen { seen_at: now.max(self.seen_at(id)?) };
+        let json = serde_json::to_vec(&seen).map_err(|e| StoreError::Io(e.to_string()))?;
+        Ok(write_atomic(&self.dir(id).join("seen.json"), &json)?)
+    }
+
+    /// When a person last looked at this automation's runs (0: never).
+    pub fn seen_at(&self, id: &str) -> Result<i64, StoreError> {
+        match fs::read(self.dir(id).join("seen.json")) {
+            Ok(bytes) => Ok(serde_json::from_slice::<Seen>(&bytes).map(|s| s.seen_at).unwrap_or(0)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(0),
+            Err(e) => Err(e.into()),
+        }
     }
 
     fn runs_file(&self, id: &str) -> std::io::Result<File> {
