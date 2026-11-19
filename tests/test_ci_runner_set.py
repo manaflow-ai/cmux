@@ -92,7 +92,7 @@ class RunnerSetTests(unittest.TestCase):
         # On 2026-11-18 jobs that finished on GitHub-hosted had waited a median 10,768 s, so every pull request's
         # `changes` router sat there and its required checks never started. #45861 first added a release valve
         # (hosted_saturated in RUNNER_POOLS); the hosted attempt-1 branch is now gone from every non-nightly
-        # workflow (Blacksmith for all CI, cmux#45898), so no valve is needed. Nightlies keep their own routes.
+        # workflow (Blacksmith for all CI, cmux#45898) and the valve is gone. Nightlies keep their own routes.
         hosted = re.compile(r"github\.run_attempt == 1 && [^|]*'ubuntu-24\.04'")
         for path in sorted(WORKFLOWS.glob("*.y*ml")):
             if path.name == "nightly.yml":  # nightlies never run on Blacksmith; their hosted routes stay
@@ -115,9 +115,7 @@ class RunnerSetTests(unittest.TestCase):
                     self.assertNotIn("outputs.map", runs_on)
                     # Past the fork branches, no Blacksmith size is written down.
                     self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
-                    self.assertNotRegex(runs_on.replace(
-                        "fromJSON(vars.RUNNER_POOLS).hosted_saturated && fromJSON(vars.RUNNER_POOLS).linux_2", ""),
-                        r"RUNNER_POOLS\)\.linux_\d")
+                    self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
 
     def test_gallery_health_reads_the_live_16_vcpu_pool(self) -> None:
         # A CPU-bound render (ask-378f0fa70e: 4 vCPU 30.5 s, 16 vCPU 13.4 s for the same cases): the 16 vCPU

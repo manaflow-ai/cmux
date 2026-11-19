@@ -877,7 +877,8 @@ while True:
                                                if k.startswith(("DISABLE_PROMPT_CACHING", "ENABLE_PROMPT_CACHING_1H"))
                                                or k == "FORCE_PROMPT_CACHING_5M"},
                                "turnScoped": {k: os.environ[k] for k in ("SUBROUTER_SESSION_KEY", "CODEX_PROMPT_CACHE_KEY",
-                                                                         "OPTCHAT_TURN_SEAL", "OPTCHAT_SUBAGENT", "AI_AGENT")
+                                                                         "OPTCHAT_TURN_SEAL", "OPTCHAT_SUBAGENT", "AI_AGENT",
+                                                                         "CMUX_AGENT_TOOLS_ANSWER")
                                               if k in os.environ},
                                "customHeaders": os.environ.get("ANTHROPIC_CUSTOM_HEADERS")})
             send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
@@ -1010,6 +1011,21 @@ while True:
                     send({"type": "assistant", "message": {"content": [use]}})
                     send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": f"toolu_b{i}", "content": "read"}]}})
             send({"type": "result", "subtype": "success", "result": "burst", "num_turns": 1,
+                  "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+            continue
+        # "panic-line: N" streams N text deltas 50 ms apart with a line the host's translator
+        # panics on halfway (`acpmux_test_panic`, debug builds with ACPMUX_TEST_TRANSLATOR_PANIC),
+        # then ends the turn (durable_agents/translator_panic.rs).
+        if said.startswith("panic-line: "):
+            import time
+            n = int(said[len("panic-line: "):])
+            for i in range(n):
+                if i == n // 2:
+                    send({"type": "acpmux_test_panic"})
+                send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                         "delta": {"type": "text_delta", "text": f"word{i} "}}})
+                time.sleep(0.05)
+            send({"type": "result", "subtype": "success", "result": "panic-line", "num_turns": 1,
                   "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
             continue
         # "/compact" runs Claude Code 2.1.303's compaction: the compacting status, the

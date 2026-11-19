@@ -43,8 +43,7 @@ public final class AppHealthFeeds {
     /// - Parameters:
     ///   - stateDirectory: The session daemon's state directory, whose registry size is read once.
     ///   - work: The app's blocking-work lanes (the size read runs on `.files`).
-    ///   - overlayProcess: The overlay pages' one web content process, for the popover's panel.
-    public init(daemon: DaemonService, stateDirectory: URL?, work: BackgroundWork, overlayProcess: PageOverlayProcess?) {
+    public init(daemon: DaemonService, stateDirectory: URL?, work: BackgroundWork) {
         let health = AppHealth()
         self.health = health
         self.daemon = daemon
