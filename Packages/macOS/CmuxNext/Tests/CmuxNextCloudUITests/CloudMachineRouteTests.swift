@@ -62,7 +62,7 @@ import Testing
         }
         let report: [String: Any] = [
             "cloud_vm": true, "edge_host": "coderouter.cmux.internal", "model_plane": ["state": "ok"],
-            "daemon": ["running": running, "pid": running ? 4242 : NSNull()],
+            "daemon": ["running": running, "pid": running ? 4242 as Any : NSNull()],
             "agents": ["claude": agent(claudeKey), "codex": agent("missing")],
             "credential_env": variables, "login_files": logins.map { ["path": $0.path, "agent": $0.agent, "kind": "file"] },
             "holds_credential": !logins.isEmpty || !variables.isEmpty, "managed_route_files": [], "ok": false,
@@ -121,6 +121,20 @@ import Testing
             try await Self.machine(printing: Self.unrouted(variables: ["CLAUDE_CODE_OAUTH_TOKEN"])).prepare(family: "codex") { await updated.add() }
         }
         #expect(await updated.count == 0)
+    }
+
+    /// cmux#45774: a Codex chat on Sign in with ChatGPT carries its connection, but the machine's daemon cannot take a
+    /// Codex start credential and the update could not bring it one (no published build yet). The start said "agents
+    /// aren't routed through the Cloud service yet"; it says the machine's software is too old.
+    @Test func aConnectionTheMachineCannotTakeSaysItsSoftwareIsTooOld() async throws {
+        let updated = UpdateCount()
+        do {
+            try await Self.machine(printing: Self.unrouted()).prepare(serves: { false }, carriesConnection: true, family: "codex") { await updated.add() }
+            Issue.record("the start went on with a connection the machine cannot take")
+        } catch let failure as CloudMoveFailure {
+            #expect(failure.message == CloudMachineRoute.tooOld)
+        }
+        #expect(await updated.count == 1)
     }
 
     private actor UpdateCount {
