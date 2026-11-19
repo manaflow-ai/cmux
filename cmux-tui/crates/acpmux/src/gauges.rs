@@ -96,7 +96,7 @@ impl Gauges {
             "memory": memory(),
             "peerLists": peer_lists().status(),
             "attach": attach_latency().status(),
-            "fanout": fanout_latency().status(),
+            "fanout": fanout_status(),
         })
     }
 }
@@ -221,6 +221,29 @@ pub fn opens_a_chat(method: &str) -> bool {
 pub fn fanout_latency() -> &'static Latencies {
     static RING: OnceLock<Latencies> = OnceLock::new();
     RING.get_or_init(Latencies::default)
+}
+
+/// Hub events a connection's fan-out task lagged past (the broadcast channel dropped them for
+/// it) and how many times one lagged, each followed by a resync: what the latency leaves out.
+static FANOUT_DROPPED: AtomicU64 = AtomicU64::new(0);
+static FANOUT_RESYNCS: AtomicU64 = AtomicU64::new(0);
+
+/// A connection's fan-out task lagged past `events` hub events: it never queues them, so none
+/// of them is a latency sample; each counts in `gauges.fanout.dropped`.
+pub fn fanout_lagged(events: u64) {
+    FANOUT_DROPPED.fetch_add(events, Ordering::Relaxed);
+    FANOUT_RESYNCS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// `gauges.fanout`: the latency ring's fields, with `dropped` (events a connection lagged past,
+/// summed over connections) and `resyncs` (times a connection lagged).
+fn fanout_status() -> Value {
+    let mut status = fanout_latency().status();
+    if let Some(fields) = status.as_object_mut() {
+        fields.insert("dropped".into(), json!(FANOUT_DROPPED.load(Ordering::Relaxed)));
+        fields.insert("resyncs".into(), json!(FANOUT_RESYNCS.load(Ordering::Relaxed)));
+    }
+    status
 }
 
 /// One hub event's fan-out: when it was sent and how many connections' fan-out tasks have yet to
@@ -356,6 +379,17 @@ mod tests {
         assert!(status["memory"]["rssBytes"].as_u64().unwrap() > 0, "{status}");
         assert!(status["attach"].get("p95Ms").is_some(), "{status}");
         assert!(status["fanout"].get("p95Ms").is_some(), "{status}");
+    }
+
+    #[test]
+    fn a_lag_counts_its_events_as_dropped_and_one_resync() {
+        let before = fanout_status();
+        fanout_lagged(7);
+        let after = fanout_status();
+        let grew = |field: &str| after[field].as_u64().unwrap() - before[field].as_u64().unwrap();
+        // Other tests in this process may lag too: at least this one's.
+        assert!(grew("dropped") >= 7, "{before} {after}");
+        assert!(grew("resyncs") >= 1, "{before} {after}");
     }
 
     #[test]

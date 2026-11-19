@@ -119,6 +119,9 @@ async fn an_attach_is_a_sample_and_a_record_is_timed_to_its_last_connection() {
         assert!(g["p50Ms"].as_f64() <= g["p95Ms"].as_f64(), "{gauge}: {g}");
         assert!(g["p95Ms"].as_f64() <= g["maxMs"].as_f64(), "{gauge}: {g}");
     }
+    let fanout = &status["gauges"]["fanout"];
+    assert!(fanout["dropped"].as_u64().is_some(), "{fanout}");
+    assert!(fanout["resyncs"].as_u64().is_some(), "{fanout}");
     drop((a, b, s));
     hub.shutdown_all().await;
 }
