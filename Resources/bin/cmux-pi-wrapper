@@ -65,6 +65,47 @@ for cmux_pi_arg in "$@"; do
     fi
 done
 
+# The native cmux-cua profile (also used by Claude) authenticates with the
+# app-owned socket token. Never use the Codex compatibility socket: that
+# profile requires a signed OpenAI Codex parent and owns a separate broker.
+cmux_pi_cua_args=()
+cmux_pi_cua_prepare() {
+    [ -n "${CMUX_SURFACE_ID:-}" ] && [ -S "${CMUX_SOCKET_PATH:-}" ] || return 1
+    [ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" != "1" ] || return 1
+    local setting="${HOME:-}/Library/Application Support/cmux/cmux-cua/enabled"
+    local enabled="${CMUX_COMPUTER_USE_APP_ENABLED:-1}"
+    if [ -r "$setting" ]; then IFS= read -r enabled < "$setting" || true; fi
+    [ "$enabled" != "0" ] || return 1
+
+    local resource_dir policy client token_file metadata owner mode token
+    resource_dir="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P)" || return 1
+    policy="$resource_dir/cmux-cua/client-policy.sh"
+    [ -r "$policy" ] && [ -r "$resource_dir/bin/cmux-pi-cua-extension.ts" ] || return 1
+    # shellcheck source=/dev/null
+    . "$policy" || return 1
+    client="$(cmux_computer_use_resolve_client)" || return 1
+    [ -n "$client" ] || return 1
+    [ -S "${CMUX_CUA_SOCKET_PATH:-}" ] || return 1
+    token_file="${CMUX_CUA_AUTH_TOKEN_FILE:-}"
+    [ -n "$token_file" ] && [ "${token_file#/}" != "$token_file" ] &&
+        [ -f "$token_file" ] && [ ! -L "$token_file" ] || return 1
+    metadata="$(/usr/bin/stat -f '%u %Lp' "$token_file" 2>/dev/null)" || return 1
+    read -r owner mode <<< "$metadata"
+    [ "$owner" = "$(/usr/bin/id -u)" ] && [ "$mode" = "600" ] || return 1
+    IFS= read -r token < "$token_file" || true
+    [ -n "$token" ] || return 1
+
+    # The wrapper execs Pi, so $$ remains the session owner pid. Credentials
+    # stay in the child environment, never in argv, MCP JSON, or disk config.
+    export CMUX_CUA_SOCKET_AUTH_TOKEN="$token"
+    export CMUX_PI_CUA_CLIENT="$client"
+    export CMUX_PI_CUA_SOCKET="$CMUX_CUA_SOCKET_PATH"
+    export CMUX_PI_CUA_SESSION="cmux-${CMUX_SURFACE_ID}"
+    export CMUX_PI_CUA_STATE_DIR="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/cmux-cua/runtime/${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}/state}"
+    cmux_pi_cua_args=(-e "$resource_dir/bin/cmux-pi-cua-extension.ts")
+}
+cmux_pi_cua_prepare || true
+
 cmux_pi_managed_extension() {
     local candidate="$1"
     [ -f "$candidate" ] || return 1
@@ -74,7 +115,7 @@ cmux_pi_managed_extension() {
 cmux_pi_agent_dir="${PI_CODING_AGENT_DIR:-${HOME:-}/.pi/agent}"
 if cmux_pi_managed_extension "$cmux_pi_agent_dir/extensions/cmux-session.ts" ||
    cmux_pi_managed_extension "$PWD/.pi/extensions/cmux-session.ts"; then
-    exec "$cmux_pi" "$@"
+    exec "$cmux_pi" ${cmux_pi_cua_args[@]+"${cmux_pi_cua_args[@]}"} "$@"
 fi
 
 cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"
@@ -82,7 +123,7 @@ if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; then
     cmux_cli="$(command -v cmux 2>/dev/null || true)"
 fi
 if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; then
-    exec "$cmux_pi" "$@"
+    exec "$cmux_pi" ${cmux_pi_cua_args[@]+"${cmux_pi_cua_args[@]}"} "$@"
 fi
 
 cmux_surface_tag="${CMUX_SURFACE_ID:-default}"
@@ -112,8 +153,8 @@ if [ ! -s "$cmux_extension" ] || ! cmux_pi_managed_extension "$cmux_extension"; 
         chmod 600 "$cmux_extension" 2>/dev/null || true
     else
         rm -f "$cmux_extension_tmp"
-        exec "$cmux_pi" "$@"
+        exec "$cmux_pi" ${cmux_pi_cua_args[@]+"${cmux_pi_cua_args[@]}"} "$@"
     fi
 fi
 
-exec "$cmux_pi" -e "$cmux_extension" "$@"
+exec "$cmux_pi" ${cmux_pi_cua_args[@]+"${cmux_pi_cua_args[@]}"} -e "$cmux_extension" "$@"

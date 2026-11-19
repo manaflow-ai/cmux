@@ -9,7 +9,7 @@ description: "Use only after the user explicitly asks for cmux Computer Use thro
 cmux bundles a local computer-use engine (packaged as `cmux Computer Use` with
 the MCP proxy named `cmux-cua`, from a pinned build of
 the `manaflow-ai/cmux-cua` fork) and attaches it as an MCP tool server named
-`cmux-cua` to every agent session cmux launches (Claude Code, Codex).
+`cmux-cua` to eligible agent sessions cmux launches (Claude Code, Codex, Pi).
 The agent can then perceive and operate real macOS apps: read the accessibility
 tree, take screenshots, and click / type / scroll / drag.
 
@@ -34,6 +34,15 @@ or permissions are not a reason to begin setup automatically.
   Attachment availability is not user consent: merely starting an agent or
   discovering this skill is not a request to use it, and it must not open a
   permission window or perform GUI work.
+- The `cmux-pi-wrapper` registers the same native-profile proxy for Pi using
+  Pi's session-only `registerMcpServer` API. It requires a live cmux socket,
+  enabled setting, trusted app-installed helper, live native socket and a
+  current-user-owned mode-600 token file. It never uses the Codex socket,
+  writes Pi MCP configuration, or installs a skill. If a user/project Pi MCP
+  configuration already declares `cmux-cua`, that entry takes precedence; remove
+  the conflicting entry before relying on this session-scoped connection.
+  Pi loads the tools with deferred exposure. An explicit request through the
+  skill is still required before any functional Computer Use call.
 - In Codex sessions launched by cmux, the wrapper disables Codex's native
   `computer_use` provider. When the user says `$cmux-cua`, use only the
   namespaced `cmux-cua` MCP tools below. Never substitute Codex's built-in
