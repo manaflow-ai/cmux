@@ -241,7 +241,10 @@ final class CEFRuntime {
     /// The disk work `CefInitialize` needs done first, read off the main thread once the first window frame has
     /// committed (``initializeAfter``; at once when no gate is set), so the main thread's start does none of it
     /// and nothing of it competes with the window's build: a profiled A/B with this prep running during the build
-    /// put the first frame 17 ms later. ``start(layout:environment:trigger:)`` awaits it before `CefInitialize`:
+    /// put the first frame 17 ms later. Once the gate opens it runs at user-initiated priority: every Chromium start
+    /// awaits it, and at utility priority its file reads were throttled behind the framework's map, which put
+    /// `cef.initialize_start` ~1.4 s after the first frame in Leo's NIGHTLY (~230 ms before #45010).
+    /// ``start(layout:environment:trigger:)`` awaits it before `CefInitialize`:
     /// the profile root exists, the last run's log is kept (``CEFProfileStorage/prepareForLaunch()``), and the
     /// person's own uBlock Origin is looked up (``CEFBuiltInExtensions/personAdBlocker(profiles:fileManager:)``
     /// reads and parses each profile's preference files), and so is the built-in one's manifest (``CEFLaunchPrep``).
@@ -253,7 +256,7 @@ final class CEFRuntime {
         let storage = storage
         let gate = initializeAfter
         let resources = Bundle.main.resourceURL
-        let task = Task.detached(priority: .utility) { () -> CEFLaunchPrep in
+        let task = Task.detached(priority: .userInitiated) { () -> CEFLaunchPrep in
             _ = await CEFRuntime.waitForInitializeGate(gate)
             return CEFLaunchPrep(preparing: storage, resources: resources)
         }
@@ -396,6 +399,7 @@ final class CEFRuntime {
         let loaded = await task.value
         if let outcome = await keychain.value { logger.notice("keychain item: \(String(describing: outcome), privacy: .public)") }
         let read = await prep.value
+        CEFStartSteps.shared.point("launch_prep_read")
         if await Self.waitForInitializeGate(initializeAfter) { CEFStartSteps.shared.point("first_frame_waited") }
         // Another awaiter finished first, or the app began to quit.
         if let error = startError() { throw error }
