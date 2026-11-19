@@ -3,7 +3,8 @@
 // `delivery` and `diagnostics`; the server never sets them.
 
 export type EffortValue = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-export type ModelStatus = "preview" | "deprecated";
+/** "disabled": turned off by the live catalog's kill switch (cloud-api /v1/models/catalog); clients hide it. */
+export type ModelStatus = "preview" | "deprecated" | "disabled";
 export type InputModality = "text" | "image" | "pdf" | "audio" | "video";
 
 export interface ModelInfo {
@@ -33,6 +34,8 @@ export interface HarnessModel {
   fast?: boolean;
   aliases?: string[];
   status?: ModelStatus;
+  /** Why a model is "disabled" (the kill switch's reason), for a tooltip. */
+  statusReason?: string;
 }
 
 export interface CatalogHarness {
