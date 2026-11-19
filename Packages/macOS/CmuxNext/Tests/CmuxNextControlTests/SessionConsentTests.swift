@@ -4,18 +4,19 @@ import Darwin
 import Foundation
 import Testing
 
+/// Whether the linked app FFI has the consent rules (a pin from before them answers nothing). Outside the suites:
+/// a suite trait cannot read its own type.
+let sessionConsentRulesAnswer = SessionConsentRules().mintCall(
+    authWebOrigin: "https://cmux.com",
+    ask: SessionConsentAsk(title: "", message: "", allow: "", deny: "", timeout: .seconds(1),
+                           declined: ControlError(code: "forbidden", message: "declined"), bundleID: "x", tag: nil)) != nil
+
 /// `auth.session.request`: cmux NIGHTLY asks the person before it mints a NEW session for a same-user cmux app
 /// (ad hoc signed included), and refuses another user, a signature that is not the asked bundle id, another
 /// backend, and a deny or a timeout. The Security framework, the dialog and the web route are faked; the uid
 /// and audit token come from the kernel and every decision from Rust (cmux-cloud-config `handoff`).
-@Suite(.serialized, .enabled(if: SessionConsentTests.rulesAnswer, "needs an app FFI with cloud_handoff_*"))
+@Suite(.serialized, .enabled(if: sessionConsentRulesAnswer, "needs an app FFI with cloud_handoff_*"))
 struct SessionConsentTests {
-    /// Whether the linked app FFI has the consent rules (a pin from before them answers nothing).
-    static let rulesAnswer = SessionConsentRules().mintCall(
-        authWebOrigin: "https://cmux.com",
-        ask: SessionConsentAsk(title: "", message: "", allow: "", deny: "", timeout: .seconds(1),
-                               declined: ControlError(code: "forbidden", message: "declined"), bundleID: "x", tag: nil)) != nil
-
     static let dev = "com.cmuxterm.app.debug.feature1"
     static let project = "prod-project"
     static let mintedAccess = "minted-access-\(UUID().uuidString)"
@@ -208,7 +209,7 @@ struct SessionConsentTests {
 
 /// With an app FFI that has no consent rules (a pin from before them), every request is refused and nothing is
 /// asked or minted.
-@Suite(.enabled(if: !SessionConsentTests.rulesAnswer, "the linked app FFI has cloud_handoff_*"))
+@Suite(.enabled(if: !sessionConsentRulesAnswer, "the linked app FFI has cloud_handoff_*"))
 struct SessionConsentWithoutRulesTests {
     @Test func everyRequestIsRefused() async throws {
         let seen = SessionConsentTests.Seen()
