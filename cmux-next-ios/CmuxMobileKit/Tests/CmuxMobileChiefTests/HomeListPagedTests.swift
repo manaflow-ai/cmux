@@ -24,6 +24,7 @@ import UIKit
 
     final class Recorder {
         var applies: [(reconfigured: [AnyHashable], rowsChanged: Bool)] = []
+        var slides: [Int] = []
     }
 
     private func host(rows: Int) throws -> Hosted {
@@ -35,6 +36,7 @@ import UIKit
         let recorder = Recorder()
         let probe = PagedListProbe()
         probe.applied = { reconfigured, rowsChanged in recorder.applies.append((reconfigured, rowsChanged)) }
+        probe.slid = { frames in recorder.slides.append(frames) }
         var home = ConversationsHome(store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []),
                                      sources: sources, feed: feed, open: { _ in }) {
             ToolbarItem(placement: .topBarLeading) { EmptyView() }
@@ -69,6 +71,26 @@ import UIKit
         #expect(home.applies.count == 1, "applies: \(home.applies.count)")
         #expect(home.applies.first?.reconfigured == [expected], "reconfigured \(home.applies.first?.reconfigured ?? [])")
         #expect(home.applies.first?.rowsChanged == false, "a typing change moved rows")
+    }
+
+    /// A Chief that posts while the reader is at the top slides in at the top of the rows, under the
+    /// pinned grid, on the list's spring (more than one frame): the grid, a header, never holds the
+    /// rows in place (review of 1415658: with pins the row was pushed in, in one frame).
+    @Test func aNewMessageAtTheTopSlidesInUnderThePins() throws {
+        let home = try host(rows: 120)
+        defer { home.window.isHidden = true }
+        let rows = home.feed.rows ?? []
+        #expect(rows.prefix(4).allSatisfy(\.isPinned), "the rig pins four rows")
+        let firstUnpinned = try #require(rows.first { !$0.isPinned }).id
+        home.recorder.slides = []
+        // An even tick: a new message, its Chief moves to the top of the unpinned rows.
+        home.feed.stressLiveTick(2, changes: 1)
+        let deadline = Date().addingTimeInterval(3)
+        while home.recorder.slides.isEmpty, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        let moved = try #require(home.feed.rows?.first { !$0.isPinned }).id
+        #expect(moved != firstUnpinned, "the tick moved no Chief to the top")
+        let frames = try #require(home.recorder.slides.first, "no slide")
+        #expect(frames > 1, "the new row jumped in (\(frames) frame)")
     }
 
     /// HOME-14: a burst of 1000 changes before the next frame (a busy Mac's events while the main

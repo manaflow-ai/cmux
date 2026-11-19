@@ -136,6 +136,8 @@ final class HomeListItems {
         var cloudReady: Bool
         /// The day the time stamps are relative to ("Yesterday", a weekday).
         var day: Date
+        /// The locale the time stamps are written in.
+        var locale = Locale.current.identifier
     }
 
     /// Everything else the items show, besides the list's rows.
@@ -162,6 +164,7 @@ final class HomeListItems {
     }
 
     private var last: (list: Int, context: RowContext, extras: Extras, items: [HomeItem])?
+    private var ownSeen: (query: String, hidden: Int, assemblies: Int, own: Bool)?
     private var built: [String: Built] = [:]
     private var builtContext: RowContext?
     /// Row models built (tests: one per changed row, none for a pass with nothing new).
@@ -170,6 +173,17 @@ final class HomeListItems {
     private(set) var assemblies = 0
 
     init() {}
+
+    /// Whether the items' last change was the person's own: the search changed, or hidden rows were
+    /// hidden or shown again (``PagedList/pagedCountsArrivals(_:)``: the rows it brings above the
+    /// top are not new). Ask after ``items(_:listRevision:context:extras:)``: a body pass that
+    /// assembled nothing new gets the same answer as the pass that did.
+    func isOwnChange(query: String, hidden: Int) -> Bool {
+        if let seen = ownSeen, seen.query == query, seen.hidden == hidden, seen.assemblies == assemblies { return seen.own }
+        let own = ownSeen.map { $0.query != query || $0.hidden != hidden } ?? false
+        ownSeen = (query, hidden, assemblies, own)
+        return own
+    }
 
     /// Home's items for `list` (whose ``MacHomeList/Memo/revision`` is `listRevision`).
     func items(_ list: MacHomeList, listRevision: Int, context: RowContext, extras: Extras) -> [HomeItem] {

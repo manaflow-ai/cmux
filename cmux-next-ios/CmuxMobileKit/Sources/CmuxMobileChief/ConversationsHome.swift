@@ -274,6 +274,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         // Built once per change of what they show; a pass with nothing new returns the last ones.
         let shown = items.items(list, listRevision: listMemo.revision, context: rowContext(macTag: macTag),
                                 extras: extras(searching: searching, macTag: macTag))
+        let own = items.isOwnChange(query: query, hidden: hiddenRows.revision)
         // The shared list (verify/paged-list.md): rows redraw in place when their value changes,
         // with no animation over the whole list; a Chief that posts slides in at the top of the
         // rows, or counts on the newest pill while the reader is away from the top.
@@ -286,6 +287,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             // RowSwipeActions). A full swipe runs none, as before.
             .pagedSwipeActions(allowsFullSwipe: false) { item in swipeActions(item) }
             .pagedHeader(Self.headerIDs)
+            // A search typed or cleared, or hidden rows shown again, brings rows above the top that
+            // are not new: no slide, no count on the pill.
+            .pagedCountsArrivals(!own)
             .pagedNewestIndicator { newest in
                 if newest.unseen > 0 { PagedListNewestPill(newest, direction: .down) }
             }
@@ -485,7 +489,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     .accessibilityIdentifier("home.chief.changeError")
             case let .row(model):
                 // Plain values: SwiftUI skips the row's body and menu when they did not change.
-                HomeListRow(model: model, open: open, feed: feed, delete: askToDelete)
+                HomeListRow(model: model, open: open, feed: feed, macChief: sources.mac, delete: askToDelete)
                     .equatable()
                     .padding(.trailing, 16)
                     .overlay(alignment: .bottom) { HomeRowSeparator() }
@@ -802,6 +806,8 @@ struct HomeListRow: View, Equatable {
     let model: Model
     let open: (HomeConversationRoute) -> Void
     let feed: MacHomeFeed
+    /// The Mac Chief its menu's Call Chief calls (the row is the Mac Chief's).
+    let macChief: ChiefSession
     /// Delete Conversation from List (asks first).
     var delete: ((String) -> Void)?
 
@@ -817,8 +823,8 @@ struct HomeListRow: View, Equatable {
         }
         .buttonStyle(.cmuxPressFill)
         .contextMenu {
-            HomeRowMenu(id: model.id, isMacChief: model.isMacChief, isPinned: model.isPinned, isUnread: model.isUnread, feed: feed,
-                        delete: delete)
+            HomeRowMenu(id: model.id, isMacChief: model.isMacChief, macChief: macChief, isPinned: model.isPinned,
+                        isUnread: model.isUnread, feed: feed, delete: delete)
         }
         .accessibilityIdentifier(model.isMacChief ? "home.chief.mac" : "home.row.\(model.id)")
     }

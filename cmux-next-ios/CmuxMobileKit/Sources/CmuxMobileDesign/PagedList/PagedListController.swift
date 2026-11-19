@@ -266,6 +266,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     var fullSwipe = true
     /// Items that head a `.down` list: not its newest rows (``PagedList/pagedHeader(_:)``).
     var header: Set<Item.ID> = []
+    /// Rows that land above the newest row count as arrivals (``PagedList/pagedCountsArrivals(_:)``).
+    var countsArrivals = true
     var loadMore: () -> Void = {}
     /// Reads the newer rows a windowed model holds on disk.
     var loadNewer: () -> Void = {}
@@ -492,7 +494,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // Rows that arrived at the newest end: the rows now on the newest side of the old newest row.
         let oldNewest = newestID(in: order)
         var arrivals = 0
-        if loaded, heldNewest, let oldNewest, oldNewest != newestID(in: newOrder), let at = newOrder.firstIndex(of: oldNewest) {
+        if loaded, heldNewest, countsArrivals, let oldNewest, oldNewest != newestID(in: newOrder), let at = newOrder.firstIndex(of: oldNewest) {
             arrivals = direction == .down ? at - newOrder[..<at].count(where: header.contains) : newOrder.count - 1 - at
         }
         let animates = animatesNewest && !UIAccessibility.isReduceMotionEnabled
@@ -624,12 +626,18 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         }
         let top = readerTop
         var rows: [Anchor.Row] = []
+        var headers: [Anchor.Row] = []
         for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
             guard let attributes = collectionView.layoutAttributesForItem(at: indexPath),
                   attributes.frame.maxY > top + 0.5,
-                  let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
-            rows.append(Anchor.Row(id: id, index: indexPath.item, windowY: windowY(attributes)))
+                  let id = dataSource.itemIdentifier(for: indexPath), case .row(let rowID) = id else { continue }
+            let row = Anchor.Row(id: id, index: indexPath.item, windowY: windowY(attributes))
+            // The items heading a `.down` list (``PagedList/pagedHeader(_:)``) never hold the reader
+            // while a row is in view: rows arriving under them would push the rows down in place of
+            // the slide, and a header that changes height would move what is being read.
+            if header.contains(rowID) { headers.append(row) } else { rows.append(row) }
         }
+        if rows.isEmpty { rows = headers }
         return rows.isEmpty ? nil : Anchor(rows: rows)
     }
 
