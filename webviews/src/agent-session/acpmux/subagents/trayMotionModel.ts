@@ -5,6 +5,9 @@ import { cssTimeMs, FOLD_DROP_MS, foldMotion } from "../conversation/fold";
 /// The card's class while it enters, and its kept copy's while it leaves (subagents.css).
 export const TRAY_ENTER_ATTR = "data-tray-enter";
 export const TRAY_GHOST = "acpmux-running-tray--ghost";
+/// The card's laid-out height as it starts to enter: its entrance grows from 0 to it (subagents.css
+/// `acpmux-tray-settle-in`), so the rows over the stack follow it frame by frame.
+export const TRAY_ENTER_HEIGHT = "--acpmux-tray-enter-height";
 
 /// Whether a change may move now: the page shows, the host lets it move, and Reduce Motion is off.
 export function motionAllowed(node: Element): boolean {
