@@ -432,3 +432,104 @@ fn an_unchanged_chats_newest_page_asked_again_reads_nothing() {
     assert_eq!(seqs(&after).last(), Some(&appended.seq), "the page holds the appended record");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A chat on disk of `prompts` turns, each a prompt and a 2 KB reply, in 64 KiB segments: a long
+/// chat's many segments in a small log.
+fn prompted_chat(prompts: u64) -> (std::path::PathBuf, Arc<Hub>) {
+    let root = std::env::temp_dir().join(format!("acpmux-prompt-pages-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let writer = crate::store::LocalStore::new(sessions.clone(), 64 << 10).unwrap();
+    let reply = "word ".repeat(400);
+    let mut seq = 0;
+    for n in 0..prompts {
+        seq += 1;
+        let prompt = json!({"text": format!("prompt {n}"), "promptId": format!("p{n}")});
+        let record = EventRecord {
+            seq,
+            at: seq,
+            dir: "mux".into(),
+            kind: "user_message".into(),
+            msg: prompt,
+            host_seq: None,
+        };
+        writer.append("c", &record).unwrap();
+        seq += 1;
+        let update = json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}});
+        let msg =
+            json!({"method": "session/update", "params": {"sessionId": "a", "update": update}});
+        let record = EventRecord {
+            seq,
+            at: seq,
+            dir: "in".into(),
+            kind: "agent_message_chunk".into(),
+            msg,
+            host_seq: None,
+        };
+        writer.append("c", &record).unwrap();
+    }
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "c", "name": "chat", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
+        "lastSeq": seq, "eventCount": seq,
+    }))
+    .unwrap();
+    writer.save(&meta).unwrap();
+    writer.flush().unwrap();
+    drop(writer);
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::LocalStore::new(sessions, 64 << 10).unwrap();
+    (root, Hub::new_deferred(config, Box::new(store), crate::mailbox::Mailbox::memory()))
+}
+
+fn prompt_page(before: u64, limit: u64, max_bytes: u64) -> Value {
+    json!({"sessionId": "c", "beforeSeq": before, "promptIndex": true, "kinds": ["user_message"],
+        "limit": limit, "maxBytes": max_bytes})
+}
+
+/// The prompt index answers pages: the newest `limit` prompts before `beforeSeq` within
+/// `maxBytes`, oldest first, `hasMore` while older ones are left. It answered every prompt of the
+/// chat in one reply whatever it asked, reading every segment's copy of its prompts: a reply and a
+/// read that grew with the chat (infinite chats, Leo 2026-11-19). A page reads the copies of the
+/// segments it holds prompts from, not the log's.
+#[test]
+fn the_prompt_index_answers_bounded_pages_newest_first() {
+    let (root, hub) = prompted_chat(600);
+    let last = 1200u64;
+    // Pages back from the end hold every prompt once, in order.
+    let mut before = last + 1;
+    let mut seen = Vec::new();
+    let mut pages = 0;
+    loop {
+        let page =
+            handle(&hub, method::MUX_EVENTS, &prompt_page(before, 50, 256 << 10), None).unwrap();
+        let got = seqs(&page);
+        assert!(got.len() <= 50, "{} prompts in one page", got.len());
+        assert!(got.windows(2).all(|w| w[0] < w[1]), "oldest first: {got:?}");
+        assert!(got.iter().all(|s| *s < before));
+        pages += 1;
+        seen.splice(0..0, got.iter().copied());
+        if page["hasMore"] != json!(true) {
+            break;
+        }
+        before = got[0];
+    }
+    assert_eq!(pages, 12);
+    assert_eq!(seen, (0..600).map(|n| n * 2 + 1).collect::<Vec<u64>>());
+    // `maxBytes` bounds a page too, and a page always holds one prompt.
+    let page = handle(&hub, method::MUX_EVENTS, &prompt_page(last + 1, 5000, 1), None).unwrap();
+    assert_eq!(seqs(&page), [last - 1]);
+    assert_eq!(page["hasMore"], true);
+    // The newest page reads its few segments, not the chat's every copy.
+    if cfg!(target_os = "linux") {
+        let all = read_bytes();
+        handle(&hub, method::MUX_EVENTS, &prompt_page(last + 1, 1_000_000, 64 << 20), None)
+            .unwrap();
+        let all = read_bytes() - all;
+        let newest = read_bytes();
+        handle(&hub, method::MUX_EVENTS, &prompt_page(last + 1, 16, 256 << 10), None).unwrap();
+        let newest = read_bytes() - newest;
+        assert!(newest * 10 < all, "the newest page read {newest} bytes, every prompt {all}");
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
