@@ -93,14 +93,16 @@ public struct TabChromeVisibility: Hashable, Sendable {
         return form
     }
 
-    /// One close-button origin for the painted layer and the pre-hover AX target.
-    /// When the icon yields its sole slot, the x is centered; with both visible,
-    /// it remains in the trailing track. A hidden x has no origin.
+    /// One close-button origin for the painted layer, rapid close's hit target and the pre-hover AX target.
+    /// When the icon yields its sole slot, the x is centered; with both visible, it remains in the trailing
+    /// track, moved with a titled tab's status mark into the mirrored slot under `mirrorAll`. A hidden x has no origin.
     func closeButtonOriginX(pillWidth: CGFloat, metrics m: TabStripMetrics) -> CGFloat? {
         guard showsClose else { return nil }
-        return showsIcon || !centersContent
-            ? pillWidth - m.contentTrailingInset - m.closeButtonSize
-            : (pillWidth - m.closeButtonSize) / 2
+        guard showsIcon || !centersContent else { return (pillWidth - m.closeButtonSize) / 2 }
+        guard showsTitle, m.resolvedStatusMarkPlacement == .mirrorAll else {
+            return pillWidth - m.contentTrailingInset - m.closeButtonSize
+        }
+        return m.statusSlotMidX(pillWidth: pillWidth, placement: .mirrorAll) - m.closeButtonSize / 2
     }
 
     /// The form at each width of a width path (an open, a close, a selection change, a reflow), from

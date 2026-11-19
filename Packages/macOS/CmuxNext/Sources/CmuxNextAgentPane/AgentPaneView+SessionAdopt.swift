@@ -81,7 +81,7 @@ extension AgentPaneView {
 
     /// Lays the page outside the window now, before the pane shows this view, and back in place in
     /// the turn it reports the chat drawn (or the loading state's give-up marks it painted).
-    private func holdPageAway(moved: (@MainActor () -> Void)?) {
+    func holdPageAway(moved: (@MainActor () -> Void)?) {
         holdsPageAway = true
         pageContent.frame = Self.awayFrame(of: topBar.pageFrame(in: bounds))
         moved?()

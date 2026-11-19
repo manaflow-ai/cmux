@@ -12,6 +12,7 @@ import { $prose } from "@milkdown/kit/utils";
 import type { UiVirtualAnchor } from "../../ui/Popover";
 import { findHeading, headingTargets, parseLink, pastedURL, relativeLinkPaths, type ResolvedLink } from "./links";
 import { RAW_NODE, type ReferenceInfo } from "./sourceMap";
+import { changedBlocks, decorateAll, redecorate } from "./redecorate";
 import type { LinkBubbleState, LinkOverlays } from "./overlays";
 
 export type LinkLabel =
@@ -57,10 +58,10 @@ const linkKey = new PluginKey<DecorationSet>("cmuxMarkdownLinks");
 /** Marks links whose target is missing (`md-link-broken`) and asks the host about new ones. */
 export function brokenLinkPlugin(host: LinkHost) {
   return $prose(() => {
-    const decorate = (doc: ProseNode): DecorationSet => {
-      host.requestLinks(relativeLinkPaths(doc));
+    const decorate = (doc: ProseNode, from: number, to: number): Decoration[] => {
+      host.requestLinks(relativeLinkPaths(doc, from, to));
       const decorations: Decoration[] = [];
-      doc.descendants((node, pos) => {
+      doc.nodesBetween(from, to, (node, pos) => {
         if (!node.isText) return true;
         const mark = node.marks.find((candidate) => candidate.type.name === "link");
         if (!mark) return false;
@@ -69,18 +70,32 @@ export function brokenLinkPlugin(host: LinkHost) {
         }
         return false;
       });
-      return DecorationSet.create(doc, decorations);
+      return decorations;
     };
+    const whole = (doc: ProseNode) => decorateAll(doc, (from, to) => decorate(doc, from, to));
     return new Plugin<DecorationSet>({
       key: linkKey,
       state: {
-        init: (_config, state) => decorate(state.doc),
-        apply: (tr, previous, _old, state) =>
-          tr.docChanged || tr.getMeta(linkKey) ? decorate(state.doc) : previous.map(tr.mapping, tr.doc),
+        init: (_config, state) => whole(state.doc),
+        apply: (tr, previous) => {
+          if (tr.getMeta(linkKey)) return whole(tr.doc);
+          if (!tr.docChanged) return previous;
+          const changed = changedBlocks(tr);
+          // An anchor link anywhere is broken or not by the headings: when they change, every link is checked.
+          if (changed.length && !sameHeadings(tr.before, tr.doc)) return whole(tr.doc);
+          return redecorate(previous, tr, changed, (from, to) => decorate(tr.doc, from, to));
+        },
       },
       props: { decorations: (state) => linkKey.getState(state) },
     });
   });
+}
+
+/** Whether two documents have the same heading anchors, in order. */
+function sameHeadings(a: ProseNode, b: ProseNode): boolean {
+  const before = headingTargets(a);
+  const after = headingTargets(b);
+  return before.length === after.length && before.every((target, index) => target.slug === after[index]!.slug);
 }
 
 /** Re-checks link decorations (the host answered a resolve batch). */

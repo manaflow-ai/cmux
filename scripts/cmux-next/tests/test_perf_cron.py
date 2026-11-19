@@ -3175,5 +3175,73 @@ class NotMeasuringTests(unittest.TestCase):
         self.assertIsNone(cron.not_measuring_reason("f" * 40, 3))
 
 
+class PartRowsStoredAtOnceTests(unittest.TestCase):
+    """Each finished tip part's rows are stored when the part finishes (state['part_rows'], tagged with the tip's SHA),
+    not only when the whole measurement ends: a failed part leaves the other parts' rows, a measurement still running
+    shows its finished parts, and staleness counts per part. The measurement's own finish and comparison are unchanged
+    (test_a_dropped_measurement_leaves_no_rows_to_the_next, ReferenceTests)."""
+
+    def report(self, d, state, results, now=None):
+        with open(os.path.join(d, "state.json"), "w") as f:
+            json.dump(state, f)
+        with mock.patch.object(cron, "now_utc", lambda: now or at(1)):
+            cron.cmd_report(argparse.Namespace(repo="o/r", dir=d, result=results, run_url="u", finish=False, issues=False,
+                                               output=os.path.join(d, "report.out")))
+        with open(os.path.join(d, "state.json")) as f:
+            return json.load(f)
+
+    def part_dir(self, d, name, result, report=None):
+        part = os.path.join(d, f"in-{name}-{len(os.listdir(d))}")
+        os.makedirs(part)
+        with open(os.path.join(part, "result.json"), "w") as f:
+            json.dump(result, f)
+        if report is not None:
+            with open(os.path.join(part, "report.json"), "w") as f:
+                json.dump(report, f)
+        return f"{name}={part}"
+
+    STRESS = {"refresh_ms": 8.33, "summary": [{"action": "close", "layout": "stress", "frames_p50_ms": 8.3,
+                                               "frames_p95_ms": 30.0, "missed": 0}]}
+
+    def state_with(self, parts_todo):
+        state = cron.empty_state(T0)
+        state["persisted"] = True
+        state["last"] = state["last_good"] = {"sha": "0" * 40, "measured_at": cron.iso(T0), "rows": {}, "refresh_ms": 8.33}
+        state["current"] = cron.new_measurement("a" * 40, "tip", parts_todo, T0)
+        return state
+
+    def test_a_failed_part_leaves_the_finished_parts_rows(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = self.state_with(["stress", "motion"])
+            results = [self.part_dir(d, "stress", {"state": "done", "worker": cron.BENCH_WORKER}, self.STRESS),
+                       self.part_dir(d, "motion", {"state": "failed"})]
+            state = self.report(d, state, results)
+            rows = state.get("part_rows") or {}
+            self.assertTrue(rows, "the finished part's rows are stored although another part failed")
+            for name, value in rows.items():
+                self.assertTrue(name.endswith("@" + cron.BENCH_WORKER), name)
+                self.assertEqual(value["sha"], "a" * 40, "tagged with the tip SHA")
+                self.assertEqual(value["part"], "stress")
+            self.assertEqual(state["part_stored"]["stress"]["sha"], "a" * 40)
+            self.assertNotIn("motion", state["part_stored"])
+
+    def test_a_measurement_still_running_shows_its_finished_parts(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = self.state_with(["stress", "motion"])
+            state = self.report(d, state, [self.part_dir(d, "stress", {"state": "done", "worker": cron.BENCH_WORKER},
+                                                         self.STRESS)])
+            self.assertIsNotNone(state["current"], "the measurement is still in flight")
+            self.assertTrue(state.get("part_rows"))
+            self.assertFalse(state.get("row_history"), "the baseline and comparison are untouched until the finish")
+
+    def test_staleness_counts_per_part(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = self.state_with(["stress", "motion"])
+            state = self.report(d, state, [self.part_dir(d, "stress", {"state": "done", "worker": cron.BENCH_WORKER},
+                                                         self.STRESS)])
+            self.assertEqual(cron.stale_parts(state, at(2)), [])
+            self.assertEqual(cron.stale_parts(state, at(2 + cron.STALE_HOURS)), ["stress"])
+
+
 if __name__ == "__main__":
     unittest.main()
