@@ -494,22 +494,9 @@ jobs:
           if [[ "$RUNNER_OS" == macOS ]]; then
             export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
           fi
-          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
-          # The terminal holder (std and libc only), its own invocation so its
-          # features do not unify with the daemon's. The daemon starts every
-          # holder from a copy of it found beside its own executable.
-          cargo build -p cmux-holder --bin cmux-holder --release --locked --target ${{ matrix.build_target }}
-          # The app host runs each app's JS next to the daemon, which finds it
-          # beside its own executable (cmux-tui-core::apps). Unix only.
-          cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
-          cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
-          cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
-          # The script prints one `--features=...` argument or nothing.
-          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }} acpmux)"
-          cargo build -p acpmux-standalone --bin acpmux-standalone --release --locked --target ${{ matrix.build_target }} \
-            ${acpmux_features:+"$acpmux_features"}
-          # As the Linux legs: the build id only in this binary, staged as acpmux.
-          cp "target/${{ matrix.build_target }}/release/acpmux-standalone" "target/${{ matrix.build_target }}/release/acpmux"
+          # Six cargo builds, at once with 40 GiB of memory or more, else one after another
+          # (a 16 GB mini ran out of memory building them at once).
+          ../scripts/ci/cmux-tui-mac-cargo-builds.sh ${{ matrix.build_target }}
 
       # Warm start for the shipped fat-LTO legs on feat-cmux-next pushes (both musl targets and
       # the macOS targets built on Linux): the previous build's whole target dir and cargo
@@ -708,22 +695,9 @@ jobs:
           if [[ "$RUNNER_OS" == macOS ]]; then
             export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
           fi
-          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
-          # The terminal holder (std and libc only), its own invocation so its
-          # features do not unify with the daemon's. The daemon starts every
-          # holder from a copy of it found beside its own executable.
-          cargo build -p cmux-holder --bin cmux-holder --release --locked --target ${{ matrix.build_target }}
-          # The app host runs each app's JS next to the daemon, which finds it
-          # beside its own executable (cmux-tui-core::apps). Unix only.
-          cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
-          cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
-          cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
-          # The script prints one `--features=...` argument or nothing.
-          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }} acpmux)"
-          cargo build -p acpmux-standalone --bin acpmux-standalone --release --locked --target ${{ matrix.build_target }} \
-            ${acpmux_features:+"$acpmux_features"}
-          # As the Linux legs: the build id only in this binary, staged as acpmux.
-          cp "target/${{ matrix.build_target }}/release/acpmux-standalone" "target/${{ matrix.build_target }}/release/acpmux"
+          # Six cargo builds, at once with 40 GiB of memory or more, else one after another
+          # (a 16 GB mini ran out of memory building them at once).
+          ../scripts/ci/cmux-tui-mac-cargo-builds.sh ${{ matrix.build_target }}
 
       - name: Build cmux-cloud app server
         # The first-party Cloud app server (cmux/cloud) is its own Cargo

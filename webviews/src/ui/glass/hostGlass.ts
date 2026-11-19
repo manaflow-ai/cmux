@@ -69,8 +69,10 @@ export const HOST_GLASS_ENGINES_ATTRIBUTE = "data-host-glass-engines";
 /** On a surface while it closes (Base UI sets it for the close fade): it leaves the App's glass. */
 export const HOST_GLASS_ENDING_ATTRIBUTE = "data-ending-style";
 
-export type HostGlassLevel = "popover" | "menu" | "chip";
-const LEVELS: ReadonlySet<string> = new Set<HostGlassLevel>(["popover", "menu", "chip"]);
+/** The glass levels a surface may ask for. `chrome` is docked glass (the tab strip's, a drag ghost's):
+ * only the Liquid Glass Parity playground asks for it; the agent pane draws no docked glass and refuses it. */
+export type HostGlassLevel = "popover" | "menu" | "chip" | "chrome";
+const LEVELS: ReadonlySet<string> = new Set<HostGlassLevel>(["popover", "menu", "chip", "chrome"]);
 
 /** On a surface: the native role whose glass the App draws when it is not its level's own (a dialog's
  * neutral glass, `sheet`, as CmuxDialogCardSurface draws a native dialog card; a toast's, `toast`). */
