@@ -412,7 +412,11 @@ export interface EventsParams {
   /** Default 5000. */
   limit?: (number | null);
   maxBytes?: (number | null);
-  /** The prompts before `beforeSeq`, newest page first and oldest first within a page, each cut to its id and the start of its text (`Hub::prompt_index`). `limit` and `maxBytes` bound the page; `hasMore` says an older page remains, whose `beforeSeq` is the first event's seq. */
+  /**
+   * The prompts before `beforeSeq`, newest page first and oldest first within a page, each cut
+   * to its id and the start of its text (`Hub::prompt_index`). `limit` and `maxBytes` bound the
+   * page; `hasMore` says an older page remains, whose `beforeSeq` is the first event's seq.
+   */
   promptIndex?: (boolean | null);
   sessionId: string;
   /**
