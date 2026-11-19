@@ -809,3 +809,86 @@ fn tab_create_browser_makes_a_frontend_tab_when_the_app_is_attached() {
     let tab = tab_by_resource(&listed, &value(&webkit)["tab_id"]);
     assert_eq!(tab["browser_engine"], "webkit", "{listed}");
 }
+
+/// A workspace as the app opens an agent chat: one pane, not docked, that
+/// holds an agent chat tab. Its public id and the chat's pane (a raw tree
+/// value).
+fn undocked_chat_workspace(server: &HeadlessServer, name: &str) -> (String, Value) {
+    let created = v2(
+        server,
+        "workspace.create",
+        json!({"initial_content": "terminal", "name": name}),
+        Some(&format!("{name}-ws")),
+    );
+    let workspace = value(&created)["workspace_id"].as_str().unwrap().to_string();
+    let pane = screen(server, &workspace)["panes"][0]["id"].clone();
+    let chat = raw(
+        server,
+        json!({"cmd": "new-conversation-tab", "pane": pane,
+               "agent_session": {"host": "install:open-url-test", "session": null,
+                                 "harness": "claude"}}),
+    );
+    assert!(chat["tab_resource_id"].is_string(), "no agent chat tab: {chat}");
+    let chat_pane = screen(server, &workspace)["panes"][0].clone();
+    (workspace, chat_pane)
+}
+
+/// The app opens an agent chat as a plain left pane, not as a dock. A link,
+/// and a browser tab made in the workspace with no pane named (`cmux tab
+/// create browser --workspace`, the Chief's "show the work in the subagent's
+/// workspace"), still open on the chat's right: in a new column that shares
+/// the window, then in that column, never among the chat's own tabs
+/// (Lawrence 2026-11-19: "agent chat that is on left, will open stuff to
+/// the right").
+#[test]
+fn open_url_opens_right_of_an_agent_chat_that_is_not_docked() {
+    let server = HeadlessServer::start("open-url-chat-pane");
+    let _app = frontend_app(&server);
+    let (workspace, chat) = undocked_chat_workspace(&server, "open-url-chat-pane");
+    let chat_tabs = chat["tabs"].as_array().unwrap().len();
+    let before = screen(&server, &workspace);
+    assert_eq!(before["panes"].as_array().unwrap().len(), 1, "{before}");
+    assert_eq!(before["active_pane"], chat["id"], "{before}");
+
+    let open = |url: &str, key: &str| {
+        v2(&server, "workspace.open_url", json!({"workspace": workspace, "url": url}), Some(key))
+    };
+    let opened = open("https://example.com/one", "open-url-chat-pane-1");
+    let first = value(&opened).clone();
+    assert_eq!(first["kind"], "browser", "{opened}");
+    assert_eq!(first["reused"], false, "{opened}");
+    assert_ne!(
+        first["pane_id"], chat["resource_id"],
+        "a link opened among the chat's own tabs: {opened}"
+    );
+    let after = screen(&server, &workspace);
+    assert_eq!(after["panes"].as_array().unwrap().len(), 2, "no column right of the chat: {after}");
+    assert_eq!(
+        pane_by_resource(&after, &chat["resource_id"])["tabs"].as_array().unwrap().len(),
+        chat_tabs,
+        "a browser tab went into the chat's pane: {after}"
+    );
+    assert_eq!(after["active_pane"], chat["id"], "the keyboard focus left the chat: {after}");
+
+    // The next link reuses the tab on the right.
+    let again = open("https://example.com/two", "open-url-chat-pane-2");
+    assert_eq!(value(&again)["reused"], true, "{again}");
+    assert_eq!(value(&again)["tab_id"], first["tab_id"], "{again}");
+
+    // A browser tab made in the workspace with no pane named, while the chat
+    // has the focus, goes to that column too.
+    let created = v2(
+        &server,
+        "tab.create_browser",
+        json!({"workspace": workspace, "url": "https://example.com/three"}),
+        Some("open-url-chat-pane-3"),
+    );
+    assert_eq!(value(&created)["pane_id"], first["pane_id"], "{created}");
+    let last = screen(&server, &workspace);
+    assert_eq!(last["panes"].as_array().unwrap().len(), 2, "a third column: {last}");
+    assert_eq!(
+        pane_by_resource(&last, &chat["resource_id"])["tabs"].as_array().unwrap().len(),
+        chat_tabs,
+        "a created browser tab went into the chat's pane: {last}"
+    );
+}
