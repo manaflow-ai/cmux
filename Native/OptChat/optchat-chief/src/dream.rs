@@ -444,10 +444,11 @@ pub fn cited_rules(
     let mut dropped = Vec::new();
     for line in body.lines() {
         let t = line.trim();
-        // Only a blank line, a heading, a line the file already holds, or a
+        // Only a blank line, the file's heading, a line the file already holds, or a
         // line that cites the person's own message: any other text (a
         // numbered or plain line too) could be a rule from someone else.
-        if t.is_empty() || t.starts_with('#') || old.contains(t) || cites(t) {
+        // The one heading the file has; any other heading could carry a rule.
+        if t.is_empty() || t == "# Standing rules" || old.contains(t) || cites(t) {
             kept.push(line);
         } else {
             dropped.push(t.to_owned());

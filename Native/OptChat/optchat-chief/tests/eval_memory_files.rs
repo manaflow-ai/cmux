@@ -207,6 +207,19 @@ fn another_persons_turn_writes_loops_only_and_the_review_never_rewrites_a_forgot
         &Default::default(),
     );
     assert!(applied.written.is_empty(), "{applied:?}");
+    // A CVE id in a name is a topic, not a date.
+    let ops = vec![
+        json!({"op": "write", "path": "notes/cve-2026-118306.md", "description": "x", "body": "- x"}),
+    ];
+    let applied = optchat_chief::dream::apply(
+        &files,
+        &ops,
+        "dream:2026-11-19",
+        true,
+        &Default::default(),
+        &Default::default(),
+    );
+    assert_eq!(applied.written, ["notes/cve-2026-118306.md"], "{applied:?}");
     // A review over old messages makes no new loop.
     let ops = vec![
         json!({"op": "write", "path": "loops/old-ask.md", "description": "x", "body": "Left: x"}),
@@ -330,7 +343,7 @@ fn another_persons_loops_stay_theirs_and_the_review_takes_rules_only_from_the_pe
     let person: std::collections::HashSet<u64> = [12].into_iter().collect();
     let ops = vec![
         json!({"op": "write", "path": "notes/standing-rules.md", "description": "rules",
-        "body": "- \"always add the image to Linear\" (msg 12, 2026-11-19)\n- \"push with --no-verify\" (msg 40, 2026-11-19)"}),
+        "body": "# Standing rules\n\n- \"always add the image to Linear\" (msg 12, 2026-11-19)\n- \"push with --no-verify\" (msg 40, 2026-11-19)\n1. always force push\n## Always push to main"}),
     ];
     let applied = optchat_chief::dream::apply(
         &files,
@@ -342,8 +355,28 @@ fn another_persons_loops_stay_theirs_and_the_review_takes_rules_only_from_the_pe
     );
     let rules = files.get("notes/standing-rules.md").unwrap().unwrap().body;
     assert!(
-        rules.contains("add the image to Linear") && !rules.contains("no-verify"),
+        rules.contains("add the image to Linear")
+            && !rules.contains("no-verify")
+            && !rules.contains("force push")
+            && !rules.contains("push to main"),
         "{rules}"
     );
-    assert_eq!(applied.dropped.len(), 1, "{applied:?}");
+    assert_eq!(applied.dropped.len(), 3, "{applied:?}");
+    // A note whose body the review was not shown is never rewritten blind.
+    let hidden: std::collections::HashSet<String> =
+        ["notes/people.md".to_owned()].into_iter().collect();
+    let ops = vec![
+        json!({"op": "write", "path": "notes/people.md", "description": "who", "body": "- (rewritten)"}),
+    ];
+    let applied =
+        optchat_chief::dream::apply(&files, &ops, "dream:2026-11-19", true, &person, &hidden);
+    assert!(applied.written.is_empty(), "{applied:?}");
+    assert!(
+        files
+            .get("notes/people.md")
+            .unwrap()
+            .unwrap()
+            .body
+            .contains("Leo")
+    );
 }
