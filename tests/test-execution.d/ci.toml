@@ -559,6 +559,10 @@ path = "tests/test_ci_required_checks_have_no_path_filters.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_required_checks_keep_their_size.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_rescue_actors.py"
 lane = "linux-guard"
 

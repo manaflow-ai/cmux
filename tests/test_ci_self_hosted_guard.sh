@@ -1132,6 +1132,9 @@ SIGNER_BUILD_ROUTE
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
     # Detects a Blacksmith outage, so it must run where Blacksmith is not (review of #46492, F1).
     "ci-cloud-overflow-probe.yml:    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing"
+    # Says when a required check has no producer, which a starved Blacksmith would otherwise hide (Leo,
+    # 2026-11-19: "we should be able to like know about that much sooner beforehand").
+    "required-checks-drift.yml:    runs-on: ubuntu-24.04 # github-hosted-required: must report required-check drift while Blacksmith starts nothing"
     # validate-cla-policy.rb pins these to ubuntu-24.04 until #17453 lands: a
     # pull_request_target write token on fork pull requests (trust policy).
     "cla.yml:    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests"
