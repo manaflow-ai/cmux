@@ -428,6 +428,8 @@ export function MenuPopup({
         collisionPadding={padding}
         {...(collisionBoundary ? { collisionBoundary } : {})}
         align={align}
+        // Base UI types both offsets as `number | OffsetFunction` (internals/useAnchorPositioning.d.ts) and calls a
+        // function on each placement, so a look's tokens are read when the submenu opens, not when it mounts.
         sideOffset={nested ? submenuOffset : UI_ANCHOR_GAP}
         {...(nested ? { alignOffset: submenuAlignOffset } : {})}
       >
