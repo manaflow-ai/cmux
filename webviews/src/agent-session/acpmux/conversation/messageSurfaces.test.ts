@@ -36,8 +36,9 @@ test("transient surfaces share the generated role aliases", () => {
     expect(desktopCss).toContain(token);
   }
   expect(noticeCss).toContain("border-radius: var(--transient-surface-radius);");
-  expect(css).toContain(".ui-transient-error");
-  expect(css).toContain("--glass-tint: var(--transient-surface-veil);");
+  // The turn error card is a transcript card, not transient glass (design/chat-surfaces.md): only its
+  // actions take the transient roles.
+  expect(css).not.toContain(".ui-transient-error");
   expect(css).toContain("border-radius: var(--grid-cards-radius);");
   expect(css).toContain("background: var(--transient-action-fill);");
 });

@@ -44,6 +44,7 @@ import Testing
         scope.adopt(panel)
         body.configure(Self.content)
         body.detailsToggle.performClick(nil)
+        body.runPendingDetailsPresses()
         panel.themeDidChange()
         body.applyColors()
         return (panel, body)
