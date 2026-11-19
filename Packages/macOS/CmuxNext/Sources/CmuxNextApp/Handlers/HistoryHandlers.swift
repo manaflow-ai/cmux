@@ -69,7 +69,8 @@ enum HistoryHandlers {
             services.registry.track(Task { @MainActor in
                 switch await services.history.lookup(id: id).opening {
                 case .success(let entry):
-                    HistoryRestorer(services: services).open(entry, newTab: newTab)
+                    // A caller's page (an agent's, a terminal's: ControlCallerPlacement) opens beside the caller as its browser does, never in the tab the person has focused.
+                    if let placed = invocation.callerPlaced, case .page(let url, let profile) = entry.payload { TabLifecycle.newBrowser(context, placed.openingBrowser(url: url, profile: profile)) } else { HistoryRestorer(services: services).open(entry, newTab: newTab) }
                     return nil
                 case .failure(let refusal):
                     return refusal

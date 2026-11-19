@@ -28,6 +28,20 @@ struct BesidePaneReuseOffScreenTests {
         case splitTerminal
         /// A pane split off the terminal's own pane that is another agent's home (its chat).
         case splitOfAnotherAgent
+        /// Rows on both sides, `split(right, split(down, caller, S), split(down, R, Q))` at equal ratios: R, a plain
+        /// terminal, is right of the caller; Q, which holds a browser, only touches the row below the caller.
+        case rowsOnBothSides
+
+        /// The layouts whose first open makes or takes one pane that the second open must take again.
+        nonisolated static let reused: [Right] = [.nothing, .splitTerminal, .splitOfAnotherAgent]
+    }
+
+    /// A second open of one kind from one caller, on or off screen (review of 369c9dd76d1).
+    enum Open: String, Sendable, CaseIterable {
+        case terminalOffScreen, browserOnScreen, terminalOnScreen
+
+        var shown: Bool { self != .terminalOffScreen }
+        var kind: TabKind { self == .browserOnScreen ? .browser : .pty }
     }
 
     /// One app with the caller's terminal in a workspace no window shows, and a control router on it.
@@ -40,6 +54,8 @@ struct BesidePaneReuseOffScreenTests {
         let terminalID: String
         /// The pane split off the caller's before the run, if any.
         let rightPane: PaneModel?
+        /// `rowsOnBothSides`: the pane below ``rightPane``, which touches only the row below the caller.
+        let diagonalPane: PaneModel?
 
         var panes: [PaneModel] { workspace.screens.flatMap(\.panes) }
         func browserTabs(_ pane: PaneModel) -> [TabModel] { pane.tabs.filter { $0.kind == .browser && !ProvisionalTab.isProvisional($0.id) } }
@@ -66,6 +82,12 @@ struct BesidePaneReuseOffScreenTests {
         func openBrowser(origin: String, _ path: String) async {
             await run("openBrowser", origin: origin, args: ["url": .string("http://127.0.0.1:9/" + path)], aimedAtOwnTab: true)
         }
+
+        /// The tabs of `kind` the workspace holds beyond `known`, each with its pane.
+        func tabs(of kind: TabKind, beyond known: Set<String>) -> [(tab: TabModel, pane: PaneModel)] {
+            panes.flatMap { pane in pane.tabs.filter { $0.kind == kind && !known.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }.map { (tab: $0, pane: pane) } }
+        }
+        var tabIDs: Set<String> { Set(panes.flatMap(\.tabs).map(\.id)) }
     }
 
     /// The direction of the split whose halves hold `first` and `second`; nil when no split tree holds both.
@@ -85,7 +107,7 @@ struct BesidePaneReuseOffScreenTests {
         return nil
     }
 
-    static func withScene(_ right: Right, _ body: @MainActor (Scene) async throws -> Void) async throws {
+    static func withScene(_ right: Right, shown: Bool = false, _ body: @MainActor (Scene) async throws -> Void) async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
             let store = services.daemon.store
             let window = try #require(services.windows.active)
@@ -99,14 +121,28 @@ struct BesidePaneReuseOffScreenTests {
             let workspace = try #require(store.workspace(containing: callerPane.handle))
 
             // The pane on its right is a split of the caller's own pane, made while a window still shows the workspace.
-            var rightPane: PaneModel?
-            if right != .nothing {
-                try await connection.split(callerPane.handle, direction: .right)
+            var rightPane: PaneModel?, diagonalPane: PaneModel?
+            var known = [callerPane]
+            @MainActor func split(_ pane: PaneModel, _ direction: SplitDirection) async throws -> PaneModel {
+                try await connection.split(pane.handle, direction: direction)
                 @MainActor func made() -> PaneModel? {
-                    workspace.screens.flatMap(\.panes).first { $0 !== callerPane && $0.tabs.contains { !ProvisionalTab.isProvisional(surface: $0.surface) } }
+                    workspace.screens.flatMap(\.panes).first { pane in
+                        !known.contains { $0 === pane } && pane.tabs.contains { !ProvisionalTab.isProvisional(surface: $0.surface) }
+                    }
                 }
-                try await PasswordManagerRouteTests.until({ made() != nil }, report: { "the split on the right was not made" })
-                rightPane = made()
+                try await PasswordManagerRouteTests.until({ made() != nil }, report: { "the \(direction) split of \(pane.id) was not made" })
+                let new = try #require(made())
+                known.append(new)
+                return new
+            }
+            if right != .nothing { rightPane = try await split(callerPane, .right) }
+            if right == .rowsOnBothSides, let rightPane {
+                _ = try await split(callerPane, .down)
+                let below = try await split(rightPane, .down)
+                let page = try await connection.newFrontendBrowserTab(url: "http://127.0.0.1:9/diagonal", engine: .webkit, in: below.handle, activate: true)
+                try await PasswordManagerRouteTests.until({ below.tabs.contains { $0.surface == page.surface } },
+                                                          report: { "the browser is not in the pane below the right one" })
+                diagonalPane = below
             }
             if right == .splitOfAnotherAgent, let pane = rightPane {
                 let host = AgentSessionRef.host(installID: "cn-beside-reuse")
@@ -118,9 +154,11 @@ struct BesidePaneReuseOffScreenTests {
             }
 
             // The person looks at Home: no window shows the caller's workspace.
-            _ = try await HomeSplitKeysTests.showHome(services, connection)
-            try await PasswordManagerRouteTests.until({ services.paneController(for: callerPane) == nil },
-                                                      report: { "the caller's workspace is still on screen" })
+            if !shown {
+                _ = try await HomeSplitKeysTests.showHome(services, connection)
+                try await PasswordManagerRouteTests.until({ services.paneController(for: callerPane) == nil },
+                                                          report: { "the caller's workspace is still on screen" })
+            }
 
             // A control router wired the way the app wires its own (CloudCLIActionRun).
             let bridge = RegistryControlBridge(registry: services.registry)
@@ -134,18 +172,18 @@ struct BesidePaneReuseOffScreenTests {
             publisher.start()
             defer { publisher.stop() }
             let scene = Scene(services: services, router: router, workspace: workspace, callerPane: callerPane, terminal: terminal,
-                              terminalID: terminalID, rightPane: rightPane)
+                              terminalID: terminalID, rightPane: rightPane, diagonalPane: diagonalPane)
             try await PasswordManagerRouteTests.until({
                 let topology = router.snapshots.current.topology
-                return topology.tab(id: terminal.id) != nil && !topology.windows.contains { $0.workspaceID == workspace.id }
-                    && (rightPane.map { scene.published($0) } ?? true)
-            }, report: { "the snapshot never showed the caller's workspace off screen" })
+                return topology.tab(id: terminal.id) != nil && topology.windows.contains { $0.workspaceID == workspace.id } == shown
+                    && known.allSatisfy { scene.published($0) }
+            }, report: { "the snapshot never showed the caller's workspace \(shown ? "on" : "off") screen" })
             try await body(scene)
         }
     }
 
     /// (a) and (b): a second browser is a tab in the pane the first one got, and `system.identify` names that pane.
-    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), arguments: Right.allCases)
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), arguments: Right.reused)
     func aSecondBrowserIsATabInThePaneTheFirstOneGot(_ right: Right) async throws {
         try await Self.withScene(right) { scene in
             let before = scene.panes
@@ -207,6 +245,67 @@ struct BesidePaneReuseOffScreenTests {
             #expect(scene.browserTabs(browser).count == 1, "the browser pane keeps its page: \(scene.described)")
             #expect(scene.callerPane.tabs.map(\.id) == callerTabs, "the terminal's own pane changed: \(scene.described)")
             #expect(scene.panes.count == before.count + 1, "one new pane: \(scene.described)")
+        }
+    }
+
+    /// Only a pane that shares height with the caller is right of it, as on screen (RightColumnPlacement measures
+    /// "the panes ... that overlap the source's height"). With rows on both sides the pane diagonal to the caller
+    /// held a browser, and off screen the caller's browser became a tab there (review of 369c9dd76d1): the layout's
+    /// relation named every pane on the right side's edge. The pane right of the caller holds a terminal only, so
+    /// the browser opens in a split below it, and `system.identify` names that pane alone.
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func aPaneThatOnlyTouchesTheRowBelowTheCallerIsNotRightOfIt() async throws {
+        try await Self.withScene(.rowsOnBothSides) { scene in
+            let right = try #require(scene.rightPane), diagonal = try #require(scene.diagonalPane)
+            let identify = try await scene.router.handle(ControlRequest(id: "identify", method: "system.identify", params: [
+                "caller": ["terminal_id": .string(scene.terminalID)], "origin": "mcp",
+            ])).get()
+            let named = identify["beside"]?["panes"]?.arrayValue?.compactMap { $0["id"]?.stringValue } ?? []
+            #expect(named == [right.id], "only the pane that shares the caller's row: \(named), diagonal \(diagonal.id), \(scene.described)")
+
+            let before = scene.panes, known = scene.tabIDs, diagonalTabs = diagonal.tabs.map(\.id)
+            await scene.openBrowser(origin: "mcp", "beside")
+            try await PasswordManagerRouteTests.until({ scene.tabs(of: .browser, beyond: known).contains { $0.pane !== scene.callerPane } },
+                                                      report: { "the browser did not open beside the caller: " + scene.described })
+            let landed = try #require(scene.tabs(of: .browser, beyond: known).first).pane
+            #expect(landed !== diagonal, "never a tab in the pane diagonal to the caller: \(scene.described)")
+            #expect(!before.contains { $0 === landed }, "a split below the pane right of the caller: \(scene.described)")
+            #expect(Self.split(of: scene.workspace, between: right, and: landed) == .down, "\(scene.described)")
+            #expect(diagonal.tabs.map(\.id) == diagonalTabs, "the diagonal pane took a tab: \(scene.described)")
+        }
+    }
+
+    /// The invariant of every beside open (review of 369c9dd76d1): a second open of the same kind from the same
+    /// caller takes the pane the first one got, on and off screen, whatever is right of the caller. An agent's
+    /// terminal off screen went into a new strip column right of the caller's whole column, past a pane split
+    /// beside the caller, so with another agent's pane there each open made one more column.
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), arguments: Right.reused, Open.allCases)
+    func aSecondOpenOfAKindTakesThePaneOfTheFirst(_ right: Right, _ open: Open) async throws {
+        try await Self.withScene(right, shown: open.shown) { scene in
+            let before = scene.panes, known = scene.tabIDs
+            let othersTabs = scene.rightPane?.tabs.map(\.id)
+            @MainActor func run(_ path: String) async {
+                if open.kind == .browser { await scene.openBrowser(origin: "mcp", path) } else { await scene.run("newSurface", origin: "mcp") }
+            }
+            await run("first")
+            // Off screen the tab leaves the caller's pane; on screen a narrow window may keep it there (the width floors).
+            try await PasswordManagerRouteTests.until({
+                scene.tabs(of: open.kind, beyond: known).contains { open.shown || $0.pane !== scene.callerPane }
+            }, report: { "the first \(open.kind) did not open: " + scene.described })
+            let first = try #require(scene.tabs(of: open.kind, beyond: known).first)
+            try await PasswordManagerRouteTests.until({ scene.published(first.pane) && scene.published(scene.callerPane) },
+                                                      report: { "the snapshot never listed the first open's pane" })
+            await run("second")
+            try await PasswordManagerRouteTests.until({
+                let opened = scene.tabs(of: open.kind, beyond: known)
+                return opened.count == 2 && opened.allSatisfy { $0.pane === opened.first?.pane } && (open.shown || opened.first?.pane !== scene.callerPane)
+            }, report: { "the second \(open.kind) is not in the pane of the first: " + scene.described })
+            #expect(scene.panes.count <= before.count + 1, "at most one new pane for both opens: \(scene.described)")
+            if !open.shown, right == .splitTerminal, open.kind == .pty {
+                #expect(scene.tabs(of: .pty, beyond: known).first?.pane === scene.rightPane, "the pane on the right that holds a terminal takes both: \(scene.described)")
+                #expect(scene.panes.count == before.count, "no new pane: \(scene.described)")
+            }
+            if right == .splitOfAnotherAgent { #expect(scene.rightPane?.tabs.map(\.id) == othersTabs, "another agent's pane took a tab: \(scene.described)") }
         }
     }
 }

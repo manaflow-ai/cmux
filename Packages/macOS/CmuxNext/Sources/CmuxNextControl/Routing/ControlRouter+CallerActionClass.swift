@@ -59,7 +59,8 @@ extension ControlRouter {
     /// from it stop its own Chief. The cmux CLI refuses both for every agent before any request
     /// (`origin.forbidden`, docs/cli-contract.md); this is the same rule for a request that names its caller.
     static let frontWindowActions: Set<String> = [
-        "minimizeWindow", "toggleFullScreen", "toggleSidebar", "focusSidebar", "space.selectByNumber", "home.stopChief", "home.stopAllAgents",
+        "minimizeWindow", "zoomWindow", "toggleFullScreen", "toggleSidebar", "focusSidebar", "space.selectByNumber", "space.next", "space.previous",
+        "home.stopChief", "home.stopAllAgents",
     ]
 
     /// The target kinds a caller has none of and whose resolver takes the front window's one when the run names
@@ -83,6 +84,8 @@ extension ControlRouter {
         "toggleUnread": "tab", "palette.toggleTerminalChat": "tab", "appearance.changeBackground": "workspace",
         "agentHistory.show": "pane", "diagnostics.viewHangReport": "pane", "browserProfile.manageExtensions": "pane",
         "remote.openBrowserTab": "pane", "remote.openLocalBrowserTab": "pane",
+        // Reopen Saved Screen Group reopens it in the workspace of the run's pane (`AppActionContext.content`).
+        "screenGroup.reopenSaved": "pane",
     ]
 
     /// The kind of its own place a caller's run of `action` with no target is aimed at: the action's first tab,

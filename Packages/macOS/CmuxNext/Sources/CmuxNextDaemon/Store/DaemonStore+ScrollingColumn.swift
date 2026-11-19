@@ -26,6 +26,15 @@ extension DaemonStore {
         return self.pane(first)
     }
 
+    /// The docked column holding `pane` (a chat dock, Home's dock, a tool dock); nil for a pane of the scrolling
+    /// strip or of a screen stored as one split tree. A docked pane cannot split: what opens beside it is a
+    /// column of the strip.
+    /// - Parameter pane: A pane of this store.
+    /// - Returns: Its column when that column is docked, or nil.
+    public func dockedColumn(holding pane: PaneModel) -> ColumnSnapshot? {
+        screenColumns(holding: pane).first { $0.dock != nil && $0.layout.paneIDs.contains(pane.handle) }
+    }
+
     /// The columns of the screen showing `pane`, left to right; empty when no screen shows it.
     /// - Parameter pane: A pane of this store.
     /// - Returns: The screen's columns.

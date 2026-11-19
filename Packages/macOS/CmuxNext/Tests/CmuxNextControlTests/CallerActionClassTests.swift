@@ -75,14 +75,16 @@ import Testing
         // The actions of the two reviews of 4fb5810d35c are where their handlers put them.
         let classes = Dictionary(actions.map { ($0.id, ControlRouter.callerClass(of: $0)) }, uniquingKeysWith: { first, _ in first })
         for id in ["tabGroup.ungroup", "tabGroup.moveToNewWindow", "tabGroup.moveToNewWorkspace", "tabGroup.moveToWorkspace", "tabGroup.moveToNewSplit",
-                   "tabGroup.newTab", "screenGroup.rename", "workspaceGroup.rename", "toggleUnread"] {
+                   "tabGroup.newTab", "screenGroup.rename", "workspaceGroup.rename", "toggleUnread", "screenGroup.reopenSaved"] {
             #expect(classes[id] == .ownPlace, "\(id): \(String(describing: classes[id]))")
         }
-        for id in ["minimizeWindow", "home.stopChief", "home.stopAllAgents", "toggleFullScreen", "window.toggleDock", "space.rename", "bookmark.open",
-                   "workspace.closeAll"] {
+        for id in ["minimizeWindow", "zoomWindow", "home.stopChief", "home.stopAllAgents", "toggleFullScreen", "window.toggleDock", "space.rename",
+                   "space.next", "space.previous", "bookmark.open", "workspace.closeAll"] {
             #expect(classes[id] == .personsFront, "\(id): \(String(describing: classes[id]))")
         }
         #expect(classes["window.screenshot"] == .unaffected)
+        // A history entry's page opens beside the caller, as its browser does (review of 369c9dd76d1).
+        #expect(classes["history.open"] == .opensBeside)
         #expect(byHand.isDisjoint(with: CallerActionClassReview.ownPlace.union(CallerActionClassReview.unaffected)))
         #expect(CallerActionClassReview.ownPlace.isDisjoint(with: CallerActionClassReview.unaffected))
         #expect(ControlRouter.closingActions.isDisjoint(with: ControlRouter.windowClosingActions))
@@ -199,7 +201,7 @@ import Testing
         #expect(await run("screenGroup.rename").0?.target == ControlTargetRef(kind: "screen", id: "screen-agent"))
         #expect(await run("workspaceGroup.rename").0?.target == ControlTargetRef(kind: "workspace", id: "ws-agent"))
 
-        for action in ["minimizeWindow", "home.stopChief", "home.stopAllAgents", "toggleFullScreen"] {
+        for action in ["minimizeWindow", "zoomWindow", "space.next", "space.previous", "home.stopChief", "home.stopAllAgents", "toggleFullScreen"] {
             let (request, failure) = await run(action)
             #expect(request == nil, "\(action) ran on the person's front window for an agent")
             #expect(failure?.code == "person_required", "\(action): \(String(describing: failure))")
@@ -211,6 +213,11 @@ import Testing
         #expect(refusal?.code == "target_required", "\(String(describing: refusal))")
         #expect(refusal?.message.contains("window:<id>") == true, "\(String(describing: refusal?.message))")
         #expect(await run("window.toggleDock", target: "window:win-1").0?.target == ControlTargetRef(kind: "window", id: "win-1"))
+        // Reopen Saved Screen Group and a history entry run in the agent's own workspace, never the focused one.
+        #expect(await run("screenGroup.reopenSaved").0?.target == ControlTargetRef(kind: "pane", id: "pane-agent"))
+        let history = await run("history.open").0
+        #expect(Self.isInAgentWorkspace(history?.target, Self.snapshot()), "\(String(describing: history?.target))")
+        #expect(history?.besideCaller == true)
     }
 
     /// A person's shell is not an agent: its close with no target closes its own tab, as it asked, and its

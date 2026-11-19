@@ -44,8 +44,9 @@ extension ControlRouter {
     /// `openBrowser` and its engine variants (`openBrowser.webkit`, `openBrowser.chromium`).
     static func opensBrowser(_ id: String) -> Bool { id == "openBrowser" || id.hasPrefix("openBrowser.") }
 
-    /// A new tab or a link in a browser profile: for a caller their handlers open it through `openBrowser`'s path.
-    static let profileBrowserActions: Set<String> = ["browserProfile.newTab", "browserProfile.openLink"]
+    /// A new tab or a link in a browser profile, and a history entry (its page): for a caller their handlers open
+    /// the page through `openBrowser`'s path, never in the tab the person has focused.
+    static let profileBrowserActions: Set<String> = ["browserProfile.newTab", "browserProfile.openLink", "history.open"]
 
     /// Whether `id` opens a browser tab: ``opensBrowser(_:)`` and ``profileBrowserActions``.
     static func opensBrowserTab(_ id: String) -> Bool { opensBrowser(id) || profileBrowserActions.contains(id) }

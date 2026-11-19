@@ -187,7 +187,6 @@ enum AgentBesidePlacement {
             }
             defer { finish() }
             let source = controller ?? services.paneController(for: anchor)
-            // A pane no window shows has no frames: the daemon's layout says what is right of it, so the pane one open made takes the next.
             let measured = (source.map { LinkOpener.rightColumn(beside: $0) } ?? RightColumnPlacement.Column(layoutRightOf: anchor, in: store, holds: { LinkOpener.holds(tabs: $0.tabs, $1) })).avoiding(invocation.besideAgentHomes)
             let kind = RightColumnPlacement.Kind(opening: tab.kind, document: tab.page == InternalPageID.diff.rawValue)
             let decision = RightColumnPlacement.decide(measured, opening: kind)
