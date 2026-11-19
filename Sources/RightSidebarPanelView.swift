@@ -4,6 +4,7 @@ import Bonsplit
 import CMUXAgentLaunch
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxNotifications
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebarInterpreterClient
@@ -79,6 +80,9 @@ struct RightSidebarPanelView: View {
     /// Live data context for the Custom mode's JS/Swift sidebar (built by the
     /// window's ContentView, which owns the unread model this view never sees).
     let customSidebarDataContext: (Date) -> [String: SwiftValue]
+    /// The unread model `customSidebarDataContext` reads, so unread changes
+    /// re-render the Custom mode sidebar (issue #46725).
+    var customSidebarUnread: SidebarUnreadModel? = nil
 
     @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
@@ -508,6 +512,7 @@ struct RightSidebarPanelView: View {
             CustomSidebarLiveDataReader(
                 fileURL: fileURL,
                 monitor: tabManager.customSidebarDataChangeMonitor,
+                unreadSource: customSidebarUnread,
                 build: { clockDate, _ in customSidebarDataContext(clockDate) }
             ) { dataContext in
                 CustomSidebarSurface(

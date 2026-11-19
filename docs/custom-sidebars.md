@@ -409,8 +409,7 @@ with:
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. A
   sidebar whose source mentions `clock` re-renders about once a second, so
   clocks and countdowns stay live. A sidebar that never mentions `clock`
-  re-renders only when its data changes, and its `clock` holds the time of
-  that change.
+  re-renders only when its data changes, and its `clock` stays fixed.
 
 Optional fields are omitted when the workspace doesn't have them, so guard with
 `if let b = w.branch { ... }` or `w.pr != nil ? ... : ...` rather than assuming

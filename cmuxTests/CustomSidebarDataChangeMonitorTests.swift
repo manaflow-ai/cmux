@@ -11,8 +11,8 @@ import Testing
 /// their data changes, driven by this monitor instead of a 1 s tick.
 @MainActor
 @Suite(.serialized) struct CustomSidebarDataChangeMonitorTests {
-    /// Waits for the monitor's coalesced bump (delivered on the main queue,
-    /// at most once per `coalesceInterval`).
+    /// Waits, bounded by `timeout`, for the monitor's coalesced bump, which
+    /// lands on a later main-queue turn.
     private func waitForRevision(
         after revision: UInt64,
         of monitor: CustomSidebarDataChangeMonitor,
@@ -26,62 +26,87 @@ import Testing
         return monitor.revision != revision
     }
 
-    /// Lets the subscribe-time replays (current-value publishers) land.
-    private func settle(_ monitor: CustomSidebarDataChangeMonitor) async -> UInt64 {
-        var last = monitor.revision
-        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-        while ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(1_200))
-            if monitor.revision == last { return last }
-            last = monitor.revision
-        }
-        return last
-    }
-
-    @Test func workspaceRenameBumpsRevision() async throws {
+    @Test func workspaceRenameSignalsTheMonitor() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let monitor = manager.customSidebarDataChangeMonitor
         monitor.retain()
         defer { monitor.release() }
-        let before = await settle(monitor)
-        let changedAtBefore = monitor.changedAt
+        let before = monitor.receivedSignalCount
 
         workspace.setCustomTitle("Renamed for #46725")
 
-        #expect(await waitForRevision(after: before, of: monitor))
-        #expect(monitor.changedAt > changedAtBefore)
+        #expect(monitor.receivedSignalCount > before)
     }
 
-    @Test func newWorkspaceBumpsRevisionAndIsObserved() async throws {
-        let manager = TabManager()
-        let monitor = manager.customSidebarDataChangeMonitor
-        monitor.retain()
-        defer { monitor.release() }
-        let before = await settle(monitor)
-
-        let added = manager.addWorkspace(select: false)
-        #expect(await waitForRevision(after: before, of: monitor))
-
-        // The new workspace's own changes are observed too.
-        let afterAdd = await settle(monitor)
-        added.setCustomTitle("Added for #46725")
-        #expect(await waitForRevision(after: afterAdd, of: monitor))
-    }
-
-    @Test func releasedMonitorStopsObserving() async throws {
+    @Test func signalBecomesACoalescedRevisionBump() async throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let monitor = manager.customSidebarDataChangeMonitor
         monitor.retain()
-        _ = await settle(monitor)
+        defer { monitor.release() }
+        let before = monitor.revision
+
+        workspace.setCustomTitle("Coalesced for #46725")
+
+        #expect(await waitForRevision(after: before, of: monitor))
+    }
+
+    @Test func newWorkspaceIsObserved() throws {
+        let manager = TabManager()
+        let monitor = manager.customSidebarDataChangeMonitor
+        monitor.retain()
+        defer { monitor.release() }
+
+        let added = manager.addWorkspace(select: false)
+        let before = monitor.receivedSignalCount
+        added.setCustomTitle("Added for #46725")
+
+        #expect(monitor.receivedSignalCount > before)
+    }
+
+    @Test func agentRuntimeChangeSignalsWithoutTakingTheRowReplay() async throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let monitor = manager.customSidebarDataChangeMonitor
+        monitor.retain()
+        defer { monitor.release() }
+        let runtime = workspace.sidebarAgentRuntimeObservation
+        let before = monitor.receivedSignalCount
+
+        runtime.setAgentPIDs(["claude:46725": 46725])
+
+        #expect(monitor.receivedSignalCount > before)
+        // A row that subscribes after the change still gets its replay: the
+        // monitor's passive listener must not count as an observer.
+        let replayed = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { @MainActor in
+                var iterator = runtime.changes().makeAsyncIterator()
+                return await iterator.next() != nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(2))
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        #expect(replayed)
+    }
+
+    @Test func releasedMonitorStopsObserving() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let monitor = manager.customSidebarDataChangeMonitor
+        monitor.retain()
         monitor.release()
         #expect(!monitor.isObserving)
-        let before = monitor.revision
+        let before = monitor.receivedSignalCount
 
         workspace.setCustomTitle("Not observed")
 
-        #expect(!(await waitForRevision(after: before, of: monitor, timeout: .milliseconds(1_500))))
+        #expect(monitor.receivedSignalCount == before)
     }
 
     @Test func monitorIsSharedPerTabManager() {

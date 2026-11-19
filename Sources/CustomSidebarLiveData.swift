@@ -1,3 +1,4 @@
+import CmuxNotifications
 import CmuxSidebar
 import CmuxSwiftRender
 import Combine
@@ -20,9 +21,14 @@ import SwiftUI
 ///   pins, colors, group ids, panel titles and per-surface ports);
 /// - each workspace's sidebar observation publishers (sidebar metadata:
 ///   git, pull requests, progress, prompts, remote state);
-/// - each workspace's agent-runtime changes (task status);
+/// - each workspace's agent-runtime changes (task status), through the
+///   passive publisher so row subscribers keep their replay;
 /// - the agent-chat session registry's sidebar changes (`agents`);
 /// - surface focus and live-agent-index notifications.
+///
+/// Some of these also fire for fields no sidebar shows (remote heartbeats,
+/// for example). That costs at most one rebuild per coalesce window: the
+/// rebuilt context is equal, and every renderer skips an equal context.
 ///
 /// Bursts are coalesced to at most one ``revision`` bump per second, the
 /// same ceiling the old tick had, with the first change after an idle period
@@ -35,17 +41,18 @@ import SwiftUI
 final class CustomSidebarDataChangeMonitor {
     /// Bumps after each coalesced change. Views read it to re-render.
     private(set) var revision: UInt64 = 0
-    /// When ``revision`` last bumped. A sidebar that doesn't read `clock`
-    /// builds its `clock` key from this instead of wall time, so an
-    /// unchanged context stays equal and renderers skip it.
+    /// When ``revision`` last bumped.
     private(set) var changedAt = Date()
+    /// Raw change signals received before coalescing; for tests.
+    @ObservationIgnored private(set) var receivedSignalCount = 0
+    /// The window's cache of which sidebar files read `clock`.
+    @ObservationIgnored let refreshPolicies = CustomSidebarRefreshPolicyCache()
 
     @ObservationIgnored private weak var tabManager: TabManager?
     @ObservationIgnored private var retainCount = 0
     @ObservationIgnored private let changes = PassthroughSubject<Void, Never>()
     @ObservationIgnored private var cancellables: [AnyCancellable] = []
     @ObservationIgnored private var workspaceCancellables: [AnyCancellable] = []
-    @ObservationIgnored private var workspaceTasks: [Task<Void, Never>] = []
     @ObservationIgnored private var globalTasks: [Task<Void, Never>] = []
     @ObservationIgnored private var observedWorkspaceIds: [UUID] = []
 
@@ -75,6 +82,11 @@ final class CustomSidebarDataChangeMonitor {
     /// True while at least one sidebar holds the monitor.
     var isObserving: Bool { retainCount > 0 }
 
+    private func signal() {
+        receivedSignalCount &+= 1
+        changes.send()
+    }
+
     private func start() {
         guard let tabManager else { return }
         changes
@@ -84,7 +96,7 @@ final class CustomSidebarDataChangeMonitor {
             .store(in: &cancellables)
 
         tabManager.objectWillChange
-            .sink { [weak self] _ in self?.changes.send() }
+            .sink { [weak self] _ in self?.signal() }
             .store(in: &cancellables)
         tabManager.tabsPublisher
             .sink { [weak self] tabs in self?.observeWorkspaces(tabs) }
@@ -95,15 +107,17 @@ final class CustomSidebarDataChangeMonitor {
             center.publisher(for: .ghosttyDidFocusSurface),
             center.publisher(for: .sharedLiveAgentIndexDidChange)
         )
-        .sink { [weak self] _ in self?.changes.send() }
+        .sink { [weak self] _ in self?.signal() }
         .store(in: &cancellables)
 
         if let service = TerminalController.shared.agentChatTranscriptService {
+            // Each `sidebarChanges()` stream is its own subscriber; its
+            // subscribe-time yield doesn't consume anything shared.
             let stream = service.sidebarChanges()
             globalTasks.append(Task { @MainActor [weak self] in
                 for await _ in stream {
                     guard let self, !Task.isCancelled else { return }
-                    self.changes.send()
+                    self.signal()
                 }
             })
         }
@@ -112,8 +126,6 @@ final class CustomSidebarDataChangeMonitor {
     private func stop() {
         cancellables.removeAll()
         workspaceCancellables.removeAll()
-        workspaceTasks.forEach { $0.cancel() }
-        workspaceTasks.removeAll()
         globalTasks.forEach { $0.cancel() }
         globalTasks.removeAll()
         observedWorkspaceIds = []
@@ -124,26 +136,18 @@ final class CustomSidebarDataChangeMonitor {
         guard ids != observedWorkspaceIds else { return }
         observedWorkspaceIds = ids
         workspaceCancellables.removeAll()
-        workspaceTasks.forEach { $0.cancel() }
-        workspaceTasks.removeAll()
         guard !tabs.isEmpty else { return }
 
         var publishers: [AnyPublisher<Void, Never>] = []
-        publishers.reserveCapacity(tabs.count * 3)
+        publishers.reserveCapacity(tabs.count * 4)
         for workspace in tabs {
             publishers.append(workspace.objectWillChange.map { _ in () }.eraseToAnyPublisher())
             publishers.append(workspace.sidebarImmediateObservationPublisher)
             publishers.append(workspace.sidebarObservationPublisher)
-            let runtimeChanges = workspace.sidebarAgentRuntimeObservation.changes()
-            workspaceTasks.append(Task { @MainActor [weak self] in
-                for await _ in runtimeChanges {
-                    guard let self, !Task.isCancelled else { return }
-                    self.changes.send()
-                }
-            })
+            publishers.append(workspace.sidebarAgentRuntimeObservation.passiveChanges)
         }
         Publishers.MergeMany(publishers)
-            .sink { [weak self] in self?.changes.send() }
+            .sink { [weak self] in self?.signal() }
             .store(in: &workspaceCancellables)
     }
 
@@ -158,11 +162,10 @@ final class CustomSidebarDataChangeMonitor {
 ///
 /// The loaded file is resolved by name and may switch between `.swift`,
 /// `.json` and `.js` across reloads, so every candidate with the same base
-/// name is checked.
+/// name is checked. Each lookup stats those (small, local) files; contents
+/// are read only after one changes.
 @MainActor
 final class CustomSidebarRefreshPolicyCache {
-    static let shared = CustomSidebarRefreshPolicyCache()
-
     private struct Entry {
         let modificationDates: [Date?]
         let policy: CustomSidebarRefreshPolicy
@@ -203,67 +206,102 @@ final class CustomSidebarRefreshPolicyCache {
 /// ``CustomSidebarDataChangeMonitor`` reports a change (plus the safety
 /// rebuild every ``CustomSidebarRefreshPolicy/fallbackInterval``).
 ///
-/// Changes the enclosing view already observes (for the main sidebar, the
-/// tab manager and unread snapshot) still re-render immediately, because the
-/// content closure re-runs with the parent.
+/// A sidebar that doesn't read `clock` gets a `clock` fixed at mount time,
+/// so a rebuild with unchanged data produces an equal context and the
+/// renderers skip it. Changes the enclosing view already observes (for the
+/// main sidebar, the tab manager and unread snapshot) still re-render
+/// immediately, because the content closure re-runs with the parent.
 struct CustomSidebarLiveDataReader<Content: View>: View {
     let fileURL: URL
     let sourceOverride: String?
     let monitor: CustomSidebarDataChangeMonitor
+    let unreadSource: SidebarUnreadModel?
     let build: (_ clockDate: Date, _ refreshDate: Date) -> [String: SwiftValue]
     let content: ([String: SwiftValue]) -> Content
-    @State private var holdsMonitor = false
+    @State private var heldMonitor: CustomSidebarDataChangeMonitor?
+    @State private var fixedClockDate = Date()
 
-    /// - Parameter build: Builds the data context. `clockDate` feeds the
-    ///   `clock` key; `refreshDate` changes on every rebuild request
-    ///   (including the safety rebuild), for callers that cache contexts.
+    /// - Parameters:
+    ///   - unreadSource: Unread model the `build` closure reads, when the
+    ///     enclosing view doesn't already observe it; read here so unread
+    ///     changes re-render this view.
+    ///   - build: Builds the data context. `clockDate` feeds the `clock`
+    ///     key; `refreshDate` changes on every rebuild request (including
+    ///     the safety rebuild), for callers that cache contexts.
     init(
         fileURL: URL,
         sourceOverride: String? = nil,
         monitor: CustomSidebarDataChangeMonitor,
+        unreadSource: SidebarUnreadModel? = nil,
         build: @escaping (_ clockDate: Date, _ refreshDate: Date) -> [String: SwiftValue],
         @ViewBuilder content: @escaping ([String: SwiftValue]) -> Content
     ) {
         self.fileURL = fileURL
         self.sourceOverride = sourceOverride
         self.monitor = monitor
+        self.unreadSource = unreadSource
         self.build = build
         self.content = content
     }
 
     var body: some View {
-        // Read here so a coalesced change re-runs this body.
+        // Read here so a coalesced change or an unread change re-runs this
+        // body.
         let changedAt = monitor.changedAt
-        // The outer schedule re-checks the file's policy every fallback
-        // interval, so editing a sidebar to start or stop reading `clock`
-        // switches its schedule within a few seconds.
+        let _ = unreadSource?.snapshot
+        let fixedClockDate = fixedClockDate
+        // The outer schedule is the safety rebuild, and re-checks the
+        // file's policy, so editing a sidebar to start or stop reading
+        // `clock` switches its tick within a few seconds. The inner view is
+        // the same in both policies (only its interval changes), so a
+        // policy flip doesn't remount the surface.
         TimelineView(.periodic(from: .now, by: CustomSidebarRefreshPolicy.fallbackInterval)) { fallback in
-            switch CustomSidebarRefreshPolicyCache.shared.policy(fileURL: fileURL, sourceOverride: sourceOverride) {
-            case .everySecond:
-                TimelineView(.periodic(from: .now, by: CustomSidebarRefreshPolicy.clockInterval)) { timeline in
+            let policy = monitor.refreshPolicies.policy(fileURL: fileURL, sourceOverride: sourceOverride)
+            TimelineView(.periodic(from: .now, by: Self.tickInterval(for: policy))) { timeline in
+                switch policy {
+                case .everySecond:
                     // Whole seconds, so panes ticking in the same second
                     // share one cached context.
                     content(build(timeline.date, timeline.date.flooredToWholeSecond))
+                case .onDataChange:
+                    content(build(
+                        fixedClockDate,
+                        max(changedAt, fallback.date.flooredTo(CustomSidebarRefreshPolicy.fallbackInterval))
+                    ))
                 }
-            case .onDataChange:
-                content(build(changedAt, max(changedAt, fallback.date)))
             }
         }
-        .onAppear {
-            guard !holdsMonitor else { return }
-            holdsMonitor = true
-            monitor.retain()
+        .onAppear { hold(monitor) }
+        .onChange(of: ObjectIdentifier(monitor)) { _, _ in hold(monitor) }
+        .onDisappear { hold(nil) }
+    }
+
+    /// The inner tick: every second for `clock`, effectively never
+    /// otherwise (the outer safety rebuild and data changes drive it).
+    private static func tickInterval(for policy: CustomSidebarRefreshPolicy) -> TimeInterval {
+        switch policy {
+        case .everySecond: CustomSidebarRefreshPolicy.clockInterval
+        case .onDataChange: 24 * 60 * 60
         }
-        .onDisappear {
-            guard holdsMonitor else { return }
-            holdsMonitor = false
-            monitor.release()
-        }
+    }
+
+    /// Keeps exactly one retain on the monitor this view currently shows.
+    private func hold(_ next: CustomSidebarDataChangeMonitor?) {
+        guard heldMonitor !== next else { return }
+        heldMonitor?.release()
+        next?.retain()
+        heldMonitor = next
     }
 }
 
 private extension Date {
     var flooredToWholeSecond: Date {
-        Date(timeIntervalSince1970: timeIntervalSince1970.rounded(.down))
+        flooredTo(1)
+    }
+
+    /// Floors to a multiple of `interval`, so views ticking on the same
+    /// interval agree on the refresh key.
+    func flooredTo(_ interval: TimeInterval) -> Date {
+        Date(timeIntervalSince1970: (timeIntervalSince1970 / interval).rounded(.down) * interval)
     }
 }

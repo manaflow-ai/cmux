@@ -33,6 +33,7 @@ struct CustomSidebarPanelView: View {
                 CustomSidebarLiveDataReader(
                     fileURL: panel.fileURL,
                     monitor: tabManager.customSidebarDataChangeMonitor,
+                    unreadSource: sidebarUnread,
                     build: { clockDate, refreshDate in
                         customSidebarDataContext(now: clockDate, refreshDate: refreshDate)
                     }

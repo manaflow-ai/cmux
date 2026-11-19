@@ -1987,7 +1987,8 @@ struct ContentView: View {
             },
             customSidebarDataContext: { now in
                 rightSidebarCustomSidebarDataContext(now: now)
-            }
+            },
+            customSidebarUnread: sidebarUnread
         )
         .frame(width: rightSidebarWidth)
         .clipped()

@@ -1,4 +1,5 @@
 import CmuxFoundation
+import Combine
 import Darwin
 import Foundation
 import Observation
@@ -28,6 +29,18 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     /// state instead of waiting for a later agent event.
     @ObservationIgnored
     private var hasUnobservedChange = false
+
+    @ObservationIgnored
+    private let passiveChangeSubject = PassthroughSubject<Void, Never>()
+
+    /// Emits whenever any runtime map changes, without counting as an
+    /// observer of ``changes()``: it never takes the replay that
+    /// `hasUnobservedChange` holds for the next row subscriber, so a
+    /// long-lived listener (the custom-sidebar change monitor) can't leave
+    /// a row that subscribes later stale.
+    var passiveChanges: AnyPublisher<Void, Never> {
+        passiveChangeSubject.eraseToAnyPublisher()
+    }
 
     /// Emits whenever any runtime map changes.
     func changes() -> AsyncStream<Void> {
@@ -79,6 +92,7 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
 
     private func notifyChanged() {
         changeGeneration &+= 1
+        passiveChangeSubject.send()
         // Termination cleanup arrives through a separate MainActor task. If
         // that task is delayed by sidebar work, publication is the
         // authoritative reconciliation point so dead observers cannot make
