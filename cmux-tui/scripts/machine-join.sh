@@ -331,11 +331,16 @@ install_cmux_rd() {
       rd_failed "checksum verification failed for cmux-rd ($got, the channel says $rd_want)"
       return 0
     }
-    mkdir -p "$bin_dir"
-    install -m 755 "$tmp/cmux-rd" "$bin_dir/.cmux-rd.new"
-    # A symlink to a directory would take the new file inside it.
-    [ ! -L "$rd" ] || rm -f "$rd"
-    mv -f "$bin_dir/.cmux-rd.new" "$rd"
+    # Each step checked: under `set -e` a read-only or full ~/.local would end the join here.
+    # A symlink to a directory would take the new file inside it, so it goes first.
+    if ! { mkdir -p "$bin_dir" &&
+      install -m 755 "$tmp/cmux-rd" "$bin_dir/.cmux-rd.new" &&
+      { [ ! -L "$rd" ] || rm -f "$rd"; } &&
+      mv -f "$bin_dir/.cmux-rd.new" "$rd"; } 2>/dev/null; then
+      rm -f "$bin_dir/.cmux-rd.new" 2>/dev/null || true
+      rd_failed "cannot write it to $bin_dir"
+      return 0
+    fi
     say "installed cmux-rd to $rd"
   elif [ ! -x "$rd" ]; then
     chmod 755 "$rd" || {
