@@ -146,14 +146,19 @@ pub(super) fn try_handle(
 /// True for a trusted local or a remote-entry connection. A poisoned
 /// registry lock refuses (fail closed).
 pub(super) fn transport_allows_fs(mux: &Mux, client: u64) -> bool {
-    let record = {
-        let state =
-            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let owner_only = crate::fs_ops::owner_only();
+    if !owner_only {
+        // A Cloud host: the transport alone, from the published facts.
+        return mux
+            .control_clients
+            .transport_of(client)
+            .is_some_and(|transport| transport_allows_fs_in(false, transport, None));
+    }
+    // A poisoned registry refuses (fails closed), as `transport_of` does.
+    let record = mux.control_clients.state.lock().ok().and_then(|state| {
         state.clients.get(&client).map(|record| (record.transport, record.native_vm_kind))
-    };
-    record.is_some_and(|(transport, vm_kind)| {
-        transport_allows_fs_in(crate::fs_ops::owner_only(), transport, vm_kind)
-    })
+    });
+    record.is_some_and(|(transport, vm_kind)| transport_allows_fs_in(true, transport, vm_kind))
 }
 
 /// The local socket and the link's remote entry may use file ops. On a machine of the person's own

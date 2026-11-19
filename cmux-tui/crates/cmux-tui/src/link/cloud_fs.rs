@@ -110,6 +110,11 @@ pub(super) fn file_scope(linux: bool, cloud: bool) -> Option<Scope> {
 /// Installs the file owner over `HOME` on a Linux host, scoped by
 /// [`file_scope`]. Returns whether `fs-v1` is now served.
 pub(super) fn install_file_owner() -> bool {
+    // Test seam, debug builds only: a Linux daemon that stands in for a Mac (no file owner).
+    #[cfg(debug_assertions)]
+    if std::env::var_os("CMUX_TEST_NO_FILE_OWNER").is_some() {
+        return false;
+    }
     let Some(scope) = file_scope(cfg!(target_os = "linux"), this_is_a_cloud_host()) else {
         return false;
     };
