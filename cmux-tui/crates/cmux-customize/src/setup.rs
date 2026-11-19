@@ -857,9 +857,12 @@ impl Customize {
             .map(|bytes| jsonc::parse(&String::from_utf8_lossy(&bytes)).unwrap_or(Value::Null))
             .unwrap_or(Value::Null);
         let schema = Schema::embedded();
-        let settings = setup
-            .profile
-            .settings
+        // As they install: a pick of the repo's own views app names the setup's layer.
+        let mut planned = setup.profile.settings.clone();
+        if installed_layer_name(setup).is_some() {
+            layers::point_at_layer(&mut planned, &manifest.id);
+        }
+        let settings = planned
             .iter()
             .map(|(key, value)| {
                 let row = schema.row(key);
@@ -1073,7 +1076,10 @@ impl Customize {
                 other.id
             )));
         }
-        let (profile, views) = layers::split_views(&setup.profile);
+        let (mut profile, views) = layers::split_views(&setup.profile);
+        if !views.is_empty() {
+            layers::point_at_layer(&mut profile.settings, id);
+        }
         let had = self.library_names()?;
         self.preview_profile_locked(&profile, origin, now_ms)?;
         let mut prior_actions = BTreeMap::new();
