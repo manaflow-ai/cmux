@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-18 (lane/sidebar-customize-stress, ask-2b329124aa): Sidebar-Look: no visual change. Sidebar customization
+  (`sidebar.sections`, `sidebar.workspaces`) under stress. A selection change re-projects the sidebar only when it shows
+  or hides a row (the old selection was kept only for being selected, Rust's `selection_spared`, or the new one is a
+  hidden row); before, any hide rule made every click run every row through the planner. Regroup rules apply in one
+  pass per section (`SidebarCustomizationPlanner.moveIntoGroups`) instead of a search and a projection copy per move.
+  Regression: `SidebarCustomizationScaleTests` (CmuxNextAppTests).
+
 - 2026-11-18 (minimal-hide-all): Sidebar-Look: user, 2026-11-17 (msg 38388): "minimal mode should hide everything in sidebar including cards like update, iff user is not hovered in sidebar". In Minimal Mode (`sidebar.minimal`), with the pointer away, every sidebar view but the content (the workspace list, the bands, the Priority view, edit mode's bar) fades out with the controls' hover fade (`SidebarChromeReveal.rest`, `SidebarView.minimalChromeViews`): one rule over the sidebar's subviews, so a card added later hides by default. Newly hidden: the Restart to Update, notice (tips, star prompt, restoring, update status), Now Playing and cmux Updated cards, the card stack, app health's line, the Update Available button, the Priority bell, the titlebar accessory and the needs-you tray. A card arriving while hidden arrives hidden. Their room goes to the list with the footer's, on the footer's curve, and comes back on hover. A fade only: frames and the accessibility tree stay. Show Sidebar Controls Only on Hover alone keeps the cards. `MinimalModeHidesEverythingTests`.
 - 2026-11-18 (a590, grid base red): Sidebar-Look: an unread dot beside a status mark sits one column in again, as before
   #44449. d8917c9 (#44449) made the trailing pitch the control plus a tenth of it (17.6 or 20.53 pt), and
