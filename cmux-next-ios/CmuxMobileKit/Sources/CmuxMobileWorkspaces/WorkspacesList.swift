@@ -185,7 +185,7 @@ public struct WorkspacesList: View {
                 if showsNewTaskButton {
                     NewTaskFloatingButton { startNewTask() }
                         .padding(.trailing, theme.metrics.sideMargin)
-                        .padding(.bottom, 12)
+                        .padding(.bottom, Self.newTaskButtonGap)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
@@ -361,6 +361,9 @@ public struct WorkspacesList: View {
     /// New Task…: opens the composer.
     func startNewTask() { composingTask = true }
 
+    /// The New Task button's gap above the tab bar.
+    static let newTaskButtonGap: CGFloat = 12
+
     /// The floating New Task button: some Mac can start agents now, and the list (not a
     /// loading, failed or connect-a-Mac page) is on screen.
     private var showsNewTaskButton: Bool {
@@ -433,7 +436,8 @@ public struct WorkspacesList: View {
     /// SwiftUI over it.
     private func list(_ inbox: WorkspaceInbox) -> some View {
         WorkspacesCollection(model: listModel(inbox), actions: collectionActions, control: listControl,
-                             membershipKey: inboxMemo.workspaceIDsKey &* 31 &+ inboxMemo.needsYouKey)
+                             membershipKey: inboxMemo.workspaceIDsKey &* 31 &+ inboxMemo.needsYouKey,
+                             bottomRoom: showsNewTaskButton ? NewTaskFloatingButton.size + Self.newTaskButtonGap : 0)
             // Under the bars, as the Feed's list: UIKit insets the content by them.
             .ignoresSafeArea(.container, edges: .vertical)
             .overlay(alignment: .topLeading) { closeAnchor }

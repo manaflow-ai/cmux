@@ -196,6 +196,11 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "new-task-button", args: Self.list) { app in
                 Self.check(C.any(app, "workspaces.newTask").isHittable, "no New Task button")
             },
+            // Scrolled to the end: the last row clears the button (the list's bottom room).
+            Scene(group: g, id: "new-task-button-scrolled-end", args: Self.list) { app in
+                C.steps([{ Self.check(C.any(app, "workspaces.newTask").isHittable, "no New Task button") },
+                         { for _ in 0..<4 { app.swipeUp() }; C.pause(1.2); return nil }])
+            },
             Scene(group: g, id: "new-task-button-large-type", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"]) { app in
                 Self.check(C.any(app, "workspaces.newTask").isHittable, "no New Task button")
             },
