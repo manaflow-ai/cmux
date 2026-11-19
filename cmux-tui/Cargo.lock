@@ -1940,6 +1940,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-lifeline"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-link"
 version = "0.1.0"
 dependencies = [
@@ -2506,6 +2514,7 @@ dependencies = [
  "cmux-host",
  "cmux-json",
  "cmux-layout-reducer",
+ "cmux-lifeline",
  "cmux-link",
  "cmux-panic-log",
  "cmux-process",

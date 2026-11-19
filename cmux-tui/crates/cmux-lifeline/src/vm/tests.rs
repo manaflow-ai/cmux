@@ -1,0 +1,34 @@
+use super::*;
+
+#[test]
+fn vm_lifecycle_wire_rejects_unrecognized_and_missing_states() {
+    for raw in ["\"runing\"", "\"\"", "null", "42", "{}"] {
+        assert!(serde_json::from_str::<Status>(raw).is_err(), "{raw}");
+    }
+    assert_eq!(serde_json::from_str::<Status>("\"unknown\"").unwrap(), Status::Unknown);
+    assert_eq!(serde_json::from_str::<Status>("\"destroyed\"").unwrap(), Status::Deleted);
+}
+
+#[test]
+fn vm_lifecycle_retains_identity_through_claim_pause_resume_and_delete() {
+    let vm = Vm::<Unallocated, _>::new(String::from("allocation-with-idempotency-key"));
+    let vm = vm.provision().preclaim().claim().running().ready().attach();
+    let vm = vm.pause().paused().resume().running().ready().attach().detach();
+    let deleted = vm.delete().deleted();
+    assert_eq!(deleted.payload(), "allocation-with-idempotency-key");
+}
+
+#[test]
+fn vm_lifecycle_running_observation_does_not_imply_attach_readiness() {
+    let status: Status = serde_json::from_str("\"running\"").unwrap();
+    let Observed::Running(vm) = status.bind("vm-a") else { panic!("not running") };
+    let attached = vm.ready().attach();
+    assert_eq!(*attached.payload(), "vm-a");
+}
+
+#[test]
+fn vm_lifecycle_failed_provisioning_keeps_a_cleanup_capability() {
+    let vm = Vm::<Unallocated, _>::new("vm-a").provision().failed();
+    let deleted = vm.delete().deleted();
+    assert_eq!(*deleted.payload(), "vm-a");
+}
