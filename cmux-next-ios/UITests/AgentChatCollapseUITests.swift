@@ -65,10 +65,20 @@ final class AgentChatCollapseUITests: XCTestCase {
                       "the line says how long the turn worked: \(line.label)")
         let work = NSPredicate(format: "label MATCHES %@", "^(Read|Ran|Edited|Searched|Thought).*")
         let shut = app.descendants(matching: .any).matching(work).count
+        // VoiceOver: the closed line is one button that says it is collapsed (the tree VoiceOver reads).
+        let button = app.buttons["agent-chat.worked-for"].firstMatch
+        XCTAssertTrue(button.exists, "the closed line reaches VoiceOver as a button\n\(app.debugDescription)")
+        XCTAssertTrue(button.label.hasPrefix("Worked for") || button.label.hasPrefix("Failed after") || button.label.hasPrefix("You stopped after"),
+                      "the button reads how long the turn worked: \(button.label)")
+        XCTAssertEqual(button.value as? String, "Collapsed", "VoiceOver hears that the line is collapsed")
+        attachTree(button, "4-worked-closed-accessibility")
         attach(app, "4-worked-closed")
         line.tap()
         sleep(1)
         XCTAssertGreaterThan(app.descendants(matching: .any).matching(work).count, shut, "opened, the turn's work shows under the line")
+        let opened = app.buttons["agent-chat.worked-for"].firstMatch
+        XCTAssertEqual(opened.value as? String, "Expanded", "VoiceOver hears that the line opened")
+        attachTree(opened, "5-worked-open-accessibility")
         attach(app, "5-worked-open")
         line.tap()
         sleep(1)
@@ -81,5 +91,15 @@ final class AgentChatCollapseUITests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    /// The element as the accessibility tree has it (type, identifier, label, value), kept with the run.
+    @MainActor
+    private func attachTree(_ element: XCUIElement, _ name: String) {
+        let attachment = XCTAttachment(string: element.debugDescription)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        print("\(name): \(element.debugDescription)")
     }
 }
