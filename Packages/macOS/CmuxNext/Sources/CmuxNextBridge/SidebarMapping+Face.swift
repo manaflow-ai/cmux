@@ -20,6 +20,9 @@ extension SidebarMapping {
         var status: String?
         var muted = false
         var newTabPages: Set<String> = []
+        /// `newTabPages` is the answer of the caller's page rule for each tab of the workspace (`isNewTabPage` of
+        /// `sections`), not a set of ids that the caller gave: what the app gives for a tab takes that answer.
+        var pagesByRule = false
     }
 
     /// What every row of a batch shares: what `row` takes beyond the workspace (`sections` and `row` document each).

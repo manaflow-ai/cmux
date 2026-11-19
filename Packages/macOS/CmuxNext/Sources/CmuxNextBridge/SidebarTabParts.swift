@@ -18,8 +18,10 @@ import CmuxNextSidebar
 public final class SidebarTabParts {
     /// A browser tab's favicon, sound and own icon for the tab list: no title, and no read of the row's name.
     public typealias Page = (WorkspaceModel, TabModel) -> SidebarMapping.PageFace?
-    /// What the app gives for each tab of a workspace. The outer call is made one time for a row's map.
-    public typealias Given = (WorkspaceModel) -> (TabModel) -> Unobserved
+    /// What the app gives for each tab of a workspace. The outer call is made one time for a row's map. The inner
+    /// call gets the tab and the answer of the row's page rule for it (the tab is in the row's New Tab page set), so
+    /// the app does not ask its rule a second time; nil where the row has no page rule (its set is the caller's ids).
+    public typealias Given = (WorkspaceModel) -> (TabModel, _ newTabPage: Bool?) -> Unobserved
 
     /// What the app gives for one tab at each map of its row: the values that decide the tab's title or favicon and
     /// that no observation covers. A kept part whose value is another one is made again, and its map then asks the
@@ -84,8 +86,9 @@ public final class SidebarTabParts {
         let tabs = workspace.screens.flatMap { $0.panes.flatMap(\.tabs) }
         if source == nil { ObservationWork.visited(tabs.count, "SidebarMapping.tabItems") }
         return KeptParts<WorkspaceModel, TabModel, Part>.parts(of: workspace, tabs, kept: source?.kept, input: { tab in
-            Input(newTabPage: newTabPages.contains(tab.id), customIcon: icons.custom(for: tab.agentSession?.harness) != nil,
-                  given: given?(tab))
+            let newTabPage = newTabPages.contains(tab.id)
+            return Input(newTabPage: newTabPage, customIcon: icons.custom(for: tab.agentSession?.harness) != nil,
+                         given: given?(tab, request.pagesByRule ? newTabPage : nil))
         }, make: { (tab: TabModel, input: Input) -> Part in
             let listTitle = SidebarMapping.listTitle(tab, of: workspace, newTabPages: input.newTabPage ? [tab.id] : [],
                                                      newTabTitle: options.newTabTitle, tabTitle: options.tabTitle)

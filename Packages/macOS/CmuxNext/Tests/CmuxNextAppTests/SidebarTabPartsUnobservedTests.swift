@@ -21,6 +21,9 @@ import Testing
 /// shows the new title or favicon and makes that one part. With no such answer in a part's input the 4 rows are
 /// red: the kept part shows the old value.
 ///
+/// One row more is of the row's page answer, which the app's title rule takes and does not ask again: for a tab
+/// that is no chat that answer gives no title to compare, and the row shows what a walk shows.
+///
 /// Limits: the 3 title sources are the title rule's own functions, set by the test (not the app's page provider,
 /// its incognito page or its history page); the incognito answer is given by the test, not by a window's
 /// registry; the favicon row's page function is the test's, over the app's proxied-tabs type with a defaults suite
@@ -69,7 +72,9 @@ struct SidebarTabPartsUnobservedTests {
     /// app's own functions do (the app's `SidebarTabParts.init(_:)`, `SidebarBridge.tabTitle`).
     static func row(_ session: Session, titles: TabTitleResolver, incognito: Bool) -> Row {
         let services = session.services
-        let parts = SidebarTabParts(given: { _ in { tab in SidebarTabParts.Unobserved(tab, incognito: incognito, titles: titles, services) } })
+        let parts = SidebarTabParts(given: { _ in
+            { tab, newTabPage in SidebarTabParts.Unobserved(tab, newTabPage: newTabPage, incognito: incognito, titles: titles, services) }
+        })
         return Row(parts: parts, title: { _, tab in titles.title(tab, incognito: incognito) })
     }
 
@@ -116,6 +121,33 @@ struct SidebarTabPartsUnobservedTests {
                                 what: "title", shown: \.title) { source.newTab = "History" }
     }
 
+    /// A tab of the row's page set that is no chat. The row gives its page answer for each tab to the title rule, and
+    /// the rule's New Tab page is a chat's: for this tab the answer `true` gives no title to compare, as the rule's
+    /// own answer does. The row shows what a walk shows, and a new title of the tab shows at the next map.
+    @Test func aPageSetTabThatIsNoChatGetsNoTitleToCompareAndShowsTheWalksTitle() throws {
+        let session = try Session(tabs: 6)
+        let services = session.services
+        let workspace = try #require(session.storm, "setup: the session has no storm workspace")
+        let tab = try #require(session.tabs.last { $0.kind == .pty && $0.agentSession == nil }, "setup: the storm workspace has no terminal")
+        services.agentTabs.pageTabs.set([(machine: services.agentTabs.daemonListing(tab)?.machineID ?? "", key: tab.id)])
+        try #require(RestoredNewTabPages.shows(tab, of: workspace, in: services.agentTabs, restored: true), "setup: the row's page rule does not have the terminal")
+        let titles = TabTitleResolver(services: services)
+        try #require(!titles.isNewTabPage(tab), "setup: the title rule takes a terminal as a New Tab page")
+        #expect(titles.unobservedTitle(tab, incognito: false, newTabPage: true) == nil,
+                "the title rule gives a title to compare for a tab that is no chat, with the row's page answer `true`")
+
+        let row = Self.row(session, titles: titles, incognito: false)
+        let first = session.mapped(row.parts, title: row.title)
+        #expect(first.rows == session.rows(nil, title: row.title), "the rows with kept parts are not the walk's rows")
+        let kept = session.mapped(row.parts, title: row.title)
+        try #require(kept.made == 0, "setup: the second map made \(kept.made) parts, want 0")
+        tab.titleText = "make check"
+        let walk = session.rows(nil, title: row.title)
+        let next = session.mapped(row.parts, title: row.title)
+        #expect(next.made == 1, "one tab's title changed and the next map made \(next.made) parts, want 1")
+        #expect(next.rows == walk, "the rows with kept parts are not the walk's rows after the title changed")
+    }
+
     /// A 1x1 image.
     static func icon() throws -> CGImage {
         let context = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 0,
@@ -140,7 +172,7 @@ struct SidebarTabPartsUnobservedTests {
             return SidebarMapping.PageFace(favicon: address != nil ? marker : nil)
         }
         let given: SidebarTabParts.Given = { _ in
-            return { asked in SidebarTabParts.Unobserved(remoteFavicon: asked.kind == .browser && proxied.faviconIsRemote(key: asked.id, page: nil)) }
+            return { asked, _ in SidebarTabParts.Unobserved(remoteFavicon: asked.kind == .browser && proxied.faviconIsRemote(key: asked.id, page: nil)) }
         }
         let row = Row(parts: SidebarTabParts(page: page, given: given), title: { _, asked in asked.displayTitle }, page: page)
         let shows: SidebarFavicon? = marker, none: SidebarFavicon? = nil

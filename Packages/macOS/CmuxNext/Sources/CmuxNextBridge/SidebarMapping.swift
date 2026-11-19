@@ -147,7 +147,7 @@ public struct SidebarMapping {
         let makes = workspaces.map { workspace in
             batch.make {
                 FaceRowRequest(workspace: workspace, status: statusLine(workspace.id), muted: muted.contains(workspace.id),
-                               newTabPages: isNewTabPage.map { Self.newTabPages(of: workspace, $0) } ?? newTabPages)
+                               newTabPages: isNewTabPage.map { Self.newTabPages(of: workspace, $0) } ?? newTabPages, pagesByRule: isNewTabPage != nil)
             }
         }
         let mapped = rowSource.map { source in zip(workspaces, makes).map { source($0, machine.id, $1) } }

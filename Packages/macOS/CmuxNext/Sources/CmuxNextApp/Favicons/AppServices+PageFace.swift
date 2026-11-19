@@ -56,11 +56,11 @@ extension SidebarMapping.PageFace {
 
 extension SidebarTabParts.Unobserved {
     /// What no observation covers of `tab`'s title and favicon in the tab list of a workspace whose incognito answer
-    /// is `incognito`, from the app's sources. `titles`: the strip's title rule.
-    @MainActor init(_ tab: TabModel, incognito: Bool, titles: TabTitleResolver, _ services: AppServices) {
+    /// is `incognito`, from the app's sources. `titles`: the strip's title rule. `newTabPage`: the row's page answer for `tab`, if it has one.
+    @MainActor init(_ tab: TabModel, newTabPage: Bool? = nil, incognito: Bool, titles: TabTitleResolver, _ services: AppServices) {
         let pages = services.cache
         let remote = tab.kind == .browser && pages.pageRequests.proxiedTabs.faviconIsRemote(key: tab.id, page: pages.existingBrowser(tab.id)?.tab)
-        self.init(incognito: incognito, title: titles.unobservedTitle(tab, incognito: incognito), remoteFavicon: remote)
+        self.init(incognito: incognito, title: titles.unobservedTitle(tab, incognito: incognito, newTabPage: newTabPage), remoteFavicon: remote)
     }
 }
 
@@ -72,7 +72,7 @@ extension SidebarTabParts {
         let titles = TabTitleResolver(services: services)
         self.init(page: { [weak services] workspace, tab in services.flatMap { SidebarMapping.PageFace(tab: tab, of: workspace, $0) } }, given: { [weak services] workspace in
             let incognito = services?.windows.isIncognito(workspace: workspace) ?? false
-            return { tab in services.map { Unobserved(tab, incognito: incognito, titles: titles, $0) } ?? Unobserved(incognito: incognito) }
+            return { tab, newTabPage in services.map { Unobserved(tab, newTabPage: newTabPage, incognito: incognito, titles: titles, $0) } ?? Unobserved(incognito: incognito) }
         })
     }
 }

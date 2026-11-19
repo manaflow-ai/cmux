@@ -244,9 +244,10 @@ struct SidebarTabPartsTests {
     }
 
     /// A report with no condition on its times: what the app gives for each tab of a workspace of 84 tabs at one
-    /// map (the app's `SidebarTabParts.init(_:)`: the title where no observation covers it, and whether the favicon is of
-    /// another machine's store), its two halves alone, the row's own page set beside it, and one whole map of the
-    /// window's 2 rows with each part kept.
+    /// map with the row's page answer (the app's `SidebarTabParts.init(_:)`: the title where no observation covers it,
+    /// and whether the favicon is of another machine's store), its two halves alone (the title half also where it
+    /// asks the page rule itself), the row's own page set beside it, and one whole map of the window's 2 rows with
+    /// each part kept.
     @Test func theTimeOfWhatTheAppGivesForEachTabAtOneMap() throws {
         let session = try Session(tabs: Base.sizes[1])
         let services = session.services, tabs = session.tabs
@@ -262,11 +263,13 @@ struct SidebarTabPartsTests {
         let given = try #require(SidebarTabParts(services).given, "setup: the app's tab parts give nothing for a tab")
         let titles = TabTitleResolver(services: services)
         let proxied = services.cache.pageRequests.proxiedTabs, agentTabs = services.agentTabs
+        let pages = Set(tabs.filter { RestoredNewTabPages.shows($0, of: workspace, in: agentTabs, restored: true) }.map(\.id))
         let both = mean {
             let ask = given(workspace)
-            for tab in tabs { _ = ask(tab) }
+            for tab in tabs { _ = ask(tab, pages.contains(tab.id)) }
         }
-        let title = mean { for tab in tabs { _ = titles.unobservedTitle(tab, incognito: false) } }
+        let title = mean { for tab in tabs { _ = titles.unobservedTitle(tab, incognito: false, newTabPage: pages.contains(tab.id)) } }
+        let asked = mean { for tab in tabs { _ = titles.unobservedTitle(tab, incognito: false) } }
         let remote = mean {
             for tab in tabs where tab.kind == .browser { _ = proxied.faviconIsRemote(key: tab.id, page: services.cache.existingBrowser(tab.id)?.tab) }
         }
@@ -278,7 +281,7 @@ struct SidebarTabPartsTests {
         let map = mean { _ = session.rows(parts, title: rowTitle) }
         let chats = tabs.count(where: { $0.agentSession != nil })
         print("TAB-PARTS time of what the app gives for each tab at one map, a workspace of \(tabs.count) tabs (\(chats) chats): \(both) ms in all; "
-            + "the title half alone = \(title) ms; the favicon half alone = \(remote) ms; the row's own page set = \(pageSet) ms; "
+            + "the title half alone = \(title) ms (\(asked) ms where it asks the page rule itself); the favicon half alone = \(remote) ms; the row's own page set = \(pageSet) ms; "
             + "one whole map of the window's 2 rows with each part kept = \(map) ms (each the mean of \(runs) runs in the tests' build; a report, no condition)")
     }
 

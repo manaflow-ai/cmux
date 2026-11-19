@@ -69,10 +69,10 @@ struct TabTitleResolver {
     }
 
     /// The name `tab` shows when its program or page gave none (`fallback`
-    /// for a terminal).
-    func untitled(_ tab: TabModel, fallback: String = Strings.untitledTerminal) -> String {
+    /// for a terminal). `newTabPage`: the page rule's answer for `tab`, when the caller has it.
+    func untitled(_ tab: TabModel, fallback: String = Strings.untitledTerminal, newTabPage: Bool? = nil) -> String {
         if tab.agentSession != nil {
-            if isNewTabPage(tab) { return cloudStarts?.title(of: tab) ?? newTabPageTitle(tab) ?? Strings.untitledBrowser } // a Cloud start's page reads as its chat
+            if newTabPage ?? isNewTabPage(tab) { return cloudStarts?.title(of: tab) ?? newTabPageTitle(tab) ?? Strings.untitledBrowser } // a Cloud start's page reads as its chat
             // A subagent's pane is a tab on its chat's session: it shows the subagent's own name, never
             // the chat's (Leo 2026-10-30: "subagents shouldn't be tab-named the exact same as the parent").
             if let subagent = subagentTitle(tab) { return subagent }
@@ -90,18 +90,18 @@ struct TabTitleResolver {
     /// The name `tab` shows.
     func title(_ tab: TabModel) -> String { title(tab, incognito: nil) }
 
-    /// `incognito`: the tab's answer when the caller knows (a sidebar row's workspace: no tab list read, F6).
-    func title(_ tab: TabModel, incognito: Bool?) -> String {
+    /// `incognito`, `newTabPage`: the tab's answers when the caller knows them (a sidebar row's workspace: no tab list read, F6).
+    func title(_ tab: TabModel, incognito: Bool?, newTabPage: Bool? = nil) -> String {
         if let page = page(tab) { return page.title }
         if let incognito = incognitoTitle(tab, incognito) { return incognito ?? Strings.untitledBrowser }
-        return TabItemMapping.shared.title(tab, fallbackTitle: untitled(tab))
+        return TabItemMapping.shared.title(tab, fallbackTitle: untitled(tab, newTabPage: newTabPage))
     }
 
     /// `tab`'s title where a source that no observation covers decides it (a page or app tab's page, an incognito
     /// page's live title, a New Tab page's own title); nil for each other tab. Who keeps a tab's title from one map
-    /// to the next compares this at each map, and asks ``title(_:incognito:)`` again when it is another one.
-    func unobservedTitle(_ tab: TabModel, incognito: Bool) -> String? {
-        guard tab.page != nil || tab.appTab != nil || (incognito && tab.kind == .browser) || isNewTabPage(tab) else { return nil }
-        return title(tab, incognito: incognito)
+    /// to the next compares this at each map. `newTabPage`: its row's page answer for `tab`; the rule is then not asked.
+    func unobservedTitle(_ tab: TabModel, incognito: Bool, newTabPage: Bool? = nil) -> String? {
+        guard tab.page != nil || tab.appTab != nil || (incognito && tab.kind == .browser) || (tab.agentSession != nil && (newTabPage ?? showsNewTabPage(tab))) else { return nil }
+        return title(tab, incognito: incognito, newTabPage: newTabPage)
     }
 }
