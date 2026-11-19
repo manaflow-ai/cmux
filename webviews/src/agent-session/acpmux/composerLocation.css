@@ -1592,13 +1592,19 @@
 /* The grid's inset is the control inset on both sides: + sits 8 px from the box's left, the mic or
    Send 8 px from its right, so each glyph's center is 22 px from its edge (a 28 px button, a 16 px
    glyph), and the block inset (10 px) over the bottom on a one-line prompt, as far as under the top.
-   + is one 28 px flex box on the first line: no line box of its own (a baseline gap under
-   the button raised + over the box's middle in the app's font, Leo 2026-11-01). */
+   + is one 28 px flex box on the prompt's last line: no line box of its own (a baseline gap under
+   the button raised + over the box's middle in the app's font, Leo 2026-11-01).
+   The controls stand on the box's bottom edge, beside the prompt's last line, as Claude and Codex
+   keep theirs: a prompt that grows (attachments placed in it, a second line, a capped
+   draft) grows up from them and never moves them. On one line its last line is its first, so a
+   one-line box is as before. Leo, 2026-11-18, on a prompt holding a video and a pasted-text card,
+   with + and the mic level with the attachments' top: "the buttons should be at the bottom of the
+   composer" (experiment `composer-controls-anchor`, arm last-line). */
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
   grid-row: 2;
-  align-self: start;
-  margin: var(--acpmux-prompt-control-top) 0 0 var(--acpmux-composer-inset);
+  align-self: end;
+  margin: 0 0 var(--acpmux-prompt-control-top) var(--acpmux-composer-inset);
 }
 .acpmux-composer-inner > .acpmux-composer-plus {
   display: flex;
@@ -1608,20 +1614,52 @@
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
   grid-row: 2;
+  align-self: end;
+  margin: 0 var(--acpmux-composer-inset) var(--acpmux-prompt-control-top) 0;
+}
+/* The compared arms of `composer-controls-anchor` (Claude's look; Codex's has its own row). The
+   first line (before): the controls on the prompt's first line, and below a capped draft's
+   scrollbar. */
+.acpmux-composer:not([data-composer-look]) .acpmux-composer-box[data-controls-anchor="first-line"]:not(
+    :has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
+  )
+  .acpmux-composer-inner
+  > :not(.acpmux-composer-actions) {
+  align-self: start;
+  margin: var(--acpmux-prompt-control-top) 0 0 var(--acpmux-composer-inset);
+}
+.acpmux-composer:not([data-composer-look]) .acpmux-composer-box[data-controls-anchor="first-line"]:not(
+    :has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
+  )
+  .acpmux-composer-inner
+  > .acpmux-composer-actions {
   align-self: start;
   margin: var(--acpmux-prompt-control-top) var(--acpmux-composer-inset) 0 0;
 }
-/* A capped draft keeps the controls below its scrollbar. The edge marks exclude temporary
-   overflow while a short draft grows, so wrapping a line never moves the controls. */
-.acpmux-composer-box[data-composer-grid]:has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
-  .acpmux-composer-inner > :not(.acpmux-composer-actions) {
-  align-self: end;
-  margin: 0 0 var(--acpmux-prompt-control-top) var(--acpmux-composer-inset);
+/* Own row: the prompt spans the box and the controls stand on a row under it. */
+.acpmux-composer:not([data-composer-look])
+  .acpmux-composer-box[data-controls-anchor="own-row"]
+  > .acpmux-composer-field-menu
+  > * {
+  grid-column: 1 / -1;
 }
-.acpmux-composer-box[data-composer-grid]:has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
-  .acpmux-composer-inner > .acpmux-composer-actions {
-  align-self: end;
-  margin: 0 var(--acpmux-composer-inset) var(--acpmux-prompt-control-top) 0;
+.acpmux-composer:not([data-composer-look]) .acpmux-composer-box[data-controls-anchor="own-row"] .acpmux-md-field {
+  padding-inline-start: calc(var(--acpmux-composer-inset) + var(--acpmux-composer-lead-gap));
+  padding-bottom: 0;
+}
+.acpmux-composer:not([data-composer-look])
+  .acpmux-composer-box[data-controls-anchor="own-row"]
+  .acpmux-composer-inner
+  > :not(.acpmux-composer-actions) {
+  grid-row: 3;
+  margin: 0 0 var(--acpmux-composer-inset) var(--acpmux-composer-inset);
+}
+.acpmux-composer:not([data-composer-look])
+  .acpmux-composer-box[data-controls-anchor="own-row"]
+  .acpmux-composer-inner
+  > .acpmux-composer-actions {
+  grid-row: 3;
+  margin: 0 var(--acpmux-composer-inset) var(--acpmux-composer-inset) 0;
 }
 /* The right inset less the minimal scroller's reserved lane (markdownField.css). */
 .acpmux-composer-box[data-composer-grid] .acpmux-md-field {

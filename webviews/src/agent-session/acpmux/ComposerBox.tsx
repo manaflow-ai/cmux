@@ -15,6 +15,8 @@ import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
 import { acpmuxPerf } from "./perf";
+import { experimentArm } from "../../experiments/experiment";
+import { composerControlsAnchor } from "./composerControlsAnchor.experiment";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -305,6 +307,8 @@ export function ComposerBox({
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
+        // Where +, the mic and Send stand as the prompt grows (composerControlsAnchor.experiment.ts).
+        data-controls-anchor={experimentArm(composerControlsAnchor)}
         onMouseDown={focusFromCard}
       >
         <ComposerListAnchor box={boxElement}>{top}</ComposerListAnchor>

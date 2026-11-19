@@ -5,17 +5,18 @@ import CmuxNextDesign
 /// morph together with the tab? Or would that be a bit, like, awkward? ... I wanted to have goo, right? Like the things
 /// morph into each other and have that cool little animation where it's like that water surface tension thing"). Every
 /// row is the real strip with agent and terminal tabs; hover a tab to see its card enter. The card is as wide as a tab
-/// at its widest, on the tab's leading edge, with plain rows under the title.
+/// at its widest, on the tab's leading edge, with plain rows under the title. The fade ships: grown out of the tab it read
+/// as a bounce (Leo 2026-11-18: "the hover preview bounces for some reason").
 struct HoverCardEntrancePlaygroundVariants {
     private let fixture = TabBarPlaygroundFixture()
 
     var all: [TabBarPlaygroundVariant] {
         [
             variant(String(localized: "tabs.playground.hoverCard.morph", defaultValue: "Grows out of the tab, settling like a drop",
-                           bundle: .module), .morph, shipped: true),
+                           bundle: .module), .morph),
             variant(String(localized: "tabs.playground.hoverCard.slide", defaultValue: "Fades in while it slides down from the tab",
                            bundle: .module), .slide),
-            variant(String(localized: "tabs.playground.hoverCard.fade", defaultValue: "Fades in where it rests", bundle: .module), .fade),
+            variant(String(localized: "tabs.playground.hoverCard.fade", defaultValue: "Fades in where it rests", bundle: .module), .fade, shipped: true),
         ]
     }
 

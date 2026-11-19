@@ -593,10 +593,12 @@
   gap: var(--acpmux-composer-lead-gap);
   padding: 0 var(--acpmux-composer-inset);
 }
+/* +, the mic and Send on the field's last line, at the box's bottom edge, as the chat's composer
+   (composerLocation.css; Leo, 2026-11-18: "the buttons should be at the bottom of the composer"). */
 .nt-input[data-split] > .acpmux-chrome-area > .nt-pickers {
-  align-self: start;
+  align-self: end;
   min-height: var(--acpmux-composer-control);
-  margin: max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2)) 0 0;
+  margin: 0 0 max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2));
 }
 /* Fixed top padding keeps the first line, placeholder and shell glyph still when text wraps. */
 .nt-input[data-split] .nt-field {
