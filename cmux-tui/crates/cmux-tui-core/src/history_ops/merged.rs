@@ -62,6 +62,8 @@ pub(crate) struct HistoryHost {
     /// take turns page by page, so neither reads a page the other folds.
     turn: Mutex<()>,
     feed_claimed: AtomicBool,
+    /// The windows `history.entries.list` answered, for a reader's `follow`.
+    follows: super::follow::Follows,
 }
 
 struct HostState {
@@ -99,6 +101,7 @@ impl Default for HistoryHost {
             }),
             turn: Mutex::new(()),
             feed_claimed: AtomicBool::new(false),
+            follows: super::follow::Follows::default(),
         }
     }
 }
@@ -255,9 +258,15 @@ impl HistoryHost {
         let agents = pick(HistoryKind::Agent);
         let mut changed = Vec::new();
         if !agents.is_empty() {
-            state.agents.apply(&agents);
+            // The fold's cursor moves with every record (the save keeps it);
+            // only a record that changed a row tells open pages to re-read.
+            // Most `agent.*` records (turns, state changes of a session whose
+            // row shows the same time, folder and run state) change none.
+            let rows_changed = state.agents.apply(&agents);
             state.unsaved_agents = true;
-            changed.push(HistoryKind::Agent);
+            if rows_changed {
+                changed.push(HistoryKind::Agent);
+            }
         }
         // Closed items live in the closed-history store; a record that
         // changed one only marks the kind (an open History page re-reads).
@@ -386,7 +395,18 @@ pub(super) fn list(
             row
         })
         .collect::<Vec<_>>();
-    let mut reply = json!({"entries": rows, "revision": mux.history.revision().to_string()});
+    // A reader that holds an answer of this query (`follow`) gets only what
+    // changed since (follow.rs).
+    let after = fields.get("follow").and_then(Value::as_str);
+    let answer = mux.history.follows.answer(fields, after, rows);
+    let mut reply = json!({
+        "entries": answer.entries,
+        "revision": mux.history.revision().to_string(),
+        "follow": answer.follow,
+    });
+    if let Some(delta) = answer.delta {
+        reply.set("delta", delta);
+    }
     if !pending.is_empty() {
         reply.set("pending_kinds", json!(pending));
     }

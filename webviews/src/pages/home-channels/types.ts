@@ -362,6 +362,8 @@ export interface HomeInbox {
   /** The owner keeps my pins and marks (conversation-inbox-state-v1): the page offers Pin and
    * Mark as Unread only then. */
   inboxState?: boolean;
+  /** The answer to `only`: `conversations` holds just the asked rows that are still listed. */
+  only?: boolean;
 }
 
 /** `cmux.home.pin`: pin or unpin a conversation in my list (pinned last, by pin time). */
@@ -434,6 +436,9 @@ export interface HomeEventBatch {
   connection?: "connecting" | "online" | "offline";
   /** The whole inbox changed (first connect, a gap): the page refetches `cmux.home.inbox`. */
   inboxStale?: boolean;
+  /** Local conversations whose row changed (a message, a run that ended): the page reads only their
+   * rows (`cmux.home.inbox` with `only`), never the whole inbox. */
+  changed?: string[];
   conversations?: HomeConversation[];
   removed?: string[];
   messages?: HomeMessage[];

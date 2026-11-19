@@ -55,6 +55,9 @@ const INBOX_STATE_CAPABILITY = "conversation-inbox-state-v1";
 /** `home-inbox`: the owner derives the list rows (kind, name, unread, preview, a Chief's state, my
  * pins and marks) once for every view; the page shows them instead of projecting summaries. */
 const HOME_INBOX_CAPABILITY = "home-inbox-v1";
+/** `home-inbox` with `only`: the rows and summaries of just those local conversations. */
+const HOME_INBOX_ONLY_CAPABILITY = "home-inbox-only-v1";
+const HOME_INBOX_ONLY_MOST = 64;
 /** Attachment uploads, reads and download links on this WebSocket (local conversations). */
 const WS_ATTACHMENTS_CAPABILITY = "ws-attachments-v1";
 /** The same three attachment commands for cloud conversations, through the daemon's lease. */
@@ -525,9 +528,17 @@ function str(params: Json, field: string, max = 256): string {
   return value;
 }
 
+/** One local conversation's row changed: the page reads that row, not the whole inbox. */
+function rowChanged(batch: HomeEventBatch, conversation: string): void {
+  const changed = (batch.changed ??= []);
+  if (!changed.includes(conversation)) changed.push(conversation);
+}
+
 /** Serves the page namespace from the daemon; one instance per page. */
 export class DaemonHomeClient implements PageClient {
   private me = LOCAL_USER;
+  /** The person as the last whole inbox named them (an `only` answer carries no participants). */
+  private meParticipant: HomeParticipant = { id: LOCAL_USER, kind: "human", name: "You", chief: false };
   private nextKey = 1;
   /** The one daemon `subscribe` stream of each connection; page subscriptions share it. */
   private readonly streamStarted = new Map<DaemonSocket, Promise<void>>();
@@ -718,6 +729,27 @@ export class DaemonHomeClient implements PageClient {
   private async dispatch(op: string, params: Json, options?: PageCallOptions): Promise<unknown> {
     switch (op) {
       case HomeOps.inbox: {
+        const only = Array.isArray(params.only) ? params.only.map(String) : [];
+        if (
+          only.length > 0 &&
+          only.length <= HOME_INBOX_ONLY_MOST &&
+          (await this.capable(HOME_INBOX_ONLY_CAPABILITY))
+        ) {
+          // One change of a few conversations: their rows and summaries only, never the whole list.
+          const home = await this.local.request<{ me?: string; rows?: Json[]; conversations?: Json[] }>("home-inbox", {
+            only,
+          });
+          if (home.me === this.me) {
+            for (const id of only) this.homeRows.delete(id);
+            for (const row of home.rows ?? []) this.homeRows.set(String(row.id), row);
+            return {
+              me: this.meParticipant,
+              conversations: (home.conversations ?? []).map((entry) => this.localRow(entry)),
+              rev: 0,
+              only: true,
+            };
+          }
+        }
         const list = await this.local.request<{ conversations: Json[] }>("conversation-list");
         const summaries = list.conversations ?? [];
         const mine = summaries
@@ -725,6 +757,7 @@ export class DaemonHomeClient implements PageClient {
           .find((entry) => entry.id === LOCAL_USER);
         const me = mine ? participant(mine) : { id: LOCAL_USER, kind: "human" as const, name: "You", chief: false };
         this.me = me.id;
+        this.meParticipant = me;
         // The owner's rows for the local conversations (an older daemon: the page projects them).
         this.homeRows.clear();
         if (await this.capable(HOME_INBOX_CAPABILITY)) {
@@ -1355,8 +1388,8 @@ export class DaemonHomeClient implements PageClient {
         if ((change.kind === "message" || change.kind === "message-updated") && change.message) {
           deliver((batch) => {
             (batch.messages ??= []).push(message(change.message as Json));
-            // The summary (last seq, unread, preview) changed too: the page rereads the inbox.
-            batch.inboxStale = true;
+            // The summary (last seq, unread, preview) changed too: the page reads that one row again.
+            rowChanged(batch, String(event.conversation));
           });
         } else if (change.kind === "conversation" && change.conversation) {
           deliver((batch) => {
@@ -1387,7 +1420,7 @@ export class DaemonHomeClient implements PageClient {
             marked_unread: change.markedUnread,
           });
           (batch.inbox ??= []).push(change);
-          if (own === 0 && this.homeRows.size > 0) batch.inboxStale = true;
+          if (own === 0 && this.homeRows.size > 0) rowChanged(batch, change.conversation);
         });
       } else if (event.event === "conversation-presence") {
         deliver((batch) =>
@@ -1410,7 +1443,7 @@ export class DaemonHomeClient implements PageClient {
           // The Chief stopped typing: its "working" on the owner's row may end.
           const owned = this.homeRows.get(String(event.conversation));
           if (event.on !== true && owned?.chief === event.participant && owned?.chief_state === "working")
-            batch.inboxStale = true;
+            rowChanged(batch, String(event.conversation));
         });
       } else if (event.event === "conversation-draft") {
         const item = (event.item ?? {}) as Json;
@@ -1438,7 +1471,8 @@ export class DaemonHomeClient implements PageClient {
           });
           // A run that ended may end its Chief's "working" on the owner's row (a run that starts
           // shows at once: the page's own runs make the Chief active).
-          if (this.homeRows.size > 0 && (event.run as Json).status !== "running") batch.inboxStale = true;
+          if (this.homeRows.size > 0 && (event.run as Json).status !== "running")
+            rowChanged(batch, String(event.conversation));
         });
       } else if (event.event === "conversation-live" && event.frame && typeof event.frame === "object") {
         const frame = liveFrame(event.frame as Json);

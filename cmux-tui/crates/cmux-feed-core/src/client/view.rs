@@ -3,6 +3,8 @@
 //! mirror's ordered list (no sort per read), with each item's row content,
 //! pending mark and GitHub detail.
 
+use std::collections::HashSet;
+
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -42,6 +44,14 @@ pub struct ViewRequest {
     pub tz_offset_min: Option<i32>,
     #[serde(default)]
     pub limit: Option<usize>,
+    /// A delta read: the reader holds every item of its last view and asks
+    /// in full only for these (a `feed-view-changed`'s `changed`). Every
+    /// other item is answered by id alone, `{"id", "same": true}`, which the
+    /// reader fills from its last view; groups, order, counts and totals are
+    /// always whole. A reader that meets a `same` id it does not hold reads
+    /// the whole view.
+    #[serde(default)]
+    pub only: Option<Vec<String>>,
 }
 
 /// The account a view is for: the cloud lease's person (`id`, the lease
@@ -87,8 +97,21 @@ impl ViewContext<'_> {
         value
     }
 
+    /// An item of a delta read: in full when `only` names it (or the read is
+    /// whole), else its id alone ([`ViewRequest::only`]); only a full item
+    /// asks the place lookup.
+    fn item_in(&self, item: &FeedItem, only: Option<&HashSet<&str>>) -> Value {
+        match only {
+            Some(only) if !only.contains(item.id.as_str()) => json!({"id": item.id, "same": true}),
+            _ => self.item(item),
+        }
+    }
+
     /// The whole view.
     pub fn view(&self, request: &ViewRequest) -> Value {
+        let only: Option<HashSet<&str>> =
+            request.only.as_ref().map(|ids| ids.iter().map(String::as_str).collect());
+        let only = only.as_ref();
         let matcher = Matcher::new(request.filter.clone().unwrap_or_default());
         let limit = request.limit.unwrap_or(MAX_VIEW_ENTRIES).min(MAX_VIEW_ENTRIES);
         let kept = || self.mirror.list().filter(|item| matcher.keeps(item));
@@ -122,7 +145,7 @@ impl ViewContext<'_> {
                 let shown = entries.len().min(left);
                 left = left.saturating_sub(shown);
                 let entries: Vec<Value> =
-                    entries.iter().take(shown).map(|entry| entry.to_value(self)).collect();
+                    entries.iter().take(shown).map(|entry| entry.to_value(self, only)).collect();
                 json!({"id": id, "entries": entries})
             })
             .collect();
@@ -164,7 +187,7 @@ impl<'a> Entry<'a> {
         Self { head: item, members: Vec::new() }
     }
 
-    fn to_value(&self, context: &ViewContext<'_>) -> Value {
+    fn to_value(&self, context: &ViewContext<'_>, only: Option<&HashSet<&str>>) -> Value {
         let head = self.head;
         // Unique across groups: a thread can head an entry in Today and
         // another in Earlier, and open requests of one thread stay apart.
@@ -172,10 +195,11 @@ impl<'a> Entry<'a> {
             Some(thread) => format!("thread:{thread}:{}", head.id),
             None => head.id.clone(),
         };
-        let members: Vec<Value> = self.members.iter().map(|item| context.item(item)).collect();
+        let members: Vec<Value> =
+            self.members.iter().map(|item| context.item_in(item, only)).collect();
         json!({
             "id": id,
-            "item": context.item(head),
+            "item": context.item_in(head, only),
             "members": members,
             "unread": std::iter::once(head).chain(self.members.iter().copied()).filter(|item| item.is_unread()).count(),
         })

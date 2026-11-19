@@ -78,6 +78,14 @@ pub const CONVERSATION_PERSON_CREDENTIALS_CAPABILITY: &str = "conversation-perso
 /// (kind, display name, unread count, preview, a Chief's live state, the
 /// caller's pins and marks, list order), so every view shows the same list.
 pub const HOME_INBOX_CAPABILITY: &str = "home-inbox-v1";
+/// `home-inbox` takes `only` (local conversation ids, at most
+/// `HOME_INBOX_ONLY_MOST`): it answers those conversations' rows and their
+/// `conversation-list` summaries (`conversations`), and no Cloud rows. A Home
+/// page answers a change of one conversation with it instead of reading every
+/// row and summary again (cmuxterm-hq `docs/handbook/whole-list-reread-on-delta.md`).
+pub const HOME_INBOX_ONLY_CAPABILITY: &str = "home-inbox-only-v1";
+/// The most ids one `home-inbox` `only` names.
+const HOME_INBOX_ONLY_MOST: usize = 64;
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.
@@ -130,13 +138,18 @@ pub(super) struct LinkResolveParams {
 pub(super) struct HomeInboxParams {
     #[serde(default)]
     owners: Option<Vec<String>>,
+    /// Only these local conversations (`home-inbox-only-v1`).
+    #[serde(default)]
+    only: Option<Vec<String>>,
 }
 
 impl HomeInboxParams {
     /// Whether the rows include the Cloud inbox (a network read: it leaves
-    /// the request loop like `cloud-inbox-list`).
+    /// the request loop like `cloud-inbox-list`). A read of `only` some
+    /// local conversations reads none.
     pub(super) fn asks_cloud(&self) -> bool {
-        self.owners.as_ref().is_none_or(|owners| owners.iter().any(|owner| owner == "cloud"))
+        self.only.is_none()
+            && self.owners.as_ref().is_none_or(|owners| owners.iter().any(|owner| owner == "cloud"))
     }
 }
 
@@ -308,8 +321,15 @@ pub(super) fn list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     let principal = mux.conversation_principal(client);
     let (conversations, states) =
         mux.with_conversations(|store| Ok((store.list()?, store.inbox_states(&principal)?)))?;
-    let conversations: Vec<Value> = conversations
-        .into_iter()
+    Ok(json!({"conversations": list_values(conversations.iter(), &states)?}))
+}
+
+/// `conversation-list`'s summaries: each with the caller's own pins and marks.
+fn list_values<'a>(
+    conversations: impl Iterator<Item = &'a cmux_conversation::Summary>,
+    states: &std::collections::HashMap<String, crate::conversation_store::inbox::InboxState>,
+) -> anyhow::Result<Vec<Value>> {
+    conversations
         .map(|summary| {
             let state = states.get(&summary.id).copied().unwrap_or_default();
             let mut value = serde_json::to_value(summary)?;
@@ -320,8 +340,7 @@ pub(super) fn list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
             }
             Ok(value)
         })
-        .collect::<anyhow::Result<_>>()?;
-    Ok(json!({"conversations": conversations}))
+        .collect()
 }
 
 /// `home-inbox`: the caller's Home rows over the local conversations
@@ -330,6 +349,9 @@ pub(super) fn list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
 /// registry's current names and who types now.
 pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> anyhow::Result<Value> {
     require_local(mux, client)?;
+    if let Some(only) = params.only {
+        return home_inbox_only(mux, client, &only);
+    }
     let owners = params.owners.unwrap_or_else(|| vec!["local".into(), "cloud".into()]);
     anyhow::ensure!(
         owners.iter().all(|owner| owner == "local" || owner == "cloud"),
@@ -353,8 +375,53 @@ pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> any
     let (conversations, states, running) = mux.with_conversations(|store| {
         Ok((store.list()?, store.inbox_states(&principal)?, store.running_run_authors(now_ms)?))
     })?;
+    let rows = cmux_conversation::merge_rows(
+        local_home_rows(mux, &principal, &conversations, states, running),
+        cloud_rows,
+    );
+    Ok(json!({"me": principal, "rows": rows, "cloud": cloud}))
+}
+
+/// `home-inbox` `only` (`home-inbox-only-v1`): the rows and the
+/// `conversation-list` summaries of these local conversations, no Cloud row.
+/// A row's kind reads the whole list (the oldest of two conversations with
+/// one same participant is the direct one), so the rows are derived over
+/// every summary (the store keeps each unchanged one, conversation_store.rs
+/// `list`) and only the asked ones are sent: the reply's size is theirs.
+fn home_inbox_only(mux: &Mux, client: u64, only: &[String]) -> anyhow::Result<Value> {
+    anyhow::ensure!(
+        !only.is_empty() && only.len() <= HOME_INBOX_ONLY_MOST,
+        "bad request: only names 1 to {HOME_INBOX_ONLY_MOST} conversations"
+    );
+    let principal = mux.conversation_principal(client);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX));
+    let (conversations, states, running) = mux.with_conversations(|store| {
+        Ok((store.list()?, store.inbox_states(&principal)?, store.running_run_authors(now_ms)?))
+    })?;
+    let asked: std::collections::HashSet<&str> = only.iter().map(String::as_str).collect();
+    let summaries = list_values(
+        conversations.iter().filter(|summary| asked.contains(summary.id.as_str())),
+        &states,
+    )?;
+    let rows: Vec<_> = local_home_rows(mux, &principal, &conversations, states, running)
+        .into_iter()
+        .filter(|row| asked.contains(row.id.as_str()))
+        .collect();
+    Ok(json!({"me": principal, "rows": rows, "conversations": summaries, "cloud": "not_asked"}))
+}
+
+/// The local conversations' Home rows (`cmux_conversation::home_inbox`).
+fn local_home_rows(
+    mux: &Mux,
+    principal: &str,
+    conversations: &[cmux_conversation::Summary],
+    states: std::collections::HashMap<String, crate::conversation_store::inbox::InboxState>,
+    running: std::collections::HashMap<String, Vec<String>>,
+) -> Vec<cmux_conversation::HomeRow> {
     let input = cmux_conversation::HomeInboxInput {
-        me: &principal,
+        me: principal,
         states: states
             .into_iter()
             .map(|(id, state)| {
@@ -373,11 +440,7 @@ pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> any
         running,
         deleted_chiefs: super::chief_registry_resource::deleted_chiefs(mux),
     };
-    let rows = cmux_conversation::merge_rows(
-        cmux_conversation::home_inbox(&conversations, &input),
-        cloud_rows,
-    );
-    Ok(json!({"me": principal, "rows": rows, "cloud": cloud}))
+    cmux_conversation::home_inbox(conversations, &input)
 }
 
 /// The person's Cloud inbox as Home rows, through the daemon's lease, and
@@ -391,19 +454,22 @@ fn cloud_home_rows(mux: &Mux, client: u64) -> (Vec<cmux_conversation::HomeRow>, 
     if !super::cloud_conversations::is_person(mux, client) {
         return (Vec::new(), "signed_out");
     }
-    // The read holds one of the Cloud's request slots, as cloud-inbox-list does.
+    // The inbox as last read whole, kept from the live inbox stream's
+    // entries: a `cloud-inbox-changed` (which the app answers with this
+    // read) costs no Cloud page. Without one, the read holds one of the
+    // Cloud's request slots, as cloud-inbox-list does.
     let listed = super::cloud_conversations::lease_user(mux, client).and_then(|service| {
+        if let Some(entries) = service.home_inbox_kept() {
+            return Ok(entries);
+        }
         let _permit = service.begin_request()?;
         service
-            .inbox_list_all(false, crate::cloud_conversations::INBOX_ALL_BUDGET)
+            .home_inbox_read(crate::cloud_conversations::INBOX_ALL_BUDGET)
             .map_err(anyhow::Error::from)
     });
-    let value = match listed {
-        Ok(value) => value,
+    let entries = match listed {
+        Ok(entries) => entries,
         Err(error) => return (Vec::new(), cloud_rows_failure(&error)),
-    };
-    let Some(entries) = value.get("entries").and_then(Value::as_array) else {
-        return (Vec::new(), "unavailable");
     };
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

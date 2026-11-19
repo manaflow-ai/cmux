@@ -1215,3 +1215,91 @@ fn a_closed_frontend_connection_takes_its_feed_presence_with_it() {
     mux.feed_client().shutdown();
     mux.cloud_conversations().unwrap().shutdown();
 }
+
+/// Detector (audit 2026-11-18 section 15): the app reads `home-inbox` again
+/// on every `cloud-inbox-changed`, and each read listed every Cloud inbox
+/// page from the network although the event carried the entries it wrote.
+/// While the inbox stream is live, a read after a change reads no page and
+/// shows the changed entry.
+#[test]
+fn home_inbox_after_an_inbox_change_reads_no_cloud_page() {
+    let (mux, client, backend) = cloud_mux();
+    set_role_for_test(&mux, client, "main");
+    set_verified_app_for_test(&mux, client, true);
+    // A token whose `sub` names the account, as the app's lease carries:
+    // the inbox stream's events are that account's.
+    let claims = {
+        use base64::Engine as _;
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json!({"sub": ME}).to_string())
+    };
+    let set = run(
+        &mux,
+        client,
+        json!({"cmd":"cloud-session-set","api_base_url":"https://api.cmux.test",
+               "access_token":format!("e30.{claims}.sig"),"expires_at":4_102_444_800_000_u64,
+               "client_version":"0.70.0"}),
+    )
+    .unwrap();
+    assert_eq!(set["state"], "active");
+    let events = mux.subscribe();
+    let wire = backend.wire();
+    let stream = format!("inbox:{ME}");
+    wire.push_text(json!({"t":"welcome","principal":{"user":ME},"streams":[stream]}).to_string());
+    wire.push_text(
+        json!({"t":"snapshot","stream":stream,"seq":1,"decided":[],"state":{},
+               "rows":{"table":"entry","rows":[]}})
+        .to_string(),
+    );
+    run(&mux, client, json!({"cmd":"cloud-inbox-subscribe"})).unwrap();
+    let mut seen = Vec::new();
+    wait_until("the inbox stream to go live", || {
+        seen.extend(cloud_events(&events));
+        seen.iter().any(|event| {
+            event["event"] == "cloud-subscription-state"
+                && event["scope"] == "inbox"
+                && event["state"] == "live"
+        })
+    });
+    // The snapshot's reset comes after live: wait for it before the first read.
+    wait_until("the inbox reset", || {
+        seen.extend(cloud_events(&events));
+        seen.iter().any(|event| event["event"] == "cloud-inbox-reset")
+    });
+    let home = |id: u64| {
+        let reply = reply(&mux, client, json!({"id":id,"cmd":"home-inbox","owners":["cloud"]}));
+        assert_eq!(reply["data"]["cloud"], "included", "{reply}");
+        let mut rows: Vec<String> = reply["data"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|row| row["id"].as_str().map(str::to_owned))
+            .collect();
+        rows.sort();
+        rows
+    };
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a", "conv_b"], json!("k1"), "7"));
+    backend.reply("/v1/read", 200, inbox_page(&["conv_c"], Value::Null, "7"));
+    assert_eq!(home(1), ["conv_a", "conv_b", "conv_c"]);
+    let pages = backend.posted().len();
+    assert_eq!(pages, 2, "the first read lists every page");
+
+    wire.push_text(
+        json!({"t":"event","stream":stream,"seq":2,"tx":"tx-2","op":"inbox.touch","params":{},
+               "actor":{"user":ME},"origin":"user","at":2,
+               "effects":{"writes":[{"table":"entry","op":"upsert","key":"conv_d","n":2,
+                                     "row":{"conversation":"conv_d","kind":"group","title":"New",
+                                            "last_at":"2026-11-18T00:00:00.000Z","last_seq":1}}]}})
+        .to_string(),
+    );
+    wait_until("the inbox change", || {
+        seen.extend(cloud_events(&events));
+        seen.iter().any(|event| event["event"] == "cloud-inbox-changed")
+    });
+    // The Cloud would answer a read again (the base read every page per
+    // change); the change's own entry must be enough.
+    let again = inbox_page(&["conv_a", "conv_b", "conv_c", "conv_d"], Value::Null, "8");
+    backend.reply("/v1/read", 200, again);
+    assert_eq!(home(2), ["conv_a", "conv_b", "conv_c", "conv_d"]);
+    assert_eq!(backend.posted().len(), pages, "a read after a change listed Cloud pages again");
+    mux.cloud_conversations().unwrap().shutdown();
+}

@@ -133,6 +133,8 @@ export interface HomeSnapshot {
 /** The plain sentence of a failure; the owner's own text stays in the error. */
 const describe = (error: unknown) => userMessage(error);
 
+const pageHidden = (): boolean => typeof document !== "undefined" && document.visibilityState === "hidden";
+
 export class HomeChannelsStore {
   private snapshot: HomeSnapshot;
   private readonly listeners = new Set<() => void>();
@@ -264,7 +266,10 @@ export class HomeChannelsStore {
       this.stops.push(this.sheets.subscribe(sheetChanged));
       // Replies that came while the page was hidden are read once the person sees them.
       const shown = () => {
-        if (document.visibilityState === "visible") this.readOpen();
+        if (document.visibilityState === "visible") {
+          this.readOpen();
+          this.readStale();
+        }
         this.syncViewing();
       };
       document.addEventListener("visibilitychange", shown);
@@ -416,31 +421,91 @@ export class HomeChannelsStore {
       ? this.client.call<PaletteRankReply>(HomeOps.paletteRank, request)
       : Promise.resolve(fixtureRank(request));
 
+  /** An owner change came while the page was hidden: it reads the inbox once when shown. A hidden
+   * page reads nothing per change (about 4 a second on a busy Mac, each a whole inbox). */
+  private staleWhileHidden = false;
+  /** Counts whole inbox reads: a row read started before the newest one is older than it. */
+  private inboxGeneration = 0;
+
+  /** The batch's inbox work: a whole read for a gap or reconnect (`inboxStale`), else a read of only
+   * the rows that changed (`changed`); a hidden page only marks itself stale. */
+  private followInbox(batch: HomeEventBatch): void {
+    if (!batch.inboxStale && !batch.changed?.length) return;
+    if (pageHidden()) {
+      this.staleWhileHidden = true;
+      return;
+    }
+    if (batch.inboxStale) void this.reloadInbox();
+    else void this.reloadRows(batch.changed ?? []);
+  }
+
+  /** The page shows again: one whole read if a change came while it was hidden. */
+  private readStale(): void {
+    if (!this.staleWhileHidden || pageHidden()) return;
+    this.staleWhileHidden = false;
+    void this.reloadInbox();
+  }
+
+  /** Reads only these conversations' rows (`cmux.home.inbox` with `only`) and puts them in the list;
+   * a host that answers the whole inbox instead (no `only`) is taken as a whole read. */
+  private async reloadRows(ids: string[]): Promise<void> {
+    if (!this.client) return;
+    const generation = this.inboxGeneration;
+    try {
+      const inbox = await this.client.call<HomeInbox>(HomeOps.inbox, { only: ids });
+      if (generation !== this.inboxGeneration) return;
+      if (!inbox.only) {
+        await this.applyInbox(inbox);
+        return;
+      }
+      const conversations = new Map(this.snapshot.conversations);
+      for (const conversation of inbox.conversations) conversations.set(conversation.id, conversation);
+      // An asked conversation with no row left my list (a deleted Chief's).
+      const answered = new Set(inbox.conversations.map((conversation) => conversation.id));
+      for (const id of ids) if (!answered.has(id)) conversations.delete(id);
+      // The open conversation left: the whole read picks the next one, as at load.
+      const selected = this.snapshot.selected;
+      if (selected && this.snapshot.conversations.has(selected) && !conversations.has(selected)) {
+        await this.reloadInbox();
+        return;
+      }
+      this.set({ conversations, connection: "online", error: undefined });
+    } catch (error) {
+      if (generation === this.inboxGeneration) this.set({ error: describe(error) });
+    }
+  }
+
   async reloadInbox(): Promise<void> {
     if (!this.client) return;
+    this.staleWhileHidden = false;
+    this.inboxGeneration += 1;
     try {
-      const inbox = await this.client.call<HomeInbox>(HomeOps.inbox, {});
-      const conversations = new Map(inbox.conversations.map((c) => [c.id, c]));
-      const selected =
-        this.snapshot.selected && conversations.has(this.snapshot.selected)
-          ? this.snapshot.selected
-          : defaultSelection(inbox.conversations);
-      this.set({
-        me: inbox.me,
-        conversations,
-        connection: "online",
-        loading: false,
-        error: undefined,
-        inboxState: inbox.inboxState === true,
-      });
-      // The open conversation's owner is known now (a reconnect says the viewing again), and an
-      // open row the list dropped is no longer viewed (even with nothing to open instead).
-      this.syncViewing();
-      if (selected && selected !== this.snapshot.selected) await this.select(selected, false);
-      else if (selected) await this.reloadPage(selected);
+      await this.applyInbox(await this.client.call<HomeInbox>(HomeOps.inbox, {}));
     } catch (error) {
       this.set({ error: describe(error), loading: false });
     }
+  }
+
+  /** Puts a whole inbox in the page, then reads the open conversation's page again. */
+  private async applyInbox(inbox: HomeInbox): Promise<void> {
+    const conversations = new Map(inbox.conversations.map((c) => [c.id, c]));
+    const selected =
+      this.snapshot.selected && conversations.has(this.snapshot.selected)
+        ? this.snapshot.selected
+        : defaultSelection(inbox.conversations);
+    this.set({
+      me: inbox.me,
+      conversations,
+      connection: "online",
+      loading: false,
+      error: undefined,
+      inboxState: inbox.inboxState === true,
+    });
+    // The open conversation's owner is known now (a reconnect says the viewing again), and an
+    // open row the list dropped is no longer viewed (even with nothing to open instead).
+    this.syncViewing();
+    if (selected && selected !== this.snapshot.selected) await this.select(selected, false);
+    else if (selected) await this.reloadPage(selected);
   }
 
   /** Opens a conversation: its newest page, then marks it read. */
@@ -1081,8 +1146,8 @@ export class HomeChannelsStore {
     if (open && incoming.length > 0 && document.visibilityState === "visible") {
       if (this.shown) this.markRead(open, Math.max(...incoming.map((m) => m.seq)));
     }
-    if (batch.inboxStale) void this.reloadInbox();
-    else if (selected && batch.stale?.includes(selected)) void this.reloadPage(selected);
+    this.followInbox(batch);
+    if (!batch.inboxStale && selected && batch.stale?.includes(selected)) void this.reloadPage(selected);
   }
 
   /** A batch's live frames, then what ends live text: a run that left `running`, a posted reply
