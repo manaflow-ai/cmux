@@ -51,6 +51,16 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// into CEF's feature list.
     static let overlayScrollbars = "enable-features=OverlayScrollbar:mode/overlay"
 
+    /// Renderers start V8's young generation at 32 MB a semi-space instead of growing it from 1 MB. A streaming
+    /// chat makes short-lived garbage on every token, and a long chat's renderer scavenged far more often than a
+    /// short one's (309 against 92 over one replay, median 30 ms against 14). On the paired transcript replay
+    /// (god chat, 34,641 rows, against a small one; 8 rounds on the build fleet, CPU clock) the god / small p95
+    /// went from 1.41 to 1.07 for thought updates and from 1.49 to 1.37 for tokens, and the god chat's thought
+    /// p95 from 8.37 to 5.64 ms. The renderer's memory did not grow: 153 MB with one chat and 472 MB with ten,
+    /// against 154 and 478 MB without it (chat-pages-memory, 3 runs a side). Leo, 2026-11-12: a god chat shows
+    /// "no perceivable difference" from a small one (within 1.2x).
+    static let youngGeneration = "js-flags=--min-semi-space-size=32"
+
     var arguments: [String] {
         var result: [String] = []
         if forkAPIVersion >= 1 {
@@ -84,6 +94,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // to UMA, which cmux does not upload; in some idle sessions it raised the
         // app's energy with 20 hidden tabs from about 0.24 to 4 mW (msg 2654).
         result.append("disable-stack-profiler")
+        result.append(Self.youngGeneration)
         result.append(Self.overlayScrollbars)
         // Chromium's UI thread is the app's main thread (external message pump): one
         // `CefDoMessageLoopWork` pass ran ready work for up to CEF's 10 ms slice, longer than a
