@@ -388,3 +388,46 @@ fn an_extension_op_offered_to_agents_is_an_mcp_tool_and_the_rest_are_refused() {
     // The person's own CLI still runs it.
     assert_eq!(ran(&daemon.cmux(&["demo", "secret"]))["export"], "secret");
 }
+
+/// The names `tools/list` answers now.
+fn tool_names(mcp: &mut Mcp) -> Vec<String> {
+    let listed = mcp.rpc("tools/list", json!({}));
+    let tools = listed["result"]["tools"].as_array().unwrap_or_else(|| panic!("{listed}"));
+    tools.iter().filter_map(|tool| tool["name"].as_str().map(str::to_owned)).collect()
+}
+
+#[test]
+fn an_install_and_a_saved_op_are_a_tool_and_a_cli_word_with_no_restart() {
+    let daemon = Daemon::new("hot");
+    let bundled = daemon.dir.join("bundled");
+    write_demo(&bundled);
+    daemon.start();
+    // One MCP server for the whole test: nothing restarts it.
+    let mut mcp = daemon.mcp();
+    assert!(!tool_names(&mut mcp).iter().any(|name| name == "acme_demo_ping"), "not installed");
+
+    // Installing the app makes its offered op a tool on the next list.
+    daemon.install("acme/demo");
+    assert!(tool_names(&mut mcp).iter().any(|name| name == "acme_demo_ping"));
+
+    // Saving a new offered op in the app's folder (what an editor does) and
+    // reloading it (`cmux ext reload`) makes it a tool and a CLI word.
+    let path = bundled.join("demo/catalog.json");
+    let mut catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let mut wave = catalog["operations"][0].clone();
+    wave["name"] = json!("acme.demo.wave");
+    wave["export"] = json!("wave");
+    wave["docs"] = json!("wave from the demo");
+    wave["cli"] = json!({ "path": "wave", "positional": ["text"] });
+    catalog["operations"].as_array_mut().unwrap().push(wave);
+    std::fs::write(&path, catalog.to_string()).unwrap();
+    let reloaded = daemon.request(json!({ "cmd": "apps-reload", "app": "acme/demo" }));
+    assert_eq!(reloaded["ok"], true, "{reloaded}");
+
+    assert!(tool_names(&mut mcp).iter().any(|name| name == "acme_demo_wave"));
+    let called =
+        mcp.rpc("tools/call", json!({ "name": "acme_demo_wave", "arguments": { "text": "hi" } }));
+    assert_eq!(called["result"]["structuredContent"]["value"]["ran"]["export"], "wave", "{called}");
+    assert_eq!(ran(&daemon.cmux(&["demo", "wave", "hi"]))["args"], json!({ "text": "hi" }));
+}

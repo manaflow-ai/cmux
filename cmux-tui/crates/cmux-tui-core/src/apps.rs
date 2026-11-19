@@ -59,6 +59,8 @@ mod local_reload;
 #[cfg(unix)]
 mod locale;
 #[cfg(unix)]
+mod mcp_tools;
+#[cfg(unix)]
 mod mirror;
 #[cfg(unix)]
 mod open_tokens;
