@@ -14,7 +14,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
 import designScale from "../../schemas/design-scale/design-scale.json";
-import { rawChatFills, statesReplacingFilledRest } from "../scripts/check-chat-surfaces";
+import { rawChatFills, statesReplacingFilledRest, togglesOnWithPressedFill } from "../scripts/check-chat-surfaces";
 import baseline from "./chat-surfaces.baseline.json";
 
 const source = (file: string) => readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
@@ -175,4 +175,10 @@ test("no chat stylesheet adds a raw fill: the backlog of older ones only shrinks
 // rest, so the pointer lightened it. A state over a filled rest is a layer on that rest.
 test("a hover or press never paints over a filled rest with a quieter fill", () => {
   expect(statesReplacingFilledRest()).toEqual([]);
+});
+
+// The diff's view toggles and the usage sort showed "on" with the pressed fill, so a press on an on
+// toggle showed nothing. On is the checked segment: the selection fill.
+test("a toggle that is on shows the selection fill, not the press", () => {
+  expect(togglesOnWithPressedFill()).toEqual([]);
 });

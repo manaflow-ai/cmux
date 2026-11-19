@@ -122,6 +122,17 @@ export function statesReplacingFilledRest(): string[] {
     .map(([file, selector]) => `${file}: ${selector}`);
 }
 
+/// `file: selector` for each toggle that shows "on" (aria-pressed true) with the pressed fill, the
+/// transient press: an on toggle is the checked segment, --ds-color-selection, so its press still shows.
+export function togglesOnWithPressedFill(): string[] {
+  const out: string[] = [];
+  for (const file of cssFiles(CHAT_ROOT))
+    for (const [selector, body] of selectorRules(readFileSync(file, "utf8")))
+      if (/\[aria-pressed=["']?true/.test(selector) && /var\(--ds-color-pressed\)/.test(fillOf(body) ?? ""))
+        out.push(`${relative(SRC, file)}: ${selector}`);
+  return out;
+}
+
 if (import.meta.main) {
   const all = rawChatFills();
   let total = 0;
