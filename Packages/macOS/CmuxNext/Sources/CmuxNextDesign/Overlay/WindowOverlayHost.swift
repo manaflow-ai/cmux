@@ -139,6 +139,13 @@ public final class WindowOverlayHost {
             // main-proof: observer on queue: .main
             MainActor.assumeIsolated { host?.tearDown() }
         })
+        // In-tree pages turned off at launch (an engine without the in-tree calls): overlays go back to the panel.
+        host.observers.append(NotificationCenter.default.addObserver(
+            forName: InTreePages.activeDidChange, object: nil, queue: .main
+        ) { [weak host] _ in
+            // main-proof: observer on queue: .main
+            MainActor.assumeIsolated { host?.syncPanel() }
+        })
         return host
     }
 
@@ -223,6 +230,7 @@ public final class WindowOverlayHost {
         removeAgentCursor()
         // The host stays in `hosts` for the closed window (`host(for:)`) until the window is gone.
         if let window, panel.parent === window { window.removeChildWindow(panel) }
+        if panel.root.inWindow { panel.root.removeFromSuperview() }
         // The window closed and the host goes with it: nothing orders this panel in again, so it
         // closes (ordered out only, it stayed in the app's window list, open, for good).
         panel.close()
@@ -235,6 +243,16 @@ public final class WindowOverlayHost {
         if isAppHost { return syncAppPanel() }
         guard let window, !isTearingDown else { return }
         let wanted = planesWantPanel || !handles.isEmpty || fadingOut > 0
+        if usesWindowBackend {
+            // In-tree pages: the overlays are views on top of the window's content (WindowOverlayHost+InWindow).
+            syncInWindowRoot(wanted: wanted)
+            placeAgentCursor()
+            updateMouseRouting()
+            onPanelChange?()
+            return
+        }
+        // The window backend went off (the engine lacks the in-tree calls): the root is the panel's again.
+        returnRootToPanel()
         if wanted {
             if panel.frame != window.frame { panel.setFrame(window.frame, display: false) }
             // A detach still waiting for its empty frame: the panel stays (it never left).
@@ -331,7 +349,7 @@ public final class WindowOverlayHost {
     /// AppKit's private child window classes (`isAppKitChrome`).
     public nonisolated static let appKitChromeClassNames = ["NSToolbarFullScreenWindow"]
 
-    private func observeWindow(_ window: NSWindow) {
+    func observeWindow(_ window: NSWindow) {
         stopObservingWindow()
         let center = NotificationCenter.default
         windowObservers.append(center.addObserver(forName: NSWindow.didUpdateNotification, object: window, queue: .main) { [weak self] _ in
@@ -347,14 +365,18 @@ public final class WindowOverlayHost {
         }
     }
 
-    private func stopObservingWindow() {
+    func stopObservingWindow() {
         windowObservers.forEach(NotificationCenter.default.removeObserver)
         windowObservers.removeAll()
     }
 
     private func windowGeometryDidChange() {
-        guard let window, panel.parent === window else { return }
-        if panel.frame != window.frame { panel.setFrame(window.frame, display: false) }
+        guard let window, panel.parent === window || isRootInWindow else { return }
+        if isRootInWindow {
+            syncInWindowRoot(wanted: true)
+        } else if panel.frame != window.frame {
+            panel.setFrame(window.frame, display: false)
+        }
         handles.forEach(layout)
         updateMouseRouting()
         placeAgentCursor()

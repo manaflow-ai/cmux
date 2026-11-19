@@ -301,7 +301,13 @@ final class WindowOverlayLayer {
         }
         isEvaluating = true
         defer { isEvaluating = false }
-        let wanted: Placement = window.isVisible && !Self.contentChildWindows(of: window).isEmpty ? .overlayWindow : .inWindow
+        var wanted: Placement = window.isVisible && !Self.contentChildWindows(of: window).isEmpty ? .overlayWindow : .inWindow
+        // In-tree pages: the overlays are views on the window (`WindowOverlayHost.usesWindowBackend`) and the dividers
+        // plain views; no panel and no catcher ever orders in. A page window still on screen is counted, never served.
+        if wanted == .overlayWindow, InTreePages.shared.isActive {
+            InTreeRetiredGuards.shared.fired(.dividerCatchers)
+            wanted = .inWindow
+        }
         if wanted != placement {
             placement = wanted
             switch wanted {
@@ -374,7 +380,7 @@ final class WindowOverlayLayer {
             }
         }
         // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
-        catchers.update(catcherAreas, active: placement == .overlayWindow && WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow != true)
+        catchers.update(catcherAreas, active: placement == .overlayWindow && !InTreePages.shared.isActive && WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow != true)
         // The panels pass hover through to the layout, and moving them under
         // a still pointer sends no event: the layout recomputes now (cx-ww20).
         for plane in planes {

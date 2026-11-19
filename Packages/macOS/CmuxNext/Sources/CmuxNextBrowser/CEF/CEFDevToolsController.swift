@@ -366,7 +366,7 @@ final class CEFDevToolsController {
         // too while layer hosting is on (fork API 26), from this open on (a later tunable change applies
         // at the next open).
         if docked {
-            views?.host.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: tab.runtime.shim, apiVersion: tab.runtime.forkAPIVersion))
+            views?.host.pageWindowCreated(browser: browser, shim: tab.runtime.shim, apiVersion: tab.runtime.forkAPIVersion)
         }
         tab.devToolsObserver?.browserTab(tab, devToolsDidChange: tab.devTools, focused: true)
         // A console or panel asked while the older DevTools closed, opened now by Chromium itself (see `endClosingForNewDevTools`).
@@ -500,6 +500,7 @@ final class CEFDevToolsController {
         guard let views else { return }
         self.views = nil
         views.host.layerHosting.stop()
+        views.host.inTree.stop()
         views.divider.removeFromSuperview()
         views.host.removeFromSuperview()
     }

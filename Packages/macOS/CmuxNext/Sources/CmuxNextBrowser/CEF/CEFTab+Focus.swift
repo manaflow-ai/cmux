@@ -89,6 +89,17 @@ extension CEFTab {
         }
         isGrantingFocus = true
         defer { isGrantingFocus = false }
+        // In-tree pages: the cmux window stays key; the page view becomes its first responder inside cmux's grant,
+        // which the window's gate lets through (InTreePageFocus). No page window is made key.
+        if presentation == .inTree {
+            guard host.hostView.inTree.isInTree else {
+                host.lifecycleTrace.record(id, "grant kept: not in tree yet")
+                pendingFocus = true
+                return
+            }
+            host.hostView.inTree.grantFocus { runtime.shim?.setFocus(browser, 1) }
+            return
+        }
         runtime.shim?.setFocus(browser, 1)
         guard let window = pageWindow, let key = keyWindows.keyWindow(), key !== window, window.parent === key else { return }
         keyWindows.makeKey(window)

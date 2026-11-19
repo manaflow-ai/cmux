@@ -35,7 +35,7 @@ enum TunableCatalog {
     static var all: [TunableDescriptor] {
         // The Chief view gallery's toggle (its own line, so the busy list below merges cleanly).
         ChiefViewsPage.tunables +
-        DesignTunables.all + [IconFamily.tunable.descriptor] + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all + BrowserChromeTuning.descriptors
+        DesignTunables.all + InTreePages.all + [IconFamily.tunable.descriptor] + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all + BrowserChromeTuning.descriptors
             + [AgentPaneTunables.sessionInfo.descriptor]
             + AgentActivityTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + DaemonTunables.all
             + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserPageTunables.all + AccountTunables.all + GitHubViewerTunables.all
@@ -80,7 +80,11 @@ final class DebugSettingsService: InternalPageProvider {
 
     /// Registers the catalog and activates the store (dev tools only).
     func start() {
-        guard isAvailable else { return }
+        guard isAvailable else {
+            // Release and RC: no file; only `CMUX_IN_TREE_PAGES` can turn in-tree pages on.
+            InTreePages.shared.latch(fileOverride: nil, tag: nil)
+            return
+        }
         let store = TunableStore.shared
         store.register(TunableCatalog.all)
         for registerRenames in [AgentPaneTunables.registerRenames] { registerRenames(store) }
@@ -95,6 +99,15 @@ final class DebugSettingsService: InternalPageProvider {
         services.cloud.auth.signInWindow = { .init(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }
         // The store loads the file off the main actor, after the first icons draw: the family is read here.
         IconPack.useOverlay(Self.launchIconFamily(url).overlay)
+        // In-tree pages are decided once, before the first window or page: the file's switch as it is now.
+        InTreePages.shared.latch(fileOverride: Self.launchInTreePages(url), tag: launch.tag)
+    }
+
+    /// Debug Settings `browser.inTreePages` as the override file holds it at launch (nil without an override).
+    nonisolated static func launchInTreePages(_ url: URL?) -> Bool? {
+        // concurrency-allow: one small Debug Settings file, read once at launch before the first window
+        guard let url, let data = try? Data(contentsOf: url) else { return nil }
+        return TunableFile.decode(data)[InTreePages.tunable.key] as? Bool
     }
 
     /// Debug Settings `icons.family` as the override file holds it at launch (`pack` without one).

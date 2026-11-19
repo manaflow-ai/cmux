@@ -345,6 +345,16 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_resize_fence(int browser_id, unsigned int
 // Detached hosting: a layer-hosted page window that never orders in, visible
 // to Chromium while the parent view shows; input only by forwarding.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_detached_hosting(int browser_id, int enabled);
+// Fork API 36: in-tree pages (plans/cmux-next/in-tree-pages.md). UI thread only; NULL, 0 or -1 when the fork
+// lacks the call or off the UI thread.
+// Puts the page's WebContentsViewCocoa as the bottom subview of container_view (an NSView* in the parent view's
+// window, or in none yet), frame = bounds; the page window goes headless. Returns the page NSView (unretained),
+// NULL when refused. NULL container ends it (the page window is a child again).
+CMUX_SHIM_EXPORT void* cmux_shim_browser_set_in_tree_hosting(int browser_id, void* container_view);
+// The current main-frame RenderWidgetHostViewCocoa (unretained); it changes with the renderer: re-query, never cache.
+CMUX_SHIM_EXPORT void* cmux_shim_browser_in_tree_content_view(int browser_id);
+// 0: the headless widget's compositor is stopped (expected); 1: it still draws; -1: not in tree.
+CMUX_SHIM_EXPORT int cmux_shim_browser_in_tree_widget_drawing(int browser_id);
 // The key state of a detached page (page focus without a key window).
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_embedder_active(int browser_id, int active);
 // Runs fn(context) on Chromium's UI thread from its user-input queue (highest

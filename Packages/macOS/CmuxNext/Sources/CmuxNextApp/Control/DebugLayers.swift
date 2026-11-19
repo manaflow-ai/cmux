@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
@@ -88,6 +89,8 @@ enum DebugLayers {
             ])
         }
         let pageWindows = WindowOverlayLayer.contentChildWindows(of: window)
+        let pageViews = InTreePageFocus.containers(in: window)
+        let censusByPane = Dictionary(pageViews.compactMap { view in view.inTreePagePane.map { ($0, view.inTreeCensus) } }) { a, _ in a }
         var pagesInSync = true
         let browsers: [JSONValue] = (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
             guard case .browser(let entry)? = pane.currentContent else { return nil }
@@ -95,9 +98,14 @@ enum DebugLayers {
             var fields: [String: JSONValue] = [
                 "pane": .string(pane.paneKey),
                 "engine": .string(String(describing: entry.tab.engineKind)),
-                "presentation": .string(entry.tab.presentation == .childWindow ? "child_window" : "in_view"),
+                "presentation": .string(Self.presentationName(entry.tab.presentation)),
                 "content_in_window": .bool(content.window === window),
             ]
+            if entry.tab.presentation == .inTree {
+                let census = censusByPane[pane.paneKey]
+                fields["rwhv_in_window"] = .bool(census?.contentInWindow ?? false)
+                fields["widget_drawing"] = .number(Double(census?.widgetDrawing ?? -1))
+            }
             if entry.tab.presentation == .childWindow, content.window === window, !content.isHiddenOrHasHiddenAncestor {
                 // The page window must cover the host view exactly, in
                 // screen coordinates, whatever moved the window.
@@ -137,6 +145,19 @@ enum DebugLayers {
             // Layout calls of one view in one window layout the guard allows in this window.
             "layout_pass_limit": .number(Double(LayoutPassGuard.limit(viewCount: LayoutPassGuard.viewCount(of: window)))),
             "placement": .string(layer.placement.rawValue),
+            // In-tree pages (InTreePages): the mode ("off", "pending", "on", "unsupported_fork: why"), the page views in
+            // this window's tree, and how many of them still have a drawing headless widget (must be 0).
+            "in_tree": .string(InTreePages.shared.status),
+            "page_views": .array(pageViews.map { view in
+                let census = view.inTreeCensus
+                return .object([
+                    "pane": census.pane.map(JSONValue.string) ?? .null,
+                    "frame_in_window": rect(view.convert(view.bounds, to: nil)),
+                    "rwhv_in_window": .bool(census.contentInWindow),
+                    "widget_drawing": .number(Double(census.widgetDrawing)),
+                ])
+            }),
+            "widget_drawing": .number(Double(pageViews.filter { $0.inTreeCensus.widgetDrawing == 1 }.count)),
             "overlay_panel": layer.overlayPanel.map { .number(Double($0.windowNumber)) } ?? .null,
             "overlay_panel_frame": layer.overlayPanel.map { rect($0.frame) } ?? .null,
             "child_windows": .array(children),
@@ -270,6 +291,14 @@ enum DebugLayers {
         if child === layer.overlayPanel { return "overlay" }
         if WindowOverlayLayer.isContent(child) { return "content" }
         return "panel"
+    }
+
+    static func presentationName(_ presentation: BrowserPresentation) -> String {
+        switch presentation {
+        case .inView: "in_view"
+        case .childWindow: "child_window"
+        case .inTree: "in_tree"
+        }
     }
 
     private static func rect(_ rect: CGRect) -> JSONValue {

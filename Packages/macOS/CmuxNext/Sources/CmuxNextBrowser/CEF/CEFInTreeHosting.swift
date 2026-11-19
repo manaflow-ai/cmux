@@ -1,0 +1,333 @@
+import AppKit
+import CmuxNextDesign
+
+/// The fork's in-tree page calls (fork API 36, `include/cef_cmux.h` "In-tree pages"), resolved as optional shim
+/// symbols: nil on an older engine, where the mode stays inert (``InTreePages/engineResolved(_:)``). Every name the
+/// app uses lives here, so a rename touches one place.
+struct CEFInTreeCalls {
+    /// The shim's symbol names.
+    enum Symbol {
+        static let setInTreeHosting = "cmux_shim_browser_set_in_tree_hosting"
+        static let contentView = "cmux_shim_browser_in_tree_content_view"
+        static let widgetDrawing = "cmux_shim_browser_in_tree_widget_drawing"
+    }
+
+    /// The first fork API with the in-tree calls.
+    static let forkAPI: Int32 = 36
+
+    /// Puts the page into `container` (its `WebContentsViewCocoa` as the container's bottom subview) and returns the
+    /// page's view; nil when the fork refused. A nil container ends it.
+    let setInTreeHosting: (_ browser: Int32, _ container: NSView?) -> NSView?
+    /// The current main-frame `RenderWidgetHostViewCocoa`; it changes with the renderer, so it is read each time.
+    let contentView: (_ browser: Int32) -> NSView?
+    /// 0: the headless widget's compositor is stopped; 1: it still draws; -1: not in tree.
+    let widgetDrawing: (_ browser: Int32) -> Int32
+    /// The window resize fence (``CEFLayerHosting/Fork/resizeFence``), nil when the engine lacks it.
+    let resizeFence: ((_ browser: Int32, _ port: mach_port_t, _ timeoutMs: Int32,
+                       _ done: @escaping @MainActor (Bool) -> Void) -> Bool)?
+
+    init(setInTreeHosting: @escaping (_ browser: Int32, _ container: NSView?) -> NSView?,
+         contentView: @escaping (_ browser: Int32) -> NSView?,
+         widgetDrawing: @escaping (_ browser: Int32) -> Int32 = { _ in 0 },
+         resizeFence: ((_ browser: Int32, _ port: mach_port_t, _ timeoutMs: Int32,
+                        _ done: @escaping @MainActor (Bool) -> Void) -> Bool)? = nil) {
+        self.setInTreeHosting = setInTreeHosting
+        self.contentView = contentView
+        self.widgetDrawing = widgetDrawing
+        self.resizeFence = resizeFence
+    }
+
+    /// The shim's calls; nil without a shim, below fork API 36, or when a symbol is missing.
+    init?(shim: CEFShimLibrary?, apiVersion: Int32) {
+        guard Self.support(shim: shim, apiVersion: apiVersion) == .supported, let shim,
+              let set = shim.browserSetInTreeHosting, let view = shim.browserInTreeContentView else { return nil }
+        let drawing = shim.browserInTreeWidgetDrawing
+        setInTreeHosting = { browser, container in
+            set(browser, container.map { Unmanaged.passUnretained($0).toOpaque() })
+                .map { Unmanaged<NSView>.fromOpaque($0).takeUnretainedValue() }
+        }
+        contentView = { browser in view(browser).map { Unmanaged<NSView>.fromOpaque($0).takeUnretainedValue() } }
+        widgetDrawing = { browser in drawing?(browser) ?? -1 }
+        resizeFence = CEFLayerHosting.Fork(shim: shim, apiVersion: apiVersion)?.resizeFence
+    }
+
+    /// Whether an engine can host pages in the tree, and why not.
+    static func support(shim: CEFShimLibrary?, apiVersion: Int32) -> InTreePages.Engine {
+        guard let shim else { return .unsupported("no engine") }
+        guard apiVersion >= forkAPI else { return .unsupported("fork API \(apiVersion) < \(forkAPI)") }
+        guard shim.browserSetInTreeHosting != nil, shim.browserInTreeContentView != nil else {
+            return .unsupported("shim lacks \(Symbol.setInTreeHosting)")
+        }
+        return .supported
+    }
+}
+
+/// The view in a ``CEFHostView`` that holds the in-tree page (the fork adds the page's `WebContentsViewCocoa` as its
+/// bottom subview). The window's focus gate knows a page view by this container (``InTreePageContainer``), never by a
+/// Chromium class name.
+///
+/// It clips the page to the pane's page area, and pins its content to the top-left corner: when a page's frame at a new
+/// size misses the resize fence, its last frame shows clipped at the top-left until the new one comes, never stretched.
+final class CEFInTreePageView: NSView, InTreePageContainer {
+    /// The pane the page shows in (the host's pane key), for the focus model.
+    var paneKey: () -> String? = { nil }
+    var inTreePagePane: String? { paneKey() }
+    /// The page's census, from its hosting (set by ``CEFInTreeHosting``).
+    var census: () -> (contentInWindow: Bool, widgetDrawing: Int) = { (false, -1) }
+    var inTreeCensus: InTreePageCensus {
+        let now = census()
+        return InTreePageCensus(pane: inTreePagePane, contentInWindow: now.contentInWindow, widgetDrawing: now.widgetDrawing)
+    }
+
+    /// Where the page shows none of its pixels (the New Tab page's hole, ``CEFPageHole``): the window backdrop shows
+    /// there, and a press there goes to the host view (``hitTest(_:)``).
+    var hole: CEFPageHole = .none {
+        didSet { if hole != oldValue { applyHole() } }
+    }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        autoresizingMask = [.width, .height]
+        clipsToBounds = true
+        layer?.masksToBounds = true
+        layer?.contentsGravity = .topLeft
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override var isFlipped: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        switch hole {
+        case .whole: return nil
+        case .rect(let rect) where rect.contains(local): return nil
+        default: return super.hitTest(point)
+        }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if case .rect = hole { applyHole() }
+    }
+
+    private func applyHole() {
+        guard let layer else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        switch hole {
+        case .none:
+            layer.mask = nil
+        case .whole:
+            layer.mask = CALayer()
+        case .rect(let rect):
+            let mask = layer.mask as? CAShapeLayer ?? CAShapeLayer()
+            mask.frame = layer.bounds
+            let path = CGMutablePath()
+            path.addRect(layer.bounds)
+            path.addRect(rect)
+            mask.path = path
+            mask.fillRule = .evenOdd
+            layer.mask = mask
+        }
+    }
+}
+
+/// In-tree hosting of the page over one ``CEFHostView`` (fork API 36): the page's own view is a subview of the host,
+/// in the cmux window, and draws itself. Its page window is headless; no layer hosting, detached hosting or resize
+/// sync runs for it.
+///
+/// Like ``CEFLayerHosting``, a new page window's request runs at the end of the run-loop turn (the fork has no page
+/// window inside Chromium's creation stack), and a refusal retries once at the next show. A second refusal hands the
+/// page back to layer hosting (`fallBack`), so a page never shows blank.
+///
+/// Tests drive it through ``CEFInTreeCalls`` and the `schedule` seam, without Chromium.
+final class CEFInTreeHosting {
+    weak var view: CEFHostView?
+    /// The page container, made on the first request and kept for the host's life.
+    private(set) var container: CEFInTreePageView?
+    /// The page's view as the fork returned it (its `WebContentsViewCocoa`); nil while not in tree.
+    private(set) var page: NSView?
+    private(set) var browser: Int32?
+    private var calls: CEFInTreeCalls?
+    private var retryArmed = false
+    private var scheduled = false
+    /// The fork refused this host's page twice: the page went back to its own window (layer hosting).
+    private(set) var fellBack = false
+    /// Requests the fork refused (`debug.cef` `tracker.in_tree_refused`).
+    private(set) var refusals = 0
+    private let schedule: CEFLayerHosting.Scheduler
+    private let resizeFences: CEFResizeFences
+    /// The page goes back to layer hosting after a second refusal.
+    var fallBack: (() -> Void)?
+    /// The page came into the tree: a focus ask kept while it was not in tree is granted now.
+    var onAttached: (() -> Void)?
+    /// The pane key, for the container's focus rule.
+    var paneKey: () -> String? = { nil } {
+        didSet { container?.paneKey = paneKey }
+    }
+
+    init(schedule: @escaping CEFLayerHosting.Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
+         resizeFences: CEFResizeFences? = nil) {
+        self.schedule = schedule
+        self.resizeFences = resizeFences ?? CEFRuntime.shared.resizeFences
+    }
+
+    /// Whether the page is in the tree now.
+    var isInTree: Bool { page != nil }
+
+    /// A new page window over the view; `calls` nil: the engine has no in-tree calls.
+    /// - Returns: Whether in-tree hosting owns this page window (the caller then gives layer hosting no fork).
+    @discardableResult
+    func pageWindowCreated(browser: Int32, calls: CEFInTreeCalls?) -> Bool {
+        end()
+        guard let calls, InTreePages.shared.isActive else { return false }
+        fellBack = false
+        self.browser = browser
+        self.calls = calls
+        retryArmed = false
+        request()
+        return true
+    }
+
+    /// A tab of the page window shows: an armed retry runs; a page whose content view left the container (a tab
+    /// activation moved Chromium's contents view) is put back.
+    func pageShown(browser: Int32) { // perf-hot: 10ms tab-switch (every Chromium tab show)
+        guard let calls else { return }
+        self.browser = browser
+        if retryArmed {
+            retryArmed = false
+            return attach(retry: true)
+        }
+        guard let container, page != nil else { return }
+        if let content = calls.contentView(browser), !content.isDescendant(of: container) { attach(retry: true) }
+    }
+
+    /// The page window's tabs changed; a live one names the window from now on.
+    func windowBrowsersChanged(_ browsers: [Int32]) {
+        guard let browser, !browsers.contains(browser) else { return }
+        self.browser = browsers.first
+    }
+
+    /// The host view goes away or its page window closed: the page leaves the tree.
+    func stop() {
+        end()
+    }
+
+    private func end() {
+        scheduled = false
+        retryArmed = false
+        if page != nil, let browser, let calls { _ = calls.setInTreeHosting(browser, nil) }
+        page = nil
+        browser = nil
+        calls = nil
+    }
+
+    private func request() {
+        scheduled = true
+        schedule { [weak self] in
+            guard let self, self.scheduled else { return }
+            self.scheduled = false
+            self.attach(retry: false)
+        }
+    }
+
+    private func attach(retry: Bool) {
+        guard let view, let browser, let calls else { return }
+        let container = self.container ?? makeContainer(in: view)
+        if let page = calls.setInTreeHosting(browser, container) {
+            let was = self.page
+            self.page = page
+            CEFHostView.trackerStats.inTreeAttaches += 1
+            if was == nil { onAttached?() }
+            return
+        }
+        refusals += 1
+        CEFHostView.trackerStats.inTreeRefused += 1
+        page = nil
+        if retry {
+            // Refused twice: the page keeps its own window, hosted in the layer tree as before.
+            self.calls = nil
+            fellBack = true
+            fallBack?()
+        } else {
+            retryArmed = true
+        }
+    }
+
+    private func makeContainer(in view: CEFHostView) -> CEFInTreePageView {
+        let made = CEFInTreePageView(frame: view.bounds)
+        made.paneKey = paneKey
+        made.census = { [weak self, weak made] in
+            guard let self, let made else { return (false, -1) }
+            let content = self.contentView
+            return (content != nil && content?.window === made.window, Int(self.widgetDrawing ?? -1))
+        }
+        made.hole = view.layerHosting.pageHole
+        // Below every other subview of the host (the tracker's probe), as the hosted page was.
+        view.addSubview(made, positioned: .below, relativeTo: nil)
+        container = made
+        return made
+    }
+
+    /// The page's current main-frame view (re-read each time: it changes with the renderer).
+    var contentView: NSView? {
+        guard page != nil, let browser else { return nil }
+        return calls?.contentView(browser)
+    }
+
+    /// `cmux_browser_in_tree_widget_drawing`; nil while not in tree.
+    var widgetDrawing: Int32? {
+        guard page != nil, let browser else { return nil }
+        return calls?.widgetDrawing(browser)
+    }
+
+    /// The host view took a new size in this turn: the page's compositor resized in that layout, and the page joins the
+    /// window's resize fence for this turn, so the render server shows the pane's commit with the page's first frame at
+    /// the new size, up to about one frame. The main thread waits for nothing; a miss shows the last frame, pinned
+    /// top-left and clipped by the container.
+    func pageViewResized() { // perf-hot: 0.05ms cef-geometry (each in-tree page, each motion frame)
+        guard page != nil, let browser, let fence = calls?.resizeFence, let view, let window = view.window,
+              let layer = view.layer else { return }
+        let refreshMs = (NSScreen.screens.map(\.minimumRefreshInterval).min() ?? 1.0 / 60) * 1_000
+        let timeout = CEFLayerHosting.resizeFenceTimeoutOverrideMs > 0 ? CEFLayerHosting.resizeFenceTimeoutOverrideMs
+            : Int32(max(8, refreshMs.rounded(.up)))
+        resizeFences.join(window: window, layer: layer, timeoutMs: timeout, refreshMs: refreshMs) { port, done in
+            fence(browser, port, timeout, done)
+        }
+    }
+
+    /// Gives the page the keyboard on cmux's behalf (`CEFTab.grantFocus`): Chromium's focus call and the move of the
+    /// window's first responder to the page view, both inside one grant the window's gate lets through.
+    /// - Returns: Whether the page view is the window's first responder after it.
+    @discardableResult
+    func grantFocus(_ focus: () -> Void) -> Bool {
+        guard let container, let window = container.window else { return false }
+        return InTreePageFocus.shared.granting(container) {
+            focus()
+            guard let target = contentView ?? page else { return false }
+            if window.firstResponder === target { return true }
+            return FocusRoute(.person, "cmux grants an in-tree page the keyboard").moveKeyboard(in: window, to: target)
+        }
+    }
+}
+
+extension CEFHostView {
+    /// A new page window over this view (a pane's Chromium window, a docked DevTools): in the tree when in-tree pages
+    /// are on and the engine has the calls (no layer hosting, detached hosting or resize sync for it), else hosted in
+    /// the window's layers as before. A page the fork refuses twice goes back to layer hosting.
+    func pageWindowCreated(browser: Int32, shim: CEFShimLibrary?, apiVersion: Int32) {
+        let fork = CEFLayerHosting.Fork(shim: shim, apiVersion: apiVersion)
+        guard inTree.pageWindowCreated(browser: browser, calls: CEFInTreeCalls(shim: shim, apiVersion: apiVersion)) else {
+            return layerHosting.pageWindowCreated(browser: browser, fork: fork)
+        }
+        layerHosting.pageWindowCreated(browser: browser, fork: nil)
+        inTree.fallBack = { [weak self] in
+            guard let self else { return }
+            self.layerHosting.pageWindowCreated(browser: self.inTree.browser ?? browser, fork: fork)
+        }
+    }
+}

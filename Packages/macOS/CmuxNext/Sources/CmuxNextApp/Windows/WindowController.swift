@@ -489,6 +489,7 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     weak var focus: FocusCoordinator?
     weak var focusLog: FocusLog? // AppServices.focusLog: this window's focus changes, while it is on
     var routeInFlight: FocusRoute? // FocusRouting: the route of the move being made now
+    var responderMoveDepth = 0 // nested makeFirstResponder calls now: a routed move names only the outermost one's responder
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
 
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
@@ -512,6 +513,8 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // An in-window modal overlay (in-tree pages) takes the window's key equivalents alone, as its panel did.
+        if let modal = WindowOverlayHost.inWindowModalContent(of: self) { return modal.performKeyEquivalent(with: event) }
         // A panel over this window has the keys: no Ghostty keybind below (`KeyRouter.overlayHasKeys`).
         if !isKeyWindow, let focus, KeyRouter.overlayHasKeys(focus.state) { return false }
         if let keyRouter, let focus, let controller = windowController as? WindowController, keyRouter.routeContentKeyEquivalent(event, focus: focus.state, facts: keyRouter.facts(in: self, controller: controller)) { return true }
@@ -592,7 +595,11 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         let gate = ResponderMoveGate(window: self, log: focusLog, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: focus?.isApplying == true, route: routeInFlight)
-        if gate.refuses(responder, or: { if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: gate.inInputEvent, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { true } else { false } }) { return false }
+        // In-tree pages: a page view takes the keys only for input aimed at it, a focus-model move to its pane or cmux's own grant.
+        let routeTarget = routeInFlight != nil && responderMoveDepth == 0 ? responder : nil
+        responderMoveDepth += 1
+        defer { responderMoveDepth -= 1 }
+        if gate.refuses(responder, or: { if refusesInTreePage(responder, routeTarget: routeTarget) { return true }; if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: gate.inInputEvent, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return true }; return false }) { return false }
         let accepted = holdingResponderReports { () -> Bool in let moved = BenchSpans.measure("window.makeFirstResponder") { super.makeFirstResponder(responder) }; editTeardown.pending = editTeardown.pending || moved; return moved }
         if accepted { cursorRectHold?.firstResponderDidChange(in: self); (windowController as? WindowController)?.chiefPanelView?.firstResponderDidChange(); gate.moved(to: firstResponder) }
         return accepted

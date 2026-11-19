@@ -171,7 +171,7 @@ extension TabContent {
     /// (an agent chat, New Tab, the docked Home's Channels page: ``PageWebView/shown(in:)``).
     var childWindowTab: (any BrowserTab)? {
         switch self {
-        case .browser(let entry): entry.tab.presentation == .childWindow ? entry.tab : nil
+        case .browser(let entry): entry.tab.presentation != .inView ? entry.tab : nil
         case .page(let view): (PageWebView.shown(in: view.content)?.chromiumPage as? CEFPageChromiumPage)?.tab
         case .agent(let view): (view.chromiumPage as? CEFPageChromiumPage)?.tab
         default: nil

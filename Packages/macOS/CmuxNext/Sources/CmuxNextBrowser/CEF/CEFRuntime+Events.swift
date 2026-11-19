@@ -214,7 +214,12 @@ extension CEFRuntime {
     func routeUnhandledKey(_ event: NSEvent, browser: Int32) -> Bool {
         guard event.type == .keyDown, !event.modifierFlags.isDisjoint(with: [.command, .control]),
               let tab = tabsByBrowser[browser], let router = tab.keyRouter else { return false }
-        return router.browserTab(tab, unhandledKeyEquivalent: event)
+        if router.browserTab(tab, unhandledKeyEquivalent: event) { return true }
+        // In-tree pages: Chromium does not hand an unhandled key equivalent back to the window (a page window's own
+        // redispatch did), so the main menu gets it here. Never the window's `performKeyEquivalent`: the page view is
+        // its first responder, so that would come straight back to Chromium.
+        guard tab.presentation == .inTree else { return false }
+        return NSApp.mainMenu?.performKeyEquivalent(with: event) == true
     }
 
     func routeDevToolsKey(_ event: NSEvent, inspected browser: Int32) -> Bool {
