@@ -66,6 +66,7 @@ use std::time::{Duration, Instant};
 
 mod checkpoint;
 mod fenced;
+mod log_lsns;
 mod meta;
 mod new_folders;
 pub(super) mod repair;
@@ -384,6 +385,9 @@ struct Order {
     /// the open started from: a retention rewrite of a chat at or below the checkpoint needs no
     /// checkpoint of its own (`Store::commit_compaction`).
     log_lsn: HashMap<String, Lsn>,
+    /// Each chat's log records not yet known durable, by seq: what `Store::sync_log_through`
+    /// waits for ([`log_lsns`]).
+    log_lsns: HashMap<String, log_lsns::LogLsns>,
     /// The shutdown's last checkpoint ran (`Inner::last_checkpoint`): the home is the next
     /// daemon's, so no checkpoint, metadata image or retirement is written from here on.
     sealed: bool,
@@ -711,6 +715,11 @@ impl Store for JournalStore {
                 order.log_lsn.insert(id.to_owned(), lsn);
             }
         }
+        let durable = inner.journal.durable_lsn();
+        match order.log_lsns.get_mut(id) {
+            Some(held) => held.note(record.seq, lsn, durable),
+            None => order.log_lsns.entry(id.to_owned()).or_default().note(record.seq, lsn, durable),
+        }
         order.bytes = order.bytes.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
         let full = order.bytes > CHECKPOINT_BYTES && !order.frozen;
         drop(order);
@@ -771,11 +780,26 @@ impl Store for JournalStore {
     }
     /// A line is durable once its journal record is: a power loss's replay writes it into the
     /// log again. So a sync through a seq waits for the journal, never syncs the log itself.
-    fn sync_log_through(&self, _id: &str, _seq: u64) -> Result<()> {
-        if self.wait_durable(Duration::from_secs(30))? {
-            Ok(())
-        } else {
-            anyhow::bail!("the event journal did not sync within 30 s")
+    /// Waits for the record that holds `id`'s line `seq`, not for the lines appended after it
+    /// ([`log_lsns`]).
+    fn sync_log_through(&self, id: &str, seq: u64) -> Result<()> {
+        let durable = self.inner.journal.durable_lsn();
+        let lsn = {
+            let mut order = self.inner.order.lock_or_recover();
+            let Some(held) = order.log_lsns.get_mut(id) else { return Ok(()) };
+            let lsn = held.through(seq, durable);
+            if held.done(durable) {
+                order.log_lsns.remove(id);
+            }
+            lsn
+        };
+        let Some(lsn) = lsn else { return Ok(()) };
+        match self.inner.journal.wait_durable(lsn, Duration::from_secs(30)) {
+            Ok(()) => Ok(()),
+            Err(cmux_journal::WaitError::Timeout) => {
+                anyhow::bail!("the event journal did not sync within 30 s")
+            }
+            Err(error) => Err(anyhow::anyhow!("the event journal: {error}")),
         }
     }
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
