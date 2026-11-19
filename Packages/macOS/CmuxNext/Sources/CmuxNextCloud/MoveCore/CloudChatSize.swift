@@ -1,9 +1,9 @@
 public import CmuxNextDaemon
 
 /// The Cloud size ladder a chat's machine is picked from (cmux-platform `Sizes.ts`) by ``planned(bytes:planMax:)``: the
-/// size asked holds the folder's ``neededDiskBytes(_:)`` (half again what the chat's folder puts on it) where it can,
-/// and a refusal keeps ``floorDiskBytes(_:)`` (the folder plus what the machine keeps for itself,
-/// ``reservedDiskBytes``). `sm` is the platform's chat size: a create asks for a size only above it (``requested``), so
+/// size asked and every refusal keep ``floorDiskBytes(_:)`` (the folder plus what the machine keeps for itself,
+/// ``reservedDiskBytes``); with the plan known, the size's disk grows toward ``neededDiskBytes(_:)`` (half again the
+/// folder). `sm` is the platform's chat size: a create asks for a size only above it (``requested``), so
 /// an older server is unaffected. cmux-tui's `link start-chat preflight` answers the same rules (`preflight.rs`).
 public nonisolated enum CloudChatSize: String, CaseIterable, Comparable, Sendable {
     case sm, md, lg, xl
@@ -42,9 +42,9 @@ public nonisolated enum CloudChatSize: String, CaseIterable, Comparable, Sendabl
         return floor.overflow ? nil : floor.partialValue
     }
 
-    /// The disk a start asks for `bytes` of folder: half again the folder, and at least its ``floorDiskBytes(_:)``. It
-    /// picks the size asked and the disk grown, never a refusal (cmux-tui `preflight::needed_disk`). Nil when it
-    /// overflows.
+    /// The disk a start grows its size toward for `bytes` of folder under a plan known: half again the folder, and at
+    /// least its ``floorDiskBytes(_:)``. It only grows a disk (``grownDiskMb(_:bytes:planMax:)``): it never picks the
+    /// size asked nor refuses (cmux-tui `preflight::needed_disk`). Nil when it overflows.
     public static func neededDiskBytes(_ bytes: Int64) -> Int64? {
         let bytes = max(bytes, 0)
         let halfAgain = bytes.addingReportingOverflow(bytes / 2 + bytes % 2)
@@ -52,11 +52,19 @@ public nonisolated enum CloudChatSize: String, CaseIterable, Comparable, Sendabl
         return max(halfAgain.partialValue, floor)
     }
 
-    /// The size a start with no plan known asks for `bytes` of folder (``planned(bytes:planMax:)``).
+    /// The smallest size (`sm` to `xl`; `2xl` has `xl`'s disk, so never the smallest) whose own disk holds the folder's
+    /// ``floorDiskBytes(_:)``; nil above `xl` (cmux-tui `preflight::floor_index`).
+    static func floorSize(bytes: Int64) -> Self? {
+        guard let floor = floorDiskBytes(bytes) else { return nil }
+        return [Self.sm, .md, .lg, .xl].first { floor <= $0.diskBytes }
+    }
+
+    /// The size a start with no plan known asks for `bytes` of folder: the smallest whose own disk holds the folder and
+    /// the reserve, nil above `xl` (the rule before the half-again target; cmux-tui `preflight::needed_size`).
     public static func needed(bytes: Int64) -> Self? { planned(bytes: bytes, planMax: nil) }
 
-    /// The most disk a Cloud machine has (cmux NEXT Max's largest): a folder whose ``floorDiskBytes(_:)`` is past it is
-    /// too big.
+    /// The most disk a Cloud machine has (cmux NEXT Max's largest): with a plan known, a folder whose
+    /// ``floorDiskBytes(_:)`` is past it is too big.
     public static let maxDiskBytes: Int64 = 256 * 1_073_741_824
 
     /// The largest disk a plan whose largest size is `planMax` gives: `lg` (cmux NEXT Pro and the classic plans below
@@ -69,36 +77,33 @@ public nonisolated enum CloudChatSize: String, CaseIterable, Comparable, Sendabl
         }
     }
 
-    /// The size a start asks for `bytes` of folder under a plan whose largest size is `planMax` (nil: not known); nil
-    /// only for a folder whose ``floorDiskBytes(_:)`` is past ``maxDiskBytes`` (too big for a Cloud machine). The
-    /// smallest whose disk holds the ``neededDiskBytes(_:)``, within the plan; else the smallest within it whose disk
-    /// holds the floor (its disk grown toward the needed one, ``grownDiskMb(_:bytes:planMax:)``); else, with a plan
-    /// known, its largest size grown when the plan's disk holds the floor, or the size past the plan that the server
-    /// refuses with its upgrade (`cloud.size.locked`); with none known, `xl` grown. Every folder that went on before the
-    /// half-again rule still goes on. cmux-tui `preflight::planned_size`.
+    /// The size a start asks for `bytes` of folder under a plan whose largest size is `planMax` (nil: not known,
+    /// ``needed(bytes:)`` and no grown disk). With a plan known: ``needed(bytes:)`` when the plan gives it; else, when
+    /// the plan's ``largestDiskBytes(planMax:)`` holds the floor, `planMax`, its disk grown
+    /// (``grownDiskMb(_:bytes:planMax:)``; cmux-tui answers a server that ignores it with the plan's size refusal);
+    /// else the size past the plan, which the server refuses with its upgrade (`cloud.size.locked`): ``needed(bytes:)``,
+    /// or `2xl` above `xl`. Nil for a folder whose floor is past ``maxDiskBytes``. cmux-tui `preflight::planned_size`.
     public static func planned(bytes: Int64, planMax: Self?) -> Self? {
+        let fit = floorSize(bytes: bytes)
+        guard let planMax else { return fit }
+        if let fit, fit <= planMax { return fit }
         guard let floor = floorDiskBytes(bytes), floor <= maxDiskBytes else { return nil }
-        let within = { (size: Self) in planMax.map { size <= $0 } ?? true }
-        let smallest = { (disk: Int64) in Self.allCases.first { disk <= $0.diskBytes } }
-        if let size = neededDiskBytes(bytes).flatMap(smallest), within(size) { return size }
-        if let size = smallest(floor), within(size) { return size }
-        guard let planMax else { return .xl }
-        if floor <= Self.largestDiskBytes(planMax: planMax) { return planMax }
-        return smallest(floor) ?? .xxl
+        if floor <= largestDiskBytes(planMax: planMax) { return planMax }
+        return fit ?? .xxl
     }
 
-    /// The disk in MiB a create asks beyond `size`'s own for `bytes` of folder: the ``neededDiskBytes(_:)`` rounded up
-    /// to 4 GiB, at most the plan's ``largestDiskBytes(planMax:)`` (``maxDiskBytes`` when `planMax` is not known), only
-    /// when that is more than the size's own disk; nil for no size, unknown bytes or a folder the size's own disk holds.
-    /// A server that ignores it makes the size's own disk, which goes on while it holds the floor. cmux-tui
+    /// The disk in MiB a create asks beyond `size`'s own for `bytes` of folder under a plan whose largest size is
+    /// `planMax`: the ``neededDiskBytes(_:)`` rounded up to 4 GiB, at most the plan's ``largestDiskBytes(planMax:)``,
+    /// only when that is more than the size's own disk; nil with no plan known (the start asks exactly what it did
+    /// before the half-again target), no size, unknown bytes or a folder the size's own disk holds. cmux-tui
     /// `preflight::grown_disk_gib` (the ensure's `disk_gib`, in GiB).
     public static func grownDiskMb(_ size: Self?, bytes: Int64?, planMax: Self?) -> Int? {
-        guard let size, let bytes else { return nil }
+        guard let size, let bytes, let planMax else { return nil }
         let needed = neededDiskBytes(bytes) ?? .max
         guard needed > size.diskBytes else { return nil }
         let gib: Int64 = 1_073_741_824, step: Int64 = 4
         let steps = needed / (step * gib) + (needed % (step * gib) == 0 ? 0 : 1)
-        let grown = min(steps * step, (planMax.map { Self.largestDiskBytes(planMax: $0) } ?? Self.maxDiskBytes) / gib)
+        let grown = min(steps * step, largestDiskBytes(planMax: planMax) / gib)
         return grown * gib > size.diskBytes ? Int(grown) * 1_024 : nil
     }
 

@@ -162,7 +162,7 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
   const KEY_MAX_MS = 50;
   /// The longest the main thread may stall while a file attaches (agent-pane-paste-large-screenshots),
   /// or the baseline row's own stall (the same steps with nothing attached) and STALL_ADDED_MS.
-  const MAX_STALL_MS = 120;
+  const MAX_STALL_MS = 120; // motion-allow: a stall budget, not motion
   const STALL_ADDED_MS = 50;
   /// The tile is there this soon after the paste, drop or choice.
   const TILE_MS = 100;
