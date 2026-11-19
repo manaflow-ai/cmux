@@ -16,6 +16,21 @@ nonisolated struct PremainUsage {
         mach_timebase_info(&timebase)
         func ms(_ ticks: UInt64) -> Double { Double(ticks) * Double(timebase.numer) / Double(timebase.denom) / 1_000_000 }
         var result: [(String, Double)] = [("premain.images", Double(_dyld_image_count()))]
+        var events = task_events_info()
+        let words = MemoryLayout<task_events_info>.size / MemoryLayout<integer_t>.size
+        var count = mach_msg_type_number_t(truncatingIfNeeded: words)
+        let eventsStatus = withUnsafeMutablePointer(to: &events) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: words) { task_info(mach_task_self_, task_flavor_t(truncatingIfNeeded: TASK_EVENTS_INFO), $0, &count) }
+        }
+        if eventsStatus == KERN_SUCCESS {
+            result += [
+                ("premain.mach_messages_sent", Double(events.messages_sent)),
+                ("premain.mach_messages_received", Double(events.messages_received)),
+                ("premain.context_switches", Double(events.csw)),
+                ("premain.syscalls_unix", Double(events.syscalls_unix)),
+                ("premain.syscalls_mach", Double(events.syscalls_mach)),
+            ]
+        }
         guard status == 0 else { return result }
         result += [
             ("premain.user_ms", ms(info.ri_user_time)),

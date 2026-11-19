@@ -384,6 +384,7 @@ extension CEFRuntime {
         }
         // A second quit while the first waits would replace its waiter.
         guard state == .ready, shutdownSequence == nil, let shim else { return }
+        PremainSampler.start() // experiment (lane/rtc-premain-a, not for merge)
         // A pane's browser still being made (`pendingWindows`) counts as live: Chromium makes it after
         // `closeAll`, and `browserCreated` closes it.
         var sequence = CEFShutdownSequence(liveBrowsers: tabsByBrowser.count + pendingWindows.count, windows: Int(shim.windowCount()))
