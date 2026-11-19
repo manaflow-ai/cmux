@@ -25,9 +25,9 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
   const layouts = [
-    { entry: "agent-pane.new-tab", variant: "wrap-one-line", newTab: true, bottom: false },
-    { entry: "agent-pane.composer-row", variant: "wrap-one-line", newTab: false, bottom: false },
-    { entry: "agent-pane.composer-look", variant: "codex-grow-line", newTab: false, bottom: true },
+    { entry: "agent-pane.new-tab", variant: "wrap-one-line", newTab: true },
+    { entry: "agent-pane.composer-row", variant: "wrap-one-line", newTab: false },
+    { entry: "agent-pane.composer-look", variant: "codex-grow-line", newTab: false },
   ];
   beforeAll(async () => {
     vite = await createServer({
@@ -196,8 +196,8 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
               const first = before.controls[index]!;
               const second = after.controls[index]!;
               expect(Math.abs(second.left - first.left)).toBeLessThan(0.5);
-              const edge = layout.bottom ? "bottom" : "top";
-              expect(Math.abs(second[edge] - first[edge])).toBeLessThan(0.5);
+              // Every look keeps its controls at the box's bottom (Leo 2026-11-18: the buttons at the bottom).
+              expect(Math.abs(second.bottom - first.bottom)).toBeLessThan(0.5);
             }
             if (layout.newTab) {
               expect(Math.abs(before.firstLineTop - placeholder!)).toBeLessThan(0.5);
@@ -219,6 +219,9 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
               expect(current.editorScrollTop).toBe(0);
               expect(Math.abs(current.firstLineTop - before.firstLineTop)).toBeLessThan(0.5);
               expect(Math.abs(current.glyphTop - before.glyphTop)).toBeLessThan(0.5);
+              // In every frame of the growth, too, each control keeps its place off the box's bottom.
+              for (let index = 0; index < before.controls.length; index++)
+                expect(Math.abs(current.controls[index]!.bottom - before.controls[index]!.bottom)).toBeLessThan(0.5);
               if (layout.newTab) {
                 expect(Math.abs(current.top - before.top)).toBeLessThan(0.5);
                 expect(current.strip).toBe(before.strip);
@@ -307,7 +310,7 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
             expect(
               await page.locator(".acpmux-md-field").evaluate((field) => field.scrollHeight > field.clientHeight),
             ).toBe(true);
-            if (!layout.newTab && !layout.bottom) {
+            if (!layout.newTab) {
               const capped = await measure(page, false);
               for (let index = 0; index < before.controls.length; index++)
                 expect(Math.abs(capped.controls[index]!.bottom - before.controls[index]!.bottom)).toBeLessThan(0.5);

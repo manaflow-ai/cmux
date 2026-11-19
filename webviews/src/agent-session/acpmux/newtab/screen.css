@@ -413,8 +413,9 @@
   flex: none;
   display: flex;
   align-items: center;
+  align-self: end;
   height: var(--text-content--line-height);
-  margin-top: var(--nt-input-pad-block);
+  margin-bottom: var(--nt-input-pad-block);
 }
 /* The split row's controls, as the chat composer's (composerLocation.css; leo-workspace
    design/composer.md, Controls; Leo 2026-10-31: "why is our shit not vertically centered like
@@ -593,10 +594,13 @@
   gap: var(--acpmux-composer-lead-gap);
   padding: 0 var(--acpmux-composer-inset);
 }
+/* The controls sit at the box's bottom, centered on a one-line prompt's line, and stay there as the
+   prompt grows (Leo 2026-11-18: the buttons at the bottom), as the chat composer's do
+   (composerLocation.css). */
 .nt-input[data-split] > .acpmux-chrome-area > .nt-pickers {
-  align-self: start;
+  align-self: end;
   min-height: var(--acpmux-composer-control);
-  margin: max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2)) 0 0;
+  margin: 0 0 max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2));
 }
 /* Fixed top padding keeps the first line, placeholder and shell glyph still when text wraps. */
 .nt-input[data-split] .nt-field {
