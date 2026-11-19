@@ -304,11 +304,14 @@ ended_run="{\"total_count\":1,\"workflow_runs\":[{\"id\":3,\"status\":\"complete
 reset_cdn; set_runs "$no_runs"; jobs_file 3 "$preflight_failed"; printf '%s\n' "$ended_run" > "$runs_dir/runs-$own"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output" && grep -q "nothing will publish" "$TMP/summary"' \
   "a tree whose publisher ended unpublished leaves it to the resolver"
-printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":4,\"status\":\"queued\",\"head_sha\":\"$app\"}]}" > "$runs_dir/runs-$app"; pending
+building_jobs='{"jobs":[{"name":"cmux-tui tree preflight","status":"in_progress","runner_name":"linux-active"}]}'
+own_run "$app" 30; jobs_file 30 "$building_jobs"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a candidate's active run keeps the tip pending"
-rm -f "$runs_dir/runs-$app"; set_runs "$active_run"; pending
+# A distinct same-tree commit is active; the failed candidate remains completed.
+rm -f "$runs_dir/runs-$app"; own_run "$app_again" 31; jobs_file 31 "$building_jobs"
+set_runs "{\"total_count\":1,\"workflow_runs\":[{\"id\":31,\"status\":\"in_progress\",\"head_sha\":\"$app_again\",\"head_branch\":\"feat-cmux-next\"}]}"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "an active same-key run keeps the tip pending"
-rm -f "$runs_dir/runs-$own"; set_runs "$no_runs"
+rm -f "$runs_dir/runs-$own" "$runs_dir/runs-$app_again"; set_runs "$no_runs"
 # The resolver reads the publisher's jobs the way await-tree-client.sh does (2026-11-18: owner
 # 44223233076's build jobs sat queued 2 h with no runner; the nightly retries 44232805509 and
 # 44235456054 each took the tip as pending, and 44235456054 waited the full 45 min on it).
@@ -338,7 +341,7 @@ check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "an 
 # A stuck owner is passed over for a same-key run that builds: still pending.
 own_run "$own" 11; jobs_file 11 "$(stalled_jobs 6000)"; own_run "$app" 15
 set_runs "{\"total_count\":2,\"workflow_runs\":[{\"id\":11,\"status\":\"in_progress\",\"head_sha\":\"$own\",\"head_branch\":\"feat-cmux-next\"},{\"id\":15,\"status\":\"in_progress\",\"head_sha\":\"$app\",\"head_branch\":\"feat-cmux-next\"}]}"
-rm -f "$runs_dir/runs-$app"; pending
+jobs_file 15 "$building_jobs"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output"' "a stuck owner passed over for a same-key run that builds keeps the tip pending"
 rm -f "$runs_dir/runs-$own" "$runs_dir/runs-$app"; rm -rf "$TMP/api/repos/o/r/actions/runs"; set_runs "$no_runs"
 
