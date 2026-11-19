@@ -19,6 +19,9 @@ public enum BillingManageSubscriptionsRoute: Sendable, Equatable {
     /// itself on a Mac; an `https` link would open a browser first.
     public static let appStoreSubscriptionsURL = URL(string: "itms-apps://apps.apple.com/account/subscriptions")!
 
+    /// The same page on the web, for when nothing handles `itms-apps`.
+    public static let webSubscriptionsURL = URL(string: "https://apps.apple.com/account/subscriptions")!
+
     /// The route for this process.
     /// - Parameter isiOSAppOnMac: `ProcessInfo.processInfo.isiOSAppOnMac`.
     /// - Returns: The App Store page on a Mac, StoreKit's sheet elsewhere.

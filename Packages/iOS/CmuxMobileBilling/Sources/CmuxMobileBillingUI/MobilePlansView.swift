@@ -236,7 +236,10 @@ public struct MobilePlansView: View {
                         case .storeKitSheet:
                             showingManageSubscriptions = true
                         case .appStorePage(let url):
-                            openURL(url)
+                            openURL(url) { accepted in
+                                // No App Store handler took the link: the web page still works.
+                                if !accepted { openURL(BillingManageSubscriptionsRoute.webSubscriptionsURL) }
+                            }
                         }
                     }
                     .accessibilityIdentifier("BillingManage")
