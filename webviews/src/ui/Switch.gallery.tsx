@@ -51,3 +51,6 @@ export default componentEntry<Props>({
     space: { props: {}, play: space },
   },
 });
+
+// ci-oops 0d proof: a deliberate type error in a gallery entry; never merged.
+export const ciOopsProof: number = "not a number";

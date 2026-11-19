@@ -545,3 +545,5 @@ fn rebuilt<K: Eq + Hash + Clone, R: Clone>(
 
 #[cfg(test)]
 mod view_rows_tests;
+
+// ci-oops 0d proof: a core crate in the same lint run, untouched otherwise.

@@ -2,6 +2,7 @@
 // the local inspector (src/optchat-inspector), with its API calls carried by the `cmuxPage`
 // bridge to the app, which relays them to the paired server's brain daemon (`chief-inspect`).
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
+import "./ci-oops-proof-missing"; // ci-oops 0d proof: deliberately broken, never merged
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { App } from "../../optchat-inspector/App";
