@@ -221,6 +221,8 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     let req = &job.req;
     source.capture(req.damage)?;
     let t_capture_us = now_ns() / 1000;
+    source.set_profile(req.profile, req.refine);
+    source.set_changed_pixels(u64::from(req.damage.width) * u64::from(req.damage.height));
     source.set_bitrate(frame_kbps(job, source.kbps()));
     let t0 = now_ns();
     let mut access_unit = Vec::new();
@@ -277,6 +279,8 @@ mod tests {
             force_idr: true,
             idr_reason: None,
             target_kbps,
+            profile: Default::default(),
+            refine: false,
         };
         Job { req, halve_first }
     }
