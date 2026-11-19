@@ -21,7 +21,7 @@ import {
   useSceneChildren,
   useSceneEntering,
 } from "./sceneMotion";
-import { sceneColor, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
+import { sceneColor, sceneGradient, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
 
@@ -281,6 +281,8 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
           symbol={props.symbol}
           size={Math.max(6, sceneNumber(props.size) ?? 14)}
           color={sceneColor(props.color)}
+          rendering={props.symbolRendering}
+          palette={props.symbolColors}
         />
       );
     case "Row":
@@ -391,8 +393,10 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
       style.height = side;
     if (frame.maxWidth === "infinity" && frame.width === undefined) style.width = "100%";
     if (frame.maxHeight === "infinity" && frame.height === undefined) style.height = "100%";
-    style.backgroundColor =
-      sceneColor(props.fill) ?? (sceneColor(props.stroke) ? "transparent" : sceneColor("secondary"));
+    style.backgroundImage = sceneGradient(props.fill);
+    style.backgroundColor = style.backgroundImage
+      ? undefined
+      : (sceneColor(props.fill) ?? (sceneColor(props.stroke) ? "transparent" : sceneColor("secondary")));
     if (sceneColor(props.stroke)) {
       style.borderColor = sceneColor(props.stroke);
       style.borderStyle = "solid";
