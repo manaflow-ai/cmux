@@ -24,7 +24,7 @@ struct HostsSidebarTests {
         #expect(expanded[0].info.title == "Hosts" && expanded[0].info.badge == 2)
         #expect(expanded[1].info.title == "Add Host…" && expanded[1].info.indent == 1)
         #expect(expanded[2].info.caption == "Connected" && expanded[3].info.caption == "Paused")
-        #expect(expanded.dropFirst().allSatisfy { $0.after.last?.rawValue == "client.hosts:header" || $0.info.indent == 1 })
+        #expect(expanded.dropFirst().allSatisfy { $0.after.last?.value == "client.hosts:header" || $0.info.indent == 1 })
         #expect(hosts.activate(expanded[0].item.id))
         #expect(hosts.rows().map { $0.item.id.rawValue } == ["client.hosts:header"])
     }
