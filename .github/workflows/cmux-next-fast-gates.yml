@@ -18,6 +18,8 @@ name: cmux-next fast gates
 # PR's CI runs before it merges). No paths filter: every pull request gets a
 # status; a draft gets it when it is marked ready (a draft cannot merge, and a
 # merger that finds no status dispatches the gates). About two minutes on Linux.
+# A pull request that touches no gate input (fast-check-route) gets its success
+# status with no gates run.
 #
 # A dispatch also reruns the Rust panic ratchet (panic-ratchet) when the tip
 # lowered a rust-panic-baseline.json row of a crate the PR changes since its
@@ -241,9 +243,42 @@ jobs:
           { echo "head_sha=$head"; echo "base=$base"; echo "post=$post"; } >> "$GITHUB_OUTPUT"
           echo "head $head, base $base"
 
+  # Whether this pull request touches an input of any gate (scripts/ci/fast-check-inputs.json). One that touches none
+  # skips the gates job before it takes a 16 vCPU runner, and post writes success at its base: every gate judges only
+  # what the change adds in its inputs, so it would have passed. A dispatch (a merger's fresh gate) skips this job and
+  # runs every gate; the push-time jobs each gate copies (push_cover in the map) run on the feat-cmux-next push, so a
+  # miss is a fix-forward on base.
+  fast-check-route:
+    name: fast check route
+    if: ${{ github.event_name == 'pull_request' && !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      fast_gates: ${{ steps.route.outputs.fast_gates }}
+    steps:
+      - name: Checkout the merge commit's router (trees only)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/ci/
+      # A router failure leaves the output empty, and the gates run.
+      - name: Route the pull request (scripts/ci/fast_check_route.py)
+        id: route
+        continue-on-error: true
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: python3 scripts/ci/fast_check_route.py route --workflow .github/workflows/cmux-next-fast-gates.yml --labels "$LABELS"
+
   fast-gates:
     name: fast gates
-    needs: resolve
+    needs: [resolve, fast-check-route]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.fast-check-route.outputs.fast_gates != 'false' }}
     outputs:
       ratchet: ${{ steps.prepare.outputs.ratchet }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
@@ -408,7 +443,7 @@ jobs:
   # panic-ratchet (nothing to rejudge) does not fail it.
   post:
     name: post cmux-next/fast-gates
-    needs: [resolve, fast-gates, panic-ratchet, portable-placement]
+    needs: [resolve, fast-check-route, fast-gates, panic-ratchet, portable-placement]
     if: ${{ always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' }}
     # A light job: the reconciled Linux pool on every attempt (it holds no secret), never GitHub-hosted
     # Ubuntu (it left light jobs queued for hours, cmux#45735). On 2026-11-02 this queued on RUNNER_POOLS.linux's
@@ -426,10 +461,20 @@ jobs:
           BASE: ${{ needs.resolve.outputs.base }}
           GATES: ${{ needs.fast-gates.result }}
           RATCHET: ${{ needs.panic-ratchet.result }}
+          # The route skipped the gates: the pull request touches none of their inputs.
+          ROUTED_OUT: ${{ needs.fast-check-route.outputs.fast_gates == 'false' }}
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head or base sha to report"; exit 1; }
+          if [[ "$ROUTED_OUT" == true && "$GATES" == skipped ]]; then
+            # A verdict at this base, as a passing run would give: each gate judges only what the change adds in its
+            # inputs, and the change touches none (fast-check-route's summary names them). Same description, so a
+            # merger judges its freshness as it does any success.
+            GATES=success
+            RATCHET=skipped
+            echo "- gates skipped: the change touches none of their inputs (scripts/ci/fast-check-inputs.json)" >> "$GITHUB_STEP_SUMMARY"
+          fi
           state=failure
           if [[ "$GATES" == success && ( "$RATCHET" == success || "$RATCHET" == skipped ) ]]; then state=success; fi
           description="base $BASE"

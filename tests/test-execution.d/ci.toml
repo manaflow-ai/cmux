@@ -136,6 +136,10 @@ path = "tests/test_ci_evidence_outcomes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fast_check_route.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
 

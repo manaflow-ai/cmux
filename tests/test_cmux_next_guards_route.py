@@ -63,7 +63,7 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"],
                          "${{ github.event_name != 'pull_request' && 'true' || 'false' }}")
         group = jobs["ci-guard-group"]
-        self.assertEqual(group["if"], "${{ !cancelled() }}")
+        self.assertEqual(group["if"], "${{ !cancelled() && needs.fast-check-route.outputs.ci_guard_group != 'false' }}")
         steps = {step.get("name"): step for step in group["steps"]}
         script = steps["Run the ci guard group and the routed groups"]["run"]
         calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line and "--list" not in line]
