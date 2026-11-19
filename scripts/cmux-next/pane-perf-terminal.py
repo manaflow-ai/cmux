@@ -344,6 +344,38 @@ def stills_facts(trace, at_start, names):
             "problem": "; ".join(missing) or None}
 
 
+def stills_clock(index, trace):
+    """Where the first frame of one recording is on the pane trace's clock. `index`: the recorder's frames.json;
+    its `t0_s` is the first frame's host time, and a frame's host time is `t0_s` + its entry of `times`. `trace`:
+    the reply of trace_stop; its `t0_s` is its first sample's host time and each sample's `t` the ms after it. The
+    recorder starts after the trace and ends before it, so a `t0_s` on the trace's clock is from the trace's first
+    sample to its last one. `clock_problem`: None, or why a reader cannot place the frames in the trace by time."""
+    def number(value):
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    first = index.get("t0_s") if isinstance(index, dict) and number(index.get("t0_s")) else None
+    times = index.get("times") if isinstance(index, dict) else None
+    start = trace.get("t0_s") if isinstance(trace, dict) and number(trace.get("t0_s")) else None
+    samples = trace.get("samples") if isinstance(trace, dict) and isinstance(trace.get("samples"), list) else []
+    stamps = [sample.get("t") for sample in samples if isinstance(sample, dict) and number(sample.get("t"))]
+    inside, problem = None, None
+    if not isinstance(index, dict):
+        problem = "frames.json was not read"
+    elif first is None:
+        problem = "frames.json has no t0_s (the recorder does not say its first frame's host time)"
+    elif not (isinstance(times, list) and len(times) >= 2 and number(times[1]) and times[1] > 0):
+        problem = f"no second frame after the first (times {times!r})"[:120]
+    elif start is None:
+        problem = "the trace has no t0_s"
+    elif not stamps:
+        problem = "the trace has no sample"
+    else:
+        end = round(start + max(stamps) / 1000, 6)
+        inside = round((first - start) * 1000, 2)
+        if not start <= first <= end:
+            problem = f"t0_s {first} is not inside the trace ({start} to {end}): not the trace's clock"
+    return {"first_frame_t0_s": first, "trace_t0_s": start, "first_frame_in_trace_ms": inside, "clock_problem": problem}
+
+
 MARKER = []  # --record: the marker line's colour, one time, after the app said what its window shows (main)
 
 
@@ -1057,7 +1089,8 @@ def record(name, label):
     """One recording of `name` (an untimed pass): the window's frames (`debug.window_record`), and through them the
     pane trace (`debug.motion` trace: where each pane is at each display tick), kept beside the frames as
     trace.json. A reader compares the stills of the move with the stills at rest before and after it. The row fails
-    when the frames, their index or the trace are not there."""
+    when the frames, their index or the trace are not there. A second row fails when the recorder's index does not
+    say its first frame's host time, or says one that is not inside the trace (`stills_clock`)."""
     folder = os.path.join(opts.out, "frames", label.replace(" ", "-"))
     rpc("debug.motion", {"action": "trace_start", "targets": ["panes", "window"]})  # the window's size: a still's scale
     time.sleep(0.1)  # test harness: the trace has samples at rest before the recorder starts
@@ -1073,12 +1106,19 @@ def record(name, label):
     while not os.path.exists(os.path.join(folder, "frames.json")) and time.monotonic() < deadline:
         time.sleep(0.25)  # test harness: the recorder's own queue writes its index after its last frame
     facts = stills_facts(trace, at_start, os.listdir(folder) if os.path.isdir(folder) else [])
+    try:
+        index = json.load(open(os.path.join(folder, "frames.json")))
+    except (OSError, ValueError):
+        index = None
+    clock = stills_clock(index, trace)
     if os.path.isdir(folder):
-        json.dump({"act": name, "label": label, "error": error, "seconds": opts.record_seconds, **facts, "trace": trace},
+        json.dump({"act": name, "label": label, "error": error, "seconds": opts.record_seconds, **facts, **clock, "trace": trace},
                   open(os.path.join(folder, "trace.json"), "w"))
     seen = ", ".join(f"{key.replace('_', ' ')} {value}" for key, value in facts.items() if key != "problem")
     row(f"{label}: the recording has its frames, its index and a pane trace", "2 frames or more, frames.json, a pane in each sample",
         f"{facts['problem'] or 'each is there'} ({seen})" + (f"; the act: {error}" if error else ""), not facts["problem"] and not error)
+    row(f"{label}: the recording's first frame has a host time inside the pane trace", "frames.json's t0_s from the trace's first sample to its last",
+        clock["clock_problem"] or f"{clock['first_frame_in_trace_ms']} ms after the trace's first sample", not clock["clock_problem"])
 
 
 def profile(name, label):

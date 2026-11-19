@@ -34,7 +34,8 @@ BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_appli
                                                     "late_frames", "motion_arms", "commit_notes", "commit_placements",
                                                     "layout_spans", "window_look", "look_tag", "look_config",
                                                     "look_terminal_lines", "look_problem", "look_resolved",
-                                                    "windows_behind", "marker_color", "marker_command", "stills_facts"})
+                                                    "windows_behind", "marker_color", "marker_command", "stills_facts",
+                                                    "stills_clock"})
 ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
@@ -509,6 +510,34 @@ class RecordedStills(unittest.TestCase):
         self.assertEqual(facts(good, None, ["frame-00000.jpg", "frames.json"])["problem"], "1 frames")
         self.assertEqual(facts(good, None, ["frame-00000.jpg", "frame-00001.jpg", "notes.txt"])["problem"], "no frames.json")
         self.assertEqual(facts(good, None, [])["problem"], "0 frames; no frames.json")
+
+    def test_the_first_frames_host_time_is_inside_the_trace(self):
+        clock = self.bench["stills_clock"]
+        trace = {"t0_s": 50.0, "samples": [{"t": 0}, {"t": 8.3}, {"t": 2400.0}]}
+        index = {"times": [0, 0.0083, 0.0166], "t0_s": 50.125}
+        self.assertEqual(clock(index, trace), {"first_frame_t0_s": 50.125, "trace_t0_s": 50.0, "first_frame_in_trace_ms": 125.0,
+                                               "clock_problem": None})
+        # The ends of the trace are inside it: the first frame can be the trace's first or last tick.
+        self.assertIsNone(clock({"times": [0, 0.0083], "t0_s": 50.0}, trace)["clock_problem"])
+        self.assertIsNone(clock({"times": [0, 0.0083], "t0_s": 52.4}, trace)["clock_problem"])
+
+    def test_a_recording_with_no_host_time_or_one_of_another_clock_says_which(self):
+        clock = self.bench["stills_clock"]
+        trace = {"t0_s": 50.0, "samples": [{"t": 0}, {"t": 2400.0}]}
+        old = clock({"times": [0, 0.0083], "luminance": [1, 1], "peak": [1, 1]}, trace)
+        self.assertEqual(old["clock_problem"], "frames.json has no t0_s (the recorder does not say its first frame's host time)")
+        self.assertEqual((old["first_frame_t0_s"], old["first_frame_in_trace_ms"]), (None, None))
+        self.assertEqual(clock(None, trace)["clock_problem"], "frames.json was not read")
+        self.assertEqual(clock({"times": [0, 0.0083], "t0_s": True}, trace)["clock_problem"],
+                         "frames.json has no t0_s (the recorder does not say its first frame's host time)")
+        # A time since the process start, or a wall time: not on the trace's clock.
+        for other in (3.5, 49.99, 52.41, 1795000000.0):
+            found = clock({"times": [0, 0.0083], "t0_s": other}, trace)
+            self.assertEqual(found["clock_problem"], f"t0_s {other} is not inside the trace (50.0 to 52.4): not the trace's clock")
+        self.assertEqual(clock({"times": [0], "t0_s": 50.1}, trace)["clock_problem"], "no second frame after the first (times [0])")
+        self.assertEqual(clock({"times": [0, 0], "t0_s": 50.1}, trace)["clock_problem"], "no second frame after the first (times [0, 0])")
+        self.assertEqual(clock({"times": [0, 0.0083], "t0_s": 50.1}, {"samples": [{"t": 0}]})["clock_problem"], "the trace has no t0_s")
+        self.assertEqual(clock({"times": [0, 0.0083], "t0_s": 50.1}, {"t0_s": 50.0, "samples": []})["clock_problem"], "the trace has no sample")
 
 
 class Activate(unittest.TestCase):
