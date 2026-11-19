@@ -38,15 +38,14 @@ export async function POST(request: Request): Promise<Response> {
       const bearer = parseBearer(request);
       if (!bearer) return unauthorized(span);
 
-      let user: Awaited<ReturnType<ReturnType<typeof getStackServerApp>["getUser"]>>;
+      const stackServerApp = getStackServerApp();
+      let user: Awaited<ReturnType<typeof resolveServerUser>>;
       try {
-        user = await getStackServerApp().getUser({
-          tokenStore: { accessToken: bearer.accessToken, refreshToken: bearer.refreshToken },
-        });
+        user = await resolveServerUser(stackServerApp, bearer);
       } catch (error) {
         return authProviderErrorResponse(error, "auth.session_handoff.auth");
       }
-      if (!user || user.isAnonymous) return unauthorized(span);
+      if (!user) return unauthorized(span);
 
       const body = await readBoundedJsonObject(request, MAX_REQUEST_BYTES);
       if (!body.ok) {
@@ -94,6 +93,19 @@ export async function POST(request: Request): Promise<Response> {
       );
     },
   );
+}
+
+// The caller's tokens resolve its identity; the server-side user for that id is
+// the one that can mint a session (as in /api/vault/cli/auth/poll).
+async function resolveServerUser(
+  stackServerApp: ReturnType<typeof getStackServerApp>,
+  bearer: { readonly accessToken: string; readonly refreshToken: string },
+) {
+  const caller = await stackServerApp.getUser({
+    tokenStore: { accessToken: bearer.accessToken, refreshToken: bearer.refreshToken },
+  });
+  if (!caller || caller.isAnonymous) return null;
+  return stackServerApp.getUser(caller.id);
 }
 
 function unauthorized(span: Parameters<typeof setSpanAttributes>[0]): Response {

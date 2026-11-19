@@ -86,6 +86,8 @@ describe("POST /api/auth/session-handoff", () => {
     expect(getUser).toHaveBeenCalledWith({
       tokenStore: { accessToken: "caller-access", refreshToken: "caller-refresh" },
     });
+    // The server-side user for the caller's id is the one that mints.
+    expect(getUser).toHaveBeenLastCalledWith("user-1");
     expect(createSession).toHaveBeenCalledTimes(1);
     expect(createSession).toHaveBeenCalledWith({ expiresInMillis: SESSION_HANDOFF_LIFETIME_MS });
   });
@@ -98,12 +100,13 @@ describe("POST /api/auth/session-handoff", () => {
   });
 
   test("401 without native auth headers, before reading the body or calling Stack", async () => {
-    for (const headers of [
+    const partialHeaders: Record<string, string>[] = [
       { "content-type": "application/json" },
       { authorization: "Bearer caller-access" },
       { "x-stack-refresh-token": "caller-refresh" },
       { authorization: "Basic abc", "x-stack-refresh-token": "caller-refresh" },
-    ]) {
+    ];
+    for (const headers of partialHeaders) {
       // An unparseable body proves the body is never read before the 401.
       const response = await POST(handoffRequest("{not json", headers));
       expect(response.status).toBe(401);
