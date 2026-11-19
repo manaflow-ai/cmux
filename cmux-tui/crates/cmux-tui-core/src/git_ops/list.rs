@@ -18,7 +18,8 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use super::Repository;
-use super::files::{Folders, folder, listed, spelled};
+use super::files::{Folders, folder, kept_below, listed, spelled};
+use super::kept_watch;
 use super::work_tree_entry::Kind;
 use crate::resource::ResourceError;
 
@@ -31,11 +32,33 @@ pub(super) fn list(
     directory: &Path,
     fields: &serde_json::Map<String, Value>,
 ) -> Result<Value, ResourceError> {
+    list_with(repository, directory, fields, true)
+}
+
+/// [`list`] that never answers from the kept tree: what the kept tree must equal.
+#[cfg(test)]
+pub(super) fn list_direct(
+    repository: &Repository,
+    directory: &Path,
+    fields: &serde_json::Map<String, Value>,
+) -> Result<Value, ResourceError> {
+    list_with(repository, directory, fields, false)
+}
+
+fn list_with(
+    repository: &Repository,
+    directory: &Path,
+    fields: &serde_json::Map<String, Value>,
+    use_kept: bool,
+) -> Result<Value, ResourceError> {
     let limit = fields
         .get("limit")
         .and_then(Value::as_u64)
         .map_or(DEFAULT_LIMIT, |limit| usize::try_from(limit).unwrap_or(MAX_LIMIT))
         .clamp(1, MAX_LIMIT);
+    if let Some(reply) = use_kept.then(|| kept_list(repository, directory, limit)).flatten() {
+        return Ok(reply);
+    }
     let below = folder(repository, directory, OPERATION)?;
     let (paths, cut) = listed(repository, directory, OPERATION)?;
     // A symlink is a leaf, as git records it: following one could list a folder
@@ -64,6 +87,34 @@ pub(super) fn list(
         "entries": entries,
         "truncated": cut || total > limit,
     }))
+}
+
+/// The listing from the repository's kept tree (`kept`), current with the
+/// disk: the folder's children, with no git run and no look. `None` when the
+/// tree is not ready: the caller lists by the direct path.
+fn kept_list(repository: &Repository, directory: &Path, limit: usize) -> Option<Value> {
+    let below = kept_below(repository, directory)?;
+    let spelled_below = below.to_str()?.to_owned();
+    kept_watch::with_tree(repository, |tree| {
+        let mut children = tree.list(&spelled_below);
+        let total = children.len();
+        // As the direct path orders them: folders first, then names
+        // case-insensitively; each name lowered one time.
+        children.sort_by_cached_key(|(name, directory)| (!*directory, name.to_lowercase(), *name));
+        let entries: Vec<Value> = children
+            .iter()
+            .take(limit)
+            .map(|(name, directory)| {
+                json!({"name": name, "kind": if *directory { "directory" } else { "file" }})
+            })
+            .collect();
+        json!({
+            "root": repository.root.to_string_lossy(),
+            "folder": spelled(repository, &below),
+            "entries": entries,
+            "truncated": total > limit,
+        })
+    })
 }
 
 /// What one first component of the listed paths is, as far as the looks went.

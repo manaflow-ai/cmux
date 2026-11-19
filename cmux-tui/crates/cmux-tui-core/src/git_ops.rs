@@ -31,6 +31,8 @@ mod files;
 mod files_stress_tests;
 mod fingerprint;
 mod journal;
+mod kept;
+mod kept_watch;
 mod list;
 mod mutation;
 mod push;
