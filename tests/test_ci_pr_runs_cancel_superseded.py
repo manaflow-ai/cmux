@@ -596,6 +596,157 @@ def comment_problems(workflow: dict) -> list[str]:
     return []
 
 
+# --- A cancelled run that cannot end (pattern cancelled-run-holds-group) -------
+
+# `always()` starts a job even when its run is cancelled. In a workflow whose newer push cancels the older run, that
+# job then waits for a runner of its own, the cancelled run stays in flight holding the concurrency group, and the
+# newer head's run waits behind it as `pending`. cmux#47223, 2026-11-19: the 10:36Z head's `tab switch (frames,
+# under load)`, `ios-e2e-status`, `rust workspaces` and `web-validation` jobs were created by the 11:06Z push's cancel
+# and sat queued on a Blacksmith label that started nothing; the 11:06Z head's runs of those four workflows were still
+# `pending` an hour later. `!cancelled()` runs the job on every needs result (success, failure, skip) but not on a
+# cancel, and nobody reads a superseded run's verdict.
+ALWAYS = re.compile(r"\balways\(\)")
+NOT_CANCELLED = re.compile(r"!\s*cancelled\(\)")
+
+
+def keepalive_problems(workflow: dict) -> list[str]:
+    """Jobs a superseded pull request run's cancel starts: `always()` with no `!cancelled()`."""
+    out: list[str] = []
+    for event in PR_EVENTS:
+        trigger = triggers(workflow).get(event, False)
+        if trigger is False or not push_starts_a_run(trigger):
+            continue
+        concurrency = workflow.get("concurrency")
+        if not isinstance(concurrency, dict):
+            continue
+        try:
+            cancels = _truthy(resolve(concurrency.get("cancel-in-progress", False), pr_context(workflow, event, 101, 2)))
+        except (ExpressionError, KeyError, IndexError, TypeError, ValueError):
+            cancels = True
+        if not cancels:
+            continue
+        for job_id, job in (workflow.get("jobs") or {}).items():
+            if not isinstance(job, dict):
+                continue
+            text = " ".join(str(job.get("if", "")).split())
+            if not ALWAYS.search(text) or NOT_CANCELLED.search(text):
+                continue
+            # Cancelled after its needs passed, with outputs unknown: does the job start on this event?
+            needs = job.get("needs") or []
+            needs = [needs] if isinstance(needs, str) else list(needs)
+            context = pr_context(workflow, event, 101, 1)
+            context["needs"] = {name: {"result": "success", "outputs": {}} for name in needs}
+            try:
+                starts = condition(job.get("if"), context)
+            except (ExpressionError, KeyError, IndexError, TypeError, ValueError, AttributeError):
+                starts = True
+            if starts:
+                out.append(f"{event}: job {job_id} runs on `always()`, so a superseded run's cancel starts it and the "
+                           "cancelled run holds the concurrency group until a runner takes it: use `!cancelled()`")
+        return out
+    return out
+
+
+# --- Release runs are never cancelled by a newer one --------------------------
+
+# A nightly, DEV, release or promote run that a newer run cancels stops halfway through a publication: a tag with no
+# release, a feed with no build. Every workflow that makes one is named for it (RELEASE_NAME); each of its non pull
+# request runs is evaluated twice, two pushes to one ref or two dispatches, schedules or upstream completions, and
+# the second run may share the first one's group only with `cancel-in-progress` false. So may cmux-next.yml's DEV
+# dispatch (inputs.dev_daily) and a push to a release branch (RELEASE_BRANCHES) of any workflow.
+RELEASE_NAME = re.compile(r"nightly|release|promot|stable|dev-daily|appcast|notari|publish|deliver|canary|rollback|train")
+RELEASE_BRANCHES = ("nightly-next", "rc/", "stable-next", "release/")
+RELEASE_EVENTS = ("schedule", "workflow_dispatch", "workflow_run", "repository_dispatch")
+
+# Release-named workflows whose cancelled run publishes nothing, and why.
+RELEASE_CANCEL_ALLOWED = {
+    "release-rails.yml": "tests the release rails on fakes; it deploys and publishes nothing",
+    "cmux-browser-host-release.yml": "a feat-cmux-next push only builds and packages; its tag push publishes, and "
+    "keeps cancel-in-progress false (github.ref_type == 'tag')",
+}
+
+
+def release_context(workflow: dict, event: str, ref: str, run: int, inputs: dict[str, Any] | None = None) -> dict:
+    context = pr_context(workflow, "pull_request", 101, run)
+    context["github"].update(
+        event_name=event, ref=ref, ref_name=ref.split("/", 2)[-1],
+        ref_type="tag" if ref.startswith("refs/tags/") else "branch",
+        head_ref="", base_ref="", sha=f"{run:040d}", run_id=5000 + run, run_number=run)
+    context["github"]["event"] = {}
+    if event == "workflow_run":
+        context["github"]["event"] = {"workflow_run": {
+            "id": run, "run_attempt": 1, "event": "push", "conclusion": "success", "head_branch": "main",
+            "head_sha": f"{run:040d}", "path": ".github/workflows/upstream.yml", "pull_requests": [],
+            "head_repository": {"full_name": "manaflow-ai/cmux"}}}
+    context["inputs"] = dict(inputs or {})
+    return context
+
+
+def _concrete(pattern: str) -> str:
+    return pattern.replace("**", "x").replace("*", "x")
+
+
+def release_runs(workflow: dict, name: str) -> list[tuple[str, dict, dict]]:
+    """(what, first run, second run) for each release run kind of this workflow."""
+    named = bool(RELEASE_NAME.search(name))
+    out: list[tuple[str, dict, dict]] = []
+    for event, spec in triggers(workflow).items():
+        spec = spec if isinstance(spec, dict) else {}
+        if event == "push":
+            branches = [str(b) for b in spec.get("branches") or []]
+            tags = [str(t) for t in spec.get("tags") or []]
+            refs = [f"refs/tags/{_concrete(t).replace('x', '1')}" for t in tags] if named else []
+            for branch in branches or (["main"] if named and not tags else []):
+                if named or _concrete(branch).startswith(RELEASE_BRANCHES):
+                    refs.append(f"refs/heads/{_concrete(branch)}")
+            if not branches and not tags and not named:
+                refs.append("refs/heads/nightly-next")  # every branch, release branches included
+            for ref in refs:
+                out.append((f"push to {ref}", release_context(workflow, "push", ref, 1),
+                            release_context(workflow, "push", ref, 2)))
+        elif event in RELEASE_EVENTS and named:
+            inputs = {}
+            if event == "workflow_dispatch":
+                inputs = {key: (value or {}).get("default") for key, value in (spec.get("inputs") or {}).items()}
+            out.append((event, release_context(workflow, event, "refs/heads/main", 1, inputs),
+                        release_context(workflow, event, "refs/heads/main", 2, inputs)))
+    if name == "cmux-next.yml":
+        dev = {"dev_daily": True, "same_tree_sha": ""}
+        ref = "refs/heads/feat-cmux-next"
+        out.append(("DEV dispatch (dev_daily)", release_context(workflow, "workflow_dispatch", ref, 1, dev),
+                    release_context(workflow, "workflow_dispatch", ref, 2, dev)))
+    return out
+
+
+def release_problems(workflow: dict, name: str) -> list[str]:
+    """Why a newer run cancels one of this workflow's nightly, DEV, release or promote runs."""
+    out: list[str] = []
+    for what, first, second in release_runs(workflow, name):
+        scopes = [("workflow", workflow.get("concurrency"))]
+        for job_id, job in (workflow.get("jobs") or {}).items():
+            if not isinstance(job, dict) or not isinstance(job.get("concurrency"), dict):
+                continue
+            try:
+                runs = condition(job.get("if"), second)
+            except (ExpressionError, KeyError, IndexError, TypeError, ValueError, AttributeError):
+                runs = True
+            if runs:
+                scopes.append((f"job {job_id}", job["concurrency"]))
+        for scope, concurrency in scopes:
+            if not isinstance(concurrency, dict):
+                continue  # none, or a bare group: a newer run waits and never cancels a running one
+            try:
+                groups = (_text(resolve(concurrency.get("group"), first)), _text(resolve(concurrency.get("group"), second)))
+                cancels = _truthy(resolve(concurrency.get("cancel-in-progress", False), second))
+            except (ExpressionError, KeyError, IndexError, TypeError, ValueError) as error:
+                out.append(f"{what}: {scope}: cannot evaluate its concurrency: {error}")
+                continue
+            if groups[0] == groups[1] and cancels:
+                out.append(f"{what}: {scope}: a newer run cancels this one (group {groups[0]!r} with "
+                           "cancel-in-progress true): a nightly, DEV, release or promote run must finish")
+    return out
+
+
 def closed_context(workflow: dict, number: int, labels: list[str]) -> dict[str, Any]:
     """The contexts of the `closed` run of pull request `number`."""
     context = pr_context(workflow, "pull_request", number, 1)
@@ -685,6 +836,38 @@ def self_check() -> list[str]:
                                             "contains(github.event.comment.body, '@claude')", "runs-on": "x"}}}
     if comment_problems(command):
         failures.append("self-check: a comment workflow gated on its command must pass")
+    # A cancelled run's always() job (pattern cancelled-run-holds-group).
+    cancelling = {"on": {"pull_request": None}, "concurrency": {"group": "w-${{ github.ref }}", "cancel-in-progress": True}}
+    if not keepalive_problems({**cancelling, "jobs": {"verdict": {"needs": ["a"], "if": "always()", "runs-on": "x"}}}):
+        failures.append("self-check: an always() verdict in a cancelling workflow must fail")
+    if not keepalive_problems({**cancelling, "jobs": {"r": {"needs": ["plan"], "if": "always() && needs.plan.result == 'success'"}}}):
+        failures.append("self-check: always() && a needs result must fail (the needs succeeded before the cancel)")
+    for ok in ("${{ !cancelled() }}", "${{ always() && !cancelled() }}", "success()"):
+        if keepalive_problems({**cancelling, "jobs": {"verdict": {"if": ok, "runs-on": "x"}}}):
+            failures.append(f"self-check: {ok!r} must pass")
+    serial = {**cancelling, "concurrency": {"group": "w-${{ github.ref }}", "cancel-in-progress": False}}
+    if keepalive_problems({**serial, "jobs": {"verdict": {"if": "always()", "runs-on": "x"}}}):
+        failures.append("self-check: a workflow that never cancels a pull request run may use always()")
+    # Release runs.
+    nightly = {"on": {"push": {"branches": ["nightly-next"]}, "workflow_dispatch": None}}
+    if not release_problems({**nightly, "concurrency": {"group": "n-${{ github.ref }}", "cancel-in-progress": True}},
+                            "nightly-x.yml"):
+        failures.append("self-check: a nightly whose newer push cancels the older one must fail")
+    if not release_problems({"on": {"push": {"branches": ["rc/**"]}},
+                             "concurrency": {"group": "w-${{ github.ref }}", "cancel-in-progress": True}}, "w.yml"):
+        failures.append("self-check: any workflow cancelling a release-branch push must fail")
+    for ok in ({"group": "n-${{ github.ref }}", "cancel-in-progress": False},
+               {"group": "n-${{ github.run_id }}", "cancel-in-progress": True},
+               {"group": "n-${{ github.ref }}", "cancel-in-progress": "${{ github.event_name == 'pull_request' }}"}):
+        if release_problems({**nightly, "concurrency": ok}, "nightly-x.yml"):
+            failures.append(f"self-check: a nightly with {ok} must pass")
+    dev = {"on": {"workflow_dispatch": {"inputs": {"dev_daily": {"type": "boolean", "default": False}}}},
+           "concurrency": {"group": "${{ inputs.dev_daily && format('d-{0}', github.run_id) || 'd' }}",
+                           "cancel-in-progress": True}}
+    if release_problems(dev, "cmux-next.yml"):
+        failures.append("self-check: a DEV dispatch with a group of its own must pass")
+    if not release_problems({**dev, "concurrency": {"group": "d", "cancel-in-progress": True}}, "cmux-next.yml"):
+        failures.append("self-check: a DEV dispatch a newer dispatch cancels must fail")
 
 
     target = {"name": "W", "concurrency": {"group": "${{ github.workflow }}-${{ github.ref }}"}}
@@ -709,7 +892,15 @@ def main() -> int:
             if not edits:
                 failures.append(f"EDIT_SKIP_PENDING names {path.name}, which passes the edit rule now: remove it")
             edits = []
-        for reason in edits + comment_problems(workflow):
+        for reason in edits + comment_problems(workflow) + keepalive_problems(workflow):
+            failures.append(f"{path.relative_to(ROOT)}: {reason}")
+        releases = release_problems(workflow, path.name)
+        if path.name in RELEASE_CANCEL_ALLOWED:
+            if not releases:
+                failures.append(f"RELEASE_CANCEL_ALLOWED names {path.name}, whose release runs are never cancelled "
+                                "now: remove it")
+            releases = []
+        for reason in releases:
             failures.append(f"{path.relative_to(ROOT)}: {reason}")
         if not any(event in triggers(workflow) for event in PR_EVENTS):
             continue
@@ -737,6 +928,9 @@ def main() -> int:
     for name, why in sorted(EDIT_SKIP_PENDING.items()):
         if not why.strip() or not (WORKFLOWS / name).exists():
             failures.append(f"EDIT_SKIP_PENDING names {name}, which no longer exists or has no reason")
+    for name, why in sorted(RELEASE_CANCEL_ALLOWED.items()):
+        if not why.strip() or not (WORKFLOWS / name).exists():
+            failures.append(f"RELEASE_CANCEL_ALLOWED names {name}, which no longer exists or has no reason")
     if failures:
         print("superseded pull request runs that keep running:", file=sys.stderr)
         for failure in failures:

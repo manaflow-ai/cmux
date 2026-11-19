@@ -686,7 +686,9 @@ jobs:
 
   report:
     needs: [plan, lint, reviewer-path, asc-validate]
-    if: always() && needs.plan.result == 'success'
+    # Not always(): a superseded run's cancel would start this job, which then waits for a runner while the
+    # cancelled run holds the concurrency group, so the newer head's run stays pending (cmux#47223).
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     outputs:

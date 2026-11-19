@@ -10,7 +10,8 @@ permissions: {}
 
 concurrency:
   group: coderouter-release-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer run waits: a release cancelled halfway leaves a tag with half its packages published.
+  cancel-in-progress: false
 
 jobs:
   validate:
