@@ -459,6 +459,14 @@ pub(super) fn quarantined(quarantine: &Path, common_dir: &Path) -> anyhow::Resul
     let objects = objects.to_str().context("the repository's path is not UTF-8")?;
     std::fs::create_dir_all(quarantine.join("objects/info"))?;
     std::fs::write(quarantine.join("objects/info/alternates"), format!("{objects}\n"))?;
+    // A shallow clone's boundary: without it, an ancestry walk from the machine's commit runs
+    // past the oldest commit this Mac has, fails on the missing parent, and a plain commit on
+    // the machine reads as rewritten history.
+    match std::fs::read(common_dir.join("shallow")) {
+        Ok(shallow) => std::fs::write(quarantine.join("shallow"), shallow)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).context("cannot read the repository's shallow file"),
+    }
     Ok(())
 }
 
