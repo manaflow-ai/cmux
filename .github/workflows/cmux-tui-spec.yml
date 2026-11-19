@@ -113,6 +113,9 @@ permissions:
   contents: read
 
 env:
+  # Warnings never fail a pull request's compile (Leo, 2026-11-19); pushes, dispatches, nightly and release
+  # keep them errors. scripts/ci/warnings_policy.py.
+  CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
@@ -507,7 +510,7 @@ jobs:
       # daemon's sim-only seams were never linted.
       - name: cargo clippy -p acpmux --features sim --test sim
         working-directory: cmux-tui
-        run: cargo clippy --locked -p acpmux --features sim --test sim -- -D warnings
+        run: python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy --locked -p acpmux --features sim --test sim -- -D warnings
 
   # The carrier's deterministic simulation (cmux-remote tests/carrier_sim.rs): the real daemon and
   # client over a simulated carrier with seeded cuts, drops, slow links, relay swaps and daemon

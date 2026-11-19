@@ -141,6 +141,9 @@ permissions:
 # R2 cache URL must be declared here or every R2 restore reports a miss.
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+  # Warnings never fail a pull request's compile (Leo, 2026-11-19): the Swift warning budget only warns there;
+  # merge queues, pushes, nightly and release keep it an error. scripts/ci/warnings_policy.py.
+  CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
 
 jobs:
   admission-placement:

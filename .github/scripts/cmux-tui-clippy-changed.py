@@ -43,6 +43,7 @@ import argparse
 from collections import deque
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -182,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"cmux-tui-clippy-changed: linting {scope}", flush=True)
     print(" ".join(command), flush=True)
     # From cmux-tui/ so rustup uses its rust-toolchain.toml pin and cargo its workspace.
-    rc, red_files, lock = run_clippy(command, repo / ROOT, repo)
+    rc, red_files, lock = run_clippy(warnings_soft(command, repo), repo / ROOT, repo)
     if rc and lock:
         print(stale_lock_error("cmux-tui clippy", lock))
     elif rc:
@@ -190,6 +191,15 @@ def main(argv: list[str] | None = None) -> int:
               f"run `{' '.join(command)}` in cmux-tui and fix each lint (an allow needs a comment saying why)")
         name_base_reds(repo, base if paths is not None else "", red_files)
     return 1 if rc else 0
+
+
+def warnings_soft(command: list[str], repo: Path) -> list[str]:
+    """COMMAND through scripts/ci/warnings_policy.py when CI_WARNINGS=soft (pull requests: warnings never fail
+    their compile; Leo, 2026-11-19), else as written. A replayed tree without the policy runs it as written."""
+    policy = repo / "scripts/ci/warnings_policy.py"
+    if os.environ.get("CI_WARNINGS", "").strip().lower() == "soft" and policy.is_file():
+        return [sys.executable, str(policy), "run", "--", *command]
+    return command
 
 
 def run_clippy(command: list[str], cwd: Path, repo: Path) -> tuple[int, list[str], str | None]:
