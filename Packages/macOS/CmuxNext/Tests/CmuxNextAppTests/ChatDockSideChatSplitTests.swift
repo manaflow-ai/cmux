@@ -45,9 +45,10 @@ struct ChatDockSideChatSplitTests {
             let pane = try #require(content.panes.values.first { $0.pane.tabs.contains { $0.id == tab } }?.layoutPaneID,
                                     "the side chat's tab vanished")
             #expect(dock()?.root.panes == [chatPane.layoutPaneID], "the dock still holds only the chat")
-            #expect(strip().count == 2, "the side chat opened in a new column beside the dock")
-            #expect(strip().first?.root.panes.contains(pane) == true,
-                    "the side chat's column is the first one right of the dock")
+            #expect(strip().count == 2, "the side chat opened in a new strip column")
+            // A docked chat has no strip column of its own, so the new column goes where Fork to New Column Right puts
+            // it (`ForkColumnSlot`: after the strip's last column), not into the column already there.
+            #expect(strip().last?.root.panes.contains(pane) == true, "the side chat is in its own new column")
         }
     }
 }
