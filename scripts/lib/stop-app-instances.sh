@@ -103,7 +103,7 @@ cmux_app_instance_pids() {
     /usr/bin/lsappinfo info -only pid "$asn" 2>/dev/null | grep -oE '"?pid"? ?= ?[0-9]+' | grep -oE '[0-9]+$'
   done
   pgrep -f -- "$(cmux_regex_escape "$tagged_executable")( |\$)" 2>/dev/null || true
-  if [[ -n "$raw_executable" ]]; then
+  if [[ -n "$raw_executable" && -f "${raw_executable%/MacOS/*}/Info.plist" ]]; then
     raw_bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
       "${raw_executable%/MacOS/*}/Info.plist" 2>/dev/null || true)"
     if [[ "$raw_bundle_id" == "$bundle_id" ]]; then

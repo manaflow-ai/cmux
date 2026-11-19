@@ -11,8 +11,12 @@ import { Plugin, PluginKey, type EditorState } from "@milkdown/kit/prose/state";
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
 import { isPointerSelecting, pointerChanged } from "./pointerSelect";
+import { blocksAround, changedBlocks, decorateAll, mergeRanges, redecorate } from "./redecorate";
 
-const key = new PluginKey<{ folded: Set<number>; decorations: DecorationSet }>("cmuxMarkdownObsidian");
+/** The callouts folded, the decorations, and the selection they reveal the syntax around. */
+type ObsidianState = { folded: Set<number>; decorations: DecorationSet; revealed: { from: number; to: number } };
+
+const key = new PluginKey<ObsidianState>("cmuxMarkdownObsidian");
 
 /** The meta a fold toggle dispatches: the callout's position. */
 const FOLD_META = "cmuxCalloutFold";
@@ -141,13 +145,15 @@ function decorate(
   folded: Set<number>,
   host: ObsidianHost,
   view: () => EditorView | null,
-): DecorationSet {
+  rangeFrom = 0,
+  rangeTo = state.doc.content.size,
+): Decoration[] {
   const decorations: Decoration[] = [];
   const hide = (from: number, to: number) =>
     decorations.push(Decoration.inline(from, to, { class: "md-syntax-hidden" }));
   const syntax = (from: number, to: number) => decorations.push(Decoration.inline(from, to, { class: "md-syntax" }));
 
-  state.doc.descendants((node, pos, parent) => {
+  state.doc.nodesBetween(rangeFrom, rangeTo, (node, pos, parent) => {
     if (node.type.spec.code) return false;
 
     // Callouts: a quote whose first paragraph starts with `[!type]`.
@@ -327,7 +333,7 @@ function decorate(
     }
     return false;
   });
-  return DecorationSet.create(state.doc, decorations);
+  return decorations;
 }
 
 function refresh(view: EditorView | null): void {
@@ -344,10 +350,14 @@ export function obsidianSyntaxPlugin(host: ObsidianHost) {
   return $prose(() => {
     let current: EditorView | null = null;
     const view = () => current;
-    return new Plugin<{ folded: Set<number>; decorations: DecorationSet }>({
+    return new Plugin<ObsidianState>({
       key,
       state: {
-        init: (_config, state) => ({ folded: new Set(), decorations: decorate(state, new Set(), host, view) }),
+        init: (_config, state) => ({
+          folded: new Set(),
+          decorations: decorateAll(state.doc, (from, to) => decorate(state, new Set(), host, view, from, to)),
+          revealed: { from: state.selection.from, to: state.selection.to },
+        }),
         apply(tr, previous, old, state) {
           let folded = previous.folded;
           if (tr.docChanged) folded = new Set([...folded].map((pos) => tr.mapping.map(pos)));
@@ -368,7 +378,26 @@ export function obsidianSyntaxPlugin(host: ObsidianHost) {
             old.doc === state.doc
           )
             return previous;
-          return { folded, decorations: decorate(state, folded, host, view) };
+          const revealed = { from: state.selection.from, to: state.selection.to };
+          if (tr.getMeta(key) || old.doc !== tr.before)
+            return {
+              folded,
+              revealed,
+              decorations: decorateAll(state.doc, (from, to) => decorate(state, folded, host, view, from, to)),
+            };
+          // A change redraws the blocks it touched, the blocks around the selection the last
+          // decorations revealed and around the one they reveal now, and a callout folded or opened.
+          const doc = state.doc;
+          const ranges = [
+            ...changedBlocks(tr),
+            blocksAround(doc, tr.mapping.map(previous.revealed.from, -1), tr.mapping.map(previous.revealed.to, 1)),
+            blocksAround(doc, revealed.from, revealed.to),
+          ];
+          if (toggle !== undefined) ranges.push(blocksAround(doc, toggle, toggle + 1));
+          const decorations = redecorate(previous.decorations, tr, mergeRanges(ranges), (from, to) =>
+            decorate(state, folded, host, view, from, to),
+          );
+          return { folded, revealed, decorations };
         },
       },
       view(editorView) {

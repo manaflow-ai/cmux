@@ -192,7 +192,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             if case .agent(let view)? = pane.currentContent, view.model.newTab != nil, view.pageDrawsOverCovers { view.placeMovedChromiumPage(requiringFrame: true) }
         }
         // A Home with no pane yet stays clear until its page is in its dock (HomeDock.revealWhenDocked), never in pieces.
-        if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.layout.panes.isEmpty }) { services.launchReveal.hold(contentView, until: .home) }
+        if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.panes.isEmpty }) { services.launchReveal.hold(contentView, until: .home) }
     }
 
     func teardown() {
@@ -309,7 +309,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         if layoutModel.acceptsRowOps != appliedTree.rows { layoutModel.acceptsRowOps = appliedTree.rows } // no row op without rows-v1 (rows.md step 4)
         layoutModel.apply(screens: result.screens)
         #if DEBUG
-        DebugLayoutCounters.notePanes(layoutModel.screens.reduce(0) { $0 + $1.layout.panes.count }, of: self)
+        DebugLayoutCounters.notePanes(layoutModel.screens.reduce(0) { $0 + $1.panes.count }, of: self)
         #endif
         // The view mounts the panes in this turn: a workspace shown now
         // draws its first frame with them, not one blank frame.
@@ -353,7 +353,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// so the title does not flash before the tab strip and terminal land, or
     /// before the workspace closes.
     private func updateEmptyState() {
-        let isEmpty = layoutModel.screens.allSatisfy { $0.layout.panes.isEmpty }
+        let isEmpty = layoutModel.screens.allSatisfy { $0.panes.isEmpty }
         let settling = workspace.key.map { emptyWorkspaceRepair.isSettling($0) } ?? false
         emptyView?.failure = workspace.key.flatMap { emptyWorkspaceRepair.failure($0) }
         contentView.showEmpty(isEmpty && !settling ? emptyView : nil)
@@ -391,10 +391,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// (deterministic; never dictionary order).
     var focusedPane: PaneController? {
         if let id = focus.state.pane, let controller = panes[LayoutPaneID(id)] { return controller }
-        for id in layoutModel.screens.flatMap(\.layout.panes) {
-            if let controller = panes[id] { return controller }
-        }
-        return nil
+        return layoutModel.screens.flatMap(\.panes).lazy.compactMap { self.panes[$0] }.first
     }
 
     /// The controller of the pane with daemon id `key`.

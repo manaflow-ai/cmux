@@ -350,6 +350,7 @@ fn serve(
                 Some(json!({}))
             }
             "_acpmux/kill" => Some(json!({})),
+            "_acpmux/prewarm" => Some(json!({"accepted": true})),
             "_acpmux/web_modes" if fixture.start_folder_trusted.is_some() => Some(json!({
                 "families": {"claude": ["default"]}, "refusedFamilies": [],
                 "session": {"family": "claude", "mode": "default"},
