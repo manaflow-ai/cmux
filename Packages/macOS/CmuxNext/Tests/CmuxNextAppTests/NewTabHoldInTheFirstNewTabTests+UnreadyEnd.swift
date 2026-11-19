@@ -121,7 +121,9 @@ extension NewTabHoldInTheFirstNewTabTests {
     }
 
     /// Row 7. The person presses Cmd-V after the letter: a key with Command ends the hold, and its keys go on first.
-    @Test func aLetterInTheSecondNewTabIsNotDroppedAtACmdV() async throws {
+    /// The row proves that the letter BEFORE the Cmd-V is not dropped. It does not send the Cmd-V on, so the arrival
+    /// of the paste has no row.
+    @Test func aLetterBeforeACmdVInTheSecondNewTabIsNotDropped() async throws {
         try await Self.aLetterInTheSecondNewTabThenAnUnreadyEnd(.paste, row: 7)
     }
 

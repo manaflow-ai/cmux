@@ -33,6 +33,8 @@ import Testing
 ///   the pane's hover load asks the store for the tab's view (`PaneController.loadOnHover`).
 /// - Rows 9, 10 and 12 (a split, a terminal of another folder, a hold of New Workspace keys) are
 ///   `NewTabHoldOtherScreensTests`; row 11 (the tabs that a store restored) is `NewTabPagesOfRestoredTabsTests`.
+/// - Row 13 (several untouched page views in one pane: the new tab takes the one that its pane leaves) is in
+///   `NewTabHoldMovesItsPageTests+OwnPage.swift`.
 ///
 /// The app is the package's own, with a daemon of this tree and an empty pool of pages made ahead, so each new
 /// page view here is a cold one (the setup of `NewTabPageAtItsFrameTests`). That setup's pane starts with a New
