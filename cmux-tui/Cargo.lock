@@ -2661,6 +2661,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-signed-bundle",
  "cmux-supervise-core",
+ "cmux-tag-cache",
  "cmux-tasks",
  "cmux-tasks-core",
  "cmux-terminal-iface",

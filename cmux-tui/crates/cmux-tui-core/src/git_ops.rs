@@ -34,6 +34,7 @@ mod journal;
 mod list;
 mod mutation;
 mod push;
+mod read_cache;
 #[cfg(all(test, unix))]
 mod read_cache_tests;
 #[cfg(test)]
@@ -137,14 +138,20 @@ pub(crate) fn dispatch(
     if diff_comments::handles(request.envelope.operation) {
         return diff_comments::dispatch(mux, &request);
     }
-    match request.envelope.operation {
-        ResourceOperation::GitCommit => return commit::dispatch(mux, &request),
-        ResourceOperation::GitPush => return push::dispatch(mux, &request),
-        ResourceOperation::GitWorktreeCreate => return worktree::dispatch(mux, &request),
-        ResourceOperation::GitWorktreeApply => return worktree_apply::dispatch(mux, &request),
-        ResourceOperation::GitWorktreeRemove => return worktree_remove::dispatch(mux, &request),
+    let changed = match request.envelope.operation {
+        ResourceOperation::GitCommit => Some(commit::dispatch(mux, &request)),
+        ResourceOperation::GitPush => Some(push::dispatch(mux, &request)),
+        ResourceOperation::GitWorktreeCreate => Some(worktree::dispatch(mux, &request)),
+        ResourceOperation::GitWorktreeApply => Some(worktree_apply::dispatch(mux, &request)),
+        ResourceOperation::GitWorktreeRemove => Some(worktree_remove::dispatch(mux, &request)),
         ResourceOperation::GitWorktreeSetup => return worktree_setup::dispatch(mux, &request),
-        _ => {}
+        _ => None,
+    };
+    if let Some(result) = changed {
+        // The daemon moved a repository itself (also when the run failed
+        // part way): every cached read is read again before its next answer.
+        read_cache::invalidate_all();
+        return result;
     }
     let operation = match request.envelope.operation {
         ResourceOperation::GitDiff => "git.diff",
@@ -186,9 +193,11 @@ fn open_failed(operation: &'static str, directory: &Path, error: OpenError) -> R
     }
 }
 
-/// `git.status` of `directory`.
+/// `git.status` of `directory`, from the cache while HEAD, the refs and the
+/// config are as they were (`read_cache`).
 fn status_reply(directory: &Path, github: bool) -> Result<Value, ResourceError> {
-    status(directory, github)
+    let at = directory.to_path_buf();
+    read_cache::status(directory, github, move || status(&at, github))
 }
 
 /// `git.branches` of the repository `directory` is in.
@@ -196,8 +205,18 @@ fn branches_reply(
     directory: &Path,
     fields: &serde_json::Map<String, Value>,
 ) -> Result<Value, ResourceError> {
-    let repository = open_repository(directory, "git.branches")?;
-    branches(directory, &repository, fields)
+    let limit = fields.get("limit").and_then(Value::as_u64);
+    let (at, fields) = (directory.to_path_buf(), fields.clone());
+    read_cache::branches(directory, limit, move || {
+        let repository = open_repository(&at, "git.branches")?;
+        let root = repository.root.clone();
+        let git_dir = repository.git_dir().to_path_buf();
+        // Taken before the reads, so a ref that moves during them leaves the
+        // answer stale.
+        let stamp = read_cache::refs_stamp(&root, &git_dir);
+        let value = branches(&at, &repository, &fields)?;
+        Ok(read_cache::RefsRead { value, root, git_dir, stamp })
+    })
 }
 
 /// What HEAD of the checkout `directory` is in is on. A view that shows a
@@ -206,12 +225,17 @@ fn branches_reply(
 /// count would set the cost. `github` adds `github_repo`, the `owner/name`
 /// of the upstream's remote (else `origin`) on github.com: one more git run,
 /// so only a caller that asks pays it.
-fn status(directory: &Path, github: bool) -> Result<Value, ResourceError> {
+fn status(directory: &Path, github: bool) -> Result<read_cache::RefsRead, ResourceError> {
     const OPERATION: &str = "git.status";
     #[cfg(test)]
     read_probe::ran(read_probe::Read::Status, directory);
     let repository =
         Checkout::open(directory).map_err(|error| open_failed(OPERATION, directory, error))?;
+    let root = repository.root().to_path_buf();
+    let git_dir = repository.git_dir().to_path_buf();
+    // Taken before the reads, so a ref that moves during them leaves the
+    // answer stale.
+    let stamp = read_cache::refs_stamp(&root, &git_dir);
     let headers = repository.head().map_err(|failure| git_failed(OPERATION, &failure))?;
     let mut value = json!({
         "root":repository.root().to_string_lossy(),
@@ -244,7 +268,7 @@ fn status(directory: &Path, github: bool) -> Result<Value, ResourceError> {
     if let Some(main) = repository.main_checkout() {
         value.set("worktree", json!({"main_root": main.to_string_lossy()}));
     }
-    Ok(value)
+    Ok(read_cache::RefsRead { value, root, git_dir, stamp })
 }
 
 /// Local, then remote branches, with HEAD's branch and the bases a branch
