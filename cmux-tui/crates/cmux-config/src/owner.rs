@@ -11,6 +11,7 @@ use serde_json::Value;
 use crate::cache::{read_cache, write_cache};
 use crate::domains::Domains;
 use crate::fsio::{publish, read_source, resolve_symlinks, write_atomic};
+use crate::history::{self, HistoryEntry, HistoryLog};
 use crate::location::team_policy_path;
 use crate::managed::{ManagedReader, TeamPolicyLayer};
 use crate::refusal::Refusal;
@@ -35,6 +36,8 @@ pub struct ConfigStore {
     /// first write then creates `config_path` from that text.
     seed_path: Option<PathBuf>,
     state_dir: Option<PathBuf>,
+    /// `<state_dir>/settings-history.jsonl`; `None` without a state directory.
+    history: Option<HistoryLog>,
     reader: Box<dyn ManagedReader>,
 }
 
@@ -75,7 +78,8 @@ impl ConfigStore {
         {
             state = state.with_revision(revision + 1);
         }
-        let store = ConfigStore { state, config_path, seed_path, state_dir, reader };
+        let history = state_dir.as_deref().map(HistoryLog::new);
+        let store = ConfigStore { state, config_path, seed_path, state_dir, history, reader };
         store.write_cache();
         store
     }
@@ -107,29 +111,84 @@ impl ConfigStore {
         standardized(file) == standardized(&self.config_path)
     }
 
+    /// The settings history, newest first (at most
+    /// [`crate::history::HISTORY_CAPACITY`] entries); empty without a state
+    /// directory.
+    pub fn history(&self) -> Vec<HistoryEntry> {
+        let mut entries = self.history.as_ref().map(HistoryLog::read).unwrap_or_default();
+        entries.reverse();
+        entries
+    }
+
+    /// Records a published change of the file whose text was `before`. A
+    /// change that left the file text alone (managed values, a theme file)
+    /// or that came from a file which did not parse is no setup to go back
+    /// to, and is not recorded.
+    fn record(&mut self, change: &Change, before: &str, before_broken: bool, undoes: Option<u64>) {
+        if before_broken || before == self.state.source() {
+            return;
+        }
+        let Some(log) = self.history.as_mut() else { return };
+        log.append(&HistoryEntry {
+            revision: change.revision,
+            at: history::now_ms(),
+            origin: change.origin.as_str().to_string(),
+            keys: change.keys.clone(),
+            before: before.to_string(),
+            undoes,
+        });
+    }
+
     /// Runs `op`: refresh from disk (write ops), reduce, publish, adopt.
+    /// Every published change of the file is recorded in the history.
     pub fn apply(&mut self, op: Op) -> ApplyResult {
         let mut changes = Vec::new();
         let team_before = self.state.team().clone();
-        let writes =
-            matches!(op, Op::Set { .. } | Op::Reset { .. } | Op::ResetAll { .. } | Op::Edit { .. });
+        let writes = matches!(
+            op,
+            Op::Set { .. }
+                | Op::Reset { .. }
+                | Op::ResetAll { .. }
+                | Op::Edit { .. }
+                | Op::Undo { .. }
+                | Op::Restore { .. }
+                | Op::ResetGroup { .. }
+        );
         // Daemons of other sessions may own the same file: hold its advisory
         // lock across refresh, reduce and publish so no update is lost.
         let _lock = if writes { lock_config(&self.config_path) } else { None };
         if writes {
             // Fresh managed values too: macOS sends no notification for a new
             // MDM profile, so the watcher may not have seen it yet.
+            let before = self.state.source().to_string();
+            let broken = self.state.file_problem().is_some();
             let (refreshed, change) = self.state.reload(self.read_file(), self.reader.read());
             self.state = refreshed;
+            if let Some(change) = &change {
+                self.record(change, &before, broken, None);
+            }
             changes.extend(change);
         }
-        let result = match store::apply(&self.state, op) {
+        let history = match &op {
+            Op::Undo { .. } | Op::Restore { .. } => {
+                self.history.as_ref().map(HistoryLog::read).unwrap_or_default()
+            }
+            _ => Vec::new(),
+        };
+        let before = self.state.source().to_string();
+        let broken = self.state.file_problem().is_some();
+        let result = match store::apply_with_history(&self.state, op, &history) {
             Err(refusal) => Err(refusal),
             Ok(applied) => {
                 match applied.write.as_deref().map(|text| publish(&self.config_path, text)) {
                     Some(Err(error)) => Err(Refusal::Io { message: error.to_string() }),
-                    _ => {
+                    published => {
                         self.state = applied.state;
+                        if published.is_some() {
+                            for change in &applied.changes {
+                                self.record(change, &before, broken, applied.undoes);
+                            }
+                        }
                         changes.extend(applied.changes);
                         Ok(applied.outcome)
                     }
@@ -155,12 +214,15 @@ impl ConfigStore {
     /// A change only when the effective settings changed.
     pub fn reload(&mut self) -> Option<Change> {
         let config_dir = self.config_dir();
+        let before = self.state.source().to_string();
+        let broken = self.state.file_problem().is_some();
         let (next, change) =
             self.state.reload_with_theme(self.read_file(), self.reader.read(), |name| {
                 Some(read_theme(&config_dir, name))
             });
         self.state = next;
-        if change.is_some() {
+        if let Some(change) = &change {
+            self.record(change, &before, broken, None);
             self.write_cache();
         }
         change

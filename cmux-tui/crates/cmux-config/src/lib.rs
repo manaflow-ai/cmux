@@ -18,6 +18,7 @@ pub mod domains;
 pub mod effective;
 pub mod fsio;
 pub mod guard;
+pub mod history;
 pub mod jsonc;
 pub mod keybindings;
 pub mod keypath;
@@ -36,6 +37,7 @@ pub mod watch;
 pub use diagnostics::{Diagnostic, DiagnosticKind};
 pub use domains::Domains;
 pub use effective::EffectiveSettings;
+pub use history::HistoryEntry;
 pub use keybindings::owner::{
     KeybindingsApplied, KeybindingsChange, KeybindingsOp, KeybindingsOutcome, KeybindingsRefusal,
     KeybindingsStore,
@@ -47,7 +49,7 @@ pub use refusal::Refusal;
 pub use schema::{Row, Schema};
 pub use store::{
     Change, Edit, EditKind, FileRead, MAX_EDITS, Op, Origin, Outcome, State, Target, ThemeRead,
-    WriteMeta, apply,
+    WriteMeta, apply, apply_with_history,
 };
 pub use theme_file::{ThemeDiagnostic, ThemeDiagnosticKind, ThemeFile};
 pub use watch::{Watcher, watch_store};
