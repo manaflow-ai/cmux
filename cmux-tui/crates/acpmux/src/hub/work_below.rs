@@ -124,7 +124,7 @@ impl Hub {
     /// progress event its lines reached clients untagged, as the chat's own (a helper's grep read
     /// as the chat still running grep after its turn ended). A harness start ends the background
     /// subagents of the one before, and a turn start the foreground ones, as live.
-    /// This is the read of the whole log, run off the executor (`hosts.rs` `read_log`);
+    /// This is the read of the whole log, run off the executor (`hosts.rs` `read_whole_log`);
     /// [`Hub::seed_subagents`] applies what it found.
     pub(super) fn subagents_in_log(&self, session: &Session) -> crate::subagents::SubagentTree {
         let meta = session.meta();
