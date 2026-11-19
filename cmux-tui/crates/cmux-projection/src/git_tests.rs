@@ -542,3 +542,76 @@ fn a_non_utf8_git_path_is_unsupported() {
     let error = ls_tree(&work.join(".git"), &commit).unwrap_err();
     assert!(error.downcast_ref::<Unsupported>().is_some(), "{error:#}");
 }
+
+/// A repo whose commit holds `count` blobs of `size` bytes, each a distinct pattern; their ids.
+fn big_repo(count: usize, size: usize) -> (tempfile::TempDir, PathBuf, Vec<String>) {
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    for n in 0..count {
+        std::fs::write(work.join(format!("big{n}")), pattern(n as u8, 0, size)).unwrap();
+    }
+    run(&work, &["init", "-q"]);
+    run(&work, &["add", "-A"]);
+    run(&work, &["commit", "-q", "-m", "big"]);
+    let oids = (0..count)
+        .map(|n| run(&work, &["rev-parse", &format!("HEAD:big{n}")]).trim().to_owned())
+        .collect();
+    (dir, work.join(".git"), oids)
+}
+
+/// `len` bytes at `offset` of blob `seed`'s pattern: no two 4-byte words alike within a blob.
+fn pattern(seed: u8, offset: usize, len: usize) -> Vec<u8> {
+    (offset..offset + len)
+        .map(|at| ((at / 4) as u32).to_le_bytes()[at % 4] ^ seed.wrapping_mul(37))
+        .collect()
+}
+
+#[test]
+fn a_big_blob_reads_in_ranges_and_holds_only_what_was_asked() {
+    let size = 3 * WHOLE_BYTES as usize + 5;
+    let (_dir, git_dir, oids) = big_repo(1, size);
+    let blobs = GitBlobs::new(&git_dir, vec![Source::Blob(oids[0].clone())]);
+    let mib = 1024 * 1024;
+
+    assert_eq!(blobs.read(0, 0, 4096).unwrap(), pattern(0, 0, 4096));
+    assert!(blobs.retained() <= 4096, "a range holds only itself, not the blob");
+    // On along the same stream, then back before it (a fresh stream), then past its end.
+    assert_eq!(blobs.read(0, 10 * mib as u64, 65_536).unwrap(), pattern(0, 10 * mib, 65_536));
+    assert_eq!(blobs.read(0, 2 * mib as u64, 16).unwrap(), pattern(0, 2 * mib, 16));
+    assert_eq!(blobs.read(0, size as u64 - 3, 4096).unwrap(), pattern(0, size - 3, 3));
+    assert_eq!(blobs.read(0, size as u64 + 10, 10).unwrap(), b"");
+    // A range already read is answered from memory.
+    assert_eq!(blobs.read(0, 10 * mib as u64 + 8, 8).unwrap(), pattern(0, 10 * mib + 8, 8));
+    assert!(blobs.retained() < mib, "{} bytes held", blobs.retained());
+    // Whole, it is refused: the overlay asks whole only for small files.
+    assert!(blobs.batch(&[0])[0].is_err());
+    assert!(blobs.peak() <= MAX_CATS);
+}
+
+#[test]
+fn more_big_blobs_than_processes_never_wait_on_a_held_stream() {
+    let count = MAX_CATS + 2;
+    let size = WHOLE_BYTES as usize + 4 * 1024 * 1024;
+    let (_dir, git_dir, oids) = big_repo(count, size);
+    let blobs = GitBlobs::new(&git_dir, oids.into_iter().map(Source::Blob).collect());
+    // Each blob started and left part way, round after round: every read must find a process.
+    for round in 0..3_u64 {
+        for entry in 0..count as u32 {
+            let offset = round * 1_000_003 + u64::from(entry);
+            let got = blobs.read(entry, offset, 4096).unwrap();
+            assert_eq!(
+                got,
+                pattern(entry as u8, offset as usize, 4096),
+                "blob {entry} round {round}"
+            );
+        }
+    }
+    assert!(blobs.peak() <= MAX_CATS, "peak {}", blobs.peak());
+    assert!(blobs.held.streams.lock().unwrap().len() <= STREAMS);
+
+    // An idle sweep ends the held streams and their processes.
+    blobs.held.sweep(Instant::now() + IDLE, IDLE, PACK_CHECK);
+    assert!(blobs.held.streams.lock().unwrap().is_empty());
+    assert_eq!(blobs.held.pool.lock().unwrap().live, blobs.pooled(), "no process counted twice");
+}
