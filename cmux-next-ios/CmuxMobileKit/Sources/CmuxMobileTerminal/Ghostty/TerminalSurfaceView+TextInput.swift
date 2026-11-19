@@ -21,16 +21,20 @@ extension TerminalSurfaceView: UITextInput {
     // perf-hot: 1ms ios-terminal-native-key (every key the software keyboard types)
     public func insertText(_ text: String) {
         // The keyboard typed this and already counts it in its context: telling it the text
-        // changed makes it read the whole document again (about 6 ms of main thread a key on
-        // the fleet simulator, against 0.3 ms without; TerminalTypingWhileStreamingUITests).
-        // Only what its context drives is re-announced, as before: a commit of marked text,
-        // and whitespace, so a space after a space never reads as the "." shortcut and the
-        // context returns to the anchor at each word.
-        guard input.markedText == nil, !text.contains(where: \.isWhitespace) else {
+        // changed makes it read the whole document again (about 11 ms of main thread a key
+        // while an agent streams on the fleet simulator, against 0.2 ms without;
+        // TerminalTypingWhileStreamingUITests). Re-announced, as before: a commit of marked
+        // text; whitespace, so a space after a space never reads as the "." shortcut and the
+        // context returns to the anchor at each word; and the first key after input the
+        // keyboard did not type (the key bar's Return, a paste), so an input method that
+        // rewrites the previous letters (Vietnamese Telex) never reaches past the prompt.
+        guard input.markedText == nil, !keyboardContextStale, !text.contains(where: \.isWhitespace) else {
             withTextChange { perform(input.insertText(text)) }
+            keyboardContextStale = false
             return
         }
         perform(input.insertText(text))
+        keyboardContextStale = false
     }
 
     public func deleteBackward() {
