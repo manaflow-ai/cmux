@@ -23,7 +23,7 @@ export const DOCS_URL_HOSTS = [
 ] as const;
 
 const EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
-const STATUSES = ["preview", "deprecated"];
+const STATUSES = ["preview", "deprecated", "disabled"];
 const MODALITIES = ["text", "image", "pdf", "audio", "video"];
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:/@[\]+-]{0,199}$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -104,6 +104,7 @@ function checkHarnessModel(input: unknown, path: string): HarnessModel {
   optional(model, "fast", path, bool);
   optional(model, "aliases", path, list((v, p) => matching(v, ID, p)));
   optional(model, "status", path, oneOf(STATUSES));
+  optional(model, "statusReason", path, text);
   if (model.defaultEffort !== undefined && !(model.efforts as string[] | undefined)?.includes(model.defaultEffort as string)) {
     fail(`${path}.defaultEffort`, "must be one of its efforts");
   }
