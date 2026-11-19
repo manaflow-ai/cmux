@@ -76,6 +76,33 @@ import Testing
         #expect(FirstRunSetup(defaults: defaults).isReviewing, "reopening persists across relaunch")
     }
 
+    @Test(arguments: [false, true]) func completedCardsOnlyStayVisibleWhenReopened(reviewing: Bool) async throws {
+        let defaults = try defaults()
+        let original = FirstRunSetup(defaults: defaults)
+        #expect(original.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        if reviewing { original.end() }
+        original.reopen()
+        // Relaunch exercises persistence; calling Review on an existing first-run card must not change its mode.
+        let setup = FirstRunSetup(defaults: defaults)
+        let source = MockAgentSignInSource(agents: [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedIn)])
+        let provider = SetupCardPageProvider(setup: setup, agents: source, environment: SetupCardEnvironment(
+            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {},
+            historySources: { false }, importHistory: { false }))
+        defer { provider.stop() }
+        await until { provider.allDone }
+        #expect(provider.allDone)
+        var received = false
+        let subscription = try await provider.subscribe("cmux.setup.changed", filter: [:], context: click(1)) { _ in received = true }
+        defer { subscription.cancel() }
+        await until { received }
+        #expect(received)
+        #expect(setup.shows == reviewing)
+        _ = try await provider.call("cmux.setup.hide", params: [:], context: click(2))
+        #expect(!setup.shows)
+        let relaunch = FirstRunSetup(defaults: defaults)
+        #expect(!relaunch.shows && !relaunch.isReviewing)
+    }
+
     @Test func aSkippedLaunchCannotReopenTheCard() throws {
         let defaults = try defaults()
         let setup = FirstRunSetup(defaults: defaults, skipsOnboarding: true)

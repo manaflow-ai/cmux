@@ -5,8 +5,8 @@ public import Observation
 /// window ... just drop user into main screen asap"). A first run starts it in place of the first-run windows:
 /// the Agents window and the CLI toast at launch mark themselves shown, so their rows on the card are the one
 /// place they are offered. Bring your history keeps its own once flag: the card's chat history row sets it
-/// only once that page showed or the row (or the card) was dismissed. Hide or every row done ends it for good, per
-/// channel (`defaults`). Settings keeps every row.
+/// only once that page showed or the row (or the card) was dismissed. Hide or every row done ends first-run setup,
+/// per channel (`defaults`). Home settings can reopen it for review without resetting the rows.
 @MainActor
 @Observable
 public final class FirstRunSetup {
@@ -83,7 +83,7 @@ public final class FirstRunSetup {
         return defaults.string(forKey: Self.stateKey) == nil ? .windows : .cardOwns
     }
 
-    /// Hide, or every row done: the card leaves for good, and its chat history row with it.
+    /// Hide, or every row done during first run: dismiss the card and its chat history row.
     public func end() {
         guard defaults.string(forKey: Self.stateKey) != "ended" else {
             defaults.removeObject(forKey: Self.reviewKey)
@@ -100,7 +100,7 @@ public final class FirstRunSetup {
     /// Reopens the checklist from Home after first-run setup has ended. Row completion flags stay intact,
     /// so the person can review unfinished work without being asked to repeat completed steps.
     public func reopen() {
-        guard !skipsOnboarding else { return }
+        guard !skipsOnboarding, !shows else { return }
         defaults.set("pending", forKey: Self.stateKey)
         defaults.set(true, forKey: Self.reviewKey)
         isReviewing = true
