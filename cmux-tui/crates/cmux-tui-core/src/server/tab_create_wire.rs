@@ -116,13 +116,18 @@ pub(super) fn create(
     let request =
         CreateRequest { client, pane, place: place.as_ref(), transaction: transaction.as_deref() };
     let placing = mux.place_tab_creation(request, hole, true)?;
-    let spawn = placement_spawn_options(
-        cwd,
-        env.as_ref(),
-        terminal_id,
-        shell_args,
-        frontend_shell(mux, client),
-    )?;
+    // A plain shell from a creator not showing it may wait for its first
+    // need (mux/terminal_respawn/lazy.rs).
+    let frontend_shell = frontend_shell(mux, client);
+    let _lazy = crate::mux::terminal_respawn::lazy::lazy_create_scope(
+        !crate::mux::terminal_respawn::lazy::actor_shows_what_it_creates(&actor)
+            && !frontend_shell
+            && env.as_ref().is_none_or(BTreeMap::is_empty)
+            && shell_args.is_none()
+            && terminal_id.is_none(),
+    );
+    let spawn =
+        placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args, frontend_shell)?;
     let surface =
         mux.new_tab_with_options_as(&actor, pane, spawn, optional_surface_size(cols, rows))?;
     placing.made(surface.id);

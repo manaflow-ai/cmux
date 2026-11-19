@@ -147,6 +147,11 @@ pub(crate) struct TerminalRespawns {
     /// lost plain shell of a workspace nobody shows is parked, not
     /// respawned, and starts on its first need.
     lazy_start: AtomicBool,
+    /// Never-started lazy tabs by host terminal id (`lazy.rs`): their
+    /// placeholder runtime is placed, and their park is pending or done.
+    lazy_created: Mutex<HashMap<String, lazy::LazyCreated>>,
+    /// One park of a never-started tab at a time (`lazy.rs`).
+    lazy_finish: Mutex<()>,
 }
 
 /// At most this many command argvs are kept; the oldest goes first.
@@ -211,6 +216,8 @@ impl TerminalRespawns {
             ),
             injected_launch_errors: AtomicU64::new(injected_launch_errors()),
             lazy_start: AtomicBool::new(lazy::lazy_start_from_env()),
+            lazy_created: Mutex::default(),
+            lazy_finish: Mutex::new(()),
         }
     }
 
@@ -248,6 +255,7 @@ impl TerminalRespawns {
     pub(crate) fn forget_argv(&self, terminal_id: &str) {
         self.argv.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
         self.guard.lock().unwrap_or_else(PoisonError::into_inner).forget(terminal_id);
+        self.lazy_created.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
     }
 
     pub(crate) fn argv(&self, terminal_id: &str) -> Option<Vec<String>> {
@@ -668,8 +676,16 @@ impl Mux {
             .unwrap_or_else(PoisonError::into_inner)
             .terminal_relaunch_record(&plan.terminal_id)?;
         // Its own short registry holds: the rebuild runs with no lock.
-        let seed_source = self.previous_screen(&plan);
-        let launch = self.respawn_launch(&plan, record.as_ref(), seed_source, geometry);
+        // A never-started lazy tab (`lazy.rs`) has no previous screen: its
+        // first shell starts as a new tab's does, with no marker line.
+        let never_started = self.lazy_never_started(&plan.terminal_id);
+        let seed_source = if never_started { None } else { self.previous_screen(&plan) };
+        let mut launch = self.respawn_launch(&plan, record.as_ref(), seed_source, geometry);
+        if never_started {
+            launch.seed.clear();
+            // From its first start on it is an ordinary terminal.
+            self.forget_lazy_created(&plan.terminal_id);
+        }
         let workspace_key = {
             let mut registry =
                 self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);

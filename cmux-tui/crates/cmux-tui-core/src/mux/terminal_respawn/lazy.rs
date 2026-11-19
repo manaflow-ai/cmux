@@ -175,6 +175,8 @@ impl Mux {
         }) else {
             return false;
         };
+        // A never-started tab whose creation has not parked it yet.
+        self.finish_lazy_created_at(surface);
         let (parked, terminal_id) = {
             let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             let parked = registry
@@ -261,6 +263,11 @@ impl Mux {
         let mux = Arc::clone(self);
         let spawned =
             std::thread::Builder::new().name("terminal-wake-parked".into()).spawn(move || {
+                // A never-started tab whose park is still pending is parked
+                // first, so it starts below.
+                for (slot, _) in &tabs {
+                    mux.finish_lazy_created_at(*slot);
+                }
                 let parked = {
                     let registry =
                         mux.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
@@ -284,4 +291,254 @@ impl Mux {
 
     #[cfg(not(unix))]
     pub(crate) fn wake_parked_tabs_of_active_workspace(self: &Arc<Self>) {}
+}
+
+// Never-started tabs.
+//
+// A plain shell created by `new-workspace`, `new-tab` or `create-terminal`
+// (no command, no extra environment, no shell arguments, not by the app,
+// which shows what it creates) in a workspace no client shows, with lazy
+// start on, gets no host: its tab is placed with a dead placeholder runtime
+// of the request's size and directory (`Surface::exited_terminal_placeholder_with_identities`),
+// and once the tab is placed its terminal is parked like a kept tab
+// (`kept_tabs` with `on_show` and the request's cwd, then an exit commit the
+// kept row holds the tab through). Its first need starts its first shell,
+// with no previous screen and no marker line.
+
+/// A never-started tab (`Mux::create_lazy_terminal`).
+#[derive(Debug, Clone)]
+pub(crate) struct LazyCreated {
+    /// The incarnation its placeholder was committed under.
+    incarnation: String,
+    /// The directory the request asked for.
+    cwd: Option<String>,
+    /// Parked: its kept row and exit are committed.
+    parked: bool,
+}
+
+thread_local! {
+    /// Set by the request handlers that may create a never-started tab
+    /// ([`lazy_create_scope`]).
+    static LAZY_CREATE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While it lives, a terminal this thread creates may start lazily
+/// (`allow`); the handler decided it is a plain shell from a creator that
+/// is not showing it.
+pub(crate) struct LazyCreateScope(bool);
+
+pub(crate) fn lazy_create_scope(allow: bool) -> LazyCreateScope {
+    LazyCreateScope(LAZY_CREATE.with(|cell| cell.replace(allow)))
+}
+
+impl Drop for LazyCreateScope {
+    fn drop(&mut self) {
+        LAZY_CREATE.with(|cell| cell.set(self.0));
+    }
+}
+
+/// Whether `actor` is the app, which shows the tabs it creates.
+pub(crate) fn actor_shows_what_it_creates(actor: &Actor) -> bool {
+    matches!(actor, Actor::Frontend { .. } | Actor::App { .. })
+}
+
+impl Mux {
+    /// Whether a client shows the workspace `workspace_key`: one is
+    /// attached to a tab of it.
+    fn workspace_key_shown(&self, workspace_key: &str) -> bool {
+        let attached = self.control_clients.attached_client_ids_by_surface();
+        if attached.is_empty() {
+            return false;
+        }
+        self.with_state(|state| {
+            let Some(index) = state.workspaces.iter().position(|w| w.key == workspace_key) else {
+                return false;
+            };
+            attached.keys().any(|surface| {
+                state.pane_of(*surface).and_then(|pane| state.screen_of(pane)).map(|(w, _)| w)
+                    == Some(index)
+            })
+        })
+    }
+
+    /// Whether the terminal this thread creates in `workspace_key` starts
+    /// lazily.
+    pub(in crate::mux) fn lazy_create_allowed(
+        &self,
+        workspace_key: &str,
+        reservation_env: &[(String, String)],
+    ) -> bool {
+        LAZY_CREATE.with(std::cell::Cell::get)
+            && self.lazy_start()
+            && reservation_env.is_empty()
+            && !self.workspace_key_shown(workspace_key)
+    }
+
+    /// Whether `terminal_id` is a never-started tab (its first shell has no
+    /// previous screen).
+    pub(in crate::mux) fn lazy_never_started(&self, terminal_id: &str) -> bool {
+        self.terminal_respawns
+            .lazy_created
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains_key(terminal_id)
+    }
+
+    pub(in crate::mux) fn forget_lazy_created(&self, terminal_id: &str) {
+        self.terminal_respawns
+            .lazy_created
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(terminal_id);
+    }
+
+    /// The runtime of a never-started tab, in place of a launch: the
+    /// registry row `terminal_hex` was reserved and its relaunch record
+    /// written by the caller (`surface_spawn.rs`). Commits it running under
+    /// a new incarnation with the dead placeholder in the catalog; the park
+    /// follows once the tab is placed ([`Self::finish_lazy_created`]).
+    #[cfg(unix)]
+    pub(in crate::mux) fn create_lazy_terminal(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        tab_id: Option<TabPublicId>,
+        terminal_hex: &str,
+        workspace_key: &str,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let failed = |reason: &str, incarnation: Option<&str>| {
+            let _ = self.persist_terminal_exit(
+                terminal_hex,
+                incarnation,
+                &TerminalEnd::launch_failed(reason.to_string()),
+            );
+        };
+        let identity = self.spawn_identity(tab_id, false)?;
+        let ContentPublicId::Terminal(public_id) = identity.content_id.clone() else {
+            failed("lazy-identity-not-terminal", None);
+            anyhow::bail!("a lazy terminal has a browser identity");
+        };
+        let incarnation = TerminalId::random()?.to_hex();
+        let cwd = opts.cwd.clone();
+        let surface = match Surface::exited_terminal_placeholder_with_identities(
+            id,
+            opts,
+            Arc::downgrade(self),
+            TerminalHostIdentity {
+                terminal_id: terminal_hex.to_string(),
+                incarnation: incarnation.clone(),
+            },
+            public_id,
+            Some(identity),
+        ) {
+            Ok(surface) => surface,
+            Err(error) => {
+                failed("lazy-placeholder-failed", None);
+                return Err(error);
+            }
+        };
+        {
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            let (_, revision) = commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-ready",
+                "terminal-ready",
+                terminal_hex,
+                TerminalLifecycle::Running,
+                Some(&incarnation),
+                None,
+            )?;
+            self.emit_terminal_registry_changed(&registry, revision);
+        }
+        self.terminal_respawns.lazy_created.lock().unwrap_or_else(PoisonError::into_inner).insert(
+            terminal_hex.to_string(),
+            LazyCreated { incarnation: incarnation.clone(), cwd, parked: false },
+        );
+        if let Err(error) = self.insert_created_terminal(surface.clone(), workspace_key) {
+            self.forget_lazy_created(terminal_hex);
+            failed("surface-insert-failed", Some(&incarnation));
+            return Err(error);
+        }
+        Ok(surface)
+    }
+
+    /// Park the never-started tab at `slot`, when it is one whose park is
+    /// pending.
+    #[cfg(unix)]
+    pub(crate) fn finish_lazy_created_at(&self, slot: SurfaceId) {
+        if let Some(runtime) = self.surface(slot) {
+            self.finish_lazy_created(&runtime);
+        }
+    }
+
+    /// Park the never-started tab of `surface` once its tab is placed: its
+    /// kept row (`on_show`, the request's directory), then the exit commit
+    /// that row keeps the tab through. True when `surface` is a
+    /// never-started tab's runtime (parked now, before, or still waiting for
+    /// its placement): a creator's reap must leave it alone.
+    #[cfg(unix)]
+    pub(in crate::mux) fn finish_lazy_created(&self, surface: &Arc<Surface>) -> bool {
+        let Some(host) = surface.terminal_host_identity() else { return false };
+        let Some(public_id) = surface.terminal_public_id().cloned() else { return false };
+        let _turn =
+            self.terminal_respawns.lazy_finish.lock().unwrap_or_else(PoisonError::into_inner);
+        let pending = {
+            let created =
+                self.terminal_respawns.lazy_created.lock().unwrap_or_else(PoisonError::into_inner);
+            match created.get(&host.terminal_id) {
+                Some(entry) if entry.incarnation == host.incarnation => entry.clone(),
+                _ => return false,
+            }
+        };
+        if pending.parked {
+            return true;
+        }
+        let content = ContentPublicId::Terminal(public_id.clone());
+        let tab_ids = self.with_state(|state| {
+            state
+                .placements_of_content(&content)
+                .iter()
+                .filter_map(|slot| state.resource_indexes.tab_ids.get(slot).map(|t| t.to_string()))
+                .collect::<Vec<_>>()
+        });
+        if tab_ids.is_empty() {
+            return true;
+        }
+        let rows = tab_ids
+            .into_iter()
+            .map(|tab_id| KeptTab {
+                tab_id,
+                cwd: pending.cwd.clone(),
+                title: None,
+                on_show: true,
+                last_command: None,
+            })
+            .collect::<Vec<_>>();
+        if let Err(error) = self.commit_kept_tabs(&rows) {
+            eprintln!("cmux-tui: could not park new terminal {public_id}: {error:#}");
+            return true;
+        }
+        if let Err(error) = self.persist_terminal_exit(
+            &host.terminal_id,
+            Some(&host.incarnation),
+            &TerminalEnd::launch_failed("not-started-until-shown"),
+        ) {
+            eprintln!("cmux-tui: could not park new terminal {public_id}: {error:#}");
+            return true;
+        }
+        if let Some(entry) = self
+            .terminal_respawns
+            .lazy_created
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_mut(&host.terminal_id)
+        {
+            entry.parked = true;
+        }
+        true
+    }
+
+    #[cfg(not(unix))]
+    pub(crate) fn finish_lazy_created_at(&self, _slot: SurfaceId) {}
 }

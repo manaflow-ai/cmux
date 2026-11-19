@@ -44,6 +44,8 @@ fn new_shell(harness: &RecoveryHarness, name: &str) -> (String, String, u64) {
     let created = request(&harness.socket, serde_json::json!({"cmd":"new-workspace","name":name}));
     let surface = created["surface"].as_u64().expect("new-workspace returned no surface");
     let terminal_id = tab_named(harness, name)["terminal_id"].as_str().unwrap().to_string();
+    // Its first need starts it, when lazy start left it unstarted.
+    request(&harness.socket, serde_json::json!({"cmd":"read-screen","surface":surface}));
     let resolved = request(
         &harness.socket,
         serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
@@ -98,6 +100,11 @@ fn reboot(harness: &mut RecoveryHarness, hosts: usize) {
     for (_, record) in &records {
         // SAFETY: the record PID is a harness-owned terminal host.
         assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    }
+    // The starts counted after the reboot are its own: the first starts of
+    // the set-up's never-started shells are not.
+    if let Some(log) = harness.host_root().parent().map(|dir| dir.join("terminal-losses.jsonl")) {
+        let _ = fs::remove_file(log);
     }
     harness.restart();
 }
@@ -360,4 +367,163 @@ fn without_lazy_start_a_hidden_plain_shell_respawns_at_once() {
     let (lazy_id, lazy_incarnation, _) = &session.lazy;
     wait_for_respawn(&harness, lazy_id, lazy_incarnation);
     assert!(tab_named(&harness, "lazy")["relaunch"].is_null());
+}
+
+// Never-started tabs: a plain shell created where no client shows it.
+
+/// The first pane of workspace `name`.
+fn pane_of(harness: &RecoveryHarness, name: &str) -> u64 {
+    workspaces(harness)
+        .iter()
+        .find(|workspace| workspace["name"] == name)
+        .and_then(|workspace| workspace["screens"][0]["panes"][0]["id"].as_u64())
+        .unwrap_or_else(|| panic!("workspace {name} has no pane"))
+}
+
+/// The tab of `surface` in the tree.
+fn tab_of(harness: &RecoveryHarness, surface: u64) -> serde_json::Value {
+    workspaces(harness)
+        .iter()
+        .flat_map(|workspace| workspace["screens"].as_array().cloned().unwrap_or_default())
+        .flat_map(|screen| screen["panes"].as_array().cloned().unwrap_or_default())
+        .flat_map(|pane| pane["tabs"].as_array().cloned().unwrap_or_default())
+        .find(|tab| tab["surface"].as_u64() == Some(surface))
+        .unwrap_or_else(|| panic!("no tab shows surface {surface}"))
+}
+
+/// An attach stream on `surface`, held open while it lives: a client that
+/// shows the surface's workspace.
+fn attach_and_hold(harness: &RecoveryHarness, surface: u64) -> (Box<dyn Write + Send>, String) {
+    let stream = transport::connect(&harness.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({"id":1,"cmd":"attach-surface","surface":surface,"cols":80,"rows":24})
+    )
+    .unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    std::thread::spawn(move || {
+        let mut sink = String::new();
+        while reader.read_line(&mut sink).is_ok_and(|read| read > 0) {
+            sink.clear();
+        }
+    });
+    (writer, line)
+}
+
+/// A new workspace's and a new tab's plain shells start no host where no
+/// client shows them; the tab reads parked with the request's place, and a
+/// read of its screen starts its first shell once, with no restore marker.
+#[test]
+fn a_never_shown_plain_shell_starts_on_its_first_need() {
+    let _exclusive = exclusive_process_test();
+    let harness = lazy_harness("lazy-new");
+    let created =
+        request(&harness.socket, serde_json::json!({"cmd":"new-workspace","name":"fresh"}));
+    let surface = created["surface"].as_u64().expect("new-workspace returned no surface");
+    let tab = tab_named(&harness, "fresh");
+    let terminal_id = tab["terminal_id"].as_str().unwrap().to_string();
+    assert!(!host_of(&harness, &terminal_id), "a never-shown shell got a host");
+    assert_eq!(tab["dead"], true, "{tab}");
+    assert_eq!(tab["relaunch"]["on_show"], true, "{tab}");
+
+    let added = request(
+        &harness.socket,
+        serde_json::json!({"cmd":"new-tab","pane":pane_of(&harness, "fresh"),"cwd":"/tmp"}),
+    );
+    let tab_surface = added["surface"].as_u64().expect("new-tab returned no surface");
+    let added_tab = tab_of(&harness, tab_surface);
+    let added_id = added_tab["terminal_id"].as_str().unwrap().to_string();
+    assert!(!host_of(&harness, &added_id), "a never-shown new tab got a host");
+    assert_eq!(added_tab["relaunch"]["cwd"], "/tmp", "{added_tab}");
+
+    let started = Instant::now();
+    send_line(&harness.socket, surface, "printf 'first-%s\\n' shell");
+    let text = wait_for_screen(&harness.socket, surface, "first-shell\n");
+    eprintln!("LAZY-START never-shown first input to output ms={}", started.elapsed().as_millis());
+    assert!(text.contains("first-shell"), "the first input was lost: {text}");
+    assert!(!text.contains(MARKER), "a new tab shows a restore marker: {text}");
+    assert!(host_of(&harness, &terminal_id));
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(respawn_count(&harness, &terminal_id), 1);
+    assert!(!host_of(&harness, &added_id), "the other tab started with it");
+}
+
+/// A command, a shell with its own environment, and a new tab in a
+/// workspace a client shows start at once, as before.
+#[test]
+fn commands_and_shown_workspaces_start_at_once() {
+    let _exclusive = exclusive_process_test();
+    let harness = lazy_harness("lazy-eager");
+    let (command_id, _) = run_cat_workspace(&harness.socket, 3, "command");
+    assert!(host_of(&harness, &command_id), "a command waited for its first need");
+    let with_env = request(
+        &harness.socket,
+        serde_json::json!({"cmd":"create-terminal","env":{"LAZY_PROBE":"1"},"create_workspace":true,"workspace_name":"env"}),
+    );
+    let env_id = with_env["terminal_id"].as_str().expect("create-terminal returned no id");
+    assert!(host_of(&harness, env_id), "a shell with its own environment waited");
+
+    let created =
+        request(&harness.socket, serde_json::json!({"cmd":"new-workspace","name":"shown"}));
+    let first = created["surface"].as_u64().unwrap();
+    // A client shows the workspace: its first tab starts on the attach.
+    let _client = attach_and_hold(&harness, first);
+    let shown_id = tab_named(&harness, "shown")["terminal_id"].as_str().unwrap().to_string();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while !host_of(&harness, &shown_id) {
+        assert!(Instant::now() < deadline, "the attach did not start the shown tab");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let added = request(
+        &harness.socket,
+        serde_json::json!({"cmd":"new-tab","pane":pane_of(&harness, "shown")}),
+    );
+    let added_id = tab_of(&harness, added["surface"].as_u64().unwrap())["terminal_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(host_of(&harness, &added_id), "a new tab of a shown workspace waited");
+}
+
+/// Concurrent first needs of a never-started tab start it once.
+#[test]
+fn concurrent_first_needs_start_a_never_shown_shell_once() {
+    let _exclusive = exclusive_process_test();
+    let harness = lazy_harness("lazy-new-concurrent");
+    let created =
+        request(&harness.socket, serde_json::json!({"cmd":"new-workspace","name":"fresh"}));
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = tab_named(&harness, "fresh")["terminal_id"].as_str().unwrap().to_string();
+    let socket = harness.socket.as_path();
+    std::thread::scope(|scope| {
+        for index in 0..6 {
+            scope.spawn(move || {
+                let sent = request_response(
+                    socket,
+                    serde_json::json!({"cmd":"send","surface":surface,"text":format!("echo need-{index}\n")}),
+                );
+                assert_eq!(sent["ok"], true, "a first need was refused: {sent}");
+            });
+        }
+    });
+    for index in 0..6 {
+        let text = wait_for_screen(&harness.socket, surface, &format!("need-{index}\n"));
+        assert!(text.contains(&format!("need-{index}\n")), "input {index} was lost: {text}");
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(respawn_count(&harness, &terminal_id), 1, "it started more than once");
+}
+
+/// Off (the default), a new workspace's shell starts at once.
+#[test]
+fn without_lazy_start_a_never_shown_shell_starts_at_once() {
+    let _exclusive = exclusive_process_test();
+    let harness = RecoveryHarness::start("lazy-new-off");
+    request(&harness.socket, serde_json::json!({"cmd":"new-workspace","name":"fresh"}));
+    let terminal_id = tab_named(&harness, "fresh")["terminal_id"].as_str().unwrap().to_string();
+    assert!(host_of(&harness, &terminal_id));
 }

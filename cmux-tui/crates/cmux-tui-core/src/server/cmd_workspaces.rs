@@ -104,6 +104,10 @@ pub(super) fn new_workspace(
     cols: Option<u16>,
     rows: Option<u16>,
 ) -> anyhow::Result<Value> {
+    // Its plain shell may wait for its first need (mux/terminal_respawn/lazy.rs).
+    let _lazy = crate::mux::terminal_respawn::lazy::lazy_create_scope(
+        !crate::mux::terminal_respawn::lazy::actor_shows_what_it_creates(&actor),
+    );
     let surface = mux.new_workspace_as(&actor, name, optional_surface_size(cols, rows))?;
     Ok(json!({ "surface": surface.id }))
 }
