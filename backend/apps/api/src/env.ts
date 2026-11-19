@@ -16,6 +16,7 @@ import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
 import type { UsageMeterDO } from "./usage-meter-do.ts"
 import type { SpendGuardDO } from "./inference/spend-guard-do.ts"
+import type { ModelCatalogDO } from "./models-catalog/catalog-do.ts"
 import type { FreeDeviceDO } from "./inference/free-device-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
 import type { TeamDO } from "./team-do.ts"
@@ -480,6 +481,10 @@ export interface Env {
   readonly USAGE_METER_DO: DurableObjectNamespace<UsageMeterDO>
   /** Model router (src/inference, plans/cmux-next/model-router.md). One instance "global": daily caps and provider health. */
   readonly SPEND_GUARD_DO: DurableObjectNamespace<SpendGuardDO>
+  /** The live model catalog (src/models-catalog): one instance "global" holds published versions, kills and scout runs. */
+  readonly MODEL_CATALOG_DO?: DurableObjectNamespace<ModelCatalogDO>
+  /** Secret: the bearer of the catalog's internal routes (publish, kill switch, scout runs). Unset: they answer 401. */
+  readonly MODELS_CATALOG_TOKEN?: string
   /** Free tier (src/inference/free.ts): one FreeDeviceDO per App Attest key. */
   readonly FREE_DEVICE_DO: DurableObjectNamespace<FreeDeviceDO>
   /** Per-IP limits of the free tier: every free route, and new device grants. */
@@ -521,6 +526,7 @@ export interface Env {
   readonly INFERENCE_DAILY_CAP_USD_CUSTOM?: string
   readonly INFERENCE_DAILY_CAP_USD_OPENAI?: string
   readonly INFERENCE_DAILY_CAP_USD_PARTICLE?: string
+  readonly INFERENCE_DAILY_CAP_USD_VERTEX?: string
   /** Hard USD cap per UTC day for all free-tier requests together. Missing = 0 = refuse. */
   readonly INFERENCE_FREE_DAILY_CAP_USD?: string
   /** Open requests per team (default 4) and per free device (default 1). */
@@ -541,6 +547,8 @@ export interface Env {
   /** Vercel AI Gateway through the dashboard's OIDC relay: its URL and the shared relay key (secret). */
   readonly INFERENCE_VERCEL_RELAY_URL?: string
   readonly INFERENCE_VERCEL_RELAY_KEY?: string
+  /** Vertex AI (Gemini on our GCP) through the dashboard's keyless Vertex relay; it takes the same relay key. */
+  readonly INFERENCE_VERTEX_RELAY_URL?: string
   /** Azure AI Foundry resource endpoint (https://<resource>.services.ai.azure.com) and its key (secret). */
   readonly INFERENCE_AZURE_ENDPOINT?: string
   readonly INFERENCE_AZURE_KEY?: string
