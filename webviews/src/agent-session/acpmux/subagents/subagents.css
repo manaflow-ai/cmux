@@ -2035,7 +2035,7 @@ button.cv-subagent > :last-child {
    (below), so the pill and that line are the one shape; keyboard focus is the pill's outline.
    test/composer-hat-line-gap.test.ts measures that nothing is drawn beside the pill over the line. */
 .acpmux-tray-pull__tab:hover > .acpmux-tray-pull__hat,
-.acpmux-tray-pull__tab:has([data-popup-open]) > .acpmux-tray-pull__hat {
+.acpmux-tray-pull__tab[data-popup-within] > .acpmux-tray-pull__hat {
   background: color-mix(in srgb, var(--glass-surface, Canvas) 30%, transparent);
   box-shadow: var(--glass-rim-shadow, inset 0 0 0 var(--cmux-hairline) var(--glass-edge)),
     0 var(--ds-space-1) var(--ds-space-2) color-mix(in srgb, var(--glass-surface, CanvasText) 12%, transparent);
@@ -2311,8 +2311,10 @@ button.cv-subagent > :last-child {
   color: var(--agent-accent);
   opacity: 0.8;
 }
+/* A popup opened inside the tab marks it `data-popup-within` (ui/popupWithin.ts), not a `:has()`:
+   that one restyled every icon in the pane each time the rail gained an entry. */
 .acpmux-tray-pull__tab:hover .acpmux-tray-pull__hat > svg[data-icon],
-.acpmux-tray-pull__tab:has([data-popup-open]) .acpmux-tray-pull__hat > svg[data-icon],
+.acpmux-tray-pull__tab[data-popup-within] .acpmux-tray-pull__hat > svg[data-icon],
 .acpmux-tray-pull__tab:focus-visible .acpmux-tray-pull__hat > svg[data-icon] {
   opacity: 1;
 }

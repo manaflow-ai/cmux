@@ -266,3 +266,32 @@ test("the X is offered in every Claude Code chat, whatever its family is named, 
   expect(takesSteersBack(codex, true)).toBe(false);
   expect(takesSteersBack(claude, false)).toBe(false);
 });
+
+// The transcript lays a prompt's action row from `data-steer-pending` on the prompt, not from a
+// `.cv-user:has(.cv-user__pending)` rule Chromium answered by restyling every prompt in the pane
+// (test/transcript-insert-restyle.test.ts): the controls set it as they mount, and clear it as they
+// go, by a Send now that worked or by the row unmounting.
+test("a waiting steer's controls mark their prompt while drawn, cleared as they go and on unmount", async () => {
+  const container = installDom();
+  container.className = "cv-user";
+  root = createRoot(container);
+  const draw = (row: AcpmuxRow) =>
+    act(async () =>
+      root!.render(
+        <TurnActionsContext.Provider value={{ unsteer: async () => "back" as const }}>
+          <PendingSteer row={row} send={async () => true} />
+        </TurnActionsContext.Provider>,
+      ),
+    );
+  await draw({ ...waiting, steerPromptId: "p-mark-1" });
+  expect(container.querySelector(".cv-user__pending")).not.toBeNull();
+  expect(container.hasAttribute("data-steer-pending")).toBe(true);
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-user__send-now")!.click());
+  expect(container.querySelector(".cv-user__pending")).toBeNull();
+  expect(container.hasAttribute("data-steer-pending")).toBe(false);
+  await draw({ ...waiting, steerPromptId: "p-mark-2" });
+  expect(container.hasAttribute("data-steer-pending")).toBe(true);
+  await act(async () => root!.unmount());
+  root = undefined;
+  expect(container.hasAttribute("data-steer-pending")).toBe(false);
+});

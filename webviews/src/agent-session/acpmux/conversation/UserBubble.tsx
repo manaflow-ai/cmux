@@ -195,6 +195,9 @@ export function UserBubble({
   const hasBubble = strip ? shownParts!.some(readsAsText) : hasInterleaved || Boolean(text.trim());
   const showsLegacyImages = legacyBands && (Boolean(row.images?.length) || videos.length > 0);
   const showsLegacyFiles = legacyBands && Boolean(files?.length);
+  // A prompt held while its agent starts keeps the footer too (time and Copy), so nothing moves
+  // once it goes (Leo, 2026-11-01: "then the stupid ass layout shift").
+  const footer = !row.failed && Boolean(text || hasAttachment || pending);
   return (
     <>
       {showsLegacyImages && (
@@ -223,7 +226,9 @@ export function UserBubble({
           )}
         </div>
       )}
-      <div className="cv-user__body">
+      {/* `data-actions-pending`: the body holds the pending footer (conversation.css styles the
+          bubble beside it from this, not from a `:has()` Chromium checks on every insert). */}
+      <div className="cv-user__body" data-actions-pending={(footer && pendingShown) || undefined}>
         {hasBubble ? (
           <div className="ui-glass cv-user__bubble selectable">
             {hasInterleaved ? (
@@ -239,9 +244,7 @@ export function UserBubble({
             )}
           </div>
         ) : null}
-        {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
-            moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
-        {!row.failed && (text || hasAttachment || pending) && (
+        {footer && (
           <UserFooter
             className={
               (branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions") +

@@ -52,7 +52,7 @@ export function PendingSteer({
   const busy = sending;
   const offersSendNow = newest === undefined || newest === row.id;
   return (
-    <div className="cv-user__pending">
+    <div className="cv-user__pending" ref={markSteerPending}>
       <MessageFooterRow>
         {/* Copy, Retry, Fork and the X show on hover, in the sent row's order; Send now stays
             (Leo, 2026-11-03: "the copy is always showing for no reason... plus the order is wrong"). */}
@@ -103,6 +103,25 @@ export function PendingSteer({
       </MessageFooterRow>
     </div>
   );
+}
+
+const steerMarks = new WeakMap<Element, number>();
+/// While a waiting steer's controls are drawn, their prompt (`.cv-user`) carries `data-steer-pending`,
+/// counted, set as the controls mount (before paint) and cleared as they unmount: conversation.css
+/// lays the prompt's action row from it where it asked `.cv-user:has(.cv-user__pending)`, a rule
+/// Chromium answered by restyling every prompt's row in the pane on each insert under it.
+function markSteerPending(controls: HTMLDivElement | null): (() => void) | undefined {
+  const prompt = controls?.closest(".cv-user");
+  if (!prompt) return;
+  const count = steerMarks.get(prompt) ?? 0;
+  steerMarks.set(prompt, count + 1);
+  if (count === 0) prompt.setAttribute("data-steer-pending", "");
+  return () => {
+    const left = (steerMarks.get(prompt) ?? 1) - 1;
+    if (left > 0) return void steerMarks.set(prompt, left);
+    steerMarks.delete(prompt);
+    prompt.removeAttribute("data-steer-pending");
+  };
 }
 
 function subscribeSentNow(listener: () => void): () => void {
