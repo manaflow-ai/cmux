@@ -195,6 +195,19 @@ extension NotificationSettingsSchema {
                 keywords: []
             ),
             SettingDescriptor(
+                AttentionSettings.markPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.attention.mark", "Needs You Look"),
+                help: SettingsText.keyed("settings.attention.mark.help", "How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them."),
+                kind: .choice([
+                    SettingChoice(AttentionMarkLook.badge.rawValue, SettingsText.keyed("settings.choice.badge", "Badge")),
+                    SettingChoice(AttentionMarkLook.glow.rawValue, SettingsText.keyed("settings.choice.glow", "Glow")),
+                ]),
+                default: .string(AttentionSettings.markDefault.rawValue),
+                keywords: ["needs you", "glow", "badge", "unread", "waiting", "motion"]
+            ),
+            SettingDescriptor(
                 AttentionSettings.moveToTopPath,
                 section: .notifications,
                 group: group,

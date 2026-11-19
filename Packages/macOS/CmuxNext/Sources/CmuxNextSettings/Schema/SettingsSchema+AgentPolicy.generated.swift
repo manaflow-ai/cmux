@@ -133,7 +133,7 @@ extension SettingsSchema {
         "notifications.attention.agentChats", "notifications.attention.agentChatBlinkCount",
         "notifications.attention.width", "notifications.attention.blinkCount", "notifications.attention.duration",
         "notifications.attention.persist", "notifications.attention.flash", "notifications.attention.flashOnTyping",
-        "notifications.attention.showOnTab", "notifications.attention.showOnSidebar",
+        "notifications.attention.showOnTab", "notifications.attention.showOnSidebar", "notifications.attention.mark",
         "notifications.attention.moveToTop", "notifications.attention.moveToTopOnAgentFinish",
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
@@ -276,6 +276,8 @@ extension SettingsSchema {
         "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
         "browser.openPullRequestsInGitHubPage",
+        // Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.
+        "models.spreadUsage",
     ]
 
     /// True when an agent may change `descriptor`, false when it may not, nil

@@ -385,6 +385,7 @@ final class SidebarListView: NSView {
         // then on capturing ones in Release).
         var pending: [NSView] = subviews.reversed()
         while let view = pending.popLast() {
+            (view as? WorkspaceRowView)?.isNeedsYouWindowVisible = visible // its glow's breath (WorkspaceRowView+NeedsYouGlow)
             if let indicator = view as? StatusIndicatorView { indicator.isWindowVisible = visible } else { pending.append(contentsOf: view.subviews.reversed()) }
         }
     }

@@ -1,0 +1,78 @@
+import AppKit
+import CmuxNextDesign
+import QuartzCore
+
+/// "Needs you" as motion (`notifications.attention.mark` `glow`; Leo 2026-11-19, a look customization off by
+/// default): a tab that waits for the person draws no unread or status mark; its pill breathes a soft halo in
+/// the mark's color until it is seen. The selected tab never glows (it is being looked at), so a tab that
+/// still waits once seen shows its mark again; the mark keeps its room throughout, so nothing moves.
+///
+/// One layer per waiting tab, made on first need and removed when it stops (architecture.md 3). The breath
+/// runs on the render server (`MotionGate.breathAnimation`), never per frame on the main thread, and holds
+/// still while the window is covered or the strip hidden, and when loops are off (Reduce Motion, speed off).
+extension TabCell {
+    static let needsYouGlowKey = "tab.needsYouGlow"
+    /// The halo's lowest opacity in a breath: it never fully goes, so a glance always finds it.
+    static let needsYouGlowLow: Float = 0.35
+
+    /// The tab glows in place of its mark: the look is on, it has a mark to replace, and it is not the
+    /// selected (seen) or a lifted tab.
+    var showsNeedsYouGlow: Bool {
+        DesignSettings.shared.attention.mark == .glow && !fillsSelection && !isClosing && badgeColor != nil
+    }
+
+    /// Places the halo on the pill `pill`, or removes it when the tab does not glow (`onPath`: hides it, as
+    /// every part on a moving width's sample does; the rest layout at the path's end removes it).
+    func layoutNeedsYouGlow(pill: CGRect, onPath: Bool) {
+        guard showsNeedsYouGlow else {
+            if onPath { needsYouGlowLayer?.opacity = 0 } else { removeNeedsYouGlow() }
+            return
+        }
+        let glow = needsYouGlowLayer ?? makeNeedsYouGlow()
+        glow.opacity = 1
+        glow.frame = pill
+        glow.cornerRadius = metrics.cornerRadius
+        glow.cornerCurve = Metrics.tabCornerCurve
+        glow.shadowPath = CGPath(roundedRect: CGRect(origin: .zero, size: pill.size), cornerWidth: metrics.cornerRadius,
+                                 cornerHeight: metrics.cornerRadius, transform: nil)
+        updateNeedsYouGlowMotion()
+    }
+
+    private func makeNeedsYouGlow() -> CALayer {
+        let glow = CALayer()
+        glow.actions = Self.noActions
+        glow.shadowOffset = .zero
+        glow.shadowRadius = Metrics.space1 * 1.5
+        glow.shadowOpacity = 0.6
+        layer.insertSublayer(glow, below: backgroundLayer)
+        needsYouGlowLayer = glow
+        applyNeedsYouGlowColor()
+        return glow
+    }
+
+    private func removeNeedsYouGlow() {
+        needsYouGlowLayer?.removeFromSuperlayer()
+        needsYouGlowLayer = nil
+    }
+
+    /// theme-scoped: called inside `themeScope.perform`, or resolves its own scope.
+    func applyNeedsYouGlowColor() {
+        guard let needsYouGlowLayer else { return }
+        themeScope.perform {
+            let color = badgeColor ?? Palette.statusAttention
+            needsYouGlowLayer.backgroundColor = color.withAlphaComponent(0.16).cgColor
+            needsYouGlowLayer.shadowColor = color.cgColor
+        }
+    }
+
+    /// Breathes while the tab shows on screen and loops run; else the halo holds at full strength.
+    func updateNeedsYouGlowMotion() {
+        guard let glow = needsYouGlowLayer else { return }
+        guard isWindowVisible, isStripShown, let breath = Motion.indicators.breathAnimation(low: Self.needsYouGlowLow) else {
+            glow.removeAnimation(forKey: Self.needsYouGlowKey)
+            return
+        }
+        guard glow.animation(forKey: Self.needsYouGlowKey) == nil else { return }
+        glow.add(breath, forKey: Self.needsYouGlowKey)
+    }
+}
