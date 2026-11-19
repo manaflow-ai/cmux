@@ -1,4 +1,4 @@
-public import Observation
+import Observation
 
 /// The parts that a map makes for the models of an owner, one for each model, each kept until its own model
 /// changes: a workspace's rows for the New Tab bar are joined from one part for each of its tabs, and a tab that

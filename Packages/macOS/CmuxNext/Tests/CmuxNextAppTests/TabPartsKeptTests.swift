@@ -30,6 +30,9 @@ import Testing
 ///
 /// After each change the kept rows and the kept agents are those of a walk over every workspace, made then.
 ///
+/// The last row: a kept agent follows a value that its map reads and that is not observable (what the page rule of
+/// a blank chat reads from the app's agent tabs), at the next map of its workspace.
+///
 /// Limits: no window and no view; the sidebar's row is mapped by the app's own mapping with the test's two
 /// functions, not with the app's page face.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(5)))
@@ -38,19 +41,22 @@ struct TabPartsKeptTests {
     nonisolated static let storm = "k000"
     /// The two sizes of that workspace.
     nonisolated static let sizes = [6, 84]
+    /// The host of each chat of the fixture: this Mac's, as the app's agent tabs know it in the page rule's row.
+    nonisolated static let host = "install:tab-parts"
 
     static func keys(_ count: Int) -> [String] { (0..<count).map { String(format: "k%03d", $0) } }
 
     /// Workspace `key` with `count` tabs in one pane: a terminal, then a page, in turn. With `chats`, each third
-    /// tab is an agent chat.
-    static func workspace(_ key: String, index: Int, tabs count: Int, chats: Bool) -> WorkspaceSnapshot {
+    /// tab is an agent chat; with `blank`, the first of them has no session yet (a New Tab page that the store
+    /// restored: `RestoredNewTabPages`).
+    static func workspace(_ key: String, index: Int, tabs count: Int, chats: Bool, blank: Bool = false) -> WorkspaceSnapshot {
         let base = UInt64(index + 1) * 1000
         let tabs = (0..<count).map { at -> TabSnapshot in
             let surface = SurfaceID(rawValue: base + 1 + UInt64(at))
             if chats, at % 3 == 2 {
                 var chat = TabSnapshot(surface: surface, kind: .conversation, cwd: nil)
                 chat.title = "chat \(key).\(at)"
-                chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:tab-parts", session: "s-\(key)-\(at)", harness: nil))
+                chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: host, session: blank && at == 2 ? nil : "s-\(key)-\(at)", harness: nil))
                 return chat
             }
             guard at % 2 == 1 else { return TabSnapshot(surface: surface, kind: .pty, cwd: "/tmp/\(key)") }
@@ -66,9 +72,9 @@ struct TabPartsKeptTests {
 
     /// The session's tree: `keys` in order, each with 2 tabs, the storm workspace with `tabs`. `registry`: the home
     /// session's id, with each workspace in its personal order (an app's store); nil for a store with no app.
-    static func tree(_ keys: [String], storm tabs: Int, chats: Bool = false, registry: String? = "s-local") -> DaemonTree {
+    static func tree(_ keys: [String], storm tabs: Int, chats: Bool = false, blank: Bool = false, registry: String? = "s-local") -> DaemonTree {
         var tree = DaemonTree(registryID: registry, workspaces: keys.enumerated().map { index, key in
-            workspace(key, index: index, tabs: key == storm ? tabs : 2, chats: key == storm && chats)
+            workspace(key, index: index, tabs: key == storm ? tabs : 2, chats: key == storm && chats, blank: blank)
         })
         guard let registry else { return tree }
         tree.personal = PersonalState(groups: [], workspaces: keys.enumerated().map { index, key in
@@ -78,14 +84,14 @@ struct TabPartsKeptTests {
     }
 
     /// An app with the session in its local store, connected.
-    static func app(_ keys: [String], storm tabs: Int, chats: Bool = false) throws -> AppServices {
+    static func app(_ keys: [String], storm tabs: Int, chats: Bool = false, blank: Bool = false) throws -> AppServices {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.machines.local.store
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
         store.noteHandshake(identity)
         store.connectionState = .connected(identity)
-        store.apply(snapshot: tree(keys, storm: tabs, chats: chats))
+        store.apply(snapshot: tree(keys, storm: tabs, chats: chats, blank: blank))
         return services
     }
 
@@ -314,5 +320,61 @@ struct TabPartsKeptTests {
         #expect(small.made == large.made, "one tab made: \(small.made) tab parts in a workspace of \(Self.sizes[0]) tabs and \(large.made) in one of \(Self.sizes[1]), want the same count")
         #expect(small.closed == large.closed, "one tab closed: \(small.closed) tab parts in a workspace of \(Self.sizes[0]) tabs and \(large.closed) in one of \(Self.sizes[1]), want the same count")
         #expect(large.made <= 1 && large.closed == 0, "\(large.made) tab parts for one tab made and \(large.closed) for one tab closed, want the new tab's own and none")
+    }
+
+    /// A value that the page rule of a blank chat (`RestoredNewTabPages.shows`) reads from the app's agent tabs.
+    /// That store is not observable: a change of one of these wakes no observation.
+    nonisolated enum PageFact: String, CaseIterable, Sendable {
+        /// A link opened the tab's chat.
+        case linkedSession
+        /// The tab's page reported its session.
+        case session
+        /// The tab was opened or shown: the store knows its tree.
+        case tabStore
+    }
+
+    /// A kept part does not hide a value that is not observable: the home view's agent of a tab follows what the
+    /// page rule reads from the app's agent tabs at each map of the tab's workspace, as it did when the map made
+    /// each tab's agent again. The blank chat is no agent while it shows the New Tab page; after the fact changed
+    /// and its workspace is mapped again (another tab of it is made), it is an agent.
+    @Test(arguments: PageFact.allCases)
+    func aKeptAgentFollowsAPageFactThatIsNotObservable(fact: PageFact) async throws {
+        let keys = Self.keys(40)
+        let services = try Self.app(keys, storm: Self.sizes[0], chats: true, blank: true)
+        let store = services.machines.local.store
+        let tabs = services.agentTabs
+        tabs.localHost = Self.host
+        // The storm workspace's first chat: its third tab.
+        let blank = try #require(store.tab(surface: SurfaceID(rawValue: 1003)), "setup: the storm workspace has no third tab")
+        try #require(blank.agentSession != nil && blank.agentSession?.session == nil, "setup: the third tab is not a chat with no session")
+        try #require(RestoredNewTabPages.shows(blank, in: tabs), "setup: the blank chat does not show the New Tab page")
+
+        let glances = HomeAgentGlances(services: services)
+        let feed = glances.feed(while: { true })
+        feed.start()
+        defer { feed.stop() }
+        await LargeSessionFixture.drainMain()
+        await LargeSessionFixture.drainMain()
+        /// Every workspace's agents, made now with no kept part: what the feed's items must be.
+        func walk() -> [[HomeAgentGlance]] { services.machines.allWorkspaces.map { glances.glances(in: $0.0) } }
+        /// The feed lists the blank chat as an agent.
+        func listed() -> Bool { feed.observedItems?.contains { $0.contains { $0.id == blank.id } } ?? false }
+        try #require(feed.observedItems == walk(), "setup: the feed's first agents are not the walk's")
+        try #require(!listed(), "setup: the feed lists the blank chat as an agent while it shows the New Tab page")
+
+        let key = tabs.tabKey(tabs.resolve(blank.id), machine: tabs.daemonListing(blank)?.machineID)
+        switch fact {
+        case .linkedSession: tabs.linkedSessions.insert(key)
+        case .session: tabs.sessions[key] = "s-late"
+        case .tabStore: tabs.tabStores[key] = store
+        }
+        try #require(!RestoredNewTabPages.shows(blank, in: tabs), "setup: the blank chat still shows the New Tab page after its \(fact.rawValue) changed")
+
+        // The next map of the blank chat's workspace: one more tab in it.
+        store.apply(snapshot: Self.tree(keys, storm: Self.sizes[0] + 1, chats: true, blank: true))
+        await LargeSessionFixture.drainMain()
+        await LargeSessionFixture.drainMain()
+        #expect(listed(), "the feed does not list the chat as an agent after its \(fact.rawValue) changed and its workspace was mapped again: its kept part is the old one")
+        #expect(feed.observedItems == walk(), "the feed's agents are not the walk's agents after the chat's \(fact.rawValue) changed and its workspace was mapped again")
     }
 }

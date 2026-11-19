@@ -23,7 +23,7 @@ import Testing
     }
 
     /// Set by a change callback, which is not isolated.
-    final class Heard: Sendable {
+    nonisolated final class Heard: Sendable {
         private let heard = Atomic<Bool>(false)
         var value: Bool { heard.load(ordering: .acquiring) }
         func hear() { heard.store(true, ordering: .releasing) }
