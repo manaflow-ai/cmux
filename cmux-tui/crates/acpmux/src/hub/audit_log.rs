@@ -22,38 +22,51 @@
 //! - Opens: every open of the file (and of the purge's tmp file) goes through the private state
 //!   helpers (`config::private_state_*`): no symlink is followed, only a regular file this user
 //!   owns is used, and its mode is 0600.
-//! - Writes: the file is opened `O_APPEND` and never rewritten; each line is synced to disk
-//!   before it counts. One writer thread numbers, chains and writes every entry. An answer to a
-//!   permission (recorded under a session's append lock) only sends its entry down a channel; a
-//!   line that cannot be written is counted (`writeErrors` in `_acpmux/audit`) and logged, never
-//!   silently dropped. A review verdict waits for its line ([`AuditLog::record_durable_of`]): the
-//!   verdict fails, and its pull request stays in the queue, unless the line is on disk. One the
-//!   writer has not taken within the wait is withdrawn, never written later; one it has taken is
-//!   waited for to the end. `open`
-//!   reads the file once, before it returns, for the chain's head (so a restart continues the
-//!   chain) and the pull requests that already have a verdict, by session and URL, so the first
-//!   queue read already leaves them out. At shutdown (`Hub::flush`) [`AuditLog::close`] ends the
-//!   channel and waits, bounded, for the writer to write what was sent and exit.
+//! - Writes, at the event: the file is opened `O_APPEND` and never rewritten. The caller of a
+//!   record numbers, chains and writes its line itself, under one small lock (`Chain`): one
+//!   `write` of the whole line and no sync, so a `kill -9` of the daemon right after the record
+//!   loses nothing (the page cache outlives the process, and a line a kill tore mid-write is cut
+//!   when the log opens). That costs one hash and one write, whatever the size of the file or
+//!   of the chat. One thread (`acpmux-audit`) syncs what was written (`sync_data`, once for
+//!   every line written before the sync starts) and runs purges. An answer to a permission
+//!   (recorded under a session's append lock) does not wait for the sync; a line that cannot
+//!   be written is counted (`writeErrors` in `_acpmux/audit`) and logged, never silently
+//!   dropped. A review verdict waits for its line to be synced ([`AuditLog::record_durable_of`]):
+//!   the verdict fails, and its pull request stays in the queue, unless the line is on disk (a
+//!   sync that fails is counted and fails the verdict, its line left in the file). `open` reads
+//!   the file once, before it returns, for the chain's head (so a restart continues the chain)
+//!   and the pull requests that already have a verdict, by session and URL, so the first queue
+//!   read already leaves them out. At shutdown (`Hub::flush`) [`AuditLog::close`] refuses later
+//!   records and joins the sync thread: nothing is left to write, only the last sync (and a
+//!   purge already running) to finish.
 //! - Purge: a purged chat (`Hub::kill` with purge, which `_acpmux/workspace_purge` sends for
 //!   each chat of an incognito space) leaves no history. [`AuditLog::purge`] rewrites the file
 //!   without that session's entries (a new file synced, then renamed over the old one, mode
 //!   0600) and chains the rest again from [`GENESIS`], so `verify` still passes and nothing of the
-//!   chat, not even its id, survives a restart. From the purge on, the writer itself refuses
-//!   every entry of that session (a verdict checked before the purge and sent after it too), and
-//!   the hub writes none. The purge runs first in `Hub::kill`, before anything of the chat stops: one that fails or times out fails the deletion, lifts the writer's fence and leaves the chat as it was. The audit folder must be a real owner-only directory (no link).
-//! - Torn writes: a line that fails to write or sync is cut off again (the file goes back to its
-//!   length before it), and the chain's head moves only after a line is on disk. A tail without
-//!   its newline (a crash mid-write) is cut off when the log opens. A purge drops lines that are
-//!   not entries. The chain proves the file was not edited by anything but this daemon.
+//!   chat, not even its id, survives a restart. From the purge on, every entry of that session
+//!   is refused (a verdict checked before the purge and given after it too), and the hub writes
+//!   none. The rewrite does not hold the lock over the whole file: under the lock the purge
+//!   fences the session and notes the file's length; the lines before that length are read and
+//!   written to the new file, synced, while callers go on appending to the old one; then, under
+//!   the lock again, the lines appended meanwhile follow the kept ones, chained on from them,
+//!   and the new file is synced and renamed over the old one. A record that meets a purge waits
+//!   only for that last step, which grows with the lines written during the purge, never with
+//!   the file. The purge runs first in `Hub::kill`, before anything of the chat stops: one that
+//!   fails or times out fails the deletion, lifts the fence and leaves the chat as it was. The
+//!   audit folder must be a real owner-only directory (no link).
+//! - Torn writes: a line that fails to write is cut off again (the file goes back to its length
+//!   before it), and the chain's head moves only after a line is written. A tail without its
+//!   newline (a crash mid-write) is cut off when the log opens. A purge drops lines that are not
+//!   entries. The chain proves the file was not edited by anything but this daemon.
 //! - A memory store (tests) keeps the entries in memory, chained the same way.
 
 use cmux_json::JsonSet as _;
 use std::collections::HashSet;
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex as StdMutex, mpsc};
+use std::sync::{Arc, Mutex as StdMutex, MutexGuard, mpsc};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -69,39 +82,30 @@ pub(crate) const GENESIS: &str = "0000000000000000000000000000000000000000000000
 pub(crate) const MAX_PAGE: usize = 1000;
 /// A page's entries when the request names no limit.
 pub(crate) const DEFAULT_PAGE: usize = 200;
-/// How long a durable record waits for the writer.
-// timeout: a record still queued past this is withdrawn and fails, not its caller; flush gives up.
+/// How long a flush waits for the sync thread.
+// timeout: a flush still waiting past this gives up; the lines are written, only not yet synced.
 const DURABLE_WAIT: Duration = Duration::from_secs(10);
 
 /// A pull request with a verdict: the session that opened it and its URL.
 type Reviewed = HashSet<(String, String)>;
 
-/// A durable record's answer, and whether its writer took it or its caller gave up on it.
-struct Durable {
-    done: mpsc::Sender<Result<Value, String>>,
-    state: Arc<AtomicU8>,
-}
-
-/// [`Durable::state`]: waiting in the queue.
+/// [`Msg::Purge`]'s state: waiting in the queue.
 const QUEUED: u8 = 0;
-/// The writer started on it: its outcome is coming.
+/// The thread started on it: its outcome is coming.
 const STARTED: u8 = 1;
-/// The caller stopped waiting before the writer took it: never written.
+/// The caller stopped waiting before the thread took it: never run.
 const CANCELLED: u8 = 2;
 
+/// What the sync thread is asked to do. Entries never go through it: their callers write them.
 enum Msg {
-    /// An entry, where to answer once it is written (the entry as written) or failed, and its
-    /// chat's purged flag: set by the time the writer takes it, the entry is that chat's late
-    /// line and is dropped, even after a new chat took the id ([`Msg::Reopen`]).
-    Entry(Value, Option<Durable>, Option<Arc<AtomicBool>>),
-    /// Answered once every entry sent before it is written.
+    /// Lines were written since the last sync: sync them.
+    Written,
+    /// Answered once every line written before it is synced.
     Flush(mpsc::Sender<()>),
     /// Removes a purged session's entries: answered with how many, unless its caller withdrew
-    /// it first ([`Durable::state`]). One that fails leaves the session unfenced.
+    /// it first (the state goes from [`QUEUED`] to [`CANCELLED`]). One that fails leaves the
+    /// session unfenced.
     Purge(String, tokio::sync::oneshot::Sender<Result<usize, String>>, Arc<AtomicU8>),
-    /// A chat was created under a purged session's id: its entries are written again. An entry
-    /// sent before it (the purged chat's, late) is still refused.
-    Reopen(String),
 }
 
 /// The chain's head: the last entry's `seq` and `hash`.
@@ -117,69 +121,91 @@ impl Default for Head {
     }
 }
 
-pub(crate) struct AuditLog {
-    /// None once closed: a record after that is counted as not written.
-    tx: StdMutex<Option<mpsc::Sender<Msg>>>,
-    /// Disconnects when the writer thread exits.
-    exited: StdMutex<Option<mpsc::Receiver<()>>>,
-    /// Pull requests (session, URL) whose verdict is written: they leave the review queue.
-    reviewed: Arc<StdMutex<Reviewed>>,
-    /// Entries the writer could not write.
-    write_errors: Arc<AtomicU64>,
-    path: Option<PathBuf>,
+/// What the callers of a record and the sync thread share, under one lock held for one write:
+/// the chain's head and where its next line goes.
+struct Chain {
+    head: Head,
+    /// The file, opened `O_APPEND`. Shared so the sync thread syncs it outside the lock.
+    file: Option<Arc<std::fs::File>>,
+    /// Sessions purged since start: their entries are refused.
+    purged: HashSet<String>,
+    /// A failed write left bytes that could not be cut: read the file again first.
+    needs_repair: bool,
+    /// Set by `close`: a record after it is counted as not written.
+    closed: bool,
     /// The entries of a log kept in memory (no state folder).
-    memory: Option<Arc<StdMutex<Vec<Value>>>>,
+    memory: Option<Vec<Value>>,
+}
+
+/// Why a record was not written.
+enum NotWritten {
+    /// Its chat was purged: not an error to count.
+    Purged,
+    Failed(String),
+}
+
+/// The log's state, shared by its handle and the sync thread.
+struct Inner {
+    path: Option<PathBuf>,
+    chain: StdMutex<Chain>,
+    /// Lines were written since the sync thread last started a sync.
+    dirty: AtomicBool,
+    /// Pull requests (session, URL) whose verdict is written: they leave the review queue.
+    reviewed: StdMutex<Reviewed>,
+    /// Entries that could not be written, and syncs that failed.
+    write_errors: AtomicU64,
     /// Tests: every purge fails, after its fence went up.
     #[cfg(test)]
-    fail_purges: Arc<AtomicBool>,
+    fail_purges: AtomicBool,
+}
+
+pub(crate) struct AuditLog {
+    /// None once closed: the sync thread exits once it has synced what was written.
+    tx: StdMutex<Option<mpsc::Sender<Msg>>>,
+    /// Disconnects when the sync thread exits.
+    exited: StdMutex<Option<mpsc::Receiver<()>>>,
+    inner: Arc<Inner>,
 }
 
 impl AuditLog {
     /// The log in `dir` (`<state dir>/audit`), or in memory when `dir` is None.
     pub(crate) fn open(dir: Option<PathBuf>) -> Self {
         let (tx, rx) = mpsc::channel();
-        let reviewed = Arc::new(StdMutex::new(HashSet::new()));
         let path = dir.map(|d| d.join(FILE));
-        let memory = path.is_none().then(|| Arc::new(StdMutex::new(Vec::new())));
-        let write_errors = Arc::new(AtomicU64::new(0));
-        #[cfg(test)]
-        let fail_purges = Arc::new(AtomicBool::new(false));
-        let mut writer = Writer {
+        let memory = path.is_none().then(Vec::new);
+        let inner = Arc::new(Inner {
+            path,
+            chain: StdMutex::new(Chain {
+                head: Head::default(),
+                file: None,
+                purged: HashSet::new(),
+                needs_repair: false,
+                closed: false,
+                memory,
+            }),
+            dirty: AtomicBool::new(false),
+            reviewed: StdMutex::new(HashSet::new()),
+            write_errors: AtomicU64::new(0),
             #[cfg(test)]
-            fail_purges: fail_purges.clone(),
-            purged: HashSet::new(),
-            needs_repair: false,
-            path: path.clone(),
-            memory: memory.clone(),
-            reviewed: reviewed.clone(),
-            write_errors: write_errors.clone(),
-            head: Head::default(),
-            file: None,
-        };
-        // Before the first queue read: the verdicts already written leave their pull requests out.
-        writer.load();
+            fail_purges: AtomicBool::new(false),
+        });
+        // Before the first record and the first queue read: the head to chain on, and the
+        // verdicts already written leave their pull requests out.
+        inner.load(&mut inner.lock());
         let (exit_tx, exited) = mpsc::channel::<()>();
-        // The thread ends when the log closes or drops (its sender), after what was sent.
+        let thread = inner.clone();
+        // The thread ends when the log closes or drops (its sender), after a last sync.
         let _ = std::thread::Builder::new().name("acpmux-audit".into()).spawn(move || {
             let _exit = exit_tx;
-            writer.run(rx)
+            thread.run(rx)
         });
-        AuditLog {
-            tx: StdMutex::new(Some(tx)),
-            exited: StdMutex::new(Some(exited)),
-            reviewed,
-            write_errors,
-            path,
-            memory,
-            #[cfg(test)]
-            fail_purges,
-        }
+        AuditLog { tx: StdMutex::new(Some(tx)), exited: StdMutex::new(Some(exited)), inner }
     }
 
     /// Tests: makes every purge from now on fail (`fail`) or work again.
     #[cfg(test)]
     pub(crate) fn fail_purges(&self, fail: bool) {
-        self.fail_purges.store(fail, Ordering::SeqCst);
+        self.inner.fail_purges.store(fail, Ordering::SeqCst);
     }
 
     /// [`AuditLog::record_of`] with no chat flag (tests).
@@ -188,12 +214,18 @@ impl AuditLog {
         self.record_of(entry, None);
     }
 
-    /// Sends `entry` (without `v`, `seq`, `prevHash` and `hash`) to the writer: never blocks. A
-    /// line the writer cannot write counts in [`AuditLog::write_errors`]. `gone` is its chat's
-    /// purged flag: set by the time the writer takes the entry, the entry is dropped.
+    /// Numbers, chains and writes `entry` (without `v`, `seq`, `prevHash` and `hash`) at once,
+    /// and leaves its sync to the sync thread: one write, never a wait for the disk. A line that
+    /// cannot be written counts in [`AuditLog::write_errors`]. `gone` is its chat's purged flag:
+    /// set by now, the entry is dropped.
     pub(crate) fn record_of(&self, entry: Value, gone: Option<Arc<AtomicBool>>) {
-        if self.send(Msg::Entry(entry, None, gone)).is_err() {
-            self.lost("the writer is gone");
+        match self.inner.write(entry, gone.as_deref()) {
+            Ok((written, _)) => {
+                self.inner.note_reviewed(&written);
+                self.written();
+            }
+            Err(NotWritten::Purged) => {}
+            Err(NotWritten::Failed(why)) => self.inner.lost(&why),
         }
     }
 
@@ -203,35 +235,38 @@ impl AuditLog {
         self.record_durable_of(entry, None)
     }
 
-    /// Writes `entry` and waits until its line is on disk: the entry as written, or why not.
-    /// Blocking. `gone` as for [`AuditLog::record_of`].
+    /// Writes `entry` and syncs it before it returns: the entry as written, or why not.
+    /// Blocking (one sync). `gone` as for [`AuditLog::record_of`].
     pub(crate) fn record_durable_of(
         &self,
         entry: Value,
         gone: Option<Arc<AtomicBool>>,
     ) -> Result<Value, String> {
-        let (done, rx) = mpsc::channel();
-        let state = Arc::new(AtomicU8::new(QUEUED));
-        let durable = Some(Durable { done, state: state.clone() });
-        if self.send(Msg::Entry(entry, durable, gone)).is_err() {
-            self.lost("the writer is gone");
-            return Err("the audit writer is gone".into());
-        }
-        match rx.recv_timeout(DURABLE_WAIT) {
-            Ok(r) => r,
-            Err(mpsc::RecvTimeoutError::Disconnected) => Err("the audit writer is gone".into()),
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                // Still queued: withdrawn, so a failed verdict is never written later.
-                if state
-                    .compare_exchange(QUEUED, CANCELLED, Ordering::AcqRel, Ordering::Acquire)
-                    .is_ok()
-                {
-                    self.lost("the audit writer did not take it in time");
-                    return Err("the audit writer did not answer".into());
-                }
-                // The writer has it: its answer is the outcome.
-                rx.recv().unwrap_or_else(|_| Err("the audit writer is gone".into()))
+        let (written, file) = match self.inner.write(entry, gone.as_deref()) {
+            Ok(w) => w,
+            Err(NotWritten::Purged) => return Err("the session was purged".into()),
+            Err(NotWritten::Failed(why)) => {
+                self.inner.lost(&why);
+                return Err(why);
             }
+        };
+        if let Some(file) = file
+            && let Err(e) = file.sync_data()
+        {
+            // The line stays in the file (a cut could take later callers' lines with it): the
+            // verdict fails and may be given again.
+            let why = format!("sync of the audit file failed: {e}");
+            self.inner.lost(&why);
+            return Err(why);
+        }
+        self.inner.note_reviewed(&written);
+        Ok(written)
+    }
+
+    /// Asks the sync thread for a sync, unless one is already asked for and not yet started.
+    fn written(&self) {
+        if !self.inner.dirty.swap(true, Ordering::AcqRel) {
+            let _ = self.send(Msg::Written);
         }
     }
 
@@ -240,17 +275,24 @@ impl AuditLog {
         tx.as_ref().ok_or(())?.send(msg).map_err(|_| ())
     }
 
-    /// At shutdown: ends the channel and waits up to `deadline` for the writer to write every
-    /// entry sent before and exit. Whether it did. Later records are counted as not written.
-    pub(crate) fn close(&self, deadline: Duration) -> bool {
+    /// Refuses every later record (counted as not written) and ends the channel: the sync
+    /// thread syncs what was written and exits.
+    fn stop(&self) {
+        self.inner.lock().closed = true;
         drop(self.tx.lock().unwrap_or_else(|e| e.into_inner()).take());
+    }
+
+    /// At shutdown: every line is already written; waits up to `deadline` for the sync thread
+    /// to sync them (and finish a purge it is running) and exit. Whether it did.
+    pub(crate) fn close(&self, deadline: Duration) -> bool {
+        self.stop();
         let Some(exited) = self.exited.lock().unwrap_or_else(|e| e.into_inner()).take() else {
             return true;
         };
         match exited.recv_timeout(deadline) {
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                tracing::warn!("audit: the writer did not finish within {deadline:?} at shutdown");
-                // Kept for `wait_closed`: the writer still writes.
+                tracing::warn!("audit: the sync thread did not finish within {deadline:?}");
+                // Kept for `wait_closed`: a sync or a purge is still running.
                 *self.exited.lock().unwrap_or_else(|e| e.into_inner()) = Some(exited);
                 false
             }
@@ -258,29 +300,24 @@ impl AuditLog {
         }
     }
 
-    /// Ends the channel and waits for the writer to exit, however long that takes: what holds
-    /// the daemon's home lock until then (`Hub::persist_for_handoff`).
+    /// Ends the channel and waits for the sync thread to exit, however long that takes: what
+    /// holds the daemon's home lock until then (`Hub::persist_for_handoff`).
     pub(crate) fn wait_closed(&self) {
-        drop(self.tx.lock().unwrap_or_else(|e| e.into_inner()).take());
+        self.stop();
         let exited = self.exited.lock().unwrap_or_else(|e| e.into_inner()).take();
         if let Some(exited) = exited {
-            // Disconnected once the writer thread ends (its sender drops).
+            // Disconnected once the thread ends (its sender drops).
             let _ = exited.recv();
         }
     }
 
-    fn lost(&self, why: &str) {
-        self.write_errors.fetch_add(1, Ordering::Relaxed);
-        tracing::warn!("audit: an entry was not written: {why}");
-    }
-
-    /// Entries that could not be written since this daemon started.
+    /// Entries that could not be written, and syncs that failed, since this daemon started.
     pub(crate) fn write_errors(&self) -> u64 {
-        self.write_errors.load(Ordering::Relaxed)
+        self.inner.write_errors.load(Ordering::Relaxed)
     }
 
-    /// Removes every entry of session `session_id` from the log, after the entries sent before.
-    /// The answer comes once the rewritten file is on disk (None: the writer is gone).
+    /// Removes every entry of session `session_id` from the log; one recorded after this call is
+    /// refused. The answer comes once the rewritten file is on disk (None: the thread is gone).
     #[cfg(test)]
     pub(crate) fn purge(
         &self,
@@ -295,11 +332,19 @@ impl AuditLog {
     ) -> Option<(tokio::sync::oneshot::Receiver<Result<usize, String>>, Arc<AtomicU8>)> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let state = Arc::new(AtomicU8::new(QUEUED));
-        self.send(Msg::Purge(session_id.to_owned(), tx, state.clone())).ok().map(|()| (rx, state))
+        // The fence goes up now, not when the thread takes the purge: an entry of the session
+        // recorded after this call is refused, as one sent after the purge always was.
+        self.inner.lock().purged.insert(session_id.to_owned());
+        let sent = self.send(Msg::Purge(session_id.to_owned(), tx, state.clone()));
+        if sent.is_err() {
+            self.inner.lock().purged.remove(session_id);
+            return None;
+        }
+        Some((rx, state))
     }
 
-    /// Removes session `session_id`'s entries, waiting up to `wait` for the writer to take the
-    /// purge: one it has not taken by then is withdrawn and never runs, one it has taken is
+    /// Removes session `session_id`'s entries, waiting up to `wait` for the sync thread to take
+    /// the purge: one it has not taken by then is withdrawn and never runs, one it has taken is
     /// waited for to the end. A purge that fails or is withdrawn leaves the log and the session
     /// as they were: its entries keep being written.
     pub(crate) async fn purge_within(
@@ -317,6 +362,8 @@ impl AuditLog {
                     .compare_exchange(QUEUED, CANCELLED, Ordering::AcqRel, Ordering::Acquire)
                     .is_ok()
                 {
+                    // Never runs: the session is unfenced, and its entries are written again.
+                    self.inner.lock().purged.remove(session_id);
                     return Err("the audit writer did not take the purge in time".into());
                 }
                 rx.await.unwrap_or_else(|_| Err("the audit writer is gone".into()))
@@ -325,18 +372,18 @@ impl AuditLog {
     }
 
     /// A chat was created under `session_id` (`Hub::new_session_with_id`): if a purge fenced that
-    /// id this run, the fence comes down, after every entry sent before. Never blocks.
+    /// id this run, the fence comes down at once. Never blocks on the disk.
     pub(crate) fn reopen(&self, session_id: &str) {
-        let _ = self.send(Msg::Reopen(session_id.to_owned()));
+        self.inner.lock().purged.remove(session_id);
     }
 
     /// Whether the pull request at `url`, opened by session `session_id`, has a written verdict.
     pub(crate) fn reviewed(&self, session_id: &str, url: &str) -> bool {
         let key = (session_id.to_owned(), url.to_owned());
-        self.reviewed.lock().unwrap_or_else(|e| e.into_inner()).contains(&key)
+        self.inner.reviewed.lock().unwrap_or_else(|e| e.into_inner()).contains(&key)
     }
 
-    /// Waits until every entry recorded before this call is written (or the writer is gone).
+    /// Waits until every entry recorded before this call is synced (or the thread is gone).
     pub(crate) fn flush(&self) {
         let (tx, rx) = mpsc::channel();
         if self.send(Msg::Flush(tx)).is_ok() {
@@ -347,10 +394,10 @@ impl AuditLog {
     /// Every entry, oldest first. Blocking: reads the file.
     pub(crate) fn all(&self) -> std::io::Result<Vec<Value>> {
         self.flush();
-        if let Some(m) = &self.memory {
-            return Ok(m.lock().unwrap_or_else(|e| e.into_inner()).clone());
+        if let Some(m) = &self.inner.lock().memory {
+            return Ok(m.clone());
         }
-        let Some(path) = &self.path else { return Ok(vec![]) };
+        let Some(path) = &self.inner.path else { return Ok(vec![]) };
         read_lines(path)
     }
 
@@ -435,66 +482,31 @@ fn review_key(entry: &Value) -> Option<(String, String)> {
     Some((session.to_owned(), url.to_owned()))
 }
 
-struct Writer {
-    #[cfg(test)]
-    fail_purges: Arc<AtomicBool>,
-    /// Sessions purged since start: their entries are refused.
-    purged: HashSet<String>,
-    /// A failed write left bytes this writer could not cut: read the file again first.
-    needs_repair: bool,
-    path: Option<PathBuf>,
-    memory: Option<Arc<StdMutex<Vec<Value>>>>,
-    reviewed: Arc<StdMutex<Reviewed>>,
-    write_errors: Arc<AtomicU64>,
-    head: Head,
-    file: Option<std::fs::File>,
-}
+impl Inner {
+    fn lock(&self) -> MutexGuard<'_, Chain> {
+        self.chain.lock().unwrap_or_else(|e| e.into_inner())
+    }
 
-impl Writer {
-    fn run(mut self, rx: mpsc::Receiver<Msg>) {
+    fn lost(&self, why: &str) {
+        self.write_errors.fetch_add(1, Ordering::Relaxed);
+        tracing::warn!("audit: an entry was not written: {why}");
+    }
+
+    /// A written verdict's pull request leaves the review queue.
+    fn note_reviewed(&self, entry: &Value) {
+        if let Some(key) = review_key(entry) {
+            self.reviewed.lock().unwrap_or_else(|e| e.into_inner()).insert(key);
+        }
+    }
+
+    /// The sync thread: syncs what callers wrote and runs purges, in the order asked.
+    fn run(&self, rx: mpsc::Receiver<Msg>) {
         while let Ok(msg) = rx.recv() {
             match msg {
-                Msg::Entry(entry, durable, gone) => {
-                    let taken = durable.as_ref().is_none_or(|d| {
-                        d.state
-                            .compare_exchange(QUEUED, STARTED, Ordering::AcqRel, Ordering::Acquire)
-                            .is_ok()
-                    });
-                    if !taken {
-                        // Its caller gave up and reported a failure: it must not appear later.
-                        continue;
-                    }
-                    let done = durable.map(|d| d.done);
-                    let sid = entry.get("sessionId").and_then(Value::as_str);
-                    let late = gone.is_some_and(|g| g.load(Ordering::SeqCst));
-                    if late || sid.is_some_and(|s| self.purged.contains(s)) {
-                        // A purged chat leaves no history: not an error to count.
-                        if let Some(done) = done {
-                            let _ = done.send(Err("the session was purged".into()));
-                        }
-                        continue;
-                    }
-                    let written = self.write(entry);
-                    match &written {
-                        Ok(e) => {
-                            if let Some(key) = review_key(e) {
-                                self.reviewed.lock().unwrap_or_else(|e| e.into_inner()).insert(key);
-                            }
-                        }
-                        Err(why) => {
-                            self.write_errors.fetch_add(1, Ordering::Relaxed);
-                            tracing::warn!("audit: an entry was not written: {why}");
-                        }
-                    }
-                    if let Some(done) = done {
-                        let _ = done.send(written);
-                    }
-                }
+                Msg::Written => self.sync(),
                 Msg::Flush(done) => {
+                    self.sync();
                     let _ = done.send(());
-                }
-                Msg::Reopen(sid) => {
-                    self.purged.remove(&sid);
                 }
                 Msg::Purge(sid, done, state) => {
                     if state
@@ -512,16 +524,33 @@ impl Writer {
                 }
             }
         }
+        // Closed: every line was written by its caller; the last ones are synced.
+        self.sync();
+    }
+
+    /// Syncs every line written before it starts, if any was. The lock is held only to take the
+    /// file: a caller writes while the disk syncs.
+    fn sync(&self) {
+        // Cleared first: a line written from here on asks for the next sync. AcqRel, so every
+        // line whose caller set the flag before this read is in the file the sync covers.
+        if !self.dirty.swap(false, Ordering::AcqRel) {
+            return;
+        }
+        let Some(file) = self.lock().file.clone() else { return };
+        if let Err(e) = file.sync_data() {
+            self.write_errors.fetch_add(1, Ordering::Relaxed);
+            tracing::warn!("audit: the sync of the audit file failed: {e}");
+        }
     }
 
     /// The chain's head and the reviewed pull requests, from the file as it is (a torn tail cut
     /// off first).
-    fn load(&mut self) {
-        let Some(path) = self.path.clone() else { return };
-        if let Err(e) = cut_torn_tail(&path) {
+    fn load(&self, c: &mut Chain) {
+        let Some(path) = &self.path else { return };
+        if let Err(e) = cut_torn_tail(path) {
             tracing::warn!("audit: could not cut a torn tail of {}: {e}", path.display());
         }
-        let Ok(entries) = read_lines(&path) else { return };
+        let Ok(entries) = read_lines(path) else { return };
         let mut reviewed = self.reviewed.lock().unwrap_or_else(|e| e.into_inner());
         for e in &entries {
             if let Some(key) = review_key(e) {
@@ -530,116 +559,191 @@ impl Writer {
         }
         drop(reviewed);
         if let Some(last) = entries.last() {
-            self.head = Head {
+            c.head = Head {
                 seq: last.get("seq").and_then(Value::as_u64).unwrap_or(entries.len() as u64),
                 hash: last.get("hash").and_then(Value::as_str).unwrap_or(GENESIS).to_owned(),
             };
         }
     }
 
-    /// Numbers, chains and writes `entry`: the entry as written, or why it was not.
-    fn write(&mut self, entry: Value) -> Result<Value, String> {
-        if self.needs_repair {
-            self.file = None;
-            self.load();
-            self.needs_repair = false;
+    /// Under the lock, at the event: numbers, chains and writes `entry` (one write, no sync).
+    /// The entry as written and the file to sync for it (None for a log in memory).
+    fn write(
+        &self,
+        entry: Value,
+        gone: Option<&AtomicBool>,
+    ) -> Result<(Value, Option<Arc<std::fs::File>>), NotWritten> {
+        let mut c = self.lock();
+        if c.closed {
+            return Err(NotWritten::Failed("the audit log is closed".into()));
         }
-        let (entry, head) = seal(&self.head, entry).ok_or("not an object")?;
-        if let Some(m) = &self.memory {
-            m.lock().unwrap_or_else(|e| e.into_inner()).push(entry.clone());
-            self.head = head;
-            return Ok(entry);
+        let sid = entry.get("sessionId").and_then(Value::as_str);
+        if gone.is_some_and(|g| g.load(Ordering::SeqCst))
+            || sid.is_some_and(|s| c.purged.contains(s))
+        {
+            // A purged chat leaves no history.
+            return Err(NotWritten::Purged);
         }
-        let Some(path) = self.path.clone() else { return Err("no audit file".into()) };
+        self.append_locked(&mut c, entry).map_err(NotWritten::Failed)
+    }
+
+    fn append_locked(
+        &self,
+        c: &mut Chain,
+        entry: Value,
+    ) -> Result<(Value, Option<Arc<std::fs::File>>), String> {
+        if c.needs_repair {
+            self.repair(c);
+        }
+        let (entry, head) = seal(&c.head, entry).ok_or("not an object")?;
+        if let Some(m) = &mut c.memory {
+            m.push(entry.clone());
+            c.head = head;
+            return Ok((entry, None));
+        }
+        let Some(path) = &self.path else { return Err("no audit file".into()) };
         let mut line = entry.to_string();
         line.push('\n');
-        match self.append(&path, line.as_bytes()) {
-            Ok(()) => {
-                self.head = head;
-                Ok(entry)
+        match append(c, path, line.as_bytes()) {
+            Ok(file) => {
+                c.head = head;
+                Ok((entry, Some(file)))
             }
             Err(e) => {
                 // The next entry tries again with a new handle; this one is not chained.
-                self.file = None;
+                c.file = None;
                 Err(format!("append to {} failed: {e}", path.display()))
             }
         }
     }
 
+    /// A failed write left bytes it could not cut: the torn tail goes, and the head is read
+    /// again. Reads the whole file, but only after a write failed.
+    fn repair(&self, c: &mut Chain) {
+        c.file = None;
+        self.load(c);
+        c.needs_repair = false;
+    }
+
     /// Drops session `sid`'s entries and chains the rest again: how many went. On a failure the
     /// session is unfenced again: the chat stays, and its entries keep being written.
-    fn purge(&mut self, sid: &str) -> Result<usize, String> {
-        // Before the rewrite: an entry of it sent from here on is refused.
-        self.purged.insert(sid.to_owned());
+    fn purge(&self, sid: &str) -> Result<usize, String> {
         let purged = self.purge_fenced(sid);
         match &purged {
             Ok(_) => {
                 self.reviewed.lock().unwrap_or_else(|e| e.into_inner()).retain(|(s, _)| s != sid);
             }
             Err(_) => {
-                self.purged.remove(sid);
+                self.lock().purged.remove(sid);
             }
         }
         purged
     }
 
-    fn purge_fenced(&mut self, sid: &str) -> Result<usize, String> {
-        #[cfg(test)]
-        if self.fail_purges.load(Ordering::SeqCst) {
-            return Err("purges fail in this test".into());
-        }
-        let old = if let Some(m) = &self.memory {
-            m.lock().unwrap_or_else(|e| e.into_inner()).clone()
-        } else if let Some(path) = &self.path {
-            read_lines(path).map_err(|e| format!("read {}: {e}", path.display()))?
-        } else {
-            return Ok(0);
+    fn purge_fenced(&self, sid: &str) -> Result<usize, String> {
+        // Under the lock: the fence is up since the purge was sent (`send_purge`), so every
+        // entry of the session is in the file already, before its length now, which bounds what
+        // the slow part reads.
+        let upto = {
+            let mut c = self.lock();
+            #[cfg(test)]
+            if self.fail_purges.load(Ordering::SeqCst) {
+                return Err("purges fail in this test".into());
+            }
+            if let Some(m) = c.memory.take() {
+                // In memory (tests): all of it under the lock.
+                let (kept, removed, head) = without(&m, Some(sid), Head::default());
+                if removed == 0 {
+                    c.memory = Some(m);
+                    return Ok(0);
+                }
+                c.memory = Some(kept);
+                c.head = head;
+                return Ok(removed);
+            }
+            let Some(path) = &self.path else { return Ok(0) };
+            if c.needs_repair {
+                // The snapshot ends on a whole line.
+                self.repair(&mut c);
+            }
+            file_len(path).map_err(|e| format!("stat {}: {e}", path.display()))?
         };
-        let of = |e: &Value| e.get("sessionId").and_then(Value::as_str) == Some(sid);
-        let removed = old.iter().filter(|e| of(e)).count();
+        let Some(path) = &self.path else { return Ok(0) };
+        // Outside the lock: callers keep appending to the old file, after `upto`.
+        let old = read_lines_in(path, 0, Some(upto))
+            .map_err(|e| format!("read {}: {e}", path.display()))?;
+        let (kept, removed, head) = without(&old, Some(sid), Head::default());
         if removed == 0 {
             return Ok(0);
         }
-        let mut head = Head::default();
-        let mut kept = Vec::with_capacity(old.len() - removed);
-        // A line that is not an entry could hold anything of the chat: it goes too.
-        for e in old.into_iter().filter(|e| e.is_object() && !of(e)) {
-            if let Some((sealed, next)) = seal(&head, e) {
-                head = next;
-                kept.push(sealed);
+        let (tmp, mut file) =
+            write_tmp(path, &kept).map_err(|e| format!("rewrite {}: {e}", path.display()))?;
+        // Under the lock again: the lines written since the snapshot follow, chained on, and
+        // the new file takes the old one's place before any later line is written.
+        let mut c = self.lock();
+        let swapped = (|| {
+            let late = read_lines_in(path, upto, None)?;
+            let (late, _, head) = without(&late, None, head);
+            write_entries(&mut file, &late)?;
+            file.sync_all()?;
+            crate::home_fs::rename(&tmp, path)?;
+            Ok::<Head, std::io::Error>(head)
+        })();
+        match swapped {
+            Ok(head) => {
+                c.head = head;
+                // The next line opens the new file.
+                c.file = None;
+                c.needs_repair = false;
             }
+            Err(e) => return Err(format!("rewrite {}: {e}", path.display())),
         }
-        if let Some(m) = &self.memory {
-            *m.lock().unwrap_or_else(|e| e.into_inner()) = kept;
-        } else if let Some(path) = self.path.clone() {
-            self.file = None;
-            replace(&path, &kept).map_err(|e| format!("rewrite {}: {e}", path.display()))?;
+        drop(c);
+        if let Some(dir) = path.parent()
+            && let Ok(d) = std::fs::File::open(dir)
+        {
+            let _ = d.sync_all();
         }
-        self.head = head;
         Ok(removed)
     }
+}
 
-    fn append(&mut self, path: &Path, line: &[u8]) -> std::io::Result<()> {
-        if self.file.is_none() {
-            private_dir_of(path)?;
-            self.file =
-                Some(crate::config::private_state_append(path).map_err(std::io::Error::other)?);
-        }
-        let file = self.file.as_mut().ok_or_else(|| std::io::Error::other("no file"))?;
-        let before = file.metadata()?.len();
-        let written =
-            file.write_all(line).and_then(|()| file.flush()).and_then(|()| file.sync_data());
-        if let Err(e) = written {
-            // Back to the last whole line, so the next one does not land on half of this one,
-            // and a line whose sync failed is not chained twice.
-            let cut = file.set_len(before).and_then(|()| file.sync_data());
-            if cut.is_err() {
-                self.needs_repair = true;
-            }
-            return Err(e);
-        }
-        Ok(())
+/// Appends `line` to the chain's file (opened first if needed) in one write: the file, for its
+/// sync. A write that fails is cut off again, so the next line does not land on half of it.
+fn append(c: &mut Chain, path: &Path, line: &[u8]) -> std::io::Result<Arc<std::fs::File>> {
+    if c.file.is_none() {
+        private_dir_of(path)?;
+        let file = crate::config::private_state_append(path).map_err(std::io::Error::other)?;
+        c.file = Some(Arc::new(file));
     }
+    let file = c.file.clone().ok_or_else(|| std::io::Error::other("no file"))?;
+    // Every write is under the lock: the length before is where this line starts.
+    let before = file.metadata()?.len();
+    let mut out: &std::fs::File = &file;
+    if let Err(e) = out.write_all(line) {
+        if file.set_len(before).is_err() {
+            c.needs_repair = true;
+        }
+        return Err(e);
+    }
+    Ok(file)
+}
+
+/// The entries of `old` that are not `sid`'s (all of them for None), chained again after `head`,
+/// how many of `sid`'s went, and the head after them. A line that is not an entry could hold
+/// anything of the chat: it goes too.
+fn without(old: &[Value], sid: Option<&str>, mut head: Head) -> (Vec<Value>, usize, Head) {
+    let of =
+        |e: &Value| sid.is_some_and(|sid| e.get("sessionId").and_then(Value::as_str) == Some(sid));
+    let removed = old.iter().filter(|e| of(e)).count();
+    let mut kept = Vec::with_capacity(old.len() - removed);
+    for e in old.iter().filter(|e| e.is_object() && !of(e)) {
+        if let Some((sealed, next)) = seal(&head, e.clone()) {
+            head = next;
+            kept.push(sealed);
+        }
+    }
+    (kept, removed, head)
 }
 
 /// `entry` numbered and chained after `head` (without its old `v`, `seq`, `prevHash`, `hash`),
@@ -685,8 +789,9 @@ fn cut_torn_tail(path: &Path) -> std::io::Result<()> {
     file.sync_all()
 }
 
-/// Writes `entries` to `path` whole: a new file beside it, synced, renamed over it.
-fn replace(path: &Path, entries: &[Value]) -> std::io::Result<()> {
+/// A new file beside `path` holding `entries`, synced: the purge's rewrite, renamed over `path`
+/// once the lines written meanwhile follow them. Its path and the file, open for those lines.
+fn write_tmp(path: &Path, entries: &[Value]) -> std::io::Result<(PathBuf, std::fs::File)> {
     private_dir_of(path)?;
     let tmp = path.with_extension("jsonl.tmp");
     // A leftover (or planted) tmp goes first: removing a link never touches what it names.
@@ -695,18 +800,19 @@ fn replace(path: &Path, entries: &[Value]) -> std::io::Result<()> {
         _ => {}
     }
     let mut file = crate::config::private_state_create_new(&tmp).map_err(std::io::Error::other)?;
+    write_entries(&mut file, entries)?;
+    file.sync_data()?;
+    Ok((tmp, file))
+}
+
+/// Writes `entries` to `file`, one line each.
+fn write_entries(file: &mut std::fs::File, entries: &[Value]) -> std::io::Result<()> {
+    let mut out = std::io::BufWriter::new(file);
     for e in entries {
-        file.write_all(e.to_string().as_bytes())?;
-        file.write_all(b"\n")?;
+        out.write_all(e.to_string().as_bytes())?;
+        out.write_all(b"\n")?;
     }
-    file.sync_all()?;
-    crate::home_fs::rename(&tmp, path)?;
-    if let Some(dir) = path.parent()
-        && let Ok(d) = std::fs::File::open(dir)
-    {
-        let _ = d.sync_all();
-    }
-    Ok(())
+    out.flush()
 }
 
 /// Whether something is at `path` (a link counts, and is refused when opened).
@@ -718,16 +824,35 @@ fn exists(path: &Path) -> std::io::Result<bool> {
     }
 }
 
+/// The length of what is at `path` (0 for nothing).
+fn file_len(path: &Path) -> std::io::Result<u64> {
+    match std::fs::symlink_metadata(path) {
+        Ok(m) => Ok(m.len()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(0),
+        Err(e) => Err(e),
+    }
+}
+
 /// Every line of `path`, opened as private state: a link, a file that is not regular or one
 /// another user owns is refused, and a wider mode is narrowed to 0600.
 fn read_lines(path: &Path) -> std::io::Result<Vec<Value>> {
+    read_lines_in(path, 0, None)
+}
+
+/// The lines of `path` from byte `from` up to byte `upto` (the end for None), each a whole
+/// line when both are where a line starts. Opened as [`read_lines`] opens it.
+fn read_lines_in(path: &Path, from: u64, upto: Option<u64>) -> std::io::Result<Vec<Value>> {
     private_dir_of(path)?;
     if !exists(path)? {
         return Ok(vec![]);
     }
-    let file = crate::config::private_state_file(path).map_err(std::io::Error::other)?;
+    let mut file = crate::config::private_state_file(path).map_err(std::io::Error::other)?;
+    if from > 0 {
+        file.seek(std::io::SeekFrom::Start(from))?;
+    }
+    let limit = upto.map_or(u64::MAX, |u| u.saturating_sub(from));
     let mut out = Vec::new();
-    for line in std::io::BufReader::new(file).lines() {
+    for line in std::io::BufReader::new(std::io::Read::take(file, limit)).lines() {
         let line = line?;
         if line.trim().is_empty() {
             continue;
@@ -1205,18 +1330,118 @@ mod tests {
     }
 
     #[test]
-    fn a_durable_record_given_up_on_is_never_written() {
+    fn a_purge_given_up_on_never_runs() {
         let d = dir("cancel");
         let log = AuditLog::open(Some(d.clone()));
-        let (done, rx) = mpsc::channel();
+        log.record(entry("s1", 1));
+        let (done, mut rx) = tokio::sync::oneshot::channel();
         let state = Arc::new(AtomicU8::new(CANCELLED));
-        log.send(Msg::Entry(entry("s1", 1), Some(Durable { done, state }), None)).unwrap();
+        log.send(Msg::Purge("s1".into(), done, state)).unwrap();
         log.record(entry("s1", 2));
         log.flush();
-        assert!(rx.try_recv().is_err(), "a withdrawn entry gets no answer");
+        assert!(rx.try_recv().is_err(), "a withdrawn purge gets no answer");
         let all = log.all().unwrap();
-        assert_eq!(all.len(), 1);
-        assert_eq!(all[0]["at"], 2);
+        let ats: Vec<_> = all.iter().map(|e| e["at"].clone()).collect();
+        assert_eq!(ats, vec![json!(1), json!(2)]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A `kill -9` right after a record: nothing closes the log or waits for its thread (the
+    /// handle is leaked, the thread never told to stop), and a fresh read of the file, as the
+    /// next daemon's open does, already has the entry, chained.
+    #[test]
+    fn a_kill_right_after_a_record_keeps_the_entry() {
+        let d = dir("kill");
+        let log = AuditLog::open(Some(d.clone()));
+        log.record(entry("s1", 1));
+        log.record(entry("s2", 2));
+        std::mem::forget(log);
+        let on_disk = read_lines(&d.join(FILE)).unwrap();
+        let ats: Vec<_> = on_disk.iter().map(|e| e["at"].clone()).collect();
+        assert_eq!(ats, vec![json!(1), json!(2)], "an entry recorded before the kill was lost");
+        assert_eq!(verify(&on_disk), json!({"ok": true, "entries": 2}));
+        // The next daemon continues the chain from them.
+        let next = AuditLog::open(Some(d.clone()));
+        next.record(entry("s1", 3));
+        let all = next.all().unwrap();
+        assert_eq!(all[2]["seq"], 3);
+        assert_eq!(verify(&all)["ok"], true, "{}", verify(&all));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn records_from_many_threads_keep_one_chain() {
+        let d = dir("threads");
+        let log = Arc::new(AuditLog::open(Some(d.clone())));
+        let (threads, each) = (8u64, 200u64);
+        let workers: Vec<_> = (0..threads)
+            .map(|t| {
+                let log = log.clone();
+                std::thread::spawn(move || {
+                    for i in 0..each {
+                        log.record(entry(&format!("s{t}"), t * each + i));
+                    }
+                })
+            })
+            .collect();
+        for w in workers {
+            w.join().unwrap();
+        }
+        let all = read_lines(&d.join(FILE)).unwrap();
+        assert_eq!(all.len() as u64, threads * each);
+        assert_eq!(verify(&all)["ok"], true, "{}", verify(&all));
+        let mut ats: Vec<u64> = all.iter().map(|e| e["at"].as_u64().unwrap()).collect();
+        ats.sort_unstable();
+        assert_eq!(ats, (0..threads * each).collect::<Vec<_>>(), "an entry is missing or twice");
+        assert_eq!(log.write_errors(), 0);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Records keep coming while a purge reads and rewrites the file: every one of them is in
+    /// the rewritten file, after the kept ones, and the chain verifies.
+    #[tokio::test]
+    async fn a_purge_racing_records_loses_none_of_them() {
+        let d = dir("purge-race");
+        let log = Arc::new(AuditLog::open(Some(d.clone())));
+        // Enough of the purged chat that the rewrite takes a while.
+        for at in 0..5_000 {
+            log.record(entry(if at % 2 == 0 { "gone" } else { "keep" }, at));
+        }
+        let stop = Arc::new(AtomicBool::new(false));
+        let writers: Vec<_> = (0..4u64)
+            .map(|t| {
+                let (log, stop) = (log.clone(), stop.clone());
+                std::thread::spawn(move || {
+                    let mut n = 0u64;
+                    while !stop.load(Ordering::SeqCst) || n < 50 {
+                        log.record(entry(&format!("late{t}"), 1_000_000 * (t + 1) + n));
+                        n += 1;
+                    }
+                    n
+                })
+            })
+            .collect();
+        let purged = log.purge("gone").unwrap().await.unwrap();
+        stop.store(true, Ordering::SeqCst);
+        let late: u64 = writers.into_iter().map(|w| w.join().unwrap()).sum();
+        assert_eq!(purged, Ok(2_500));
+        let all = log.all().unwrap();
+        assert_eq!(verify(&all)["ok"], true, "{}", verify(&all));
+        let of = |s: &str| all.iter().filter(|e| e["sessionId"] == s).count() as u64;
+        assert_eq!(of("gone"), 0);
+        assert_eq!(of("keep"), 2_500);
+        let late_kept: u64 = (0..4).map(|t| of(&format!("late{t}"))).sum();
+        assert_eq!(late_kept, late, "a record written during the purge was lost");
+        // Each thread's records stay in the order they were written.
+        for t in 0..4u64 {
+            let ats: Vec<u64> = all
+                .iter()
+                .filter(|e| e["sessionId"] == format!("late{t}").as_str())
+                .map(|e| e["at"].as_u64().unwrap())
+                .collect();
+            assert!(ats.windows(2).all(|w| w[0] < w[1]), "late{t} out of order");
+        }
+        assert_eq!(log.write_errors(), 0);
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -1239,3 +1464,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 }
+
+#[cfg(test)]
+#[path = "audit_log_bench.rs"]
+mod audit_log_bench;
