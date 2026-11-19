@@ -281,6 +281,35 @@ class RowsTests(unittest.TestCase):
         self.assertFalse(cron.over_target(name, rows[name], 16.67))
         self.assertNotIn("launch.warm.did_finish_launching_start", rows, "the Dock part's rows never mix with the direct exec's")
 
+    def test_chat_relaunch_rows_and_the_page_span(self):
+        """launch-chat stores the chat drawn live against 600 ms (goals/restart-to-chat.md) and the page's span from its
+        view made to its first paint, a row of its own; a run missing either mark gives no span value."""
+        part = cron.PART_BY_NAME["launch-chat"]
+        self.assertIn("--profile=realistic", part["args"])
+        self.assertLessEqual(len(part["args"]) + 1, 16)
+        runs = [{"main_start": 30, "first_window_frame_committed": 520, "agent_pane.view_created": v,
+                 "agent_pane.painted": v + 663} for v in (840, 852, 870)] + [{"agent_pane.painted": 1400}]
+        rows = cron.rows_of_part(part, {"split-spring": {"warm": runs}}, budgets_mod, {"rows": {}})
+        span, painted = "launch.chat.warm.page_view_to_paint", "launch.chat.warm.agent_pane.painted"
+        self.assertEqual(rows[span]["p50"], 663)
+        self.assertEqual(cron.target_of(span, rows[span], 16.67), 200)
+        self.assertTrue(cron.over_target(span, rows[span], 16.67))
+        self.assertEqual(cron.target_of(painted, rows[painted], 16.67), 600)
+        self.assertEqual(rows["launch.chat.warm.main_start.missing_runs"]["p95"], 1)
+        for name in (span, painted):
+            self.assertEqual(cron.part_for_row(name), "launch-chat")
+        self.assertNotIn("launch.warm.page_view_to_paint", rows)
+
+    def test_dock_relaunch_time_before_main_is_a_row(self):
+        """The code-sign clone's rescan before main on a Dock relaunch (about 600 ms) shows as launch.dock.warm.main_start
+        over its 166 ms budget."""
+        part = cron.PART_BY_NAME["launch-dock"]
+        rows = cron.rows_of_part(part, {"split-spring": {"warm": [{"main_start": v} for v in (598, 616, 640)]}},
+                                 budgets_mod, {"rows": {}})
+        name = "launch.dock.warm.main_start"
+        self.assertEqual(cron.target_of(name, rows[name], 16.67), 166)
+        self.assertTrue(cron.over_target(name, rows[name], 16.67))
+
     def test_cold_launch_rows_judge_home_against_600_ms(self):
         """A cold launch (no daemon, empty home, a fresh copy of the bundle each run) stores launch.cold.<mark> rows: Home
         on screen against 600 ms (goals/next-launch-instant.md) and the first frame against 300 ms (launch-shell-first.md);

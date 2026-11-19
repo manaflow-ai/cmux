@@ -177,6 +177,13 @@ PARTS = [
                                      "--activation=active", "--window-placement=restore", "--fresh-copy",
                                      "--ready-mark=reveal.home"],
      "artifact": "artifacts/split-spring/report.json", "kind": "launch", "needs": "launch-cold"},
+    # A relaunch into a restored chat, as a Dock click opens it: the realistic profile's seeded chat in front, the daemon
+    # kept (warm). The chat page's script is compiled cold on every relaunch (its profile keeps no code cache), so this
+    # measures the cold chat page: rows launch.chat.warm.<mark> and the page's span from its view made to its first
+    # paint (LAUNCH_CHAT_SPANS).
+    {"name": "launch-chat", "args": [*MEASURE, "--suite=launch", "--profile=realistic", "--mode=warm", "--runs=5",
+                                     "--timeout=30", "--activation=active", "--window-placement=restore"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "launch", "needs": "launch-dock", "row_prefix": "launch.chat"},
     # 400 workspaces, 6 scenarios: not timed against 900 s yet (perf-budgets' own per-bench cap is 900 s).
     {"name": "sidebar", "args": [*MEASURE, "--suite=budgets", "--only=sidebar"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "run_seconds": 1500},
@@ -246,7 +253,7 @@ ROW_PARTS = [
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
-    (r"^launch\.cold\.", "launch-cold"), (r"^launch\.", "launch"),
+    (r"^launch\.cold\.", "launch-cold"), (r"^launch\.chat\.", "launch-chat"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -275,13 +282,28 @@ LAUNCH_BUDGETS = {"did_finish_launching_end": 800, "first_window_frame_committed
 # 719. Its target is launch-shell-first.md's "Dock bounce over", 250 ms: the icon rises once and stops. The other
 # rows keep the direct exec's budgets.
 LAUNCH_DOCK_BUDGETS = {"did_finish_launching_start": 250, "did_finish_launching_end": 800,
-                       "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000}
+                       "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000,
+                       # Before main on a relaunch of the same copy: launch-shell-first.md measured 117 to 166 ms through
+                       # LaunchServices on a quiet Mac (cmux16, 2026-11-16), the bound its 250 ms first frame assumes.
+                       # Chromium's code-sign clone makes XProtect rescan the executable first (about 600 ms, cmux#44204).
+                       "main_start": 166}
 # A cold launch's budget (launch-cold), ms from process start. Home on screen (reveal.home) within 600 ms is
 # cmuxterm-hq goals/next-launch-instant.md ("launch to Home at most 600 ms"); the first frame within 300 ms is
 # docs/design/launch-shell-first.md's cold row ("300 to the frame, 600 to Home"). That doc measured the cold first open
 # of a new copy (launch-fresh-install.sh, nightly, n=5, 2026-11-18) at 1495 ms to main and 2800 ms to the first frame.
-LAUNCH_COLD_BUDGETS = {"first_window_frame_committed": 300, "reveal.home": 600}
-LAUNCH_BUDGETS_BY_PART = {"launch-dock": LAUNCH_DOCK_BUDGETS, "launch-cold": LAUNCH_COLD_BUDGETS}
+# main_start on a cold copy is the system's policy check and dyld (launch-shell-first.md: 1495 ms, nightly, n=5); its
+# budget is the same 166 ms as a relaunch's, since stage 0's 300 ms frame has no room for more.
+LAUNCH_COLD_BUDGETS = {"main_start": 166, "first_window_frame_committed": 300, "reveal.home": 600}
+# A relaunch into a chat (launch-chat). agent_pane.painted, the chat drawn live: cmuxterm-hq goals/restart-to-chat.md,
+# "the open chat is drawn live within 600 ms" (1515 ms in launch-shell-first.md, mini-3, nightly, n=10).
+LAUNCH_CHAT_BUDGETS = {"main_start": 166, "first_window_frame_committed": 300, "agent_pane.painted": 600}
+# Spans between two marks of one run: row name -> (from mark, to mark, budget ms). The chat page from its view made to
+# its first paint is launch-shell-first.md's 663 ms ("browser created to chat painted", pane.js compiled cold);
+# its budget is the 200 ms that doc sets for the whole chat-live relaunch, which bounds any span inside it.
+LAUNCH_CHAT_SPANS = {"page_view_to_paint": ("agent_pane.view_created", "agent_pane.painted", 200)}
+LAUNCH_BUDGETS_BY_PART = {"launch-dock": LAUNCH_DOCK_BUDGETS, "launch-cold": LAUNCH_COLD_BUDGETS,
+                          "launch-chat": LAUNCH_CHAT_BUDGETS}
+LAUNCH_SPANS_BY_PART = {"launch-chat": LAUNCH_CHAT_SPANS}
 
 
 def now_utc():
@@ -594,6 +616,13 @@ def rows_of_part(part, report, budgets_mod, budgets):
                         p50, p95 = budgets_mod.pct(values, 0.5), budgets_mod.pct(values, 0.95)
                         out[f"{prefix}.{mode}.{mark}"] = {"p50": round(p50, 1), "p95": round(p95, 1), "unit": "ms",
                                                         "budget": budget, "floor": 20.0}
+                for name, (start, end, budget) in LAUNCH_SPANS_BY_PART.get(part["name"], {}).items():
+                    values = [r[end] - r[start] for r in runs if isinstance(r, dict)
+                              and isinstance(r.get(start), (int, float)) and isinstance(r.get(end), (int, float))]
+                    if values:
+                        p50, p95 = budgets_mod.pct(values, 0.5), budgets_mod.pct(values, 0.95)
+                        out[f"{prefix}.{mode}.{name}"] = {"p50": round(p50, 1), "p95": round(p95, 1), "unit": "ms",
+                                                         "budget": budget, "floor": 20.0}
     elif part["kind"] == "diff":
         sidecar, stream = report.get("sidecar") or {}, report.get("stream") or {}
 
