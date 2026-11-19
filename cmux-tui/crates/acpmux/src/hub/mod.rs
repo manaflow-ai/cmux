@@ -1346,35 +1346,107 @@ impl Hub {
         wireguard: Option<Arc<crate::wireguard::Transport>>,
         start_peers: bool,
     ) -> Arc<Self> {
+        let gauges = crate::gauges::global();
         let events = list_guard::Events::new(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
-        let handoffs = handoff::Handoffs::open(store.handoff_dir());
+        let handoffs = {
+            let _phase = gauges.phase("hub handoffs");
+            handoff::Handoffs::open(store.handoff_dir())
+        };
         // Loaded now, so a forced `sessions.allowFullAccess` off holds from the first request
         // after a restart, before the app pushes again (`start_mode_state.rs`).
-        let start_mode_state =
-            start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref());
+        let start_mode_state = {
+            let _phase = gauges.phase("hub start mode");
+            start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref())
+        };
         // Loaded before the socket serves, so an agent that outlived the previous daemon is
         // known by its caller token from the first request (`caller_registry.rs`).
-        let caller_registry =
-            caller_registry::CallerRegistry::load(caller_registry::state_file(&config));
+        let caller_registry = {
+            let _phase = gauges.phase("hub caller registry");
+            caller_registry::CallerRegistry::load(caller_registry::state_file(&config))
+        };
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
-        let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
+        let peer_paths = {
+            let _phase = gauges.phase("hub peer paths");
+            Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()))
+        };
         // A removed peer's kept remote tokens go with it (`peer_kept_tokens.rs`).
         peer_paths
             .tokens
             .retain(peers_cfg.iter().map(|(name, pc)| (name.as_str(), pc.url.as_str())));
-        let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
+        let suggestion_gate = {
+            let _phase = gauges.phase("hub suggestion gate");
+            StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()))
+        };
+        let fatal = crate::supervise::Fatal::default();
         // Beside the session store in its home; a memory store keeps it in memory only.
-        let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
-        let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
-        let briefs = dispatch::Briefs::open(store.briefs_path());
-        let audit = audit_log::AuditLog::open(store.audit_dir());
-        let usage_limits = StdMutex::new(config.usage_warnings.limits());
+        let ledger = {
+            let _phase = gauges.phase("hub ledger");
+            ledger::Ledger::open_with_fatal(home.as_ref().map(|h| h.join("ledger")), fatal.clone())
+        };
+        let peer_snapshots = {
+            let _phase = gauges.phase("hub peer snapshots");
+            peer_snapshot::PeerSnapshots::open(home)
+        };
+        let briefs = {
+            let _phase = gauges.phase("hub briefs");
+            dispatch::Briefs::open(store.briefs_path())
+        };
+        let audit = {
+            let _phase = gauges.phase("hub audit log");
+            audit_log::AuditLog::open(store.audit_dir())
+        };
+        let usage_limits = {
+            let _phase = gauges.phase("hub usage limits");
+            StdMutex::new(config.usage_warnings.limits())
+        };
         #[cfg(feature = "hub-carrier")]
-        let hub_carrier =
-            crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref());
+        let hub_carrier = {
+            let _phase = gauges.phase("hub carrier");
+            crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref())
+        };
+        // Keep the constructors inside the assembly measurable. These values are independent of
+        // the session store, but a god-sized home must still prove that none of them accidentally
+        // grows with the store before the listener is ready.
+        let harness_homes = {
+            let _phase = gauges.phase("hub construct harness homes");
+            crate::adopt::HarnessHomes::from_env()
+        };
+        let scope = {
+            let _phase = gauges.phase("hub construct scope");
+            cmux_scope::Scope::new("acpmux hub")
+        };
+        let clock = {
+            let _phase = gauges.phase("hub construct clock");
+            crate::clock::TokioClock::new()
+        };
+        let workflow_runs = {
+            let _phase = gauges.phase("hub construct workflow runs");
+            crate::workflow_runs::Service::default()
+        };
+        let pool = {
+            let _phase = gauges.phase("hub construct pool");
+            Arc::new(pool::PoolState::new())
+        };
+        let session_recap = {
+            let _phase = gauges.phase("hub construct session recap");
+            away_recap::saved_setting()
+        };
+        let catalog = {
+            let _phase = gauges.phase("hub construct catalog");
+            Arc::new(crate::catalog::CatalogService::new())
+        };
+        let health = {
+            let _phase = gauges.phase("hub construct health");
+            Arc::new(crate::harness_health::HealthService::new())
+        };
+        let auto_background_after = {
+            let _phase = gauges.phase("hub construct auto background");
+            auto_background::auto_background_from_env()
+        };
+        let _phase = gauges.phase("hub assembly");
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
@@ -1407,7 +1479,7 @@ impl Hub {
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
             #[cfg(test)]
             message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
-            harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
+            harness_homes: StdMutex::new(harness_homes),
             inline_btw: StdMutex::new(HashMap::new()),
             events,
             link_v2: Arc::default(),
@@ -1420,10 +1492,10 @@ impl Hub {
             review_index: Default::default(),
             audit,
             shutdown: Notify::new(),
-            scope: cmux_scope::Scope::new("acpmux hub"),
+            scope,
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
-            fatal: crate::supervise::Fatal::default(),
+            fatal,
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
@@ -1495,9 +1567,9 @@ impl Hub {
             ends_moved: Notify::new(),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
-            clock: StdMutex::new(crate::clock::TokioClock::new()),
+            clock: StdMutex::new(clock),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
-            workflow_runs: crate::workflow_runs::Service::default(),
+            workflow_runs,
             bg_runner: StdMutex::new(None),
             bg_starts: tokio::sync::Mutex::new(()),
             probe_only: StdMutex::new(None),
@@ -1508,7 +1580,7 @@ impl Hub {
             person_prompts: tokio::sync::watch::channel(0).0,
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
-            pool: Arc::new(pool::PoolState::new()),
+            pool,
             web_modes: StdMutex::new(Default::default()),
             trust_gate: StdMutex::new(None),
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
@@ -1517,7 +1589,7 @@ impl Hub {
             vm_marker_root: StdMutex::new(PathBuf::from("/")),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
-            session_recap: AtomicBool::new(away_recap::saved_setting()),
+            session_recap: AtomicBool::new(session_recap),
             recap_due: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
             coach_rewriter: StdMutex::new(None),
@@ -1563,9 +1635,9 @@ impl Hub {
             settings_watch: Default::default(),
             settings_changes: tokio::sync::watch::channel(0).0,
             git_watch: Default::default(),
-            catalog: Arc::new(crate::catalog::CatalogService::new()),
+            catalog,
             chatgpt: Arc::new(crate::chatgpt::Service::default()),
-            health: Arc::new(crate::harness_health::HealthService::new()),
+            health,
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             presence: Default::default(),
@@ -1575,7 +1647,7 @@ impl Hub {
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
-            auto_background_after: StdMutex::new(auto_background::auto_background_from_env()),
+            auto_background_after: StdMutex::new(auto_background_after),
             auto_background_armed: Default::default(),
             message_background_after: StdMutex::new(Some(
                 auto_background::MESSAGE_BACKGROUND_AFTER,
@@ -1610,15 +1682,18 @@ impl Hub {
             tailnet_controller: std::sync::OnceLock::new(),
             briefs,
         });
+        drop(_phase);
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
         }
-        hub.recover_staged_replacements();
         hub.watch_rehydrates();
         if loading {
             hub.logs_ready.send_replace(false);
             hub.adoption_ready.send_replace(false);
         } else {
+            let _phase = gauges.phase("staged recovery");
+            hub.recover_staged_replacements();
+            drop(_phase);
             hub.load_from_store(deferred);
         }
         if !deferred {

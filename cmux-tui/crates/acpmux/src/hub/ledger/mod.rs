@@ -24,14 +24,14 @@
 //! range, never the number of sessions or the length of their logs.
 
 mod query;
-mod store;
+pub(crate) mod store;
 
 pub use query::{LedgerQuery, LedgerReply, Rollup, Row};
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -241,6 +241,8 @@ pub(crate) struct State {
     /// The file existed when the hub was built (no seed then).
     pub existed: bool,
     pub seeded: bool,
+    /// Set only after the initial disk fold has installed its complete state.
+    pub folded: bool,
 }
 
 impl State {
@@ -255,7 +257,7 @@ impl State {
 
     /// True when nothing about `session` may be recorded (a fork's copies, or purged).
     fn blocked(&self, session: &str) -> bool {
-        self.suppressed.contains(session) || self.purged.contains(session)
+        !self.folded || self.suppressed.contains(session) || self.purged.contains(session)
     }
 
     fn session_key(&mut self, id: &str) -> Arc<str> {
@@ -368,8 +370,37 @@ pub struct Ledger {
     writer: Mutex<Option<std::sync::mpsc::Sender<Work>>>,
     /// The writer thread, and the channel its end closes (`close` waits on it).
     thread: Mutex<Option<store::WriterThread>>,
+    fold_gate: Arc<FoldGate>,
     /// The person every session on this machine runs for.
     person: String,
+    fatal: crate::supervise::Fatal,
+    closed_mutations: AtomicU64,
+}
+
+/// The initial disk fold is owned by the ledger writer thread. Readers and writers wait here,
+/// while a failed worker wakes them with a diagnostic rather than leaving them asleep forever.
+pub(crate) struct FoldGate {
+    state: Mutex<Option<Result<(), String>>>,
+    wake: Condvar,
+}
+
+impl FoldGate {
+    pub(crate) fn new(done: bool) -> Arc<Self> {
+        Arc::new(Self { state: Mutex::new(done.then_some(Ok(()))), wake: Condvar::new() })
+    }
+
+    pub(crate) fn finish(&self, result: Result<(), String>) {
+        *self.state.lock().unwrap_or_else(PoisonError::into_inner) = Some(result);
+        self.wake.notify_all();
+    }
+
+    fn wait(&self) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        while state.is_none() {
+            state = self.wake.wait(state).unwrap_or_else(PoisonError::into_inner);
+        }
+        state.as_ref().is_some_and(Result::is_ok)
+    }
 }
 
 impl std::fmt::Debug for Ledger {
@@ -389,13 +420,17 @@ fn host_person() -> String {
 }
 
 impl Ledger {
-    /// A ledger kept in `dir` (`<home>/ledger`), folded from its file now; `None` keeps it in
+    /// A ledger kept in `dir` (`<home>/ledger`), folded by its writer thread; `None` keeps it in
     /// memory only (a memory store).
     ///
     /// A first start (no ledger file) writes nothing until [`Ledger::seed`]: the hub seeds it
     /// as it loads the store, and lines before that are held in memory for the seed's rewrite.
     pub fn open(dir: Option<PathBuf>) -> Self {
         Self::open_as(dir, COMPACT_BYTES, host_person(), true)
+    }
+
+    pub(crate) fn open_with_fatal(dir: Option<PathBuf>, fatal: crate::supervise::Fatal) -> Self {
+        Self::open_as_with_fatal(dir, COMPACT_BYTES, host_person(), true, fatal)
     }
 
     /// A ledger that writes from the start, seeded or not (tests).
@@ -410,36 +445,66 @@ impl Ledger {
         person: String,
         hold_for_seed: bool,
     ) -> Self {
+        Self::open_as_with_fatal(
+            dir,
+            compact_bytes,
+            person,
+            hold_for_seed,
+            crate::supervise::Fatal::default(),
+        )
+    }
+
+    fn open_as_with_fatal(
+        dir: Option<PathBuf>,
+        compact_bytes: u64,
+        person: String,
+        hold_for_seed: bool,
+        fatal: crate::supervise::Fatal,
+    ) -> Self {
         let state = Arc::new(Mutex::new(State::default()));
-        let mut repos = Vec::new();
+        let fold_gate = FoldGate::new(dir.is_none());
+        if dir.is_none() {
+            state.lock().unwrap_or_else(PoisonError::into_inner).folded = true;
+        }
+        let disk = dir.is_some();
+        let fallback_dir = dir.clone();
         let spawned = dir.and_then(|dir| {
             let path = dir.join(store::FILE);
-            let (size, awaiting_seed) = {
-                let mut s = state.lock().unwrap_or_else(PoisonError::into_inner);
-                let size = store::fold(&path, &mut s);
-                // Folded sessions with no repository yet: their folder's origin, once.
-                let ids: Vec<Arc<str>> = s.sessions.keys().cloned().collect();
-                for id in ids {
-                    let cwd = s.sessions.get(&id).and_then(|row| row.cwd.clone());
-                    if s.wants_repo(&id)
-                        && let Some(cwd) = cwd
-                    {
-                        repos.push(Work::Repo { sid: id.to_string(), cwd: PathBuf::from(cwd) });
-                    }
-                }
-                (size, hold_for_seed && !s.existed)
-            };
-            store::spawn_writer(dir, path, size, compact_bytes, awaiting_seed, Arc::clone(&state))
+            store::spawn_writer(
+                dir,
+                path,
+                compact_bytes,
+                hold_for_seed,
+                Arc::clone(&state),
+                Arc::clone(&fold_gate),
+                fatal.clone(),
+            )
         });
+        let writer_missing = spawned.is_none();
         let (writer, thread) = match spawned {
             Some((tx, thread)) => (Some(tx), Some(thread)),
             None => (None, None),
         };
-        let ledger = Self { state, writer: Mutex::new(writer), thread: Mutex::new(thread), person };
-        for work in repos {
-            ledger.send(work);
+        if writer_missing && disk {
+            // A thread that cannot be created keeps the base startup order: fold inline, then
+            // continue without a writer. The folded state is still a proof for readers.
+            if let Some(dir) = fallback_dir {
+                let mut loaded = State::default();
+                let _ = store::fold(&dir.join(store::FILE), &mut loaded);
+                loaded.folded = true;
+                *state.lock().unwrap_or_else(PoisonError::into_inner) = loaded;
+            }
+            fold_gate.finish(Ok(()));
         }
-        ledger
+        Self {
+            state,
+            writer: Mutex::new(writer),
+            thread: Mutex::new(thread),
+            fold_gate,
+            person,
+            fatal,
+            closed_mutations: AtomicU64::new(0),
+        }
     }
 
     /// Shutdown (`Hub::flush`): closes the writer's queue and waits up to `within` for it to
@@ -469,8 +534,22 @@ impl Ledger {
         }
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    fn lock(&self) -> Option<std::sync::MutexGuard<'_, State>> {
+        let _ = self.fold_gate.wait();
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.folded { Some(state) } else { None }
+    }
+
+    fn mutation(&self) -> Option<std::sync::MutexGuard<'_, State>> {
+        let state = self.lock();
+        if state.is_none() && self.closed_mutations.fetch_add(1, Ordering::Relaxed) == 0 {
+            tracing::warn!("ledger mutation ignored: initial fold failed");
+        }
+        state
+    }
+
+    pub(crate) fn failure(&self) -> Option<String> {
+        self.fatal.reason()
     }
 
     /// Hands `line` to the writer, under the state lock so lines keep their order.
@@ -491,11 +570,12 @@ impl Ledger {
 
     /// A fork's copies of its parent's records are being written into `session`: none counts.
     pub fn suppress(&self, session: &str) {
-        self.lock().suppressed.insert(session.to_owned());
+        let Some(mut state) = self.mutation() else { return };
+        state.suppressed.insert(session.to_owned());
     }
 
     pub fn unsuppress(&self, session: &str) {
-        let mut s = self.lock();
+        let Some(mut s) = self.mutation() else { return };
         s.suppressed.remove(session);
         s.open.remove(session);
     }
@@ -539,7 +619,7 @@ impl Ledger {
             }
             ("mux", "turn_started") => self.open_turn(id, record.at, true, gone),
             ("in", "tool_call") => {
-                let mut s = self.lock();
+                let Some(mut s) = self.mutation() else { return };
                 if s.blocked(id) || is_gone(gone) {
                     return;
                 }
@@ -552,7 +632,7 @@ impl Ledger {
     }
 
     fn open_turn(&self, session: &str, at: u64, started: bool, gone: Option<&AtomicBool>) {
-        let mut s = self.lock();
+        let Some(mut s) = self.mutation() else { return };
         if s.blocked(session) || is_gone(gone) {
             return;
         }
@@ -590,7 +670,7 @@ impl Ledger {
         let mut totals = Totals::priced(&model, &usage, 1);
         let version = crate::pricing::table().version.clone();
         let cwd = ctx.info.cwd.clone();
-        let mut s = self.lock();
+        let Some(mut s) = self.mutation() else { return };
         if s.blocked(session) || is_gone(gone) {
             return;
         }
@@ -625,7 +705,7 @@ impl Ledger {
     /// writer's next step (a tombstone, then a compaction). A queued repository lookup for it
     /// finds no row and adds nothing.
     pub fn purge(&self, session: &str) {
-        let mut s = self.lock();
+        let Some(mut s) = self.mutation() else { return };
         let known = s.sessions.contains_key(session) || s.open.contains_key(session);
         s.purged.insert(session.to_owned());
         s.remove_session(session);
@@ -637,12 +717,13 @@ impl Ledger {
     /// A chat was created under `session` (`Hub::new_session_with_id`): a purge of that id this
     /// run no longer blocks it, so the new chat's turns count.
     pub fn reopen(&self, session: &str) {
-        self.lock().purged.remove(session);
+        let Some(mut state) = self.mutation() else { return };
+        state.purged.remove(session);
     }
 
     /// A pull request `session` opened (`hub/pull_requests.rs`).
     pub fn note_pull_request(&self, session: &str, url: &str) {
-        let mut s = self.lock();
+        let Some(mut s) = self.mutation() else { return };
         if s.blocked(session) {
             return;
         }
@@ -657,7 +738,7 @@ impl Ledger {
     /// Updates a session the ledger already holds and writes a line only when a ledgered field
     /// changed; a session with no turn yet gets its fields at its first turn.
     pub fn note_session_info(&self, session: &str, info: SessionInfo) {
-        let mut s = self.lock();
+        let Some(mut s) = self.mutation() else { return };
         if s.blocked(session) || !s.sessions.contains_key(session) {
             return;
         }
@@ -671,12 +752,12 @@ impl Ledger {
     /// last active. Sessions the ledger already holds are left alone. Runs once.
     /// True until [`Ledger::seed`] has run or a ledger file was found.
     pub(crate) fn wants_seed(&self) -> bool {
-        let s = self.lock();
+        let Some(s) = self.lock() else { return false };
         !s.existed && !s.seeded
     }
 
     pub(crate) fn seed(&self, sessions: impl IntoIterator<Item = Seed>) {
-        let mut s = self.lock();
+        let Some(mut s) = self.mutation() else { return };
         if s.existed || s.seeded {
             return;
         }
@@ -710,8 +791,16 @@ impl Ledger {
     }
 
     /// The `_acpmux/ledger` reply for `q`.
+    pub(crate) fn try_query(&self, q: &LedgerQuery) -> Option<LedgerReply> {
+        let state = self.lock()?;
+        Some(query::fold(&state, q, &self.person).0)
+    }
+
+    #[cfg(test)]
     pub fn query(&self, q: &LedgerQuery) -> LedgerReply {
-        query::fold(&self.lock(), q, &self.person).0
+        self.try_query(q).unwrap_or_else(|| {
+            std::panic::resume_unwind(Box::new("ledger query after initial fold failure"))
+        })
     }
 
     /// Waits until the writer has written everything handed to it.

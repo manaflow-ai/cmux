@@ -20,11 +20,11 @@ pub mod fetch;
 pub mod schema;
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, Once, OnceLock, PoisonError};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Value, json, value::RawValue};
 use tokio::sync::broadcast;
 
 pub use fetch::{FetchOutcome, Fetcher, HttpsFetcher};
@@ -60,7 +60,7 @@ pub enum Source {
 struct StoredCopy {
     etag: Option<String>,
     fetched_at_ms: u64,
-    catalog: Value,
+    catalog: Box<RawValue>,
 }
 
 struct State {
@@ -73,12 +73,15 @@ struct State {
 }
 
 pub struct CatalogService {
-    state: Mutex<State>,
+    state: OnceLock<Mutex<State>>,
+    initial: Mutex<Option<Arc<Catalog>>>,
     dir: Mutex<Option<PathBuf>>,
     fetcher: Mutex<Option<Arc<dyn Fetcher>>>,
     /// One network read at a time.
     refreshing: tokio::sync::Mutex<()>,
     changed: broadcast::Sender<Value>,
+    startup_loaded: tokio::sync::watch::Sender<bool>,
+    startup_load: Once,
 }
 
 fn now_ms() -> u64 {
@@ -126,50 +129,89 @@ impl Default for CatalogService {
 impl CatalogService {
     /// The bundled copy, no stored copy, no fetcher.
     pub fn new() -> Self {
-        Self::with_bundled(bundled())
+        Self::with_initial(None)
     }
 
     /// Starts from `catalog` as the bundled copy (tests).
     pub fn with_bundled(catalog: Catalog) -> Self {
+        Self::with_initial(Some(Arc::new(catalog)))
+    }
+
+    fn with_initial(catalog: Option<Arc<Catalog>>) -> Self {
+        let (startup_released, _) = tokio::sync::watch::channel(false);
         Self {
-            state: Mutex::new(State {
-                catalog: Arc::new(catalog),
-                source: Source::Bundled,
-                etag: None,
-                fetched_at_ms: None,
-                last_error: None,
-                last_fetch: None,
-            }),
+            state: OnceLock::new(),
+            initial: Mutex::new(catalog),
             dir: Mutex::new(None),
             fetcher: Mutex::new(None),
             refreshing: tokio::sync::Mutex::new(()),
             changed: broadcast::channel(16).0,
+            startup_loaded: startup_released,
+            startup_load: Once::new(),
         }
     }
 
+    fn read_stored(dir: &Path) -> Option<(Catalog, StoredCopy)> {
+        let bytes = std::fs::read(dir.join(STORE_FILE)).ok()?;
+        let copy: StoredCopy = match serde_json::from_slice(&bytes) {
+            Ok(copy) => copy,
+            Err(error) => {
+                tracing::warn!("the stored model catalog is not used: {error}");
+                return None;
+            }
+        };
+        match schema::parse(copy.catalog.get().as_bytes()) {
+            Ok(catalog) => Some((catalog, copy)),
+            Err(error) => {
+                tracing::warn!("the stored model catalog is not used: {error}");
+                None
+            }
+        }
+    }
+
+    fn load_state(&self) -> State {
+        let bundled = self
+            .initial
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+            .unwrap_or_else(|| Arc::new(bundled()));
+        let mut state = State {
+            catalog: bundled.clone(),
+            source: Source::Bundled,
+            etag: None,
+            fetched_at_ms: None,
+            last_error: None,
+            last_fetch: None,
+        };
+        if let Some(dir) = self.dir.lock().unwrap_or_else(PoisonError::into_inner).clone()
+            && let Some((catalog, copy)) = Self::read_stored(&dir)
+            && catalog.generated_at >= bundled.generated_at
+        {
+            state.catalog = Arc::new(catalog);
+            state.source = Source::Stored;
+            state.etag = copy.etag;
+            state.fetched_at_ms = Some(copy.fetched_at_ms);
+        }
+        state
+    }
+
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        self.state
+            .get_or_init(|| Mutex::new(self.load_state()))
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Keeps copies in `dir` and fetches with `fetcher` (None: never fetches); loads the
     /// stored copy when it is valid and not older than the one in use.
     pub fn attach(&self, dir: PathBuf, fetcher: Option<Arc<dyn Fetcher>>) {
-        let stored = std::fs::read(dir.join(STORE_FILE)).ok().and_then(|bytes| {
-            let copy: StoredCopy = serde_json::from_slice(&bytes).ok()?;
-            let body = serde_json::to_vec(&copy.catalog).ok()?;
-            match schema::parse(&body) {
-                Ok(catalog) => Some((catalog, copy)),
-                Err(e) => {
-                    tracing::warn!("the stored model catalog is not used: {e}");
-                    None
-                }
-            }
-        });
-        *self.dir.lock().unwrap_or_else(PoisonError::into_inner) = Some(dir);
+        *self.dir.lock().unwrap_or_else(PoisonError::into_inner) = Some(dir.clone());
         *self.fetcher.lock().unwrap_or_else(PoisonError::into_inner) = fetcher;
-        if let Some((catalog, copy)) = stored {
-            let mut state = self.state();
-            // ISO-8601 UTC strings of the same shape order as text.
+        if let Some(state) = self.state.get()
+            && let Some((catalog, copy)) = Self::read_stored(&dir)
+        {
+            let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
             if catalog.generated_at >= state.catalog.generated_at {
                 state.catalog = Arc::new(catalog);
                 state.source = Source::Stored;
@@ -216,6 +258,18 @@ impl CatalogService {
         self.changed.subscribe()
     }
 
+    /// Releases the background fetcher after the daemon has advertised readiness.
+    pub fn release_startup(self: &Arc<Self>, scope: &cmux_scope::Scope) {
+        let service = Arc::clone(self);
+        let done = self.startup_loaded.clone();
+        self.startup_load.call_once(|| {
+            scope.spawn_named("catalog startup load", async move {
+                let _ = tokio::task::spawn_blocking(move || drop(service.state())).await;
+                done.send_replace(true);
+            });
+        });
+    }
+
     /// Takes a fetched body when it is valid; true when the catalog in use changed.
     fn accept(&self, body: &[u8], etag: Option<String>) -> Result<bool, CatalogError> {
         let catalog = schema::parse(body)?;
@@ -231,15 +285,21 @@ impl CatalogService {
         };
         let dir = self.dir.lock().unwrap_or_else(PoisonError::into_inner).clone();
         if let Some(dir) = dir {
-            let raw: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
-            let copy = StoredCopy { etag, fetched_at_ms: fetched_at, catalog: raw };
-            match serde_json::to_vec(&copy) {
-                Ok(bytes) => {
-                    if let Err(e) = write_atomically(&dir.join(STORE_FILE), &bytes) {
-                        tracing::warn!("the model catalog could not be stored: {e}");
+            match serde_json::from_slice::<Box<RawValue>>(body) {
+                Ok(raw) => {
+                    let copy = StoredCopy { etag, fetched_at_ms: fetched_at, catalog: raw };
+                    match serde_json::to_vec(&copy) {
+                        Ok(bytes) => {
+                            if let Err(e) = write_atomically(&dir.join(STORE_FILE), &bytes) {
+                                tracing::warn!("the model catalog could not be stored: {e}");
+                            }
+                        }
+                        Err(e) => tracing::warn!("the model catalog could not be stored: {e}"),
                     }
                 }
-                Err(e) => tracing::warn!("the model catalog could not be stored: {e}"),
+                Err(error) => {
+                    tracing::warn!("the model catalog could not be stored: {error}");
+                }
             }
         }
         Ok(changed)
@@ -294,6 +354,8 @@ impl CatalogService {
 
     /// Fetches at once and then every [`REFRESH_EVERY`], until the task is dropped.
     pub async fn run(self: Arc<Self>) {
+        let mut startup = self.startup_loaded.subscribe();
+        let _ = startup.wait_for(|loaded| *loaded).await;
         let mut every = tokio::time::interval(REFRESH_EVERY);
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
@@ -306,3 +368,77 @@ impl CatalogService {
 #[cfg(test)]
 #[path = "log_lock_tests.rs"]
 mod log_lock_tests;
+
+#[cfg(test)]
+mod lazy_tests {
+    use super::*;
+
+    #[test]
+    fn construction_does_not_parse_or_read_the_catalog() {
+        let service = CatalogService::new();
+        assert!(service.state.get().is_none());
+    }
+
+    #[test]
+    fn the_first_reader_prefers_a_valid_newer_stored_copy() {
+        let dir = tempfile::tempdir().expect("catalog tempdir");
+        let mut catalog: Value = serde_json::from_str(BUNDLED).expect("bundled JSON");
+        catalog["generatedAt"] = json!("2099-01-01T00:00:00.000Z");
+        let raw = RawValue::from_string(serde_json::to_string(&catalog).unwrap()).unwrap();
+        let copy = StoredCopy { etag: Some("stored".to_owned()), fetched_at_ms: 7, catalog: raw };
+        std::fs::write(dir.path().join(STORE_FILE), serde_json::to_vec(&copy).unwrap())
+            .expect("stored catalog");
+        let service = CatalogService::new();
+        service.attach(dir.path().to_owned(), None);
+        assert_eq!(service.summary()["delivery"], "stored");
+        assert_eq!(service.current().generated_at, "2099-01-01T00:00:00.000Z");
+    }
+
+    #[test]
+    fn a_catalog_is_loaded_once_per_service_start() {
+        let dir = tempfile::tempdir().expect("catalog tempdir");
+        let service = CatalogService::new();
+        service.attach(dir.path().to_owned(), None);
+        let first = service.current();
+        let mut catalog: Value = serde_json::from_str(BUNDLED).expect("bundled JSON");
+        catalog["generatedAt"] = json!("2099-01-01T00:00:00.000Z");
+        let raw = RawValue::from_string(serde_json::to_string(&catalog).unwrap()).unwrap();
+        let copy = StoredCopy { etag: None, fetched_at_ms: 1, catalog: raw };
+        std::fs::write(dir.path().join(STORE_FILE), serde_json::to_vec(&copy).unwrap())
+            .expect("stored catalog after initialization");
+        let second = service.current();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(second.generated_at, first.generated_at);
+    }
+
+    #[test]
+    fn attach_after_a_first_read_loads_the_stored_copy() {
+        let dir = tempfile::tempdir().expect("catalog tempdir");
+        let service = CatalogService::new();
+        let bundled = service.current();
+        let mut catalog: Value = serde_json::from_str(BUNDLED).expect("bundled JSON");
+        catalog["generatedAt"] = json!("2099-01-01T00:00:00.000Z");
+        let raw = RawValue::from_string(serde_json::to_string(&catalog).unwrap()).unwrap();
+        let copy = StoredCopy { etag: None, fetched_at_ms: 2, catalog: raw };
+        std::fs::write(dir.path().join(STORE_FILE), serde_json::to_vec(&copy).unwrap())
+            .expect("stored catalog after first read");
+        service.attach(dir.path().to_owned(), None);
+        assert_ne!(service.current().generated_at, bundled.generated_at);
+        assert_eq!(service.summary()["delivery"], "stored");
+    }
+
+    #[tokio::test]
+    async fn release_starts_the_catalog_load_without_fetching() {
+        let service = Arc::new(CatalogService::new());
+        let dir = tempfile::tempdir().expect("catalog tempdir");
+        service.attach(dir.path().to_owned(), None);
+        let mut loaded = service.startup_loaded.subscribe();
+        let scope = cmux_scope::Scope::new("catalog test");
+        service.release_startup(&scope);
+        tokio::time::timeout(Duration::from_secs(5), loaded.wait_for(|done| *done))
+            .await
+            .expect("catalog load release timed out")
+            .expect("catalog load watch closed");
+        assert!(service.state.get().is_some());
+    }
+}

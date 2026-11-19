@@ -366,6 +366,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     crate::config::refuse_lost_home(&home())?;
+    // Construct the empty v2 handle before binding, but do no disk or chat work here.
+    // Its published index is filled by the list tee after the listener; the existing
+    // v1 store/session startup continues below this bind boundary.
+    let mut v2_tasks = tokio::task::JoinSet::new();
+    let v2 = v2_handle(&config);
+    let v2_start = v2.as_ref().is_some_and(|v2| v2.allows_surfaces(&["start"]));
+
     // `machine-auth` reads the env its agents start with from this record, never from /proc.
     if let Err(e) = crate::cli::machine_auth::record_daemon_env(&home()) {
         tracing::warn!("could not record the daemon's agent env: {e}");
@@ -373,11 +380,6 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Bind before durable startup work, so clients can connect independently of journal replay.
     // Requests wait for the hub and launch tokens; agent spawns wait for `finish_startup`.
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
-    // The v2 handle is created only after the listener is ready. Its empty
-    // published index is filled by the list tee in the follow-up lane; startup
-    // never waits on this handle or on a chat book.
-    let mut v2_tasks = tokio::task::JoinSet::new();
-    let v2 = v2_handle(&config);
     if let Some(v2) = v2.as_ref()
         && let Some(writer) = v2.take_writer()
     {
@@ -484,7 +486,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         }
     }
 
-    let store = crate::store::open(&config.store, &home())?;
+    let store = {
+        let _phase = v2_start.then(|| gauges.phase("store open"));
+        crate::store::open(&config.store, &home())?
+    };
     let mut moved_listener = false;
     let ws_listener = match &ws {
         // cx-fcaq: a taken explicit `--listen` stops the daemon (the caller asked for that
@@ -610,8 +615,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         });
     }
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
-    let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
+    let hub = {
+        let _phase = v2_start.then(|| gauges.phase("hub construct"));
+        Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone())
+    };
+    let _hub_ready_phase = gauges.phase("hub end to requests ready");
     if let Some(v2) = v2.as_ref() {
+        let _phase = gauges.phase("v2 tees");
         let (tee, task) = crate::hub::list_tee::start_v2_tee(hub.clone(), v2.clone());
         hub.install_v2_tee(tee);
         // Links carry the list stream only with `list` and `peers` in the set (`link_v2.rs`).
@@ -626,6 +636,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             hub.install_book_tee(tee);
             v2_tasks.spawn(task);
         }
+        drop(_phase);
     }
     // A copied machine's first start settles what the logs left open as stopped
     // (`hub/clone_boot.rs`); read before any log is.
@@ -790,6 +801,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // daemon answers read no token (or the previous launch's) and stayed remote-origin for its
     // whole life (Leo, 2026-11-12: his own Claude chat refused on his own Mac). The peer token
     // likewise, for a peer that reads it after asking this daemon.
+    let _auth_phase = gauges.phase("request auth files");
     let local_app = if ws_listener.is_some() {
         let mut pages = vec![crate::server::AGENT_PANE_ORIGIN.to_owned()];
         // The validated `--allow-dev-origin` values (loopback http, a port).
@@ -818,7 +830,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     } else {
         None
     };
+    drop(_auth_phase);
     // A re-bound socket's listener takes the old one's place (`daemon/socket_rebind.rs`).
+    let _listener_phase = gauges.phase("listener tasks");
     #[cfg(unix)]
     let (rebound_tx, rebound_rx) = tokio::sync::mpsc::channel(1);
     #[cfg(unix)]
@@ -840,6 +854,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             ws_shutdown.clone(),
         ))
     });
+    drop(_listener_phase);
     let ready = serde_json::json!({
         "ready": true,
         "pid": std::process::id(),
@@ -847,7 +862,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         "listen": bound,
         "webUrl": crate::hub::web_url(&*hub.config.read().await),
     });
+    drop(_hub_ready_phase);
     gauges.mark("requests ready");
+    hub.catalog.release_startup(&hub.scope);
     // The web URL carries the token; the log (often a 0644 file) never does.
     tracing::info!(
         "acpmux ready pid={} socket={} listen={}",

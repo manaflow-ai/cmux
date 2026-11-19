@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use super::{Line, State, Work};
+use super::{FoldGate, Line, State, Work};
 
 pub(crate) const FILE: &str = "turns.jsonl";
 
@@ -137,6 +137,15 @@ struct Writer {
     /// and a crash before the rewrite landed would skip the seed for good.
     awaiting_seed: bool,
     state: Arc<Mutex<State>>,
+    fold_gate: Arc<FoldGate>,
+}
+
+impl Writer {
+    fn lock_state(&self) -> Option<std::sync::MutexGuard<'_, State>> {
+        let _ = self.fold_gate.wait();
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.folded.then_some(state)
+    }
 }
 
 impl Writer {
@@ -182,7 +191,7 @@ impl Writer {
     /// rename: a crash leaves the old file or the new one, never part of either. True when it did.
     fn compact(&mut self) -> bool {
         let (lines, seq) = {
-            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            let Some(state) = self.lock_state() else { return false };
             (snapshot(&state), state.seq)
         };
         let tmp = self.dir.join(format!("{FILE}.tmp"));
@@ -241,7 +250,7 @@ impl Writer {
     fn repo(&mut self, sid: String, cwd: &Path) {
         let Some(repo) = crate::git_state::origin_repo(cwd) else { return };
         let line = {
-            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            let Some(mut state) = self.lock_state() else { return };
             // Purged while the lookup waited: nothing comes back for it.
             if !state.sessions.contains_key(sid.as_str()) {
                 return;
@@ -335,27 +344,75 @@ impl WriterThread {
 pub(crate) fn spawn_writer(
     dir: PathBuf,
     path: PathBuf,
-    size: u64,
     compact_bytes: u64,
-    awaiting_seed: bool,
+    hold_for_seed: bool,
     state: Arc<Mutex<State>>,
+    fold_gate: Arc<FoldGate>,
+    fatal: crate::supervise::Fatal,
 ) -> Option<(Sender<Work>, WriterThread)> {
+    #[cfg(test)]
+    if dir.join(".force-ledger-thread-start-failure").exists() {
+        return None;
+    }
     let (tx, rx) = std::sync::mpsc::channel();
     let (end_tx, ended) = std::sync::mpsc::sync_channel::<()>(0);
-    let writer = Writer {
-        dir,
-        path,
-        file: None,
-        size,
-        compact_bytes,
-        floor: 0,
-        written_upto: 0,
-        seed_pending: false,
-        awaiting_seed,
-        state,
-    };
     let spawned = std::thread::Builder::new().name("acpmux-ledger".into()).spawn(move || {
         let _end = end_tx;
+        let folded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            #[cfg(test)]
+            if path.with_extension("panic").exists() {
+                std::panic::resume_unwind(Box::new("forced ledger fold panic"));
+            }
+            #[cfg(test)]
+            while path.with_extension("hold").exists() {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            let mut loaded = State::default();
+            let size = super::store::fold(&path, &mut loaded);
+            let awaiting_seed = hold_for_seed && !loaded.existed;
+            let ids: Vec<_> = loaded.sessions.keys().cloned().collect();
+            let repos = ids
+                .into_iter()
+                .filter_map(|id| {
+                    let cwd = loaded.sessions.get(&id).and_then(|row| row.cwd.clone())?;
+                    loaded
+                        .wants_repo(&id)
+                        .then(|| Work::Repo { sid: id.to_string(), cwd: PathBuf::from(cwd) })
+                })
+                .collect::<Vec<_>>();
+            #[cfg(test)]
+            if path.with_extension("panic-under-lock").exists() {
+                let _guard = state.lock().unwrap_or_else(PoisonError::into_inner);
+                std::panic::resume_unwind(Box::new("forced ledger fold panic while holding state"));
+            }
+            loaded.folded = true;
+            *state.lock().unwrap_or_else(PoisonError::into_inner) = loaded;
+            (size, awaiting_seed, repos)
+        }));
+        let Ok((size, awaiting_seed, repos)) = folded else {
+            fatal.raise("the ledger initial fold panicked".into());
+            fold_gate.finish(Err("ledger fold worker panicked".into()));
+            return;
+        };
+        fold_gate.finish(Ok(()));
+        let mut writer = Writer {
+            dir,
+            path,
+            file: None,
+            size,
+            compact_bytes,
+            floor: 0,
+            written_upto: 0,
+            seed_pending: false,
+            awaiting_seed,
+            state,
+            fold_gate,
+        };
+        for work in repos {
+            if let Work::Repo { sid, cwd } = work {
+                writer.repo(sid, &cwd);
+            }
+        }
         writer.run(rx);
     });
     match spawned {
@@ -364,5 +421,118 @@ pub(crate) fn spawn_writer(
             tracing::warn!("ledger: no writer thread: {e}");
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Ledger, LedgerQuery, Line, Totals};
+    use super::FILE;
+
+    #[test]
+    fn an_immediate_query_waits_for_the_writer_thread_fold() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path()).unwrap();
+        let line = Line::Spend {
+            sid: "chat".into(),
+            at: 1,
+            model: "unknown".into(),
+            pv: "test".into(),
+            totals: Totals { turns: 1, ..Default::default() },
+            saved: None,
+        };
+        std::fs::write(
+            dir.path().join(FILE),
+            format!("{}\n", serde_json::to_string(&line).unwrap()),
+        )
+        .unwrap();
+        let ledger = Ledger::open_with(
+            Some(dir.path().to_path_buf()),
+            super::super::COMPACT_BYTES,
+            "test".into(),
+        );
+        let query = LedgerQuery::from_params(&serde_json::json!({}), 1).unwrap();
+        assert_eq!(ledger.query(&query).totals.turns, 1);
+    }
+
+    #[test]
+    fn a_fold_panic_closes_the_ledger_and_does_not_write_afterward() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path()).unwrap();
+        let path = dir.path().join(FILE);
+        std::fs::write(&path, b"seed\n").unwrap();
+        std::fs::write(path.with_extension("panic-under-lock"), b"test").unwrap();
+        let ledger = Ledger::open_with(
+            Some(dir.path().to_path_buf()),
+            super::super::COMPACT_BYTES,
+            "test".into(),
+        );
+        ledger.suppress("chat");
+        assert!(ledger.failure().is_some(), "fold panic did not raise Fatal");
+        assert!(ledger.state.is_poisoned(), "the fold failure seam did not poison the state mutex");
+        assert!(ledger.lock().is_none(), "a failed fold exposed poisoned state");
+        assert_eq!(std::fs::read(&path).unwrap(), b"seed\n");
+    }
+
+    #[test]
+    fn a_fold_waiter_sees_folded_state_after_the_writer_releases() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path()).unwrap();
+        let path = dir.path().join(FILE);
+        std::fs::write(
+            &path,
+            format!(
+                "{}\n",
+                serde_json::to_string(&Line::Spend {
+                    sid: "chat".into(),
+                    at: 1,
+                    model: "unknown".into(),
+                    pv: "test".into(),
+                    totals: Totals { turns: 1, ..Default::default() },
+                    saved: None,
+                })
+                .unwrap()
+            ),
+        )
+        .unwrap();
+        std::fs::write(path.with_extension("hold"), b"test").unwrap();
+        let ledger = std::sync::Arc::new(Ledger::open_with(
+            Some(dir.path().to_path_buf()),
+            super::super::COMPACT_BYTES,
+            "test".into(),
+        ));
+        let query = LedgerQuery::from_params(&serde_json::json!({}), 1).unwrap();
+        let reader = {
+            let ledger = ledger.clone();
+            std::thread::spawn(move || ledger.query(&query).totals.turns)
+        };
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::fs::remove_file(path.with_extension("hold")).unwrap();
+        assert_eq!(reader.join().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_writer_thread_start_failure_folds_inline_before_returning() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path()).unwrap();
+        let path = dir.path().join(FILE);
+        let line = Line::Spend {
+            sid: "chat".into(),
+            at: 1,
+            model: "unknown".into(),
+            pv: "test".into(),
+            totals: Totals { turns: 1, ..Default::default() },
+            saved: None,
+        };
+        std::fs::write(&path, format!("{}\n", serde_json::to_string(&line).unwrap())).unwrap();
+        std::fs::write(dir.path().join(".force-ledger-thread-start-failure"), b"test").unwrap();
+        let ledger = Ledger::open_with(
+            Some(dir.path().to_path_buf()),
+            super::super::COMPACT_BYTES,
+            "test".into(),
+        );
+        let query = LedgerQuery::from_params(&serde_json::json!({}), 1).unwrap();
+        assert_eq!(ledger.query(&query).totals.turns, 1);
+        assert!(ledger.failure().is_none());
     }
 }

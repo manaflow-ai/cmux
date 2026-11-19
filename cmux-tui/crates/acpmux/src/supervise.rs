@@ -54,6 +54,12 @@ impl Fatal {
             Err(_) => std::future::pending().await,
         }
     }
+
+    /// The first fatal reason, for synchronous request boundaries that must fail instead of
+    /// exposing state after a supervised task stopped.
+    pub(crate) fn reason(&self) -> Option<String> {
+        self.0.borrow().clone()
+    }
 }
 
 /// Run `task` until it returns, and again after each panic. Aborting the handle ends it.

@@ -26,6 +26,12 @@ impl V2Surfaces {
                 log_unknown_surface(name);
             }
         }
+        // `start` is the daemon-wide opt-in for the actor service: it enables
+        // both books and chat routing. Keep the setting itself empty by
+        // default so v1 remains byte-for-byte unchanged until opted in.
+        if known.contains("start") {
+            known.insert("chat");
+        }
         if known.contains("chat") || known.contains("start") {
             known.insert("books");
         }

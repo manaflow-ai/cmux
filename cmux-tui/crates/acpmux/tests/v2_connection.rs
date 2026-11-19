@@ -2,6 +2,10 @@
 //! driver. Run alone: cargo test -p acpmux --release --test v2_connection -- --ignored --nocapture --test-threads=1
 #![cfg(target_os = "linux")]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&["V2_GATE_OUT"]);
+
 use acpmux_book::gate_rounds::{self, all_p95, best_p95};
 use acpmux_book::index::{Summary, SummaryIndex};
 use acpmux_core::conn::{self, ConnectionState, HubSource, Offer};
@@ -17,6 +21,362 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tokio::sync::watch;
+
+fn file_bytes(root: &std::path::Path) -> u64 {
+    std::fs::read_dir(root)
+        .expect("fixture directory")
+        .map(|entry| {
+            let path = entry.expect("fixture entry").path();
+            let metadata = std::fs::symlink_metadata(&path).expect("fixture metadata");
+            if metadata.is_dir() { file_bytes(&path) } else { metadata.len() }
+        })
+        .sum()
+}
+
+fn chat_count(root: &std::path::Path) -> usize {
+    std::fs::read_dir(root)
+        .expect("fixture sessions directory")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().is_dir())
+        .count()
+}
+
+fn start_fixture(mut shape: acpmux::god_fixture::Shape) -> tempfile::TempDir {
+    let scratch = tempfile::tempdir().expect("fixture scratch");
+    std::fs::write(scratch.path().join("config.json"), json!({"acpmux.v2": ["start"]}).to_string())
+        .expect("v2 config");
+    if shape.name == "god" {
+        shape.chats = 527;
+        shape.god_bytes = 4 * 1024 * 1024 * 1024;
+    }
+    let made = acpmux::god_fixture::write_home(
+        scratch.path(),
+        &scratch.path().join("claude"),
+        &scratch.path().join("work"),
+        &shape,
+    )
+    .expect("store-backed fixture");
+    assert_eq!(made.others.len() + 1, shape.chats, "fixture chat count");
+    assert_eq!(chat_count(&scratch.path().join("sessions")), shape.chats, "fixture chat dirs");
+    if shape.name == "god" {
+        assert!(
+            file_bytes(&scratch.path().join("sessions")) >= shape.god_bytes,
+            "fixture store size"
+        );
+    }
+    scratch
+}
+
+async fn daemon_hello(socket: &std::path::Path) {
+    tokio::time::timeout(Duration::from_secs(30), daemon_hello_inner(socket))
+        .await
+        .expect("daemon hello timed out");
+}
+
+/// Reads v1's status gauges over a fresh connection after the readiness clock has ended.
+async fn daemon_status(socket: &std::path::Path) -> serde_json::Value {
+    tokio::time::timeout(Duration::from_secs(30), daemon_status_inner(socket))
+        .await
+        .expect("status request timed out")
+}
+
+async fn daemon_status_inner(socket: &std::path::Path) -> serde_json::Value {
+    let mut client = UnixStream::connect(socket).await.expect("connect status daemon");
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "_acpmux/status",
+        "params": {}
+    });
+    client.write_all(format!("{request}\n").as_bytes()).await.expect("send status request");
+    let bytes = tokio::time::timeout(Duration::from_secs(30), async {
+        let mut bytes = Vec::new();
+        loop {
+            let byte = client.read_u8().await.expect("read status response");
+            if byte == b'\n' {
+                break;
+            }
+            bytes.push(byte);
+        }
+        bytes
+    })
+    .await
+    .expect("read status response timed out");
+    let reply: serde_json::Value = serde_json::from_slice(&bytes).expect("status response JSON");
+    assert_eq!(reply.get("id"), Some(&json!(1)), "status response id");
+    assert!(reply.get("error").is_none(), "status request failed: {reply}");
+    let startup = reply
+        .pointer("/result/gauges/startup")
+        .and_then(serde_json::Value::as_array)
+        .expect("status gauges startup array");
+    for name in ["store open", "hub construct"] {
+        let phase = startup.iter().find(|phase| phase["name"] == name).unwrap_or_else(|| {
+            panic!("status gauges missing completed phase {name:?}: {startup:?}")
+        });
+        assert!(
+            phase["ms"].as_u64().is_some(),
+            "status gauges phase {name:?} was not complete: {phase}"
+        );
+    }
+    reply["result"].clone()
+}
+
+#[derive(Default)]
+struct PhaseSamples {
+    at_ms: Vec<u64>,
+    at_us: Vec<u64>,
+    ms: Vec<u64>,
+    us: Vec<u64>,
+    cpu_us: Vec<u64>,
+    major_faults: Vec<u64>,
+    minor_faults: Vec<u64>,
+    voluntary_switches: Vec<u64>,
+    involuntary_switches: Vec<u64>,
+}
+
+fn distribution(values: &mut [u64]) -> serde_json::Value {
+    if values.is_empty() {
+        return json!({"p95": 0, "median": 0, "max": 0});
+    }
+    values.sort_unstable();
+    let p95 = values[((values.len() * 95).saturating_add(99) / 100).saturating_sub(1)];
+    let median = values[values.len() / 2];
+    let max = *values.last().unwrap_or(&0);
+    json!({"p95": p95, "median": median, "max": max})
+}
+
+fn startup_phase_summary(samples: &[serde_json::Value]) -> serde_json::Value {
+    let mut by_name: BTreeMap<String, PhaseSamples> = BTreeMap::new();
+    for startup in samples {
+        for phase in startup.as_array().into_iter().flatten() {
+            let (Some(name), Some(at_ms), Some(at_us), Some(ms), Some(us)) = (
+                phase["name"].as_str(),
+                phase["atMs"].as_u64(),
+                phase["atUs"].as_u64(),
+                phase["ms"].as_u64(),
+                phase["us"].as_u64(),
+            ) else {
+                continue;
+            };
+            let phase_samples = by_name.entry(name.to_owned()).or_default();
+            phase_samples.at_ms.push(at_ms);
+            phase_samples.at_us.push(at_us);
+            phase_samples.ms.push(ms);
+            phase_samples.us.push(us);
+            phase_samples.cpu_us.push(phase["cpuUs"].as_u64().unwrap_or(0));
+            phase_samples.major_faults.push(phase["majorFaults"].as_u64().unwrap_or(0));
+            phase_samples.minor_faults.push(phase["minorFaults"].as_u64().unwrap_or(0));
+            phase_samples.voluntary_switches.push(phase["voluntarySwitches"].as_u64().unwrap_or(0));
+            phase_samples
+                .involuntary_switches
+                .push(phase["involuntarySwitches"].as_u64().unwrap_or(0));
+        }
+    }
+    serde_json::Value::Object(
+        by_name
+            .into_iter()
+            .map(|(name, mut phase)| {
+                let samples = phase.at_ms.len();
+                (
+                    name,
+                    json!({
+                        "samples": samples,
+                        "atMs": distribution(&mut phase.at_ms),
+                        "atUs": distribution(&mut phase.at_us),
+                        "ms": distribution(&mut phase.ms),
+                        "us": distribution(&mut phase.us),
+                        "cpuUs": distribution(&mut phase.cpu_us),
+                        "majorFaults": distribution(&mut phase.major_faults),
+                        "minorFaults": distribution(&mut phase.minor_faults),
+                        "voluntarySwitches": distribution(&mut phase.voluntary_switches),
+                        "involuntarySwitches": distribution(&mut phase.involuntary_switches),
+                    }),
+                )
+            })
+            .collect(),
+    )
+}
+
+fn startup_thread_summary(samples: &[serde_json::Value]) -> serde_json::Value {
+    samples.first().cloned().unwrap_or(serde_json::Value::Null)
+}
+
+fn outside_session_file_sizes(root: &std::path::Path) -> BTreeMap<String, u64> {
+    fn visit(root: &std::path::Path, path: &std::path::Path, sizes: &mut BTreeMap<String, u64>) {
+        let Ok(relative) = path.strip_prefix(root) else { return };
+        if relative.components().next().is_some_and(|component| component.as_os_str() == "sessions")
+        {
+            return;
+        }
+        let Ok(metadata) = std::fs::symlink_metadata(path) else { return };
+        if metadata.is_dir() {
+            let Ok(entries) = std::fs::read_dir(path) else { return };
+            for entry in entries.flatten() {
+                visit(root, &entry.path(), sizes);
+            }
+        } else {
+            sizes.insert(relative.to_string_lossy().into_owned(), metadata.len());
+        }
+    }
+
+    let mut sizes = BTreeMap::new();
+    visit(root, root, &mut sizes);
+    sizes
+}
+
+type OutsideFileSamples = Option<(BTreeMap<String, u64>, BTreeMap<String, u64>)>;
+
+fn outside_file_summary(samples: &OutsideFileSamples) -> serde_json::Value {
+    match samples {
+        Some((first, last)) => json!({"first": first, "last": last}),
+        None => serde_json::Value::Null,
+    }
+}
+
+async fn daemon_hello_inner(socket: &std::path::Path) {
+    let mut client = tokio::time::timeout(Duration::from_secs(30), UnixStream::connect(socket))
+        .await
+        .expect("connect ready daemon timed out")
+        .expect("connect ready daemon");
+    let upgrade = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "_acpmux/v2",
+        "params": {"protocol": 2, "surfaces": ["chat"]}
+    });
+    client.write_all(format!("{}\n", upgrade).as_bytes()).await.expect("send v2 upgrade");
+    let bytes = tokio::time::timeout(Duration::from_secs(30), async {
+        let mut bytes = Vec::new();
+        loop {
+            let byte = client.read_u8().await.expect("read v2 upgrade");
+            if byte == b'\n' {
+                break;
+            }
+            bytes.push(byte);
+        }
+        bytes
+    })
+    .await
+    .expect("read v2 upgrade timed out");
+    let reply: serde_json::Value = serde_json::from_slice(&bytes).expect("v2 upgrade reply");
+    assert_eq!(reply.pointer("/result/upgrade"), Some(&json!(true)));
+    let surfaces = reply
+        .pointer("/result/surfaces")
+        .and_then(serde_json::Value::as_array)
+        .expect("advertised v2 surfaces");
+    assert!(surfaces.iter().any(|surface| surface == "chat"));
+    hello(&mut client).await;
+}
+
+#[test]
+#[ignore = "release startup gate; run through scripts/cmux-next/run-v2-gates.sh"]
+fn v2_pr09_listen_start() {
+    const ROUNDS: usize = 5;
+    const SAMPLES: usize = 20;
+    let fixture_started = Instant::now();
+    let small_fixture = start_fixture(acpmux::god_fixture::Shape {
+        chats: 1,
+        ..acpmux::god_fixture::Shape::small()
+    });
+    let god_fixture = start_fixture(acpmux::god_fixture::Shape::god());
+    let fixture_build_seconds = fixture_started.elapsed().as_secs_f64();
+    let mut small = Vec::with_capacity(ROUNDS);
+    let mut god = Vec::with_capacity(ROUNDS);
+    let mut startup_phases =
+        [Vec::with_capacity(ROUNDS * SAMPLES), Vec::with_capacity(ROUNDS * SAMPLES)];
+    let mut diagnostic_threads = [Vec::with_capacity(1), Vec::with_capacity(1)];
+    let mut outside_files: Vec<OutsideFileSamples> = vec![None, None];
+    let mut forced_kills = 0;
+    for round in 0..ROUNDS {
+        let mut small_round = Vec::with_capacity(SAMPLES);
+        let mut god_round = Vec::with_capacity(SAMPLES);
+        for side in 0..2 {
+            let (chats, samples) =
+                if (round + side) % 2 == 0 { (1, &mut small_round) } else { (527, &mut god_round) };
+            for _ in 0..SAMPLES {
+                let scratch = if chats == 527 { &god_fixture } else { &small_fixture };
+                let daemon = daemon_env::spawn_ready_daemon(scratch.path());
+                samples.push(daemon.startup.as_nanos());
+                // The readiness clock ends before this hello and child stop.
+                let runtime = tokio::runtime::Runtime::new().expect("gate runtime");
+                runtime.block_on(daemon_hello(&daemon.socket));
+                assert!(daemon.ready.contains("\"ready\":true"));
+                let side = if chats == 527 { 1 } else { 0 };
+                startup_phases[side].push(
+                    runtime.block_on(daemon_status(&daemon.socket))["gauges"]["startup"].clone(),
+                );
+                forced_kills += usize::from(daemon.stop());
+                let sizes = outside_session_file_sizes(scratch.path());
+                match &mut outside_files[side] {
+                    Some((_, last)) => *last = sizes,
+                    slot @ None => *slot = Some((sizes.clone(), sizes)),
+                }
+            }
+        }
+        small.push(small_round);
+        god.push(god_round);
+    }
+    for (side, scratch) in [&small_fixture, &god_fixture].into_iter().enumerate() {
+        let options = daemon_env::ReadyDaemonOptions {
+            env: vec![("ACPMUX_STARTUP_THREAD_TABLE".into(), "1".into())],
+            ..Default::default()
+        };
+        let daemon = daemon_env::spawn_ready_daemon_with(scratch.path(), &options);
+        let runtime = tokio::runtime::Runtime::new().expect("diagnostic gate runtime");
+        runtime.block_on(daemon_hello(&daemon.socket));
+        diagnostic_threads[side]
+            .push(runtime.block_on(daemon_status(&daemon.socket))["gauges"]["startup"].clone());
+        forced_kills += usize::from(daemon.stop());
+    }
+    assert_eq!(small.len(), ROUNDS);
+    assert_eq!(god.len(), ROUNDS);
+    let measures = |rounds: Vec<Vec<u128>>| rounds;
+    let small = measures(small);
+    let god = measures(god);
+    gate_rounds::report("v2.pr09.listen_start", &[("small", &small), ("god", &god)]);
+    let small_p95 = best_p95(&small);
+    let god_p95 = best_p95(&god);
+    let god_p95_all = all_p95(&god);
+    eprintln!(
+        "v2.pr09.listen_start startup phases small={} god={} startup threads small={} god={} outside files small={} god={}",
+        startup_phase_summary(&startup_phases[0]),
+        startup_phase_summary(&startup_phases[1]),
+        startup_thread_summary(&diagnostic_threads[0]),
+        startup_thread_summary(&diagnostic_threads[1]),
+        outside_file_summary(&outside_files[0]),
+        outside_file_summary(&outside_files[1])
+    );
+    assert_eq!(forced_kills, 0, "daemon required force-kill during orderly gate stop");
+    assert_eq!(chat_count(&god_fixture.path().join("sessions")), 527, "god fixture chats");
+    assert!(
+        file_bytes(&god_fixture.path().join("sessions")) >= 4 * 1024 * 1024 * 1024,
+        "god fixture store size"
+    );
+    let line = json!({
+        "name": "v2.pr09.listen_start",
+        "small_p95": small_p95,
+        "god_p95": god_p95,
+        "god_p95_all": god_p95_all,
+        "unit": "ns",
+    })
+    .to_string();
+    eprintln!("{line} fixture_build_seconds={fixture_build_seconds:.3}");
+    if let Some(path) = std::env::var_os("V2_GATE_OUT") {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut file| writeln!(file, "{line}"))
+            .expect("gate output");
+    }
+    assert!(
+        god_p95.saturating_mul(10) <= small_p95.saturating_mul(12),
+        "god/small startup ratio exceeded 1.2x: small_p95={small_p95}ns god_p95={god_p95}ns"
+    );
+    assert!(small_p95 > 0);
+    assert!(god_p95 <= 100_000_000, "god listener startup exceeded 100 ms");
+    assert!(god_p95_all <= 100_000_000, "all god listener samples exceeded 100 ms");
+}
 
 #[path = "../benches/v2/mod.rs"]
 #[allow(dead_code)]

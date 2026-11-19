@@ -10,6 +10,7 @@
 //! reads them even while startup runs.
 
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
@@ -34,8 +35,134 @@ struct Phase {
     name: &'static str,
     /// Milliseconds from [`Gauges::born`] to its start.
     at_ms: u64,
+    /// Microseconds from [`Gauges::born`] to its start.
+    at_us: u64,
     /// Its length; None while it runs. A mark is a phase of 0 ms.
     ms: Option<u64>,
+    /// Its length in microseconds; None while it runs. A mark is 0.
+    us: Option<u64>,
+    /// CPU and scheduler counters from the thread that owns the phase.
+    stats: ThreadStats,
+    threads_start: Option<Vec<ThreadInfo>>,
+    threads_end: Option<Vec<ThreadInfo>>,
+    threads_mark: Option<Vec<ThreadInfo>>,
+}
+
+#[derive(Clone)]
+struct ThreadInfo {
+    tid: u64,
+    name: String,
+    run_ns: Option<u64>,
+    wait_ns: Option<u64>,
+}
+
+#[cfg(target_os = "linux")]
+fn thread_snapshot() -> Vec<ThreadInfo> {
+    let mut result = Vec::new();
+    let Ok(entries) = std::fs::read_dir("/proc/self/task") else { return result };
+    for entry in entries.flatten() {
+        let Ok(tid) = entry.file_name().to_string_lossy().parse::<u64>() else { continue };
+        let name = std::fs::read_to_string(entry.path().join("comm"))
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        let schedstat =
+            std::fs::read_to_string(entry.path().join("schedstat")).ok().and_then(|text| {
+                let mut fields = text.split_whitespace();
+                Some((fields.next()?.parse().ok()?, fields.next()?.parse().ok()?))
+            });
+        let (run_ns, wait_ns) =
+            schedstat.map_or((None, None), |(run, wait)| (Some(run), Some(wait)));
+        result.push(ThreadInfo { tid, name, run_ns, wait_ns });
+    }
+    result.sort_by_key(|thread| thread.tid);
+    result
+}
+
+#[cfg(not(target_os = "linux"))]
+fn thread_snapshot() -> Vec<ThreadInfo> {
+    Vec::new()
+}
+
+fn thread_json(threads: &[ThreadInfo]) -> Value {
+    threads
+        .iter()
+        .map(|thread| {
+            (
+                format!("{}:{}", thread.tid, thread.name),
+                json!({
+                    "tid": thread.tid,
+                    "name": thread.name,
+                    "runNs": thread.run_ns,
+                    "waitNs": thread.wait_ns,
+                }),
+            )
+        })
+        .collect::<BTreeMap<_, _>>()
+        .into_iter()
+        .collect::<serde_json::Map<_, _>>()
+        .into()
+}
+
+fn startup_thread_table_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("ACPMUX_STARTUP_THREAD_TABLE")
+            .is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "yes"))
+    })
+}
+
+#[derive(Clone, Copy, Default)]
+struct ThreadStats {
+    cpu_us: u64,
+    major_faults: u64,
+    minor_faults: u64,
+    voluntary_switches: u64,
+    involuntary_switches: u64,
+}
+
+impl ThreadStats {
+    fn delta(self, start: Self) -> Self {
+        Self {
+            cpu_us: self.cpu_us.saturating_sub(start.cpu_us),
+            major_faults: self.major_faults.saturating_sub(start.major_faults),
+            minor_faults: self.minor_faults.saturating_sub(start.minor_faults),
+            voluntary_switches: self.voluntary_switches.saturating_sub(start.voluntary_switches),
+            involuntary_switches: self
+                .involuntary_switches
+                .saturating_sub(start.involuntary_switches),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn thread_stats() -> ThreadStats {
+    // SAFETY: both structures are plain integer outputs fully initialized by libc.
+    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+    let usage_ok = unsafe { libc::getrusage(libc::RUSAGE_THREAD, &mut usage) } == 0;
+    let mut clock = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    let clock_ok = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut clock) } == 0;
+    let cpu_us = if clock_ok {
+        u64::try_from(clock.tv_sec)
+            .unwrap_or(0)
+            .saturating_mul(1_000_000)
+            .saturating_add(u64::try_from(clock.tv_nsec).unwrap_or(0) / 1_000)
+    } else {
+        0
+    };
+    let value = |value: libc::c_long| u64::try_from(value).unwrap_or(0);
+    ThreadStats {
+        cpu_us,
+        major_faults: if usage_ok { value(usage.ru_majflt) } else { 0 },
+        minor_faults: if usage_ok { value(usage.ru_minflt) } else { 0 },
+        voluntary_switches: if usage_ok { value(usage.ru_nvcsw) } else { 0 },
+        involuntary_switches: if usage_ok { value(usage.ru_nivcsw) } else { 0 },
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn thread_stats() -> ThreadStats {
+    ThreadStats::default()
 }
 
 /// A running phase: its length is recorded when this drops.
@@ -43,20 +170,31 @@ pub struct PhaseGuard {
     gauges: &'static Gauges,
     index: usize,
     started: Instant,
+    thread_stats: ThreadStats,
+    threads_start: Option<Vec<ThreadInfo>>,
 }
 
 impl Drop for PhaseGuard {
     fn drop(&mut self) {
         let ms = millis(self.started.elapsed());
+        let us = micros(self.started.elapsed());
+        let stats = thread_stats().delta(self.thread_stats);
         let mut phases = self.gauges.phases.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(phase) = phases.get_mut(self.index) {
             phase.ms = Some(ms);
+            phase.us = Some(us);
+            phase.stats = stats;
+            phase.threads_end = self.threads_start.as_ref().map(|_| thread_snapshot());
         }
     }
 }
 
 fn millis(d: Duration) -> u64 {
     u64::try_from(d.as_millis()).unwrap_or(u64::MAX)
+}
+
+fn micros(d: Duration) -> u64 {
+    u64::try_from(d.as_micros()).unwrap_or(u64::MAX)
 }
 
 impl Gauges {
@@ -69,10 +207,37 @@ impl Gauges {
         let started = Instant::now();
         let mut phases = self.phases.lock().unwrap_or_else(PoisonError::into_inner);
         if phases.len() >= PHASES {
-            return PhaseGuard { gauges: self, index: usize::MAX, started };
+            return PhaseGuard {
+                gauges: self,
+                index: usize::MAX,
+                started,
+                thread_stats: thread_stats(),
+                threads_start: None,
+            };
         }
-        phases.push(Phase { name, at_ms: millis(started - self.born), ms: None });
-        PhaseGuard { gauges: self, index: phases.len() - 1, started }
+        phases.push(Phase {
+            name,
+            at_ms: millis(started - self.born),
+            at_us: micros(started - self.born),
+            ms: None,
+            us: None,
+            stats: ThreadStats::default(),
+            threads_start: None,
+            threads_end: None,
+            threads_mark: None,
+        });
+        let threads_start =
+            (startup_thread_table_enabled() && name == "hub construct").then(thread_snapshot);
+        if let Some(phase) = phases.last_mut() {
+            phase.threads_start = threads_start.clone();
+        }
+        PhaseGuard {
+            gauges: self,
+            index: phases.len() - 1,
+            started,
+            thread_stats: thread_stats(),
+            threads_start,
+        }
     }
 
     /// A point in startup (`socket ready`, `first list reply`), kept the first time only.
@@ -81,14 +246,44 @@ impl Gauges {
         if phases.len() >= PHASES || phases.iter().any(|p| p.name == name) {
             return;
         }
-        phases.push(Phase { name, at_ms: millis(self.born.elapsed()), ms: Some(0) });
+        phases.push(Phase {
+            name,
+            at_ms: millis(self.born.elapsed()),
+            at_us: micros(self.born.elapsed()),
+            ms: Some(0),
+            us: Some(0),
+            stats: ThreadStats::default(),
+            threads_start: None,
+            threads_end: None,
+            threads_mark: (startup_thread_table_enabled() && name == "requests ready")
+                .then(thread_snapshot),
+        });
     }
 
     /// `gauges` in `_acpmux/status`, but for the connections' queues, which the server adds.
     pub fn status(&self) -> Value {
         let phases: Vec<Value> = {
             let phases = self.phases.lock().unwrap_or_else(PoisonError::into_inner);
-            phases.iter().map(|p| json!({"name": p.name, "atMs": p.at_ms, "ms": p.ms})).collect()
+            phases
+                .iter()
+                .map(|p| {
+                    json!({
+                        "name": p.name,
+                        "atMs": p.at_ms,
+                        "atUs": p.at_us,
+                        "ms": p.ms,
+                        "us": p.us,
+                        "cpuUs": p.stats.cpu_us,
+                        "majorFaults": p.stats.major_faults,
+                        "minorFaults": p.stats.minor_faults,
+                        "voluntarySwitches": p.stats.voluntary_switches,
+                        "involuntarySwitches": p.stats.involuntary_switches,
+                        "threadsStart": p.threads_start.as_deref().map(thread_json),
+                        "threadsEnd": p.threads_end.as_deref().map(thread_json),
+                        "threads": p.threads_mark.as_deref().map(thread_json),
+                    })
+                })
+                .collect()
         };
         json!({
             "uptimeMs": millis(self.born.elapsed()),

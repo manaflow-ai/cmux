@@ -16,7 +16,16 @@ fn v2_surfaces_are_opt_in_and_default_empty() {
     assert!(enabled.contains("chat"));
     assert!(enabled.contains("start"));
     assert!(enabled.contains("books"), "chat/start imply the books surface");
+    assert!(enabled.contains("chat"), "start implies the chat surface");
     assert!(!enabled.contains("unknown"));
+}
+
+#[test]
+fn v2_start_alone_enables_books_and_chat_without_changing_the_default() {
+    let config = Config { acpmux_v2: V2Surfaces(vec!["start".into()]), ..Config::default() };
+    let enabled = config.acpmux_v2.enabled();
+    assert_eq!(enabled, ["books", "chat", "start"].into_iter().collect());
+    assert!(Config::default().acpmux_v2.enabled().is_empty());
 }
 
 #[test]

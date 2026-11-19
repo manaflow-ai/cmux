@@ -321,7 +321,7 @@ fn the_file_folds_back_to_the_same_ledger() {
         l.query(&all(0, D0 + 3 * DAY))
     };
     let after = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
-    assert!(after.lock().existed);
+    assert!(after.lock().unwrap().existed);
     assert_eq!(after.query(&all(0, D0 + 3 * DAY)), before);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -470,7 +470,7 @@ fn a_read_touches_only_the_buckets_in_its_range() {
     for s in 0..3 {
         turn(&l, &format!("new-{s}"), D0 + 10, 0, cost.clone(), "claude", "claude");
     }
-    let state = l.lock();
+    let state = l.lock().unwrap();
     let (reply, visited) = query::fold(&state, &all(D0, D0 + DAY - 1), "leo@test");
     assert_eq!(visited, 3);
     assert_eq!(reply.rows.len(), 3);
@@ -514,8 +514,8 @@ fn a_purged_session_leaves_the_index_and_the_file() {
         l.flush();
         let reply = l.query(&all(0, D0 + 3 * DAY));
         assert_eq!(reply.totals.turns, 1);
-        assert!(!l.lock().sessions.contains_key("gone"));
-        assert!(l.lock().days.values().all(|b| b.keys().all(|k| &*k.session != "gone")));
+        assert!(!l.lock().unwrap().sessions.contains_key("gone"));
+        assert!(l.lock().unwrap().days.values().all(|b| b.keys().all(|k| &*k.session != "gone")));
     }
     let text = std::fs::read_to_string(&path).unwrap();
     for needle in ["gone", "private plans", "ws-incognito", "/nowhere/private", "acme/secret"] {
@@ -524,7 +524,7 @@ fn a_purged_session_leaves_the_index_and_the_file() {
     let after = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
     let reply = after.query(&all(0, D0 + 3 * DAY));
     assert_eq!(reply.totals.turns, 1);
-    assert!(!after.lock().sessions.contains_key("gone"));
+    assert!(!after.lock().unwrap().sessions.contains_key("gone"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -541,7 +541,7 @@ fn a_tombstone_in_the_file_drops_what_came_before_it() {
     std::fs::write(dir.join(store::FILE), text).unwrap();
     let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
     assert_eq!(l.query(&all(D0, D0)).totals.turns, 1);
-    assert!(!l.lock().sessions.contains_key("x"));
+    assert!(!l.lock().unwrap().sessions.contains_key("x"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -703,7 +703,7 @@ fn a_seeded_session_looks_up_its_repository() {
     }]);
     l.flush();
     assert_eq!(
-        l.lock().sessions.get("a").and_then(|i| i.repo.clone()).as_deref(),
+        l.lock().unwrap().sessions.get("a").and_then(|i| i.repo.clone()).as_deref(),
         Some("acme/widgets")
     );
     let _ = std::fs::remove_dir_all(&dir);
@@ -746,7 +746,7 @@ fn a_folded_session_with_no_repository_looks_it_up() {
     let l = Ledger::open_with(Some(ledger_dir), COMPACT_BYTES, "leo@test".into());
     l.flush();
     assert_eq!(
-        l.lock().sessions.get("a").and_then(|i| i.repo.clone()).as_deref(),
+        l.lock().unwrap().sessions.get("a").and_then(|i| i.repo.clone()).as_deref(),
         Some("acme/widgets")
     );
     let _ = std::fs::remove_dir_all(&dir);
@@ -792,8 +792,8 @@ fn nothing_is_recorded_about_a_session_after_its_purge() {
             ctx: ctx("claude", "claude"),
         }]);
         l.flush();
-        assert!(!l.lock().sessions.contains_key("gone"));
-        assert!(!l.lock().open.contains_key("gone"));
+        assert!(!l.lock().unwrap().sessions.contains_key("gone"));
+        assert!(!l.lock().unwrap().open.contains_key("gone"));
         assert_eq!(l.query(&all(0, D0 + 3 * DAY)).totals.turns, 1);
     }
     let text = std::fs::read_to_string(&path).unwrap();
@@ -801,7 +801,7 @@ fn nothing_is_recorded_about_a_session_after_its_purge() {
         assert!(!text.contains(needle), "{needle} is in the file:\n{text}");
     }
     let after = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
-    assert!(!after.lock().sessions.contains_key("gone"));
+    assert!(!after.lock().unwrap().sessions.contains_key("gone"));
     assert_eq!(after.query(&all(0, D0 + 3 * DAY)).totals.turns, 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -833,7 +833,7 @@ fn a_meta_change_writes_one_session_line_only_when_a_field_changed() {
         // A session the ledger does not hold yet gets its fields at its first turn.
         l.note_session_info("a", ctx("claude", "claude").info);
         l.flush();
-        assert!(!l.lock().sessions.contains_key("a"));
+        assert!(!l.lock().unwrap().sessions.contains_key("a"));
         turn(&l, "a", D0, 0, json!({"model": "claude-opus-5-5"}), "claude", "claude");
         l.flush();
         let before = lines();
@@ -854,7 +854,7 @@ fn a_meta_change_writes_one_session_line_only_when_a_field_changed() {
         assert_eq!(lines(), before + 1);
     }
     let after = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
-    let s = after.lock();
+    let s = after.lock().unwrap();
     let row = s.sessions.get("a").unwrap();
     assert_eq!(row.title.as_deref(), Some("renamed"));
     assert_eq!(row.branch.as_deref(), Some("feature"));
@@ -989,7 +989,7 @@ fn a_deleted_chats_late_record_leaves_its_replacement_alone() {
     // The old chat's paused watcher resumes: a tool call and a result.
     r(&l, &old, "tool_call", D0 + 62_000, json!({}));
     r(&l, &old, "turn_result", D0 + 63_000, json!({"costUsd": 5.0}));
-    assert!(l.lock().open.contains_key("same"), "the new chat's turn is still open");
+    assert!(l.lock().unwrap().open.contains_key("same"), "the new chat's turn is still open");
     r(&l, &new, "turn_result", D0 + 71_000, json!({"costUsd": 1.0}));
     let t = l.query(&all(D0, D0)).totals;
     assert_eq!(t.turns, 1);

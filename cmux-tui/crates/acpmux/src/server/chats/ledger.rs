@@ -16,9 +16,19 @@ pub(super) fn handle(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Result<V
     if !matches!(origin, Origin::Local | Origin::LocalApp) {
         return Err(RpcError::method_not_found(method::MUX_LEDGER));
     }
+    if let Some(error) = hub.ledger.failure() {
+        return Err(RpcError::internal(format!("ledger unavailable: {error}")));
+    }
     let query = LedgerQuery::from_params(params, crate::store::now_ms())
         .map_err(RpcError::invalid_params)?;
-    serde_json::to_value(hub.ledger.query(&query)).map_err(|e| RpcError::internal(e.to_string()))
+    let reply = hub
+        .ledger
+        .try_query(&query)
+        .ok_or_else(|| RpcError::internal("ledger unavailable: initial fold failed"))?;
+    if let Some(error) = hub.ledger.failure() {
+        return Err(RpcError::internal(format!("ledger unavailable: {error}")));
+    }
+    serde_json::to_value(reply).map_err(|e| RpcError::internal(e.to_string()))
 }
 
 #[cfg(test)]
@@ -41,5 +51,13 @@ mod tests {
             assert!(reply["priceTable"]["version"].is_string());
         }
         assert!(handle(&hub, Origin::Local, &serde_json::json!({"groupBy": ["nope"]})).is_err());
+    }
+
+    #[test]
+    fn a_fatal_ledger_returns_an_rpc_error_instead_of_empty_totals() {
+        let hub = Hub::new(Config::default(), Box::new(MemoryStore::default()));
+        hub.fatal.raise("ledger initial fold panicked".into());
+        let error = handle(&hub, Origin::Local, &serde_json::json!({})).unwrap_err();
+        assert!(format!("{error:?}").contains("ledger unavailable"), "{error:?}");
     }
 }
