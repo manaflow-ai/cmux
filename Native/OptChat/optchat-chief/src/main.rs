@@ -9,7 +9,7 @@ use optchat_chief::paths::{Paths, mux_home};
 
 const USAGE: &str = "optchat-chief host --daemon-socket PATH [--mux-home DIR]   run the Chief host (one per MUX_HOME)
 optchat-chief mcp [--socket PATH | --mux-home DIR]           stdio MCP server with zoom and date
-optchat-chief integrations list | add NAME|URL|-- CMD | signin NAME | remove NAME | tools NAME | call NAME TOOL [JSON]
+optchat-chief integrations list | add NAME|URL|-- CMD | signin NAME | remove NAME | tools NAME | call NAME TOOL [JSON] | serve
                                                           the MCP connections of this build (in its acpmux home, shared with every Chief and agent)
 optchat-chief zoom ID N | date ID [--socket PATH | --mux-home DIR]  the memory tools as commands (harnesses without MCP)
 optchat-chief spawn \"task\" [\"task\" ...] | tell ID \"message\"     section 9's subagent tools as commands
@@ -196,10 +196,10 @@ fn main() -> std::process::ExitCode {
             }
         }
         Some(
-            tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
-            | "stop" | "sleep" | "watch" | "remember" | "transcript" | "control"
-            | "profile" | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
-            | "cloud_workspace"),
+            tool @ ("zoom" | "date" | "recall" | "memory_read" | "memory_write" | "memory_forget"
+            | "spawn" | "tell" | "peers" | "react" | "reply" | "send" | "stop" | "sleep"
+            | "watch" | "remember" | "transcript" | "control" | "profile" | "chiefs"
+            | "escalate-auth" | "escalate_auth" | "cloud-workspace" | "cloud_workspace"),
         ) => {
             let socket = flags
                 .value("socket")
@@ -401,6 +401,10 @@ fn main() -> std::process::ExitCode {
                                 optchat_chief::chief_settings::TRUSTED_AGENTS => {
                                     s.trusted_agents =
                                         optchat_chief::chief_settings::parse_trusted_agents(value)?
+                                }
+                                optchat_chief::chief_settings::RELAY_MCP_SERVERS => {
+                                    s.relay_mcp_servers =
+                                        optchat_chief::chief_settings::parse_mcp_servers(value)?
                                 }
                                 _ => return Err(format!("unknown setting {key:?}")),
                             }

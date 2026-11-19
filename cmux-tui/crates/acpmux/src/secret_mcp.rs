@@ -32,24 +32,13 @@ pub fn protocol_version(params: &Value) -> &'static str {
         .unwrap_or(NEWEST_PROTOCOL_VERSION)
 }
 
-/// Lists `connect_mcp_server` only with this set to `1`: until the daemon runs an approved
-/// server (plans/cmux-next/mcp-connect-DESIGN.md step 2b), an approval connects nothing, so agents
-/// do not see the tool by default.
-pub const MCP_CONNECT_PREVIEW_ENV: &str = "CMUX_MCP_CONNECT_PREVIEW";
-
 /// `value[key]` without an index: `Null` for a missing key or a value that is not an object.
 fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
     value.get(key).unwrap_or(&Value::Null)
 }
 
 fn tools() -> Value {
-    let mut all = all_tools();
-    if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1")
-        && let Some(list) = all.as_array_mut()
-    {
-        list.retain(|t| *field(t, "name") != "connect_mcp_server");
-    }
-    all
+    all_tools()
 }
 
 fn all_tools() -> Value {
@@ -190,15 +179,6 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
                 "host": field(&arguments, "host"), "timeoutSecs": field(&arguments, "timeoutSecs"),
             }),
         ),
-        Some("connect_mcp_server")
-            if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1") =>
-        {
-            return error_result(
-                "connect_mcp_server is not on yet: cmux cannot run an approved MCP server until its \
-                 sign-in and proxy land. Tell the user to add the server to the harness themselves."
-                    .to_owned(),
-            );
-        }
         Some("connect_mcp_server") => (
             method::MUX_MCP_CONNECT_REQUEST,
             json!({
@@ -267,5 +247,18 @@ mod tests {
         assert_eq!(version(json!("2099-01-01")), PROTOCOL_VERSIONS[0]);
         assert_eq!(version(json!(7)), PROTOCOL_VERSIONS[0]);
         assert_eq!(protocol_version(&Value::Null), PROTOCOL_VERSIONS[0]);
+    }
+
+    /// An approved server is kept and served to the agents its scope names (`cmux mcp serve`'s
+    /// `mcp_servers`), so the connect card is on by default, with no preview switch.
+    #[test]
+    fn connect_mcp_server_is_listed_by_default() {
+        let names: Vec<String> = tools()
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["name"].as_str().map(str::to_owned))
+            .collect();
+        assert!(names.iter().any(|n| n == "connect_mcp_server"), "{names:?}");
     }
 }
