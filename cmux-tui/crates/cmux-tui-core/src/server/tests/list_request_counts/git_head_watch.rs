@@ -12,7 +12,7 @@ use super::*;
 
 /// A session whose HEAD cache watches the HEAD files of its directories, as in a daemon.
 fn watched(name: &str, workspaces: usize) -> Session {
-    Session::of(name, workspaces)
+    Session::with_git_head_watch(name, workspaces, true)
 }
 
 /// Waits for the next `list-workspaces` reply with no `known` that has `branch` `count` times.
@@ -87,7 +87,7 @@ fn idle_watched_directories_cost_no_git_head_reads() {
         assert_eq!(app.list_since(mux, &known)["unchanged"], json!(true), "nothing changed");
         wait_until("each git HEAD refresh ended", || Mux::git_head_refreshes_running() == 0);
     }
-    let reads = Mux::watched_git_head_reads();
+    let reads = Mux::watched_git_head_reads(&session.root);
     assert_eq!(
         reads, 0,
         "{POLLS} polls with `known`, 3 seconds apart, over {K} directories whose HEAD did not \

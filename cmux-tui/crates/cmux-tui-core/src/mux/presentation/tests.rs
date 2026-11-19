@@ -341,6 +341,12 @@ fn cmux_next_git_head_reads_branches_worktrees_and_detached_heads() {
         .unwrap();
     assert_eq!(read_git_head(&worktree), Some(GitHead { name: "0123456".into(), detached: true }));
     assert_eq!(read_git_head(&root.join("gitdirs")), None);
+    // The directory the HEAD cache watches for each: the git dir of the HEAD, else the
+    // directory where a `.git` would make a repository.
+    let real = |path: std::path::PathBuf| std::fs::canonicalize(path).unwrap();
+    assert_eq!(read_git_head_at(&nested).1, real(repo.join(".git")));
+    assert_eq!(read_git_head_at(&worktree).1, real(worktree_git.clone()));
+    assert_eq!(read_git_head_at(&root.join("gitdirs")).1, real(root.join("gitdirs")));
 
     let mux = Mux::new_for_test("git-heads", SurfaceOptions::default());
     let nested_path = nested.to_string_lossy().into_owned();
