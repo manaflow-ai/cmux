@@ -22,6 +22,15 @@ final class GlassParityBackdropView: NSView {
     /// The Mac's desktop picture for `image` (``GlassParityPlayground`` reads it off the main actor).
     var picture: NSImage?
 
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
