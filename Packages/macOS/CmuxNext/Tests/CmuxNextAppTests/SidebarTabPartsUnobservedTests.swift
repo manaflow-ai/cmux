@@ -21,8 +21,9 @@ import Testing
 /// shows the new title or favicon and makes that one part. With no such answer in a part's input the 4 rows are
 /// red: the kept part shows the old value.
 ///
-/// One row more is of the row's page answer, which the app's title rule takes and does not ask again: for a tab
-/// that is no chat that answer gives no title to compare, and the row shows what a walk shows.
+/// Two rows more are of the row's page answer, which the app's title rule takes and does not ask again. For a chat
+/// on the New Tab page the title rule's own page rule is asked 0 times at a map where each part is kept. For a tab
+/// that is no chat that answer gives no title to compare, and the row shows what a walk shows. Both are guards.
 ///
 /// Limits: the 3 title sources are the title rule's own functions, set by the test (not the app's page provider,
 /// its incognito page or its history page); the incognito answer is given by the test, not by a window's
@@ -119,6 +120,38 @@ struct SidebarTabPartsUnobservedTests {
         try #require(titles.isNewTabPage(tab), "setup: the blank chat is not on the New Tab page")
         try Self.showsTheChange(session, Self.row(session, titles: titles, incognito: false), tab: tab.id, before: "New Tab", after: "History",
                                 what: "title", shown: \.title) { source.newTab = "History" }
+    }
+
+    /// A chat tab that is on the New Tab page, in a row that has a page rule: at a map where each part is kept, the
+    /// title rule takes the row's answer for each tab and does not ask its own page rule, at its guard or for the
+    /// page's name. The count is of the calls of the title rule's page rule. A guard: this row was not red first.
+    @Test func aRowWithAPageRuleGivesItsAnswerAndTheTitleRuleDoesNotAskItsOwn() throws {
+        let session = try Session(tabs: 6, blank: true) { tree in
+            tree.workspaces[0].screens[0].panes[0].tabs[2].title = ""
+        }
+        let tab = try #require(session.tabs.first { $0.kind == .conversation && $0.agentSession?.session == nil }, "setup: the storm workspace has no blank chat")
+        let counter = SidebarTabPartsTests.Counter()
+        var titles = TabTitleResolver(services: session.services)
+        let rule = titles.showsNewTabPage
+        titles.showsNewTabPage = { asked in
+            counter.calls += 1
+            return rule(asked)
+        }
+        titles.newTabPageTitle = { _ in "History" }
+        try #require(titles.isNewTabPage(tab), "setup: the blank chat is not on the New Tab page")
+        counter.calls = 0
+        try #require(titles.unobservedTitle(tab, incognito: false) == "History", "setup: the title rule does not give the page's own name for the blank chat")
+        try #require(counter.calls > 0, "setup: the title rule with no answer of a row did not ask its page rule: the counter counts nothing")
+
+        let row = Self.row(session, titles: titles, incognito: false)
+        let first = session.mapped(row.parts, title: row.title)
+        try #require(Session.item(tab.id, in: first.rows)?.title == "History", "setup: the row does not show the page's own name for the blank chat")
+        counter.calls = 0
+        let kept = session.mapped(row.parts, title: row.title)
+        let asked = counter.calls
+        try #require(kept.made == 0, "setup: the second map made \(kept.made) parts, want 0")
+        #expect(asked == 0, "a map with each part kept asked the title rule's page rule \(asked) times, want 0: the row gives its answer for each tab")
+        #expect(kept.rows == session.rows(nil, title: row.title), "the rows with kept parts are not the walk's rows")
     }
 
     /// A tab of the row's page set that is no chat. The row gives its page answer for each tab to the title rule, and
