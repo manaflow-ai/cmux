@@ -257,6 +257,10 @@ path = "tests/test_ci_launch_budget_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_light_hops_before_work.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_linux_compile_runners.py"
 lane = "linux-guard"
 
