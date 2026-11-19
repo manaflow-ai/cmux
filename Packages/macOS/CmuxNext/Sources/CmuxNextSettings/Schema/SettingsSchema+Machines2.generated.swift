@@ -55,6 +55,17 @@ extension MachineSettingsSchema {
                 keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
             ),
             SettingDescriptor(
+                RemoteSettings.shareWithOwnDevicesByDefaultPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.remote.shareWithOwnDevicesByDefault", "Share With My Devices by Default"),
+                help: SettingsText.keyed("settings.remote.shareWithOwnDevicesByDefault.help", "On: your other devices view this Mac with no Allow, until you stop sharing."),
+                summary: SettingsText.keyed("settings.remote.shareWithOwnDevicesByDefault.summary", "Your devices view it with no prompt"),
+                kind: .toggle,
+                default: .bool(RemoteSettings.shareWithOwnDevicesByDefaultDefault),
+                keywords: ["cmux remote", "screen sharing", "mac screen", "allow", "same account", "device hub"]
+            ),
+            SettingDescriptor(
                 RemoteSettings.ultraPath,
                 section: .general,
                 group: group,
