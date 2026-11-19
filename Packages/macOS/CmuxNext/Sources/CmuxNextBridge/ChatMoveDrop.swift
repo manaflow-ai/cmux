@@ -6,8 +6,10 @@ public import CmuxNextTabs
 /// the chat's Move to… (its targets, and the move itself).
 @MainActor
 public protocol ChatMoveHost: AnyObject {
-    /// The workspace of sidebar row `id`, and its machine (its daemon's machine id).
-    func chatMoveWorkspace(_ id: String) -> (workspace: WorkspaceModel, machine: String)?
+    /// The workspace of sidebar row `id`.
+    func chatMoveWorkspace(_ id: String) -> WorkspaceModel?
+    /// The machine that workspace is on (its daemon's machine id).
+    func chatMoveMachine(ofWorkspace id: String) -> String?
     func isChat(_ tab: AgentTabKey) -> Bool
     /// The chat's Move to… targets: machine ids as the sidebar names machines (`local`, a Cloud machine's id).
     func chatMoveTargets(_ tab: AgentTabKey) -> [String]
@@ -42,7 +44,7 @@ public struct ChatMoveDrop {
 
     /// Row `id`'s one chat tab and the machine it is on.
     private func chat(of id: WorkspaceID) -> (AgentTabKey, String)? {
-        guard let (workspace, machine) = host.chatMoveWorkspace(id.rawValue) else { return nil }
+        guard let workspace = host.chatMoveWorkspace(id.rawValue), let machine = host.chatMoveMachine(ofWorkspace: id.rawValue) else { return nil }
         let chats = workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { AgentTabKey(machine: machine, key: $0.id) }.filter(host.isChat)
         guard chats.count == 1, let chat = chats.first else { return nil }
         return (chat, machine)
