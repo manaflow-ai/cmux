@@ -2,7 +2,7 @@ import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import { useIcons } from "../../agent-session/acpmux/icons/iconsContextModel";
 import { bundledIconPack, MISSING_ICON } from "../../agent-session/acpmux/icons/iconPack";
 import { sceneText } from "./sceneStyle";
-import { symbolGlyphColor } from "./sceneSymbolRendering";
+import { symbolLayerPaint } from "./sceneSymbolRendering";
 
 /** The common SF symbols emitted by sample apps; pack names also pass through directly. */
 const SYMBOLS: Record<string, string> = {
@@ -43,8 +43,8 @@ export function appSceneIcon(value: unknown): string {
 }
 
 /** Unknown SF names deliberately draw a neutral fallback without an icon-pack warning. `rendering`
- * (`symbolRendering`) and `palette` (`symbolColors`) pick the glyph's color as SF Symbols' modes
- * do, for the glyph as a whole (sceneSymbolRendering.ts). */
+ * (`symbolRendering`) and `palette` (`symbolColors`) color the glyph's layers as SF Symbols' modes
+ * do, as far as the pack's layers allow (sceneSymbolRendering.ts). */
 export function SceneSymbol({
   symbol,
   size = 14,
@@ -64,6 +64,6 @@ export function SceneSymbol({
   const value = sceneText(symbol);
   const mapped = Object.hasOwn(pack.icons, value) ? value : SYMBOLS[value];
   const name = mapped && Object.hasOwn(pack.icons, mapped) ? mapped : MISSING_ICON;
-  const modeColor = name === MISSING_ICON ? undefined : symbolGlyphColor(value, rendering, palette);
-  return <Icon name={name} size={size} row fit color={modeColor ?? color} className={className} />;
+  const layerPaint = name === MISSING_ICON ? undefined : symbolLayerPaint(value, rendering, palette);
+  return <Icon name={name} size={size} row fit color={color} className={className} layerPaint={layerPaint} />;
 }
