@@ -61,26 +61,14 @@ impl Hub {
         });
     }
 
-    /// [`Self::send_offer_result`] once the person accepted an offer for `child`: the chat's
-    /// earlier "no offer started it" is forgotten first, as it may have been read before the
-    /// decision was logged.
-    pub(super) fn send_accepted_offer_result(self: &Arc<Self>, child: &Arc<Session>) {
-        self.offers.results.lock().unwrap_or_else(|e| e.into_inner()).remove(&child.id);
-        self.send_offer_result(child);
-    }
-
-    /// Sends the result; false when it was neither sent nor due (another turn retries). A chat
-    /// no accepted offer started is done too: its parent was set before any answer could name it
-    /// (`answer_offer` takes only a chat with none), so no later answer makes it an offer's, and an
-    /// answer sends anew ([`Self::send_accepted_offer_result`]). Every turn end of every
-    /// sub-session read its parent's whole kind index again: O(the parent's history) per turn.
+    /// Sends the result; false when it was neither sent nor due (another turn retries).
     pub(super) async fn offer_result(
         self: &Arc<Self>,
         child: &Arc<Session>,
         parent_id: &str,
     ) -> bool {
         let Ok(parent) = self.resolve(parent_id) else { return false };
-        let Some(started) = self.started_by_offer(&parent, &child.id) else { return true };
+        let Some(started) = self.started_by_offer(&parent, &child.id) else { return false };
         if started.sent {
             return true;
         }
