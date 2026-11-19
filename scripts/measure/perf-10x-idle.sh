@@ -163,7 +163,7 @@ if [[ -n "$axes" ]]; then
   if (( ${#axis_reports[@]} )); then
     python3 scripts/cmux-next/idle_axes_report.py --json "$work/idle-axes.json" --markdown "$work/idle-axes.md" \
       --machine "$(git rev-parse HEAD) on $(scutil --get ComputerName 2>/dev/null || hostname), measure=${measure}s settled=${settled}s" \
-      "${axis_reports[@]}" | sed 's/^/PERF-IDLE-AXES /' || status=$?
+      ${axis_reports[@]+"${axis_reports[@]}"} | sed 's/^/PERF-IDLE-AXES /' || status=$?
   fi
 fi
 if [[ -n "$agents" ]]; then

@@ -1,16 +1,21 @@
 // One launch of a cmux NEXT app the way the Dock launches it (CMUX-629, CMUX-631), timed from outside the app.
 //
-//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [shell] [layout]]]
+//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [shell] [layout] [movequit]]]
 //
 // With `shell` (launch-ready.sh state=bare), once the app marks `window_usable` the probe opens a terminal the way a
 // person's first one opens (`action.run newSurface` on the app's socket) and records `shell_requested`; the app's
 // `first_shell_live` mark is that terminal's first shell output.
 //
 // With `layout` (launch-ready.sh layout=1), from the first on-screen frame the probe samples the first window's frame
-// (CGWindowList, any build) every 16 ms and the sidebar's edge (the middle of `debug.layers`'
-// sidebar_resize_area_in_window: a bench or DEBUG build) every 48 ms, until neither changed for 1 s or 3 s passed,
+// (CGWindowList, any build) every 16 ms on one thread and the sidebar's edge (the middle of `debug.layers`'
+// sidebar_resize_area_in_window: a bench or DEBUG build) as often as the app answers on another, until neither changed
+// for 1 s or 3 s passed (the sidebar's first answer can come after the first frame: its first_at says when),
 // and adds `layout` to the row: each one's first and last value, the most it moved from the first (points), how
 // many times it changed after the first sample, and when it last changed (ms from process start).
+// With `movequit` (launch-ready.sh layout=movequit, a DEBUG build), just before the quit the probe sets the window to the
+// other of two frames (`debug.window_frame`: one setFrame, as an Accessibility client resizes) and the sidebar to the
+// other of two widths (`debug.update_surfaces sidebar-width`), then quits at once, so the next launch starts from a
+// record the launch snapshot may not have caught up with; the row's `movequit` says what was set and the ms to the quit.
 //
 // Opens APP through LaunchServices (NSWorkspace.openApplication: a new instance, activated, as a Dock click does)
 // with a home under HOME_ROOT, and prints one `LR-RUN <json>` line. Times are ms from the app's process start
@@ -37,7 +42,7 @@ import Darwin
 
 let args = CommandLine.arguments
 guard args.count >= 4 else {
-    FileHandle.standardError.write(Data("usage: launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [shell] [layout]]]\n".utf8)); exit(2)
+    FileHandle.standardError.write(Data("usage: launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [shell] [layout] [movequit]]]\n".utf8)); exit(2)
 }
 let appURL = URL(fileURLWithPath: args[1]), homeRoot = URL(fileURLWithPath: args[2]), label = args[3]
 let settle = args.count > 4 ? Double(args[4]) ?? 6 : 6
@@ -46,7 +51,7 @@ guard socketPath.utf8.count <= 103 else { // sun_path less its NUL: the app coul
     FileHandle.standardError.write(Data("launch-ready: socket path \(socketPath.utf8.count) bytes, over 103: \(socketPath)\n".utf8)); exit(2)
 }
 let flags = Set(args.dropFirst(6))
-let opensShell = flags.contains("shell"), samplesLayout = flags.contains("layout")
+let opensShell = flags.contains("shell"), samplesLayout = flags.contains("layout"), movesBeforeQuit = flags.contains("movequit")
 var shellRequested: Double?
 let home = homeRoot.appendingPathComponent("h"), tmp = homeRoot.appendingPathComponent("t")
 for sub in ["Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"] {
@@ -155,7 +160,7 @@ func ownWindows(_ pid: pid_t) -> [(number: Int, frame: [Double])] {
 func ownWindowOnScreen(_ pid: pid_t) -> Bool { !ownWindows(pid).isEmpty }
 
 // One request on the app's control socket (line JSON, release methods only): its result, or nil.
-func rpc(_ method: String) -> [String: Any]? {
+func rpc(_ method: String, _ params: [String: Any] = [:]) -> [String: Any]? {
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
     guard fd >= 0 else { return nil }
     defer { close(fd) }
@@ -170,7 +175,7 @@ func rpc(_ method: String) -> [String: Any]? {
     let connected = withUnsafePointer(to: &address) {
         $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
     }
-    let message: [String: Any] = ["id": 1, "method": method, "params": [String: Any]()]
+    let message: [String: Any] = ["id": 1, "method": method, "params": params]
     guard connected == 0, let body = try? JSONSerialization.data(withJSONObject: message) else { return nil }
     let request = body + Data("\n".utf8)
     guard request.withUnsafeBytes({ write(fd, $0.baseAddress, request.count) }) == request.count else { return nil }
@@ -199,29 +204,59 @@ struct LayoutSeries {
          "first_at": rel(firstAt), "last_change_at": rel(lastChangeAt)]
     }
 }
-// layout: from the first on-screen frame, on its own thread so the launch's timer keeps its 1 ms ticks.
-var layoutWindow = LayoutSeries(), layoutSidebar = LayoutSeries(), layoutSamples = 0
-let layoutDone = DispatchSemaphore(value: 0)
+// layout: from the first on-screen frame, the window on one thread (CGWindowList only, so 16 ms apart) and the sidebar
+// on another (each read waits on the app's socket), so neither slows the other or the launch's 1 ms timer.
+var layoutWindow = LayoutSeries(), layoutSidebar = LayoutSeries(), layoutSamples = 0, sidebarSamples = 0
+let layoutLock = NSLock(), layoutDone = DispatchGroup()
+var layoutQuietSince = 0.0
+func layoutChanged(_ t: Double) { layoutLock.lock(); layoutQuietSince = t; layoutLock.unlock() }
+func layoutGoing(pid: pid_t, from seen: Double) -> Bool {
+    layoutLock.lock(); defer { layoutLock.unlock() }
+    return now() - seen < 3000 && now() - layoutQuietSince < 1000 && kill(pid, 0) == 0
+}
 func sampleLayout(pid: pid_t, window number: Int, from seen: Double) {
+    layoutQuietSince = now()
+    layoutDone.enter()
     DispatchQueue.global(qos: .userInitiated).async {
-        var quietSince = now(), tick = 0
-        while now() - seen < 3000, now() - quietSince < 1000, kill(pid, 0) == 0 {
+        while layoutGoing(pid: pid, from: seen) {
             let t = now()
-            var changed = layoutWindow.add(ownWindows(pid).first { $0.number == number }?.frame, at: t)
-            if tick % 3 == 0 {
-                let windows = rpc("debug.layers")?["windows"] as? [[String: Any]] ?? []
-                let own = windows.first { ($0["window_number"] as? Double).map(Int.init) == number } ?? windows.first
-                if let area = own?["sidebar_resize_area_in_window"] as? [Double], area.count == 4 {
-                    changed = layoutSidebar.add([(area[0] + area[2] / 2).rounded(toPlaces: 1)], at: t) || changed
-                }
-            }
+            if layoutWindow.add(ownWindows(pid).first { $0.number == number }?.frame, at: t) { layoutChanged(t) }
             layoutSamples += 1
-            tick += 1
-            if changed { quietSince = t }
             usleep(16_000)
         }
-        layoutDone.signal()
+        layoutDone.leave()
     }
+    layoutDone.enter()
+    DispatchQueue.global(qos: .userInitiated).async {
+        while layoutGoing(pid: pid, from: seen) {
+            let windows = rpc("debug.layers")?["windows"] as? [[String: Any]] ?? []
+            let own = windows.first { ($0["window_number"] as? Double).map(Int.init) == number } ?? windows.first
+            if let area = own?["sidebar_resize_area_in_window"] as? [Double], area.count == 4 {
+                let t = now()
+                if layoutSidebar.add([(area[0] + area[2] / 2).rounded(toPlaces: 1)], at: t) { layoutChanged(t) }
+            }
+            sidebarSamples += 1
+            usleep(16_000)
+        }
+        layoutDone.leave()
+    }
+}
+
+// movequit: what was set just before the quit and how long before it.
+var moveQuit: [String: Any]?
+func moveThenQuit(_ pid: pid_t) {
+    // Which of the two the last launch of this home set (a file in the home root), so each quit changes both.
+    let marker = homeRoot.appendingPathComponent("movequit.next")
+    let index = (try? String(contentsOf: marker, encoding: .utf8)) == "1" ? 1 : 0
+    let frames: [[Double]] = [[410, 92, 1100, 720], [300, 80, 1300, 800]], widths: [Double] = [260, 320]
+    let frame = rpc("debug.window_frame", ["frame": frames[index]])
+    let sidebar = rpc("debug.update_surfaces", ["action": "sidebar-width", "width": widths[index]])
+    let changed = now()
+    try? (index == 1 ? "0" : "1").write(to: marker, atomically: true, encoding: .utf8)
+    quitSent = now()
+    kill(pid, SIGTERM)
+    moveQuit = ["frame": frames[index], "frame_set": frame?["frame"] ?? NSNull(), "sidebar_width": widths[index],
+                "sidebar_previous": sidebar?["previous"] ?? NSNull(), "ms_to_quit": (quitSent! - changed).rounded(toPlaces: 1)]
 }
 
 // What is in front: the focused workspace (its model key, stable across launches), its tab and that tab's page
@@ -291,7 +326,10 @@ let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
         window = t; windowSeenAt = t
         if samplesLayout { sampleLayout(pid: pid, window: first.number, from: t) }
     }
-    if let seen = windowSeenAt, quitSent == nil, t - seen >= settle * 1000 { frontAtQuit = front(); quitSent = now(); kill(pid, SIGTERM) }
+    if let seen = windowSeenAt, quitSent == nil, t - seen >= settle * 1000 {
+        frontAtQuit = front()
+        if movesBeforeQuit { moveThenQuit(pid) } else { quitSent = now(); kill(pid, SIGTERM) }
+    }
     if window == nil, quitSent == nil, t - requested > 30_000 { failure = "no window in 30 s"; quitSent = t; kill(pid, SIGTERM) }
     if quitSent == nil, windowSeenAt != nil, app.isTerminated { quitSent = t }
     if let sent = quitSent {
@@ -337,8 +375,9 @@ if let frontAtQuit { row["front"] = frontAtQuit }
 if samplesLayout, window != nil {
     let finished = layoutDone.wait(timeout: .now() + 5) == .success
     row["layout"] = ["window": layoutWindow.row(rel), "sidebar": layoutSidebar.row(rel), "samples": layoutSamples,
-                     "complete": finished] as [String: Any]
+                     "sidebar_samples": sidebarSamples, "complete": finished] as [String: Any]
 }
+if let moveQuit { row["movequit"] = moveQuit }
 if let failure { row["error"] = failure }
 let data = try! JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
 print("LR-RUN", String(decoding: data, as: UTF8.self))

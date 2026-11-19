@@ -70,6 +70,7 @@ main() {
 build_dmg() {
   local out="$1" name="$2" config="$3" app configuration=(--release)
   [[ "$config" == bench ]] && configuration=(--config bench)
+  [[ "$config" == debug ]] && configuration=(--config debug) # launch-ready.sh layout=movequit: DEBUG's debug.* commands
   for sub in ghostty ghostty-next; do
     git submodule update --init --depth 1 "$sub" >>"$out/build-$name.log" 2>&1 || { echo "NFL submodule $sub failed" >&2; return 3; }
   done
