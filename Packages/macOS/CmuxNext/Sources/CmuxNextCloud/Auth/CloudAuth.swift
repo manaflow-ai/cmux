@@ -284,8 +284,15 @@ public final class CloudAuth {
             openExternalURL: openExternalURL,
             // The hosted page answers a PKCE challenge with a one-time code, redeemed over
             // HTTPS at the same origin; no token ever rides in the callback URL.
-            codeRedeemer: NativeSignInCodeRedeemer(authWebOrigin: configuration.authWebOrigin,
-                                                   scheme: configuration.callbackScheme)
+            // A capture fixture contacts no service, so it asks the origin nothing.
+            codeRedeemer: useCaptureFixture ? nil
+                : NativeSignInCodeRedeemer(authWebOrigin: configuration.authWebOrigin,
+                                           scheme: configuration.callbackScheme),
+            // An origin that once offered the code keeps it on every later launch.
+            codeExchangeMemory: HostBrowserCodeExchangeMemory(
+                keyValueStore: authDefaults,
+                key: configuration.authDefaultsKey("cmux.auth.codeExchangeOrigins")
+            )
         )
     }
 

@@ -237,6 +237,48 @@ describe("after sign-in native handoff", () => {
     expect(verifiedNativeConfirmation(new NextRequest(elsewhere), store)).toBe(false);
   });
 
+  test("plain-HTTP localhost in development uses a non-Secure cookie; production never does", async () => {
+    const cookies = await import("../app/handler/native-handoff-cookie");
+    const { NextResponse } = await import("next/server");
+    const nonce = cookies.makeNativeConfirmNonce();
+    const issued = (origin: string) => {
+      const request = new NextRequest(`${origin}/handler/after-sign-in`);
+      const response = NextResponse.next();
+      cookies.issueNativeConfirmCookie(response, request, nonce);
+      return response.headers.get("set-cookie") ?? "";
+    };
+    const previous = process.env.NODE_ENV;
+    const env = process.env as Record<string, string | undefined>;
+    try {
+      env.NODE_ENV = "development";
+      for (const origin of ["http://localhost:3000", "http://127.0.0.1:3000"]) {
+        const header = issued(origin);
+        expect(header).toContain(`${cookies.NATIVE_CONFIRM_DEV_COOKIE_NAME}=`);
+        expect(header).not.toContain("Secure");
+        expect(header).not.toContain("__Host-");
+      }
+      // HTTPS and any other host keep __Host- even in development.
+      for (const origin of ["https://localhost:3000", "http://cmux.test", "https://cmux.com"]) {
+        expect(issued(origin)).toContain(`${CONFIRM_COOKIE}=`);
+      }
+      env.NODE_ENV = "production";
+      const production = issued("http://localhost:3000");
+      expect(production).toContain(`${CONFIRM_COOKIE}=`);
+      expect(production).toContain("Secure");
+
+      // The dev cookie confirms only on the loopback origin it was set for.
+      env.NODE_ENV = "development";
+      const link = new NextRequest(`http://localhost:3000/handler/after-sign-in?cmux_auth_confirm=${nonce}`);
+      const value = `v1.native-confirm./handler/after-sign-in.${nonce}`;
+      const devStore = { get: (name: string) => (name === cookies.NATIVE_CONFIRM_DEV_COOKIE_NAME ? { value } : undefined) };
+      expect(cookies.verifiedNativeConfirmation(link, devStore)).toBe(true);
+      const deployed = new NextRequest(`https://cmux.com/handler/after-sign-in?cmux_auth_confirm=${nonce}`);
+      expect(cookies.verifiedNativeConfirmation(deployed, devStore)).toBe(false);
+    } finally {
+      env.NODE_ENV = previous;
+    }
+  });
+
   test("the page names the signed-in account and the destination app", async () => {
     getUserResponses = [{ id: "user-1", primaryEmail: "person@example.com", createSession: defaultCreateSession }];
 

@@ -324,7 +324,7 @@ ${switchAccountAction}    </div>
 function nativeRedirectResponse(request: NextRequest, href: string): NextResponse {
   const response = NextResponse.redirect(href);
   response.headers.set("Cache-Control", "no-store");
-  clearNativeConfirmCookie(response);
+  clearNativeConfirmCookie(response, request);
   return response;
 }
 
@@ -349,7 +349,7 @@ function nativeConfirmationResponse(
     switchAccountHref(request),
     identity,
   );
-  issueNativeConfirmCookie(response, nonce);
+  issueNativeConfirmCookie(response, request, nonce);
   return response;
 }
 

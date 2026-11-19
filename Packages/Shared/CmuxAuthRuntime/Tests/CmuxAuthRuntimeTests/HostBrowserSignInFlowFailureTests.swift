@@ -38,7 +38,7 @@ import Testing
 
     @Test func callbackAfterRelaunchReportsFailureAndFreshSignInCanRetry() async throws {
         let previousLaunch = HostBrowserSignInFlowHarness()
-        let signInURL = previousLaunch.flow.manualSignInURL
+        let signInURL = try #require(await previousLaunch.flow.manualSignInURL)
         let state = try #require(URLComponents(url: signInURL, resolvingAgainstBaseURL: false)?
             .queryItems?.first(where: { $0.name == "cmux_auth_state" })?.value)
         let harness = HostBrowserSignInFlowHarness(user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil))

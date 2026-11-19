@@ -326,7 +326,7 @@ import Testing
         let harness = HostBrowserSignInFlowHarness(user: user)
 
         // auth.sign_in_url: issue the manual fallback URL up front.
-        let manualURL = harness.flow.manualSignInURL
+        let manualURL = try #require(await harness.flow.manualSignInURL)
         let manualState = try #require(URLComponents(url: manualURL, resolvingAgainstBaseURL: false)?
             .queryItems?
             .first(where: { $0.name == "cmux_auth_state" })?

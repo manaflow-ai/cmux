@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 import CryptoKit
 public import Foundation
 import Security
@@ -6,12 +7,59 @@ import Security
 /// `<scheme>://auth-callback?code=…` for the session tokens. The code is useless
 /// without the attempt's PKCE verifier, which never leaves the app.
 public protocol AuthCallbackCodeRedeeming: Sendable {
+    /// The sign-in origin (`scheme://host[:port]`) this redeemer talks to.
+    var signInOrigin: String { get }
     /// Whether the sign-in origin hands sign-ins over with a one-time code
-    /// (it lists S256). Asked before the browser opens; false for an origin
-    /// without the code route, which keeps the token hand-off.
-    func supportsCodeExchange() async -> Bool
+    /// (it lists S256). Asked before the browser opens.
+    func codeExchangeCapability() async -> CodeExchangeCapability
     /// Exchanges `code` and `verifier` for the session tokens.
     func redeem(code: String, verifier: String) async throws -> AuthCallbackPayload
+}
+
+/// What a sign-in origin said about the one-time code hand-off.
+public enum CodeExchangeCapability: Sendable, Equatable {
+    /// The origin lists S256: hand off with a code.
+    case supported
+    /// The origin definitively has no code route (404, or a valid answer without S256).
+    case unsupported
+    /// No definitive answer (unreachable, timeout, 5xx, redirect, unreadable body).
+    case unknown
+}
+
+/// Remembers across launches each sign-in origin that has offered the code
+/// hand-off, in the app's auth key-value store, so a later launch never
+/// probes its way back to the token hand-off for that origin.
+///
+/// `@unchecked Sendable`: the only state is the injected store and an
+/// immutable key; the production backing (`UserDefaults`) is thread-safe.
+public final class HostBrowserCodeExchangeMemory: @unchecked Sendable {
+    private let keyValueStore: any CMUXAuthKeyValueStore
+    private let key: String
+
+    /// - Parameters:
+    ///   - keyValueStore: The app's auth key-value store.
+    ///   - key: The key the remembered origins persist under.
+    public init(keyValueStore: any CMUXAuthKeyValueStore, key: String) {
+        self.keyValueStore = keyValueStore
+        self.key = key
+    }
+
+    private var origins: [String] {
+        keyValueStore.string(forKey: key)?.split(separator: "\n").map(String.init) ?? []
+    }
+
+    /// Whether `origin` has offered the code hand-off before.
+    public func supportsCodeExchange(origin: String) -> Bool {
+        origins.contains(origin)
+    }
+
+    /// Records that `origin` offered the code hand-off. Never forgotten.
+    public func recordSupported(origin: String) {
+        var known = origins
+        guard !origin.isEmpty, !known.contains(origin) else { return }
+        known.append(origin)
+        keyValueStore.set(known.joined(separator: "\n"), forKey: key)
+    }
 }
 
 /// Redeems sign-in codes at the hosted sign-in origin's `POST /api/native/token`,
@@ -70,19 +118,49 @@ public struct NativeSignInCodeRedeemer: AuthCallbackCodeRedeeming {
     /// The capability check runs before the browser opens, so it is kept short.
     static let capabilityTimeout: TimeInterval = 5
 
-    /// `GET /api/native/token`: `{"pkce":["S256"]}` on a server with the code
-    /// route. A server without it answers 404 (or the sign-in page), so
-    /// anything but a listed S256 means no.
-    public func supportsCodeExchange() async -> Bool {
+    public var signInOrigin: String { Self.origin(of: endpoint) }
+
+    /// `scheme://host[:port]` of `url`, lowercased.
+    static func origin(of url: URL) -> String {
+        let scheme = url.scheme?.lowercased() ?? ""
+        let host = url.host?.lowercased() ?? ""
+        return url.port.map { "\(scheme)://\(host):\($0)" } ?? "\(scheme)://\(host)"
+    }
+
+    /// Whether `url` is HTTPS, or plain HTTP to this machine (local development).
+    static func isSecureOrLoopback(_ url: URL) -> Bool {
+        switch url.scheme?.lowercased() {
+        case "https": true
+        case "http": ["localhost", "127.0.0.1", "::1"].contains(url.host?.lowercased() ?? "")
+        default: false
+        }
+    }
+
+    /// `GET /api/native/token`. Only two answers from the origin itself are
+    /// definitive: `200` with `{"pkce":[...]}` (supported when it lists S256)
+    /// and `404` (a deployment without the route). A transport error, a
+    /// timeout, any other status, a redirect or a body that does not parse is
+    /// ``CodeExchangeCapability/unknown``.
+    public func codeExchangeCapability() async -> CodeExchangeCapability {
+        guard Self.isSecureOrLoopback(endpoint) else { return .unknown }
         var request = URLRequest(url: endpoint, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.capabilityTimeout)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         guard let (data, response) = try? await transport(request),
-              (response as? HTTPURLResponse)?.statusCode == 200,
-              let capability = try? JSONDecoder().decode(Capability.self, from: data) else {
-            return false
+              let http = response as? HTTPURLResponse else {
+            return .unknown
         }
-        return capability.pkce.contains("S256")
+        // A followed redirect answered from somewhere else: not the origin's answer.
+        if let answeredBy = http.url, answeredBy.absoluteString != endpoint.absoluteString { return .unknown }
+        switch http.statusCode {
+        case 404:
+            return .unsupported
+        case 200:
+            guard let capability = try? JSONDecoder().decode(Capability.self, from: data) else { return .unknown }
+            return capability.pkce.contains("S256") ? .supported : .unsupported
+        default:
+            return .unknown
+        }
     }
 
     public func redeem(code: String, verifier: String) async throws -> AuthCallbackPayload {

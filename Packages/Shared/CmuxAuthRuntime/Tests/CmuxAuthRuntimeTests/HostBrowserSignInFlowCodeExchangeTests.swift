@@ -12,20 +12,22 @@ actor FakeCodeRedeemer: AuthCallbackCodeRedeeming {
     private var challenge: String?
     private let failure: AuthError?
     /// What the server's `GET /api/native/token` says, check by check; the last answer repeats.
-    private var capabilityAnswers: [Bool]
+    private var capabilityAnswers: [CodeExchangeCapability]
 
-    init(failure: AuthError? = nil, supportsCodeExchange: [Bool] = [true]) {
+    init(failure: AuthError? = nil, capability: [CodeExchangeCapability] = [.supported]) {
         self.failure = failure
-        capabilityAnswers = supportsCodeExchange
+        capabilityAnswers = capability
     }
 
     func expect(challenge: String?) {
         self.challenge = challenge
     }
 
-    func supportsCodeExchange() async -> Bool {
+    nonisolated var signInOrigin: String { "https://example.test" }
+
+    func codeExchangeCapability() async -> CodeExchangeCapability {
         capabilityChecks += 1
-        let answer = capabilityAnswers.first ?? false
+        let answer = capabilityAnswers.first ?? .unknown
         if capabilityAnswers.count > 1 { capabilityAnswers.removeFirst() }
         return answer
     }
@@ -44,7 +46,8 @@ actor FakeCodeRedeemer: AuthCallbackCodeRedeeming {
 actor FlakyCodeRedeemer: AuthCallbackCodeRedeeming {
     private(set) var verifiers: [String] = []
 
-    func supportsCodeExchange() async -> Bool { true }
+    nonisolated var signInOrigin: String { "https://example.test" }
+    func codeExchangeCapability() async -> CodeExchangeCapability { .supported }
 
     func redeem(code: String, verifier: String) async throws -> AuthCallbackPayload {
         verifiers.append(verifier)
@@ -60,7 +63,8 @@ actor HangingCodeRedeemer: AuthCallbackCodeRedeeming {
     private var started = false
     private var parked: AsyncStream<Void>.Continuation?
 
-    func supportsCodeExchange() async -> Bool { true }
+    nonisolated var signInOrigin: String { "https://example.test" }
+    func codeExchangeCapability() async -> CodeExchangeCapability { .supported }
 
     func redeem(code: String, verifier: String) async throws -> AuthCallbackPayload {
         started = true
@@ -93,7 +97,8 @@ actor AlwaysTransientCodeRedeemer: AuthCallbackCodeRedeeming {
         self.elapsedPerRequest = elapsedPerRequest
     }
 
-    func supportsCodeExchange() async -> Bool { true }
+    nonisolated var signInOrigin: String { "https://example.test" }
+    func codeExchangeCapability() async -> CodeExchangeCapability { .supported }
 
     func redeem(code: String, verifier: String) async throws -> AuthCallbackPayload {
         redemptions += 1
@@ -294,7 +299,7 @@ actor AlwaysTransientCodeRedeemer: AuthCallbackCodeRedeeming {
     // MARK: Server capability
 
     @Test func anOriginWithoutTheCodeRouteKeepsTheTokenHandOff() async {
-        let redeemer = FakeCodeRedeemer(supportsCodeExchange: [false])
+        let redeemer = FakeCodeRedeemer(capability: [.unsupported])
         let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: redeemer)
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()
@@ -312,7 +317,7 @@ actor AlwaysTransientCodeRedeemer: AuthCallbackCodeRedeeming {
     @Test func aTokenStateRefusesACode() async {
         // The callback never picks the mode: a state sent without a challenge
         // takes only the token pair.
-        let redeemer = FakeCodeRedeemer(supportsCodeExchange: [false])
+        let redeemer = FakeCodeRedeemer(capability: [.unsupported])
         let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: redeemer)
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()
@@ -327,7 +332,7 @@ actor AlwaysTransientCodeRedeemer: AuthCallbackCodeRedeeming {
 
     @Test func onceTheOriginOffersTheCodeItIsNeverDowngraded() async throws {
         // The second check would say no; it is never asked, and the next attempt still sends a challenge.
-        let redeemer = FakeCodeRedeemer(supportsCodeExchange: [true, false])
+        let redeemer = FakeCodeRedeemer(capability: [.supported, .unsupported])
         let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: redeemer)
 
         harness.flow.beginSignIn()
@@ -344,6 +349,104 @@ actor AlwaysTransientCodeRedeemer: AuthCallbackCodeRedeeming {
         #expect(await harness.flow.handleCallbackURL(tokens) == false)
         #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
         harness.flow.cancelSignIn()
+    }
+
+    enum UnreachableOrigin: String, CaseIterable, Sendable {
+        case timeout, serverError, redirect
+    }
+
+    /// Counts capability requests through the real redeemer.
+    private final class RequestCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        func increment() { lock.lock(); value += 1; lock.unlock() }
+        var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+    }
+
+    @Test(arguments: UnreachableOrigin.allCases)
+    func anOriginWithoutADefinitiveAnswerFailsTheAttemptAndOpensNothing(origin: UnreachableOrigin) async {
+        let requests = RequestCounter()
+        let redeemer = NativeSignInCodeRedeemer(authWebOrigin: URL(string: "https://example.test")!, scheme: "cmux-dev") { request in
+            requests.increment()
+            switch origin {
+            case .timeout:
+                throw URLError(.timedOut)
+            case .serverError:
+                return (Data(), HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!)
+            case .redirect:
+                let portal = URL(string: "https://portal.example/login")!
+                return (Data("Not Found".utf8), HTTPURLResponse(url: portal, statusCode: 404, httpVersion: nil, headerFields: nil)!)
+            }
+        }
+        let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: redeemer)
+
+        let signedIn = await harness.flow.signIn(timeout: 60)
+
+        #expect(signedIn == false)
+        #expect(harness.factory.sessions.isEmpty)
+        #expect(harness.openedURLs.isEmpty)
+        #expect(harness.flow.lastFailure == .networkError)
+        #expect(harness.flow.isSigningIn == false)
+        // Asked once, retried once, never read as "tokens".
+        #expect(requests.count == 2)
+    }
+
+    @Test func oneUnknownAnswerIsRetriedBeforeDeciding() async throws {
+        let redeemer = FakeCodeRedeemer(capability: [.unknown, .supported])
+        let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: redeemer)
+
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+
+        #expect(Self.query("code_challenge", in: harness.factory.sessions[0].signInURL) != nil)
+        #expect(await redeemer.capabilityChecks == 2)
+        harness.flow.cancelSignIn()
+    }
+
+    @Test func aDefinitive404PicksTheTokenHandOff() async {
+        let redeemer = FakeCodeRedeemer(capability: [.unsupported])
+        let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: redeemer)
+
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+
+        #expect(Self.query("code_challenge", in: harness.factory.sessions[0].signInURL) == nil)
+        #expect(await redeemer.capabilityChecks == 1)
+        harness.flow.cancelSignIn()
+    }
+
+    @Test func aRememberedOriginNeverProbesItsWayDown() async {
+        // An earlier launch saw the code; this one's origin now says no or nothing.
+        let store = FakeKeyValueStore()
+        HostBrowserCodeExchangeMemory(keyValueStore: store, key: "code-exchange").recordSupported(origin: "https://example.test")
+        let redeemer = FakeCodeRedeemer(capability: [.unsupported])
+        let harness = HostBrowserSignInFlowHarness(
+            user: user,
+            codeRedeemer: redeemer,
+            codeExchangeMemory: HostBrowserCodeExchangeMemory(keyValueStore: store, key: "code-exchange")
+        )
+
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+
+        #expect(Self.query("code_challenge", in: harness.factory.sessions[0].signInURL) != nil)
+        #expect(await redeemer.capabilityChecks == 0)
+        let tokens = harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0]))
+        #expect(await harness.flow.handleCallbackURL(tokens) == false)
+        harness.flow.cancelSignIn()
+    }
+
+    @Test func aSupportedAnswerIsRememberedForTheNextLaunch() async {
+        let store = FakeKeyValueStore()
+        let memory = HostBrowserCodeExchangeMemory(keyValueStore: store, key: "code-exchange")
+        let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: FakeCodeRedeemer(), codeExchangeMemory: memory)
+
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+        harness.flow.cancelSignIn()
+
+        #expect(HostBrowserCodeExchangeMemory(keyValueStore: store, key: "code-exchange")
+            .supportsCodeExchange(origin: "https://example.test"))
     }
 
     // MARK: Redemption lifetime
@@ -409,14 +512,41 @@ actor AlwaysTransientCodeRedeemer: AuthCallbackCodeRedeeming {
         let session = harness.factory.sessions[0]
         await redeemer.expect(challenge: Self.query("code_challenge", in: session.signInURL))
 
-        let first = harness.flow.manualSignInURL
+        let first = try #require(await harness.flow.manualSignInURL)
         for _ in 0..<(HostBrowserHandoffModes.capacity * 3) {
-            #expect(harness.flow.manualSignInURL == first)
+            #expect(await harness.flow.manualSignInURL == first)
         }
         session.deliver(Self.codeCallback(state: harness.callbackState(session)))
 
         #expect(await attempt.value)
         #expect(await redeemer.redemptions.count == 1)
+    }
+
+    @Test func theFirstManualURLWaitsForTheCapabilityAnswer() async throws {
+        // Before any attempt has asked, the manual URL still gets the code mode,
+        // and the attempt that adopts its state redeems with that verifier.
+        let redeemer = FakeCodeRedeemer()
+        let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: redeemer)
+
+        let manualURL = try #require(await harness.flow.manualSignInURL)
+        let challenge = try #require(Self.query("code_challenge", in: manualURL))
+        await redeemer.expect(challenge: challenge)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let session = harness.factory.sessions[0]
+        #expect(Self.query("code_challenge", in: session.signInURL) == challenge)
+
+        session.deliver(Self.codeCallback(state: harness.callbackState(session)))
+
+        #expect(await attempt.value)
+        #expect(await redeemer.capabilityChecks == 1)
+    }
+
+    @Test func noManualURLWhenTheOriginGivesNoAnswer() async {
+        let redeemer = FakeCodeRedeemer(capability: [.unknown])
+        let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: redeemer)
+
+        #expect(await harness.flow.manualSignInURL == nil)
     }
 
     @Test func withoutARedeemerTheSignInURLIsUnchanged() async {
@@ -484,20 +614,59 @@ actor AlwaysTransientCodeRedeemer: AuthCallbackCodeRedeeming {
 
     @Test func capabilityIsAskedWithAGetAndNeedsS256() async throws {
         let captured = Captured()
-        #expect(await Self.redeemer(status: 200, body: #"{"pkce":["S256"]}"#, captured: captured).supportsCodeExchange())
+        #expect(await Self.redeemer(status: 200, body: #"{"pkce":["S256"]}"#, captured: captured).codeExchangeCapability() == .supported)
         let request = try #require(captured.request)
         #expect(request.httpMethod == "GET")
         #expect(request.url?.absoluteString == "https://cmux.test/api/native/token")
         #expect(request.httpBody == nil)
+        #expect(Self.redeemer(status: 200, body: "").signInOrigin == "https://cmux.test")
+    }
 
-        #expect(await Self.redeemer(status: 200, body: #"{"pkce":[]}"#).supportsCodeExchange() == false)
-        #expect(await Self.redeemer(status: 200, body: #"{"pkce":["plain"]}"#).supportsCodeExchange() == false)
-        #expect(await Self.redeemer(status: 404, body: "Not Found").supportsCodeExchange() == false)
-        #expect(await Self.redeemer(status: 200, body: "<html>sign in</html>").supportsCodeExchange() == false)
-        let offline = NativeSignInCodeRedeemer(authWebOrigin: URL(string: "https://cmux.test")!, scheme: "cmux") { _ in
-            throw URLError(.notConnectedToInternet)
+    @Test func onlyA404OrAValidAnswerWithoutS256MeansUnsupported() async {
+        #expect(await Self.redeemer(status: 404, body: "Not Found").codeExchangeCapability() == .unsupported)
+        #expect(await Self.redeemer(status: 200, body: #"{"pkce":[]}"#).codeExchangeCapability() == .unsupported)
+        #expect(await Self.redeemer(status: 200, body: #"{"pkce":["plain"]}"#).codeExchangeCapability() == .unsupported)
+    }
+
+    @Test func everythingElseIsUnknown() async {
+        for status in [500, 502, 503, 401, 403, 429] {
+            #expect(await Self.redeemer(status: status, body: "").codeExchangeCapability() == .unknown)
         }
-        #expect(await offline.supportsCodeExchange() == false)
+        #expect(await Self.redeemer(status: 200, body: "<html>sign in</html>").codeExchangeCapability() == .unknown)
+        #expect(await Self.redeemer(status: 200, body: #"{"other":true}"#).codeExchangeCapability() == .unknown)
+        for error in [URLError(.timedOut), URLError(.notConnectedToInternet), URLError(.serverCertificateUntrusted)] {
+            let failing = NativeSignInCodeRedeemer(authWebOrigin: URL(string: "https://cmux.test")!, scheme: "cmux") { _ in
+                throw error
+            }
+            #expect(await failing.codeExchangeCapability() == .unknown)
+        }
+        // A followed redirect: the answer came from another URL, even a 404 or a valid body.
+        for (status, body) in [(404, "Not Found"), (200, #"{"pkce":[]}"#)] {
+            let redirected = NativeSignInCodeRedeemer(authWebOrigin: URL(string: "https://cmux.test")!, scheme: "cmux") { _ in
+                let elsewhere = URL(string: "https://portal.example/login")!
+                return (Data(body.utf8), HTTPURLResponse(url: elsewhere, statusCode: status, httpVersion: nil, headerFields: nil)!)
+            }
+            #expect(await redirected.codeExchangeCapability() == .unknown)
+        }
+        // Plain HTTP to another host is never a definitive answer.
+        let insecure = NativeSignInCodeRedeemer(authWebOrigin: URL(string: "http://cmux.test")!, scheme: "cmux") { request in
+            (Data("Not Found".utf8), HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!)
+        }
+        #expect(await insecure.codeExchangeCapability() == .unknown)
+    }
+
+    @Test func rememberedOriginsPersistInTheAuthStore() {
+        let store = FakeKeyValueStore()
+        let memory = HostBrowserCodeExchangeMemory(keyValueStore: store, key: "code-exchange")
+        #expect(memory.supportsCodeExchange(origin: "https://cmux.com") == false)
+        memory.recordSupported(origin: "https://cmux.com")
+        memory.recordSupported(origin: "https://cmux.com")
+        memory.recordSupported(origin: "https://staging.example")
+
+        let relaunched = HostBrowserCodeExchangeMemory(keyValueStore: store, key: "code-exchange")
+        #expect(relaunched.supportsCodeExchange(origin: "https://cmux.com"))
+        #expect(relaunched.supportsCodeExchange(origin: "https://staging.example"))
+        #expect(relaunched.supportsCodeExchange(origin: "https://other.example") == false)
     }
 
     @Test func aCancelledRequestIsACancellationNotANetworkError() async {

@@ -49,12 +49,14 @@ public final class HostBrowserSignInFlow {
     private let codeRedeemer: (any AuthCallbackCodeRedeeming)?
     /// Each callback state's hand-off mode, chosen before its sign-in URL exists.
     @ObservationIgnored private var handoffModes = HostBrowserHandoffModes()
-    /// Whether this flow's sign-in origin has said it hands off with a code.
-    /// Once true it stays true: a later failed check never downgrades an
-    /// attempt to the token hand-off.
+    /// Whether this flow's sign-in origin has offered the code hand-off, now
+    /// or on an earlier launch (``codeExchangeMemory``). Once true it stays
+    /// true: no later check downgrades an attempt to the token hand-off.
     @ObservationIgnored private var originSupportsCodeExchange = false
-    /// A capability check started for the manual URL, so a later read can use it.
-    @ObservationIgnored private var capabilityWarmup: Task<Void, Never>?
+    /// Remembers, across launches, the origins that offered the code.
+    private let codeExchangeMemory: HostBrowserCodeExchangeMemory?
+    /// The capability check in flight; concurrent callers share it.
+    @ObservationIgnored private var capabilityProbe: Task<Bool?, Never>?
     /// The code redemption in flight; Cancel and sign-out cancel it.
     @ObservationIgnored private var redemptionTask: Task<AuthCallbackPayload?, Never>?
     private let deadline: HostBrowserDeadline
@@ -105,6 +107,7 @@ public final class HostBrowserSignInFlow {
         openExternalURL: @escaping @MainActor (URL) -> Bool,
         approveUnsolicitedCallback: @escaping @MainActor (UnsolicitedAuthCallbackApprovalRequest) async -> Bool = { _ in false },
         codeRedeemer: (any AuthCallbackCodeRedeeming)? = nil,
+        codeExchangeMemory: HostBrowserCodeExchangeMemory? = nil,
         clock: any Clock<Duration> = ContinuousClock(),
         browserAttemptTimeout: TimeInterval = 10 * 60,
         browserHandoffTimeout: TimeInterval = 5 * 60,
@@ -126,6 +129,10 @@ public final class HostBrowserSignInFlow {
         self.openExternalURL = openExternalURL
         self.approveUnsolicitedCallback = approveUnsolicitedCallback
         self.codeRedeemer = codeRedeemer
+        self.codeExchangeMemory = codeExchangeMemory
+        if let codeRedeemer, let codeExchangeMemory {
+            originSupportsCodeExchange = codeExchangeMemory.supportsCodeExchange(origin: codeRedeemer.signInOrigin)
+        }
         self.clock = clock
         self.browserAttemptTimeout = browserAttemptTimeout
         self.browserHandoffTimeout = browserHandoffTimeout
@@ -176,20 +183,25 @@ public final class HostBrowserSignInFlow {
     }
 
     /// The hosted sign-in URL for a manual fallback. The same URL until the
-    /// next attempt adopts its state, so repeated reads mint nothing new.
-    public var manualSignInURL: URL {
-        if let state = pendingManualCallbackState {
+    /// next attempt adopts its state, so repeated reads mint nothing new. With
+    /// a redeemer it waits for the origin's capability answer, so the state's
+    /// mode is right before the URL exists; nil when the origin gave no
+    /// definitive answer (try again).
+    public var manualSignInURL: URL? {
+        get async {
+            let state: String
+            if let pending = pendingManualCallbackState {
+                state = pending
+            } else {
+                state = callbackStateGenerator.make()
+                pendingManualCallbackState = state
+            }
+            guard await decideHandoffMode(for: state) == .ready else {
+                if pendingManualCallbackState == state { pendingManualCallbackState = nil }
+                return nil
+            }
             return withCodeChallenge(makeSignInURL(state), state: state)
         }
-        let state = callbackStateGenerator.make()
-        pendingManualCallbackState = state
-        if codeRedeemer != nil {
-            // A read cannot wait for the capability check: use what this flow
-            // already knows, and check now so the next manual URL can use it.
-            chooseHandoffMode(for: state)
-            if !originSupportsCodeExchange { warmCodeExchangeCapability() }
-        }
-        return withCodeChallenge(makeSignInURL(state), state: state)
     }
 
     /// Sign-in URL for the active attempt's default-browser fallback; nil
@@ -357,47 +369,74 @@ public final class HostBrowserSignInFlow {
         return withCodeChallenge(components.url ?? url, state: callbackState)
     }
 
-    /// Asks the sign-in origin once whether it hands off with a code, then
-    /// fixes `state`'s mode. Runs before the attempt's browser opens; a state
-    /// that already has a mode (the manual URL's) keeps it. Returns false only
-    /// when the origin supports the code but no PKCE pair could be made: the
-    /// attempt then fails rather than fall back to tokens.
-    private func decideHandoffMode(for state: String) async -> Bool {
-        guard let codeRedeemer, handoffModes.mode(for: state) == nil else { return true }
-        if !originSupportsCodeExchange {
-            if let capabilityWarmup { await capabilityWarmup.value }
+    enum HandoffDecision: Equatable, CustomStringConvertible {
+        /// The state has its mode.
+        case ready
+        /// The origin gave no definitive answer, even after a retry.
+        case originUnreachable
+        /// The origin supports the code but no PKCE pair could be made.
+        case pkceUnavailable
+
+        var description: String {
+            switch self {
+            case .ready: "ready"
+            case .originUnreachable: "originUnreachable"
+            case .pkceUnavailable: "pkceUnavailable"
+            }
         }
-        if !originSupportsCodeExchange, await codeRedeemer.supportsCodeExchange() {
-            originSupportsCodeExchange = true
-        }
-        return chooseHandoffMode(for: state)
     }
 
-    /// Fixes `state`'s mode from what the flow knows now.
-    @discardableResult
-    private func chooseHandoffMode(for state: String) -> Bool {
-        guard handoffModes.mode(for: state) == nil else { return true }
-        if originSupportsCodeExchange {
+    /// Fixes `state`'s hand-off mode before any URL for it exists. A state
+    /// that already has a mode keeps it. The token hand-off is chosen only on
+    /// the origin's definitive "no"; an unknown answer leaves the state
+    /// undecided, and the caller fails instead of opening the browser.
+    private func decideHandoffMode(for state: String) async -> HandoffDecision {
+        guard codeRedeemer != nil, handoffModes.mode(for: state) == nil else { return .ready }
+        guard let supported = await resolveCodeExchangeCapability() else { return .originUnreachable }
+        guard handoffModes.mode(for: state) == nil else { return .ready }
+        if supported {
             guard let pkce = HostBrowserPKCE.make() else {
                 log.log("auth.browser.handoff.pkceUnavailable")
-                return false
+                return .pkceUnavailable
             }
             handoffModes.choose(.pkce(pkce), for: state)
         } else {
             log.log("auth.browser.handoff.legacy reason=originWithoutCodeExchange state=\(redactedAuthState(state))")
             handoffModes.choose(.legacy, for: state)
         }
-        return true
+        return .ready
     }
 
-    private func warmCodeExchangeCapability() {
-        guard let codeRedeemer, capabilityWarmup == nil else { return }
-        capabilityWarmup = Task { @MainActor [weak self] in
-            let supported = await codeRedeemer.supportsCodeExchange()
-            guard let self else { return }
-            if supported { self.originSupportsCodeExchange = true }
-            self.capabilityWarmup = nil
+    /// True when the origin offers the code (remembered, or answered now),
+    /// false on its definitive "no", nil when it gave no definitive answer
+    /// after one retry. Concurrent callers share one check.
+    private func resolveCodeExchangeCapability() async -> Bool? {
+        guard let codeRedeemer else { return false }
+        if originSupportsCodeExchange { return true }
+        if let capabilityProbe { return await capabilityProbe.value }
+        let log = self.log
+        let probe = Task { @MainActor () -> Bool? in
+            var answer = await codeRedeemer.codeExchangeCapability()
+            if answer == .unknown {
+                log.log("auth.browser.handoff.capabilityUnknown try=1")
+                answer = await codeRedeemer.codeExchangeCapability()
+            }
+            switch answer {
+            case .supported: return true
+            case .unsupported: return false
+            case .unknown:
+                log.log("auth.browser.handoff.capabilityUnknown try=2")
+                return nil
+            }
         }
+        capabilityProbe = probe
+        let supported = await probe.value
+        if capabilityProbe == probe { capabilityProbe = nil }
+        if supported == true {
+            originSupportsCodeExchange = true
+            codeExchangeMemory?.recordSupported(origin: codeRedeemer.signInOrigin)
+        }
+        return originSupportsCodeExchange ? true : supported
     }
 
     /// `url` with the PKCE challenge for `state` (S256) when its mode is the
@@ -573,9 +612,16 @@ public final class HostBrowserSignInFlow {
             defer { self.finishAttempt(attemptID) }
             guard self.activeAttemptID == attemptID else { return false }
             // The hand-off mode is fixed before any sign-in URL is opened.
-            guard await self.decideHandoffMode(for: callbackState) else {
+            let decision = await self.decideHandoffMode(for: callbackState)
+            guard decision == .ready else {
                 guard self.activeAttemptID == attemptID else { return false }
-                self.recordBrowserSessionFailure(reason: "pkce_unavailable", attemptID: attemptID)
+                // No browser opens: an unknown answer is never read as "tokens".
+                self.log.log("auth.browser.attempt.handoffUndecided id=\(attemptID) decision=\(decision)")
+                if !self.coordinator.isAuthenticated {
+                    self.lastFailure = decision == .originUnreachable
+                        ? .networkError
+                        : .browserSignInFailed("pkce_unavailable")
+                }
                 return false
             }
             guard self.activeAttemptID == attemptID else { return false }
