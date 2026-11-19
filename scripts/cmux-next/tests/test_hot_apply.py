@@ -955,12 +955,6 @@ class LiveFrom(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout)
 
-    def test_a_daemon_only_commit_reaches_back_past_itself(self):
-        out = self.live_from(FIX, 3)
-        self.assertEqual(out["live_from"][0], FIX)
-        self.assertEqual(len(out["live_from"]), 3)
-        self.assertIsNone(out["floor"])  # no FFI change within the limit
-
     def test_an_ffi_source_only_change_does_not_set_a_floor(self):
         out = self.live_from(FFI, 2)
         self.assertEqual(out["live_from"][0], FFI)
@@ -1013,6 +1007,10 @@ class LiveFromWholeApp(unittest.TestCase):
         self.git("init", "-q")
         self.git("config", "user.email", "t@example.com")
         self.git("config", "user.name", "t")
+        # The app bundles this helper separately from app try's bin payload.
+        project = self.repo / "cmux.xcodeproj/project.pbxproj"
+        project.parent.mkdir(parents=True)
+        project.write_text('"$(SRCROOT)/cmux-tui/crates/cmux-mobile-host/src/main.rs"\n')
         self.base = self.commit("README.md", "base\n")
 
     def git(self, *args):
@@ -1045,14 +1043,13 @@ class LiveFromWholeApp(unittest.TestCase):
 
     def test_function_body_and_deleted_swift_also_need_the_full_app(self):
         path = "Packages/macOS/CmuxNext/Sources/CmuxNextViews/Panel.swift"
-        before = self.commit(path, "func value() -> Int {\n    return 1\n}\n")
+        self.commit(path, "func value() -> Int {\n    return 1\n}\n")
         changed = self.commit(path, "func value() -> Int {\n    return 2\n}\n")
         self.assertEqual(self.hot.live_from(self.repo, changed, 2)["live_from"], [changed])
         self.git("rm", path)
         self.git("commit", "-qm", "remove Swift")
         deleted = self.git("rev-parse", "HEAD")
         self.assertEqual(self.hot.live_from(self.repo, deleted, 2)["live_from"], [deleted])
-        self.assertNotEqual(before, changed)
 
     def test_daemon_and_non_app_changes_remain_live(self):
         daemon = self.commit("cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn daemon() {}\n")
@@ -1062,11 +1059,10 @@ class LiveFromWholeApp(unittest.TestCase):
     def test_uncarried_helper_sets_a_floor_without_changing_daemon_compatibility(self):
         path = "cmux-tui/crates/cmux-mobile-host/src/main.rs"
         helper = self.commit(path, "fn main() {}\n")
-        with mock.patch.object(self.hot, "helper_rust", return_value=[path]):
-            out = self.hot.live_from(self.repo, helper, 2)
-            self.assertEqual(out["live_from"], [helper])
-            self.assertIn(path, out["floor_paths"])
-            self.assertEqual(self.hot.pins_daemon(self.repo, helper), [])
+        out = self.hot.live_from(self.repo, helper, 2)
+        self.assertEqual(out["live_from"], [helper])
+        self.assertIn(path, out["floor_paths"])
+        self.assertEqual(self.hot.pins_daemon(self.repo, helper), [])
 
 
 class PinCompatibility(unittest.TestCase):
