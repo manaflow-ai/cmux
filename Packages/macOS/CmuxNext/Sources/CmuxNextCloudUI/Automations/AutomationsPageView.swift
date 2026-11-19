@@ -16,17 +16,20 @@ public struct AutomationsPageView: View {
         /// Sign In beside "Sign in to cmux to see your Cloud automations" (the shared ``SignInButton``);
         /// nil shows the line alone.
         public var signIn: (@MainActor @Sendable () -> Void)?
+        /// What that Sign In signs in to ("Signs in to cmux.com"), the line beside it; nil shows none.
+        public var signInBackend: String?
 
         public init(new: (@MainActor @Sendable () -> Void)? = nil,
                     runNow: (@MainActor @Sendable (AutomationRow) -> Void)? = nil,
                     setEnabled: (@MainActor @Sendable (AutomationRow, Bool) -> Void)? = nil,
                     edit: (@MainActor @Sendable (AutomationRow) -> Void)? = nil,
-                    signIn: (@MainActor @Sendable () -> Void)? = nil) {
+                    signIn: (@MainActor @Sendable () -> Void)? = nil, signInBackend: String? = nil) {
             self.new = new
             self.runNow = runNow
             self.setEnabled = setEnabled
             self.edit = edit
             self.signIn = signIn
+            self.signInBackend = signInBackend
         }
     }
 
@@ -89,6 +92,10 @@ public struct AutomationsPageView: View {
                     Text(strings.problem(target, code: code)).font(palette.caption).foregroundStyle(palette.attention)
                     if let signIn = Self.signIn(for: target, code: code, actions: actions) {
                         SignInButtonView { signIn() }.fixedSize()
+                        if let line = actions.signInBackend {
+                            Text(line).font(palette.caption).foregroundStyle(palette.secondary).lineLimit(1)
+                                .truncationMode(.middle).accessibilityIdentifier(SignInButton.backendLineIdentifier.rawValue)
+                        }
                     }
                 }
                 .padding(.horizontal, 16).padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading)

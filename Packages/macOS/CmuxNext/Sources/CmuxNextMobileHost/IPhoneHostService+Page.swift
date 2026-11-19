@@ -15,6 +15,8 @@ extension IPhoneHostService {
             "status": .string(statusText),
             // Msg 3790: where the status says to sign in, the card shows the Sign In button.
             "sign_in": statusText == IPhoneHostStrings.signedOut ? .string(SignInButton.defaultTitle) : .null,
+            // Under it: what that Sign In signs in to ("Signs in to cmux.com").
+            "sign_in_backend": statusText == IPhoneHostStrings.signedOut ? signInBackend.map(JSONValue.string) ?? .null : .null,
             "phase": .string(phaseName),
             "account_title": .string(IPhoneHostStrings.accountTitle),
             "account": account.map { .string(IPhoneHostStrings.registered(as: $0.email ?? $0.userID)) } ?? .null,

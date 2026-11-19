@@ -1,6 +1,7 @@
 public import CmuxNextAgentPane
 public import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextDesign
 public import CmuxNextDaemonService
 public import CmuxNextMobile
 public import CmuxNextSettings
@@ -43,6 +44,7 @@ extension IPhoneHostService {
         // A failed runtime Cloud selection is inert: do not pair the phone host
         // with a development mobile API or reuse production pairing state.
         guard !auth.configuration.apiBaseURL.isFileURL else { return }
+        signInBackend = auth.configuration.backendLabel.map { SignInButton.backendLine(kind: $0.kind, title: $0.title, detail: $0.detail) }
         let bundled = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-mobile-host", isDirectory: false)
         // Debug builds may point at another hostd or service; a release build never does.
         #if DEBUG

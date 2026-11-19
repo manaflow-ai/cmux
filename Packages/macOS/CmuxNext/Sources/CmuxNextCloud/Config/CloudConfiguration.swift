@@ -68,6 +68,10 @@ public struct CloudConfiguration: Sendable, Equatable {
     public var namespacedLegacyStore: LegacyStore?
     /// A signed NEXT DEV production launch adopts the running NIGHTLY's session in memory.
     public var adoptsNightlySession = false
+    /// The backend the sign-in screens name (Rust's `backend_label`, op `cloud_config_backend_label`):
+    /// cmux.com on production, the development backend's host, or a local backend's `host:port`. Nil for
+    /// ``unavailable``, which signs in nowhere.
+    public private(set) var backendLabel: BackendLabel?
 
     /// The Stack token Keychain service.
     public var keychainService: String { storage.keychainService }
@@ -137,7 +141,7 @@ public struct CloudConfiguration: Sendable, Equatable {
             stackPublishableClientKey: made.stackPublishableClientKey, isProductionAuth: made.isProductionAuth,
             callbackScheme: made.callbackScheme, bundleID: made.bundleId, isDebugBuild: made.isDebugBuild,
             runtimeSelection: selection, storage: made.storage, namespacedLegacyStore: made.namespacedLegacyStore,
-            adoptsNightlySession: made.adoptsNightlySession)
+            adoptsNightlySession: made.adoptsNightlySession, backendLabel: backendLabel(of: backend))
     }
 
     /// This build's configuration for another selection, everything Rust makes of it made again (the callback
@@ -171,6 +175,34 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// only the selected backend's share API.
     public func acceptsShareAPI(_ api: URL) -> Bool {
         api == shareAPIBaseURL()
+    }
+
+    /// What the sign-in screens say this build signs in to (Rust's `BackendLabel`).
+    public struct BackendLabel: Sendable, Equatable, Codable {
+        /// `production`, `development` or `local`.
+        public var kind: String
+        /// "cmux.com", "Development backend" or "Local backend" (the app localizes it by ``kind``).
+        public var title: String
+        /// A development backend's host, a local backend's `host:port`; nil on production.
+        public var detail: String?
+
+        public init(kind: String, title: String, detail: String?) {
+            self.kind = kind
+            self.title = title
+            self.detail = detail
+        }
+    }
+
+    /// Rust's label of `backend` (op `cloud_config_backend_label`); nil when the FFI does not answer.
+    static func backendLabel(of backend: Backend) -> BackendLabel? {
+        struct Wire: Encodable { var kind: String, url: String? }
+        struct Request: Encodable { var backend: Wire }
+        let wire: Wire = switch backend {
+        case .production: Wire(kind: "production", url: nil)
+        case let .development(url): Wire(kind: "development", url: url.absoluteString)
+        case let .localOnly(url): Wire(kind: "localOnly", url: url.absoluteString)
+        }
+        return CloudStartCore().call("cloud_config_backend_label", Request(backend: wire), as: BackendLabel.self)
     }
 
     /// Hosted sign-in entry (Rust's `sign_in_url`): `handler/native-sign-in` wraps Stack sign-in and

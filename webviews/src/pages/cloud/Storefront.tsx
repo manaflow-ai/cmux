@@ -5,6 +5,7 @@
 // the create sheet on that size, the host confirms the create natively (a money op), and the new
 // machine opens in a workspace once it runs (store `openWhenRunning`).
 import { useLoadingShown } from "../../ui/lasting";
+import { SignInBackend } from "../../ui/SignInButton";
 import type { Strings } from "../shared/i18n";
 import { AccountPanel } from "./AccountPanel";
 import { formatMegabytes, memoryChoices } from "./model";
@@ -41,9 +42,16 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
       return state.unavailable.includes(AccountOps.signIn) ? (
         <p className="cloud-muted cloud-unavailable">{t(L.unavailable)}</p>
       ) : (
-        <button type="button" className="cloud-button primary cloud-signin-button" onClick={() => void store.signIn()}>
-          {t(L.signIn)}
-        </button>
+        <>
+          <button
+            type="button"
+            className="cloud-button primary cloud-signin-button"
+            onClick={() => void store.signIn()}
+          >
+            {t(L.signIn)}
+          </button>
+          {state.signInBackend && <SignInBackend line={state.signInBackend} />}
+        </>
       );
     // The plan is still loading, or its read failed: no offer until the backend answers one.
     if (!plan) return null;
