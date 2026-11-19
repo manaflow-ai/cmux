@@ -147,6 +147,8 @@ def line_labels(line: str) -> tuple[str | None, list[str], str]:
 
     Shapes seen: `12 button Description: 1, ID: One` (index, role, pairs), `- [12] AXButton "1"
     (id=One)` (bracketed index, quoted title)."""
+    # A diff line's old values (`~ [3] text "7" (was: "0")`) are not the state.
+    line = line.split(" (was: ", 1)[0]
     m = LINE_INDEX.search(line)
     if not m:
         return None, [], ""
@@ -399,6 +401,10 @@ class Adapter:
         tool = dict(PROFILES)[self.profile]
         args = dict(self.target or {})
         p = props(self.tools[tool])
+        # cmux shows only the changes after a first look: a bench reads the
+        # whole state every time.
+        if "full" in p:
+            args["full"] = True
         if "screenshot" in p:
             args["screenshot"] = screenshot
         elif "include_screenshot" in p:

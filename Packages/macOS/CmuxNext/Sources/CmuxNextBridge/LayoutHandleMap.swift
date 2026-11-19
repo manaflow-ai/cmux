@@ -24,6 +24,23 @@ public struct LayoutHandleMap: Sendable, Equatable {
         }
     }
 
+    /// The daemon's form of an intent's size values (`LayoutIntent.sizes`), in their order; nil when one of them
+    /// cannot go to the daemon now (the rule of `sendsNow`), so that none of them goes.
+    public func sizeValues(_ values: [LayoutIntent.SizeValue]) -> [SetLayoutSizesRequest.Value]? {
+        var wire: [SetLayoutSizesRequest.Value] = []
+        for value in values {
+            switch value {
+            case let .ratio(split, ratio):
+                guard let handle = splits[split] else { return nil }
+                wire.append(.ratio(handle, ratio))
+            case let .width(_, anyPane, width):
+                guard let handle = panes[anyPane], !ProvisionalPane.isStandIn(handle) else { return nil }
+                wire.append(.width(pane: handle, width))
+            }
+        }
+        return wire
+    }
+
     mutating func addPane(_ id: LayoutPaneID, handle: DaemonPaneID) {
         panes[id] = handle
         paneIDs[handle] = id
