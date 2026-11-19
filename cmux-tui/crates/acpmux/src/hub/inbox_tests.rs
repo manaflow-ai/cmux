@@ -27,6 +27,8 @@ fn item(
         tool_notice: None,
         noticed: false,
         read: false,
+        whole: false,
+        size: 0,
         answer: None,
         reader: None,
     }
@@ -373,21 +375,45 @@ fn class_aliases_name_the_inbox_kinds() {
 }
 
 #[test]
-fn trim_lets_go_only_of_answered_read_messages_and_remembers_them() {
+fn trim_lets_go_of_done_messages_first_never_a_carried_or_new_one_and_remembers_them() {
     let mut inbox = Inbox::default();
     for n in 0..KEEP + 3 {
         let mut i = item(&format!("m-{n}"), "from:a", "a", PromptClass::Result, n as u64, "x");
-        (i.noticed, i.read) = (true, true);
-        // The first two are answered; the third went in with no answer yet (its notice runs).
-        if n < 2 {
+        i.noticed = n != 3;
+        // Every one past the first ten went in whole or was read; the first ten went in as a
+        // preview nobody read.
+        i.read = n >= 10 && n % 2 == 0;
+        i.whole = n >= 10 && n % 2 == 1;
+        if n != 2 {
             i.answered = Some(Ok(json!({"stopReason": "end_turn"})));
         }
         inbox.items.push(i);
     }
+    // m-2's notice has not ended: it may be new again. m-3 no notice told the agent of yet.
+    inbox.in_flight = Some(("inbox-notice-2".into(), vec!["m-2".into()]));
     trim(&mut inbox);
-    assert_eq!(inbox.items.len(), KEEP + 1, "only the answered ones go");
-    assert!(inbox.trimmed.contains("m-0") && inbox.trimmed.contains("m-1"));
-    assert!(inbox.items.iter().any(|i| i.prompt_id == "m-2"));
+    assert_eq!(inbox.items.len(), KEEP - KEEP / 4, "down to three quarters of the bound");
+    let held = |id: &str| inbox.items.iter().any(|i| i.prompt_id == id);
+    assert!(held("m-2") && held("m-3"), "never one a notice carries or none told of yet");
+    // The read and whole ones go first: the unread previews stay, with room left for them.
+    assert!(held("m-0") && held("m-9"), "the unread ones stay while done ones can go");
+    assert!(!held("m-10") && inbox.trimmed.contains("m-10"));
+    assert!(!inbox.spilled.covers("from:a"), "nothing unread let go of");
+}
+
+#[test]
+fn trim_lets_go_of_unread_ones_last_and_remembers_their_thread() {
+    let mut inbox = Inbox::default();
+    for n in 0..KEEP + 1 {
+        let thread = if n == 0 { "from:b" } else { "from:a" };
+        let mut i = item(&format!("m-{n}"), thread, "a", PromptClass::Result, n as u64, "x");
+        i.noticed = true;
+        i.answered = Some(Ok(json!({"stopReason": "end_turn"})));
+        inbox.hold(i);
+    }
+    assert!(!inbox.items.iter().any(|i| i.prompt_id == "m-0"));
+    assert!(inbox.spilled.covers("from:b") && inbox.spilled.covers("from:a"));
+    assert!(!inbox.spilled.covers("from:c"));
 }
 
 #[test]
@@ -931,8 +957,7 @@ fn held_bytes(inbox: &Inbox) -> usize {
 
 /// Takes `message` into `inbox` as `inbox_accept` does.
 fn take(inbox: &mut Inbox, message: Item) {
-    inbox.items.push(message);
-    trim(inbox);
+    inbox.hold(message);
 }
 
 /// The most items and bytes one chat's inbox may hold of messages a notice told its agent of.
@@ -1082,7 +1107,19 @@ async fn a_restart_holds_a_bounded_window_and_every_message_still_dedups() {
         "{accepted}"
     );
     assert_eq!(answer["_meta"]["acpmux"]["duplicate"], json!(true), "{answer}");
-    let inbox = session.inbox();
-    assert!(inbox.items.len() <= held, "the repeat added nothing");
-    assert!(inbox.items.iter().filter(|i| i.prompt_id == again).count() <= 1);
+    {
+        let inbox = session.inbox();
+        assert!(inbox.items.len() <= held, "the repeat added nothing");
+        assert!(inbox.items.iter().filter(|i| i.prompt_id == again).count() <= 1);
+    }
+    // Nothing unread is lost: a read of a thread gives every one of its messages, those let go
+    // of from the log, newest first; once marked read, the next read finds them all read.
+    let thread = hub.inbox_thread(&session, "from:lane-0", true);
+    let messages = thread["messages"].as_array().expect("messages");
+    assert_eq!(messages.len(), N / 40, "every message of the thread");
+    assert_eq!(messages[0]["promptId"], json!(format!("m-{}", N - 40)));
+    assert_eq!(messages.last().unwrap()["promptId"], json!("m-0"));
+    let again = hub.inbox_thread(&session, "from:lane-0", false);
+    let unread = again["messages"].as_array().unwrap().iter().filter(|m| m["read"] != json!(true));
+    assert_eq!(unread.count(), 0, "{again}");
 }

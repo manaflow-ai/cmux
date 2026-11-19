@@ -169,3 +169,94 @@ impl<M: SuffixMetric> TrimmedText<M> {
         self.content.string()
     }
 }
+
+/// An id as an id set keeps it: 8 bytes, whatever the id's length. Two ids share one with odds
+/// of 2^-64 a pair, far below anything a chat's id count reaches.
+pub(crate) fn id_hash(id: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    id.hash(&mut h);
+    h.finish()
+}
+
+/// The ids [`RecentIds`] keeps when no bound is given: a chat's inbox's let-go and withdrawn
+/// messages (`inbox.rs`).
+pub(super) const RECENT_IDS: usize = 2048;
+
+/// The newest `cap` ids seen, oldest forgotten first: a dedup window whose memory is a constant
+/// (8 bytes an id, as a hash of it) however many ids go through it. What it forgot, a caller
+/// reads from the log when it must: a resend asks the log whatever its age (`turns.rs`), so the
+/// window only spares the log for a repeat that comes soon after (huge-blue, 2026-11-19: id sets
+/// that kept every message ever sent to a chat).
+pub(crate) struct RecentIds {
+    cap: usize,
+    order: VecDeque<u64>,
+    set: std::collections::HashSet<u64>,
+}
+
+impl Default for RecentIds {
+    fn default() -> Self {
+        Self::new(RECENT_IDS)
+    }
+}
+
+impl RecentIds {
+    pub(crate) fn new(cap: usize) -> Self {
+        Self { cap, order: VecDeque::new(), set: std::collections::HashSet::new() }
+    }
+
+    /// Keeps `id` as the newest; false when it was kept already.
+    pub(crate) fn insert(&mut self, id: &str) -> bool {
+        self.insert_hash(id_hash(id))
+    }
+
+    /// Keeps every id `other` keeps, oldest first, as the newest.
+    pub(crate) fn absorb(&mut self, other: &RecentIds) {
+        for key in &other.order {
+            self.insert_hash(*key);
+        }
+    }
+
+    fn insert_hash(&mut self, key: u64) -> bool {
+        if !self.set.insert(key) {
+            return false;
+        }
+        self.order.push_back(key);
+        while self.order.len() > self.cap {
+            if let Some(oldest) = self.order.pop_front() {
+                self.set.remove(&oldest);
+            }
+        }
+        true
+    }
+
+    pub(crate) fn contains(&self, id: &str) -> bool {
+        self.set.contains(&id_hash(id))
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.order.len()
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.order.clear();
+        self.set.clear();
+    }
+}
+
+#[cfg(test)]
+mod recent_ids_tests {
+    use super::RecentIds;
+
+    #[test]
+    fn recent_ids_keep_the_newest_window_and_forget_the_oldest() {
+        let mut ids = RecentIds::new(3);
+        for id in ["a", "b", "c", "d"] {
+            assert!(ids.insert(id));
+        }
+        assert!(!ids.insert("d"), "kept already");
+        assert_eq!(ids.len(), 3);
+        assert!(!ids.contains("a"), "the oldest is forgotten");
+        assert!(ids.contains("b") && ids.contains("d"));
+    }
+}

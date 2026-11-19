@@ -151,8 +151,14 @@ const NEWEST_BYTES: usize = 8 * 1024;
 /// The most the parts of one notice hold of newest messages past [`WHOLE_BYTES`], in bytes: the
 /// threads past it draw their preview and read the rest, as before.
 const NEWEST_TOTAL_BYTES: usize = 32 * 1024;
-/// Messages a chat keeps in memory; the oldest read ones go first (the log keeps them all).
+/// Messages a chat keeps in memory of those a notice told its agent of ([`trim`]); the log keeps
+/// them all.
 const KEEP: usize = 500;
+/// And the most bytes they hold ([`item_bytes`]).
+const KEEP_BYTES: usize = 1 << 20;
+/// Threads a chat remembers by name as holding unread messages [`trim`] let go of ([`Spill`]);
+/// past it, every thread read looks in the log.
+const SPILLED_THREADS: usize = 256;
 /// The client a notice goes under.
 const CLIENT: &str = "acpmux";
 
@@ -188,6 +194,11 @@ pub(super) struct Item {
     pub(super) noticed: bool,
     /// The agent read it (`inbox_thread` with `markRead`).
     pub(super) read: bool,
+    /// A notice that went in carried it whole ([`render`], `whole_notice`): the agent has every
+    /// word, as good as read for [`trim`].
+    pub(super) whole: bool,
+    /// The bytes it holds ([`item_bytes`]), counted in [`Inbox::held_bytes`] by [`Inbox::hold`].
+    pub(super) size: usize,
     /// The waiting `session/prompt` that sent it, answered by its notice.
     answer: Option<Waiter>,
     /// Its sender's caller waits for the reply and prints it (`PromptOptions::reply_reader`):
@@ -218,6 +229,8 @@ impl Item {
             tool_notice: None,
             noticed: true,
             read: false,
+            whole: false,
+            size: 0,
             answer: None,
             reader: None,
         }
@@ -248,11 +261,16 @@ pub struct Inbox {
     /// answers. Here, not in its task, so a close answers them (`inbox_closed`).
     pub(super) carrying: Vec<Carry>,
     /// The messages withdrawn before any notice carried them: a resend of one answers withdrawn,
-    /// never puts it back. Ids only, as the prompt ledger keeps them.
-    pub(super) removed: std::collections::HashSet<String>,
-    /// The messages [`trim`] let go of (read, noticed and answered): a resend of one answers from
-    /// the log (`logged_inbox`), never puts it back.
-    pub(super) trimmed: std::collections::HashSet<String>,
+    /// never puts it back. The newest ids only ([`super::bounded::RecentIds`]): a resend (`turns.rs`)
+    /// reads the log for one of any age (its `inbox_removed` record).
+    pub(super) removed: super::bounded::RecentIds,
+    /// The messages [`trim`] let go of: a repeat of one answers from the log (`logged_inbox`),
+    /// never puts it back. The newest ids only, as [`Self::removed`].
+    pub(super) trimmed: super::bounded::RecentIds,
+    /// The bytes [`Self::items`] hold ([`item_bytes`]), kept by [`Self::hold`] and [`trim`].
+    pub(super) held_bytes: usize,
+    /// The threads with unread messages [`trim`] let go of: a read of one looks in the log too.
+    pub(super) spilled: Spill,
     /// Woken when a notice is written or ends, or the chat closes: a withdraw waits on it for
     /// a notice that carries its message and is not written yet (`inbox_settled`).
     pub(super) settled: Arc<tokio::sync::Notify>,
@@ -267,6 +285,80 @@ pub struct Inbox {
     /// agent read it (`cancel.rs` module docs): its messages are due as a turn of their own once
     /// the chat is idle, whatever their class. Cleared when a notice goes.
     pub(super) due_now: bool,
+}
+
+/// The threads holding unread messages [`trim`] let go of (`Inbox::spilled`): at most
+/// [`SPILLED_THREADS`] by name, then every thread.
+#[derive(Default)]
+pub(super) struct Spill {
+    threads: std::collections::HashSet<String>,
+    all: bool,
+}
+
+impl Spill {
+    fn add(&mut self, thread: &str) {
+        if self.all || self.threads.contains(thread) {
+            return;
+        }
+        if self.threads.len() >= SPILLED_THREADS {
+            self.threads.clear();
+            self.all = true;
+            return;
+        }
+        self.threads.insert(thread.to_owned());
+    }
+
+    /// Whether a read of `thread` (a client's key, maybe the old `from:` one of a declared
+    /// sender's thread, [`thread_matches`]) must look in the log.
+    pub(super) fn covers(&self, thread: &str) -> bool {
+        self.all
+            || self.threads.contains(thread)
+            || thread
+                .strip_prefix("from:")
+                .is_some_and(|rest| self.threads.contains(&format!("declared:{rest}")))
+    }
+
+    fn absorb(&mut self, other: Spill) {
+        if other.all {
+            self.threads.clear();
+            self.all = true;
+        }
+        for thread in &other.threads {
+            self.add(thread);
+        }
+    }
+
+    /// `thread` was read from the log and marked read.
+    fn forget(&mut self, thread: &str) {
+        self.threads.remove(thread);
+        if let Some(rest) = thread.strip_prefix("from:") {
+            self.threads.remove(&format!("declared:{rest}"));
+        }
+    }
+}
+
+impl Inbox {
+    /// Takes `item` in, then [`trim`]s: what one message costs never grows with how many came
+    /// before it.
+    pub(super) fn hold(&mut self, mut item: Item) {
+        item.size = item_bytes(&item);
+        self.held_bytes += item.size;
+        self.items.push(item);
+        trim(self);
+    }
+
+    /// The messages `ids` got their notice's answer.
+    fn answer(&mut self, ids: &[String], answer: &super::queue::Answer) {
+        let extra = answer_bytes(answer);
+        let mut held = self.held_bytes;
+        for item in self.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
+            let before = item.answered.as_ref().map_or(0, answer_bytes);
+            item.answered = Some(answer.clone());
+            item.size = item.size.saturating_sub(before) + extra;
+            held = held.saturating_sub(before) + extra;
+        }
+        self.held_bytes = held;
+    }
 }
 
 /// How [`Hub::inbox_route`] routes a prompt.
@@ -303,6 +395,9 @@ pub(super) struct Carry {
     /// A steer: in flight until the agent took it at its tool step (its answer), so a turn
     /// takes at most one notice per step.
     steer: bool,
+    /// It carries its messages whole ([`render`], or `whole_notice` for an agent with no
+    /// reader): once in, they are as good as read ([`Item::whole`]).
+    whole: bool,
     waiters: Vec<(String, Waiter)>,
 }
 
@@ -678,6 +773,20 @@ fn thread_matches(item: &Item, requested: &str, allow_declared_fallback: bool) -
                 .is_some_and(|rest| requested == format!("from:{rest}")))
 }
 
+/// One message of a thread read (`inbox_thread`). `from` is the agent's words (`inbox_read`,
+/// `acpmux session inbox`, the team read); `fromName` is the name alone, which the transcript
+/// draws when the person opens the thread, as a notice's parts name it.
+fn thread_message(item: &Item) -> Value {
+    json!({
+        "promptId": item.prompt_id, "from": display_sender(&item.sender, &item.from),
+        "fromName": shown_sender(&item.sender, &item.from), "fromSession": item.from_session,
+        "sender": item.sender,
+        "class": item.class, "kind": kind_of(item.class), "at": item.at,
+        "text": item.text, "read": item.read, "details": item.details,
+        "notice": item.tool_notice,
+    })
+}
+
 /// The receiver's sender thread becomes the reply author's sender thread on the other inbox.
 /// Keep the peer's display name in the key so replies join the same stable conversation after
 /// sender provenance gains a session id.
@@ -766,7 +875,7 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
     let blocker = |list: &[&Item]| list.iter().any(|i| i.class.urgent());
     let newest = |list: &[&Item]| list.iter().map(|i| i.at).max().unwrap_or(0);
     threads.sort_by_key(|(_, list)| (!blocker(list), std::cmp::Reverse(newest(list))));
-    let whole = items.iter().map(|i| i.text.len()).sum::<usize>() <= WHOLE_BYTES;
+    let whole = whole_render(items);
     let n = threads.len();
     let mut text = format!(
         "[inbox] New messages from other agents in {n} thread{}.",
@@ -870,6 +979,11 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
         parts.push(part);
     }
     (text, json!(parts))
+}
+
+/// Whether [`render`]'s notice of `items` holds each one whole.
+fn whole_render(items: &[&Item]) -> bool {
+    items.iter().map(|i| i.text.len()).sum::<usize>() <= WHOLE_BYTES
 }
 
 /// The loudest severity of the tools' notices among `items` (`prompt_provenance::NOTICE_SEVERITIES`).
@@ -1304,7 +1418,7 @@ impl Hub {
                     }
                     None => {
                         held = strands;
-                        inbox.items.push(Item {
+                        inbox.hold(Item {
                             prompt_id: prompt_id.to_owned(),
                             notice: None,
                             answered: None,
@@ -1321,10 +1435,11 @@ impl Hub {
                             tool_notice: tool_notice_of(provenance),
                             noticed: false,
                             read: false,
+                            whole: false,
+                            size: 0,
                             answer: Some(tx.clone()),
                             reader: reader.clone(),
                         });
-                        trim(&mut inbox);
                         true
                     }
                 }
@@ -1426,7 +1541,7 @@ impl Hub {
             {
                 false
             } else {
-                inbox.items.push(Item {
+                inbox.hold(Item {
                     prompt_id: prompt_id.to_owned(),
                     notice: None,
                     answered: None,
@@ -1443,10 +1558,11 @@ impl Hub {
                     tool_notice: None,
                     noticed: true,
                     read: true,
+                    whole: false,
+                    size: 0,
                     answer: None,
                     reader: None,
                 });
-                trim(&mut inbox);
                 true
             }
         };
@@ -1682,6 +1798,7 @@ impl Hub {
             inbox.due_now = false;
             let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
             let (mut text, parts) = render(&new);
+            let carries_whole = whole_render(&new);
             let mut whole = team_page::whole_notice(&new);
             if let Some(hint) = reply_hint(&new) {
                 for notice in [&mut text, &mut whole] {
@@ -1718,7 +1835,13 @@ impl Hub {
                 super::question_replies::keep_due(&mut inbox, d);
             }
             inbox.in_flight = Some((notice_id.clone(), ids.clone()));
-            let carry = Carry { notice: notice_id.clone(), ids: ids.clone(), steer, waiters };
+            let carry = Carry {
+                notice: notice_id.clone(),
+                ids: ids.clone(),
+                steer,
+                whole: carries_whole,
+                waiters,
+            };
             inbox.carrying.push(carry);
             (text, whole, parts, ids)
         };
@@ -1733,7 +1856,15 @@ impl Hub {
         let (hub, s) = (self.clone(), session.clone());
         tokio::spawn(async move {
             // An agent that can open no thread gets each message whole (`inbox_team_page.rs`).
-            let text = if hub.notice_reader_has_tools(&s).await { text } else { whole };
+            let text = if hub.notice_reader_has_tools(&s).await {
+                text
+            } else {
+                let mut inbox = s.inbox();
+                if let Some(carry) = inbox.carrying.iter_mut().find(|c| c.notice == notice_id) {
+                    carry.whole = true;
+                }
+                whole
+            };
             let blocks = vec![json!({"type": "text", "text": text})];
             let result = Box::pin(hub.run_prompt(&s, blocks, CLIENT, steer, opts)).await;
             // In once its prompt was written to the agent (`inbox_prompt_written`), as a steer
@@ -1767,13 +1898,13 @@ impl Hub {
             if went_in {
                 inbox.refused_at = 0;
                 let answer = if closed { Err(super::queue::closing_error()) } else { result };
-                for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
-                    item.answered = Some(answer.clone());
-                }
+                inbox.answer(ids, &answer);
                 for (_, waiter) in waiters {
                     waiter.send_replace(Some(answer.clone()));
                 }
                 inbox.settled.notify_waiters();
+                // What it carried is done with now: let go of the oldest past the bound.
+                trim(&mut inbox);
                 Some(answer)
             } else if super::steer_end::is_stopped_steer_refused(&result) {
                 // A Stop kept it out of its turn, or took it back unread: no refusal of the agent's,
@@ -1883,10 +2014,9 @@ impl Hub {
         };
         {
             let mut inbox = session.inbox();
-            for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
-                item.answered = Some(answer.clone());
-            }
+            inbox.answer(&ids, &answer);
             inbox.settled.notify_waiters();
+            trim(&mut inbox);
         }
         let mut msg = json!({"noticePromptId": notice_id, "promptIds": ids});
         match answer {
@@ -1940,17 +2070,23 @@ impl Hub {
                 Some((id, _)) if id == prompt_id => inbox.in_flight.take(),
                 _ => None,
             };
+            let whole = inbox.carrying.iter().any(|c| c.notice == prompt_id && c.whole);
             if let Some((id, ids)) = &landed {
                 inbox.written.push(id.clone());
                 for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
                     item.notice = Some(id.clone());
+                    item.whole = whole;
                 }
                 inbox.settled.notify_waiters();
             }
-            landed
+            landed.map(|landed| (landed, whole))
         };
-        if let Some((id, ids)) = landed {
-            let msg = json!({"noticePromptId": id, "promptIds": ids});
+        if let Some(((id, ids), whole)) = landed {
+            let mut msg = json!({"noticePromptId": id, "promptIds": ids});
+            // It carried them whole: a restart's inbox knows they need no read (`trim`).
+            if whole {
+                msg.set("whole", json!(true));
+            }
             self.append(session, "mux", "inbox_noticed", msg);
         }
         self.inbox_review(session);
@@ -1968,6 +2104,7 @@ impl Hub {
             let mut ids = Vec::new();
             for item in inbox.items.iter_mut().filter(|i| i.notice.as_deref() == Some(notice_id)) {
                 item.notice = None;
+                item.whole = false;
                 ids.push(item.prompt_id.clone());
             }
             ids
@@ -2050,15 +2187,13 @@ impl Hub {
         "inbox_removed",
     ];
 
-    /// The inbox from the session's log (`restore_queue`): every message, read and noticed as
-    /// the log says. Run again, it adds only what it does not hold.
+    /// The inbox from the session's log (`restore_queue`): its newest messages, read and noticed
+    /// as the log says, within the bound [`trim`] keeps; the older ones a notice told the agent
+    /// of stay in the log, read from there ([`Spill`], `logged_inbox`). The scan holds no more
+    /// than that window, so a chat sent 20,000 messages restores in the memory of 500. Run again,
+    /// it adds only what it does not hold.
     pub(super) fn restore_inbox(&self, session: &Session) {
-        let mut items: Vec<Item> = Vec::new();
-        let mut noticed: std::collections::HashMap<String, String> = Default::default();
-        let mut read: std::collections::HashSet<String> = Default::default();
-        let mut removed: std::collections::HashSet<String> = Default::default();
-        let mut answered: std::collections::HashMap<String, super::queue::Answer> =
-            Default::default();
+        let mut window = Window::default();
         let kinds = Self::INBOX_KINDS;
         // And what was changed here but is not in the journal yet (`scan_for_rebuild`).
         let scanned = self.scan_for_rebuild(session, kinds, &mut |e: EventRecord| {
@@ -2067,96 +2202,71 @@ impl Hub {
                 ids.unwrap_or_default().into_iter().filter_map(|v| v.as_str().map(str::to_owned))
             };
             match e.kind.as_str() {
-                "inbox" => {
-                    let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or("");
-                    let class =
-                        crate::prompt_class::recorded(&e.msg).unwrap_or(PromptClass::Result);
-                    let provenance = crate::prompt_provenance::recorded(&e.msg);
-                    let from_session =
-                        e.msg.get("fromSession").and_then(Value::as_str).map(str::to_owned);
-                    let stored_sender = e.msg.get("sender");
-                    let sender = stored_sender.cloned().unwrap_or_else(|| {
-                        crate::prompt_provenance::sender_record(
-                            provenance.as_ref(),
-                            from_session.as_deref(),
-                            None,
-                        )
-                    });
-                    let thread = field("threadId").to_owned();
-                    let thread = if stored_sender.is_none() {
-                        legacy_thread_key(provenance.as_ref(), field("from"), thread)
-                    } else {
-                        thread
-                    };
-                    items.push(Item {
-                        prompt_id: field("promptId").to_owned(),
-                        notice: None,
-                        answered: None,
-                        thread,
-                        from: field("from").to_owned(),
-                        from_session,
-                        asker: super::question_replies::asker_of(provenance.as_ref()),
-                        sender,
-                        class,
-                        report: e.msg.get("report") == Some(&Value::Bool(true)),
-                        at: e.at,
-                        text: field("text").to_owned(),
-                        details: provenance.as_ref().and_then(|p| p.get("details").cloned()),
-                        tool_notice: tool_notice_of(provenance.as_ref()),
-                        noticed: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
-                        read: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
-                        answer: None,
-                        reader: None,
-                    });
-                }
+                "inbox" => window.push(logged_item(&e)),
                 "inbox_noticed" => {
                     let notice = e.msg.get("noticePromptId").and_then(Value::as_str);
-                    let notice = notice.unwrap_or_default().to_owned();
-                    noticed.extend(ids().map(|id| (id, notice.clone())));
+                    let notice = notice.unwrap_or_default();
+                    let whole = e.msg.get("whole") == Some(&Value::Bool(true));
+                    for id in ids() {
+                        if let Some(item) = window.find(&id) {
+                            item.noticed = true;
+                            item.notice = Some(notice.to_owned()).filter(|n| !n.is_empty());
+                            item.whole = whole;
+                        }
+                    }
                 }
                 // Taken back by a Stop unread (`inbox_notice_unwritten`): new again.
                 "inbox_returned" => {
                     for id in ids() {
-                        noticed.remove(&id);
+                        if let Some(item) = window.find(&id) {
+                            item.noticed = false;
+                            item.notice = None;
+                            item.whole = false;
+                        }
                     }
                 }
                 "inbox_answered" => {
                     if let Some((notice, answer)) = answered_record(&e.msg) {
-                        answered.insert(notice, answer);
+                        window.answered(&notice, &answer);
                     }
                 }
-                "inbox_read" => read.extend(ids()),
+                "inbox_read" => {
+                    for id in ids() {
+                        if let Some(item) = window.find(&id) {
+                            item.read = true;
+                        }
+                    }
+                }
                 "inbox_removed" => {
                     let id = e.msg.get("promptId").and_then(Value::as_str).unwrap_or_default();
-                    removed.insert(id.to_owned());
+                    window.remove(id);
                 }
                 _ => {}
             }
             true
         });
-        if scanned.is_err() || items.is_empty() {
+        if scanned.is_err() || (window.items.is_empty() && window.trimmed.len() == 0) {
             return;
         }
         // The state itself: `Session::inbox` calls this to fill it.
         let mut inbox = session.inbox_state.lock().unwrap_or_else(|e| e.into_inner());
-        for mut item in items {
-            if removed.contains(&item.prompt_id) {
-                inbox.removed.insert(item.prompt_id.clone());
-            }
+        let Window { items, removed, trimmed, spilled, .. } = window;
+        inbox.removed.absorb(&removed);
+        inbox.trimmed.absorb(&trimmed);
+        inbox.spilled.absorb(spilled);
+        let held: std::collections::HashSet<String> =
+            inbox.items.iter().map(|i| i.prompt_id.clone()).collect();
+        for item in items {
             // One taken out here since is out too, its record maybe not in the log yet (it
             // waits while a restore owns the chat: review of #37284 at 07f76930, F1).
             if item.prompt_id.is_empty()
-                || removed.contains(&item.prompt_id)
                 || inbox.removed.contains(&item.prompt_id)
                 || inbox.trimmed.contains(&item.prompt_id)
-                || inbox.items.iter().any(|i| i.prompt_id == item.prompt_id)
+                || held.contains(&item.prompt_id)
             {
                 continue;
             }
-            item.notice = noticed.get(&item.prompt_id).cloned().filter(|n| !n.is_empty());
-            item.answered = item.notice.as_ref().and_then(|n| answered.get(n).cloned());
-            item.noticed |= noticed.contains_key(&item.prompt_id);
-            item.read |= read.contains(&item.prompt_id);
+            inbox.held_bytes += item.size;
             inbox.items.push(item);
         }
         trim(&mut inbox);
@@ -2175,8 +2285,10 @@ impl Hub {
                 Some((_, true, true)) => return Unsend::Carried,
                 Some((_, true, false)) => return Unsend::Noticed,
                 Some((i, false, _)) => {
-                    inbox.removed.insert(prompt_id.to_owned());
-                    inbox.items.remove(i)
+                    inbox.removed.insert(prompt_id);
+                    let item = inbox.items.remove(i);
+                    inbox.held_bytes = inbox.held_bytes.saturating_sub(item.size);
+                    item
                 }
             }
         };
@@ -2319,8 +2431,10 @@ impl Hub {
     }
 
     /// `_acpmux/inbox_thread`: a thread's messages, newest first; `mark_read` marks them read.
+    /// A thread whose unread messages [`trim`] let go of ([`Spill`]) reads them from the log too,
+    /// so none the agent has not read is lost to it.
     pub fn inbox_thread(&self, session: &Session, thread: &str, mark_read: bool) -> Value {
-        let (messages, marked, label_key) = {
+        let (mut messages, mut marked, label_key, spilled, held) = {
             let mut inbox = session.inbox();
             let mut marked = Vec::new();
             let mut messages = Vec::new();
@@ -2330,37 +2444,92 @@ impl Hub {
                 .items
                 .iter()
                 .find(|item| thread_matches(item, thread, allow_declared_fallback))
-                .map(|item| item.thread.clone())
-                .unwrap_or_else(|| thread.to_owned());
+                .map(|item| item.thread.clone());
             for item in inbox
                 .items
                 .iter_mut()
                 .rev()
                 .filter(|i| thread_matches(i, thread, allow_declared_fallback))
             {
-                // `from` is the agent's words (`inbox_read`, `acpmux session inbox`, the team
-                // read); `fromName` is the name alone, which the transcript draws when the person
-                // opens the thread, as a notice's parts name it.
-                messages.push(json!({
-                    "promptId": item.prompt_id, "from": display_sender(&item.sender, &item.from),
-                    "fromName": shown_sender(&item.sender, &item.from), "fromSession": item.from_session,
-                    "sender": item.sender,
-                    "class": item.class, "kind": kind_of(item.class), "at": item.at,
-                    "text": item.text, "read": item.read, "details": item.details,
-                    "notice": item.tool_notice,
-                }));
+                messages.push(thread_message(item));
                 if mark_read && !item.read {
                     item.read = true;
                     marked.push(item.prompt_id.clone());
                 }
             }
-            (messages, marked, label_key)
+            let spilled = inbox.spilled.covers(thread).then_some(allow_declared_fallback);
+            let held: std::collections::HashSet<String> = match spilled {
+                Some(_) => inbox.items.iter().map(|i| i.prompt_id.clone()).collect(),
+                None => Default::default(),
+            };
+            (messages, marked, label_key, spilled, held)
         };
+        let mut label_key = label_key;
+        if let Some(allow_declared_fallback) = spilled {
+            let older = self.spilled_thread(session, thread, allow_declared_fallback, &held);
+            if label_key.is_none() {
+                label_key = older.last().map(|i| i.thread.clone());
+            }
+            for item in older.iter().rev() {
+                messages.push(thread_message(item));
+                if mark_read {
+                    marked.push(item.prompt_id.clone());
+                }
+            }
+            if mark_read {
+                session.inbox().spilled.forget(thread);
+            }
+        }
         if !marked.is_empty() {
             let msg = json!({"threadId": thread, "promptIds": marked});
             self.append(session, "mux", "inbox_read", msg);
         }
+        let label_key = label_key.unwrap_or_else(|| thread.to_owned());
         json!({"sessionId": session.id, "threadId": thread, "label": label(&label_key), "messages": messages})
+    }
+
+    /// The unread messages of `thread` the log holds and the inbox does not (`held`), oldest
+    /// first: those [`trim`] let go of unread. Only that thread's are kept as it reads.
+    fn spilled_thread(
+        &self,
+        session: &Session,
+        thread: &str,
+        allow_declared_fallback: bool,
+        held: &std::collections::HashSet<String>,
+    ) -> Vec<Item> {
+        let mut found: Vec<Option<Item>> = Vec::new();
+        let mut at: std::collections::HashMap<String, usize> = Default::default();
+        let kinds = ["inbox", "inbox_read", "inbox_removed"];
+        let _ = self.scan_for_rebuild(session, &kinds, &mut |e: EventRecord| {
+            let ids = || {
+                let ids = e.msg.get("promptIds").and_then(Value::as_array).cloned();
+                ids.unwrap_or_default().into_iter().filter_map(|v| v.as_str().map(str::to_owned))
+            };
+            let mut drop_id = |id: &str| {
+                if let Some(i) = at.remove(id) {
+                    found[i] = None;
+                }
+            };
+            match e.kind.as_str() {
+                "inbox" => {
+                    let item = logged_item(&e);
+                    if !item.read
+                        && !held.contains(&item.prompt_id)
+                        && thread_matches(&item, thread, allow_declared_fallback)
+                    {
+                        at.insert(item.prompt_id.clone(), found.len());
+                        found.push(Some(item));
+                    }
+                }
+                "inbox_read" => ids().for_each(|id| drop_id(&id)),
+                "inbox_removed" => {
+                    drop_id(e.msg.get("promptId").and_then(Value::as_str).unwrap_or_default())
+                }
+                _ => {}
+            }
+            true
+        });
+        found.into_iter().flatten().collect()
     }
 
     /// `_acpmux/inbox_reply`: `text` from this chat's agent to the thread's newest sender here,
@@ -2380,7 +2549,18 @@ impl Hub {
                 .iter()
                 .rev()
                 .filter(|i| thread_matches(i, thread, allow_declared_fallback));
-            newest.filter_map(|i| i.from_session.clone()).next()
+            let to = newest.filter_map(|i| i.from_session.clone()).next();
+            let spilled = inbox.spilled.covers(thread);
+            (to, spilled.then_some(allow_declared_fallback))
+        };
+        // A thread whose messages [`trim`] let go of unread: its newest sender from the log.
+        let to = match to {
+            (Some(to), _) => Some(to),
+            (None, Some(allow)) => {
+                let older = self.spilled_thread(session, thread, allow, &Default::default());
+                older.iter().rev().find_map(|i| i.from_session.clone())
+            }
+            (None, None) => None,
         };
         let Some(to) = to else {
             return Err(RpcError::invalid_params(
@@ -2435,28 +2615,207 @@ fn answered_record(msg: &Value) -> Option<(String, super::queue::Answer)> {
     Some((notice, Err(error)))
 }
 
-/// Keeps at most [`KEEP`] messages: the oldest read and noticed ones go first.
+/// An `inbox` record's message as the inbox holds it (`restore_inbox`, a read of the log).
+fn logged_item(e: &EventRecord) -> Item {
+    let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or("");
+    let class = crate::prompt_class::recorded(&e.msg).unwrap_or(PromptClass::Result);
+    let provenance = crate::prompt_provenance::recorded(&e.msg);
+    let from_session = e.msg.get("fromSession").and_then(Value::as_str).map(str::to_owned);
+    let stored_sender = e.msg.get("sender");
+    let sender = stored_sender.cloned().unwrap_or_else(|| {
+        crate::prompt_provenance::sender_record(provenance.as_ref(), from_session.as_deref(), None)
+    });
+    let thread = field("threadId").to_owned();
+    let thread = if stored_sender.is_none() {
+        legacy_thread_key(provenance.as_ref(), field("from"), thread)
+    } else {
+        thread
+    };
+    let delivered_read = e.msg.get("deliveredRead") == Some(&Value::Bool(true));
+    let mut item = Item {
+        prompt_id: field("promptId").to_owned(),
+        notice: None,
+        answered: None,
+        thread,
+        from: field("from").to_owned(),
+        from_session,
+        asker: super::question_replies::asker_of(provenance.as_ref()),
+        sender,
+        class,
+        report: e.msg.get("report") == Some(&Value::Bool(true)),
+        at: e.at,
+        text: field("text").to_owned(),
+        details: provenance.as_ref().and_then(|p| p.get("details").cloned()),
+        tool_notice: tool_notice_of(provenance.as_ref()),
+        noticed: delivered_read,
+        read: delivered_read,
+        whole: false,
+        size: 0,
+        answer: None,
+        reader: None,
+    };
+    item.size = item_bytes(&item);
+    item
+}
+
+/// What `restore_inbox` holds while it reads the log: the newest messages within [`trim`]'s
+/// bound, and the ids and threads of those it let go of.
+#[derive(Default)]
+struct Window {
+    items: Vec<Item>,
+    bytes: usize,
+    removed: super::bounded::RecentIds,
+    trimmed: super::bounded::RecentIds,
+    spilled: Spill,
+}
+
+impl Window {
+    fn push(&mut self, item: Item) {
+        self.bytes += item.size;
+        self.items.push(item);
+        if self.items.len() <= KEEP && self.bytes <= KEEP_BYTES {
+            return;
+        }
+        // The oldest whose notice is settled go: answered, or no notice's (a lane's report
+        // delivered read). One a later record may still make new again (`inbox_returned`) stays.
+        let settled = |i: &Item| i.noticed && (i.answered.is_some() || i.notice.is_none());
+        let (len, bytes) = (self.items.len(), self.bytes);
+        let gone = let_go(&self.items, len, bytes, |i| settled(i) && (i.read || i.whole), settled);
+        self.bytes = keep_rest(&mut self.items, &gone, bytes, &mut self.trimmed, &mut self.spilled);
+    }
+
+    fn find(&mut self, id: &str) -> Option<&mut Item> {
+        self.items.iter_mut().rev().find(|i| i.prompt_id == id)
+    }
+
+    fn answered(&mut self, notice: &str, answer: &super::queue::Answer) {
+        let extra = answer_bytes(answer);
+        for item in self.items.iter_mut().filter(|i| i.notice.as_deref() == Some(notice)) {
+            let before = item.answered.as_ref().map_or(0, answer_bytes);
+            item.answered = Some(answer.clone());
+            item.size = item.size.saturating_sub(before) + extra;
+            self.bytes = self.bytes.saturating_sub(before) + extra;
+        }
+    }
+
+    fn remove(&mut self, id: &str) {
+        self.removed.insert(id);
+        if let Some(at) = self.items.iter().position(|i| i.prompt_id == id) {
+            let item = self.items.remove(at);
+            self.bytes = self.bytes.saturating_sub(item.size);
+        }
+    }
+}
+
+/// Which of `items` (`len` of them, holding `bytes`) to let go of, oldest first, until the rest
+/// fit three quarters of [`KEEP`] and [`KEEP_BYTES`]: those `first` takes, then those `then`
+/// takes. Down to three quarters, so the next pass is a quarter of the bound away and each
+/// message's share of the work stays a constant.
+fn let_go(
+    items: &[Item],
+    mut len: usize,
+    mut bytes: usize,
+    first: impl Fn(&Item) -> bool,
+    then: impl Fn(&Item) -> bool,
+) -> Vec<bool> {
+    let mut gone = vec![false; items.len()];
+    for pass in [&first as &dyn Fn(&Item) -> bool, &then] {
+        for (at, item) in items.iter().enumerate() {
+            if len <= KEEP - KEEP / 4 && bytes <= KEEP_BYTES - KEEP_BYTES / 4 {
+                return gone;
+            }
+            if !gone[at] && pass(item) {
+                gone[at] = true;
+                len -= 1;
+                bytes = bytes.saturating_sub(item.size);
+            }
+        }
+    }
+    gone
+}
+
+/// Keeps the `items` [`let_go`] did not mark, in order; each one let go of is remembered
+/// (`trimmed`), and its thread too while it is unread (`spilled`). Returns the bytes left.
+fn keep_rest(
+    items: &mut Vec<Item>,
+    gone: &[bool],
+    mut bytes: usize,
+    trimmed: &mut super::bounded::RecentIds,
+    spilled: &mut Spill,
+) -> usize {
+    if !gone.contains(&true) {
+        return bytes;
+    }
+    let all = std::mem::take(items);
+    items.reserve(all.len());
+    for (item, gone) in all.into_iter().zip(gone) {
+        if !gone {
+            items.push(item);
+            continue;
+        }
+        bytes = bytes.saturating_sub(item.size);
+        trimmed.insert(&item.prompt_id);
+        if !item.read && !item.whole {
+            spilled.add(&item.thread);
+        }
+    }
+    bytes
+}
+
+/// About the bytes `item` holds: its strings and JSON, and the item itself.
+fn item_bytes(item: &Item) -> usize {
+    let strings = [&item.prompt_id, &item.thread, &item.from, &item.text];
+    let optional = [&item.notice, &item.from_session, &item.asker];
+    std::mem::size_of::<Item>()
+        + strings.iter().map(|s| s.len()).sum::<usize>()
+        + optional.iter().map(|s| s.as_ref().map_or(0, String::len)).sum::<usize>()
+        + value_bytes(&item.sender)
+        + item.details.as_ref().map_or(0, value_bytes)
+        + item.tool_notice.as_ref().map_or(0, value_bytes)
+        + item.answered.as_ref().map_or(0, answer_bytes)
+}
+
+/// About the bytes a notice's answer holds.
+fn answer_bytes(answer: &super::queue::Answer) -> usize {
+    match answer {
+        Ok(v) => value_bytes(v),
+        Err(e) => e.message.len() + e.data.as_ref().map_or(0, value_bytes),
+    }
+}
+
+/// About the bytes a JSON value holds: its strings and keys, and a word per node.
+fn value_bytes(v: &Value) -> usize {
+    const NODE: usize = 16;
+    NODE + match v {
+        Value::String(s) => s.len(),
+        Value::Array(a) => a.iter().map(value_bytes).sum(),
+        Value::Object(o) => o.iter().map(|(k, v)| k.len() + value_bytes(v)).sum(),
+        _ => 0,
+    }
+}
+
+/// Keeps the inbox within [`KEEP`] messages and [`KEEP_BYTES`], whatever was read: the oldest
+/// done with go first (a notice told the agent of them, and none carries them now), read ones
+/// and those a notice carried whole before the rest. A message no notice told the agent of yet
+/// always stays, and so does one a notice carries that has not gone in (it may be new again).
+/// One let go of unread has its thread remembered ([`Spill`]), so a read of the thread reads it
+/// from the log. Constant work per message: it runs only past the bound, over the bound's items.
 fn trim(inbox: &mut Inbox) {
-    // A message a notice carries that has not gone in yet may be new again: never trimmed.
-    let carried: std::collections::HashSet<String> = inbox
+    if inbox.items.len() <= KEEP && inbox.held_bytes <= KEEP_BYTES {
+        return;
+    }
+    let carried: std::collections::HashSet<&str> = inbox
         .in_flight
         .iter()
         .map(|(_, ids)| ids)
         .chain(inbox.carrying.iter().map(|c| &c.ids))
-        .flat_map(|ids| ids.iter().cloned())
+        .flat_map(|ids| ids.iter().map(String::as_str))
         .collect();
-    while inbox.items.len() > KEEP {
-        let gone = |i: &Item| {
-            i.read && i.noticed && i.answered.is_some() && !carried.contains(&i.prompt_id)
-        };
-        match inbox.items.iter().position(gone) {
-            Some(i) => {
-                let item = inbox.items.remove(i);
-                inbox.trimmed.insert(item.prompt_id);
-            }
-            None => break,
-        }
-    }
+    let done = |i: &Item| i.noticed && !carried.contains(i.prompt_id.as_str());
+    let (len, bytes) = (inbox.items.len(), inbox.held_bytes);
+    let gone = let_go(&inbox.items, len, bytes, |i| done(i) && (i.read || i.whole), done);
+    let Inbox { items, held_bytes, trimmed, spilled, .. } = inbox;
+    *held_bytes = keep_rest(items, &gone, *held_bytes, trimmed, spilled);
 }
 
 #[path = "inbox_team_page.rs"]

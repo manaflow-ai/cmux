@@ -82,8 +82,11 @@ pub struct Session {
     pub(super) meta_writer: super::meta_save::MetaWriter,
     /// Message projection ids, loaded once from the journal on first use; only
     /// message acceptance/recovery touches this, never streamed tokens.
-    /// Dedupe key is message id plus the target session for sender copies.
-    pub(super) message_ids: StdMutex<Option<std::collections::HashSet<String>>>,
+    /// Dedupe key is message id plus the target session for sender copies, kept as its hash
+    /// (`bounded::id_hash`): every one, since a log load's recovery replays the chat's whole
+    /// history through it (`recover_message_events`), but 8 bytes each instead of the key's
+    /// string (huge-blue, 2026-11-19: a coordinator's thousands of messages).
+    pub(super) message_ids: StdMutex<Option<std::collections::HashSet<u64>>>,
     /// Tool output snapshots held back from the log while a newer one may replace them
     /// (`store/deferred.rs`); taken only under `append_lock`.
     pub(super) log_deferral: StdMutex<crate::store::Deferral>,

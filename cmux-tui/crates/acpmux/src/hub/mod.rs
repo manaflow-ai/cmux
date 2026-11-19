@@ -2489,7 +2489,7 @@ impl Hub {
                     if let Some(id) = record.msg.get("messageId").and_then(Value::as_str) {
                         let target = record.msg.get("_acpmuxTarget").and_then(Value::as_str);
                         let peer = record.msg.get("_acpmuxTargetPeer").and_then(Value::as_str);
-                        ids.insert(message_key(id, target, peer));
+                        ids.insert(bounded::id_hash(&message_key(id, target, peer)));
                     }
                     true
                 })
@@ -2500,7 +2500,7 @@ impl Hub {
             *index = Some(ids);
         }
         let Some(ids) = index.as_mut() else { return false };
-        let key = message_key(&message_id, target_scope, target_peer);
+        let key = bounded::id_hash(&message_key(&message_id, target_scope, target_peer));
         if ids.contains(&key) {
             return true;
         }
