@@ -263,7 +263,10 @@ fn a_refusal_in_json_is_error_reason_next_and_the_cli_envelope() {
     );
 
     let outdated = app_error(&json!({"code": "method_not_found", "message": "unknown method"}));
-    assert_eq!(outdated.error, "app_outdated");
+    assert_eq!(
+        (outdated.error, outdated.next.as_str()),
+        ("app_outdated", "cmux settings check-for-updates")
+    );
     let gone = app_error(&json!({"code": "socket.unreachable", "message": "no socket"}));
     assert_eq!(
         (gone.error, gone.next.as_str(), gone.retryable),

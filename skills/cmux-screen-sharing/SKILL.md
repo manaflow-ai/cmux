@@ -71,7 +71,7 @@ few seconds and run it. The usual ones:
 | `frame_changed` | The display changed size since your screenshot | `cmux rd screenshot --device X` |
 | `session_ended`, `declined` | The session is over | the open command again |
 | `app_unreachable` | The cmux app does not answer | `open -a cmux` |
-| `app_outdated` | The running app predates these commands | the app's own bundled CLI, as `next` names it |
+| `app_outdated` | The running app predates these commands | `cmux settings check-for-updates` |
 | `usage` | A bad argument | `cmux rd help` |
 
 ## What you may not do

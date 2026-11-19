@@ -615,8 +615,8 @@ fn app_error(error: &Value) -> RdError {
     if code == "method_not_found" {
         return RdError::new(
             "app_outdated",
-            "the running cmux app does not serve mac_screen.frame and mac_screen.input; run the CLI bundled with it",
-            "\"/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux\" rd help",
+            "the running cmux app does not serve mac_screen.frame and mac_screen.input",
+            "cmux settings check-for-updates",
         );
     }
     if code.starts_with("socket.") || code.starts_with("transport") || code.starts_with("app.") {
