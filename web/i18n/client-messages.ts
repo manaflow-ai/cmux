@@ -45,6 +45,32 @@ export function pruneClientMessages(messages: MessageTree): MessageTree {
   return pruned;
 }
 
+/**
+ * The `docs` sections client components read (docs nav, sidebar, pager, TOC,
+ * search, page actions, heading anchors, the shortcuts table). Page bodies are
+ * rendered by server components, so they stay on the server.
+ */
+export const DOCS_CLIENT_SECTIONS = [
+  "ui",
+  "search",
+  "navItems",
+  "api",
+  "keyboardShortcuts",
+  "headingAnchors",
+] as const;
+
+/** The catalog under the docs subtree: the shared one plus the client `docs` sections. */
+export function docsClientMessages(messages: MessageTree): MessageTree {
+  const pruned = pruneClientMessages(messages);
+  if (isMessageTree(messages.docs)) {
+    const docs = messages.docs;
+    pruned.docs = Object.fromEntries(
+      DOCS_CLIENT_SECTIONS.filter((key) => key in docs).map((key) => [key, docs[key]]),
+    );
+  }
+  return pruned;
+}
+
 /** The shared catalog without the subtree-only namespaces. */
 export function sharedClientMessages(messages: MessageTree): MessageTree {
   const pruned = pruneClientMessages(messages);
