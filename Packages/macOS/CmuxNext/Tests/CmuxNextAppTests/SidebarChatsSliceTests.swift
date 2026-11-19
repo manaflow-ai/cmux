@@ -135,7 +135,7 @@ struct SidebarChatsSliceTests {
 
     /// Rows of the block the list shows now.
     var viewportRows: Int {
-        let shown = host.visibleRect
+        let shown = PageVisibleSliceTracker.visiblePart(of: host).visible
         return shown.isEmpty ? 0 : Int((shown.height / pitch).rounded(.up))
     }
 
