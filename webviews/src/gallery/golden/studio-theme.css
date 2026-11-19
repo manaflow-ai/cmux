@@ -1,16 +1,16 @@
 /* Studio's chat, measured against the reference agent GUI's tokens: a filled, borderless 16 px prompt bubble at
-   most 80% of the column, the message surface one step above the page (dark: neutral-950 mixed 8%
-   toward white over a black page; light: zinc-200/zinc-100 over zinc-25), hairline cards at 8%, muted
-   text at neutral-400's share of the foreground, accent links, and a 16 px composer card.
+   most 80% of the column on a message surface about 8% above the page, borderless cards on a 4% fill,
+   muted text at neutral-400's share of the foreground, links a step lighter than the accent, and a 16 px
+   composer card whose edge stays visible on a black or near-white page.
    Colors come from the theme's own text and accent, so both schemes read. */
 :root {
-  --cv-bubble: color-mix(in srgb, var(--agent-text, var(--cv-fg)) 10%, transparent);
-  --cv-card-fill: color-mix(in srgb, var(--agent-text, var(--cv-fg)) 3%, transparent);
-  --cv-card-ring: color-mix(in srgb, var(--agent-text, var(--cv-fg)) 8%, transparent);
+  --cv-bubble: color-mix(in srgb, var(--agent-text, var(--cv-fg)) 8%, transparent);
+  --cv-card-fill: color-mix(in srgb, var(--agent-text, var(--cv-fg)) 4%, transparent);
+  --cv-card-ring: transparent;
   --cv-text-muted: color-mix(in srgb, var(--agent-text, var(--cv-fg)) 66%, transparent);
   --cv-text-dim: color-mix(in srgb, var(--agent-text, var(--cv-fg)) 56%, transparent);
-  --cv-link: var(--agent-accent);
-  --agent-link: var(--agent-accent);
+  --cv-link: color-mix(in srgb, var(--agent-accent) 80%, var(--agent-text));
+  --agent-link: color-mix(in srgb, var(--agent-accent) 80%, var(--agent-text));
 }
 .cv-user__bubble,
 .acpmux-shell .cv-user__bubble {
@@ -20,7 +20,7 @@
 }
 .acpmux-shell {
   --acpmux-composer-bg: color-mix(in srgb, var(--agent-text) 4%, var(--agent-page-bg, Canvas));
-  --acpmux-composer-edge: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --acpmux-composer-edge: color-mix(in srgb, var(--agent-text) 14%, transparent);
 }
 .acpmux-composer-box {
   --acpmux-composer-radius: 16px;
