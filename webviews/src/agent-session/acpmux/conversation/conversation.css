@@ -5229,7 +5229,7 @@ a.cv-sha:focus-visible {
   box-shadow: inset 0 1px 0 var(--ds-surface-card-line);
 }
 :root[data-expand-row="hairline"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row:hover {
-  background-color: var(--ds-color-hover);
+  background-image: var(--ds-surface-hover-layer);
 }
 :root[data-expand-row="centred"] .cv-expand-row {
   justify-content: center;

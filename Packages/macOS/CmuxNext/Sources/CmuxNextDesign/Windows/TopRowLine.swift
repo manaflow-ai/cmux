@@ -107,10 +107,9 @@ extension WindowTitlebar {
             return TopRowLine(centerY: stripTop + row.pillTop(scale: scale) + row.tabHeight / 2)
         }
         if look == .concentric {
-            // The card keeps its concentric gutter; the pills sit midway between the window's rim and the strip's
-            // bottom (Lucas 2026-11-14 and 2026-11-17: equal room above and below the top row's tabs), and the line is theirs.
-            return target.reached(by: row, cardTop: Metrics.windowEdgeInset(Metrics.mainPaneGutter, in: window),
-                                  rim: topRowRim(in: window), scale: scale)
+            // The top row's strip starts under the window's rim (``topRowStripCardTop(in:)``), so its pills keep the one
+            // strip padding above them as below them and beside the first: the line is theirs.
+            return target.reached(by: row, cardTop: topRowStripCardTop(in: window), rim: topRowRim(in: window), scale: scale)
         }
         let card = topRowCardTop(centeringPillOn: target.centerY, gutter: Metrics.mainPaneGutter, in: window, look: look)
         return target.reached(by: row, cardTop: card, rim: topRowRim(in: window), scale: scale)
@@ -133,7 +132,17 @@ extension WindowTitlebar {
         return TopRowLine.resolve(look, lightsCenterY: lightsCenter,
                                   tabsCenterY: TopRowLine.tabsCenterY(.current, scale: window.backingScaleFactor),
                                   titlebarHeight: Metrics.titlebarHeight,
-                                  concentricCardTop: Metrics.floatingPanes ? Metrics.mainPaneGutter : Metrics.windowEdgeInset(Metrics.mainPaneGutter, in: window))
+                                  concentricCardTop: Metrics.floatingPanes ? Metrics.mainPaneGutter : topRowStripCardTop(in: window))
+    }
+
+    /// The main pane card's top under a minimal titlebar with the tab bars on top: the window's lit rim (``topRowRim(in:)``),
+    /// so the top row's strip, and the one strip padding inside it, start at the window's visible top edge. The user,
+    /// 2026-11-19: "top padding is not equal to left padding for the tab" and "space between omnibar/content is same as
+    /// space between omnibar and tab, (which is coincidentally same as space between tabs and top)". The card's 6 pt gutter
+    /// above the strip had added to the gap above the tabs alone (6.5 pt over Compact's tabs against 2.5 beside them).
+    /// The gutter stays at the card's sides and bottom; the flush corner's card (``CornerFlushChrome``) starts here too.
+    public static func topRowStripCardTop(in window: NSWindow) -> CGFloat {
+        topRowRim(in: window)
     }
 
     /// The live pane chrome with the strip as tall as panes lay it out (`resolvedStripHeight`, a device
@@ -151,8 +160,8 @@ extension WindowTitlebar {
     public static func topRowCardTop(centeringPillOn centerY: CGFloat, gutter: CGFloat, in window: NSWindow,
                                      look: TopRowLineLook = TopRowLineLook.tunable.value) -> CGFloat {
         guard !Metrics.floatingPanes else { return gutter }
-        // Concentric: the gutter on top as at the sides, so the card's corner shares the window's center.
-        guard look != .concentric else { return Metrics.windowEdgeInset(gutter, in: window) }
+        // Concentric: the top row's strip starts under the window's rim (``topRowStripCardTop(in:)``).
+        guard look != .concentric else { return topRowStripCardTop(in: window) }
         let scale = window.backingScaleFactor
         guard look != .off else {
             return Metrics.windowEdgeInset(min(gutter, PaneChromeMetrics.current.cardTopKeepingStripCentering(centeringPillOn: centerY, scale: scale)), in: window)

@@ -14,7 +14,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
 import designScale from "../../schemas/design-scale/design-scale.json";
-import { rawChatFills } from "../scripts/check-chat-surfaces";
+import { rawChatFills, statesReplacingFilledRest, togglesOnWithPressedFill } from "../scripts/check-chat-surfaces";
 import baseline from "./chat-surfaces.baseline.json";
 
 const source = (file: string) => readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
@@ -168,4 +168,17 @@ test("no chat stylesheet adds a raw fill: the backlog of older ones only shrinks
   // role colour; one that truly is a colour of its own says why (chat-surface-allow: <reason>).
   expect(over).toEqual([]);
   expect(stale).toEqual([]);
+});
+
+// A filled button ("Retry" on the new tab, the queue's buttons, "Try again" on an unavailable chat)
+// rests on the inset level (ink 8%); its hover moved to the host's hover (ink 4 to 5%) in place of the
+// rest, so the pointer lightened it. A state over a filled rest is a layer on that rest.
+test("a hover or press never paints over a filled rest with a quieter fill", () => {
+  expect(statesReplacingFilledRest()).toEqual([]);
+});
+
+// The diff's view toggles and the usage sort showed "on" with the pressed fill, so a press on an on
+// toggle showed nothing. On is the checked segment: the selection fill.
+test("a toggle that is on shows the selection fill, not the press", () => {
+  expect(togglesOnWithPressedFill()).toEqual([]);
 });

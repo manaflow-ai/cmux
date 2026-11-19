@@ -4,7 +4,7 @@ Keep repo-wide decisions here; procedures belong in [CONTRIBUTING.md](CONTRIBUTI
 [area instructions](#area-instructions) and [task skills](skills/README.md).
 Read the matching skill before changing an area, then only the references needed.
 
-**Manaflow AI team members and their agents:** read the private [cmuxterm-hq CLAUDE.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/CLAUDE.md) and [AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md) before fleet or CI work. They are the entry point for fleet builds, CI routing, agent coordination, and landing rules. Start fleet work at [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md). External contributors can ignore this block; those links return 404 for them.
+**Manaflow AI team members and their agents:** read the private [cmuxterm-hq CLAUDE.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/CLAUDE.md) and [AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md) before fleet or CI work. They are the entry point for fleet builds, CI routing, agent coordination, and landing rules. Start fleet work at [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md). Before building a tool or calling yourself blocked, find the team's existing one in the [team-tools catalog](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/skills/agents/team-tools/SKILL.md) (exact commands, proven runs); with an hq checkout beside this one it is `../cmuxterm-hq/skills/agents/team-tools/SKILL.md`, and `scripts/install-team-tools.sh` there puts it in every session. External contributors can ignore this block; those links return 404 for them.
 
 ## The loop: use it first, then test
 
@@ -385,6 +385,9 @@ Leo and every agent:
   `cmux-ci capture <head sha> --state scene:NAME|tour:NAME --pr N [--video]` builds that commit, drives the
   real app on a capture mini, takes light and dark stills, refuses any that show private text, and prints
   the Markdown to paste. Or add the `media-tour` label, or write `No capture: <why>`. Never mock stills.
+- On a shared GUI Mac (`cmux-lawrence-2`, a capture mini), start what you run by hand over `ssh` (`open -n`,
+  `xctrace`, `sample`, `workspace new`, `nohup` helpers) as `~/.local/bin/gui-run -- CMD`. It closes what the
+  run opened when the run exits, fails or is cut off, and its sweep closes what a killed run left, by run tag.
 - Every `feat-cmux-next` PR gets a `risk:low|normal|high` label ([risk tiers](docs/ci/risk-tiers.md)).
   Low (docs, copy, generated, tests) and normal (most UI and logic) never wait for a person:
   agent review and the relevant checks, then merge. High (auth, socket and relay policy,
