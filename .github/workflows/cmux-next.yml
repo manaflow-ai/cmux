@@ -73,6 +73,7 @@ on:
       - scripts/ci/cargo-groups.sh
       - scripts/ci/acpmux-build-features.sh
       - scripts/ci/tailnet-go.sh
+      - scripts/ci/timeout.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - workers/cmux-vm/cli/**
@@ -435,6 +436,7 @@ on:
       - scripts/ci/cargo-groups.sh
       - scripts/ci/acpmux-build-features.sh
       - scripts/ci/tailnet-go.sh
+      - scripts/ci/timeout.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - workers/cmux-vm/cli/**

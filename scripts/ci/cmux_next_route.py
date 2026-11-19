@@ -357,6 +357,8 @@ NATIVE_SCRIPT_INPUTS = (
     # The acpmux build reload.sh runs for the dev app's bundled acpmux: its shipping feature list and the
     # Go toolchain it sources.
     "scripts/ci/acpmux-build-features.sh", "scripts/ci/tailnet-go.sh",
+    # The stall bound ensure-cef.sh puts on its CEF download (#46085).
+    "scripts/ci/timeout.sh",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
