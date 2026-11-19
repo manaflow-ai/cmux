@@ -190,6 +190,11 @@ impl Brain {
                         "it waits for the next turn"
                     }
                 ));
+                // A steer a stop ended after it was written may still wait
+                // unread in the harness (acpmux's `stopped_unread`).
+                if e.contains("stopped before the agent read it") {
+                    self.steer_left = Some(steer.key.clone());
+                }
                 for mut item in steer.items.into_iter().rev() {
                     item.logged = steer.logged;
                     self.queue.push_front(item);
@@ -227,6 +232,8 @@ impl Brain {
             self.steering.extend(unread);
             return;
         }
+        // Written to the harness and unread: the session may still hold them.
+        self.steer_left = Some(key.clone());
         for steer in unread.into_iter().rev() {
             for item in steer.items.into_iter().rev() {
                 self.queue.push_front(item);
