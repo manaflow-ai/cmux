@@ -107,6 +107,9 @@ final class TerminalFloodBench {
         let floodSeconds = seconds > 0 ? seconds : 10
         // Wait for the attach and the first frames.
         while !model.connectionState.isAttached { try? await clock.sleep(for: .milliseconds(50)) }
+        // The agent workload types into the terminal itself: it takes the keyboard first, and the
+        // keyboard's animation ends in the settle below.
+        if agent { model.benchFocusTerminal() }
         try? await clock.sleep(for: .seconds(2))
         sampler.start()
         let keys = KeystrokeTimer(probe: probe, every: agent ? .milliseconds(125) : .milliseconds(200)) { [weak self] in

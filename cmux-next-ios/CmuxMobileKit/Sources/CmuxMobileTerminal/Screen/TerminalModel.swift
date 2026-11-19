@@ -699,6 +699,12 @@ public final class TerminalModel {
         return (CACurrentMediaTime() - start) * 1000
     }
 
+    /// The flood bench's agent workload: the terminal takes the keyboard, as a tap on it does,
+    /// so UIKit's text system (its input delegate, the keyboard) is in the loop for each key.
+    public func benchFocusTerminal() {
+        controller?.focusTerminal()
+    }
+
     /// Demo drivers (`ws-terminal-composer`): a draft, with two photos and a
     /// file attached when asked, for gallery captures of the composer.
     public func demoFillComposer(_ text: String, attachments withAttachments: Bool) {
