@@ -181,7 +181,7 @@ class Cli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             feed, reading_path, out = Path(d, "feed.xml"), Path(d, "r.json"), Path(d, "v.json")
             feed.write_text(FEED)
-            self.assertEqual(self.run_script("pick", "--feed", str(feed)).stdout.strip(), "300")
+            self.assertEqual(self.run_script("recent", "--feed", str(feed)).stdout.strip(), "300 200 100")
             done = self.run_script("drill-reading", "--build", "300", "--now", "2026-11-19T12:00:00Z",
                                    "--out", str(reading_path))
             self.assertEqual(done.returncode, 0, done.stderr)

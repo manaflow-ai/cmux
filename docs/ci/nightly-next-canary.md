@@ -44,8 +44,9 @@ The run refuses when:
 ### Health gate: real-session health pulls a build
 
 `nightly-next-health.yml` (`scripts/ci/nightly_next_health.py`) runs every 15
-minutes. It reads Sentry release health for the feed's newest Nightly build and
-the Nightly build before it (environment `nightly-next`, release
+minutes. For each of the feed's three newest Nightly builds (so a build
+superseded within one tick still gets a verdict), it reads Sentry release health
+of that build and the Nightly build before it (environment `nightly-next`, release
 `cmux-next@<short version>+<build>`): sessions by status and app hang events
 over the last 24 h. It writes the build's verdict to
 `https://files-next.cmux.com/nightly-next/next/health/<build>.json`, beside
@@ -58,7 +59,7 @@ over the last 24 h. It writes the build's verdict to
 | `pending` | No session yet, or too few and too young for a pass. |
 | `unknown` | Sentry could not be read; the file says why. |
 
-A `fail` pulls the build through `nightly-next-rollback.yml` with
+A `fail` of the newest build pulls it through `nightly-next-rollback.yml` with
 `bad_build` and `if_newest` set to it, so a build published meanwhile is never
 pulled, and the pull starts the fix-forward like any other. Detection is one
 tick (at most 15 minutes after the sessions reach Sentry) plus the run.

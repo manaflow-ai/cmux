@@ -9,9 +9,11 @@ once a day (cmux-next-quality-report.yml, which gates nothing), so a bad build w
 
 nightly-next-health.yml runs it every 15 minutes:
 
-  pick         prints B, the feed's newest build Nightly apps are offered (never a Dev-only one).
+  recent       prints the feed's RECENT newest builds Nightly apps are offered (never a Dev-only one), newest
+               first. Each tick judges every one, so a build superseded within a tick still gets a verdict;
+               only the newest can be pulled.
   sentry-read  reads Sentry release health (org manaflow, project cmuxterm-macos, environment nightly-next) for
-               the newest Nightly build B and the Nightly build before it, P: sessions by status (crashed,
+               a Nightly build B and the Nightly build before it, P: sessions by status (crashed,
                abnormal) and app hang events. A release is `cmux-next@<short version>+<build>`
                (CrashReportingPolicy.release); the short version is the appcast's sparkle:shortVersionString.
   judge        turns that reading, the feed and B's earlier health file into B's health file
@@ -62,6 +64,8 @@ HANG_RATE_FACTOR = 2.0
 MIN_SESSIONS = 5
 PASS_AFTER_S = 15 * 60
 VERDICTS = ("pass", "fail", "pending", "unknown")
+# About 3 builds an hour reach the feed, so a 15-minute tick sees at most one or two new ones.
+RECENT = 3
 DRILL_SESSIONS = 20
 DRILL_CRASHED = 5
 
@@ -279,7 +283,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     j.add_argument("--now", required=True)
     j.add_argument("--run-url", default="")
     j.add_argument("--out", required=True)
-    p = sub.add_parser("pick")
+    p = sub.add_parser("recent")
     p.add_argument("--feed", required=True)
     d = sub.add_parser("drill-reading")
     d.add_argument("--build", type=int, required=True)
@@ -297,12 +301,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         Path(args.out).write_text(json.dumps(reading, indent=2) + "\n")
         print(json.dumps(reading))
         return 0
-    if args.command == "pick":
+    if args.command == "recent":
         builds = nightly_builds(Path(args.feed).read_text())
         if not builds:
             print("nightly-next health: the feed offers Nightly apps no build", file=sys.stderr)
             return 1
-        print(builds[0][0])
+        print(" ".join(str(b) for b, _ in builds[:RECENT]))
         return 0
     if args.command == "judge":
         now = parse_time(args.now)
