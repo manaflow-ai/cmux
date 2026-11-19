@@ -74,12 +74,12 @@ public final class MachineStoragePopover {
     }
 
     private func measure() {
-        let source = source()
-        readVolume(source?.volume ?? { await MachineStorageCard.homeVolume() })
-        guard let source else {
+        guard let source = source() else {
+            readVolume { await MachineStorageCard.homeVolume() }
             state.failed(MachineStorageStrings.unreachable)
             return
         }
+        readVolume(source.volume)
         state.phase = .measuring
         work = run(source.report, refusal: source.refusal) { state, data in
             state.measured(try JSONDecoder().decode(WorktreeCareReportReply.self, from: data))
