@@ -113,6 +113,41 @@ struct NewTabCommandListKeptTests {
                 "the hold started \(after.started - before.started) listings and read \(after.actionsRead - before.actionsRead) catalog actions again")
     }
 
+    /// A hold of the New Tab key in a window that has no list yet: ten pages, one each two frames from the first
+    /// frame on, ask while the first listing is read and handed over. One listing serves them all.
+    @Test func aHoldOfTenPagesWithNoListYetIsOneListing() async throws {
+        let app = try await Self.shown()
+        defer { app.close() }
+        let services = app.services
+        let lister = services.newTabActions
+        let start = lister.counts
+        // The row waits as one more page of the hold: it asks in the turn of the first page's ask, so it adds no
+        // ask of its own at a later frame.
+        let waiter = Self.ask(services)
+        var pages: [NativeNewTabModel] = []
+        for _ in 0..<10 {
+            let page = try Self.openPage(app)
+            page.loadPaletteActions()
+            pages.append(page)
+            // A held key gives a page each 33 ms: two frames at 60 Hz. No turn of the main thread ends in the
+            // hold, so a listing whose last slice is in it cannot hand over before the next page asks.
+            services.mainWork.frameDidFire()
+            services.mainWork.frameDidFire()
+        }
+        let inTheHold = lister.counts
+        let held = await Self.handOver(to: waiter, services)
+        let list = try #require(held.list, "the hold's listing never handed its list over")
+        let end = lister.counts
+        let without = pages.filter { $0.page.omnibar.actions != list.actions }.count
+        print("new-tab-list: a hold of 10 pages with no list yet: \(end.started - start.started) listings started, \(end.dropped - start.dropped) lists dropped, "
+            + "\(end.actionsRead - start.actionsRead) catalog actions read, \(without) pages without the list at the end; "
+            + "the read \(inTheHold.actionsRead > start.actionsRead ? "ended in the hold's 20 frames" : "went on after the hold's 20 frames"), "
+            + "\(held.frames) frames with a lister task after them")
+        #expect(end.started == start.started + 1, "the hold started \(end.started - start.started) listings")
+        #expect(end.dropped == start.dropped, "the hold dropped \(end.dropped - start.dropped) finished lists")
+        #expect(without == 0, "\(without) of the 10 pages do not have the list after its hand-over")
+    }
+
     // MARK: - The app
 
     private struct App {
@@ -200,14 +235,28 @@ struct NewTabCommandListKeptTests {
         max(4 * (services.registry.entries.count + 3), 3150)
     }
 
-    /// Asks for the list as a page does, and is the display until the lister hands it over: one frame after
-    /// another, with no clock. No hand-over in ``frameLimit(_:)`` frames with a lister task is an issue.
-    private static func listed(_ services: AppServices) async -> Asked {
+    /// One waiter of the lister, as a page is one: its stream gets the list at the hand-over.
+    private typealias Waiter = (lists: AsyncStream<Listed>, feed: AsyncStream<Listed>.Continuation)
+
+    /// Asks for the list as a page does.
+    private static func ask(_ services: AppServices) -> Waiter {
         let (lists, feed) = AsyncStream.makeStream(of: Listed.self)
         services.newTabActions.list(wanted: { true }) { list in
             feed.yield(list)
             feed.finish()
         }
+        return (lists, feed)
+    }
+
+    /// Asks for the list as a page does, and is the display until the lister hands it over.
+    private static func listed(_ services: AppServices) async -> Asked {
+        await handOver(to: ask(services), services)
+    }
+
+    /// Is the display until the lister hands the list to `waiter`: one frame after another, with no clock. No
+    /// hand-over in ``frameLimit(_:)`` frames with a lister task is an issue.
+    private static func handOver(to waiter: Waiter, _ services: AppServices) async -> Asked {
+        let (lists, feed) = waiter
         let limit = frameLimit(services)
         // The row's display link: it ends only when the row cancels it.
         let frames = Task { @MainActor () -> Int in
