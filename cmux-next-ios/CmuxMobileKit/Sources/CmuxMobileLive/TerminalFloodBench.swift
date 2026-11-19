@@ -385,6 +385,8 @@ final class FloodDaemon: @unchecked Sendable {
     let agentLiveRows: Int
     private let agentLock = NSLock()
     private var agentScreen = AgentScreen()
+    /// The fake PTY's grid, columns and rows (agent workload).
+    private var agentGridNow: [Int] = [80, 40]
 
     var emittedTotal: Int { lock.withLock { emitted } }
 
@@ -433,13 +435,36 @@ final class FloodDaemon: @unchecked Sendable {
         }
         switch cmd {
         case "attach-surface":
+            // The agent workload answers like a Mac that takes the phone's size (a pane the phone
+            // sized, or Fit to Phone): its grid is the one the attach asks for. A grid the phone did
+            // not ask for is held until the claim brings its own back (TerminalReclaimHold), and the
+            // fake never brings it back, so the agent's output would wait there for the whole run.
+            let agentGrid = agentLiveRows > 0 ? (object["cols"] as? Int).flatMap { cols in (object["rows"] as? Int).map { (cols, $0) } } : nil
+            agentLock.withLock { agentGridNow = agentGrid.map { [$0.0, $0.1] } ?? [80, 40] }
             var state = try! JSONSerialization.data(withJSONObject: [
-                "event": "vt-state", "surface": 1, "cols": 80, "rows": 40,
+                "event": "vt-state", "surface": 1, "cols": agentGrid?.0 ?? 80, "rows": agentGrid?.1 ?? 40,
                 "data": Data("flood bench\r\n$ ".utf8).base64EncodedString(),
             ], options: [.sortedKeys])
             state.append(0x0A)
             lock.withLock { emitted += "flood bench\r\n$ ".utf8.count }
             channel.push([state, reply()])
+        case "resize-surface" where agentLiveRows > 0:
+            // The phone's size claim: the Mac's PTY takes it and replays its screen at that grid.
+            channel.push([reply()])
+            guard let cols = object["cols"] as? Int, let rows = object["rows"] as? Int else { break }
+            agentLock.withLock {
+                // The lease refresh claims the same size again: the PTY does not resize.
+                guard agentGridNow != [cols, rows] else { return }
+                agentGridNow = [cols, rows]
+                agentScreen.forgetDrawn()
+                let replay = Data(agentScreen.redraw(rows: agentLiveRows).utf8)
+                lock.withLock { emitted += replay.count + 2 }
+                guard var resized = try? JSONSerialization.data(withJSONObject: [
+                    "event": "resized", "surface": 1, "cols": cols, "rows": rows, "replay": replay.base64EncodedString(),
+                ], options: [.sortedKeys]) else { return }
+                resized.append(0x0A)
+                main.push([resized])
+            }
         case "send":
             channel.push([reply()])
             if agentLiveRows > 0, let bytes = (object["bytes"] as? String).flatMap({ Data(base64Encoded: $0) }) {
@@ -541,6 +566,12 @@ struct AgentScreen {
             default: break
             }
         }
+    }
+
+    /// The screen was replayed from a reset (a resize): nothing of the last render is left to erase.
+    mutating func forgetDrawn() {
+        drawn = 0
+        parkedAbove = 0
     }
 
     /// One streaming tick: a word or two more of the reply; every 1.5 s the paragraph is done.
