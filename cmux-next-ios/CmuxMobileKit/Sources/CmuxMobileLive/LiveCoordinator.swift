@@ -312,14 +312,9 @@ public final class LiveCoordinator {
             self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: session, provisional: false)
             guard let owner, let session else {
                 // The first send starts the chat in this tab, on the tab's own Mac.
-                let start: UnboundAgentSource.Start? = owner.map { owner in
-                    { [weak self, weak owner] text, attachments in
-                        guard let self, let owner else { throw WorkspaceCreationError("Not connected", isForPerson: true) }
-                        let session = try await owner.creation.startUnboundChat(tabID: summary.id, harness: summary.harness)
-                        self.sendFirst(text, attachments: attachments, session: session, summary: summary, key: key)
-                    }
-                }
-                return UnboundAgentSource(summary: summary, macName: owner?.name ?? self.link.target?.name, start: start)
+                let macName: String? = owner?.name ?? self.link.target?.name
+                let start: UnboundAgentSource.Start? = owner.map { self.unboundStart($0, summary: summary, key: key) }
+                return UnboundAgentSource(summary: summary, macName: macName, start: start)
             }
             return self.agentSource(owner, session: session, summary: scoped)
         }
@@ -336,6 +331,14 @@ public final class LiveCoordinator {
     /// The first message of a chat this phone just started in tab `summary`: the tab's chat is
     /// rebuilt on `session` now (its store reads the session's source), and the message goes as
     /// that chat's own Send, so a failure to send it hands the draft back in the chat on screen.
+    private func unboundStart(_ owner: MacSession, summary: AgentSessionSummary, key: String) -> UnboundAgentSource.Start {
+        { [weak self, weak owner] (text: String, attachments: [AgentAttachment]) async throws in
+            guard let self, let owner else { throw WorkspaceCreationError("Not connected", isForPerson: true) }
+            let session = try await owner.creation.startUnboundChat(tabID: summary.id, harness: summary.harness)
+            self.sendFirst(text, attachments: attachments, session: session, summary: summary, key: key)
+        }
+    }
+
     private func sendFirst(_ text: String, attachments: [AgentAttachment], session: String,
                            summary: AgentSessionSummary, key: String) {
         boundHere[key] = session
