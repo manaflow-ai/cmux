@@ -66,7 +66,7 @@ public struct TerminalFloodBenchRoot: View {
 @MainActor @Observable
 final class TerminalFloodBench {
     /// The summary as one line of JSON, once the run is done (the result label's text).
-    private(set) var result = 
+    private(set) var result = ""
     let model: TerminalModel
     private let daemon: FloodDaemon
     private let probe = TerminalBenchProbe()
