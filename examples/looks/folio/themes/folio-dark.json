@@ -1,0 +1,159 @@
+// Folio Dark: the document workspace at night. The chat reads like a page in a team wiki: a
+// near-black page with soft light ink, a quiet sidebar a step lighter than the page that lists your
+// workspaces as a tree of pages, a flat window with one hairline between the sidebar and the page,
+// tabs like a document's tabs, blue only where something can be clicked, and short, quiet motion.
+// The page and sidebar steps follow the dark document scale (page #191919, sidebar and tab strip a
+// step lighter at #202020, the ink white at about 81%), with the same 6% and 9% washes.
+{
+  "name": "Folio Dark",
+  "description": "A document workspace, Dark: a near-black page, soft ink, a quiet tree sidebar, blue links.",
+
+  // The terminal follows the page; the window, sidebar and pages take this theme.
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  // background: the page. foreground: the ink, white at about 81%.
+  // selection: the link blue at about 30% over the page.
+  // accent: the link and focus blue.
+  "colors": { "background": "#191919", "foreground": "#d4d4d2", "selection": "#1f3d5c", "accent": "#2383e2" },
+  "appearance.accent": "theme",
+  // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
+  // ANSI colors at a document's soft chroma, each solved in OKLCH over the page (5.5:1, the bright
+  // ones 8.5:1; 0 the raised black 2:1; 8, the dim gray, 3.4:1).
+  "ghostty": [
+    "background = #191919",
+    "foreground = #d4d4d2",
+    "cursor-color = #2383e2",
+    "cursor-text = #191919",
+    "selection-background = #1f3d5c",
+    "selection-foreground = #d4d4d2",
+    "palette = 0=#474b51",
+    "palette = 1=#d4766a",
+    "palette = 2=#4ea166",
+    "palette = 3=#ab8d27",
+    "palette = 4=#6691da",
+    "palette = 5=#bf78b6",
+    "palette = 6=#0aa0aa",
+    "palette = 7=#d4d4d2",
+    "palette = 8=#696e74",
+    "palette = 9=#fe9a82",
+    "palette = 10=#57ca8c",
+    "palette = 11=#d5b13a",
+    "palette = 12=#95b3ff",
+    "palette = 13=#f297da",
+    "palette = 14=#08c7dd",
+    "palette = 15=#ecedf0"
+  ],
+  // The terminal face: SF Mono at 13 pt, the face a wiki page sets its code blocks in.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
+
+  // A plain, opaque window: no wallpaper, no glass.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.fontSmoothing": "antialiased",
+
+  // Layout: flat, with one hairline between the sidebar and the page (the sidebar is separated by
+  // its tone and that line, never by a card or a gutter); the tab strip shaded a step apart from the page.
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.focusIndicator": "tabs",
+  "appearance.density": "cozy",
+  // Pending cmux#46780: a document's tabs are square blocks, the active one in the page's color.
+  // "appearance.tabShape": "block",
+  // Pending cmux#46516: the selected page in the tree is a gray wash, not an accent capsule.
+  // "appearance.selection": "neutral",
+
+  // Proportions, measured from the references (the tab strip at 72 px over 2.17 px per point,
+  // the traffic lights' 12 pt as the ruler): a 33 pt tab strip with 14 pt titles in tabs about
+  // 190 pt wide, a 44 pt top bar for the breadcrumb, a 240 pt sidebar with 30 pt page rows in
+  // 14 pt text, no gutter and a 1 pt divider.
+  "appearance.metrics.titlebarHeight": 44,
+  "appearance.metrics.tabStripHeight": 33,
+  "appearance.metrics.tabFontSize": 14,
+  "appearance.metrics.tabMaxWidth": 200,
+  "appearance.metrics.tabMinActiveWidth": 160,
+  "appearance.metrics.tabMinInactiveWidth": 120,
+  "appearance.metrics.sidebarWidth": 240,
+  "appearance.metrics.sidebarRowHeight": 30,
+  "appearance.metrics.chromeFontSize": 14,
+  "appearance.metrics.columnGap": 0,
+  "appearance.metrics.dividerThickness": 1,
+
+  // The sidebar: a step lighter than the page, opaque, with the hairline at its edge and plain section
+  // headings ("Private", "Shared") in small gray type.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#202020",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "sidebar.style": "standard",
+  "sidebar.border": true,
+  "sidebar.borderWidth": 0.5,
+  "sidebar.sectionLook": "quiet",
+
+  // The page: the chat, editors, diffs and Markdown all on the same paper; the tab strip and the
+  // docks in the sidebar's tone so the active tab reads as the page it opens.
+  "appearance.surfaces.agentPane.color": "#191919",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#202020",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.browserChrome.color": "#202020",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.docks.color": "#202020",
+  "appearance.surfaces.docks.opacity": 1,
+  "appearance.surfaces.editor.color": "#191919",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#191919",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#191919",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.terminal.color": "#191919",
+  "appearance.surfaces.terminal.opacity": 1,
+  // The divider: the ink at 9%, the documents' own rule.
+  "appearance.surfaces.splitDivider.color": "#2e2e2d",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  // Settings and pages are documents too: the same page, no gray app backdrop.
+  "appearance.surfaces.settings.color": "#191919",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#191919",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#191919",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#191919",
+  "appearance.surfaces.home.opacity": 1,
+
+  // Status: a small breathing dot, not a spinner, in the ink's own gray.
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.size": 0.9,
+  "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+
+  // The address field: flat, no glass.
+  "browser.omnibar.glass": "off",
+
+  // Motion: hovers and color changes that settle in a blink (a short ease-out), nothing that
+  // slides or bounces.
+  "ui.animationSpeed": "fast",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.duration": 120,
+  "appearance.colorTransition.curve": "easeOut",
+  "appearance.colorTransition.colorSpace": "srgb",
+  "appearance.colorTransition.reduceMotion": "crossfade"
+
+  // Pending cmux#46861 (layout and proportions): a document workspace: 28 pt top-bar buttons with
+  // a 6 pt rounded gray wash, a hairline under the top bar only while the page scrolls (none at
+  // rest), page rows inset 4 pt with 8 pt padding and no gap, a 28 pt row with a subtitle line, and
+  // a roomy composer card. Uncomment once your build has it.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 44,
+  // "appearance.metrics.sidebarRowInset": 4,
+  // "appearance.metrics.sidebarRowPadding": 8,
+  // "appearance.metrics.sidebarRowGap": 0,
+  // "appearance.metrics.toolbarButtonSize": 28,
+  // "appearance.metrics.toolbarButtonGap": 4,
+  // "appearance.metrics.toolbarButtonCornerRadius": 6,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.06,
+  // "appearance.metrics.headerDivider": 0,
+  // "appearance.metrics.composerPadding": 12,
+  // "appearance.metrics.composerMinHeight": 88,
+  // "appearance.metrics.spacingScale": 1,
+}

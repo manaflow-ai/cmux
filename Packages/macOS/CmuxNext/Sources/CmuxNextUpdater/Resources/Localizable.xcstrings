@@ -32619,6 +32619,74 @@
           }
         }
       }
+    },
+    "updater.held.modal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while a dialog is open. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダイアログが開いているため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        }
+      }
+    },
+    "updater.held.sheet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while a sheet is open. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シートが開いているため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        }
+      }
+    },
+    "updater.held.menu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while a menu is open. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューが開いているため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        }
+      }
+    },
+    "updater.held.composing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while you compose text. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字を入力中のため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
