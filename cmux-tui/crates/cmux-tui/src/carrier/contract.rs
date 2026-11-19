@@ -451,6 +451,17 @@ pub(super) fn phases_line(
     )
 }
 
+/// The local mux payload byte counts for one `carrier serve` socket connection.
+/// These are measured at the Unix-socket boundary, after the caller's
+/// `cmux.protocol/2` framing has been assembled and before the carrier's
+/// encrypted transport framing.  They intentionally do not include relay,
+/// Noise, TLS, WebSocket or IP overhead.
+pub(super) fn bytes_line(machine: &str, sent: u64, received: u64) -> String {
+    format!(
+        "carrier.bytes machine={machine} phase=stream sent_bytes={sent} received_bytes={received}\n"
+    )
+}
+
 /// The carriers line, appended only to the connect log after an attempt's
 /// phases line (and after each resume's route line):
 /// `carrier.routes machine=<vm_id> phase=<connect|reconnect|resume> [ssh=<on|no_candidate|no_tunnel|no_key>] carrier=<relay:0|ssh:0|none> outcome=<ok|error_code>`.

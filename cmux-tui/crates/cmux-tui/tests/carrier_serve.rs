@@ -139,6 +139,22 @@ fn later_connections_ride_the_first_one_s_session_on_an_owner_only_socket() {
             "{log}"
         );
     }
+    let bytes: Vec<_> = log.lines().filter(|l| l.starts_with("carrier.bytes ")).collect();
+    assert_eq!(bytes.len(), 3, "one byte record per served connection: {log}");
+    for line in bytes {
+        assert!(line.contains(" phase=stream "), "{line}");
+        let sent = line
+            .split_whitespace()
+            .find_map(|field| field.strip_prefix("sent_bytes="))
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(0);
+        let received = line
+            .split_whitespace()
+            .find_map(|field| field.strip_prefix("received_bytes="))
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(0);
+        assert!(sent > 0 && received > 0, "{line}");
+    }
 }
 
 #[test]

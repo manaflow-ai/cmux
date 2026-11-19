@@ -65,13 +65,19 @@
 //!   after the bind removes the socket; the session is closed on the way
 //!   out.
 
+use std::io;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use cmux_remote::crypto::StaticIdentity;
 use cmux_remote::unix_socket::OwnedUnixListener;
-use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _};
+use tokio::io::{
+    AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, ReadBuf,
+};
 use tokio::net::UnixStream;
 use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
@@ -343,9 +349,86 @@ async fn connection(
     }
     reply(&contract::served_line(vmk));
     let (reader, writer) = stream.into_split();
+    let bytes = Arc::new(ByteCounts::default());
+    let reader = CountingReader::new(reader, bytes.clone());
+    let writer = CountingWriter::new(writer, bytes.clone());
     tokio::select! {
         _ = mux.bridge(reader, writer) => {}
         _ = stopped.wait_for(|stopped| *stopped) => {}
     }
+    (shared.log)(contract::bytes_line(
+        &shared.machine,
+        bytes.sent.load(Ordering::Relaxed),
+        bytes.received.load(Ordering::Relaxed),
+    ));
     lease.end().await;
+}
+
+/// Counts one connection's payload at the local Unix-socket boundary.  The
+/// counter is shared by the reader and writer because the bridge owns both
+/// directions and can finish either one first.
+#[derive(Default)]
+struct ByteCounts {
+    sent: AtomicU64,
+    received: AtomicU64,
+}
+
+struct CountingReader<R> {
+    inner: R,
+    bytes: Arc<ByteCounts>,
+}
+
+impl<R> CountingReader<R> {
+    fn new(inner: R, bytes: Arc<ByteCounts>) -> Self {
+        Self { inner, bytes }
+    }
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for CountingReader<R> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let before = buffer.filled().len();
+        let result = Pin::new(&mut self.inner).poll_read(cx, buffer);
+        if let Poll::Ready(Ok(())) = result {
+            let read = buffer.filled().len().saturating_sub(before);
+            self.bytes.sent.fetch_add(read as u64, Ordering::Relaxed);
+        }
+        result
+    }
+}
+
+struct CountingWriter<W> {
+    inner: W,
+    bytes: Arc<ByteCounts>,
+}
+
+impl<W> CountingWriter<W> {
+    fn new(inner: W, bytes: Arc<ByteCounts>) -> Self {
+        Self { inner, bytes }
+    }
+}
+
+impl<W: AsyncWrite + Unpin> AsyncWrite for CountingWriter<W> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buffer: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let result = Pin::new(&mut self.inner).poll_write(cx, buffer);
+        if let Poll::Ready(Ok(written)) = result {
+            self.bytes.received.fetch_add(written as u64, Ordering::Relaxed);
+        }
+        result
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
 }
