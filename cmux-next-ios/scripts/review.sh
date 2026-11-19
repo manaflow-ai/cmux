@@ -216,6 +216,27 @@ fleet_submit_mac() {
   echo "==> Mac build: fleet job $MAC_JOB"
 }
 
+# The simulator step's key for this head. The controller answers a key with the step it already
+# names, finished or not, so a key whose step failed or was cancelled would hand back that failure on
+# every rerun: each such step bumps $STATE/sim-attempt (sim_step_ended) and the next run gets a new key.
+sim_key() {
+  local attempt
+  attempt="$(cat "$STATE/sim-attempt" 2>/dev/null || true)"
+  printf 'cnx-ios-handoff-%s-%s' "$SLUG" "${SHA:0:12}"
+  [[ ! "$attempt" =~ ^[1-9][0-9]*$ ]] || printf -- '-r%s' "$attempt"
+}
+
+# The step failed or was cancelled on the fleet (its own state, not only this client's exit: a
+# follow that was interrupted while the step still runs keeps its key, so a rerun re-attaches).
+sim_step_ended() {
+  local step="$1" attempt
+  [[ -n "$step" ]] || return 1
+  cmux_ci status "$step" 2>/dev/null | grep -Eq '"state": *"(failed|cancelled|timeout|timed_out)"' || return 1
+  attempt="$(cat "$STATE/sim-attempt" 2>/dev/null || true)"
+  [[ "$attempt" =~ ^[0-9]+$ ]] || attempt=0
+  printf '%s\n' "$((attempt + 1))" >"$STATE/sim-attempt"
+}
+
 # The iPhone app's simulator step, in the background; the same --key re-attaches to it. It is
 # `handoff tag=<tag>`, sent as `shots handoff=<tag>` until the fleet controller lists handoff.
 fleet_start_sim() {
@@ -223,7 +244,7 @@ fleet_start_sim() {
   # while cmux-ci run follows the step, so it is never detached; cmux-next-ios-sim.sh handoff reads it.
   local args=(run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$SHA"
     --arg shots --arg "handoff=$SLUG" --sign-in agent --artifact artifacts/ios-sim/evidence.zip
-    --key "cnx-ios-handoff-$SLUG-${SHA:0:12}")
+    --key "$(sim_key)")
   [[ -z "$TARGET_WORKER" ]] || args+=(--target-worker "$TARGET_WORKER")
   echo "==> iPhone app: fleet step cmux-next-ios-sim.sh handoff tag=$SLUG${TARGET_WORKER:+ on $TARGET_WORKER} (log: $STATE/sim-step.log)"
   cmux_ci "${args[@]}" >"$STATE/sim-step.log" 2>"$STATE/sim-step.err" &
@@ -255,7 +276,10 @@ fleet_finish_sim() {
     return 1
   fi
   if [[ $rc -ne 0 || -z "$SIM_STEP" ]]; then
-    REPORT_SIM="BLOCKED: the fleet iPhone build failed (step ${SIM_STEP:-not created}, exit $rc; $STATE/sim-step.log); retry: $(retry_command)"
+    local next=""
+    # A rerun at this head sends a new step, not this one's failure again.
+    ! sim_step_ended "$SIM_STEP" || next=" (a rerun sends a new step)"
+    REPORT_SIM="BLOCKED: the fleet iPhone build failed (step ${SIM_STEP:-not created}, exit $rc; $STATE/sim-step.log)$next; retry: $(retry_command)"
     return 1
   fi
   rm -f "$STATE/ios.zip"

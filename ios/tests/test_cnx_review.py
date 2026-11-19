@@ -617,6 +617,31 @@ fleet_start_sim; fleet_finish_sim; echo "STEP=$SIM_STEP"''', {'CMUX_CI': str(ci)
         self.assertNotIn('--label', args)
         self.assertNotIn('--detach', args)
 
+    def test_a_rerun_after_a_failed_simulator_step_sends_a_new_step(self):
+        # The controller answers a --key with the step it already names, finished or not (hq
+        # controller main.go archivedStep), so a rerun at the same head re-attached to the cancelled
+        # step 10714bf70abba176377ca4de and reported its failure again (2026-11-18).
+        for state, want_new in (('cancelled', True), ('failed', True), ('running', False)):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as temp:
+                ci = Path(temp) / 'cmux-ci'
+                ci.write_text('#!/bin/sh\n'
+                              f'if [ "$1" = status ]; then echo \'{{"id": "0123456789abcdef01234567", "state": "{state}"}}\'; exit 0; fi\n'
+                              f'[ "$1" = run ] && echo "$@" >> "{temp}/args"\n'
+                              'echo "cmux-ci: step 0123456789abcdef01234567 (simulator, key k)" >&2\nexit 1\n')
+                ci.chmod(0o755)
+                r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{temp}" CMUX_CI="{ci}"
+fleet_start_sim; fleet_finish_sim || echo "SIM=$REPORT_SIM"; fleet_start_sim; fleet_finish_sim || true''', {'CMUX_CI': str(ci)})
+                keys = [line.split('--key ')[1].split()[0] for line in (Path(temp) / 'args').read_text().splitlines()]
+                base = f'cnx-ios-handoff-{TAG}-{SHA[:12]}'
+                self.assertEqual(keys[0], base, r.stderr)
+                if want_new:
+                    self.assertEqual(keys[1], base + '-r1')
+                    self.assertIn('(a rerun sends a new step)', r.stdout)
+                else:
+                    # Only this client stopped following; the step runs on, so the rerun re-attaches.
+                    self.assertEqual(keys[1], base)
+                    self.assertNotIn('a rerun sends a new step', r.stdout)
+
     def test_an_unreviewed_step_script_is_named_as_the_blocker(self):
         with tempfile.TemporaryDirectory() as temp:
             ci = Path(temp) / 'cmux-ci'
