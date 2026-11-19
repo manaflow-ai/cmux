@@ -144,6 +144,17 @@ fn kind_schema(row: &Row) -> Value {
                 "additionalProperties": picture(),
             });
         }
+        Validation::Domain(DomainKind::BackdropModes) => {
+            return json!({
+                "type": "object",
+                "properties": {
+                    "off": { "anyOf": [picture(), { "const": "none" }] },
+                    "rotate": { "type": "string", "pattern": "^(daily|folder:/.+)$" },
+                    "sun": { "type": "string", "pattern": "^system:/" },
+                },
+                "additionalProperties": false,
+            });
+        }
         Validation::Domain(DomainKind::BackdropLocation) => {
             return json!({ "type": "string", "pattern": super::backdrop::LOCATION_PATTERN });
         }

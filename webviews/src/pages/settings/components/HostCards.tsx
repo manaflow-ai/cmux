@@ -21,6 +21,8 @@ import {
   LIGHT_KEY,
   LOCATION_KEY,
   modeOf,
+  MODES_KEY,
+  rotateSource,
   SCHEDULE_KEY,
   WALLPAPER_KEYS,
   type WallpaperValues,
@@ -51,6 +53,7 @@ export const BACKDROP_ROWS: ReadonlySet<string> = new Set([
   SCHEDULE_KEY,
   DYNAMIC_KEY,
   LOCATION_KEY,
+  MODES_KEY,
 ]);
 /** `folder:<absolute path>`: the pictures in that folder, shuffled. */
 const FOLDER_PREFIX = "folder:";
@@ -171,8 +174,6 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   const rotation = rowsByKey.get(ROTATION_KEY);
   // Shuffle Your Images: the folder the person's own images are in, once there are some.
   const yours = usage?.folder ? FOLDER_PREFIX + usage.folder : null;
-  // A folder shuffled that is not Your Images: its own tile, chosen, by the folder's name.
-  const otherFolder = !own && current.startsWith(FOLDER_PREFIX) && current !== yours ? current : null;
   const shuffles = current === DAILY_ID || current.startsWith(FOLDER_PREFIX);
   // Switch Automatically reads the app's keys; a workspace's own background is one picture.
   const read = (key: string) => {
@@ -185,7 +186,12 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     dark: (read(DARK_KEY) as string | null) ?? null,
     schedule: (read(SCHEDULE_KEY) as Record<string, string> | null) ?? null,
     dynamic: (read(DYNAMIC_KEY) as string | null) ?? "appearance",
+    modes: (read(MODES_KEY) as WallpaperValues["modes"]) ?? null,
   };
+  // A folder shuffled that is not Your Images: its own tile by the folder's name, chosen while it
+  // shuffles, and still there (with its preview) after a switch to another mode, so a click goes back.
+  const folder = appCurrent.startsWith(FOLDER_PREFIX) ? appCurrent : rotateSource(switchValues);
+  const otherFolder = !own && folder.startsWith(FOLDER_PREFIX) && folder !== yours ? folder : null;
   // A slot holds one picture that stays: the shuffles and macOS wallpapers still downloading are not one.
   const pictures = [
     { id: "none", title: t("settingsWindow.backdropPicker.none") },

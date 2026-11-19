@@ -64,6 +64,23 @@ extension BackdropSelectionSetting {
         }
     }
 
+    /// Whether a value is valid for `appearance.backgroundModes` (each mode's own background while
+    /// another is on; cmux-config `store::backdrop_modes` keeps it): an object of `off` (a fixed
+    /// background or `none`), `rotate` (`daily` or `folder:<absolute path>`) and `sun` (a `system:`
+    /// picture), each optional.
+    static func acceptsModes(_ value: JSONValue) -> Bool {
+        guard let members = value.objectValue else { return false }
+        return members.allSatisfy { key, value in
+            guard let text = value.stringValue else { return false }
+            switch key {
+            case "off": return text == "none" || picture(text) != nil
+            case "rotate": return text == dailyID || folderPath(text) != nil
+            case "sun": return text.hasPrefix("system:/")
+            default: return false
+            }
+        }
+    }
+
     /// Whether a value is valid for `appearance.backgroundLocation`: `"LAT,LON"`.
     static func acceptsLocation(_ value: JSONValue) -> Bool {
         value.stringValue.flatMap(BackdropLocation.init(text:)) != nil

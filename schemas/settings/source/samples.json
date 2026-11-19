@@ -503,6 +503,26 @@
         {"07:00": 1}
       ]
     },
+    "domain:backdrop_modes": {
+      "accept": [
+        {},
+        {"off": "munch-scream", "rotate": "folder:/Users/Shared/Wallpapers", "sun": "system:/System/Library/Desktop Pictures/Sonoma.heic"},
+        {"off": "none", "rotate": "daily"},
+        {"off": "file:/Users/Shared/Night.png"}
+      ],
+      "refuse": [
+        "daily",
+        [],
+        {"rotate": "munch-scream"},
+        {"rotate": "folder:relative"},
+        {"off": "daily"},
+        {"off": "folder:/Users/Shared/Wallpapers"},
+        {"sun": "desktop"},
+        {"sun": "file:/Users/Shared/Night.png"},
+        {"appearance": "desktop"},
+        {"off": 1}
+      ]
+    },
     "domain:backdrop_location": {
       "accept": [
         "37.77,-122.42",

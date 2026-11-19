@@ -76,6 +76,7 @@ const off: WallpaperValues = {
   dark: null,
   schedule: null,
   dynamic: "appearance",
+  modes: null,
 };
 const lightDark: WallpaperValues = {
   ...off,

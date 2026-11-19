@@ -72,6 +72,8 @@ extension BackdropSelectionSetting {
     public nonisolated static let darkPath = ["appearance", "backgroundDark"]
     /// `appearance.backgroundSchedule`: Background's Time of Day (schedule): when -> fixed background id. When is HH:MM (24 h, local) or sunrise | sunset | dawn | dusk | noon with an optional offset (sunset-30m, sunrise+1h). Now's picture is the latest entry at or before now (before the first: yesterday's last); a sun event that does not happen today is skipped (BackdropTimeOfDay).
     public nonisolated static let schedulePath = ["appearance", "backgroundSchedule"]
+    /// `appearance.backgroundModes`: Each Switch Automatically mode's own background while another mode is on, so switching back restores it: off (the one fixed picture), rotate (daily or folder:<absolute path>) and sun (the system: dynamic wallpaper). Light and Dark and Time of Day keep theirs in appearance.backgroundLight, appearance.backgroundDark and appearance.backgroundSchedule. Every write that leaves one of the three modes records its source here (cmux-config store::backdrop_modes), whoever writes: Settings, the palette, the CLI, MCP or a hand edit.
+    public nonisolated static let modesPath = ["appearance", "backgroundModes"]
     /// `appearance.backgroundDynamic`: How a dynamic macOS wallpaper (system: .madesktop or .heic) changes: appearance shows its light or dark frame; time follows the sun (solar metadata), the clock (h24), or for a light/dark-only or not downloaded picture the sun above or below -6 degrees.
     public nonisolated static let dynamicPath = ["appearance", "backgroundDynamic"]
     public nonisolated static let dynamicDefault: BackdropDynamicMode = .appearance

@@ -255,6 +255,7 @@
         "appearance.backgroundLight",
         "appearance.backgroundDark",
         "appearance.backgroundSchedule",
+        "appearance.backgroundModes",
         "appearance.backgroundDynamic",
         "appearance.backgroundLocation"
       ]

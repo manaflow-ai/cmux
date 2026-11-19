@@ -4,7 +4,7 @@
 
 mod accepts;
 mod app_id;
-mod backdrop;
+pub(crate) mod backdrop;
 mod chat_roots;
 mod json_schema;
 mod retired;
@@ -140,6 +140,11 @@ pub enum DomainKind {
     /// event with an offset) to fixed backgrounds (Swift
     /// `BackdropSelectionSetting.acceptsSchedule`).
     BackdropSchedule,
+    /// `appearance.backgroundModes`: each Switch Automatically mode's own
+    /// background while another is on: `off` a fixed background or `none`,
+    /// `rotate` `daily` or `folder:<absolute path>`, `sun` a `system:` picture
+    /// (Swift `BackdropSelectionSetting.acceptsModes`).
+    BackdropModes,
     /// `appearance.backgroundLocation`: `LAT,LON` (Swift `BackdropLocation`).
     BackdropLocation,
     /// `agents.chats.roots`: absolute folders outside the protected ones
@@ -409,6 +414,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:backdrop_selection" => Validation::Domain(DomainKind::BackdropSelection),
         "domain:backdrop_picture" => Validation::Domain(DomainKind::BackdropPicture),
         "domain:backdrop_schedule" => Validation::Domain(DomainKind::BackdropSchedule),
+        "domain:backdrop_modes" => Validation::Domain(DomainKind::BackdropModes),
         "domain:backdrop_location" => Validation::Domain(DomainKind::BackdropLocation),
         "domain:chat_roots" => Validation::Domain(DomainKind::ChatRoots),
         "domain:search_template" => Validation::Domain(DomainKind::SearchTemplate),

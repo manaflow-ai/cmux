@@ -53,6 +53,38 @@ pub(crate) fn is_schedule(value: &Value) -> bool {
     })
 }
 
+/// Swift `BackdropSelectionSetting.shuffles`: `daily` (the paintings) or
+/// `folder:<absolute path>` (not `/` alone).
+pub(crate) fn is_shuffle(text: &str) -> bool {
+    text == "daily"
+        || text.strip_prefix("folder:").is_some_and(|path| path.starts_with('/') && path.len() > 1)
+}
+
+/// A macOS dynamic wallpaper by its name, as the Settings page reads one the
+/// host does not mark (webviews `isDynamicPicture`): `system:` `.madesktop`
+/// or `.heic`.
+pub(crate) fn is_dynamic_picture(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    text.starts_with("system:/") && (lower.ends_with(".madesktop") || lower.ends_with(".heic"))
+}
+
+/// Swift `BackdropSelectionSetting.acceptsModes`: `appearance.backgroundModes`,
+/// an object of `off` (a fixed background or `none`), `rotate` (a shuffle)
+/// and `sun` (a `system:` picture), each optional.
+pub(crate) fn is_modes(value: &Value) -> bool {
+    value.as_object().is_some_and(|members| {
+        members.iter().all(|(key, value)| {
+            let Some(text) = value.as_str() else { return false };
+            match key.as_str() {
+                "off" => text == "none" || is_picture(text),
+                "rotate" => is_shuffle(text),
+                "sun" => text.strip_prefix("system:").is_some_and(|path| path.starts_with('/')),
+                _ => false,
+            }
+        })
+    })
+}
+
 /// Swift `BackdropTimeOfDay.when`: `H:MM` or `HH:MM` (24 h), or a sun event
 /// with an optional `+N` / `-N` offset in `m` (at most 1440) or `h` (at most 24).
 pub(crate) fn is_when(text: &str) -> bool {

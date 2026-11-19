@@ -686,6 +686,33 @@
           ]
         },
         {
+          "key": "appearance.backgroundModes",
+          "name": "modes",
+          "note": "Each Switch Automatically mode's own background while another mode is on, so switching back restores it: off (the one fixed picture), rotate (daily or folder:<absolute path>) and sun (the system: dynamic wallpaper). Light and Dark and Time of Day keep theirs in appearance.backgroundLight, appearance.backgroundDark and appearance.backgroundSchedule. Every write that leaves one of the three modes records its source here (cmux-config store::backdrop_modes), whoever writes: Settings, the palette, the CLI, MCP or a hand edit.",
+          "title": {
+            "key": "settings.appearance.backgroundModes",
+            "text": "Saved Mode Backgrounds"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundModes.help",
+            "text": "What Off, Rotate and Sun show again when you switch back to them."
+          },
+          "kind": "string_map",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "rotate",
+            "folder",
+            "shuffle",
+            "auto switch"
+          ]
+        },
+        {
           "key": "appearance.backgroundDynamic",
           "name": "dynamic",
           "note": "How a dynamic macOS wallpaper (system: .madesktop or .heic) changes: appearance shows its light or dark frame; time follows the sun (solar metadata), the clock (h24), or for a light/dark-only or not downloaded picture the sun above or below -6 degrees.",

@@ -76,6 +76,10 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "an object of HH:MM or dawn, sunrise, noon, sunset, dusk (with +Nm, -Nm, +Nh or -Nh) to fixed backgrounds",
         )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropModes) {
+        Accepted::Shape(
+            "an object of off (a fixed background or none), rotate (daily or folder:<absolute path>) and sun (system:<absolute path>)",
+        )
     } else if row.validation == super::Validation::Domain(DomainKind::BackdropLocation) {
         Accepted::Shape("\"LAT,LON\" in degrees, such as \"37.77,-122.42\"")
     } else if row.validation == super::Validation::Domain(DomainKind::ChatRoots) {
@@ -139,6 +143,9 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         }
         super::Validation::Domain(DomainKind::BackdropSchedule) => {
             return super::backdrop::is_schedule(value);
+        }
+        super::Validation::Domain(DomainKind::BackdropModes) => {
+            return super::backdrop::is_modes(value);
         }
         super::Validation::Domain(DomainKind::BackdropLocation) => {
             return value.as_str().is_some_and(super::backdrop::is_location);
@@ -403,6 +410,7 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::BackdropSelection => "backdrop_selection",
         DomainKind::BackdropPicture => "backdrop_picture",
         DomainKind::BackdropSchedule => "backdrop_schedule",
+        DomainKind::BackdropModes => "backdrop_modes",
         DomainKind::BackdropLocation => "backdrop_location",
         DomainKind::ChatRoots => "chat_roots",
         DomainKind::SearchTemplate => "search_template",

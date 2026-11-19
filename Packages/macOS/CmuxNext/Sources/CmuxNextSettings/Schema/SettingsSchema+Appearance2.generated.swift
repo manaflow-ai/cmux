@@ -196,6 +196,16 @@ extension AppearanceSettingsSchema {
                 keywords: ["wallpaper", "background", "schedule", "time of day", "sunrise", "sunset", "night", "auto switch"]
             ),
             SettingDescriptor(
+                BackdropSelectionSetting.modesPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundModes", "Saved Mode Backgrounds"),
+                help: SettingsText.keyed("settings.appearance.backgroundModes.help", "What Off, Rotate and Sun show again when you switch back to them."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["wallpaper", "background", "rotate", "folder", "shuffle", "auto switch"]
+            ),
+            SettingDescriptor(
                 BackdropSelectionSetting.dynamicPath,
                 section: .appearance,
                 group: group,

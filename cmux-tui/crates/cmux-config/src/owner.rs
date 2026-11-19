@@ -15,7 +15,10 @@ use crate::location::team_policy_path;
 use crate::managed::{ManagedReader, TeamPolicyLayer};
 use crate::refusal::Refusal;
 use crate::schema::Schema;
-use crate::store::{self, Change, FileRead, Op, Outcome, State, ThemeRead};
+use crate::store::{
+    self, Change, Edit, EditKind, FileRead, Op, Origin, Outcome, State, Target, ThemeRead,
+    WriteMeta,
+};
 use crate::theme_file;
 
 /// What one op did. `changes` holds every revision it produced (an external
@@ -119,9 +122,11 @@ impl ConfigStore {
         if writes {
             // Fresh managed values too: macOS sends no notification for a new
             // MDM profile, so the watcher may not have seen it yet.
+            let before = self.state.file_root.clone();
             let (refreshed, change) = self.state.reload(self.read_file(), self.reader.read());
             self.state = refreshed;
             changes.extend(change);
+            changes.extend(self.keep_hand_edited_mode_source(&before));
         }
         let result = match store::apply(&self.state, op) {
             Err(refusal) => Err(refusal),
@@ -138,7 +143,7 @@ impl ConfigStore {
         };
         // A write that picks another theme file: read that file now.
         if self.state.theme_wanted().is_some_and(|(_, stale)| stale)
-            && let Some(change) = self.reload()
+            && let Some(change) = self.reload_state()
         {
             changes.push(change);
         }
@@ -152,8 +157,44 @@ impl ConfigStore {
     }
 
     /// Re-reads cmux.json and the managed values (the watcher calls this).
-    /// A change only when the effective settings changed.
+    /// A change only when the effective settings changed. A hand edit that
+    /// leaves Switch Automatically's Off, Rotate or Sun keeps that mode's
+    /// background, as a write does (`store::backdrop_modes`).
     pub fn reload(&mut self) -> Option<Change> {
+        // Held across the read and the write-back, as `apply` holds it: another owner's write in
+        // between would be lost.
+        let _lock = lock_config(&self.config_path);
+        let before = self.state.file_root.clone();
+        let change = self.reload_state();
+        let kept = self.keep_hand_edited_mode_source(&before);
+        if kept.is_some() {
+            self.write_cache();
+        }
+        match (change, kept) {
+            (Some(change), Some(mut kept)) => {
+                kept.keys.extend(change.keys.into_iter().filter(|key| !kept.keys.contains(key)));
+                Some(kept)
+            }
+            (change, kept) => kept.or(change),
+        }
+    }
+
+    /// `appearance.backgroundModes` written back once after a hand edit that left Off, Rotate or
+    /// Sun (`before` is the file root the edit replaced). The caller holds the file lock.
+    fn keep_hand_edited_mode_source(&mut self, before: &Value) -> Option<Change> {
+        let modes = store::backdrop_modes::remembered_modes(before, &self.state.file_root)?;
+        let edit = Edit {
+            target: Target::Key(store::backdrop_modes::MODES_KEY.to_string()),
+            kind: EditKind::Set(modes),
+        };
+        let meta = WriteMeta { origin: Origin::File, ..WriteMeta::default() };
+        let applied = store::apply(&self.state, Op::Edit { edits: vec![edit], meta }).ok()?;
+        publish(&self.config_path, applied.write.as_deref()?).ok()?;
+        self.state = applied.state;
+        applied.changes.into_iter().next()
+    }
+
+    fn reload_state(&mut self) -> Option<Change> {
         let config_dir = self.config_dir();
         let (next, change) =
             self.state.reload_with_theme(self.read_file(), self.reader.read(), |name| {

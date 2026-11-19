@@ -10,9 +10,22 @@ export const SCHEDULE_KEY = "appearance.backgroundSchedule";
 export const DYNAMIC_KEY = "appearance.backgroundDynamic";
 export const LOCATION_KEY = "appearance.backgroundLocation";
 export const ROTATION_KEY = "appearance.backgroundRotation";
+/** Each mode's own background while another mode is on (Leo, 2026-11-19: "switched around from the
+ * rotating to day/night/whatever but it lost the folder"): `off` (the one picture), `rotate` (the
+ * shuffle: `daily` or `folder:`) and `sun` (the dynamic picture). Light & Dark and Time of Day keep
+ * theirs in their own keys. The app writes it for every writer (cmux-config `store::backdrop_modes`);
+ * the page only reads it. */
+export const MODES_KEY = "appearance.backgroundModes";
 
 /** Every key the control writes; one mode change is one undo step over all of them. */
-export const WALLPAPER_KEYS: readonly string[] = [BACKGROUND_KEY, LIGHT_KEY, DARK_KEY, SCHEDULE_KEY, DYNAMIC_KEY];
+export const WALLPAPER_KEYS: readonly string[] = [
+  BACKGROUND_KEY,
+  LIGHT_KEY,
+  DARK_KEY,
+  SCHEDULE_KEY,
+  DYNAMIC_KEY,
+  MODES_KEY,
+];
 
 /** `appearance.background` values that are modes, not pictures. */
 export const FOLLOW_APPEARANCE = "appearance";
@@ -30,7 +43,12 @@ export type WallpaperValues = {
   schedule: Record<string, string> | null;
   /** `appearance` (the light or dark frame) or `time` (frames follow the sun). */
   dynamic: string;
+  /** `appearance.backgroundModes`: the sources of the modes not on now. */
+  modes: Partial<Record<RememberedMode, string>> | null;
 };
+
+/** The modes whose source lives in `appearance.background` itself, so it is remembered on leaving. */
+export type RememberedMode = "off" | "rotate" | "sun";
 
 /** A picture the background can show; `dynamic`: a macOS dynamic wallpaper (frames by sun or clock). */
 export type PictureChoice = {
@@ -78,30 +96,49 @@ export function dynamicChoices(choices: readonly PictureChoice[]): PictureChoice
   return [...dynamic.filter((choice) => choice.downloaded !== false), ...dynamic.filter((c) => c.downloaded === false)];
 }
 
-/** The one picture Off shows: the one on screen when the values hold one, else the light picture,
- * the first scheduled one, the last picture the page saw, or none. */
-export function fixedPicture(values: WallpaperValues, lastFixed: string | null): string {
-  if (isFixed(values.background)) return values.background;
-  if (values.background === FOLLOW_APPEARANCE) return values.light ?? values.dark ?? lastFixed ?? "none";
-  if (values.background === FOLLOW_SCHEDULE) {
-    const first = values.schedule ? Object.values(values.schedule)[0] : undefined;
-    return lastFixed ?? first ?? "none";
-  }
-  return lastFixed ?? "none";
+/** The one picture Off shows: the one on screen in Off; from another mode, the one Off had
+ * (remembered, else the last one the page saw), else the picture on screen (Sun's), Light & Dark's
+ * light picture, the first scheduled one, or the desktop picture, so a mode change never leaves the
+ * window blank. `sun`: the values are in Sun, whose picture is Sun's own. */
+export function fixedPicture(values: WallpaperValues, lastFixed: string | null, sun = false): string {
+  const { background } = values;
+  if (isFixed(background) && !sun) return background;
+  const first = values.schedule ? Object.values(values.schedule)[0] : undefined;
+  return (
+    values.modes?.off ??
+    lastFixed ??
+    (isFixed(background) ? background : undefined) ??
+    (background === FOLLOW_APPEARANCE ? (values.light ?? values.dark) : undefined) ??
+    (background === FOLLOW_SCHEDULE ? first : undefined) ??
+    "desktop"
+  );
+}
+
+/** The shuffle Rotate comes back to: the one it had, else the paintings. */
+export function rotateSource(values: WallpaperValues): string {
+  const kept = values.modes?.rotate;
+  return kept !== undefined && (kept === SHUFFLE_PAINTINGS || kept.startsWith(FOLDER_PREFIX))
+    ? kept
+    : SHUFFLE_PAINTINGS;
 }
 
 /**
- * The writes that turn the values into `mode`, keeping what the person sees where it can: Light &
- * Dark starts with the current picture on the light side, Time of Day with it at sunrise and
- * sunset, Rotate shuffles the paintings, Sun uses the current dynamic picture (or the first one).
- * Off puts one fixed picture back and the dynamic picture on its light and dark frames.
+ * The writes that turn the values into `mode`; the mode coming back gets its own source again. The
+ * app keeps the source of the mode being left (Off's picture, Rotate's shuffle and Sun's dynamic
+ * picture in `appearance.backgroundModes`, for every writer: cmux-config `store::backdrop_modes`), so
+ * the page never writes that key and works with an app from before it. A mode with none yet starts
+ * from what the person sees: Light & Dark with the current picture on the
+ * light side, Time of Day with it at sunrise and sunset, Rotate the paintings, Sun the current dynamic
+ * picture (or the first one), Off the picture on screen (a dynamic one on its light and dark frames).
  */
 export function writesFor(
   mode: WallpaperMode,
   values: WallpaperValues,
   context: { choices: readonly PictureChoice[]; lastFixed: string | null },
 ): WallpaperWrite[] {
-  const fixed = fixedPicture(values, context.lastFixed);
+  const from = modeOf(values, context.choices);
+  if (mode === from) return [];
+  const fixed = fixedPicture(values, context.lastFixed, from === "sun");
   // A mode's seed must be a picture: from no background, Light & Dark and Time of Day start on the desktop's.
   const seed = fixed === "none" ? "desktop" : fixed;
   const dynamicOff: WallpaperWrite[] = values.dynamic === "time" ? [[DYNAMIC_KEY, null]] : [];
@@ -123,14 +160,19 @@ export function writesFor(
         ...dynamicOff,
       ];
     case "sun": {
+      const dynamic = dynamicChoices(context.choices);
+      const kept = values.modes?.sun;
       const picture = isDynamicPicture(values.background, context.choices)
         ? values.background
-        : dynamicChoices(context.choices)[0]?.id;
+        : kept !== undefined && dynamic.some((choice) => choice.id === kept)
+          ? kept
+          : dynamic[0]?.id;
       if (!picture) return [];
-      return [...(picture === values.background ? [] : [[BACKGROUND_KEY, picture] as const]), [DYNAMIC_KEY, "time"]];
+      // Time first: Off's picture is still on screen then, so the app keeps it as Off's, not Sun's.
+      return [[DYNAMIC_KEY, "time"], ...(picture === values.background ? [] : [[BACKGROUND_KEY, picture] as const])];
     }
     case "rotate":
-      return [[BACKGROUND_KEY, SHUFFLE_PAINTINGS], ...dynamicOff];
+      return [[BACKGROUND_KEY, rotateSource(values)], ...dynamicOff];
   }
 }
 

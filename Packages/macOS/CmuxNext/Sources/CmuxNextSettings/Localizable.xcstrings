@@ -219059,6 +219059,60 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "與淺色相同"}}
       }
     },
+    "settings.appearance.backgroundModes": {
+      "comment": "Settings row title: the background each automatic-switch mode (Off, Rotate, Sun) shows again when the person switches back to it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Saved Mode Backgrounds"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "خلفيات الأوضاع المحفوظة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Sačuvane pozadine načina"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gemte baggrunde for tilstande"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Gespeicherte Hintergründe der Modi"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Fondos guardados de los modos"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Fonds d’écran enregistrés des modes"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Sfondi salvati delle modalità"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "モードごとに保存された背景"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ទៃខាងក្រោយដែលបានរក្សាទុកតាមរបៀប"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "모드별 저장된 배경"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Lagrede bakgrunner for moduser"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zapisane tła trybów"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Fundos salvos dos modos"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сохранённые фоны режимов"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "พื้นหลังที่บันทึกไว้ของแต่ละโหมด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kayıtlı Mod Arka Planları"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Збережені фони режимів"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hình nền đã lưu của các chế độ"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "各模式保存的背景"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "各模式儲存的背景"}}
+      }
+    },
+    "settings.appearance.backgroundModes.help": {
+      "comment": "Settings row help for the saved mode backgrounds. Off, Rotate and Sun are the names of the Switch Automatically modes; use the same words as those mode titles.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "What Off, Rotate and Sun show again when you switch back to them."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "ما تعرضه أوضاع إيقاف والتدوير والشمس مجددًا عند العودة إليها."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Šta Isključeno, Rotiraj i Sunce ponovo prikazuju kada se vratite na njih."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Det, Fra, Rotér og Sol viser igen, når du skifter tilbage til dem."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Was Aus, Durchwechseln und Sonne wieder zeigen, wenn du zu ihnen zurückwechselst."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Lo que Desactivado, Rotar y Sol vuelven a mostrar al regresar a ellos."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ce que Désactivé, Faire défiler et Soleil affichent de nouveau quand vous y revenez."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Ciò che Disattivato, Ruota e Sole mostrano di nuovo quando torni a essi."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "オフ、ローテーション、太陽に戻したときに再び表示されるもの。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អ្វីដែល បិទ បង្វិល និង ព្រះអាទិត្យ បង្ហាញម្តងទៀត នៅពេលអ្នកប្តូរត្រឡប់ទៅវិញ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "끔, 순환, 태양으로 다시 전환하면 다시 표시되는 항목입니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Det Av, Roter og Sol viser igjen når du bytter tilbake til dem."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "To, co Wył., Rotuj i Słońce pokażą ponownie po powrocie do nich."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O que Desativado, Alternar e Sol mostram de novo quando você volta para eles."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Что снова покажут «Выкл.», «По очереди» и «Солнце», когда вы к ним вернётесь."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สิ่งที่ ปิด หมุนเวียน และ ดวงอาทิตย์ จะแสดงอีกครั้งเมื่อคุณสลับกลับมา"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kapalı, Döndür ve Güneş modlarına geri döndüğünüzde yeniden gösterilenler."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Що знову покажуть «Вимк.», «По черзі» і «Сонце», коли ви до них повернетеся."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Những gì Tắt, Xoay vòng và Mặt trời hiển thị lại khi bạn chuyển về chúng."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "切换回“关闭”“轮换”和“太阳”时再次显示的内容。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "切換回「關閉」「輪換」和「太陽」時再次顯示的內容。"}}
+      }
+    },
     "settings.appearance.backgroundSchedule": {
       "comment": "Settings row title: background pictures by time of day.",
       "extractionState": "manual",

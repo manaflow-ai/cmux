@@ -10,7 +10,6 @@ import {
   dynamicChoices,
   FOLDER_PREFIX,
   formatWhen,
-  isFixed,
   modeOf,
   MODES,
   nextWhen,
@@ -402,11 +401,12 @@ export function WallpaperSwitch({
   const labelId = useId();
   const name = useId();
   const mode = modeOf(values, choices);
-  // The last picture that stayed: Off puts it back after a mode that has none of its own.
-  const lastFixed = useRef<string | null>(isFixed(values.background) ? values.background : null);
+  // Off's last picture this page saw: Off puts it back when the app has none kept (an app from
+  // before appearance.backgroundModes). Sun's dynamic picture is Sun's, not Off's.
+  const lastFixed = useRef<string | null>(mode === "off" && values.background !== "none" ? values.background : null);
   useEffect(() => {
-    if (isFixed(values.background)) lastFixed.current = values.background;
-  }, [values.background]);
+    if (mode === "off" && values.background !== "none") lastFixed.current = values.background;
+  }, [mode, values.background]);
   // Which slot's picture list is open: "light", "dark", "sun" or a schedule row's key.
   // Kept with the mode it opened in, so a mode change closes it.
   const [opened, setOpened] = useState<{ mode: WallpaperMode; id: string } | null>(null);
@@ -529,14 +529,19 @@ export function WallpaperSwitch({
     );
   } else if (mode === "rotate") {
     const folder = values.background;
+    // The folder shuffling now, and the one Rotate kept from before (a click goes back to it).
+    const others = [...new Set([folder, values.modes?.rotate ?? ""])].filter(
+      (id) => id.startsWith(FOLDER_PREFIX) && id !== FOLDER_PREFIX + yoursFolder,
+    );
     const folders = [
       { id: SHUFFLE_PAINTINGS, title: t("settingsWindow.backdropPicker.shufflePaintings") },
       ...(yoursFolder
         ? [{ id: FOLDER_PREFIX + yoursFolder, title: t("settingsWindow.backdropPicker.shuffleYours") }]
         : []),
-      ...(folder.startsWith(FOLDER_PREFIX) && folder !== FOLDER_PREFIX + yoursFolder
-        ? [{ id: folder, title: folder.slice(FOLDER_PREFIX.length).split("/").filter(Boolean).at(-1) ?? folder }]
-        : []),
+      ...others.map((id) => ({
+        id,
+        title: id.slice(FOLDER_PREFIX.length).split("/").filter(Boolean).at(-1) ?? id,
+      })),
     ];
     editor = (
       <>
