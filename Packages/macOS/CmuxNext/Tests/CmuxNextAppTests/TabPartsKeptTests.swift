@@ -48,10 +48,10 @@ struct TabPartsKeptTests {
 
     /// Workspace `key` with `count` tabs in one pane: a terminal, then a page, in turn. With `chats`, each third
     /// tab is an agent chat; with `blank`, the first of them has no session yet (a New Tab page that the store
-    /// restored: `RestoredNewTabPages`).
-    static func workspace(_ key: String, index: Int, tabs count: Int, chats: Bool, blank: Bool = false) -> WorkspaceSnapshot {
+    /// restored: `RestoredNewTabPages`). `first`: the first tab that the pane has (1: its first tab is closed).
+    static func workspace(_ key: String, index: Int, tabs count: Int, chats: Bool, blank: Bool = false, from first: Int = 0) -> WorkspaceSnapshot {
         let base = UInt64(index + 1) * 1000
-        let tabs = (0..<count).map { at -> TabSnapshot in
+        let tabs = (first..<count).map { at -> TabSnapshot in
             let surface = SurfaceID(rawValue: base + 1 + UInt64(at))
             if chats, at % 3 == 2 {
                 var chat = TabSnapshot(surface: surface, kind: .conversation, cwd: nil)
@@ -72,9 +72,10 @@ struct TabPartsKeptTests {
 
     /// The session's tree: `keys` in order, each with 2 tabs, the storm workspace with `tabs`. `registry`: the home
     /// session's id, with each workspace in its personal order (an app's store); nil for a store with no app.
-    static func tree(_ keys: [String], storm tabs: Int, chats: Bool = false, blank: Bool = false, registry: String? = "s-local") -> DaemonTree {
+    static func tree(_ keys: [String], storm tabs: Int, chats: Bool = false, blank: Bool = false, from first: Int = 0,
+                     registry: String? = "s-local") -> DaemonTree {
         var tree = DaemonTree(registryID: registry, workspaces: keys.enumerated().map { index, key in
-            workspace(key, index: index, tabs: key == storm ? tabs : 2, chats: key == storm && chats, blank: blank)
+            workspace(key, index: index, tabs: key == storm ? tabs : 2, chats: key == storm && chats, blank: blank, from: key == storm ? first : 0)
         })
         guard let registry else { return tree }
         tree.personal = PersonalState(groups: [], workspaces: keys.enumerated().map { index, key in
@@ -320,6 +321,47 @@ struct TabPartsKeptTests {
         #expect(small.made == large.made, "one tab made: \(small.made) tab parts in a workspace of \(Self.sizes[0]) tabs and \(large.made) in one of \(Self.sizes[1]), want the same count")
         #expect(small.closed == large.closed, "one tab closed: \(small.closed) tab parts in a workspace of \(Self.sizes[0]) tabs and \(large.closed) in one of \(Self.sizes[1]), want the same count")
         #expect(large.made <= 1 && large.closed == 0, "\(large.made) tab parts for one tab made and \(large.closed) for one tab closed, want the new tab's own and none")
+    }
+
+    /// A pane's FIRST tab closed (a terminal): no agent's part is made again. Each chat's part reads whether its
+    /// workspace is a window's Home, for the name that a chat with no title reads as, and that reads each pane's
+    /// first tab: a part that reads it itself is made again for each chat of the workspace.
+    @Test func aPanesFirstTabClosedMakesNoAgentsPartAgain() async throws {
+        let keys = Self.keys(40)
+        let services = try Self.app(keys, storm: Self.sizes[0], chats: true)
+        let store = services.machines.local.store
+        let glances = HomeAgentGlances(services: services)
+        let feed = glances.feed(while: { true })
+        let work = ObservationWork()
+        ObservationWork.$current.withValue(work) { feed.start() }
+        defer { feed.stop() }
+        await LargeSessionFixture.drainMain()
+        await LargeSessionFixture.drainMain()
+        let first = feed.observedItems?.count ?? -1
+        try #require(first == keys.count, "setup: the feed has the agents of \(first) workspaces after the drain, want \(keys.count)")
+
+        /// Every workspace's agents, made now with no kept part: what the feed's items must be.
+        func walk() -> [[HomeAgentGlance]] { services.machines.allWorkspaces.map { glances.glances(in: $0.0) } }
+        /// Gives the storm workspace the tabs `first..<tabs`, lets the main actor run, and gives the tab parts that
+        /// the feed's work made for it and whether the feed's items are the walk's.
+        func step(_ tabs: Int, from first: Int) async -> (parts: Int, same: Bool) {
+            work.reset()
+            store.apply(snapshot: Self.tree(keys, storm: tabs, chats: true, from: first))
+            await LargeSessionFixture.drainMain()
+            await LargeSessionFixture.drainMain()
+            return (work.byStep["HomeAgentGlances.tabParts"] ?? 0, feed.observedItems == walk())
+        }
+
+        var costs: [Int] = []
+        for tabs in Self.sizes {
+            // The workspace at this size; its cost is no row.
+            let sized = await step(tabs, from: 0)
+            let closed = await step(tabs, from: 1)
+            #expect(sized.same && closed.same, "the feed's agents are not the walk's agents at \(tabs) tabs (sized \(sized.same), first tab closed \(closed.same))")
+            costs.append(closed.parts)
+        }
+        print("TAB-PARTS agent glances, a pane's first tab closed: \(costs[0]) parts in a workspace of \(Self.sizes[0]) tabs, \(costs[1]) parts in a workspace of \(Self.sizes[1]) tabs")
+        #expect(costs == [0, 0], "a pane's first tab closed made \(costs[0]) tab parts in a workspace of \(Self.sizes[0]) tabs and \(costs[1]) in one of \(Self.sizes[1]), want none: no agent changed")
     }
 
     /// A value that the page rule of a blank chat (`RestoredNewTabPages.shows`) reads from the app's agent tabs.
