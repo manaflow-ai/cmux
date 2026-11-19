@@ -35,6 +35,8 @@ import Testing
 ///   `NewTabHoldOtherScreensTests`; row 11 (the tabs that a store restored) is `NewTabPagesOfRestoredTabsTests`.
 /// - Row 13 (several untouched page views in one pane: the new tab takes the one that its pane leaves) is in
 ///   `NewTabHoldMovesItsPageTests+OwnPage.swift`.
+/// - Row 14 (the Close Tab key after a hold, read in the key's own turn, with the last tab's creation answered and
+///   not answered) is in `NewTabHoldMovesItsPageTests+CloseKey.swift`.
 ///
 /// The app is the package's own, with a daemon of this tree and an empty pool of pages made ahead, so each new
 /// page view here is a cold one (the setup of `NewTabPageAtItsFrameTests`). That setup's pane starts with a New
