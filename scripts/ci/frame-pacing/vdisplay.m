@@ -1,5 +1,7 @@
 // vdisplay: hold a virtual display at a chosen refresh rate until killed (or HOLD seconds).
-// Usage: VDisplay HZ HOLD_SECONDS [main], or VDisplay probe. A copy of cmuxterm-hq's
+// Usage: VDisplay HZ HOLD_SECONDS [main|-] [WIDTHxHEIGHT] [hidpi], or VDisplay probe. `hidpi` makes a
+// backing-scale-2 display of WIDTHxHEIGHT points (twice the pixels): the Liquid Glass Parity matrix's 2x
+// cells on a host whose own screen is 1x (scripts/measure/glass-parity.sh). A copy of cmuxterm-hq's
 // build-fleet/mini-ops/vdisplay.m (`fleet vdisplay`); keep the two in step (this copy adds `main` and
 // `probe`, 2026-10-23).
 // `probe` creates no display: it prints "main DISPLAY_ID p50_ms" for the current main display (its measured
@@ -128,18 +130,20 @@ int main(int argc, char **argv) {
       printf("error: size %s is not WIDTHxHEIGHT within 640x480..3840x2400\n", argv[4]);
       return 2;
     }
+    BOOL hidpi = argc > 5 && strcmp(argv[5], "hidpi") == 0;
+    unsigned int factor = hidpi ? 2 : 1;
     [NSApplication sharedApplication];
     CGVirtualDisplayDescriptor *descriptor = [CGVirtualDisplayDescriptor new];
     descriptor.queue = dispatch_get_main_queue();
     descriptor.name = [NSString stringWithFormat:@"mini-ops %.0f Hz", hz];
-    descriptor.maxPixelsWide = width;
-    descriptor.maxPixelsHigh = height;
+    descriptor.maxPixelsWide = width * factor;
+    descriptor.maxPixelsHigh = height * factor;
     descriptor.sizeInMillimeters = CGSizeMake(600, 600.0 * height / width);  // about 81 dpi, as 1920x1080 at 600 x 340
     descriptor.productID = 0x6d6f; descriptor.vendorID = 0x6d6f; descriptor.serialNum = 1;
     CGVirtualDisplay *display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor];
     if (!display) { printf("error: CGVirtualDisplay unavailable\n"); return 1; }
     CGVirtualDisplaySettings *settings = [CGVirtualDisplaySettings new];
-    settings.hiDPI = 0;
+    settings.hiDPI = hidpi ? 1 : 0;
     settings.modes = @[[[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]];
     if (![display applySettings:settings]) { printf("error: applySettings failed\n"); return 1; }
     waitForScreens(display.displayID, NO, 5.0);
@@ -151,8 +155,8 @@ int main(int argc, char **argv) {
     // The visible frame (points, under the menu bar and the Dock) of the virtual display: what a window may fill.
     NSScreen *screen = screenFor(display.displayID);
     NSRect visible = screen ? screen.visibleFrame : NSZeroRect;
-    printf("ready %u %.2f main=%u size=%ux%u visible=%.0fx%.0f\n", display.displayID, medianInterval(display.displayID),
-           CGMainDisplayID(), width, height, visible.size.width, visible.size.height);
+    printf("ready %u %.2f main=%u size=%ux%u visible=%.0fx%.0f scale=%.0f\n", display.displayID, medianInterval(display.displayID),
+           CGMainDisplayID(), width, height, visible.size.width, visible.size.height, screen ? screen.backingScaleFactor : 0);
     [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:hold]];
   }
   return 0;

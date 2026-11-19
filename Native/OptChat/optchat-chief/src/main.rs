@@ -402,6 +402,10 @@ fn main() -> std::process::ExitCode {
                                     s.trusted_agents =
                                         optchat_chief::chief_settings::parse_trusted_agents(value)?
                                 }
+                                optchat_chief::chief_settings::RELAY_MCP_SERVERS => {
+                                    s.relay_mcp_servers =
+                                        optchat_chief::chief_settings::parse_mcp_servers(value)?
+                                }
                                 _ => return Err(format!("unknown setting {key:?}")),
                             }
                             s.save(&file)
