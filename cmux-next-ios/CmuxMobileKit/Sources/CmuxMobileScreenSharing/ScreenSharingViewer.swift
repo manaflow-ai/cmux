@@ -3,6 +3,7 @@ public import CmuxDeviceHub
 public import CmuxScreenKit
 public import Foundation
 public import Observation
+import UIKit
 
 /// Why a session ended on this phone, as `/end` reasons (PROTOCOL.md, End reasons).
 public enum ScreenSharingEndReason: String, Sendable {
@@ -48,6 +49,11 @@ public final class ScreenSharingViewer: Identifiable {
     public private(set) var shown = false
     /// The stream while approved (nil before the ticket and after the end).
     public private(set) var screen: ScreenSession?
+    /// The stream on cmux.rd/1 while approved, for a host that serves no WebRTC viewer: a Linux
+    /// desktop, or a Mac whose daemon serves it (nil otherwise).
+    public private(set) var rdScreen: ScreenSharingRdSession?
+    /// The host's platform as the list read it: a Linux desktop speaks only cmux.rd/1.
+    public nonisolated let platform: DevicePlatform?
     public private(set) var lastScope: SessionScope = .full
 
     @ObservationIgnored let hub: DeviceHub
@@ -70,6 +76,8 @@ public final class ScreenSharingViewer: Identifiable {
     @ObservationIgnored var refusedBeforeShown: @MainActor (ScreenSharingRefusal, SessionScope) -> Void = { _, _ in }
     /// Starts the stream (tests replace it: no WebRTC there).
     @ObservationIgnored var startStream: @MainActor (ScreenSession) -> Void = { $0.connect() }
+    /// Starts a cmux.rd/1 stream (tests replace it: no link there).
+    @ObservationIgnored var startRdStream: @MainActor (ScreenSharingRdSession) -> Void = { $0.connect() }
     /// Every session this viewer ended or left on the hub (the service ignores later tickets for them).
     @ObservationIgnored var sessionLeft: @MainActor (String) -> Void = { _ in }
     @ObservationIgnored private var pendingSignaling: (any ScreenSignaling)?
@@ -78,9 +86,10 @@ public final class ScreenSharingViewer: Identifiable {
     /// A denial or end the hub pushed before the request's HTTP answer named its session.
     @ObservationIgnored private var earlyOutcomes: [String: Phase] = [:]
 
-    init(hostID: String, hostName: String, hub: DeviceHub, preferences: ScreenSharingPreferences) {
+    init(hostID: String, hostName: String, platform: DevicePlatform? = nil, hub: DeviceHub, preferences: ScreenSharingPreferences) {
         self.hostID = hostID
         self.hostName = hostName
+        self.platform = platform
         self.hub = hub
         self.preferences = preferences
     }
@@ -254,6 +263,10 @@ public final class ScreenSharingViewer: Identifiable {
         phase = .streaming(sessionID: ticket.sessionId, scope: ticket.scope)
         reattachTask?.cancel()
         reattachTask = nil
+        if speaksRd {
+            startRd(sessionID: ticket.sessionId, scope: ticket.scope)
+            return
+        }
         if let screen {
             screen.reconnect()
             watch(screen, sessionID: ticket.sessionId)
@@ -274,6 +287,69 @@ public final class ScreenSharingViewer: Identifiable {
         screen = session
         watch(session, sessionID: ticket.sessionId)
         startStream(session)
+    }
+
+    // MARK: cmux.rd/1
+
+    /// This host refused a WebRTC offer (a joined Mac's daemon serves only cmux.rd/1): the
+    /// service remembers it for the host's next viewer.
+    public internal(set) var rdOnly = false
+    /// This viewer learned its host is `rdOnly` (the service keeps it for the app's run).
+    @ObservationIgnored var learnedRdOnly: @MainActor (String) -> Void = { _ in }
+
+    /// Whether this host's sessions offer cmux.rd/1: a Linux desktop always (it serves nothing
+    /// else), a Mac that refused a WebRTC offer. Other Macs keep the WebRTC viewer.
+    public var speaksRd: Bool { platform == .linux || rdOnly }
+
+    /// The host refused this phone's WebRTC offer: ask again on cmux.rd/1, as the Mac's own
+    /// viewer does, instead of showing the refusal. False when it already spoke cmux.rd/1.
+    private func retryOnRd(_ reason: String?) -> Bool {
+        guard !speaksRd, Self.refusesWebRTC(reason) else { return false }
+        rdOnly = true
+        learnedRdOnly(hostID)
+        request(lastScope)
+        return true
+    }
+
+    /// Whether a session's end `reason` says the host serves only cmux.rd/1 viewers: a Linux or
+    /// joined-Mac host refusing a WebRTC offer (cmux-hub-host `session.rs`), or a joined Mac with
+    /// no app to serve an iPhone's WebRTC (acpmux `share_host/route.rs`).
+    nonisolated static func refusesWebRTC(_ reason: String?) -> Bool {
+        guard let reason else { return false }
+        return reason.contains("offered WebRTC") || reason.contains("cmux.rd/1") || reason == "app_required"
+    }
+
+    /// The ticket's signaling goes to a new cmux.rd/1 stream (a new one per ticket: tickets admit once).
+    private func startRd(sessionID: String, scope: SessionScope) {
+        guard let signaling = takeSignaling() else { return }
+        stopStream()
+        let screenPixels = UIScreen.main.nativeBounds.size
+        let rd = ScreenSharingRdSession(signaling: signaling, control: scope == .full,
+                                        maxWidth: Int(max(screenPixels.width, screenPixels.height)),
+                                        maxFps: UIScreen.main.maximumFramesPerSecond)
+        rdScreen = rd
+        watchRd(rd, sessionID: sessionID)
+        startRdStream(rd)
+    }
+
+    /// A cmux.rd/1 link that ended while streaming is a drop: the approved session reattaches (the
+    /// host's own end reaches this phone as the hub's push and ends it instead).
+    private func watchRd(_ rd: ScreenSharingRdSession, sessionID: String) {
+        withObservationTracking {
+            _ = rd.phase
+        } onChange: { [weak self, weak rd] in
+            // task-owner: hops the observation change to the main actor; re-arms on the next change
+            Task { @MainActor [weak self, weak rd] in
+                guard let self, let rd, self.rdScreen === rd else { return }
+                switch rd.phase {
+                case .ended: self.streamDropped(sessionID)
+                case .streaming:
+                    self.reattachAttempts = 0
+                    self.watchRd(rd, sessionID: sessionID)
+                case .connecting: self.watchRd(rd, sessionID: sessionID)
+                }
+            }
+        }
     }
 
     /// A dropped stream leaves the approved hub session alive and asks for a
@@ -364,6 +440,7 @@ public final class ScreenSharingViewer: Identifiable {
 
     /// The hub's reason for the dropped session: the ended card says it instead of "failed".
     func droppedReason(_ reason: String?) {
+        if retryOnRd(reason) { return }
         guard case .ended(ScreenSharingEndReason.failed.rawValue?) = phase, let reason,
               reason != ScreenSharingEndReason.failed.rawValue else { return }
         phase = .ended(reason: reason)
@@ -383,6 +460,8 @@ public final class ScreenSharingViewer: Identifiable {
 
     /// `session.revoked` or `session.ended`: stop now and say why.
     func ended(reason: String?) {
+        // A Mac served by its daemon (no app attached) takes cmux.rd/1 only.
+        if retryOnRd(reason) { return }
         reattachTask?.cancel()
         reattachTask = nil
         cancelPending(endingSession: false)
@@ -406,6 +485,8 @@ public final class ScreenSharingViewer: Identifiable {
     }
 
     private func stopStream() {
+        rdScreen?.close()
+        rdScreen = nil
         guard let screen else { return }
         preferences.save(screen.preferences, for: hostID)
         screen.close()

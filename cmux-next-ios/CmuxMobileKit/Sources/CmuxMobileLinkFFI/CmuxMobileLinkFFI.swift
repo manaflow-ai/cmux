@@ -2047,6 +2047,685 @@ public func FfiConverterTypeLinkObserver_lower(_ value: LinkObserver) -> UInt64 
 
 
 /**
+ * One screen session from this phone. Make it when the ticket comes, offer its key, then
+ * `start` with the host's answer. Dropping it closes the link.
+ */
+public protocol ScreenLinkProtocol: AnyObject, Sendable {
+    
+    /**
+     * A route the host trickled on the signaling after its answer.
+     */
+    func addCandidate(candidate: String) 
+    
+    /**
+     * Button 1 left, 2 middle, 3 right (`RemoteMouseButton`).
+     */
+    func button(button: UInt8, down: Bool) 
+    
+    /**
+     * Ends the session (the host hears `stop`, then the link closes).
+     */
+    func close() 
+    
+    /**
+     * A USB HID usage (page 7) pressed or released.
+     */
+    func keyEvent(usage: UInt32, down: Bool) 
+    
+    /**
+     * How long the last frame took to decode (feeds the host's rate control).
+     */
+    func noteDecode(decodeUs: UInt32) 
+    
+    /**
+     * Microseconds on the clock `BrowserFrame.received_us` uses.
+     */
+    func nowUs()  -> UInt64
+    
+    /**
+     * The offer to send on the session's signaling: this side's key and the viewer's wishes.
+     */
+    func offer(display: Int64?, maxWidth: UInt32?, maxFps: UInt32?)  -> String
+    
+    /**
+     * The pointer at `(x, y)` in the stream's pixels (welcome's `width` by `height`).
+     */
+    func pointer(x: Int32, y: Int32) 
+    
+    /**
+     * The decoder lost its state: ask the host for a keyframe.
+     */
+    func requestKeyframe() 
+    
+    /**
+     * Scroll in hundredths of a line, or of a point when `precise`.
+     */
+    func scroll(dx: Int32, dy: Int32, precise: Bool) 
+    
+    /**
+     * This side's session key (64 hex), the offer's fingerprint.
+     */
+    func sessionKey()  -> String
+    
+    /**
+     * Starts the link with the host's answer. A second call is refused.
+     */
+    func start(answer: ScreenAnswer, observer: ScreenObserver) throws  -> [ScreenDisplay]
+    
+    func stats()  -> ScreenStats
+    
+    /**
+     * Text the host types as is.
+     */
+    func text(text: String) 
+    
+}
+/**
+ * One screen session from this phone. Make it when the ticket comes, offer its key, then
+ * `start` with the host's answer. Dropping it closes the link.
+ */
+open class ScreenLink: ScreenLinkProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_screenlink(self.handle, $0) }
+    }
+    /**
+     * A new session key for one session.
+     */
+public convenience init()throws  {
+    let handle =
+        try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_screenlink_new($0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_screenlink(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * A route the host trickled on the signaling after its answer.
+     */
+open func addCandidate(candidate: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenlink_add_candidate(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(candidate),$0
+    )
+}
+}
+    
+    /**
+     * Button 1 left, 2 middle, 3 right (`RemoteMouseButton`).
+     */
+open func button(button: UInt8, down: Bool)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenlink_button(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt8.lower(button),
+        FfiConverterBool.lower(down),$0
+    )
+}
+}
+    
+    /**
+     * Ends the session (the host hears `stop`, then the link closes).
+     */
+open func close()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenlink_close(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * A USB HID usage (page 7) pressed or released.
+     */
+open func keyEvent(usage: UInt32, down: Bool)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenlink_key_event(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(usage),
+        FfiConverterBool.lower(down),$0
+    )
+}
+}
+    
+    /**
+     * How long the last frame took to decode (feeds the host's rate control).
+     */
+open func noteDecode(decodeUs: UInt32)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenlink_note_decode(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(decodeUs),$0
+    )
+}
+}
+    
+    /**
+     * Microseconds on the clock `BrowserFrame.received_us` uses.
+     */
+open func nowUs() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenlink_now_us(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The offer to send on the session's signaling: this side's key and the viewer's wishes.
+     */
+open func offer(display: Int64?, maxWidth: UInt32?, maxFps: UInt32?) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenlink_offer(
+            self.uniffiCloneHandle(),
+        FfiConverterOptionInt64.lower(display),
+        FfiConverterOptionUInt32.lower(maxWidth),
+        FfiConverterOptionUInt32.lower(maxFps),$0
+    )
+})
+}
+    
+    /**
+     * The pointer at `(x, y)` in the stream's pixels (welcome's `width` by `height`).
+     */
+open func pointer(x: Int32, y: Int32)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenlink_pointer(
+            self.uniffiCloneHandle(),
+        FfiConverterInt32.lower(x),
+        FfiConverterInt32.lower(y),$0
+    )
+}
+}
+    
+    /**
+     * The decoder lost its state: ask the host for a keyframe.
+     */
+open func requestKeyframe()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenlink_request_keyframe(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * Scroll in hundredths of a line, or of a point when `precise`.
+     */
+open func scroll(dx: Int32, dy: Int32, precise: Bool)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenlink_scroll(
+            self.uniffiCloneHandle(),
+        FfiConverterInt32.lower(dx),
+        FfiConverterInt32.lower(dy),
+        FfiConverterBool.lower(precise),$0
+    )
+}
+}
+    
+    /**
+     * This side's session key (64 hex), the offer's fingerprint.
+     */
+open func sessionKey() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenlink_session_key(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Starts the link with the host's answer. A second call is refused.
+     */
+open func start(answer: ScreenAnswer, observer: ScreenObserver)throws  -> [ScreenDisplay]  {
+    return try  FfiConverterSequenceTypeScreenDisplay.lift(try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenlink_start(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeScreenAnswer_lower(answer),
+        FfiConverterTypeScreenObserver_lower(observer),$0
+    )
+})
+}
+    
+open func stats() -> ScreenStats  {
+    return try!  FfiConverterTypeScreenStats_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenlink_stats(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Text the host types as is.
+     */
+open func text(text: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenlink_text(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(text),$0
+    )
+}
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeScreenLink: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = ScreenLink
+
+    public static func lift(_ handle: UInt64) throws -> ScreenLink {
+        return ScreenLink(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: ScreenLink) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ScreenLink {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: ScreenLink, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenLink_lift(_ handle: UInt64) throws -> ScreenLink {
+    return try FfiConverterTypeScreenLink.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenLink_lower(_ value: ScreenLink) -> UInt64 {
+    return FfiConverterTypeScreenLink.lower(value)
+}
+
+
+
+
+
+
+/**
+ * Hears one screen session, on the link thread. Hand off quickly.
+ */
+public protocol ScreenObserver: AnyObject, Sendable {
+    
+    /**
+     * A whole H.264 Annex-B access unit (SPS and PPS before each IDR).
+     */
+    func onFrame(frame: BrowserFrame) 
+    
+    /**
+     * A local route for the host, to send on the session's signaling (`sdpMid` `cmux-rd`).
+     */
+    func onCandidate(candidate: String) 
+    
+    /**
+     * The link came up (`connected`), or its path changed: `{"t":"path","kind":..,"rtt_ms":..}`,
+     * or an rd control message of the host (`welcome`, `started`, `refused`, `ended`) as JSON.
+     */
+    func onMessage(json: String) 
+    
+    /**
+     * The session is over: `reason` is the host's own `ended` (`host: <reason>`), the link's
+     * failure (`link failed: <why>`), or this side's close.
+     */
+    func onClosed(reason: String) 
+    
+}
+/**
+ * Hears one screen session, on the link thread. Hand off quickly.
+ */
+open class ScreenObserverImpl: ScreenObserver, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_screenobserver(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_screenobserver(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * A whole H.264 Annex-B access unit (SPS and PPS before each IDR).
+     */
+open func onFrame(frame: BrowserFrame)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenobserver_on_frame(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeBrowserFrame_lower(frame),$0
+    )
+}
+}
+    
+    /**
+     * A local route for the host, to send on the session's signaling (`sdpMid` `cmux-rd`).
+     */
+open func onCandidate(candidate: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenobserver_on_candidate(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(candidate),$0
+    )
+}
+}
+    
+    /**
+     * The link came up (`connected`), or its path changed: `{"t":"path","kind":..,"rtt_ms":..}`,
+     * or an rd control message of the host (`welcome`, `started`, `refused`, `ended`) as JSON.
+     */
+open func onMessage(json: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenobserver_on_message(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(json),$0
+    )
+}
+}
+    
+    /**
+     * The session is over: `reason` is the host's own `ended` (`host: <reason>`), the link's
+     * failure (`link failed: <why>`), or this side's close.
+     */
+open func onClosed(reason: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_screenobserver_on_closed(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(reason),$0
+    )
+}
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceScreenObserver {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceScreenObserver = UniffiVTableCallbackInterfaceScreenObserver(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeScreenObserver.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface ScreenObserver: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeScreenObserver.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface ScreenObserver: handle missing in uniffiClone")
+            }
+        },
+        onFrame: { (
+            uniffiHandle: UInt64,
+            frame: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeScreenObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onFrame(
+                     frame: try FfiConverterTypeBrowserFrame_lift(frame)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onCandidate: { (
+            uniffiHandle: UInt64,
+            candidate: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeScreenObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onCandidate(
+                     candidate: try FfiConverterString.lift(candidate)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onMessage: { (
+            uniffiHandle: UInt64,
+            json: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeScreenObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onMessage(
+                     json: try FfiConverterString.lift(json)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onClosed: { (
+            uniffiHandle: UInt64,
+            reason: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeScreenObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onClosed(
+                     reason: try FfiConverterString.lift(reason)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceScreenObserver> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceScreenObserver>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitScreenObserver() {
+    uniffi_cmux_mobile_link_ffi_fn_init_callback_vtable_screenobserver(UniffiCallbackInterfaceScreenObserver.vtablePtr)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeScreenObserver: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<ScreenObserver>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = ScreenObserver
+
+    public static func lift(_ handle: UInt64) throws -> ScreenObserver {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return ScreenObserverImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: ScreenObserver) -> UInt64 {
+         if let rustImpl = value as? ScreenObserverImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ScreenObserver {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: ScreenObserver, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenObserver_lift(_ handle: UInt64) throws -> ScreenObserver {
+    return try FfiConverterTypeScreenObserver.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenObserver_lower(_ value: ScreenObserver) -> UInt64 {
+    return FfiConverterTypeScreenObserver.lower(value)
+}
+
+
+
+
+
+
+/**
  * One terminal's prediction.
  */
 public protocol TerminalPredictionProtocol: AnyObject, Sendable {
@@ -3108,6 +3787,271 @@ public func FfiConverterTypePredictionLayout_lift(_ buf: RustBuffer) throws -> P
 #endif
 public func FfiConverterTypePredictionLayout_lower(_ value: PredictionLayout) -> RustBuffer {
     return FfiConverterTypePredictionLayout.lower(value)
+}
+
+
+/**
+ * The answer's routes and the ticket's servers, everything the link needs to start.
+ */
+public struct ScreenAnswer: Equatable, Hashable {
+    /**
+     * The hub session id (the link's Noise prologue).
+     */
+    public var session: String
+    /**
+     * The host's answer as it came on the signaling (checked as signed by the host's device key
+     * before it gets here).
+     */
+    public var answer: String
+    /**
+     * The ticket's ICE servers as JSON (`[{urls, username?, credential?}]`).
+     */
+    public var iceJson: String
+    /**
+     * Full Control (input) or View Only.
+     */
+    public var control: Bool
+    /**
+     * Reach the host through TURN relays only.
+     */
+    public var relayOnly: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The hub session id (the link's Noise prologue).
+         */session: String, 
+        /**
+         * The host's answer as it came on the signaling (checked as signed by the host's device key
+         * before it gets here).
+         */answer: String, 
+        /**
+         * The ticket's ICE servers as JSON (`[{urls, username?, credential?}]`).
+         */iceJson: String, 
+        /**
+         * Full Control (input) or View Only.
+         */control: Bool, 
+        /**
+         * Reach the host through TURN relays only.
+         */relayOnly: Bool) {
+        self.session = session
+        self.answer = answer
+        self.iceJson = iceJson
+        self.control = control
+        self.relayOnly = relayOnly
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ScreenAnswer: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeScreenAnswer: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ScreenAnswer {
+        return
+            try ScreenAnswer(
+                session: FfiConverterString.read(from: &buf), 
+                answer: FfiConverterString.read(from: &buf), 
+                iceJson: FfiConverterString.read(from: &buf), 
+                control: FfiConverterBool.read(from: &buf), 
+                relayOnly: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ScreenAnswer, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.session, into: &buf)
+        FfiConverterString.write(value.answer, into: &buf)
+        FfiConverterString.write(value.iceJson, into: &buf)
+        FfiConverterBool.write(value.control, into: &buf)
+        FfiConverterBool.write(value.relayOnly, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenAnswer_lift(_ buf: RustBuffer) throws -> ScreenAnswer {
+    return try FfiConverterTypeScreenAnswer.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenAnswer_lower(_ value: ScreenAnswer) -> RustBuffer {
+    return FfiConverterTypeScreenAnswer.lower(value)
+}
+
+
+/**
+ * The host's displays as its answer listed them.
+ */
+public struct ScreenDisplay: Equatable, Hashable {
+    public var width: UInt32
+    public var height: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(width: UInt32, height: UInt32) {
+        self.width = width
+        self.height = height
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ScreenDisplay: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeScreenDisplay: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ScreenDisplay {
+        return
+            try ScreenDisplay(
+                width: FfiConverterUInt32.read(from: &buf), 
+                height: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ScreenDisplay, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.width, into: &buf)
+        FfiConverterUInt32.write(value.height, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenDisplay_lift(_ buf: RustBuffer) throws -> ScreenDisplay {
+    return try FfiConverterTypeScreenDisplay.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenDisplay_lower(_ value: ScreenDisplay) -> RustBuffer {
+    return FfiConverterTypeScreenDisplay.lower(value)
+}
+
+
+/**
+ * Counters for the overlay and the latency harness.
+ */
+public struct ScreenStats: Equatable, Hashable {
+    public var frames: UInt64
+    public var keyframes: UInt64
+    public var bytes: UInt64
+    public var framesLost: UInt64
+    /**
+     * From `start` to the first whole frame (microseconds), once one came.
+     */
+    public var firstFrameUs: UInt64?
+    /**
+     * From `start` to the link's handshake.
+     */
+    public var connectedUs: UInt64?
+    public var clockOffsetUs: Int64?
+    public var clockRttUs: UInt32?
+    /**
+     * The path the link rides (`direct_lan`, `direct_wan`, `turn_relay`, ...).
+     */
+    public var path: String?
+    public var pathRttUs: UInt64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(frames: UInt64, keyframes: UInt64, bytes: UInt64, framesLost: UInt64, 
+        /**
+         * From `start` to the first whole frame (microseconds), once one came.
+         */firstFrameUs: UInt64?, 
+        /**
+         * From `start` to the link's handshake.
+         */connectedUs: UInt64?, clockOffsetUs: Int64?, clockRttUs: UInt32?, 
+        /**
+         * The path the link rides (`direct_lan`, `direct_wan`, `turn_relay`, ...).
+         */path: String?, pathRttUs: UInt64?) {
+        self.frames = frames
+        self.keyframes = keyframes
+        self.bytes = bytes
+        self.framesLost = framesLost
+        self.firstFrameUs = firstFrameUs
+        self.connectedUs = connectedUs
+        self.clockOffsetUs = clockOffsetUs
+        self.clockRttUs = clockRttUs
+        self.path = path
+        self.pathRttUs = pathRttUs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ScreenStats: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeScreenStats: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ScreenStats {
+        return
+            try ScreenStats(
+                frames: FfiConverterUInt64.read(from: &buf), 
+                keyframes: FfiConverterUInt64.read(from: &buf), 
+                bytes: FfiConverterUInt64.read(from: &buf), 
+                framesLost: FfiConverterUInt64.read(from: &buf), 
+                firstFrameUs: FfiConverterOptionUInt64.read(from: &buf), 
+                connectedUs: FfiConverterOptionUInt64.read(from: &buf), 
+                clockOffsetUs: FfiConverterOptionInt64.read(from: &buf), 
+                clockRttUs: FfiConverterOptionUInt32.read(from: &buf), 
+                path: FfiConverterOptionString.read(from: &buf), 
+                pathRttUs: FfiConverterOptionUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ScreenStats, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.frames, into: &buf)
+        FfiConverterUInt64.write(value.keyframes, into: &buf)
+        FfiConverterUInt64.write(value.bytes, into: &buf)
+        FfiConverterUInt64.write(value.framesLost, into: &buf)
+        FfiConverterOptionUInt64.write(value.firstFrameUs, into: &buf)
+        FfiConverterOptionUInt64.write(value.connectedUs, into: &buf)
+        FfiConverterOptionInt64.write(value.clockOffsetUs, into: &buf)
+        FfiConverterOptionUInt32.write(value.clockRttUs, into: &buf)
+        FfiConverterOptionString.write(value.path, into: &buf)
+        FfiConverterOptionUInt64.write(value.pathRttUs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenStats_lift(_ buf: RustBuffer) throws -> ScreenStats {
+    return try FfiConverterTypeScreenStats.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenStats_lower(_ value: ScreenStats) -> RustBuffer {
+    return FfiConverterTypeScreenStats.lower(value)
 }
 
 
@@ -4697,6 +5641,31 @@ fileprivate struct FfiConverterSequenceTypePredictedGlyph: FfiConverterRustBuffe
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeScreenDisplay: FfiConverterRustBuffer {
+    typealias SwiftType = [ScreenDisplay]
+
+    public static func write(_ value: [ScreenDisplay], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeScreenDisplay.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ScreenDisplay] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ScreenDisplay]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeScreenDisplay.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeTerminalChatCandidate: FfiConverterRustBuffer {
     typealias SwiftType = [TerminalChatCandidate]
 
@@ -5238,6 +6207,60 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_stats() != 19072) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenlink_add_candidate() != 60256) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenlink_button() != 48988) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenlink_close() != 28563) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenlink_key_event() != 23568) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenlink_note_decode() != 9487) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenlink_now_us() != 36241) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenlink_offer() != 31412) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenlink_pointer() != 48217) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenlink_request_keyframe() != 22308) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenlink_scroll() != 24126) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenlink_session_key() != 49092) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenlink_start() != 26590) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenlink_stats() != 32931) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenlink_text() != 53032) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenobserver_on_frame() != 31867) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenobserver_on_candidate() != 61253) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenobserver_on_message() != 6296) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_screenobserver_on_closed() != 58636) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_echo_latency_us() != 57421) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -5277,12 +6300,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_tick() != 43253) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_screenlink_new() != 35762) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_terminalprediction_new() != 21303) {
         return InitializationResult.apiChecksumMismatch
     }
 
     uniffiCallbackInitBrowserObserver()
     uniffiCallbackInitLinkObserver()
+    uniffiCallbackInitScreenObserver()
     return InitializationResult.ok
 }()
 

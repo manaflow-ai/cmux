@@ -84,6 +84,9 @@ public final class ScreenSharingService {
     /// Runs on each new viewer before its first request (tests swap its hub calls).
     @ObservationIgnored var prepareViewer: (ScreenSharingViewer) -> Void = { _ in }
     @ObservationIgnored private var startTask: Task<Void, Never>?
+    /// Macs that refused this phone's WebRTC offer (served by their daemon): their next viewer
+    /// offers cmux.rd/1 at once. For this app's run.
+    @ObservationIgnored private var rdOnlyHosts: Set<String> = []
     /// Sessions this phone ended or left: a late ticket for one never starts a stream.
     @ObservationIgnored private var abandoned: Set<String> = []
     /// The sign-out hook already signed this phone out of the hub (its call succeeded).
@@ -384,8 +387,10 @@ public final class ScreenSharingService {
             viewer = current
         } else {
             self.viewer?.close(reason: .viewerDisconnected)
-            viewer = ScreenSharingViewer(hostID: mac.id, hostName: mac.name, hub: hub, preferences: preferences)
+            viewer = ScreenSharingViewer(hostID: mac.id, hostName: mac.name, platform: mac.platform, hub: hub, preferences: preferences)
             viewer.sessionLeft = { [weak self] id in self?.abandoned.insert(id) }
+            viewer.rdOnly = rdOnlyHosts.contains(mac.id)
+            viewer.learnedRdOnly = { [weak self] id in self?.rdOnlyHosts.insert(id) }
             viewer.refusedBeforeShown = { [weak self, weak viewer] refusal, requested in
                 guard let self, let viewer, self.viewer === viewer else { return }
                 // A refused request has no session and nothing running: it only leaves the list.

@@ -267,6 +267,9 @@ struct ScreenSharingViewerScreen: View {
         Group {
             if let screen = viewer.screen {
                 ScreenSessionView(session: screen, features: Self.features, close: close)
+            } else if let rd = viewer.rdScreen {
+                // A Linux desktop or a joined Mac: the cmux.rd/1 viewer.
+                ScreenSharingRdView(session: rd, hostName: viewer.hostName, close: close)
             } else {
                 card.background(theme.colors.bg.color.ignoresSafeArea())
             }

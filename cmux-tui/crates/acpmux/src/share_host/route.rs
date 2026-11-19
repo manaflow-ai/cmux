@@ -1,8 +1,8 @@
 //! Who serves a host ticket: decided once, by the daemon, for every ticket the hub pushes to
-//! this Mac's device. A Mac (cmux.rd/1) viewer is the daemon's; an iPhone (WebRTC) viewer is the
-//! app's while an app is attached to the device channel, and is ended `app_required` when none
-//! is. The daemon applies the gate the app applies (`JoinConsent+App.swift` `macScreenGate`):
-//! with join consent on (`labs.machineJoin`), View Only needs Screen sharing and Full Control
+//! this Mac's device. A Mac (cmux.rd/1) viewer is the daemon's; an iPhone viewer is the app's
+//! while an app is attached to the device channel, and the daemon's when none is (an iPhone
+//! offers cmux.rd/1 to a Mac that refused its WebRTC offer). The daemon applies the gate the
+//! app applies (`JoinConsent+App.swift` `macScreenGate`): with join consent on (`labs.machineJoin`), View Only needs Screen sharing and Full Control
 //! needs Control too, read from acpmux's consent record (`cli/machine_consent.rs`) as
 //! `_acpmux/machine_consent_get` answers it. A ticket the hub marks as the person's own device
 //! (`ownerKind: "user"`, see ``own_account``) skips that gate, as the app's host does. A refusal
@@ -93,10 +93,12 @@ pub(crate) fn route(
     consent: Consent,
 ) -> Route {
     let control = ticket.scope == "full";
-    if viewer_platform == Some("ios") {
-        // The app's own gate decides an iPhone viewer it serves.
-        return if app_attached { Route::App } else { Route::End("app_required") };
+    if viewer_platform == Some("ios") && app_attached {
+        // The app's own gate decides an iPhone viewer it serves (WebRTC, or cmux.rd/1).
+        return Route::App;
     }
+    // With no app, an iPhone viewer is the daemon's like a Mac's: an iPhone that offers cmux.rd/1
+    // is served; an older one that offers WebRTC is told this host serves cmux.rd/1 viewers.
     if !consent.allows(control) {
         return Route::End("failed");
     }

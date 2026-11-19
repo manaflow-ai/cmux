@@ -384,6 +384,7 @@ import Testing
         service.prepareViewer = { viewer in
             viewer.makeSignaling = { _, _ in FakeSignaling() }
             viewer.startStream = { _ in }
+            viewer.startRdStream = { _ in }
             viewer.endSession = { _, id, reason in ends.record(id, reason) }
             // The HTTP answer never comes on its own: each test answers by hand
             // (`requestAnswered`), or delivers it late through `ends.answer`.
@@ -395,6 +396,49 @@ import Testing
             }
         }
         return (service, ends)
+    }
+
+    // MARK: cmux.rd/1 (a Linux desktop, a joined Mac)
+
+    /// A Linux desktop serves only cmux.rd/1: its ticket starts the rd viewer, never WebRTC.
+    @Test func aLinuxDesktopsTicketStartsTheRdViewer() throws {
+        let (service, ends) = makeService()
+        let linux = HubDevice(id: hostID, name: "lane", platform: .linux, signingKey: "", macScreenShared: true, online: true)
+        let viewer = try #require(service.connect(to: linux, scope: .full))
+        #expect(viewer.speaksRd)
+        service.route(.sessionTicket(ticket("r1", scope: .full)))
+        #expect(viewer.phase == .streaming(sessionID: "r1", scope: .full))
+        #expect(viewer.screen == nil)
+        let rd = try #require(viewer.rdScreen)
+        #expect(rd.control)
+        // The ticket's signaling went to the rd stream, once.
+        #expect(viewer.takeSignaling() == nil)
+        #expect(ends.calls.isEmpty)
+    }
+
+    /// A Mac whose daemon serves it (no app attached) refuses the WebRTC offer: the phone asks
+    /// again on cmux.rd/1 instead of showing the refusal, and that Mac's next viewer starts on it.
+    @Test func aMacThatRefusesWebRTCIsAskedAgainOnRd() throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        #expect(!viewer.speaksRd)
+        service.route(.sessionTicket(ticket("w1", scope: .full)))
+        #expect(viewer.screen != nil)
+        service.route(.sessionEnded(sessionID: "w1", reason: "failed: the viewer offered WebRTC; this host serves cmux.rd/1 viewers"))
+        #expect(viewer.phase == .requesting(.full))
+        #expect(viewer.speaksRd)
+        #expect(viewer.screen == nil)
+        service.dismissViewer()
+        let next = try #require(service.connect(to: mac(), scope: .view))
+        #expect(next.speaksRd)
+    }
+
+    @Test func onlyAWebRTCRefusalSwitchesTheProtocol() {
+        #expect(ScreenSharingViewer.refusesWebRTC("failed: the viewer offered WebRTC; this host serves cmux.rd/1 viewers"))
+        #expect(ScreenSharingViewer.refusesWebRTC("app_required"))
+        #expect(!ScreenSharingViewer.refusesWebRTC("host_stopped"))
+        #expect(!ScreenSharingViewer.refusesWebRTC("failed: capture: no frame"))
+        #expect(!ScreenSharingViewer.refusesWebRTC(nil))
     }
 
     func mac() -> HubDevice {
