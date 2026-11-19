@@ -22,7 +22,8 @@ struct DesktopNotifierOffMainTests {
         let calls = daemon.calls()
         #expect(!daemon.timedOut, "a center call waited on the stalled daemon on the main thread")
         #expect(calls.allSatisfy { !$0.onMainThread }, "a center call ran on the main thread: \(calls)")
-        let banners = calls.map(\.name).filter { !$0.hasPrefix("authorization") }
+        // Authorization (asked unless a GUI job) and an automation launch's clearing depend on the test host.
+        let banners = calls.map(\.name).filter { !$0.hasPrefix("authorization") && $0 != "withdraw all" }
         #expect(banners == ["categories", "post cmux-notification-1", "withdraw cmux-notification-1", "post cmux-notification-2"])
     }
 }
