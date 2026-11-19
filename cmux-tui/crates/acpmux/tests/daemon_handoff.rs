@@ -267,7 +267,7 @@ struct Pause {
 }
 
 impl Pause {
-    const PARTS: [&str; 5] = ["request", "stop", "init", "start", "status"];
+    const PARTS: [&'static str; 5] = ["request", "stop", "init", "start", "status"];
 
     fn part(&self, name: &str) -> f64 {
         match name {
@@ -285,6 +285,10 @@ impl Pause {
 fn exec_seen(pid: u64, n: u64) -> std::thread::JoinHandle<Option<Instant>> {
     let want = format!("--handoff-count\0{n}\0").into_bytes();
     std::thread::spawn(move || {
+        // No `/proc` (macOS): the stop and the new image's init read as one part.
+        if !Path::new("/proc/self/cmdline").exists() {
+            return None;
+        }
         let deadline = Instant::now() + BENCH_WITHIN;
         while Instant::now() < deadline {
             if let Ok(argv) = std::fs::read(format!("/proc/{pid}/cmdline"))
@@ -362,6 +366,13 @@ fn pauses(shape: &Shape, runs: u64) -> [Vec<Pause>; 2] {
         let got = Instant::now();
         let exec = exec.join().unwrap().unwrap_or(answered);
         let (born, ready) = born_and_ready(&status, got).unwrap_or((exec, got));
+        // The new image's startup phases, once per series: where its start spent the time.
+        if n == runs || n == runs * 2 {
+            println!(
+                "HANDOFF-STARTUP home={} restart={n} phases={}",
+                shape.name, status["gauges"]["startup"]
+            );
+        }
         series[usize::from(after_startup)].push(Pause {
             total: ms(asked, got),
             request: ms(asked, answered),
@@ -389,10 +400,10 @@ fn a_restart_in_place_pauses_a_god_home_no_longer_than_a_small_one() {
     let scale = env_or("ACPMUX_HANDOFF_GOD_SCALE", 0.02f64).clamp(0.001, 1.0);
     let mut p95s = Vec::new();
     for shape in shapes(scale) {
-        let [first, settled] = pauses(&shape, runs);
+        let [first, later] = pauses(&shape, runs);
         // `when=served`: each restart as soon as the image before it served; `when=settled`: each
         // once that image's startup ended (every chat log read).
-        for (when, series) in [("served", &first), ("settled", &settled)] {
+        for (when, series) in [("served", &first), ("settled", &later)] {
             let total: Vec<f64> = series.iter().map(|p| p.total).collect();
             let (p50, p95, max) = spread(&total);
             let line = if when == "served" { "SPREAD" } else { "SPREAD-SETTLED" };
