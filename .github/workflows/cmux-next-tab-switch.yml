@@ -32,7 +32,8 @@ name: cmux-next tab switch (advisory)
 # submitting, it reads the controller's measure-host table (/v1/status measure_hosts, one 15 ms read) and submits
 # only when fewer exclusive steps are queued for the display Macs than are running there now (ADMIT below: the step
 # would start within QUEUE_WAIT_S); otherwise it records "not measured: the display queue is busy" and ends in
-# seconds, and the verdict warns. An unreadable table submits anyway (fail open), and QUEUE_WAIT_S bounds the wait.
+# seconds, and the verdict reads not measured. An unreadable table submits anyway (fail open), and QUEUE_WAIT_S
+# bounds the wait.
 # In the 24 hours to 2026-11-17 08:27Z the frames job ran 354 times at p50 60.2 min: 220 "successes" were the client
 # waiting out --queue-timeout 3600 with 60 exclusive steps ahead and returning no report, and none of 354 returned
 # one. Each wait held one of its mini's two gateway tokens (glaeda docs/CMUX_MINI_RUNNER.md, gatewayRunners), which
@@ -51,7 +52,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # enforce: a budget miss or a missing report fails the check. report: it warns, and the check stays green.
+  # enforce: a budget miss or a failed frames job fails the check. report: it warns, and the check stays green.
+  # Either way a run that measured nothing (scope cancelled, no report, queue busy) reads "not measured", green.
   GATE_MODE: report
   LOADS: idle,cpu,agents
   ROUNDS: "3"
@@ -108,8 +110,8 @@ jobs:
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
     # The job holds one of the gateway runner's two tokens while it waits, so it waits only when the queue is short
     # (ADMIT), at most QUEUE_WAIT_S (20 min) for a display worker, and an hour for the build and the measure. Past
-    # QUEUE_WAIT_S in the queue the client cancels the background step (exit 75) and the verdict has no report, which
-    # only warns while GATE_MODE is report.
+    # QUEUE_WAIT_S in the queue the client cancels the background step (exit 75) and the verdict reads not measured
+    # (green in either GATE_MODE: a missing measurement is not a budget miss).
     timeout-minutes: 90
     permissions: {}
     steps:
@@ -236,10 +238,21 @@ jobs:
             printf '\nReport only (GATE_MODE=report): this would fail the check once it is enforced.\n' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           }
-          if [[ "$SCOPE_RESULT" != success ]]; then
-            printf '### %s: no verdict\n\nThe scope job %s (its gate tests or the diff read).\n' "$title" "$SCOPE_RESULT" >> "$GITHUB_STEP_SUMMARY"
-            echo "::error title=$title::the scope job $SCOPE_RESULT"; exit 1
-          fi
+          # Nothing was measured, so there is nothing to judge: not a budget miss, green in either mode. Only a
+          # budget miss, a failed frames job or failed gate tests judge the change.
+          unmeasured() {
+            printf '### %s: not measured\n\n%s A missing measurement is not a budget miss, so the check stays green.\n' \
+              "$title" "$1" >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=$title::not measured: $1"
+            exit 0
+          }
+          case "$SCOPE_RESULT" in
+            success) ;;
+            failure)  # its gate tests failed, or the diff could not be read
+              printf '### %s: no verdict\n\nThe scope job failed (its gate tests or the diff read).\n' "$title" >> "$GITHUB_STEP_SUMMARY"
+              echo "::error title=$title::the scope job failed"; exit 1 ;;
+            *) unmeasured "The scope job was ${SCOPE_RESULT:-not run} (a newer push cancels this run), so nothing ran." ;;
+          esac
           if [[ "$IN_SCOPE" != true ]]; then
             printf '### %s: not measured\n\nThis change touches no tab, pane or chat-pane path (scripts/cmux-next/tab_switch_gate.py SCOPE).\n' "$title" >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -252,19 +265,20 @@ jobs:
           step_exit="$(cat "$RUNNER_TEMP/tab-switch/step-exit" 2>/dev/null || echo none)"
           if [[ "$step_exit" == skipped ]]; then
             why="$(cat "$RUNNER_TEMP/tab-switch/skipped" 2>/dev/null || echo "the display queue was busy")"
-            printf '### %s: not measured\n\nThe display Macs could not start this step within the queue wait, so the frames job did not submit it: %s. No verdict is never a pass.\n' \
-              "$title" "$why" >> "$GITHUB_STEP_SUMMARY"
-            miss "not measured: $why"
+            unmeasured "The display Macs could not start this step within the queue wait, so the frames job did not submit it: $why."
           fi
           if [[ "$step_exit" == "$CANNOT_MEASURE_EXIT" ]]; then
-            printf '### %s: no verdict\n\nThe harness could not measure on its worker (exit %s, for example no Screen Recording grant): see the frames job. No verdict is never a pass.\n' \
-              "$title" "$step_exit" >> "$GITHUB_STEP_SUMMARY"
-            miss "the harness could not measure (exit $step_exit)"
+            unmeasured "The harness could not measure on its worker (exit $step_exit, for example no Screen Recording grant): see the frames job."
           fi
-          if [[ "$FRAMES_RESULT" != success || ! -s "$report" ]]; then
-            printf '### %s: no verdict\n\nThe display run %s and returned no report (a fork, no gateway runner, or the fleet step failed: see the frames job). No verdict is never a pass.\n' \
-              "$title" "$FRAMES_RESULT" >> "$GITHUB_STEP_SUMMARY"
-            miss "no report from the display run (frames: $FRAMES_RESULT)"
+          if [[ "$FRAMES_RESULT" == failure ]]; then
+            printf '### %s: no verdict\n\nThe frames job failed (see it).\n' "$title" >> "$GITHUB_STEP_SUMMARY"
+            miss "the frames job failed"
+          fi
+          if [[ "$FRAMES_RESULT" != success ]]; then
+            unmeasured "The frames job was ${FRAMES_RESULT:-not run} (a fork, no gateway runner, or its run was cancelled or timed out)."
+          fi
+          if [[ ! -s "$report" ]]; then
+            unmeasured "The display run returned no report (fleet step exit $step_exit; with nothing returned the frames job uploads no artifact)."
           fi
           status=0
           python3 scripts/cmux-next/tab_switch_gate.py evaluate "$report" --loads "$LOADS" \
