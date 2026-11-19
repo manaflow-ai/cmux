@@ -44,9 +44,12 @@ if ! command -v zig >/dev/null && [ -z "${ZIG:-}${CMUX_ZIG:-}" ]; then
 fi
 command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev pkg-config; }
 export PATH="$HOME/.cargo/bin:$PATH"
+echo "infinite-items-linux.sh: tools ready in $SECONDS s"
 cd "$root/cmux-tui"
+build_from=$SECONDS
 # cmux-tui-host: the slim terminal host the daemon runs its hosts from when it sits beside it (host_exe.rs).
 cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 3
+echo "infinite-items-linux.sh: release build in $((SECONDS - build_from)) s"
 # build-only: the perf cron builds in a step of its own, so the build and the run each get its 30-minute cap.
 [[ "$build_only" == 1 ]] && exit 0
 target="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
