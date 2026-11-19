@@ -99,7 +99,11 @@ impl Side {
 
     /// `git status --porcelain` with untracked files listed one by one.
     fn status(&self, dir: &Path) -> String {
-        self.git(dir, &["status", "--porcelain", "--untracked-files=all"])
+        // Names unquoted, so a status line ends with the name a case removes by.
+        self.git(
+            dir,
+            &["-c", "core.quotePath=false", "status", "--porcelain", "--untracked-files=all"],
+        )
     }
 
     /// This side's `cmux-tui`.
@@ -1327,6 +1331,10 @@ mod repositories {
         let upstream = at.parent().unwrap().join("upstream-src");
         fs::create_dir_all(&upstream).unwrap();
         repo(side, &upstream);
+        for name in ["src/d.txt", "src/e.txt"] {
+            write(&upstream.join(name), &format!("{name}\n"));
+        }
+        side.git(&upstream, &["add", "src"]);
         for n in 0..3 {
             write(&upstream.join("src/a.txt"), &format!("alpha {n}\n"));
             side.git(&upstream, &["commit", "-qam", &format!("history {n}")]);
