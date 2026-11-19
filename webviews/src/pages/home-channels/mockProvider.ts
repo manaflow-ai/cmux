@@ -498,6 +498,9 @@ export class MockHomeProvider implements PageClient {
   /** The link the mock answers for a video (gallery `video`: a sample MP4 as a data URL); none:
    * the video cannot be had, as from an owner without attachment reads. */
   videoUrl: string | undefined = undefined;
+  /** The Cloud inbox read fails with this reason (gallery `cloudError`): the inbox answers its rows
+   * with `cloudError`, as the daemon does with the last good Cloud list. */
+  cloudError: string | undefined = undefined;
   /** Every committed record state, by Chief id, oldest first (`chief.profile.history`). */
   private readonly revisions = new Map<
     string,
@@ -735,7 +738,13 @@ export class MockHomeProvider implements PageClient {
     const id = String(params.conversation ?? "");
     switch (op) {
       case HomeOps.inbox:
-        return { me, conversations: this.data.conversations, rev: 1, inboxState: true } as R;
+        return {
+          me,
+          conversations: this.data.conversations,
+          rev: 1,
+          inboxState: true,
+          ...(this.cloudError ? { cloudError: this.cloudError } : {}),
+        } as R;
       case HomeOps.page: {
         const found = this.data.conversations.find((c) => c.id === id);
         if (!found) throw pageError("cmux.home.not_found", id);
