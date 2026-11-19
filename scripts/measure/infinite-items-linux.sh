@@ -34,6 +34,14 @@ for arg in "$@"; do
 done
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
+# before=ref: swaps the base's cmux-tui/ into this checkout and its cleanup puts HEAD's back, not what was there:
+# refuse, before any build, a checkout whose cmux-tui/ holds staged or unstaged edits rather than lose them
+# (untracked files survive a restore).
+if [[ "$before" == ref:* ]] && [ -n "$(git status --porcelain --untracked-files=no -- cmux-tui)" ]; then
+  echo "infinite-items-linux.sh: cmux-tui/ has uncommitted changes; before=ref: swaps it out, so commit or stash them first" >&2
+  git status --short --untracked-files=no -- cmux-tui >&2
+  exit 2
+fi
 # cmux-tui's terminal engine builds from the ghostty-next submodule, which a fast-checks snapshot leaves empty.
 [ -f ghostty-next/build.zig ] || [ -n "${CMUX_GHOSTTY_SRC:-}" ] || git submodule update --init --depth 1 ghostty-next
 # A bare runner (the perf cron's Linux part): the pinned Rust and Zig and the native build tools.
