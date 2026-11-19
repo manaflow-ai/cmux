@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { session } from "../../gallery/fixtures/acpmux";
 import { archiveRow } from "./header/archiveRow";
-import { SETTLE_TOAST_GROUP, SETTLE_TOAST_MS, settledToast } from "./settledToasts";
+import { SETTLE_TOAST_GROUP, SETTLE_TOAST_MS, settledToast, settleUndoTarget } from "./settledToasts";
 
 test("a settle toast lasts 5 s with Undo on a chat the pane holds, else Open", () => {
   const entry = session({ sessionId: "a", displayTitle: "Fix the cache", archived: true, settled: "merged" });
@@ -29,4 +29,17 @@ test("the chat menu offers Unsettle for a settled chat, Unarchive for a plainly 
   expect(archiveRow({ ...chat, settled: true }, () => undefined)?.label).toBe("Unsettle");
   expect(archiveRow(chat, () => undefined)?.label).toBe("Unarchive");
   expect(archiveRow({ ...chat, archived: false, settled: false }, () => undefined)?.label).toBe("Archive");
+});
+
+test("Cmd+Z presses the newest settle toast still up, only if it has Undo", () => {
+  const undo = () => {};
+  const older = { id: "older", undo };
+  const newer = { id: "newer", undo };
+  const opener = { id: "opener" };
+  expect(settleUndoTarget([])).toBeUndefined();
+  expect(settleUndoTarget([older, newer])).toBe(newer);
+  // The newest closed: the one under it is pressed next.
+  expect(settleUndoTarget([older])).toBe(older);
+  // A newer toast with Open covers the older Undo: nothing is pressed.
+  expect(settleUndoTarget([older, opener])).toBeUndefined();
 });

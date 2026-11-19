@@ -87,16 +87,13 @@ export function settledToastText(entry: AcpmuxSessionEntry, now = Date.now(), t:
   return reason ? t("settle.toast", { title, reason }) : t("settle.toastPlain", { title });
 }
 
-/// Whether a key press is the settle toast's Undo: Cmd+Z or Ctrl+Z alone, outside a field with text
-/// in it, whose own undo it stays (an empty composer has nothing of its own to undo).
+/// Whether a key press is the settle toast's Undo: Cmd+Z or Ctrl+Z alone, outside any editable
+/// field. In one it stays the field's own undo, even when the field is empty: deleting all its text
+/// leaves that text to undo.
 export function isSettleUndoKey(event: KeyboardEvent): boolean {
   if (event.key.toLowerCase() !== "z" || event.shiftKey || event.altKey || event.repeat) return false;
   if (event.metaKey === event.ctrlKey) return false;
   const target = event.target as HTMLElement | null;
   if (!target || typeof target.closest !== "function") return true;
-  const field = target.closest("input, textarea, [contenteditable]:not([contenteditable='false'])");
-  if (!field) return true;
-  // An input or textarea holds its text in `value`; an editable element in its text.
-  const value = "value" in field && typeof field.value === "string" ? field.value : field.textContent;
-  return !value;
+  return !target.closest("input, textarea, [contenteditable]:not([contenteditable='false'])");
 }

@@ -102,12 +102,40 @@ fn never_archived_and_held_chats_are_left_alone() {
 }
 
 #[test]
-fn only_unknown_or_open_pull_requests_are_read() {
-    let f = facts(&[1, 2, 3], 0);
-    let known = [(1, PrState::Merged), (2, PrState::Open)];
-    assert_eq!(to_read(&ALL, &f, states(&known)), vec![url(2).as_str(), url(3).as_str()]);
+fn every_pull_request_but_a_merged_one_is_read() {
+    let f = facts(&[1, 2, 3, 4], 0);
+    let known = [(1, PrState::Merged), (2, PrState::Open), (4, PrState::Closed)];
+    let read = to_read(&ALL, &f, states(&known));
+    assert_eq!(
+        read,
+        vec![url(2).as_str(), url(3).as_str(), url(4).as_str()],
+        "a closed one can reopen"
+    );
     let idle_only = Rules { on_merge: false, on_close: false, ..ALL };
     assert!(to_read(&idle_only, &f, states(&[])).is_empty(), "no pull request rule on");
+}
+
+#[test]
+fn a_closed_read_goes_stale_and_a_merged_one_does_not() {
+    let mut states = PrStates::default();
+    states.set(&url(1), PrState::Closed);
+    states.set(&url(2), PrState::Merged);
+    let later = now_ms() + PR_RECHECK_MS;
+    assert!(states.read_due(&url(1), later), "a reopen is seen");
+    assert!(!states.read_due(&url(2), later));
+}
+
+/// With a pull request rule on, the loop never sleeps to a far idle deadline: a chat's first pull
+/// request, or one merged on GitHub, sends no wake.
+#[test]
+fn the_sleep_is_capped_while_a_pull_request_rule_is_on() {
+    let now = 1_000;
+    let far = Some(now + 7 * DAY_MS);
+    let merge_and_idle = Rules { on_merge: true, idle_ms: Some(7 * DAY_MS), ..Rules::default() };
+    let wait = Hub::auto_settle_wait(&merge_and_idle, far, now);
+    assert_eq!(wait.as_millis() as u64, PR_RECHECK_MS);
+    let idle_only = Rules { idle_ms: Some(7 * DAY_MS), ..Rules::default() };
+    assert_eq!(Hub::auto_settle_wait(&idle_only, far, now).as_millis() as u64, 7 * DAY_MS);
 }
 
 #[test]
@@ -218,16 +246,47 @@ async fn never_keeps_it_and_the_persons_prompt_brings_it_back() {
     hub.shutdown_all().await;
 }
 
-/// A chat someone has open, or one whose log moved after the pass read it, does not settle.
+/// A chat whose log moved, or that was unarchived, after the pass read it does not settle, even
+/// within the same millisecond: the check and the write are one step under the meta lock.
 #[tokio::test]
-async fn an_open_chat_or_a_newer_record_keeps_it() {
+async fn a_change_after_the_read_keeps_it() {
     let (hub, session) = chat().await;
-    let read_at = now_ms();
-    session.meta.lock().unwrap().updated_at = read_at + 1;
-    assert!(!hub.settle(&session, Reason::Idle, read_at).unwrap(), "a record after the read");
-    assert_eq!(tag(&session, SETTLED_TAG), None);
     session.meta.lock().unwrap().updated_at = 1;
-    assert!(hub.settle(&session, Reason::Idle, read_at).unwrap());
+    let seen = session.read_meta(Facts::of);
+    session.meta.lock().unwrap().updated_at = 2;
+    assert!(!hub.settle(&session, Reason::Idle, &seen).unwrap(), "a record after the read");
+    assert_eq!(tag(&session, SETTLED_TAG), None);
+
+    let seen = session.read_meta(Facts::of);
+    let updated_at = seen.last_activity_ms;
+    hub.unarchive(&session).unwrap();
+    // The Unarchive's own record, put back to the read's time: only its tag tells it apart.
+    session.meta.lock().unwrap().updated_at = updated_at;
+    assert!(!hub.settle(&session, Reason::Idle, &seen).unwrap(), "unarchived after the read");
+    assert_eq!(tag(&session, ARCHIVED_TAG), None);
+    assert_eq!(tag(&session, UNSETTLED_TAG).as_deref(), Some("0"), "the hold stays");
+
+    let seen = session.read_meta(Facts::of);
+    assert!(hub.settle(&session, Reason::Idle, &seen).unwrap());
     assert_eq!(tag(&session, SETTLED_TAG).as_deref(), Some("idle"));
+    hub.shutdown_all().await;
+}
+
+/// A closed pull request that is reopened keeps its chat: the next read sees it open.
+#[tokio::test]
+async fn a_reopened_pull_request_keeps_it() {
+    let (hub, session) = chat().await;
+    let pr = format!("https://github.com/o/settle-reopen-{}/pull/1", session.id);
+    session.meta.lock().unwrap().pull_requests.push(pr.clone());
+    let rules = Rules { on_close: true, ..Rules::default() };
+    let mut states = PrStates::default();
+    states.set(&pr, PrState::Closed);
+    session.queued.fetch_add(1, Ordering::SeqCst);
+    hub.auto_settle_pass(&rules, &mut states).await;
+    session.queued.fetch_sub(1, Ordering::SeqCst);
+    // Reopened on GitHub while it was busy; the next read says so.
+    states.set(&pr, PrState::Open);
+    hub.auto_settle_pass(&rules, &mut states).await;
+    assert_eq!(tag(&session, SETTLED_TAG), None);
     hub.shutdown_all().await;
 }

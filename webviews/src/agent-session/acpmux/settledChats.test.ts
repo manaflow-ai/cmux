@@ -109,7 +109,7 @@ test("the shelf lists settled chats newest first, without side chats or the show
   expect(shelf.total).toBe(2);
 });
 
-test("Cmd+Z or Ctrl+Z is Undo outside a field with text", () => {
+test("Cmd+Z or Ctrl+Z is Undo outside an editable field", () => {
   const key = (init: KeyboardEventInit, target?: unknown) =>
     ({
       key: "z",
@@ -125,7 +125,9 @@ test("Cmd+Z or Ctrl+Z is Undo outside a field with text", () => {
   expect(isSettleUndoKey(key({ ctrlKey: true }))).toBe(true);
   expect(isSettleUndoKey(key({ metaKey: true, shiftKey: true }))).toBe(false);
   expect(isSettleUndoKey(key({}))).toBe(false);
-  const field = (text: string) => ({ closest: () => ({ textContent: text }) });
-  expect(isSettleUndoKey(key({ metaKey: true }, field("")))).toBe(true);
-  expect(isSettleUndoKey(key({ metaKey: true }, field("draft")))).toBe(false);
+  const inField = { closest: () => ({ textContent: "" }) };
+  const outside = { closest: () => null };
+  expect(isSettleUndoKey(key({ metaKey: true }, outside))).toBe(true);
+  // An emptied field still has its deleted text to undo.
+  expect(isSettleUndoKey(key({ metaKey: true }, inField))).toBe(false);
 });

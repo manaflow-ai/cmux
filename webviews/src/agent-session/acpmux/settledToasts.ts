@@ -37,6 +37,17 @@ export function settledToast(
 
 const paneInFront = () => document.visibilityState !== "hidden" && document.hasFocus();
 
+/// One settle toast still up, newest last; `undo` only on one with Undo.
+export type ShownSettle = { id: string; undo?: () => void };
+
+/// What Cmd+Z presses: the newest settle toast still up, if it has Undo. One with Open leaves
+/// nothing to press, so an older toast's chat is never the one undone; once it closes, the one
+/// under it is the newest again.
+export function settleUndoTarget(shown: readonly ShownSettle[]): ShownSettle | undefined {
+  const newest = shown.at(-1);
+  return newest?.undo ? newest : undefined;
+}
+
 /// Shows a settle toast for each chat that settles while the pane is open. `holds` says whether a
 /// chat is one this pane holds (its Undo is `unsettle`); any other gets `open`.
 export function useSettledToasts({
@@ -55,8 +66,9 @@ export function useSettledToasts({
   t: Translate;
 }): void {
   const [watch] = useState(createSettleWatch);
-  // The newest settle toast still up with Undo: what Cmd+Z presses.
-  const [up, setUp] = useState<{ id: string; undo: () => void }>();
+  // The settle toasts still up, newest last (settleUndoTarget).
+  const [shown, setShown] = useState<readonly ShownSettle[]>([]);
+  const up = settleUndoTarget(shown);
   const showSettled = useEffectEvent((settled: readonly AcpmuxSessionEntry[]) => {
     // Every open chat pane reads the same list: only the one the person is in says it, so a settle
     // is one toast, and a hidden pane never shows a stale one when it comes back.
@@ -66,11 +78,9 @@ export function useSettledToasts({
       const spec = settledToast(entry, { undo, open: () => open(entry.sessionId) }, Date.now(), t);
       toasts.show({
         ...spec,
-        onClose: () => setUp((shown) => (shown?.id === spec.id ? undefined : shown)),
+        onClose: () => setShown((list) => list.filter((item) => item.id !== spec.id)),
       });
-      // Cmd+Z presses only the newest toast's Undo: one with Open leaves nothing to press, so an
-      // older toast's chat is never the one undone.
-      setUp(undo ? { id: spec.id, undo } : undefined);
+      setShown((list) => [...list.filter((item) => item.id !== spec.id), { id: spec.id, undo }]);
     }
   });
   // Only a new list is news: the callbacks and strings are read when one comes.
@@ -84,9 +94,9 @@ export function useSettledToasts({
       if (!isSettleUndoKey(event)) return;
       event.preventDefault();
       event.stopPropagation();
-      // Closing it as answered runs its onClose, which clears `up`.
+      // Closing it as answered runs its onClose, which takes it off `shown`.
       toasts.close(up.id, "action");
-      up.undo();
+      up.undo?.();
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);

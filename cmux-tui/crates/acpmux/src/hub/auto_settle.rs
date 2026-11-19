@@ -17,7 +17,8 @@
 //! - Pull requests: the ones the chat opened (`SessionMeta::pull_requests`). Once every one of
 //!   them is merged or closed, it settles `merged` if any merged (with onMerge), else `closed`
 //!   (with onClose). Their state is GitHub's, read with this machine's `gh` ([`read_pr`]) at most
-//!   every [`PR_RECHECK_MS`] while one is open; a merged one is never read again. A session's own
+//!   every [`PR_RECHECK_MS`] while one is open or closed (a closed one can be reopened); a merged
+//!   one is never read again. A session's own
 //!   `gh pr merge` or `gh pr close` reads it again at once (`permissions.rs`, [`pr_changed`]).
 //! - Idle: no record in its log for `idleDays` days (`SessionMeta::updated_at`).
 //! - Never while it works: a turn, a queued prompt, a permission or question, a background
@@ -33,7 +34,9 @@
 //! The timer: one task ([`Hub::auto_settle_loop`]). With every setting off it sets no timer and
 //! waits for the settings watch. On, it makes one pass over the live chats, then sleeps until the
 //! first idle deadline, the next pull request read, or a blocked chat's retry, whichever comes
-//! first; a settings change or [`pr_changed`] ends the sleep early. It ends with the daemon.
+//! first, and never past [`PR_RECHECK_MS`] while a pull request rule is on (a new pull request or
+//! one merged on GitHub sends no wake); a settings change or [`pr_changed`] ends the sleep early.
+//! It ends with the daemon.
 
 use super::*;
 use std::sync::LazyLock;
@@ -52,7 +55,7 @@ const ARCHIVED_TAG: &str = super::plan_build::ARCHIVED_TAG;
 
 const IDLE_DAYS_MAX: u64 = 365;
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
-/// How long an open pull request's read stays fresh.
+/// How long an open or closed pull request's read stays fresh.
 pub(crate) const PR_RECHECK_MS: u64 = 10 * 60 * 1000;
 /// When a chat due to settle but busy is looked at again.
 pub(crate) const BLOCKED_RECHECK_MS: u64 = 10 * 60 * 1000;
@@ -208,7 +211,8 @@ pub(crate) fn idle_due_at(rules: &Rules, facts: &Facts) -> Option<u64> {
     rules.idle_ms.map(|idle| facts.last_activity_ms.saturating_add(idle))
 }
 
-/// The chat's pull requests whose state the rule still needs: none known yet, or open.
+/// The chat's pull requests whose state the rule still needs: all but merged ones, since a closed
+/// one can be reopened.
 pub(crate) fn to_read<'a>(
     rules: &Rules,
     facts: &'a Facts,
@@ -221,7 +225,7 @@ pub(crate) fn to_read<'a>(
         .pull_requests
         .iter()
         .map(String::as_str)
-        .filter(|u| state(u).is_none_or(|s| s == PrState::Open))
+        .filter(|u| state(u) != Some(PrState::Merged))
         .collect()
 }
 
@@ -277,7 +281,8 @@ impl PrStates {
         self.0.get(url).map(|(s, _)| *s)
     }
 
-    /// Whether `url` is due a read at `now`: never read, or open and read [`PR_RECHECK_MS`] ago.
+    /// Whether `url` is due a read at `now`: never read, or not merged and read [`PR_RECHECK_MS`]
+    /// ago.
     fn read_due(&self, url: &str, now: u64) -> bool {
         match self.0.get(url) {
             None => true,
@@ -369,7 +374,6 @@ impl Hub {
         let mut wanted: std::collections::HashSet<String> = Default::default();
         let mut settles = 0;
         for session in self.live_session_handles() {
-            let read_at = now_ms();
             let facts = session.read_meta(Facts::of);
             if !facts.eligible(rules) {
                 continue;
@@ -383,7 +387,7 @@ impl Hub {
                 } else if self.settle_blocked(&session) {
                     soon(now + BLOCKED_RECHECK_MS);
                 } else {
-                    match self.settle(&session, reason, read_at) {
+                    match self.settle(&session, reason, &facts) {
                         Ok(true) => settles += 1,
                         Ok(false) => soon(now + AFTER_READ_MS),
                         Err(e) => {
@@ -421,7 +425,20 @@ impl Hub {
         if settled_some {
             soon(now + AFTER_READ_MS);
         }
-        let wait = next.map_or(PR_RECHECK_MS, |at| at.saturating_sub(now_ms()).max(AFTER_READ_MS));
+        Self::auto_settle_wait(rules, next, now_ms())
+    }
+
+    /// How long the loop sleeps until `next`. With a pull request rule on, never past
+    /// [`PR_RECHECK_MS`]: a chat's first pull request, or one merged on GitHub, sends no wake.
+    pub(crate) fn auto_settle_wait(
+        rules: &Rules,
+        next: Option<u64>,
+        now: u64,
+    ) -> std::time::Duration {
+        let mut wait = next.map_or(PR_RECHECK_MS, |at| at.saturating_sub(now).max(AFTER_READ_MS));
+        if rules.pull_requests() {
+            wait = wait.min(PR_RECHECK_MS);
+        }
         std::time::Duration::from_millis(wait)
     }
 
@@ -456,49 +473,57 @@ impl Hub {
         working || in_use || draft
     }
 
-    /// Settles `session` for `reason`: archived, with why. Checked again under its meta lock, so
-    /// an Unarchive, a person's prompt (which logs a record) or an Archive that came after the
-    /// pass read the chat wins; answers whether it settled.
+    /// Settles `session` for `reason`, decided on `seen`: archived, with why. Only if the chat's
+    /// facts are still `seen` under the meta lock the tags are written under, so an Unarchive, a
+    /// person's prompt (it logs a record), an Archive or a new pull request since the pass read it
+    /// wins, even within the same millisecond; answers whether it settled.
     pub(crate) fn settle(
         &self,
         session: &Session,
         reason: Reason,
-        read_at: u64,
+        seen: &Facts,
     ) -> Result<bool, RpcError> {
-        let still = session.read_meta(|m| {
-            let facts = Facts::of(m);
-            !facts.archived && !facts.never && m.updated_at <= read_at
-        });
-        if !still {
-            return Ok(false);
+        let settled = self.update_tags_answered(
+            session,
+            |m| {
+                if Facts::of(m) != *seen || seen.archived || seen.never {
+                    return None;
+                }
+                let mut set = serde_json::Map::new();
+                set.insert(ARCHIVED_TAG.into(), Value::String(now_ms().to_string()));
+                set.insert(SETTLED_TAG.into(), Value::String(reason.as_str().into()));
+                Some((set, vec![UNSETTLED_TAG.to_owned()]))
+            },
+            None,
+        )?;
+        if settled {
+            tracing::info!(session = %session.id, reason = reason.as_str(), "chat settled");
         }
-        let mut set = serde_json::Map::new();
-        set.insert(ARCHIVED_TAG.into(), Value::String(now_ms().to_string()));
-        set.insert(SETTLED_TAG.into(), Value::String(reason.as_str().into()));
-        tracing::info!(session = %session.id, reason = reason.as_str(), "chat settled");
-        self.set_tags_answered(session, Some(&set), &[UNSETTLED_TAG.to_owned()], None)?;
-        Ok(true)
+        Ok(settled)
     }
 
     /// Unarchives `session`: it loses its reason, if settled, and keeps how many pull requests it
     /// had, so they do not settle it again (module docs). A chat a plain Archive hid is held the
     /// same way: the person brought it back.
     pub(crate) fn unarchive(&self, session: &Session) -> Result<(), RpcError> {
-        let prs = session.read_meta(|m| m.pull_requests.len());
-        let mut set = serde_json::Map::new();
-        set.insert(UNSETTLED_TAG.into(), Value::String(prs.to_string()));
-        let remove = [ARCHIVED_TAG.to_owned(), SETTLED_TAG.to_owned()];
-        self.set_tags_answered(session, Some(&set), &remove, None)
+        self.update_tags_answered(session, |m| Some(brought_back(m)), None).map(|_| ())
     }
 
     /// The person's own prompt reached `session`: a settled chat comes back.
     pub(crate) fn unsettle_on_person_prompt(&self, session: &Session) {
-        if session.read_meta(|m| m.tags.contains_key(SETTLED_TAG))
-            && let Err(e) = self.unarchive(session)
-        {
+        let change = |m: &SessionMeta| m.tags.contains_key(SETTLED_TAG).then(|| brought_back(m));
+        if let Err(e) = self.update_tags_answered(session, change, None) {
             tracing::warn!(session = %session.id, error = ?e, "un-settle not saved");
         }
     }
+}
+
+/// The tags that bring a chat back: no longer archived or settled, and held at how many pull
+/// requests it has, so they do not settle it again.
+fn brought_back(m: &SessionMeta) -> (serde_json::Map<String, Value>, Vec<String>) {
+    let mut set = serde_json::Map::new();
+    set.insert(UNSETTLED_TAG.into(), Value::String(m.pull_requests.len().to_string()));
+    (set, vec![ARCHIVED_TAG.to_owned(), SETTLED_TAG.to_owned()])
 }
 
 #[cfg(test)]
