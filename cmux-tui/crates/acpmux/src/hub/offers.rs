@@ -225,7 +225,7 @@ impl Hub {
         self.append(session, "mux", "session_offer_decision", decision.clone());
         // A chat whose first turn ended before this answer sends its result now.
         if let Some(child) = &child {
-            self.send_offer_result(child);
+            self.send_accepted_offer_result(child);
         }
         Ok(decision)
     }
