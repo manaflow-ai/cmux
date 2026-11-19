@@ -2,7 +2,7 @@
 //! picture, H.264 (openh264 by default, x264 opt-in) and XTest injection. Two X
 //! connections: the loop thread's reads damage, the encode thread's reads pixels back.
 
-use crate::capture::{Capturer, Rect as CapRect};
+use crate::capture::{readback_plan, Capturer, Rect as CapRect};
 use crate::desktop::{Desktop, FrameSource, Halves};
 use crate::encoder::{self, EncCfg, H264Encoder};
 use crate::inject::Injector;
@@ -22,15 +22,20 @@ pub struct X11Desktop {
 
 /// The encode thread's half: XShm readback into the I420 picture and the encoder.
 pub struct X11Frames {
+    /// Subscribed to raw damage too: it reads back exactly the rects that changed since its
+    /// last readback, which the persistent `pic` makes enough.
     cap: Capturer,
     enc: Box<dyn H264Encoder>,
     pic: I420,
+    /// Set once the whole screen has been read back (the picture starts black).
+    whole: bool,
+    damage: Vec<crate::capture::DamageEvent>,
 }
 
 /// Opens both halves of the X display `cfg.display`.
 pub fn open(cfg: &SessionCfg) -> Res<Halves> {
     let damage = Capturer::new(&cfg.display, true)?;
-    let cap = Capturer::new(&cfg.display, false)?;
+    let cap = Capturer::new(&cfg.display, true)?;
     // x264 and 4:2:0 need even sizes; an odd last column or row is not sent.
     let (w, h) = (cap.width & !1, cap.height & !1);
     let enc = encoder::open(&EncCfg {
@@ -47,7 +52,8 @@ pub fn open(cfg: &SessionCfg) -> Res<Halves> {
     })?;
     let desktop =
         X11Desktop { injector: Injector::new(&cfg.display)?, damage: Vec::new(), cap: damage };
-    let frames = X11Frames { pic: I420::new(w as usize, h as usize), cap, enc };
+    let pic = I420::new(w as usize, h as usize);
+    let frames = X11Frames { pic, cap, enc, whole: false, damage: Vec::new() };
     Ok((Box::new(desktop), Box::new(frames)))
 }
 
@@ -88,9 +94,23 @@ impl Desktop for X11Desktop {
 impl FrameSource for X11Frames {
     fn capture(&mut self, damage: Rect) -> Res<()> {
         let (w, h) = (self.cap.width & !1, self.cap.height & !1);
-        let r = CapRect { x: damage.x, y: damage.y, w: damage.width, h: damage.height }
-            .align_even(w, h);
-        if r.w > 0 && r.h > 0 {
+        // What changed since the last readback, as the X server reported it to this
+        // connection; the engine's `damage` is one union box over the same changes. A change
+        // reported after this drain is read back now (newer pixels) and again next frame.
+        self.damage.clear();
+        self.cap.drain(&mut self.damage)?;
+        let gate = CapRect { x: damage.x, y: damage.y, w: damage.width, h: damage.height };
+        let plan = if !self.whole {
+            self.whole = true;
+            vec![CapRect { x: 0, y: 0, w, h }]
+        } else if self.damage.is_empty() {
+            // A forced frame (keyframe, a dropped frame's requeue) with nothing new.
+            vec![gate.align_even(w, h)]
+        } else {
+            let rects: Vec<CapRect> = self.damage.iter().map(|ev| ev.rect).collect();
+            readback_plan(&rects, w, h)
+        };
+        for r in plan.into_iter().filter(|r| r.w > 0 && r.h > 0) {
             let px = self.cap.grab(r)?;
             bgrx_rect_to_i420(
                 px,

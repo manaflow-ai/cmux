@@ -28,6 +28,31 @@ impl Rect {
     }
 }
 
+/// At most this many rects are read back one by one; more fall back to their bounding box.
+const MAX_RECTS: usize = 16;
+
+/// What to read back for one frame: the rects the X server reported since the last readback,
+/// each even-aligned and clipped to `sw`x`sh`, or their bounding box when the pieces are many or
+/// cover most of it (a readback has a per-request cost, so near-full boxes go as one). Two small
+/// changes at opposite corners are two small readbacks, not the whole screen between them (the
+/// engine's gate hands the frame source one union rect, which this replaces).
+pub fn readback_plan(damage: &[Rect], sw: u32, sh: u32) -> Vec<Rect> {
+    let rects: Vec<Rect> =
+        damage.iter().map(|r| r.align_even(sw, sh)).filter(|r| r.w > 0 && r.h > 0).collect();
+    let Some(&first) = rects.first() else { return Vec::new() };
+    let bbox = rects.iter().skip(1).fold(first, |a, b| {
+        let (x1, y1) = ((a.x + a.w).max(b.x + b.w), (a.y + a.h).max(b.y + b.h));
+        let (x0, y0) = (a.x.min(b.x), a.y.min(b.y));
+        Rect { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+    });
+    let area = |r: &Rect| u64::from(r.w) * u64::from(r.h);
+    let pieces: u64 = rects.iter().map(area).sum();
+    if rects.len() > MAX_RECTS || pieces * 2 >= area(&bbox) {
+        return vec![bbox];
+    }
+    rects
+}
+
 /// One damage report.
 pub struct DamageEvent {
     pub rect: Rect,
@@ -162,5 +187,44 @@ impl Capturer {
         }
         self.core = reply.data;
         Ok(&self.core[..len])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{readback_plan, Rect};
+
+    fn r(x: u32, y: u32, w: u32, h: u32) -> Rect {
+        Rect { x, y, w, h }
+    }
+
+    /// Two glyphs at opposite corners of 1080p are two glyph readbacks, not the 1904x1064 box
+    /// between them (8 MB read back and converted for 1 KB of change).
+    #[test]
+    fn far_apart_changes_are_read_back_one_by_one() {
+        let plan = readback_plan(&[r(0, 0, 8, 16), r(1912, 1064, 8, 16)], 1920, 1080);
+        assert_eq!(plan, vec![r(0, 0, 8, 16), r(1912, 1064, 8, 16)]);
+    }
+
+    /// Pieces that cover most of their box go as the one box.
+    #[test]
+    fn close_changes_go_as_their_bounding_box() {
+        let plan = readback_plan(&[r(0, 0, 100, 100), r(100, 0, 100, 100)], 1920, 1080);
+        assert_eq!(plan, vec![r(0, 0, 200, 100)]);
+    }
+
+    /// Many small pieces fall back to one box, so a frame never makes hundreds of requests.
+    #[test]
+    fn many_pieces_fall_back_to_the_box() {
+        let damage: Vec<Rect> = (0..20).map(|i| r(i * 90, i * 50, 2, 2)).collect();
+        assert_eq!(readback_plan(&damage, 1920, 1080), vec![r(0, 0, 1712, 952)]);
+    }
+
+    /// Odd edges grow to even (4:2:0 chroma), empty and off-screen rects drop out.
+    #[test]
+    fn rects_are_even_aligned_and_empty_ones_dropped() {
+        let plan = readback_plan(&[r(3, 5, 3, 3), r(10, 10, 0, 4), r(2000, 0, 4, 4)], 1920, 1080);
+        assert_eq!(plan, vec![r(2, 4, 4, 4)]);
+        assert!(readback_plan(&[], 1920, 1080).is_empty());
     }
 }
