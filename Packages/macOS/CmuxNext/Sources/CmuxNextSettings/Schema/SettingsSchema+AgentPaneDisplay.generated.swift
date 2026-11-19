@@ -95,6 +95,24 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let statusVerbsModeValues = ["thinking", "rotate", "custom"]
     /// `agentPane.display.statusVerbs.custom`.
     nonisolated static let statusVerbsCustomPath = ["agentPane", "display", "statusVerbs", "custom"]
+    /// `agentPane.display.thinking.shimmer`: How the live line's light band moves while the agent works (webviews agent chat). Cadenced is today's one-second sweep every four seconds; Continuous sweeps back to back, eased in and out, over shimmerPeriod.
+    nonisolated static let thinkingShimmerPath = ["agentPane", "display", "thinking", "shimmer"]
+    nonisolated static let thinkingShimmerDefault = "cadenced"
+    nonisolated static let thinkingShimmerValues = ["cadenced", "continuous"]
+    /// `agentPane.display.thinking.shimmerPeriod`: One continuous shimmer pass in milliseconds; read only when shimmer is continuous.
+    nonisolated static let thinkingShimmerPeriodPath = ["agentPane", "display", "thinking", "shimmerPeriod"]
+    nonisolated static let thinkingShimmerPeriodDefault: Double = 1250
+    nonisolated static let thinkingShimmerPeriodRange: ClosedRange<Double> = 600...4000
+    nonisolated static let thinkingShimmerPeriodPlaceholder: Double = 1250
+    /// `agentPane.display.thinking.shimmerBand`: The shimmer band's width in points; 0 keeps today's band, half the line's width.
+    nonisolated static let thinkingShimmerBandPath = ["agentPane", "display", "thinking", "shimmerBand"]
+    nonisolated static let thinkingShimmerBandDefault: Double = 0
+    nonisolated static let thinkingShimmerBandRange: ClosedRange<Double> = 0...240
+    nonisolated static let thinkingShimmerBandPlaceholder: Double = 0
+    /// `agentPane.display.thinking.jumpButton`: What Jump to latest shows while the agent works: the arrow (today), or three small dots in the theme accent moving in turn; the arrow comes back on hover and when the agent stops.
+    nonisolated static let thinkingJumpButtonPath = ["agentPane", "display", "thinking", "jumpButton"]
+    nonisolated static let thinkingJumpButtonDefault = "arrow"
+    nonisolated static let thinkingJumpButtonValues = ["arrow", "dots"]
     /// `agentPane.display.harnessPlacement`.
     nonisolated static let harnessPlacementPath = ["agentPane", "display", "harnessPlacement"]
     nonisolated static let harnessPlacementDefault = "symbols"
@@ -106,4 +124,10 @@ extension AgentPaneDisplaySettingsSchema {
     /// `agentPane.display.commandLabels`: How the chat's running tray names background commands no built-in rule knows (CommandLabelsSetting; webviews session-info/commandLabelSettings.ts): preset names and rules of one's own, edited as JSON.
     nonisolated static let commandLabelsPath = ["agentPane", "display", "commandLabels"]
     nonisolated static let commandLabelsDefault: [String] = []
+}
+
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum AgentPaneDisplaySettingsSchema {
+    /// The agent chat's look (plans/cmux-next/chat-display-settings-DESIGN.md): the chat page reads the same names and ranges (webviews/src/agent-session/acpmux/chatDisplay.ts CHAT_DISPLAY), and its ... menu's Text & Width popover writes them. The font, code font and code size have no value of their own by default: the chat then follows the Markdown viewer's, and code follows the terminal font. Sizes and width never follow the viewer.
+    static var descriptors: [SettingDescriptor] { descriptorsPart1 + descriptorsPart2 }
 }

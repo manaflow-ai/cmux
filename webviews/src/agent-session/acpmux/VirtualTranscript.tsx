@@ -230,6 +230,8 @@ import {
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
 import { DOCK_NOTICE } from "./noticeSlotModel";
+import { JumpDots } from "./conversation/JumpDots";
+import { useThinkingLook } from "./conversation/thinkingLook";
 
 /// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
 /// conversation.css sizes the line with them. Constant, so the scroller's per-scroll restyle never changes them.
@@ -1365,6 +1367,9 @@ export function JumpToLatest({
 }) {
   const t = useT();
   const [look] = useState(() => experimentArm(jumpPairLook));
+  // A look's working dots (thinkingLook.ts `jumpButton: "dots"`, off by default): drawn over the arrow's
+  // cell while the agent works; the arrow comes back on hover and focus (JumpDots.css).
+  const dots = useThinkingLook().jumpButton === "dots" && working;
   if (needsYou && needsYou.count > 0) return <NeedsYouPill {...needsYou} shown={shown} lift={lift} onJump={onJump} />;
   const label = t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
   const lens = look === "lens";
@@ -1377,6 +1382,7 @@ export function JumpToLatest({
         className={lens ? "ui-glass ui-glass-fisheye acpmux-jump-latest" : "ui-glass acpmux-jump-latest"}
         data-look={look}
         data-shown={shown ? "" : undefined}
+        data-working-dots={dots ? "" : undefined}
         // Its keyboard focus is its own wash over the glass (conversation.css), not the shared one,
         // whose `box-shadow: none` took the glass's rim and shadow away while it was focused.
         data-focus-ring="none"
@@ -1392,6 +1398,7 @@ export function JumpToLatest({
         {/* The mark is a theme slot (schemas/theme/slots.json `chat.jumpToBottom`): its default variant
             draws exactly the static arrow this button drew before. */}
         <Slot slot={jumpToBottomSlot} props={{ shown, working }} />
+        {dots && <JumpDots />}
         {look === "labeled" && <span className="acpmux-jump-latest__label">{t("transcript.jumpLatest")}</span>}
       </button>
     </>
