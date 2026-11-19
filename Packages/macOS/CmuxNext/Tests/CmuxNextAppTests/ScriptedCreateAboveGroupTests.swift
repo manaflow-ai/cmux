@@ -117,9 +117,10 @@ struct ScriptedCreateAboveGroupTests {
 
     /// `cmux workspace new` runs the app's New Workspace (`newTab`, origin `.cli`): its row shows at the press (the
     /// create's stand-in), then the daemon's workspace takes it over and the document places it. With `top` and the
-    /// current workspace loose below the group, the row opens above the group. Sampled every 4 ms (more often than any
-    /// display draws) from the press to 1.5 s after it, the row is drawn above the group's header in every sample where
-    /// both draw: the recording showed the group drawn back above the row for one frame, with no view frame changed.
+    /// current workspace loose below the group, the row opens above the group. Sampled every 2 ms (more often than any
+    /// display draws) from the press to 1.5 s after it, the row is drawn where its stand-in first drew it relative to the
+    /// group's header in every sample where both draw (they move together), and it ends at the stand-in's slot: the
+    /// recording showed the row drawn above the group, then under its header.
     @Test func aCLICreateIsDrawnAboveTheTopGroupInEveryFrame() async throws {
         let launched = try await RapidWorkspaceCreateTests.launch(sessionEvents: true)
         let services = launched.services
@@ -189,9 +190,15 @@ struct ScriptedCreateAboveGroupTests {
             return own.isEmpty && mask.isEmpty ? "" : "\(name):\(own.joined(separator: ","))\(mask.isEmpty ? "" : " mask:" + mask.joined(separator: ","))"
         }
         var samples: [Drawn] = []
+        // The stand-in's slot where its row first draws: its index in the list's rows and its group.
+        var standIn: (index: Int, group: GroupID?)?
         let started = CACurrentMediaTime()
         func sample() {
-            let fresh = list.rowViews.first { key, _ in if case let .workspace(id) = key { !before.contains(id.rawValue) } else { false } }?.value
+            let freshEntry = list.rowViews.first { key, _ in if case let .workspace(id) = key { !before.contains(id.rawValue) } else { false } }
+            let fresh = freshEntry?.value
+            if standIn == nil, case let .workspace(id)? = freshEntry?.key, let index = rows(list.displayed).firstIndex(of: id.rawValue) {
+                standIn = (index, list.displayed.row(for: .workspace(id))?.group)
+            }
             let header = list.rowViews[.group(top)]
             let r = fresh.flatMap(drawnTop), h = header.flatMap(drawnTop)
             samples.append(Drawn(time: CACurrentMediaTime() - started, row: r?.0, rowAlpha: r?.1 ?? 0, header: h?.0, headerAlpha: h?.1 ?? 0,
@@ -207,10 +214,14 @@ struct ScriptedCreateAboveGroupTests {
         await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { settled(before.count + 1) }
         let after = rows(list.displayed)
         let groupAt = after.firstIndex { group(of: $0) == top }
+        let created = try #require(after.first { !before.contains($0) }, "the new row: \(after)")
+        let final = (index: after.firstIndex(of: created), group: list.displayed.row(for: .workspace(SidebarWorkspaceID(created)))?.group)
         await launched.stop()
 
-        let created = try #require(after.first { !before.contains($0) }, "the new row: \(after)")
-        #expect((after.firstIndex(of: created) ?? .max) < (groupAt ?? 0), "the new row is not above the group: \(after)")
+        #expect((final.index ?? .max) < (groupAt ?? 0), "the new row is not above the group: \(after)")
+        let first = try #require(standIn, "the stand-in's row never drew")
+        #expect(final.index == first.index && final.group == first.group,
+                "the row ended at \(String(describing: final)), its stand-in drew at \(String(describing: first)): \(after)")
         // Only where the drawing changed, so the trace stays short.
         var trace: [Drawn] = []
         for s in samples {
@@ -219,7 +230,11 @@ struct ScriptedCreateAboveGroupTests {
             trace.append(s)
         }
         print("cli-create-drawn: \(samples.count) samples, \(trace.count) changes:\n" + trace.map(\.description).joined(separator: "\n"))
-        let under = samples.filter { $0.bothDrawn && ($0.row ?? 0) >= ($0.header ?? 0) - 0.5 }
-        #expect(under.isEmpty, "samples that drew the new row at or below the group header: \(under.count) of \(samples.count): \(under.prefix(12).map(\.description))")
+        // Where the row first draws relative to the header, it stays: the two move together, in every sample.
+        let drawn = samples.filter(\.bothDrawn)
+        let offset = try #require(drawn.first.map { ($0.row ?? 0) - ($0.header ?? 0) }, "the row and the header never drew together")
+        #expect(offset < 0, "the new row first drew at or below the group header: \(drawn.prefix(3).map(\.description))")
+        let moved = drawn.filter { abs(($0.row ?? 0) - ($0.header ?? 0) - offset) > 0.5 }
+        #expect(moved.isEmpty, "samples where the new row moved against the group header (first offset \(offset)): \(moved.count) of \(drawn.count): \(moved.prefix(12).map(\.description))")
     }
 }
