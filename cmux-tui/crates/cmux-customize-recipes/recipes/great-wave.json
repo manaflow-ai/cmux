@@ -1,0 +1,15 @@
+{
+  "cmuxProfile": 1,
+  "name": "great-wave",
+  "description": "A Great Wave rice: Hokusai's wave behind sumi-ink glass, the Kanagawa palette in every terminal color, carp ochre and wave blue in the chat, IBM Plex Sans and Menlo.",
+  "settings": {
+    "appearance.themeFile": "great-wave",
+    "sidebar.density": "comfortable",
+    "sidebar.cards.tips": false,
+    "agentPane.display.presentation": "messages",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.ui": "plex",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.width": 800
+  }
+}

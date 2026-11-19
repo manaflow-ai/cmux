@@ -1,0 +1,78 @@
+// Two-Tone: ink and amber, nothing else. The window is two shades of warm ink, the sidebar the deeper
+// one; amber is kept for what matters (the cursor, the active tab, a running agent, a link). Even the
+// terminal stays in the two inks: its colors are tints of amber and cream, told apart by lightness, with
+// a burnt orange for errors.
+{
+  "name": "Two-Tone",
+  "description": "Ink and amber only: a two-tone window, amber for what is active, Klimt's gold behind.",
+
+  "appearance.theme": "Builtin Dark",
+  "ghostty": [
+    "background = #0e0f12",
+    "foreground = #f0e6d2",
+    "cursor-color = #ffb000",
+    "cursor-text = #0e0f12",
+    "selection-background = #3a2c0c",
+    "selection-foreground = #ffe7a3",
+    "palette = 0=#1a1b20",
+    "palette = 1=#e0662b",
+    "palette = 2=#e8d9a8",
+    "palette = 3=#ffb000",
+    "palette = 4=#b3a17c",
+    "palette = 5=#d98f3a",
+    "palette = 6=#cfc3a4",
+    "palette = 7=#e0d6c2",
+    "palette = 8=#5c5345",
+    "palette = 9=#ff8a4c",
+    "palette = 10=#fff1c7",
+    "palette = 11=#ffd166",
+    "palette = 12=#d6c49c",
+    "palette = 13=#ffb870",
+    "palette = 14=#efe4c8",
+    "palette = 15=#fff7e6"
+  ],
+  "colors": { "accent": "#ffb000" },
+  "appearance.appTheme": "followTerminal",
+  "appearance.accent": "theme",
+  "appearance.highlightColor": "#ffb000",
+
+  // Klimt's gold, dimmed, glowing through the sidebar's glass.
+  "appearance.background": "klimt-the-kiss",
+  "appearance.backgroundOpacity": 0.5,
+  "appearance.backgroundBlur": "glass",
+  "appearance.wallpaperTint": true,
+  "appearance.glassTransparency": 0.35,
+
+  // The two tones: a curved main pane of ink on a deeper ink sidebar, no lines.
+  "appearance.chromeStyle": "two-tone",
+  "appearance.borders": "none",
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#08080a",
+  "appearance.surfaces.sidebar.opacity": 0.86,
+  "sidebar.border": false,
+  "sidebar.sectionLook": "lines",
+  "appearance.surfaces.terminal.color": "#0e0f12",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#0e0f12",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#0e0f12",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#ffb000",
+  "appearance.surfaces.splitDivider.opacity": 0.35,
+
+  // Work is an amber arc.
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.color": "#ffb000",
+
+  // Motion: quick and exact, no spring.
+  "ui.animationSpeed": "fast",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "easeOut",
+  "appearance.colorTransition.duration": 240,
+
+  "appearance.density": "compact",
+  "terminal.fontFamily": "Monaco",
+  "terminal.fontSize": 13,
+  "appearance.metrics.chromeFontSize": 12
+}

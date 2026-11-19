@@ -1,0 +1,15 @@
+{
+  "cmuxProfile": 1,
+  "name": "sakura",
+  "description": "A cherry blossom rice: plum glass over almond blossom, petal pink and a mint counterpoint in every terminal color, floating panes, a petal chat and composer, Hanken Grotesk and PT Mono.",
+  "settings": {
+    "appearance.themeFile": "sakura",
+    "sidebar.density": "comfortable",
+    "sidebar.cards.tips": false,
+    "agentPane.display.presentation": "messages",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.ui": "hanken",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.width": 760
+  }
+}

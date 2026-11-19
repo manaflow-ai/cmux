@@ -32,11 +32,19 @@ pub enum Group {
     Widgets,
     Keys,
     Apps,
+    Rices,
 }
 
 impl Group {
-    pub const ALL: &'static [Group] =
-        &[Group::Look, Group::Layout, Group::Type, Group::Widgets, Group::Keys, Group::Apps];
+    pub const ALL: &'static [Group] = &[
+        Group::Look,
+        Group::Layout,
+        Group::Type,
+        Group::Widgets,
+        Group::Keys,
+        Group::Apps,
+        Group::Rices,
+    ];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -46,6 +54,7 @@ impl Group {
             Group::Widgets => "Widgets",
             Group::Keys => "Keys",
             Group::Apps => "App looks",
+            Group::Rices => "Rices",
         }
     }
 }
@@ -104,6 +113,25 @@ const TRUE_BLACK: &[(&str, &str)] = &[
 const CLAUDE_CODE_APP: &[(&str, &str)] = &[
     ("themes/claude-code-app.json", include_str!("../recipes/apps/claude-code-app/theme.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/claude-code-app/agent-pane.css")),
+];
+
+/// A rice is a whole themed look (Leo, 2026-11-19: "a whole like cohesively themed one ... truly
+/// opinionated stuff"): its theme file sets every terminal color, the sidebar, glass, borders,
+/// motion, the wallpaper and the terminal font, and its chat stylesheet restyles the chat and the
+/// composer. The profile adds the chat's interface font.
+const SAKURA: &[(&str, &str)] = &[
+    ("themes/sakura.json", include_str!("../recipes/rices/sakura/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/rices/sakura/agent-pane.css")),
+];
+
+const TWO_TONE: &[(&str, &str)] = &[
+    ("themes/two-tone.json", include_str!("../recipes/rices/two-tone/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/rices/two-tone/agent-pane.css")),
+];
+
+const GREAT_WAVE: &[(&str, &str)] = &[
+    ("themes/great-wave.json", include_str!("../recipes/rices/great-wave/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/rices/great-wave/agent-pane.css")),
 ];
 
 /// Every recipe, in the order a guide lists them.
@@ -211,6 +239,30 @@ pub const RECIPES: &[Recipe] = &[
         ask: "make cmux look and work like the Claude Code desktop app",
         profile: include_str!("../recipes/claude-code-app.json"),
         includes: CLAUDE_CODE_APP,
+    },
+    Recipe {
+        name: "sakura",
+        title: "Sakura: cherry blossom",
+        group: Group::Rices,
+        ask: "rice cmux with a cherry blossom theme, pink and plum everywhere",
+        profile: include_str!("../recipes/sakura.json"),
+        includes: SAKURA,
+    },
+    Recipe {
+        name: "two-tone",
+        title: "Two-Tone: ink and amber",
+        group: Group::Rices,
+        ask: "rice cmux in two tones, ink and amber only",
+        profile: include_str!("../recipes/two-tone.json"),
+        includes: TWO_TONE,
+    },
+    Recipe {
+        name: "great-wave",
+        title: "Great Wave: Hokusai and Kanagawa",
+        group: Group::Rices,
+        ask: "rice cmux with the Great Wave and the Kanagawa colors",
+        profile: include_str!("../recipes/great-wave.json"),
+        includes: GREAT_WAVE,
     },
 ];
 

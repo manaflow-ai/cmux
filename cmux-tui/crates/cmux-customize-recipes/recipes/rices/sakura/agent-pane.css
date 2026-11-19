@@ -1,0 +1,37 @@
+/* Sakura chat: your prompt in a plum petal bubble, headings and links in blossom pink, inline code
+   on a lavender chip, a mint quote bar, and a rounded plum composer with a pink rim that glows when
+   it can send. Colors and radii only: sizes stay with the settings, so rows keep their measured
+   heights. */
+:root {
+  --cv-bubble: #3e2840;
+  --cv-code-bg: #35263f;
+  --cv-codeblock-bg: #2a1d2d;
+  --cv-codeblock-ring: #4d3049;
+  --cv-rule: rgb(255 158 196 / 14%);
+  --cv-strong-rule: #93d4b8;
+  --cv-link: #ff9ec4;
+}
+.cv-user__bubble {
+  border-radius: 18px 18px 6px 18px;
+}
+.cv-md :is(h1, h2, h3) {
+  color: #ffc2dc;
+}
+.cv-md strong {
+  color: #fff4f9;
+}
+.cv-md code {
+  color: #e4c9ff;
+}
+.acpmux-shell {
+  --acpmux-composer-bg: #2b1d2c;
+  --acpmux-composer-edge: rgb(255 158 196 / 34%);
+}
+.acpmux-composer-box {
+  --acpmux-composer-radius: 20px;
+  box-shadow: var(--acpmux-card-ring), 0 10px 30px -14px rgb(255 158 196 / 35%);
+}
+.acpmux-send.acpmux-send-ready {
+  background: #ff9ec4;
+  color: #221823;
+}

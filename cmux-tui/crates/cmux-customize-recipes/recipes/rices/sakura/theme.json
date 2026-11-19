@@ -1,0 +1,78 @@
+// Sakura: a hanami night. Plum glass over Van Gogh's Almond Blossom, petal pink for what is active,
+// cherry for errors, lavender and a mint counterpoint taken from the painting's sky. Every terminal
+// color is set, so a shell, a diff and a prompt all wear the same palette.
+{
+  "name": "Sakura",
+  "description": "Plum glass over almond blossom, petal pink, a mint counterpoint, floating panes.",
+
+  // The terminal: every color of the palette, on the built-in dark theme.
+  "appearance.theme": "Builtin Dark",
+  "ghostty": [
+    "background = #221823",
+    "foreground = #f6e7ef",
+    "cursor-color = #ff9ec4",
+    "cursor-text = #221823",
+    "selection-background = #4d3049",
+    "selection-foreground = #fff4f9",
+    "palette = 0=#2e2130",
+    "palette = 1=#e0607e",
+    "palette = 2=#93d4b8",
+    "palette = 3=#f0c987",
+    "palette = 4=#a7b4f2",
+    "palette = 5=#f59ec2",
+    "palette = 6=#86cfd6",
+    "palette = 7=#e8d5e0",
+    "palette = 8=#6e5470",
+    "palette = 9=#ff86a6",
+    "palette = 10=#b4ecd4",
+    "palette = 11=#ffdcaa",
+    "palette = 12=#c6cfff",
+    "palette = 13=#ffc2dc",
+    "palette = 14=#aee9ee",
+    "palette = 15=#fff4f9"
+  ],
+  "colors": { "accent": "#ff9ec4" },
+  "appearance.appTheme": "followTerminal",
+  "appearance.accent": "theme",
+  "appearance.highlightColor": "#ff9ec4",
+
+  // The wallpaper: almond blossom against a spring sky, seen through plum glass.
+  "appearance.background": "van-gogh-almond-blossom",
+  "appearance.backgroundOpacity": 0.85,
+  "appearance.backgroundBlur": "frosted",
+  "appearance.wallpaperTint": true,
+  "appearance.glassTransparency": 0.55,
+
+  // Floating panes: every pane a rounded card with an even gap, no hard edges.
+  "appearance.chromeStyle": "floating",
+  "appearance.borders": "none",
+  "appearance.focusIndicator": "tabs",
+
+  // The sidebar: its own plum glass, sections as cards.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#1a1119",
+  "appearance.surfaces.sidebar.opacity": 0.72,
+  "sidebar.border": false,
+  "sidebar.sectionLook": "card",
+  "appearance.surfaces.terminal.color": "#221823",
+  "appearance.surfaces.terminal.opacity": 0.84,
+  "appearance.surfaces.agentPane.color": "#221823",
+  "appearance.surfaces.agentPane.opacity": 0.88,
+  "appearance.surfaces.newTabPage.color": "#221823",
+  "appearance.surfaces.newTabPage.opacity": 0.8,
+
+  // Work shows as a soft petal dot.
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.color": "#ff9ec4",
+
+  // Motion: colors drift on a soft spring.
+  "ui.animationSpeed": "normal",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "spring",
+  "appearance.colorTransition.duration": 600,
+
+  "appearance.density": "cozy",
+  "terminal.fontFamily": "PT Mono",
+  "terminal.fontSize": 14,
+  "appearance.metrics.chromeFontSize": 13
+}

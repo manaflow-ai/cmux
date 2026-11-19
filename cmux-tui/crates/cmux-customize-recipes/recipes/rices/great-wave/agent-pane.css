@@ -1,0 +1,34 @@
+/* Great Wave chat: your prompt on a wave-blue wash, headings in carp ochre, links in spring blue,
+   inline code on sumi ink, a sakura-pink quote bar, and a rounded sumi composer with a fuji-white
+   rim and an ochre send button.
+   Colors and radii only: sizes stay with the settings, so rows keep their measured heights. */
+:root {
+  --cv-bubble: #223249;
+  --cv-code-bg: #2a2a37;
+  --cv-codeblock-bg: #16161d;
+  --cv-codeblock-ring: #363646;
+  --cv-rule: rgb(220 215 186 / 10%);
+  --cv-strong-rule: #d27e99;
+  --cv-link: #7fb4ca;
+}
+.cv-user__bubble {
+  border-radius: 12px;
+}
+.cv-md :is(h1, h2, h3) {
+  color: #e6c384;
+}
+.cv-md code {
+  color: #98bb6c;
+}
+.acpmux-shell {
+  --acpmux-composer-bg: #16161d;
+  --acpmux-composer-edge: rgb(220 215 186 / 22%);
+}
+.acpmux-composer-box {
+  --acpmux-composer-radius: 14px;
+  box-shadow: var(--acpmux-card-ring), 0 12px 28px -16px rgb(0 0 0 / 70%);
+}
+.acpmux-send.acpmux-send-ready {
+  background: #e6c384;
+  color: #1f1f28;
+}
