@@ -26,7 +26,7 @@ public struct HomeNewMessageComposerSource: HomeSource {
 
     /// The blank page's store, over Home's own attachment folder (`blobs`): it keeps no blobs of its own, so it
     /// never prunes that folder, whose drafts and pending sends Home's store keeps.
-    public func store(blobs: URL) -> HomeStore {
+    @MainActor public func store(blobs: URL) -> HomeStore { // HomeStore is main-actor: both callers (HomeNewMessageView, its test) are
         HomeStore(source: self, blobCacheDirectory: blobs, prunesBlobCache: false)
     }
 
