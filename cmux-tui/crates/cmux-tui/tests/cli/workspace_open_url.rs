@@ -810,10 +810,26 @@ fn tab_create_browser_makes_a_frontend_tab_when_the_app_is_attached() {
     assert_eq!(tab["browser_engine"], "webkit", "{listed}");
 }
 
+/// An agent tab in `pane` (a raw pane id): bound to `session`, a chat that
+/// runs, or with none, the New Tab page.
+fn agent_tab(server: &HeadlessServer, pane: &Value, session: Option<&str>) {
+    let chat = raw(
+        server,
+        json!({"cmd": "new-conversation-tab", "pane": pane,
+               "agent_session": {"host": "install:open-url-test", "session": session,
+                                 "harness": "claude"}}),
+    );
+    assert!(chat["tab_resource_id"].is_string(), "no agent tab: {chat}");
+}
+
 /// A workspace as the app opens an agent chat: one pane, not docked, that
-/// holds an agent chat tab. Its public id and the chat's pane (a raw tree
-/// value).
-fn undocked_chat_workspace(server: &HeadlessServer, name: &str) -> (String, Value) {
+/// holds an agent tab on `session` ([`agent_tab`]). Its public id and that
+/// pane (a raw tree value).
+fn undocked_chat_workspace(
+    server: &HeadlessServer,
+    name: &str,
+    session: Option<&str>,
+) -> (String, Value) {
     let created = v2(
         server,
         "workspace.create",
@@ -822,13 +838,7 @@ fn undocked_chat_workspace(server: &HeadlessServer, name: &str) -> (String, Valu
     );
     let workspace = value(&created)["workspace_id"].as_str().unwrap().to_string();
     let pane = screen(server, &workspace)["panes"][0]["id"].clone();
-    let chat = raw(
-        server,
-        json!({"cmd": "new-conversation-tab", "pane": pane,
-               "agent_session": {"host": "install:open-url-test", "session": null,
-                                 "harness": "claude"}}),
-    );
-    assert!(chat["tab_resource_id"].is_string(), "no agent chat tab: {chat}");
+    agent_tab(server, &pane, session);
     let chat_pane = screen(server, &workspace)["panes"][0].clone();
     (workspace, chat_pane)
 }
@@ -844,7 +854,8 @@ fn undocked_chat_workspace(server: &HeadlessServer, name: &str) -> (String, Valu
 fn open_url_opens_right_of_an_agent_chat_that_is_not_docked() {
     let server = HeadlessServer::start("open-url-chat-pane");
     let _app = frontend_app(&server);
-    let (workspace, chat) = undocked_chat_workspace(&server, "open-url-chat-pane");
+    let (workspace, chat) =
+        undocked_chat_workspace(&server, "open-url-chat-pane", Some("open-url-chat-1"));
     let chat_tabs = chat["tabs"].as_array().unwrap().len();
     let before = screen(&server, &workspace);
     assert_eq!(before["panes"].as_array().unwrap().len(), 1, "{before}");
@@ -891,4 +902,51 @@ fn open_url_opens_right_of_an_agent_chat_that_is_not_docked() {
         chat_tabs,
         "a created browser tab went into the chat's pane: {last}"
     );
+}
+
+/// The New Tab page is an agent tab that runs no session: its pane holds no
+/// chat, so a link opens in that pane as in any other, with no new column.
+#[test]
+fn open_url_keeps_a_pane_whose_agent_tab_runs_no_session() {
+    let server = HeadlessServer::start("open-url-new-tab-page");
+    let _app = frontend_app(&server);
+    let (workspace, pane) = undocked_chat_workspace(&server, "open-url-new-tab-page", None);
+    let opened = v2(
+        &server,
+        "workspace.open_url",
+        json!({"workspace": workspace, "url": "https://example.com/one"}),
+        Some("open-url-new-tab-page-1"),
+    );
+    assert_eq!(value(&opened)["pane_id"], pane["resource_id"], "{opened}");
+    let after = screen(&server, &workspace);
+    assert_eq!(after["panes"].as_array().unwrap().len(), 1, "a new column: {after}");
+}
+
+/// A screen with a chat dock keeps the dock rule: an agent chat in a
+/// right-side pane (Home opens new chats beside its pinned chat dock) still
+/// takes the link there, with no new column over it.
+#[test]
+fn open_url_beside_a_dock_still_opens_in_a_right_pane_that_holds_a_chat() {
+    let server = HeadlessServer::start("open-url-dock-chat");
+    let _app = frontend_app(&server);
+    let (workspace, dock, right_panes) = docked_workspace(
+        &server,
+        "open-url-dock-chat",
+        json!({"edge": "left", "mode": "docked", "role": "agent_chat"}),
+    );
+    for pane in &right_panes {
+        agent_tab(&server, &pane["id"], Some("open-url-dock-chat-1"));
+    }
+    focus(&server, &dock, "open-url-dock-chat-focus");
+    let before = screen(&server, &workspace)["panes"].as_array().unwrap().len();
+    let opened = v2(
+        &server,
+        "workspace.open_url",
+        json!({"workspace": workspace, "url": "https://example.com/one"}),
+        Some("open-url-dock-chat-1"),
+    );
+    let right_side = right_panes.iter().map(|pane| pane["resource_id"].clone()).collect::<Vec<_>>();
+    assert!(right_side.contains(&value(&opened)["pane_id"]), "not a right-side pane: {opened}");
+    let after = screen(&server, &workspace);
+    assert_eq!(after["panes"].as_array().unwrap().len(), before, "a new column: {after}");
 }

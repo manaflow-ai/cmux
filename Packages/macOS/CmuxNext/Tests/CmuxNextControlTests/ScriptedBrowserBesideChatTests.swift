@@ -3,10 +3,11 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// A browser a script opens at a pane that holds an agent chat goes in the column right of the chat, as the
-/// chat's own agent's does, never in the chat's pane (Lawrence 2026-11-19: "agent chat that is on left, will
-/// open stuff to the right"). The Chief's `<show>` block ran `cmux tab create browser --workspace <the
-/// subagent's>`; a workspace's default pane is its chat's pane, so one chat's tab strip held 14 pages.
+/// A browser opened in a workspace with no pane named (`beside_chat`) goes in the column right of that
+/// workspace's agent chat, as the chat's own agent's does, never in the chat's pane (Lawrence 2026-11-19: "agent
+/// chat that is on left, will open stuff to the right"). The Chief's `<show>` block ran `cmux tab create browser
+/// --workspace <the subagent's>`; a workspace's default pane is its chat's pane, so one chat's tab strip held 14
+/// pages. A run that names its pane or tab keeps it.
 @Suite(.timeLimit(.minutes(1))) struct ScriptedBrowserBesideChatTests {
     /// ``AgentBesideKindPlacementTests/snapshot(right:shown:)`` with `page`, a browser tab a script opened
     /// earlier, in the chat's own pane (selected there when `selected`).
@@ -26,14 +27,15 @@ import Testing
         return snapshot
     }
 
-    /// `action.run openBrowser` at `target` from a caller that is not the chat's agent (the Chief's CLI).
-    func request(target: String, in snapshot: ControlSnapshot, origin: String? = nil) async throws -> ControlActionRequest {
+    /// `action.run openBrowser` at `target` from a caller that is not the chat's agent (the Chief's CLI), which
+    /// named only the workspace (`named: false`, `beside_chat`) or that pane itself.
+    func request(target: String, in snapshot: ControlSnapshot, named: Bool = false) async throws -> ControlActionRequest {
         let executor = OpenBrowserExecutor()
         let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: .loadTolerant)
         router.snapshots.publish { $0 = snapshot }
         executor.router.withLock { $0 = router }
         var params: [String: JSONValue] = ["action": "openBrowser", "args": ["url": "https://example.com"], "target": .string("tab:" + target)]
-        if let origin { params["origin"] = .string(origin) }
+        if !named { params["beside_chat"] = true }
         _ = try await router.handle(ControlRequest(id: "1", method: "action.run", params: params)).get()
         return try #require(executor.all.first)
     }
@@ -79,8 +81,10 @@ import Testing
         #expect(!request.besideCaller)
     }
 
-    @Test func aPersonsOwnRunAtTheChatsPaneIsLeftAsItIs() async throws {
-        let request = try await request(target: "tab-chat", in: Self.snapshot(right: [], shown: true), origin: "user")
+    /// `--pane <the chat's>`, and `browser.page.right`, whose reply reads the pane it aimed at.
+    @Test func aRunThatNamesTheChatsPaneKeepsIt() async throws {
+        let right = [AgentBesideKindPlacementTests.pane("pane-web", [("tab-web", "browser")])]
+        let request = try await request(target: "tab-chat", in: Self.snapshot(right: right, shown: true), named: true)
         #expect(request.target == ControlTargetRef(kind: "tab", id: "tab-chat"))
         #expect(!request.newColumnBeside)
         #expect(!request.besideCaller)
