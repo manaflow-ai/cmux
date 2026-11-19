@@ -620,7 +620,8 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 /// `cmux cloud start-chat --help` (cloud_start_chat.rs runs it).
 pub(super) const START_CHAT_USAGE: &str = "\
 usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--model MODEL]
-                             [--cwd DIR | --from-folder PATH [--allow-large]]
+                             [--effort EFFORT] [--mode MODE]
+                             [--cwd DIR | --from-folder PATH [--allow-large] | --no-folder]
                              [--environment ENV]
                              [--name VM | --target vm:VM_ID]
                              [--wait] [--timeout SECONDS] [--make-room] [--json]
@@ -641,7 +642,14 @@ older name; both run the same start.
                      the model
   --model MODEL      The model the agent starts on there (claude-haiku-5-5;
                      default: the harness's own)
+  --effort EFFORT    Its thinking effort (low, medium, high, xhigh, max; what
+                     the harness offers), as the composer's effort picker
+                     sets it; set before the first prompt
+  --mode MODE        The permission mode it starts in (plan, acceptEdits, ...)
   --cwd DIR          A folder on the machine (default: a new one under ~/chats)
+  --no-folder        The composer's No folder: a new folder of the chat's own
+                     under ~/chats, nothing copied (also what no folder flag
+                     means); not with --cwd or --from-folder
   --from-folder PATH A folder on this Mac (relative: of this shell's folder),
                      copied to the machine as the composer's Cloud start
                      copies one; the chat starts in the copy. Never home,
@@ -677,6 +685,7 @@ EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
   cmux cloud start-chat --name dev --prompt 'Run the tests' --json
   cmux cloud start-chat --agent codex --json
+  cmux cloud start-chat --model claude-sonnet-5-5 --effort high --no-folder --prompt 'What is 1+1?' --wait
 
 FOLLOW-UPS (SESSION_ID from the answer)
   cmux chat send SESSION_ID 'next prompt' --wait
