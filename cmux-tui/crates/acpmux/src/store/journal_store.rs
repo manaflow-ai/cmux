@@ -819,6 +819,18 @@ impl Store for JournalStore {
         self.inner
             .fenced(|| Store::scan_back_indexed(&self.inner.local, id, after, before, skip, visit))
     }
+    fn scan_back_transcript(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(|| {
+            Store::scan_back_transcript(&self.inner.local, id, after, before, skip, visit)
+        })
+    }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         self.inner.fenced(|| Store::tail_after(&self.inner.local, id, after))
     }

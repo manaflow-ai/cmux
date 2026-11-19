@@ -224,6 +224,9 @@ impl LocalStore {
             ))
             .into());
         }
+        // The transcript index first: its synced part is what a later boot trusts
+        // (`store/transcript_index.rs`).
+        self.sync_index(id);
         let open = {
             let writers = self.writers.lock_or_recover();
             match writers.open.get(id) {

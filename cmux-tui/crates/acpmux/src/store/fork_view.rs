@@ -545,7 +545,7 @@ impl Store for ForkView {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.back(id, after, before, skip, visit, false)
+        self.back(id, after, before, skip, visit, Back::Log)
     }
     fn scan_back_indexed(
         &self,
@@ -555,7 +555,19 @@ impl Store for ForkView {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.back(id, after, before, skip, visit, true)
+        self.back(id, after, before, skip, visit, Back::Kinds)
+    }
+    /// The fork's own log and its chat's history, each through its transcript index: the
+    /// history's `skip` passes fewer lines still, never more.
+    fn scan_back_transcript(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.back(id, after, before, skip, visit, Back::Transcript)
     }
     /// A fork's view joins two logs: it keeps no restore point, and its load reads it whole.
     fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
@@ -872,26 +884,37 @@ impl Store for ForkView {
     }
 }
 
+/// Which of the inner store's backward reads a backward read of the view takes.
+#[derive(Clone, Copy)]
+enum Back {
+    /// `scan_back`.
+    Log,
+    /// `scan_back_indexed`.
+    Kinds,
+    /// `scan_back_transcript`.
+    Transcript,
+}
+
 impl ForkView {
-    /// The inner store's `scan_back` (`indexed`: its `scan_back_indexed`).
+    /// The inner store's backward read `how`.
     fn inner_back(
         &self,
-        indexed: bool,
+        how: Back,
         id: &str,
         after: u64,
         before: u64,
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        if indexed {
-            self.inner.scan_back_indexed(id, after, before, skip, visit)
-        } else {
-            self.inner.scan_back(id, after, before, skip, visit)
+        match how {
+            Back::Log => self.inner.scan_back(id, after, before, skip, visit),
+            Back::Kinds => self.inner.scan_back_indexed(id, after, before, skip, visit),
+            Back::Transcript => self.inner.scan_back_transcript(id, after, before, skip, visit),
         }
     }
 
-    /// `scan_back` (`indexed`: `scan_back_indexed`): the fork's own records, then its chat's
-    /// history before the fork point.
+    /// A backward read `how`: the fork's own records, then its chat's history before the fork
+    /// point.
     fn back(
         &self,
         id: &str,
@@ -899,16 +922,16 @@ impl ForkView {
         before: u64,
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
-        indexed: bool,
+        how: Back,
     ) -> Result<()> {
         let _held = self.shared();
 
         let Some(r) = self.reference(id)? else {
-            return self.inner_back(indexed, id, after, before, skip, visit);
+            return self.inner_back(how, id, after, before, skip, visit);
         };
         let mut going = true;
         if before > r.through_seq + 1 {
-            self.inner_back(indexed, id, after.max(r.through_seq), before, skip, &mut |rec| {
+            self.inner_back(how, id, after.max(r.through_seq), before, skip, &mut |rec| {
                 going = visit(rec);
                 going
             })?;
@@ -925,7 +948,7 @@ impl ForkView {
             before.min(r.through_seq + 1),
             &skip_other,
             &mut |rec| !is_history(&rec.kind) || visit(rec),
-            indexed,
+            how,
         )
     }
 }

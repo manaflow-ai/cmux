@@ -321,9 +321,8 @@ fn a_segment_begun_before_the_index_reads_its_older_part_the_old_way() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// A page that stops part way through a segment with no index leaves that segment unindexed, and
-/// a page that passes a whole one indexes it: the next page there reads only the index and its
-/// records.
+/// A page over segments with no index indexes each segment it reads in, the one it stops in too
+/// (its rest read by heads, once): the next page there reads only the index and its records.
 #[test]
 fn a_read_that_passes_a_segment_with_no_index_indexes_it() {
     let root = temp_root("transcript-index-lazy");
@@ -373,6 +372,28 @@ fn a_read_that_passes_a_segment_with_no_index_indexes_it() {
             read <= 64 * 1024 + 8 * page_bytes + index_bytes,
             "the page read {read} bytes for its {page_bytes} (index {index_bytes})"
         );
+    }
+    // A page that stops part way through a segment with no index indexes it whole: the next
+    // page in it reads only its records.
+    std::fs::remove_dir_all(index_dir(&sessions)).unwrap();
+    let args =
+        PageArgs { before: Some(last / 3), limit: 3, max_bytes: Some(1 << 20), filter: &filter };
+    let first = args.read(&hub);
+    assert_eq!(first, old.page(&args));
+    assert!(!index_files(&sessions).is_empty(), "the segment the page stopped in is indexed");
+    // Between the records the first page read: in segments it read in.
+    let args = PageArgs {
+        before: first.0.last().map(|r| r.seq),
+        limit: 1,
+        max_bytes: Some(1 << 20),
+        filter: &filter,
+    };
+    let r0 = read_bytes();
+    let page = args.read(&hub);
+    let read = read_bytes() - r0;
+    assert_eq!(page, old.page(&args));
+    if cfg!(target_os = "linux") {
+        assert!(read <= 64 * 1024, "the next page in it read {read} bytes");
     }
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -524,5 +545,134 @@ fn scrolling_a_chat_back_to_its_start_reads_each_page_not_the_log() {
         before = events.first().map(|r| r.seq);
     }
     assert!(pages > 3, "{pages} pages");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Drops `dir`'s files from the page cache, so the next read of them is a cold one.
+fn evict(dir: &Path) {
+    #[cfg(target_os = "linux")]
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        if let Ok(file) = std::fs::File::open(entry.path()) {
+            use std::os::fd::AsRawFd;
+            // SAFETY: a valid descriptor this function holds open; advice changes no memory.
+            unsafe { libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED) };
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = dir;
+}
+
+/// The web pane's older page exactly as it asks for it on a local acpmux (`direct.ts`
+/// `olderPage`, `_acpmux/events` in `server/requests/events.rs`): the transcript and the preset
+/// approval cards, `limit` 2,000 (`OLDER_PAGE_RECORDS`), `maxBytes` 1 MiB (`OLDER_PAGE_BYTES`,
+/// which also leaves superseded tool output out), newest first before a seq.
+fn pane_filter() -> EventFilter {
+    EventFilter::parse(Some(&json!([
+        "transcript",
+        "preset_approval_request",
+        "preset_approval_decision"
+    ])))
+    .unwrap()
+    .omitting_superseded(true)
+}
+
+/// The pane's older page (`pane_filter`) of a large generated Codex-shaped log at several
+/// depths: as before the index (`READ_THE_OLD_WAY`), on the first read of a log with no index
+/// (which indexes the segments it reads in), on the next read, and through the index the log was
+/// written with; warm, and cold (the log and its index dropped from the page cache first). Per
+/// 100 records: a reply, a tool call update of 2 KB, a preset card every 1,000, and 14 KB load
+/// replays and raw harness lines for the rest (about a long Codex chat's split). `cargo test -p
+/// acpmux --release -- --ignored --nocapture older_page_synthetic_perf`; `SYNTH_PAGE_MB` sets the
+/// log's size (default 1024).
+#[test]
+#[ignore = "a measurement, not a check"]
+fn older_page_synthetic_perf() {
+    let mb: u64 = std::env::var("SYNTH_PAGE_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(1024);
+    let root = temp_root("transcript-index-synthetic");
+    let payload = "x".repeat(14 << 10);
+    let records = mb * (1 << 20) / (14 << 10);
+    let write = |sessions: &Path, indexed: bool| {
+        let writer = LocalStore::new(sessions.to_path_buf(), 8 << 20).unwrap();
+        let writer = if indexed { writer } else { writer.without_transcript_index() };
+        writer.save(&meta("c")).unwrap();
+        for seq in 1..=records {
+            let mut rec = match seq % 100 {
+                0 if seq % 1000 == 0 => mux(
+                    "preset_approval_request",
+                    json!({"preset": format!("p{seq}"), "digest": "d"}),
+                ),
+                0 => agent(
+                    0,
+                    "agent_message_chunk",
+                    json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": format!("reply {seq} {}", "w".repeat(300))}}),
+                ),
+                1 => agent(
+                    0,
+                    "tool_call_update",
+                    json!({"sessionUpdate": "tool_call_update", "toolCallId": format!("t{seq}"), "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": "o".repeat(2000)}}]}),
+                ),
+                n if n % 2 == 0 => raw("codex.response", payload.len()),
+                _ => agent(
+                    0,
+                    "tool_call.replay",
+                    json!({"sessionUpdate": "tool_call", "toolCallId": format!("r{seq}"), "title": payload}),
+                ),
+            };
+            rec.seq = seq;
+            writer.append("c", &rec).unwrap();
+        }
+        writer.flush().unwrap();
+    };
+    let legacy = root.join("legacy");
+    let written = root.join("written");
+    write(&legacy, false);
+    write(&written, true);
+    let log_bytes: u64 =
+        segment_files(&legacy).iter().map(|p| std::fs::metadata(p).unwrap().len()).sum();
+    println!(
+        "synthetic log: {records} records, {:.0} MB in {} segments",
+        log_bytes as f64 / 1e6,
+        segment_files(&legacy).len()
+    );
+    let filter = pane_filter();
+    let read = |hub: &Hub, sessions: &Path, label: &str, depth: f64, cold: bool| {
+        if cold {
+            evict(&sessions.join("c").join("events"));
+            evict(&index_dir(sessions));
+        }
+        let before = ((records as f64) * (1.0 - depth)).max(2.0) as u64;
+        let (r0, b0, t0) =
+            (read_bytes(), PARSED_BYTES.with(std::cell::Cell::get), std::time::Instant::now());
+        let page =
+            hub.events_page("c", 0, Some(before), 2000, Some(1 << 20), true, &filter).unwrap();
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        let own: u64 =
+            page.events.iter().map(|r| serde_json::to_vec(r).unwrap().len() as u64).sum();
+        println!(
+            "SYNTH {label} {} depth {depth}: {ms:.1} ms, {} records ({:.2} MB, more {}), read {:.1} MB, parsed {:.2} MB",
+            if cold { "cold" } else { "warm" },
+            page.events.len(),
+            own as f64 / 1e6,
+            page.has_more,
+            (read_bytes() - r0) as f64 / 1e6,
+            (PARSED_BYTES.with(std::cell::Cell::get) - b0) as f64 / 1e6,
+        );
+        page.events
+    };
+    let depths = [0.02, 0.25, 0.5, 0.9];
+    let hub = deferred_hub(&legacy, 8 << 20);
+    let indexed_hub = deferred_hub(&written, 8 << 20);
+    for cold in [false, true] {
+        for depth in depths {
+            super::READ_THE_OLD_WAY.with(|old| old.set(true));
+            let want = read(&hub, &legacy, "before", depth, cold);
+            super::READ_THE_OLD_WAY.with(|old| old.set(false));
+            let _ = std::fs::remove_dir_all(index_dir(&legacy));
+            assert_eq!(read(&hub, &legacy, "first read", depth, cold), want);
+            assert_eq!(read(&hub, &legacy, "next read", depth, cold), want);
+            let got = read(&indexed_hub, &written, "indexed as written", depth, cold);
+            assert_eq!(got, want);
+        }
+    }
     let _ = std::fs::remove_dir_all(&root);
 }

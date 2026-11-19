@@ -41,7 +41,9 @@ mod meta_parts;
 pub use meta_parts::PARTS_FILE;
 mod shared_value;
 mod text_index;
+mod transcript_index;
 pub use shared_value::{SharedRows, SharedValue};
+pub use transcript_index::{DIR as TRANSCRIPT_INDEX_DIR, PAGE_KINDS as TRANSCRIPT_INDEX_KINDS};
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1244,6 +1246,21 @@ pub trait Store: Send + Sync {
     ) -> Result<()> {
         self.scan_back(id, after, before, skip, visit)
     }
+    /// [`Store::scan_back`] for a read whose `skip` passes only lines the transcript index names
+    /// (`store/transcript_index.rs` `holds`: a page of [`TRANSCRIPT_INDEX_KINDS`] with no
+    /// subagent): a file store reads only the lines the index names where a segment has a good
+    /// index, and the segment back from `before` where it has none, so the read stops where
+    /// `scan_back` does with the same records. Every other store reads as `scan_back`.
+    fn scan_back_transcript(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back(id, after, before, skip, visit)
+    }
     /// Visit records with `after < seq < before` newest first until `visit`
     /// returns false: the reverse of `scan`, for pages taken from the end.
     /// `skip(dir, kind)` true says a record is surely not wanted: a file store
@@ -1553,8 +1570,8 @@ pub use log_line::RecordHead;
 pub(crate) use log_line::{PARSED_BYTES, PARSED_LINES};
 
 use log_line::{
-    first_seq, for_each_line_rev, for_each_line_rev_between, for_each_line_rev_from, offset_of_seq,
-    parse_record, record_dir, record_kind, record_seq,
+    first_seq, for_each_line_rev, for_each_line_rev_at, for_each_line_rev_between,
+    for_each_line_rev_from, offset_of_seq, parse_record, record_dir, record_kind, record_seq,
 };
 
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
@@ -1627,6 +1644,9 @@ pub struct LocalStore {
     parts: meta_parts::PartsMemo,
     /// The segments' record heads a keyed scan read (`store/kind_heads.rs`).
     kind_heads: kind_heads::KindHeads,
+    /// Whether appends index the transcript's lines (`store/transcript_index.rs`); off only in a
+    /// test that measures what the index costs.
+    index_transcript: bool,
     #[cfg(test)]
     pub(crate) meta_saves: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
@@ -1651,6 +1671,8 @@ struct SegmentWriter {
     file: File,
     written: u64,
     used: u64,
+    /// The segment's transcript index (`store/transcript_index.rs`).
+    tx: transcript_index::Appender,
 }
 
 impl SegmentWriter {
@@ -1659,7 +1681,9 @@ impl SegmentWriter {
     /// records stay in order. A failed sync is logged and noted in `failed`: its records were
     /// written (an append is never synced on its own), so only a machine crash before the kernel
     /// writes them back loses them, as it would any append since the last `flush`.
-    fn close(self, id: &str, failed: &std::sync::atomic::AtomicBool) {
+    fn close(mut self, id: &str, failed: &std::sync::atomic::AtomicBool) {
+        // Its transcript index covers all it wrote: a daemon without the index may append next.
+        LocalStore::cover_index(&mut self);
         if let Err(e) = log_sync::sync_segment(&self.file, false) {
             #[cfg(test)]
             log_sync::hold(&log_sync::HOLD_BEFORE_CLOSE_NOTE);
@@ -1685,9 +1709,17 @@ impl LocalStore {
             rehydrate_hook: Default::default(),
             parts: Default::default(),
             kind_heads: Default::default(),
+            index_transcript: true,
             #[cfg(test)]
             meta_saves: Default::default(),
         })
+    }
+
+    /// This store writing no transcript index (a measurement of what the index costs).
+    #[cfg(test)]
+    pub(crate) fn without_transcript_index(mut self) -> Self {
+        self.index_transcript = false;
+        self
     }
 
     /// Held through a write; refused once the store is sealed (`Store::seal`).
@@ -1881,7 +1913,13 @@ impl LocalStore {
         };
         let file = open_private_append(&path)?;
         let written = cut_torn_tail(&file, &path)?;
-        Ok(SegmentWriter { index, file, written, used: 0 })
+        Ok(SegmentWriter {
+            index,
+            file,
+            written,
+            used: 0,
+            tx: transcript_index::Appender::from(written),
+        })
     }
 }
 
@@ -1949,20 +1987,27 @@ impl LocalStore {
         writers.clock += 1;
         let clock = writers.clock;
         let full = writers.open.get(id).is_some_and(|w| w.written >= self.segment_bytes);
-        if full && let Some(old) = writers.open.remove(id) {
-            // The full segment closes before the next one opens (rare: once per segment).
+        if full && let Some(mut old) = writers.open.remove(id) {
+            // The full segment closes before the next one opens (rare: once per segment), its
+            // transcript index synced with it.
             let index = old.index + 1;
+            Self::sync_index_locked(&mut old);
             old.close(id, &self.sync_failed);
             let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
             let file = open_private_append(&path)?;
-            writers
-                .open
-                .insert(id.to_owned(), SegmentWriter { index, file, written: 0, used: clock });
+            writers.open.insert(
+                id.to_owned(),
+                SegmentWriter { index, file, written: 0, used: clock, tx: Default::default() },
+            );
         }
+        self.bound_index_handles(&mut writers.open, id, line);
         let Some(w) = writers.open.get_mut(id) else {
             anyhow::bail!("no segment writer for session {id}");
         };
         w.used = clock;
+        // The line's index entry goes first: a crash between the two leaves an entry with no line,
+        // which a reader reads past, never a line with no entry.
+        let indexed = self.index_line(id, w, line, clock)?;
         #[cfg(test)]
         let wrote = match test_write_fault::take() {
             Some(kept) => w.file.write_all(&line[..kept.min(line.len())]).and(Err(
@@ -1980,6 +2025,9 @@ impl LocalStore {
             // synced as at any close (a checkpoint's `sync_log` takes a log with no open writer
             // as synced), and the next open cuts the tail.
             let segment = self.dir(id).join("events").join(format!("{:06}.ndjson", w.index));
+            if indexed {
+                self.unindex_line(w);
+            }
             if cut_back(&segment, w.written).is_err()
                 && let Some(w) = writers.open.remove(id)
             {
@@ -2222,8 +2270,9 @@ impl Store for LocalStore {
     }
 
     fn flush_session(&self, id: &str) -> Result<()> {
-        let writers = self.writers.lock_or_recover();
-        if let Some(writer) = writers.open.get(id) {
+        let mut writers = self.writers.lock_or_recover();
+        if let Some(writer) = writers.open.get_mut(id) {
+            Self::sync_index_locked(writer);
             log_sync::sync_segment(&writer.file, true).map_err(SyncFailed)?;
         }
         let session = self.dir(id);
@@ -2479,8 +2528,20 @@ impl Store for LocalStore {
         self.scan_back_in(id, after, before, skip, visit, true)
     }
 
+    fn scan_back_transcript(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back_transcript_in(id, after, before, skip, visit)
+    }
+
     fn flush(&self) -> Result<()> {
-        for w in self.writers.lock_or_recover().open.values() {
+        for w in self.writers.lock_or_recover().open.values_mut() {
+            Self::sync_index_locked(w);
             log_sync::sync_segment(&w.file, false)?;
         }
         Ok(())
