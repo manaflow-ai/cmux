@@ -707,14 +707,44 @@ pub fn fanin_section(dir: &Path) -> Result<Option<Value>, String> {
             Err(e) => Err(format!("{}: {e}", p.display())),
         }
     };
+    // A summary's tables are inline (`tables`) or beside it: `n<N>.fanin-table.json` (a committed results dir) or
+    // `n<N>/fanin-table.json` (a ramp's out dir).
+    let beside = || -> Result<Vec<Value>, String> {
+        let mut found: Vec<(u64, Value)> = Vec::new();
+        let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let path = if name.ends_with(".fanin-table.json") {
+                entry.path()
+            } else if entry.path().is_dir() {
+                entry.path().join("fanin-table.json")
+            } else {
+                continue;
+            };
+            if let Some(t) = read(&path)?.filter(|t| t["schema"] == "fanin-table.v1") {
+                found.push((t["n"].as_u64().unwrap_or(0), t));
+            }
+        }
+        found.sort_by_key(|(n, _)| *n);
+        Ok(found.into_iter().map(|(_, t)| t).collect())
+    };
     let (summary, tables) = match read(&dir.join("fanin-summary.json"))? {
         Some(s) => {
-            let t = s["tables"].as_array().cloned().unwrap_or_default();
+            let t = match s["tables"].as_array() {
+                Some(t) if !t.is_empty() => t.clone(),
+                _ => beside()?,
+            };
             (Some(s), t)
         }
         None => match read(&dir.join("fanin-table.json"))? {
             Some(t) => (None, vec![t]),
-            None => return Ok(None),
+            None => {
+                let t = beside()?;
+                if t.is_empty() {
+                    return Ok(None);
+                }
+                (None, t)
+            }
         },
     };
     let f = |t: &Value, ptr: &str| t.pointer(ptr).and_then(Value::as_f64);
@@ -750,7 +780,10 @@ pub fn fanin_section(dir: &Path) -> Result<Option<Value>, String> {
             "events": {"lost": lost, "duplicated": dup, "client_lagged": t["events"]["client_lagged"]},
             "controller": {"cpu_pct_per_session": num(cpu), "rss_mb_per_session": num(rss_mb),
                            "rss_mb": num(f(t, "/controller/rss_kb").map(|k| k / 1024.0)),
-                           "cpu_pct": num(f(t, "/controller/cpu_pct"))},
+                           "cpu_pct": num(f(t, "/controller/cpu_pct")),
+                           // "whole life": CPU seconds over the daemon's life (setup included), not the window;
+                           // acpmux has no CPU gauge yet
+                           "cpu_basis": t["controller"].get("cpu_basis").cloned().unwrap_or(json!("whole life"))},
             "gaps": t["gaps"],
         }));
     }
@@ -802,7 +835,14 @@ fn fanin_rows(fanin: &Value, rows: &mut Vec<Value>) {
             ("list_paged_ms", "/list_ms/paged_at_rest", "ms", 5.0, None),
             ("list_under_churn_ms", "/list_ms/whole_under_churn_p95", "ms", 5.0, None),
             ("controller_rss_mb_per_session", "/controller/rss_mb_per_session", "MB", 0.05, None),
-            ("controller_cpu_pct_per_session", "/controller/cpu_pct_per_session", "%", 0.01, None),
+            // whole-life CPU (setup included): acpmux has no CPU gauge yet
+            (
+                "controller_life_cpu_pct_per_session",
+                "/controller/cpu_pct_per_session",
+                "%",
+                0.01,
+                None,
+            ),
         ];
         for (name, ptr, unit, floor, target) in ones {
             if let Some(v) = t.pointer(ptr).and_then(Value::as_f64) {
@@ -818,6 +858,7 @@ fn fanin_rows(fanin: &Value, rows: &mut Vec<Value>) {
         ("controller_cpu_pct_per_session", "%", 0.01),
     ] {
         if let Some(v) = fanin["slope_per_1000_sessions"][name].as_f64() {
+            let name = name.replace("controller_cpu", "controller_life_cpu");
             // A falling per-session cost is good news: the row is the rise only (the cron judges lower as better).
             let v = v.max(0.0);
             rows.push(row(
@@ -1170,6 +1211,34 @@ mod tests {
         assert_eq!(r1["fanin"]["ramps"][0]["n"], 200);
         assert_eq!(r1["attach_ms"]["n"], 1);
         assert_eq!(r1["first_paint_ms"]["n"], 1);
+        assert_eq!(r1["fanin"]["ramps"][0]["controller"]["cpu_basis"], "whole life");
+        assert!(
+            perf_rows(&r1)
+                .iter()
+                .any(|x| x["name"] == "coord_sim.fanin.n200.controller_life_cpu_pct_per_session")
+        );
+        // a committed results dir (the first fleet ramp's layout): the summary without `tables`, each table beside
+        // it as n<N>.fanin-table.json, out of order on disk
+        let mut no_tables = summary.clone();
+        no_tables["tables"] = Value::Null;
+        let committed = run_dir(
+            "fanin-committed",
+            &[
+                ("fanin-summary.json", &no_tables.to_string()),
+                ("n2000.fanin-table.json", &table(2000, 2150.4, 0.02).to_string()),
+                ("n50.fanin-table.json", &table(50, 102.4, 0.02).to_string()),
+                ("n200.fanin-table.json", &table(200, 204.8, 0.02).to_string()),
+            ],
+        );
+        let rc = report(&committed).unwrap();
+        let ns: Vec<u64> = rc["fanin"]["ramps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["n"].as_u64())
+            .collect();
+        assert_eq!(ns, [50, 200, 2000]);
+        assert_eq!(rc["fanin"]["ramps"][1]["controller"]["rss_mb_per_session"].as_f64(), Some(0.2));
         // --fanin DIR adds the ramp to a drive run's report
         let drive = run_dir("fanin-drive", &[("run.json", "{}")]);
         super::run(&[

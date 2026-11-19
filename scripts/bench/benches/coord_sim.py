@@ -16,7 +16,7 @@ webui.coord_sim.<metric>):
   typing.ack_ms, typing.echo_ms: a prompt to the daemon's ack and to its echo
   daemon.peak_rss_mb, daemon.rss_slope_mb_per_min (the leak signal), daemon.cpu_pct, per_chat.rss_mb, per_chat.cpu_pct
   fanin.n<N>.{attach_ms, fanout_ms, fanout_max_ms, list_ms, list_paged_ms, list_under_churn_ms,
-    controller_rss_mb_per_session, controller_cpu_pct_per_session, lost_or_duplicated}, and
+    controller_rss_mb_per_session, controller_life_cpu_pct_per_session (whole-life CPU), lost_or_duplicated}, and
     fanin.slope.controller_{rss_mb,cpu_pct}_per_session_per_ksession: the fan-in ramp (`coord-sim fanin`, one
     controller, N sessions over many host daemons), when the run had one (harness arg fanin=RAMPS)
 
@@ -89,13 +89,13 @@ def rows_of_report(report: dict) -> list[dict]:
         one(p + "list_paged_ms", _get(t, "list_ms", "paged_at_rest"), "ms")
         one(p + "list_under_churn_ms", _get(t, "list_ms", "whole_under_churn_p95"), "ms")
         one(p + "controller_rss_mb_per_session", _get(t, "controller", "rss_mb_per_session"), "MB")
-        one(p + "controller_cpu_pct_per_session", _get(t, "controller", "cpu_pct_per_session"), "%")
+        one(p + "controller_life_cpu_pct_per_session", _get(t, "controller", "cpu_pct_per_session"), "%")
         ev = t.get("events") or {}
         one(p + "lost_or_duplicated", (ev.get("lost") or 0) + (ev.get("duplicated") or 0), "events")
     for name, unit in (("controller_rss_mb_per_session", "MB"), ("controller_cpu_pct_per_session", "%")):
         v = _get(fanin, "slope_per_1000_sessions", name)
         if isinstance(v, (int, float)):
-            one(f"fanin.slope.{name}_per_ksession", max(v, 0.0), unit)
+            one(f"fanin.slope.{name.replace('controller_cpu', 'controller_life_cpu')}_per_ksession", max(v, 0.0), unit)
     return out
 
 
