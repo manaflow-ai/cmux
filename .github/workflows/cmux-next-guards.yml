@@ -842,8 +842,7 @@ jobs:
       - name: Remote Powerlevel10k prompt reset compatibility
         run: |
           if ! command -v zsh >/dev/null 2>&1; then
-            sudo apt-get -o DPkg::Lock::Timeout=300 update
-            sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh
+            bash scripts/ci/apt-ensure.sh zsh
           fi
           python3 tests/test_issue_4148_remote_p10k_keyboard_reset.py
 
