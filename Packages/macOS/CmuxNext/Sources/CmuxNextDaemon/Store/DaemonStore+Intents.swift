@@ -33,13 +33,23 @@ extension DaemonStore {
             _ = intentLog.append(intent, transaction: transaction, shownAt: shownAt)
             return
         }
+        benchLaps?.lap("entry")
         verifyMirrorUnchanged(before: "intent")
+        benchLaps?.lap("verify_mirror")
         guard intentLog.append(intent, transaction: transaction, shownAt: shownAt) else { return }
-        if !intentLog.setShown(IntentOverlay.show(intent, in: self), at: intentLog.entries.count - 1) { reportMirrorViolation("intent log is empty after an append") }
+        benchLaps?.lap("log_append")
+        let shown = IntentOverlay.show(intent, in: self)
+        benchLaps?.lap("show_return")
+        if !intentLog.setShown(shown, at: intentLog.entries.count - 1) { reportMirrorViolation("intent log is empty after an append") }
+        benchLaps?.lap("set_shown")
         recomputeSidebarIfNeeded()
+        benchLaps?.lap("sidebar")
         publishTabListChange()
+        benchLaps?.lap("publish_tabs")
         recordMirror()
+        benchLaps?.lap("record_mirror")
         workspaceListMayHaveChanged()
+        benchLaps?.lap("ws_list")
     }
 
     /// The overlay moved a workspace or changed its group: one sidebar

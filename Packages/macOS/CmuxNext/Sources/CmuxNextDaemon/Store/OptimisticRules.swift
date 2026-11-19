@@ -36,11 +36,13 @@ import Foundation
     /// places `leaf`.
     static func split(_ screen: ScreenModel, target: PaneID, direction: SplitDirection, ratio: Double, leaf: PaneID,
                       splitID: String, column: ProvisionalColumn?, row: ProvisionalRow?, around: SplitID?, before: Bool,
-                      respondWith: ((Data) -> Data?)? = nil) -> Placed? {
+                      respondWith: ((Data) -> Data?)? = nil, laps: BenchLaps? = nil) -> Placed? {
         let layout = screen.layout, columns = screen.columns
         // A plain split looks for the split `around` when it wraps one; New Column and New Row always the target's leaf.
         let wraps = column == nil && row == nil ? around : nil
+        laps?.lap("rule_entry")
         let spots = findSpots(layout, columns, holding: target, match: wraps.map(Match.split) ?? .leaf(target))
+        laps?.lap("find_spots")
         // Each kind sends only the facts its rule reads, so no walk runs that no rule needs.
         var facts = Facts(leafPlaced: layout.contains(pane: leaf), columns: columns.count, panes: screen.panes.count)
         if column == nil {
@@ -63,7 +65,8 @@ import Foundation
                                    column: column.map { WireColumnSpec(handle: $0.handle.rawValue, width: $0.width, left: $0.left) },
                                    row: row.map { WireRowSpec(handle: $0.handle.rawValue, height: $0.height) },
                                    around: around, before: before ? true : nil, facts: facts, spots: spots)
-        guard let patch: Patch = call(request, respondWith: respondWith),
+        laps?.lap("facts")
+        guard let patch: Patch = call(request, respondWith: respondWith, laps: laps),
               let shown = apply(patch, layout: layout, columns: columns, spots: spots) else { return nil }
         return Placed(layout: shown.layout, columns: shown.columns, columnsEdited: shown.columnsEdited,
                       paneAt: patch.paneAt ?? screen.panes.count)
@@ -231,9 +234,14 @@ import Foundation
     /// `respondWith` (bench-only ref, never in a PR) answers in place of the app FFI's `optimistic` while the pinned
     /// release predates the patch contract; nil uses the FFI.
     private static func call<Request: Encodable, Answer: Decodable>(_ request: Request,
-                                                                  respondWith: ((Data) -> Data?)? = nil) -> Answer? {
-        guard let data = try? JSONEncoder().encode(request), let answer = (respondWith ?? respond)(data) else { return nil }
-        return (try? JSONDecoder().decode(Answer?.self, from: answer)) ?? nil
+                                                                  respondWith: ((Data) -> Data?)? = nil, laps: BenchLaps? = nil) -> Answer? {
+        guard let data = try? JSONEncoder().encode(request) else { return nil }
+        laps?.lap("encode")
+        guard let answer = (respondWith ?? respond)(data) else { return nil }
+        laps?.lap("respond")
+        let decoded = (try? JSONDecoder().decode(Answer?.self, from: answer)) ?? nil
+        laps?.lap("decode")
+        return decoded
     }
 
     /// One `optimistic` request's JSON answer (`null` when it shows nothing); nil when the operation refused it.

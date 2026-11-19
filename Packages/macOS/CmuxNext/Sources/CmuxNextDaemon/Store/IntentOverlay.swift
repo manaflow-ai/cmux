@@ -181,6 +181,7 @@ import Foundation
     /// before the apply, in the daemon's order).
     static func show(_ intent: Intent, in store: DaemonStore) -> (undo: IntentUndo?, place: TabMovePlace?) {
         let place = TabMovePlace(of: intent, in: store)
+        store.benchLaps?.lap("move_place")
         return (apply(intent, to: store), place)
     }
 

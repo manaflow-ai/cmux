@@ -88,69 +88,94 @@ struct OptimisticOverlayBench {
     }
 
     /// `measure` with ``standIn(_:)`` answering the split rules; every sample must show the new pane.
-    private static func measurePatch(_ store: DaemonStore, panes count: Int, _ make: () -> Intent) -> [UInt64] {
+    private static func measurePatch(_ store: DaemonStore, panes count: Int, phases: inout [String: [UInt64]],
+                                     _ make: () -> Intent) -> [UInt64] {
         store.benchOptimisticResponder = standIn
         defer { store.benchOptimisticResponder = nil }
         var shown = 0
-        let out = measure(store, make, after: { shown += $0.workspaces.first?.screens.first?.panes.count == count + 1 ? 1 : 0 })
+        var laps: [String: [UInt64]] = [:]
+        let out = measure(store, make, after: { shown += $0.workspaces.first?.screens.first?.panes.count == count + 1 ? 1 : 0 },
+                          report: { laps = $0 })
+        phases = laps
         #expect(shown == warmups + samples)
         return out
     }
 
     /// `warmups + samples` intends of `make()`'s intent, each rejected after its sample; the samples in ns.
-    private static func measure(_ store: DaemonStore, _ make: () -> Intent, after: (DaemonStore) -> Void = { _ in }) -> [UInt64] {
+    /// `report` gets the per-phase laps of intend (``BenchLaps``), in ns per sample.
+    private static func measure(_ store: DaemonStore, _ make: () -> Intent, after: (DaemonStore) -> Void = { _ in },
+                                report: (([String: [UInt64]]) -> Void)? = nil) -> [UInt64] {
         var out: [UInt64] = []
+        var phases: [String: [UInt64]] = [:]
+        let laps = BenchLaps()
         out.reserveCapacity(samples)
         for index in 0..<(warmups + samples) {
             let intent = make()
             let transaction = ClientTransactionID.generate()
+            store.benchLaps = laps
+            laps.start()
             let start = DispatchTime.now().uptimeNanoseconds
             store.intend(intent, transaction: transaction)
             let end = DispatchTime.now().uptimeNanoseconds
+            store.benchLaps = nil
             after(store)
+            let rejectStart = DispatchTime.now().uptimeNanoseconds
             store.rejectIntent(transaction)
-            if index >= warmups { out.append(end - start) }
+            let rejectEnd = DispatchTime.now().uptimeNanoseconds
+            if index >= warmups {
+                out.append(end - start)
+                for (phase, ns) in laps.laps { phases[phase, default: []].append(ns) }
+                phases["reject_outside_clock", default: []].append(rejectEnd - rejectStart)
+            }
         }
+        report?(phases)
         return out
     }
 
-    private static func report(_ scenario: String, panes: Int, _ samples: [UInt64]) {
+    private static func report(_ scenario: String, panes: Int, _ samples: [UInt64], phases: [String: [UInt64]] = [:]) {
         let sorted = samples.sorted()
         let p50 = sorted[sorted.count / 2]
         let p95 = sorted[min(sorted.count - 1, Int((Double(sorted.count) * 0.95).rounded(.up)) - 1)]
         let list = samples.map(String.init).joined(separator: ",")
-        print("OVERLAY-BENCH {\"scenario\":\"\(scenario)\",\"panes\":\(panes),\"unit\":\"ns\",\"p50\":\(p50),\"p95\":\(p95),\"samples\":[\(list)]}")
+        let phaseList = phases.sorted { $0.key < $1.key }.map { phase, ns in
+            let sorted = ns.sorted()
+            return "\"\(phase)\":\(sorted[sorted.count / 2])"
+        }.joined(separator: ",")
+        print("OVERLAY-BENCH {\"scenario\":\"\(scenario)\",\"panes\":\(panes),\"unit\":\"ns\",\"p50\":\(p50),\"p95\":\(p95),\"phases_p50\":{\(phaseList)},\"samples\":[\(list)]}")
     }
 
     @Test(arguments: [2, 64, 256])
     func split(panes count: Int) throws {
         let store = Self.store(panes: count)
         let target = PaneID(rawValue: UInt64(count))
-        let samples = Self.measurePatch(store, panes: count) { .splitPane(pane: target, direction: .right, ratio: 0.5, provisional: ProvisionalPane()) }
+        var phases: [String: [UInt64]] = [:]
+        let samples = Self.measurePatch(store, panes: count, phases: &phases) { .splitPane(pane: target, direction: .right, ratio: 0.5, provisional: ProvisionalPane()) }
         #expect(store.mirrorViolations.isEmpty)
-        Self.report("split", panes: count, samples)
+        Self.report("split", panes: count, samples, phases: phases)
     }
 
     @Test(arguments: [2, 64, 256])
     func splitLeft(panes count: Int) throws {
         let store = Self.store(panes: count)
         let target = PaneID(rawValue: UInt64(count))
-        let samples = Self.measurePatch(store, panes: count) {
+        var phases: [String: [UInt64]] = [:]
+        let samples = Self.measurePatch(store, panes: count, phases: &phases) {
             .splitPane(pane: target, direction: .right, ratio: 0.5, provisional: ProvisionalPane().placed(before: true))
         }
         #expect(store.mirrorViolations.isEmpty)
-        Self.report("split_left", panes: count, samples)
+        Self.report("split_left", panes: count, samples, phases: phases)
     }
 
     @Test(arguments: [2, 64, 256])
     func newColumn(panes count: Int) throws {
         let store = Self.store(panes: count)
         let target = PaneID(rawValue: UInt64(count))
-        let samples = Self.measurePatch(store, panes: count) {
+        var phases: [String: [UInt64]] = [:]
+        let samples = Self.measurePatch(store, panes: count, phases: &phases) {
             .splitPane(pane: target, direction: .right, ratio: 0.5, provisional: ProvisionalPane(columnWidth: 0.5))
         }
         #expect(store.mirrorViolations.isEmpty)
-        Self.report("new_column", panes: count, samples)
+        Self.report("new_column", panes: count, samples, phases: phases)
     }
 
     @Test func moveTab() throws {

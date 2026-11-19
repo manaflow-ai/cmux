@@ -154,6 +154,7 @@ import Foundation
 
     static func apply(target: PaneID, direction: SplitDirection, ratio: Double, provisional: ProvisionalPane,
                       to store: DaemonStore) -> IntentUndo? {
+        store.benchLaps?.lap("dispatch")
         let daemon = daemonPane(provisional, in: store)
         guard !daemonPlaces(provisional, in: store) else { return nil }
         let leaf = daemon?.handle ?? provisional.handle
@@ -161,22 +162,29 @@ import Foundation
         guard let target = shownTarget(target, in: store), store.panesByHandle[target] != nil,
               daemon != nil || (store.panesByHandle[provisional.handle] == nil && store.tabsBySurface[provisional.surface] == nil),
               let screen = store.screen(containing: target) else { return nil }
+        store.benchLaps?.lap("find_target")
         // Where the split, New Column or New Row shows (cmux-layout-reducer `optimistic`: `split_kind.rs`'s
         // column and row trees, `new_pane_right`, `new_row_with_options_as`, `split_around`, `split {before: true}`);
         // nil when cmux-tui would refuse it.
         guard let placed = OptimisticRules.split(screen, target: target, direction: direction, ratio: ratio, leaf: leaf,
                                                  splitID: provisional.splitID, column: provisional.column, row: provisional.row,
-                                                 around: provisional.around, before: provisional.before, respondWith: store.benchOptimisticResponder)
+                                                 around: provisional.around, before: provisional.before, respondWith: store.benchOptimisticResponder, laps: store.benchLaps)
         else { return nil }
+        store.benchLaps?.lap("splice")
         // With the daemon's pane already listed, only the layout is the overlay's.
         let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,
                                         pane: daemon == nil ? provisional.handle : nil)
+        store.benchLaps?.lap("undo_record")
         screen.layout = placed.layout
         if placed.columnsEdited, placed.columns != screen.columns { screen.columns = placed.columns }
+        store.benchLaps?.lap("write_layout")
         guard daemon == nil else { return undo }
         let pane = model(of: provisional, in: store)
+        store.benchLaps?.lap("pane_model")
         screen.panes.insert(pane, at: min(max(placed.paneAt, 0), screen.panes.count))
+        store.benchLaps?.lap("panes_insert")
         store.index.insert(pane, in: screen)
+        store.benchLaps?.lap("index_insert")
         return undo
     }
 
