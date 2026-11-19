@@ -95,10 +95,9 @@ async fn rows(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcE
         Some(Value::Bool(tools)) => *tools,
         Some(_) => return Err(RpcError::invalid_params("withTools must be a boolean")),
     };
-    // One usage read for the request, as `_acpmux/sessions {usage: true}` waits for it.
+    // One usage read for the request, as `_acpmux/sessions {usage: true}` makes it.
     if params.get("usage") == Some(&Value::Bool(true)) {
-        let read = hub.refresh_usage_stats();
-        let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
+        hub.read_usage_for_list().await;
     }
     rows_reply(&keys, hub.rows_by_key(&keys, tools), ROWS_REPLY_BYTES)
 }

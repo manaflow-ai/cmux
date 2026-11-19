@@ -177,3 +177,38 @@ async fn a_pass_before_the_order_is_sorted_sorts_it_once() {
     assert_eq!(hub.list_order_rebuilds_for_test(), 1, "a page read patched it");
     assert_eq!(hub.usage_passes_for_test(), (2, 4));
 }
+
+/// Session Info's usage read (`_acpmux/sessions {usage: true}`, `acpmux ls -w`) with a cache
+/// already filled: it answers with what is cached at once and the pass runs behind it, never
+/// waiting on a slow read (hq#13932). A cold read, with nothing cached yet, still waits for its
+/// pass. The pass's read is a stub that takes `SLOW` longer than its own.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_warm_usage_read_answers_before_its_slow_pass() {
+    const SLOW: u64 = 400;
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    for n in 0..3 {
+        let live = meta(&format!("live-{n}"), "claude", Some("s"), "idle", now - n);
+        hub.store.save(&live).unwrap();
+        hub.insert_test_session(live);
+    }
+    hub.slow_usage_reads_for_test(SLOW);
+    let cold = std::time::Instant::now();
+    hub.read_usage_for_list().await;
+    let cold = cold.elapsed();
+    assert_eq!(hub.usage_passes_for_test(), (1, 3), "a cold read waits for its pass");
+    assert!(cold >= Duration::from_millis(SLOW), "the cold read waited: {cold:?}");
+
+    hub.usage_pass_due_for_test();
+    let warm = std::time::Instant::now();
+    hub.read_usage_for_list().await;
+    let warm = warm.elapsed();
+    eprintln!("usage read with a {SLOW} ms pass: cold {cold:?}, warm {warm:?}");
+    assert!(warm < Duration::from_millis(SLOW / 4), "the warm read waited for its pass: {warm:?}");
+    // The pass the warm read started runs behind it.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while hub.usage_passes_for_test().0 < 2 && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(hub.usage_passes_for_test(), (2, 3), "the revalidation ran behind the read");
+}

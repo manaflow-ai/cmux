@@ -48,6 +48,9 @@ pub(crate) struct UsageCache {
     passes: std::sync::atomic::AtomicU64,
     #[cfg(test)]
     sources_read: std::sync::atomic::AtomicUsize,
+    /// How long each pass's read takes on top of its own (a slow reader's stub).
+    #[cfg(test)]
+    read_delay_ms: std::sync::atomic::AtomicU64,
 }
 
 /// Drops the trackers and stats of chats not in `sources` (a whole pass's chats): closed a day
@@ -73,6 +76,12 @@ pub(super) fn prune_unlisted<T, S>(
 }
 
 impl Hub {
+    /// The usage read of a session list or row read that asks for usage (`usage: true`): a
+    /// pass, waited for at most [`READ_WAIT`].
+    pub(crate) async fn read_usage_for_list(self: &Arc<Self>) {
+        let _ = tokio::time::timeout(READ_WAIT, self.refresh_usage_stats()).await;
+    }
+
     /// Reads every chat's usage, after the pass that runs if one does, unless one started in
     /// the last few seconds and no turn ended since.
     pub(crate) async fn refresh_usage_stats(&self) {
@@ -184,7 +193,11 @@ impl Hub {
         let cache = &self.usage_stats;
         let (trackers, stats) = (cache.trackers.clone(), cache.stats.clone());
         // A read that stops waiting lets the pass go on; the trackers' lock keeps passes apart.
+        #[cfg(test)]
+        let delay = Duration::from_millis(cache.read_delay_ms.load(Ordering::SeqCst));
         let pass = tokio::task::spawn_blocking(move || {
+            #[cfg(test)]
+            std::thread::sleep(delay);
             let mut trackers = trackers.lock().unwrap_or_else(|e| e.into_inner());
             let mut fresh = Vec::with_capacity(sources.len());
             for (id, source) in &sources {
@@ -286,6 +299,11 @@ impl Hub {
         let live_us = at.elapsed().as_micros();
         assert_eq!(copied.len(), candidates.len(), "the same candidates both ways");
         (copied_us, live_us, candidates.len())
+    }
+
+    /// Each pass's read takes `ms` longer from now on.
+    pub(crate) fn slow_usage_reads_for_test(&self, ms: u64) {
+        self.usage_stats.read_delay_ms.store(ms, Ordering::SeqCst);
     }
 
     /// How many whole passes ran, and how many chats the last one read.
