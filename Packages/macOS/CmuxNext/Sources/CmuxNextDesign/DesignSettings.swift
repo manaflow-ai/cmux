@@ -298,6 +298,9 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `sidebar.drawnMenus`: the sidebar's right-click and more-button menus open as ``GlassMenu``s, which
+    /// the menu look styles; off keeps the system menu. Read as a menu opens.
+    public var sidebarDrawnMenus = false
     /// `appearance.fontSmoothing`: what web pages draw with now (``WebTheme``). Chrome text cmux draws
     /// itself follows it too (``ProcessFontSmoothing/chrome``); stock AppKit text keeps the launch's
     /// value (``ProcessFontSmoothing/current``).

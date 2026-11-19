@@ -251,6 +251,16 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "style", "rail", "thin", "narrow", "minimal", "strip", "hide", "hover", "overlay", "auto hide"]
             ),
             SettingDescriptor(
+                SidebarDrawnMenusSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.drawnMenus", "Styled Sidebar Menus"),
+                help: SettingsText.keyed("settings.sidebar.drawnMenus.help", "Right-click and more-button menus in the sidebar follow the menu look instead of the system menu."),
+                kind: .toggle,
+                default: .bool(SidebarDrawnMenusSetting.fallback),
+                keywords: ["menu", "context menu", "right click", "look", "style"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.densityPath,
                 section: .appearance,
                 group: group,
@@ -365,24 +375,6 @@ extension SidebarSettingsSchema {
                 ]),
                 default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
                 keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupPalettePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
-                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where group colors come from. A color you pick for a group stays."),
-                kind: .choice([
-                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
-                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
-                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
-                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
-                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
-                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
-                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
             ),
         ]
     }

@@ -39,8 +39,8 @@ extension SettingsSchema {
         "sidebar.controlsOnHover", "sidebar.floatOnHover",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
         "sidebar.groupPalette", "sidebar.groupGradient", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping",
-        "sidebar.steppingWraps", "sidebar.side", "sidebar.style", "sidebar.spacesPosition", "sidebar.spacesVisibility",
-        "tabs.newTabTemplate",
+        "sidebar.steppingWraps", "sidebar.side", "sidebar.style", "sidebar.drawnMenus", "sidebar.spacesPosition",
+        "sidebar.spacesVisibility", "tabs.newTabTemplate",
         // Which New Tab page draws; a look switch, ends no work.
         "tabs.nativeNewTabPage", "tabs.newTabApp",
         "tabs.newTabPosition",
@@ -276,6 +276,8 @@ extension SettingsSchema {
         "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
         "browser.openPullRequestsInGitHubPage",
+        // Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.
+        "models.spreadUsage",
     ]
 
     /// True when an agent may change `descriptor`, false when it may not, nil

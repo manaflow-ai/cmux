@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-19 (lane/look-menus-proportions): Sidebar-Look: Leo, 2026-11-19: "i think y'all also ought to emulate the things
+  for context menu styling and such maybne in those repos too and the layout and proportions as well". Opt-in
+  `sidebar.drawnMenus` (off, so no visual change by default): the sidebar's right-click menus and a row's more button
+  open as a `GlassMenu` (same rows, shortcuts, submenus, keys, accessibility) that the menu look keys can style, at the
+  pointer or under the more button. Drawn, the workspace and group menus skip the name-and-swatches header (a row view
+  GlassMenu does not draw) and keep Rename... and the Color submenu. Off, every sidebar menu is the system menu, as
+  before (Lawrence 2026-10-23's standard right-click menus stay the default). Values per look:
+  docs/cmux-next/menu-look.md. Tests: `SidebarDrawnMenusSettingTests`, `AASidebarDrawnMenuGalleryTests`.
+
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset

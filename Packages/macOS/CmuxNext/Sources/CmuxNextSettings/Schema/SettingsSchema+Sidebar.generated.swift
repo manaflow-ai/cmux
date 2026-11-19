@@ -124,6 +124,12 @@ extension SidebarSectionsSetting {
     public nonisolated static let tipsDefault = true
 }
 
+extension SidebarDrawnMenusSetting {
+    /// `sidebar.drawnMenus`: On: the sidebar's right-click and more-button menus open as cmux-drawn menus (GlassMenu) with the same rows, shortcuts, submenus and keys, so the menu look (appearance.menu.*) styles them; off (the default) keeps the system menu, which cannot be restyled. A look pack or a theme file turns it on; it applies to the next menu opened.
+    public nonisolated static let configPath = ["sidebar", "drawnMenus"]
+    public nonisolated static let fallback = false
+}
+
 extension WorkspaceColorsSetting {
     /// `workspaceColors.indicatorStyle`.
     public nonisolated static let indicatorStylePath = ["workspaceColors", "indicatorStyle"]
