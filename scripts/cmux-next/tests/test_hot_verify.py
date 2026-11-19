@@ -510,6 +510,67 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(receipt["plan"]["needs_build"])
         self.assertIn("plan", receipt["phases"])
 
+    def fake_app(self, commit: str) -> Path:
+        import plistlib
+        app = Path(self.tmp.name) / "cmux NIGHTLY.app"
+        (app / "Contents").mkdir(parents=True, exist_ok=True)
+        (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CMUXCommit": commit, "CFBundleVersion": "1"}))
+        return app
+
+    def test_run_on_swift_exits_3_with_its_plan_and_makes_no_copy(self):
+        """`cmux app try .` reads the last stdout line: a change that needs a build says why, and no copy is made."""
+        head = self.fx.change({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift": "struct App { let x = 2 }\n"})
+        app = self.fake_app(self.fx.base)
+        made = []
+        with unittest.mock.patch.object(hv.Side, "run", lambda side, *a, **k: made.append(a) or ""):
+            code, text = self.cli("run", "--source", f"sha:{head}", "--app", str(app), "--repo", str(self.fx.repo),
+                                  "--side", "try-test")
+        self.assertEqual(code, 3)
+        result = json.loads(text.strip().splitlines()[-1])
+        self.assertTrue(result["plan"]["needs_build"])
+        self.assertTrue(any(why.startswith("Swift") for why in result["plan"]["build"]), result["plan"]["build"])
+        self.assertEqual((result["side"], result["copy"]), ("try-test", None))
+        self.assertEqual(made, [])
+
+    def test_run_needs_an_app(self):
+        code, _ = self.cli("run", "--source", f"dir:{self.fx.repo}", "--app", hv.NO_APP, "--repo", str(self.fx.repo),
+                           "--side", "try-test")
+        self.assertEqual(code, 2)
+
+    def test_extract_keeps_the_swapped_code_as_a_branch_and_a_patch(self):
+        self.fx.git("checkout", "-q", "--detach", self.fx.base)
+        (self.fx.repo / "webviews/src/app.tsx").write_text("export const title = 'kept'\n")
+        head = hv.resolve_source(self.fx.repo, f"dir:{self.fx.repo}")["head"]
+        state = {"try_head": head, "try_fork": self.fx.base, "try_repo": str(self.fx.repo)}
+        out = Path(self.tmp.name) / "kept.patch"
+        with unittest.mock.patch.object(hv.Side, "exists", lambda side: True), \
+                unittest.mock.patch.object(hv.Side, "state", lambda side: state):
+            code, text = self.cli("extract", "--side", "try-test", "--out", str(out))
+        self.assertEqual(code, 0)
+        result = json.loads(text.strip().splitlines()[-1])
+        self.assertEqual(result["branch"], "cmux-try/try-test")
+        self.assertEqual(self.fx.git("rev-parse", "refs/heads/cmux-try/try-test"), head)
+        self.assertEqual(result["files"], ["webviews/src/app.tsx"])
+        self.assertIn("+export const title = 'kept'", out.read_text())
+        self.assertEqual(self.fx.git("status", "--porcelain"), "M webviews/src/app.tsx")  # working tree as it was
+
+    def test_extract_without_a_run_is_a_usage_error(self):
+        with unittest.mock.patch.object(hv.Side, "exists", lambda side: True), \
+                unittest.mock.patch.object(hv.Side, "state", lambda side: {}):
+            code, _ = self.cli("extract", "--side", "try-test")
+        self.assertEqual(code, 2)
+
+    def test_stop_remove_deletes_the_copy(self):
+        calls = []
+        with unittest.mock.patch.object(hv.Side, "stop", lambda side: []), \
+                unittest.mock.patch.object(hv.Side, "exists", lambda side: True), \
+                unittest.mock.patch.object(hv.Side, "run", lambda side, *a, **k: calls.append(a) or ""):
+            self.assertEqual(self.cli("stop", "--side", "try-test", "--remove")[0], 0)
+            self.assertEqual(calls, [("remove",)])
+            calls.clear()
+            self.assertEqual(self.cli("stop", "--side", "try-test")[0], 0)
+            self.assertEqual(calls, [])
+
 
 class PublishedPullRequestWebTest(unittest.TestCase):
     """look --pr N: a pull request's web layer comes from the bundles CI published for its head."""
