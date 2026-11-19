@@ -435,7 +435,7 @@ fn failed_index_publication_restores_the_worktree() {
     repo(src.path());
     sh(
         src.path(),
-        "printf 'two\\n' >> kept.txt && git add kept.txt && printf 'three\\n' >> kept.txt",
+        "printf 'two\\n' >> kept.txt && git add kept.txt && printf 'three\\n' >> kept.txt && git mv gone.txt renamed.txt && git rm -q empty.txt && mkdir empty.txt && printf child > empty.txt/child && git add empty.txt && ln -s kept.txt newlink",
     );
     let carry = snapshot(&here, src.path(), true).unwrap();
     sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
@@ -448,6 +448,8 @@ fn failed_index_publication_restores_the_worktree() {
     assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
     assert_eq!(std::fs::read(dst.path().join("kept.txt")).unwrap(), b"one\n");
     assert!(!dst.path().join(".git/index.lock").exists());
+    assert_eq!(sh(dst.path(), "git --no-optional-locks status --porcelain"), "");
+    assert!(!dst.path().join("newlink").exists());
     assert!(apply(dst.path(), &carry).ok);
 }
 
