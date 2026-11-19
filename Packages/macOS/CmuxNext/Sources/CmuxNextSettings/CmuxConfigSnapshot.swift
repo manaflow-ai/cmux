@@ -453,6 +453,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.plusButton = plusButton
         if let plusButtonDiagnostic { snapshot.diagnostics.append(plusButtonDiagnostic) }
         ChromePlacementSetting.parse(root, into: &snapshot)
+        _ = MenuLookSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyMenuLook`)
         let (paneBackgrounds, paneBackgroundsDiagnostic) = PaneBackgroundsSetting.parse(root)
         snapshot.paneBackgrounds = paneBackgrounds
         if let paneBackgroundsDiagnostic { snapshot.diagnostics.append(paneBackgroundsDiagnostic) }

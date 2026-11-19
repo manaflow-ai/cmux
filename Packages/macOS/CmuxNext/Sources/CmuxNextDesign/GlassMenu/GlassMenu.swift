@@ -24,7 +24,9 @@ public final class GlassMenu {
     let panel = NativePopupPanel(identifier: "cmux.glass-menu")
     let host: NativePopupHost
     let list = GlassMenuListView()
-    private let surface: OverlaySurfaceView
+    let surface: OverlaySurfaceView
+    /// The theme file's fill and rim over the glass (``MenuLook``); nil while the look sets neither.
+    var lookView: GlassMenuLookView?
     private weak var parentMenu: GlassMenu?
     private var child: GlassMenu?
     private var scope: ThemeScope?
@@ -87,6 +89,7 @@ public final class GlassMenu {
         guard rows.contains(where: { $0.item != nil }) else { return false }
         self.scope = scope
         scope.adopt(panel)
+        applyLook(DesignSettings.shared.menuLook)
         list.load(rows)
         let size = list.fittingMenuSize()
         guard host.show(size: size, anchor: anchor, in: window, preferred: preferred, makeKey: makeKey,
@@ -215,7 +218,7 @@ public final class GlassMenu {
         let next = GlassMenu(menu: submenu)
         next.parentMenu = self
         child = next
-        let rect = panel.convertToScreen(view.convert(view.bounds, to: nil))
+        let rect = submenuAnchor(row: panel.convertToScreen(view.convert(view.bounds, to: nil)))
         guard next.present(at: rect, in: window, preferred: .below, sideBySide: true, makeKey: fromKeyboard, scope: scope) else {
             child = nil
             return
@@ -356,6 +359,10 @@ final class GlassMenuListView: NSView {
     /// A key equivalent of one of the menu's items was pressed while the menu had the keys.
     var onKeyEquivalent: (NSEvent) -> Bool = { _ in false }
 
+    /// The theme file's menu look (``MenuLook``), set before each ``load(_:)``; standard is today's grid.
+    var look = MenuLook.standard
+    /// A one-line row's height: the look's, else the menu row token.
+    private var rowHeight: CGFloat { look.rowHeight ?? GlassMenuMaterial.rowHeight }
     private var rows: [GlassMenuRow] = []
     private var views: [NSView] = []
     private var highlighted: Int?
@@ -373,7 +380,7 @@ final class GlassMenuListView: NSView {
         views.forEach { $0.removeFromSuperview() }
         let iconColumn = rows.contains { $0.item?.image != nil }
         views = rows.enumerated().map { index, row in
-            guard let item = row.item else { return GlassMenuSeparatorView() }
+            guard let item = row.item else { return GlassMenuSeparatorView(inset: look.resolvedPadding, inkShare: look.separator.inkShare) }
             let view = makeRow(item, iconColumn: iconColumn)
             view.onActivate = { [weak self] in self?.onPick(index) }
             view.onHover = { [weak self] in self?.onHoverRow(index) }
@@ -385,19 +392,21 @@ final class GlassMenuListView: NSView {
 
     private func makeRow(_ item: NSMenuItem, iconColumn: Bool) -> PopupRowView {
         var layout = PopupRowView.Layout()
-        let inset = MenuMetrics.highlightInset
-        layout.leading = MenuMetrics.iconX - inset
+        let inset = look.resolvedPadding
+        layout.leading = max(0, MenuMetrics.iconX - inset)
         layout.leadingColumn = iconColumn ? MenuMetrics.iconSize : 0
         layout.gap = iconColumn ? MenuMetrics.iconGap : 0
-        layout.trailing = MenuMetrics.trailing - inset
+        layout.trailing = max(0, MenuMetrics.trailing - inset)
         layout.trailingGap = MenuMetrics.shortcutGap
-        layout.minHeight = GlassMenuMaterial.rowHeight
+        layout.minHeight = rowHeight
         layout.hoverFills = false
+        layout.highlightRadius = look.highlightRadius
         var subtitle: String?
         if #available(macOS 14.4, *) { subtitle = item.subtitle }
         let row = PopupRowView(leading: iconColumn ? icon(item.image) : nil, title: item.title, subtitle: subtitle,
                                trailing: trailing(item), layout: layout)
         row.isEnabled = item.isEnabled
+        if look.subtitle == .muted { row.subtitleLabel.ink = .tertiary }
         if let identifier = item.identifier { row.setAccessibilityIdentifier(identifier.rawValue) }
         row.setAccessibilityRole(.menuItem)
         return row
@@ -419,6 +428,7 @@ final class GlassMenuListView: NSView {
         if item.submenu != nil { return symbol("chevron.right", ink: .tertiary) }
         if item.state == .on { return symbol("checkmark", ink: .primary) }
         if item.state == .mixed { return symbol("minus", ink: .primary) }
+        guard look.shortcuts != .none else { return nil }
         return GlassMenuRow.shortcut(item).map(PopupRowView.shortcut)
     }
 
@@ -432,24 +442,24 @@ final class GlassMenuListView: NSView {
     /// The size the rows ask for: the widest row within ``minWidth`` and ``maxWidth``, every row's
     /// height and the inset above and below.
     func fittingMenuSize() -> CGSize {
-        let inset = MenuMetrics.highlightInset
+        let inset = look.resolvedPadding
         var width = Self.minWidth
-        var height = inset * 2
+        var height = look.resolvedPadding * 2
         for view in views {
             let size = view.fittingSize
             width = max(width, size.width + inset * 2)
-            height += view is GlassMenuSeparatorView ? Self.separatorHeight : max(size.height, GlassMenuMaterial.rowHeight)
+            height += view is GlassMenuSeparatorView ? Self.separatorHeight : max(size.height, rowHeight)
         }
         return CGSize(width: min(width, Self.maxWidth).rounded(.up), height: height.rounded(.up))
     }
 
     override func layout() {
         super.layout()
-        let inset = MenuMetrics.highlightInset
-        var y = inset
+        let inset = look.resolvedPadding
+        var y = look.resolvedPadding
         for view in views {
             let height = view is GlassMenuSeparatorView ? Self.separatorHeight
-                : max(view.fittingSize.height, GlassMenuMaterial.rowHeight)
+                : max(view.fittingSize.height, rowHeight)
             view.frame = CGRect(x: inset, y: y, width: bounds.width - inset * 2, height: height)
             y += height
         }
@@ -497,17 +507,32 @@ final class GlassMenuListView: NSView {
 
 }
 
-/// A menu's separator: one hairline, ``MenuMetrics/separatorInset`` in from the menu's edges.
+/// A menu's separator: one hairline, ``MenuMetrics/separatorInset`` in from the menu's edges, in the
+/// menu look's share of the separator ink (none draws only the gap).
 @MainActor
 final class GlassMenuSeparatorView: NSView {
+    /// The row inset the separator's frame starts at (the menu look's highlight inset).
+    private let rowInset: CGFloat
+    private let inkShare: CGFloat
+
+    init(inset: CGFloat = MenuMetrics.highlightInset, inkShare: CGFloat = 1) {
+        rowInset = inset
+        self.inkShare = inkShare
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        let inset = MenuMetrics.separatorInset - MenuMetrics.highlightInset
+        let inset = MenuMetrics.separatorInset - rowInset
         let line = Metrics.lineWidth(1 / max(window?.backingScaleFactor ?? 2, 1))
-        guard line > 0 else { return }
+        guard line > 0, inkShare > 0 else { return }
         performWithTheme {
-            Palette.separator.setFill()
+            let ink = Palette.separator
+            ink.withAlphaComponent(ink.alphaComponent * inkShare).setFill()
             NSRect(x: inset, y: (bounds.midY - line / 2), width: max(0, bounds.width - inset * 2), height: line).fill()
         }
     }

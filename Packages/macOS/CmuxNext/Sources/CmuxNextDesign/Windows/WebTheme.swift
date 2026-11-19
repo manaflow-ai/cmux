@@ -197,6 +197,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             .merging(SidebarRowTokens.current.rowCSSVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
             // Every button's corner, the tab's (Metrics.buttonCornerRadius): `--ds-radius-control` reads it.
             .merging(["--cmux-button-radius": SidebarCardMetrics.px(Metrics.buttonCornerRadius / max(DesignSettings.shared.uiScale, 0.01))]) { own, _ in own }
+            // The menu and popover look a theme file sets (`appearance.menu.*`, `appearance.popover.*`) as the
+            // pages' look tokens (`--menu-*`, webviews/src/ui/README.md "Menu tokens a look sets", and
+            // `--popover-*`): only the keys that are set, so an unset one leaves each page's own value.
+            .merging(DesignSettings.shared.menuLook.webVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
@@ -311,8 +315,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           ' / ' + (m[4] === undefined ? 1 : parseInt(m[4], 16) / 255) + ')';
         return value;
       }
+      // The look tokens a theme file sends (--menu-*, --popover-*: MenuLook.webVariables) stay plain:
+      // a registered <color> computes to its initial value once unset, so a page's fallback would never
+      // apply again (unset is today's look).
+      function isLookToken(name) { return name.indexOf('--menu-') === 0 || name.indexOf('--popover-') === 0; }
       function register(name, value) {
         if (registered[name] !== undefined) return registered[name];
+        if (isLookToken(name)) return (registered[name] = false);
         var ok = !!(window.CSS && CSS.registerProperty && CSS.supports && value.indexOf('var(') < 0 && CSS.supports('color', value));
         if (ok) {
           try { CSS.registerProperty({ name: name, syntax: '<color>', inherits: true, initialValue: 'transparent' }); } catch (e) { ok = false; }
@@ -369,6 +378,14 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             if (applied[name] === value) continue;
             applied[name] = value;
             root.style.setProperty(name, value);
+          }
+          // The look tokens are sent only while their key is set: one the last theme sent and this one
+          // does not goes back to the page's own value (a look's stylesheet, else today's).
+          for (var old in applied) {
+            if (isLookToken(old) && !(old in payload.variables)) {
+              delete applied[old];
+              root.style.removeProperty(old);
+            }
           }
           if (first && names.length) getComputedStyle(root).getPropertyValue(names[0]);
           setTransition(payload.transition, names);
@@ -467,13 +484,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     }
 
     /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`, the divider
-    /// strength (`--cmux-chrome-divider`), the title area's tone and contrast and the chrome shade they
+    /// strength (`--cmux-chrome-divider`), the menu look (`appearance.menu.*`), the title area's tone and contrast and the chrome shade they
     /// make (`--cmux-sidebar-surface`, `--cmux-chrome-tone`, `--cmux-folder-fill`). The app repaints
     /// every page when one changes (`AppServices.observeBorders`).
     @MainActor
     public static var pushInputs: [String] {
         let design = DesignSettings.shared
-        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
+        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(design.menuLook)", "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
                 "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
     }
 

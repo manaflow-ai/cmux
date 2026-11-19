@@ -322,6 +322,10 @@ public final class DesignSettings {
     public var titleAreaTone: TitleAreaTone = .oneColor {
         didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.menu.*` and `appearance.popover.*` (``MenuLook``): the menu and popover look a theme file
+    /// sets; ``MenuLook/standard`` (every key unset) is today's. The App's menus read it at each open, and
+    /// pages get it through ``WebTheme`` (``WebTheme/pushInputs`` carries it, so a save repaints every page).
+    public var menuLook = MenuLook.standard
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler

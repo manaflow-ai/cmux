@@ -871,6 +871,29 @@
     },
     {
       "agent": "settable",
+      "why": "Menu and popover look (theme files and look packs set them); looks only, ends no work.",
+      "keys": [
+        "appearance.menu.cornerRadius",
+        "appearance.menu.borderOpacity",
+        "appearance.menu.shadow",
+        "appearance.menu.fill",
+        "appearance.menu.padding",
+        "appearance.menu.highlightRadius",
+        "appearance.menu.rowHeight",
+        "appearance.menu.shortcuts",
+        "appearance.menu.sectionLabel",
+        "appearance.menu.separator",
+        "appearance.menu.destructiveInk",
+        "appearance.menu.submenu",
+        "appearance.menu.subtitle",
+        "appearance.popover.padding",
+        "appearance.popover.header",
+        "appearance.popover.progressHeight",
+        "appearance.popover.progressFill"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script` (a separate process is never `user`), for example the sidebar width after a resize.",
       "keys": [
         "appearance.metrics.tabFontSize",
@@ -885,6 +908,8 @@
         "appearance.metrics.dividerHitWidth",
         "appearance.metrics.titlebarHeight",
         "appearance.metrics.sidebarRowHeight",
+        "appearance.metrics.paletteRowHeight",
+        "appearance.metrics.panelCornerRadius",
         "browser.toolbar.back",
         "browser.toolbar.forward",
         "browser.toolbar.reload",

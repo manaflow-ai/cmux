@@ -3,6 +3,28 @@
 
 public import CmuxNextDesign
 
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum AppearanceSettingsSchema {
+    static var iconTheme: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.iconTheme", "Icon Theme")
+        return [
+            SettingDescriptor(
+                NekoIconThemeSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.iconTheme", "Icon Theme"),
+                help: SettingsText.keyed("settings.appearance.iconTheme.help", "The icon drawings used by cmux."),
+                kind: .choice([
+                    SettingChoice(NekoIconTheme.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
+                    SettingChoice(NekoIconTheme.neko.rawValue, SettingsText.keyed("settings.choice.neko", "Neko")),
+                ]),
+                default: .string(NekoIconThemeSetting.fallback.rawValue),
+                keywords: ["icons", "icon", "theme", "neko", "cat"]
+            ).hiddenFromSettingsPage("reserved until the Neko artwork passes light/dark 1x/2x review"),
+        ]
+    }
+}
+
 extension AppearanceSettingsSchema {
     static var appTheme: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.appTheme", "App Theme")

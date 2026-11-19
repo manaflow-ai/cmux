@@ -118,6 +118,7 @@ public final class SettingsApplier {
         }
 
         design.setPaneChrome(snapshot.paneChrome)
+        applyMenuLook(snapshot, to: design)
 
         var applied: Set<ActionID> = []
         for (rawID, binding) in snapshot.shortcuts.sorted(by: { $0.key < $1.key }) {

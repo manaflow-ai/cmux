@@ -262,12 +262,20 @@ extension SettingsSchema {
         // The Chief chat's bubble style and whether it shows the Feed (looks only).
         "home.chiefBubbleStyle", "home.feedInChief", "home.bubbleColors.sent", "home.bubbleColors.sentText",
         "home.bubbleColors.received", "home.bubbleColors.receivedText",
+        // Menu and popover look (theme files and look packs set them); looks only, ends no work.
+        "appearance.menu.cornerRadius", "appearance.menu.borderOpacity", "appearance.menu.shadow",
+        "appearance.menu.fill", "appearance.menu.padding", "appearance.menu.highlightRadius",
+        "appearance.menu.rowHeight", "appearance.menu.shortcuts", "appearance.menu.sectionLabel",
+        "appearance.menu.separator", "appearance.menu.destructiveInk", "appearance.menu.submenu",
+        "appearance.menu.subtitle", "appearance.popover.padding", "appearance.popover.header",
+        "appearance.popover.progressHeight", "appearance.popover.progressFill",
         // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script` (a separate process is never `user`), for example the sidebar width after a resize.
         "appearance.metrics.tabFontSize", "appearance.metrics.tabStripHeight", "appearance.metrics.tabMaxWidth",
         "appearance.metrics.tabMinActiveWidth", "appearance.metrics.tabMinInactiveWidth",
         "appearance.metrics.tabPinnedWidth", "appearance.metrics.sidebarWidth", "appearance.metrics.columnGap",
         "appearance.metrics.dividerThickness", "appearance.metrics.dividerHitWidth",
-        "appearance.metrics.titlebarHeight", "appearance.metrics.sidebarRowHeight", "browser.toolbar.back",
+        "appearance.metrics.titlebarHeight", "appearance.metrics.sidebarRowHeight",
+        "appearance.metrics.paletteRowHeight", "appearance.metrics.panelCornerRadius", "browser.toolbar.back",
         "browser.toolbar.forward", "browser.toolbar.reload", "browser.toolbar.home", "browser.toolbar.extensions",
         "browser.toolbar.downloads", "browser.toolbar.media", "browser.toolbar.profile", "browser.toolbar.menu",
         "browser.omnibox.color", "browser.omnibox.popupColor", "browser.omnibox.popupHoverColor", "layout.stripMargin",
@@ -276,6 +284,8 @@ extension SettingsSchema {
         "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
         "browser.openPullRequestsInGitHubPage",
+        // Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.
+        "models.spreadUsage",
     ]
 
     /// True when an agent may change `descriptor`, false when it may not, nil
