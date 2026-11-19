@@ -535,3 +535,7 @@ fn checked_to_file(command: &mut Command, file: &File) -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "git_back_tests.rs"]
+mod tests;
