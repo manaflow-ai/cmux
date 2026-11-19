@@ -56,10 +56,11 @@ ALL = frozenset(FIELDS)
 
 # Required by a repository ruleset (main: CLA Assistant, CLA policy guard, backend migrations applied;
 # feat-cmux-next: the two below; scripts/ci/required_status_checks.py keeps the copy).
-REQUIRED_CONTEXTS = frozenset({
-    "CLA Assistant", "CLA policy guard", "backend migrations applied",
-    "clippy (changed cmux-tui packages)", "React Doctor (changed React projects)",
-})
+REQUIRED_CONTEXTS_BY_BASE = {
+    "main": frozenset({"CLA Assistant", "CLA policy guard", "backend migrations applied"}),
+    "feat-cmux-next": frozenset({"clippy (changed cmux-tui packages)", "React Doctor (changed React projects)"}),
+}
+REQUIRED_CONTEXTS = frozenset().union(*REQUIRED_CONTEXTS_BY_BASE.values())
 
 # (workflow, event) pairs that listen to `edited`: the edit fields whose change re-runs them, and why.
 EDIT_READS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
@@ -77,8 +78,8 @@ EDIT_READS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
         "a title or base edit is unchanged since the budget landed"),
     ("gallery-advisory.yml", "pull_request"): (frozenset({"body"}), "reads the `Gallery:` and `Visual-change:` "
         "lines; advisory"),
-    ("language-boundaries.yml", "pull_request_target"): (frozenset({"base"}), "reads the changed files, labels "
-        "and base, never the title or body; main's copy, the one that runs, is advisory"),
+    ("language-boundaries.yml", "pull_request_target"): (ALL, "keeps its old edit behavior: it runs on every "
+        "edit until a change carrying Leo's label gates it (only his label lets this check change)"),
     ("pr-body-checks.yml", "pull_request"): (ALL, "the description lints read the body, the perf section the "
         "title too"),
     ("pr-checks.yml", "pull_request"): (frozenset({"body"}), "PR size reads the `Size:` line and UI review its "
@@ -532,7 +533,7 @@ def check_edits(name: str, event_name: str, document: dict[str, Any], failures: 
             for job, result in ran.items():
                 body = jobs.get(job) or {}
                 if pushed.get(job) == "success" and result != "success" and \
-                        job_name(job, body, push) in REQUIRED_CONTEXTS:
+                        job_name(job, body, push) in REQUIRED_CONTEXTS_BY_BASE.get(base, REQUIRED_CONTEXTS):
                     failures.append(f"{where}: job {job} publishes the required {job_name(job, body, push)!r} "
                                     "but skips; the newest suite would lack it and block the merge (cmux#13871): "
                                     "run it on every edit or drop `edited`")
