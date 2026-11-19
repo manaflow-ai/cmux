@@ -261,11 +261,7 @@ impl FakeControlPlane {
             }
             ("cloud.machine.get", Some(id)) if self.list_two && id == "vm_beta02" => link_machine(
                 id,
-                if self.start_not_paused || self.started.iter().any(|s| s == id) {
-                    "running"
-                } else {
-                    "paused"
-                },
+                if self.started.iter().any(|s| s == id) { "running" } else { "paused" },
             ),
             ("cloud.machine.get", Some(id)) if self.get_any => link_machine(id, "running"),
             ("cloud.machine.start", Some(id)) if self.start_not_paused => {
