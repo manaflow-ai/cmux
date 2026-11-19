@@ -31,6 +31,16 @@ export function catalogContent(doc: Pick<ModelCatalog, "harnesses" | "models" | 
   return JSON.stringify(sort({ harnesses, models: doc.models, providers: doc.providers }));
 }
 
+/**
+ * The served catalog without what cloud-api adds on its own: `models` entries for router models the
+ * feed does not describe (the server fills them from the router catalog). Compare this with `next`.
+ */
+export function withoutServerAdditions(served: ModelCatalog, next: Pick<ModelCatalog, "models">): ModelCatalog {
+  const router = new Set((served.harnesses.find((h) => h.id === "cmux")?.models ?? []).map((m) => m.id));
+  const models = Object.fromEntries(Object.entries(served.models ?? {}).filter(([id]) => !router.has(id) || id in next.models));
+  return { ...served, models };
+}
+
 export interface HarnessDiff {
   readonly added: Array<string>;
   readonly removed: Array<string>;
