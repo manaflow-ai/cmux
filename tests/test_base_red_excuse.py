@@ -6696,6 +6696,13 @@ class JourneyPerStep(unittest.TestCase):
         self.assertIn("stub: forwarded login and a tool round trip", text)
         self.assertIn("run 20", text)
 
+    def test_an_unplaced_base_journey_is_unread_not_this_prs_own_red(self):
+        # Review F1 on cmux#46811: journey() reads the base through base_evidence itself; a base log not placed (a
+        # second `Run` header in the journey step) says the base was unread, never that the head's red is its own.
+        base = [f"##[group]Run {JOURNEY_STEP}", "##[group]Run inner/action@v1", *JOURNEY_BASE]
+        with self.assertRaisesRegex(excuse.Refused, "not this PR's own red: retry once a feat-cmux-next verdict"):
+            self.judge(JourneyGitHub(JOURNEY_HEAD, base))
+
     def test_a_pr_that_changes_the_journey_itself_is_not_excused(self):
         # cmux#44814 changes cloud-journey.ts: its steps and checks are the PR's, so the base's line proves nothing.
         github = JourneyGitHub(JOURNEY_HEAD, JOURNEY_BASE,
@@ -10701,7 +10708,7 @@ class UnplacedSignature(unittest.TestCase):
 
     def test_13746_a_different_test_beside_an_unplaced_base_is_unread_not_own(self):
         other = self.RED_13746.replace("[bad json]", "[gh exits non-zero]").replace("fails_closed", "fails_open")
-        with self.assertRaisesRegex(excuse.Refused, r"log does not map one to one onto its steps.*compared whole: "
+        with self.assertRaisesRegex(excuse.Refused, r"compared whole, its failing tests are not .*per step: "
                                                     r".*not this PR's own red: retry once"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.unplaced_base(self.RED_13746, other))
 

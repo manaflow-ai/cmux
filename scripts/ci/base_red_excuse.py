@@ -7724,13 +7724,16 @@ class BaseUnplaced(Refused):
 def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, github, run_reads: dict) -> tuple:
     """(RUN, the failed_view of red base job FOUND's log, its signature, its step_errors), the window entry
     compare_window reads: the one reader of a compared base job's raw log. A base log failed_view does not place is
-    never base evidence: BaseUnplaced, which judge() answers with a whole-log comparison."""
+    never base evidence: BaseUnplaced, which judge() answers with a whole-log comparison. Its words say the base was
+    unread, never the head's red, for every caller it reaches (journey, the merge-base step check; review F1 on
+    cmux#46811)."""
     text = github.log(repo, found)
     view = failed_view(found, text, step_names=job_step_names(repo, found, github, run_reads, path=run.get("path")),
                        base=True)
     if view is UNPLACED:
         raise BaseUnplaced(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
-                           "(step_owners), so no base line can be told to a failed step; nothing is compared")
+                           "(step_owners), so no base line can be told to a failed step; nothing is compared: "
+                           f"unread, not this PR's own red: retry once a {base} verdict of it is placed")
     return run, view, signature(view), step_errors(view)
 
 
@@ -8434,8 +8437,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 except Final:
                     raise
                 except Refused as step_why:
-                    raise Refused(f"{unplaced}; compared whole: {whole}; per step: {step_why}; unread, not this "
-                                  f"PR's own red: retry once a {base} verdict of it is placed") from None
+                    raise Refused(f"{whole}; per step: {step_why}; {unplaced}") from None
         while True:
             try:
                 audit.append(compare_window(repo, base, name, head, view, window, chromium_without_diagnostics,
