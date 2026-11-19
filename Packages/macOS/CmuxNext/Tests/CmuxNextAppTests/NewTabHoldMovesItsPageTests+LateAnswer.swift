@@ -212,6 +212,8 @@ extension NewTabHoldMovesItsPageTests {
             #expect(after.showFaults.isEmpty, "one frame after the answer for the closed tab: \(after.showFaults)")
             #expect(made == 0, "\(made) page views made between the Close Tab key and one frame after the answer, want 0")
             #expect(moves == 0, "the app reported a created tab for the closed tab \(moves) times after its Close Tab key, want 0")
+            // Red only with 2 faults together: no throw after the answer, and no release of the state of a tab that is gone.
+            #expect(!pageOfTheClosedTab, "the app has a page view or a New Tab page under the closed tab's key after the answer for its creation")
             #expect(daemons.seesTheShownTab,
                     "setup: no read of the daemon's list of tabs had the tab that the pane shows (\(daemons.reads) reads): the reads prove nothing of the closed tab")
             #expect(daemons.last == false,
