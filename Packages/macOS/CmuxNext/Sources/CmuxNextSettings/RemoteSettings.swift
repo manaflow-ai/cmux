@@ -5,11 +5,15 @@
 /// relaunch. A build without it uses the app's own helper and host.
 /// - `endSharingOnQuit` (off by default): a Screen Sharing session ends when cmux quits. Off,
 ///   cmux Remote keeps this Mac available to the person's devices while cmux is quit.
+/// - `shareWithOwnDevicesByDefault` (off by default): sent with this Mac's device hub registration
+///   (`shareWithOwnDevices`); on, the account's other devices view this Mac while its sharing switch was
+///   never set, with no Allow. The acpmux daemon reads it from the file itself when it registers.
 /// - `ultra` (Auto by default): Ultra Connection Mode, Off, Auto or Always. The Rust tunnel starts
 ///   read it from the file themselves (cmux-tui-util `user_settings::ultra`); kept here so the row
 ///   reads back. Without it, the retired toggle `ultraMode` set to true reads as Always, as Rust does.
 public nonisolated struct RemoteSettings: Sendable, Equatable {
     public var endSharingOnQuit = RemoteSettings.endSharingOnQuitDefault
+    public var shareWithOwnDevicesByDefault = RemoteSettings.shareWithOwnDevicesByDefaultDefault
     public var ultra = RemoteSettings.ultraDefault
 
     public init() {}
@@ -18,6 +22,7 @@ public nonisolated struct RemoteSettings: Sendable, Equatable {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["remote"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.bool("endSharingOnQuit") { settings.endSharingOnQuit = value }
+        if let value = reader.bool("shareWithOwnDevicesByDefault") { settings.shareWithOwnDevicesByDefault = value }
         if let value = reader.choice("ultra", UltraConnectionMode.self) {
             settings.ultra = value
         } else if reader.members["ultra"] == nil, reader.members["ultraMode"]?.boolValue == true {

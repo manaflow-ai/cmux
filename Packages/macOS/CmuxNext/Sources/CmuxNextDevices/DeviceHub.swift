@@ -62,6 +62,9 @@ public final class DeviceHub {
     /// (with its join's settings) and holds its sign-in, so this hub neither registers it
     /// (``start()``) nor signs it out (``signOut(ending:reason:)``). Set before ``start()``.
     @ObservationIgnored public var ownsDevice = true
+    /// Read at each registration: the setting `remote.shareWithOwnDevicesByDefault` (off by default), sent
+    /// as `shareWithOwnDevices`. Set before ``start()``; nil sends nothing.
+    @ObservationIgnored public var shareWithOwnDevices: (@MainActor () -> Bool)?
     @ObservationIgnored private var socketTask: Task<Void, Never>?
     /// Relays this device saved that no listing has shown yet (kept from pruning).
     @ObservationIgnored var savedNotListed: Set<String> = []
@@ -140,7 +143,7 @@ public final class DeviceHub {
         status = .starting
         do {
             do {
-                if ownsDevice { _ = try await client.registerDevice(name: deviceName, platform: platform) }
+                if ownsDevice { _ = try await client.registerDevice(name: deviceName, platform: platform, shareWithOwnDevices: shareWithOwnDevices?() ?? false) }
             } catch let error as DeviceHubError where (error.code == .deviceRemoved || error.code == .deviceKeyMismatch) && renewIdentity != nil {
                 // This id was removed (or holds another key): register as a new device, once.
                 guard run == generation, let renewIdentity else { return }
@@ -148,7 +151,7 @@ public final class DeviceHub {
                 do { fresh = try await Self.loadIdentity(renewIdentity) } catch { throw DeviceHubError.identity("\(error)") }
                 guard run == generation else { return }
                 client.setIdentity(fresh)
-                _ = try await client.registerDevice(name: deviceName, platform: platform)
+                _ = try await client.registerDevice(name: deviceName, platform: platform, shareWithOwnDevices: shareWithOwnDevices?() ?? false)
             }
             guard run == generation else { return }
             status = .ready

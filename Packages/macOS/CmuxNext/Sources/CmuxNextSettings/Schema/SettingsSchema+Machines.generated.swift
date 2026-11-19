@@ -71,6 +71,9 @@ extension RemoteSettings {
     /// `remote.endSharingOnQuit`.
     public nonisolated static let endSharingOnQuitPath = ["remote", "endSharingOnQuit"]
     public nonisolated static let endSharingOnQuitDefault = false
+    /// `remote.shareWithOwnDevicesByDefault`: Sent as shareWithOwnDevices with each device hub registration: by the app (DeviceHub.registerDevice) and the acpmux daemon's share host (share_host/link.rs, read from the settings file). On, the hub (workers/device-hub userDo.ts sharesScreen) lets an own Mac or Linux desktop whose sharing switch was never set share with the account's other devices with no Allow; an explicit off always wins. Applies at the next registration.
+    public nonisolated static let shareWithOwnDevicesByDefaultPath = ["remote", "shareWithOwnDevicesByDefault"]
+    public nonisolated static let shareWithOwnDevicesByDefaultDefault = false
     /// `remote.ultra`: Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra): auto (the default) sends no repair data on a clean link and UltraMode::SETTING (rs:4:4) within about one round trip of a loss (cmux-wg UltraChoice::Auto); always sends it on every datagram; CMUX_WG_ULTRA still wins. Replaces the toggle remote.ultraMode, whose true still reads as always.
     public nonisolated static let ultraPath = ["remote", "ultra"]
     public nonisolated static let ultraDefault: UltraConnectionMode = .auto
@@ -307,6 +310,17 @@ nonisolated enum MachineSettingsSchema {
                 kind: .toggle,
                 default: .bool(RemoteSettings.endSharingOnQuitDefault),
                 keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
+            ),
+            SettingDescriptor(
+                RemoteSettings.shareWithOwnDevicesByDefaultPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.remote.shareWithOwnDevicesByDefault", "Share With My Devices by Default"),
+                help: SettingsText.keyed("settings.remote.shareWithOwnDevicesByDefault.help", "On: your other devices view this Mac with no Allow, until you stop sharing."),
+                summary: SettingsText.keyed("settings.remote.shareWithOwnDevicesByDefault.summary", "Your devices view it with no prompt"),
+                kind: .toggle,
+                default: .bool(RemoteSettings.shareWithOwnDevicesByDefaultDefault),
+                keywords: ["cmux remote", "screen sharing", "mac screen", "allow", "same account", "device hub"]
             ),
             SettingDescriptor(
                 RemoteSettings.ultraPath,

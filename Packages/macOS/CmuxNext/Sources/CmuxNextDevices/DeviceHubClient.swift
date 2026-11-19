@@ -136,12 +136,18 @@ public actor DeviceHubClient {
 
     /// Registers or updates this device, signed by the key it registers, with the Mac it runs on
     /// (`machine`, ``DeviceMachine``): the hub reads the host's answers about this Mac across every
-    /// device id it has (each tagged build, each renewed identity).
-    public func registerDevice(name: String, platform: DevicePlatform) async throws -> HubDevice {
-        struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String; var machine: String? }
+    /// device id it has (each tagged build, each renewed identity). `shareWithOwnDevices` is the setting
+    /// `remote.shareWithOwnDevicesByDefault`: on, the account's other devices view this Mac while its
+    /// sharing switch was never set (PROTOCOL.md); off sends nothing and the hub keeps its default.
+    public func registerDevice(name: String, platform: DevicePlatform, shareWithOwnDevices: Bool = false) async throws -> HubDevice {
+        struct Body: Encodable {
+            var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String; var machine: String?
+            var shareWithOwnDevices: Bool?
+        }
         let identity = signer.identity
         let body = Body(id: identity.id, name: name, platform: platform, signingKey: identity.signingKey,
-                        agreementKey: identity.agreementKey, machine: DeviceMachine.current.id)
+                        agreementKey: identity.agreementKey, machine: DeviceMachine.current.id,
+                        shareWithOwnDevices: shareWithOwnDevices ? true : nil)
         return try await call("POST", "/v1/devices", body: body, as: DeviceAnswer.self).device
     }
 

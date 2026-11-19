@@ -163,13 +163,29 @@ fn refuses_identity(e: &(dyn std::error::Error + Send + Sync + 'static)) -> bool
         .is_some_and(|h| matches!(h.code.as_str(), "device_removed" | "device_key_mismatch"))
 }
 
-/// Signs in and registers this Mac (`POST /v1/devices` with `shareByJoin`); a new device of the
-/// same name when the hub refused the old identity, as the Mac app does.
+/// The setting `remote.shareWithOwnDevicesByDefault` (off by default) of a settings file's
+/// text: on, the hub lets the account's other devices view this Mac while its sharing switch
+/// was never set (PROTOCOL.md `shareWithOwnDevices`). Anything but `true` is off.
+fn share_with_own_devices_from(text: Option<&str>) -> bool {
+    text.and_then(crate::user_settings::document)
+        .and_then(|doc| crate::user_settings::value(&doc, "remote.shareWithOwnDevicesByDefault"))
+        == Some(Value::Bool(true))
+}
+
+/// Signs in and registers this Mac (`POST /v1/devices` with `shareByJoin`, and
+/// `shareWithOwnDevices` when the setting is on, read at each registration); a new device of
+/// the same name when the hub refused the old identity, as the Mac app does.
 fn register(shared: &Arc<Shared>) -> Res<()> {
     let share_by_join = helper::share_by_join_here(&shared.home);
+    // Unit tests never read the developer's settings file.
+    let share_own =
+        !cfg!(test) && share_with_own_devices_from(crate::user_settings::text().as_deref());
     let body = || {
         let mut extra = serde_json::Map::new();
         extra.insert("shareByJoin".into(), Value::Bool(share_by_join));
+        if share_own {
+            extra.insert("shareWithOwnDevices".into(), Value::Bool(true));
+        }
         extra
     };
     let hub = shared.hub();
@@ -464,5 +480,21 @@ pub(crate) fn decide_for_tests(
         Decided::App => ("app", None),
         Decided::Refused(surface, _) => (surface, None),
         Decided::End(reason, _) => (reason, None),
+    }
+}
+
+#[cfg(test)]
+mod share_with_own_devices_tests {
+    use super::share_with_own_devices_from as from;
+
+    #[test]
+    fn only_an_explicit_true_turns_it_on() {
+        assert!(!from(None));
+        assert!(!from(Some("{}")));
+        assert!(!from(Some(r#"{"remote": {"shareWithOwnDevicesByDefault": false}}"#)));
+        assert!(!from(Some(r#"{"remote": {"shareWithOwnDevicesByDefault": "yes"}}"#)));
+        assert!(!from(Some("{not json")));
+        assert!(from(Some(r#"{"remote": {"shareWithOwnDevicesByDefault": true}}"#)));
+        assert!(from(Some("{\n  // mine\n  \"remote.shareWithOwnDevicesByDefault\": true,\n}")));
     }
 }

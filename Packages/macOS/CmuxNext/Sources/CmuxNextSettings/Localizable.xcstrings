@@ -208210,6 +208210,399 @@
         }
       }
     },
+    "settings.remote.shareWithOwnDevicesByDefault": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المشاركة مع أجهزتي افتراضيًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podrazumijevano dijeli s mojim uređajima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del med mine enheder som standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmäßig mit meinen Geräten teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share With My Devices by Default"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir con mis dispositivos de forma predeterminada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager avec mes appareils par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condividi con i miei dispositivi per impostazione predefinita"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトで自分のデバイスと共有"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចែករំលែកជាមួយឧបករណ៍របស់ខ្ញុំតាមលំនាំដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본적으로 내 기기와 공유"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del med enhetene mine som standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domyślnie udostępniaj moim urządzeniom"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar com meus dispositivos por padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По умолчанию открывать доступ моим устройствам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชร์กับอุปกรณ์ของฉันโดยค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılan Olarak Cihazlarımla Paylaş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За замовчуванням надавати доступ моїм пристроям"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mặc định chia sẻ với thiết bị của tôi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认与我的设备共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設與我的裝置共享"
+          }
+        }
+      }
+    },
+    "settings.remote.shareWithOwnDevicesByDefault.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند التشغيل: تعرض أجهزتك الأخرى هذا الـ Mac دون طلب سماح، حتى توقف المشاركة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključeno: vaši drugi uređaji vide ovaj Mac bez odobrenja, dok ne zaustavite dijeljenje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Til: dine andre enheder ser denne Mac uden Tillad, indtil du stopper deling."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein: Deine anderen Geräte sehen diesen Mac ohne Erlauben, bis du das Teilen beendest."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On: your other devices view this Mac with no Allow, until you stop sharing."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activado: tus otros dispositivos ven este Mac sin Permitir, hasta que dejes de compartir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activé : vos autres appareils voient ce Mac sans Autoriser, jusqu'à ce que vous arrêtiez le partage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attivo: gli altri tuoi dispositivi vedono questo Mac senza Consenti, finché non interrompi la condivisione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オン: 共有を停止するまで、他のデバイスは「許可」なしでこの Mac を表示できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក៖ ឧបករណ៍ផ្សេងទៀតរបស់អ្នកមើល Mac នេះដោយគ្មានការអនុញ្ញាត រហូតដល់អ្នកឈប់ចែករំលែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켬: 공유를 중지할 때까지 다른 기기에서 허용 없이 이 Mac을 볼 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På: de andre enhetene dine ser denne Macen uten Tillat, til du stopper delingen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włączone: inne Twoje urządzenia widzą tego Maca bez Zezwól, dopóki nie zatrzymasz udostępniania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativado: seus outros dispositivos veem este Mac sem Permitir, até você parar de compartilhar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкл.: другие ваши устройства видят этот Mac без «Разрешить», пока вы не остановите доступ."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิด: อุปกรณ์อื่นของคุณดู Mac เครื่องนี้ได้โดยไม่ต้องอนุญาต จนกว่าคุณจะหยุดแชร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açık: diğer cihazlarınız, paylaşmayı durdurana kadar bu Mac'i İzin Ver olmadan görür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімк.: інші ваші пристрої бачать цей Mac без «Дозволити», доки ви не зупините доступ."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật: các thiết bị khác của bạn xem Mac này mà không cần Cho phép, cho đến khi bạn dừng chia sẻ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启：在你停止共享前，你的其他设备无需“允许”即可查看这台 Mac。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟：在你停止共享前，你的其他裝置無需「允許」即可檢視這台 Mac。"
+          }
+        }
+      }
+    },
+    "settings.remote.shareWithOwnDevicesByDefault.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرضه أجهزتك دون مطالبة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaši uređaji ga vide bez upita"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dine enheder ser den uden spørgsmål"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Geräte sehen ihn ohne Nachfrage"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your devices view it with no prompt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus dispositivos lo ven sin preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos appareils le voient sans demande"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I tuoi dispositivi lo vedono senza richiesta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分のデバイスが確認なしで表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧបករណ៍របស់អ្នកមើលវាដោយគ្មានការសួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기에서 확인 없이 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enhetene dine ser den uten spørsmål"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoje urządzenia widzą go bez pytania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seus dispositivos o veem sem pedido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши устройства видят его без запроса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อุปกรณ์ของคุณดูได้โดยไม่ต้องถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cihazlarınız onu sormadan görür"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваші пристрої бачать його без запиту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thiết bị của bạn xem mà không cần hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的设备无需提示即可查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的裝置無需提示即可檢視"
+          }
+        }
+      }
+    },
     "settings.remote.ultra": {
       "extractionState": "manual",
       "localizations": {

@@ -167,7 +167,7 @@ extension SettingsSchema {
         // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.
         "macScreen.systemShortcuts": .userOnly,
         // cmux Remote: the person's call.
-        "remote.endSharingOnQuit": .userOnly,
+        "remote.endSharingOnQuit": .userOnly, "remote.shareWithOwnDevicesByDefault": .userOnly,
         // Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.
         "remote.ultra": .userOnly,
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.

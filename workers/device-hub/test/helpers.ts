@@ -251,6 +251,8 @@ export class Device {
   user: Peer | null = null;
   /** The Mac it runs on, as the app sends it at registration (`machine`); unset sends none. */
   machine: string | undefined;
+  /** `shareWithOwnDevices` at registration (the host's `remote.shareWithOwnDevicesByDefault`); unset sends none. */
+  shareWithOwnDevices: boolean | undefined;
 
   private constructor(
     readonly account: { userId: string; session: string },
@@ -297,6 +299,7 @@ export class Device {
       signingKey: this.signingKey,
       agreementKey: this.agreementKey,
       ...(this.machine === undefined ? {} : { machine: this.machine }),
+      ...(this.shareWithOwnDevices === undefined ? {} : { shareWithOwnDevices: this.shareWithOwnDevices }),
     });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     return res;

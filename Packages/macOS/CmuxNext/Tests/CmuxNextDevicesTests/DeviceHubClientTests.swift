@@ -47,6 +47,15 @@ import Testing
         // The Mac it runs on, the same for every build: the hub reads an Always answer about this Mac across its device ids.
         #expect(body["machine"] as? String == DeviceMachine.current.id)
         #expect((body["machine"] as? String).map { $0.count == 64 && $0.allSatisfy(\.isHexDigit) && $0 == $0.lowercased() } ?? true)
+        // remote.shareWithOwnDevicesByDefault off (the default): the hub hears nothing and keeps its default.
+        #expect(body["shareWithOwnDevices"] == nil)
+    }
+
+    @Test func registrationSendsShareWithOwnDevicesOnlyWhenTheSettingIsOn() async throws {
+        let hub = StubHub.routes(["POST /v1/devices": (200, #"{"device":{"id":"x","name":"Studio","platform":"macos","macScreenShared":1,"online":true}}"#)])
+        _ = try await makeClient(hub, identity: DeviceIdentity.software()).registerDevice(name: "Studio", platform: .macos, shareWithOwnDevices: true)
+        let body = try #require(hub.requests.last?.jsonBody)
+        #expect(body["shareWithOwnDevices"] as? Bool == true)
     }
 
     /// The hub matches answers by this value: every build keys the same hardware UUID with the same secret to the same id,

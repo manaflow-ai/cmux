@@ -102,8 +102,6 @@ describe("session flow", () => {
     await host.register();
     await viewer.register();
     const req = () => viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
-    // An own host shares until its switch is set: turned off on purpose, it refuses.
-    await host.share(false);
     const notShared = await req();
     expect([notShared.status, notShared.json.error.code]).toEqual([403, "not_shared"]);
     await host.share(true);

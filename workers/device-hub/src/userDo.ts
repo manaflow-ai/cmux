@@ -56,6 +56,9 @@ interface DeviceRow {
   owner_kind: string;
   /** A one-way name of `machine` (`machineGroup`), listed so clients show one row per machine. */
   machine_group: string | null;
+  /** 1 when the device's last registration sent `shareWithOwnDevices: true` (the host's setting
+   * `remote.shareWithOwnDevicesByDefault`, off by default): an unset switch then shares (sharesScreen). */
+  share_own_default: number;
 }
 
 interface SessionRow {
@@ -188,6 +191,7 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["audit", "owner_id", "TEXT NOT NULL DEFAULT ''"],
   ["devices", "machine", "TEXT"],
   ["devices", "machine_group", "TEXT"],
+  ["devices", "share_own_default", "INTEGER NOT NULL DEFAULT 0"],
 ];
 
 /** A registration's `machine`: the lowercase hex SHA-256 the app derives from the Mac's hardware id. */
@@ -211,15 +215,17 @@ export async function machineGroupOf(machine: string): Promise<string> {
 
 /**
  * Whether a host shares its screen with this account's devices. A switch the person set
- * (`mac_screen_chosen`) always wins: Stop Sharing, `share off`, or an explicit off. Unset, a Mac or
- * Linux desktop of the account's own (`owner_kind` user) shares with the person's other devices, so
- * viewing your own machine asks for no Allow and no Share This Mac (Leo, 2026-11-18: "the whole
- * allow blah blah is so annoying"). A device of any other owner keeps sharing off until it is set.
+ * (`mac_screen_chosen`) always wins: Stop Sharing, `share off`, or an explicit off. Unset, it is
+ * `mac_screen_shared` (off, or on from a join), unless the host registered with
+ * `shareWithOwnDevices` (its setting `remote.shareWithOwnDevicesByDefault`, off by default): then a
+ * Mac or Linux desktop of the account's own (`owner_kind` user) shares with the person's other
+ * devices, so viewing your own machine asks for no Allow and no Share This Mac (Leo, 2026-11-18:
+ * "the whole allow blah blah is so annoying"). A device of any other owner keeps sharing off.
  */
-export function sharesScreen(d: Pick<DeviceRow, "platform" | "mac_screen_shared" | "mac_screen_chosen" | "owner_kind">): boolean {
+export function sharesScreen(d: Pick<DeviceRow, "platform" | "mac_screen_shared" | "mac_screen_chosen" | "owner_kind" | "share_own_default">): boolean {
   if (d.mac_screen_chosen === 1) return d.mac_screen_shared === 1;
   if (d.mac_screen_shared === 1) return true;
-  return (d.owner_kind ?? "user") === "user" && HOST_PLATFORMS.includes(d.platform);
+  return d.share_own_default === 1 && (d.owner_kind ?? "user") === "user" && HOST_PLATFORMS.includes(d.platform);
 }
 const OWNED_TABLES = ["devices", "permissions", "sessions", "audit"];
 
@@ -548,6 +554,9 @@ export class UserDO extends DurableObject<Env> {
     const body = this.parse(raw);
     if (body.id !== h.id) throw badRequest("id must equal X-Device-Id");
     if (body.shareByJoin !== undefined && typeof body.shareByJoin !== "boolean") throw badRequest("shareByJoin must be a boolean");
+    if (body.shareWithOwnDevices !== undefined && typeof body.shareWithOwnDevices !== "boolean") throw badRequest("shareWithOwnDevices must be a boolean");
+    // Each registration says it again: the setting turned off and registered turns the default off.
+    const shareOwnDefault = body.shareWithOwnDevices === true ? 1 : 0;
     const name = str(body.name, "name", 100);
     if (body.platform !== "macos" && body.platform !== "ios" && body.platform !== "linux") {
       throw badRequest("platform must be macos, ios or linux");
@@ -569,18 +578,19 @@ export class UserDO extends DurableObject<Env> {
     if (existing) {
       // The first machine a device named stays: a later registration cannot move it to another Mac.
       this.sql.exec(
-        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ?, machine = COALESCE(machine, ?), machine_group = CASE WHEN machine IS NULL THEN ? ELSE machine_group END WHERE id = ?",
+        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ?, machine = COALESCE(machine, ?), machine_group = CASE WHEN machine IS NULL THEN ? ELSE machine_group END, share_own_default = ? WHERE id = ?",
         name,
         body.platform,
         agreementKey,
         now,
         machine,
         machineGroup,
+        shareOwnDefault,
         h.id,
       );
     } else {
       this.sql.exec(
-        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id, machine, machine_group) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?, ?, ?)",
+        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id, machine, machine_group, share_own_default) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?, ?, ?, ?)",
         h.id,
         name,
         body.platform,
@@ -591,6 +601,7 @@ export class UserDO extends DurableObject<Env> {
         this.ownerId,
         machine,
         machineGroup,
+        shareOwnDefault,
       );
       this.audit("device_added", { deviceId: h.id, detail: `${h.id} ${name}` });
     }
