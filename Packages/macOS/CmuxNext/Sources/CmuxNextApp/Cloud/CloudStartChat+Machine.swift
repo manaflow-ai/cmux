@@ -118,7 +118,7 @@ extension CloudStartChat {
             timeline?.mark("machine.connect")
             let machineID = session.machineID
             // The chat's agent reaches a model: the machine's edge, its own sign-in there (a `claude setup-token` token), or the chat's own connection with its launch.
-            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.startCredentialsCapability) }, carriesConnection: connection != nil, family: CloudSetup.family(of: start.harness)) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
+            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: start.harness)) }, carriesConnection: connection != nil, family: CloudSetup.family(of: start.harness)) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
             timeline?.mark("machine.route")
             return (session, plan)
         }
