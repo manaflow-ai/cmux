@@ -702,6 +702,11 @@
     rotation(degrees) {
       return this.set("rotation", degrees);
     }
+    trim(v) {
+      if (typeof v !== "function" && v !== null)
+        checkTrim(v);
+      return this.set("trim", v);
+    }
     cursor(v) {
       return this.set("cursor", v);
     }
@@ -748,6 +753,11 @@
   var SCENE_COLOR_TOKENS = ["primary", "secondary", "tertiary", "accent", "separator", "success", "warning", "danger", "hover", "selected", "badge", "clear"];
   var HEX_COLOR = /^#[\da-f]{6}([\da-f]{2})?$/i;
   var isSceneColor = (value) => typeof value === "string" && (SCENE_COLOR_TOKENS.includes(value) || HEX_COLOR.test(value));
+  function checkTrim(v) {
+    const ok = typeof v === "object" && v !== null && typeof v.to === "number" && Number.isFinite(v.to) && (v.from === undefined || typeof v.from === "number" && Number.isFinite(v.from)) && (v.lineCap === undefined || v.lineCap === "round" || v.lineCap === "butt") && Object.keys(v).every((key) => key === "from" || key === "to" || key === "lineCap");
+    if (!ok)
+      throw new TypeError(`trim: expected { from?: number, to: number, lineCap?: "round" | "butt" }, got ${JSON.stringify(v)}`);
+  }
   var SYMBOL_RENDERINGS = ["monochrome", "hierarchical", "palette", "multicolor"];
   function gradientStops(name, colors) {
     if (!Array.isArray(colors) || colors.length < 2 || colors.length > 8 || !colors.every(isSceneColor))

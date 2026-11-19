@@ -52,6 +52,20 @@ export function sceneGradient(value: unknown): string | undefined {
   return `linear-gradient(${((angle % 360) + 360) % 360}deg, ${colors.join(", ")})`;
 }
 
+export type SceneTrim = { from: number; to: number; lineCap: "round" | "butt" };
+
+/** A shape's `trim` (`{from?, to, lineCap?}`, SwiftUI's `trim(from:to:)`): fractions of the stroked
+ * outline clamped to 0..1, `from` 0 by default and never past `to`; `lineCap` `round` or `butt`
+ * (the default). Undefined with no finite `to`, so a bad value draws the whole outline. */
+export function sceneTrim(value: unknown): SceneTrim | undefined {
+  const trim = sceneRecord(value);
+  const to = sceneNumber(trim.to);
+  if (to === undefined) return undefined;
+  const clamp = (n: number) => Math.max(0, Math.min(1, n));
+  const from = clamp(sceneNumber(trim.from) ?? 0);
+  return { from, to: Math.max(from, clamp(to)), lineCap: trim.lineCap === "round" ? "round" : "butt" };
+}
+
 type SceneStyle = CSSProperties & { "--app-hover"?: string };
 const FONTS: Record<string, string> = {
   largeTitle: "var(--text-title)",

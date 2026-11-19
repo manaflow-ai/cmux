@@ -60,6 +60,8 @@ export type View = CmuxView
 export type Signal<T> = CmuxSignal<T>
 export type Gradient = CmuxGradient
 export type Fill = CmuxFill
+/** A shape's `.trim(...)`: `{ from?, to, lineCap? }`, fractions of its stroked outline (a Circle from 12 o'clock, clockwise). */
+export type Trim = CmuxTrim
 
 // ---------------------------------------------------------------------------------------------
 // Places. Export the result under the name the manifest gives the place's `export`.

@@ -501,6 +501,8 @@ type Bindable<T> = T | (() => T)
 type CmuxGradient = { linear: { colors: string[]; angle?: number } } | { radial: { colors: string[] } }
 /** A color token, #RRGGBB[AA], or a gradient. */
 type CmuxFill = string | CmuxGradient
+/** A shape's trim: \`from\` (0 by default) to \`to\`, fractions 0 to 1 of its stroked outline (a Circle from 12 o'clock, clockwise); \`lineCap\` butt (the default) or round. */
+type CmuxTrim = { from?: number; to: number; lineCap?: "round" | "butt" }
 interface CmuxView {
   font(v: Bindable<string | number>): this; weight(v: Bindable<string>): this; bold(): this; italic(): this; monospaced(): this
   color(v: Bindable<string | null>): this; secondary(): this; lineLimit(v: Bindable<number>): this; truncation(v: Bindable<"head" | "middle" | "tail">): this
@@ -512,6 +514,8 @@ interface CmuxView {
   borderColor(v: Bindable<string | null>): this; borderWidth(v: Bindable<number>): this; opacity(v: Bindable<number>): this
   fill(v: Bindable<CmuxFill | null>): this; stroke(v: Bindable<string | null>): this; strokeWidth(v: Bindable<number>): this; size(v: Bindable<number>): this
   rotation(degrees: Bindable<number>): this; cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
+  /** Draw only part of a stroked shape's outline (SwiftUI's trim(from:to:)): a Circle starts at 12 o'clock and runs clockwise, so a ring gauge is \`Circle().stroke(tint).strokeWidth(8).trim({ to: 0.7, lineCap: "round" })\`. With \`.animation(...)\` a change sweeps to the new arc; \`null\` draws the whole outline. */
+  trim(v: Bindable<CmuxTrim | null>): this
   fixed(): this; destructive(): this; disabled(v?: Bindable<boolean>): this; onTap(fn: () => unknown): this; contextMenu(items: CmuxView[] | (() => CmuxView[])): this
   /** How an Icon's layers take color, as SF Symbols draw them: monochrome (the default), hierarchical, palette (1 to 3 colors, in layer order) or multicolor (the symbol's own colors, the tint where it has none). */
   symbolRendering(mode: "monochrome" | "hierarchical" | "palette" | "multicolor", colors?: readonly string[]): this
