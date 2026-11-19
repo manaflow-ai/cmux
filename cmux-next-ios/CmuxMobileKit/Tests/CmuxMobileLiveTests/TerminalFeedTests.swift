@@ -87,16 +87,49 @@ import Testing
         return (store, feed)
     }
 
+    /// Lets the feed's main-actor work run until `condition` holds. No count of turns: a busy
+    /// runner (another test holding the main actor) only makes it take longer. The watchdog counts
+    /// time awake and only ends a wait that would hang; the expectations after it then fail.
     static func settle(_ condition: () -> Bool) async {
-        for _ in 0..<500 where !condition() { await Task.yield() }
+        var watchdog = AwakeDeadline(.seconds(30))
+        while !condition(), watchdog.hasTimeLeft() { await Task.yield() }
+    }
+
+    /// Lets every main-actor step already set off run (500 turns of a work chain that never
+    /// leaves the main actor), so a check after it sees what that work did, or did not do.
+    static func drain() async {
+        for _ in 0..<500 { await Task.yield() }
     }
 
     struct Down: Error {}
 
-    /// Waits up to `seconds` of real time for `condition` (a retry is spaced in real time).
-    static func waitUntil(seconds: Double = 15, _ condition: () -> Bool) async {
-        let end = ContinuousClock.now + .seconds(seconds)
-        while !condition(), ContinuousClock.now < end { try? await Task.sleep(for: .milliseconds(10)) }
+    /// The spacing between a read's tries, held until the test lets the next try go: a retry
+    /// happens when the test says, not when a real-time pause ends, and a Mac that stays down
+    /// costs no turns while the test looks.
+    @MainActor
+    final class PauseGate {
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+        private var finished = false
+        /// A read waits out a spacing now.
+        var isHolding: Bool { !waiters.isEmpty }
+
+        func pause(_ delay: Duration) async {
+            if finished { return }
+            await withCheckedContinuation { waiters.append($0) }
+        }
+
+        /// The waiting read tries again.
+        func release() {
+            let held = waiters
+            waiters = []
+            held.forEach { $0.resume() }
+        }
+
+        /// The test ends: let every read go (it ends once the feed is gone).
+        func finish() {
+            finished = true
+            release()
+        }
     }
 
     static let connection = 1
@@ -185,7 +218,7 @@ import Testing
 
         // The same tree again (a title change): no ledger read.
         feed.treeChanged(Self.tree(codex: "working"), macID: "mac", connection: Self.connection)
-        await Self.settle { false }
+        await Self.drain()
         #expect(daemon.lists == 1)
 
         // The daemon posts: the new row is read and goes on top.
@@ -225,14 +258,14 @@ import Testing
         #expect(daemon.acks == [2])
         store.markUnread("term-mac-ntf_2")
         store.markRead("term-mac-ntf_2")
-        await Self.settle { false }
+        await Self.drain()
         #expect(daemon.acks == [2])
 
         // Unread again on the phone after the Mac read it: the phone's choice stands.
         store.markUnread("term-mac-ntf_1")
         feed.notificationPosted()
         await Self.settle { daemon.lists == 2 }
-        await Self.settle { false }
+        await Self.drain()
         #expect(store.item(id: "term-mac-ntf_1")?.isRead == false)
     }
 
@@ -244,24 +277,35 @@ import Testing
         let daemon = FakeDaemon()
         daemon.rows = [Self.row("ntf_1", "Codex finished", surface: 1, at: 1_000_000)]
         let (store, feed) = Self.make(daemon)
-        // Short spacings: a busy test runner must not stretch the real ones past the waits below.
-        feed.reads.pause = { _ in try? await Task.sleep(for: .milliseconds(10)) }
+        let gate = PauseGate()
+        defer { gate.finish() }
+        feed.reads.pause = { await gate.pause($0) }
         feed.treeChanged(Self.tree(), macID: "mac", connection: Self.connection)
         await Self.settle { store.items.count == 1 }
 
         daemon.down = true
         store.markRead("term-mac-ntf_1")
-        await Self.waitUntil { daemon.unanswered >= 2 }
+        await Self.settle { gate.isHolding }
+        gate.release()
+        await Self.settle { gate.isHolding && daemon.unanswered >= 2 }
         #expect(daemon.unanswered >= 2, "an unanswered read goes again")
         #expect(store.item(id: "term-mac-ntf_1")?.isRead == true)
 
         // The daemon is back, on a new connection: the read reaches it there, once.
         daemon.down = false
         feed.treeChanged(Self.tree(), macID: "mac", connection: 2)
-        await Self.waitUntil { !daemon.acks.isEmpty }
+        // Each spacing ends when the test says; the read goes once the new connection read the ledger.
+        await Self.settle { daemon.lists >= 2 }
+        var watchdog = AwakeDeadline(.seconds(30))
+        while daemon.acks.isEmpty, watchdog.hasTimeLeft() {
+            gate.release()
+            await Self.settle { gate.isHolding || !daemon.acks.isEmpty }
+        }
         #expect(daemon.acks == [1])
         #expect(daemon.ackConnections == [2])
-        await Self.waitUntil(seconds: 0.5) { daemon.acks.count > 1 }
+        // Answered, the read ends: it waits out no further spacing and sends nothing more.
+        await Self.drain()
+        #expect(!gate.isHolding)
         #expect(daemon.acks == [1])
     }
 
@@ -271,18 +315,25 @@ import Testing
         let daemon = FakeDaemon()
         daemon.rows = [Self.row("ntf_1", "Codex finished", surface: 1, at: 1_000_000)]
         let (store, feed) = Self.make(daemon)
-        feed.reads.pause = { _ in await Task.yield() }
+        let gate = PauseGate()
+        defer { gate.finish() }
+        feed.reads.pause = { await gate.pause($0) }
         feed.treeChanged(Self.tree(), macID: "mac", connection: Self.connection)
         await Self.settle { store.items.count == 1 }
 
         daemon.down = true
         store.markRead("term-mac-ntf_1")
-        await Self.settle { daemon.unanswered >= 2 }
+        await Self.settle { gate.isHolding }
+        gate.release()
+        await Self.settle { gate.isHolding && daemon.unanswered >= 2 }
         daemon.rows.append(Self.row("ntf_2", "Codex finished", surface: 1, at: 2_000_000))
         daemon.down = false
         feed.treeChanged(Self.tree(), macID: "mac", connection: 2)
         await Self.settle { store.items.count == 2 }
-        await Self.settle { false }
+        // The next try finds the read no longer stands, and ends unsent.
+        gate.release()
+        await Self.drain()
+        #expect(!gate.isHolding)
         #expect(daemon.acks.isEmpty)
         #expect(store.item(id: "term-mac-ntf_2")?.isRead == false)
     }
@@ -293,15 +344,22 @@ import Testing
         let daemon = FakeDaemon()
         daemon.rows = [Self.row("ntf_1", "Codex finished", surface: 1, at: 1_000_000)]
         let (store, feed) = Self.make(daemon)
-        feed.reads.pause = { _ in await Task.yield() }
+        let gate = PauseGate()
+        defer { gate.finish() }
+        feed.reads.pause = { await gate.pause($0) }
         feed.treeChanged(Self.tree(), macID: "mac", connection: Self.connection)
         await Self.settle { store.items.count == 1 }
 
         daemon.down = true
         store.markRead("term-mac-ntf_1")
-        await Self.settle { daemon.unanswered >= 2 }
+        await Self.settle { gate.isHolding }
+        gate.release()
+        await Self.settle { gate.isHolding && daemon.unanswered >= 2 }
         store.markUnread("term-mac-ntf_1")
-        await Self.settle { false }
+        // The next try finds the read no longer stands, and ends unsent.
+        gate.release()
+        await Self.drain()
+        #expect(!gate.isHolding)
         daemon.down = false
         store.markRead("term-mac-ntf_1")
         await Self.settle { !daemon.acks.isEmpty }
@@ -355,7 +413,7 @@ import Testing
 
         feed.treeChanged(Self.tree(), macID: "mac", connection: 2)
         await Self.settle { daemon.lists == 2 }
-        await Self.settle { false }
+        await Self.drain()
         #expect(store.items.count == 1)
         #expect(store.item(id: "term-mac-ntf_1")?.isDone == true)
     }
@@ -384,7 +442,7 @@ import Testing
         feed.notificationPosted()
         await Self.settle { store.items.count == 2 }
         store.markRead("term-mac-ntf_2")
-        await Self.settle { false }
+        await Self.drain()
         #expect(daemon.acks.isEmpty)
         store.markRead("term-mac-ntf_3")
         await Self.settle { !daemon.acks.isEmpty }
@@ -473,7 +531,7 @@ import Testing
         // Read again on a new connection (the ledger row alone is thin): the texts stay.
         feed.treeChanged(Self.claudeTree(), macID: "mac", connection: Self.connection + 1)
         await Self.settle { daemon.lists == 2 }
-        await Self.settle { false }
+        await Self.drain()
         #expect(store.item(id: "term-mac-ntf_1")?.markdown == answer)
         #expect(store.item(id: "term-mac-ntf_1")?.quote == FeedItem.Quote("Fix the build"))
     }

@@ -138,6 +138,56 @@ struct CmuxRemoteSharingSetupTests {
         ])
     }
 
+    /// "Screen sharing + computer use" double prompt (Lawrence, 2026-11-17): macOS's own Screen
+    /// Recording prompt and our Check Again sheet were up at once. While macOS's prompt has the
+    /// person, no sheet of ours is presented; a grant made there skips Check Again entirely.
+    @Test func noSheetOfOursWhileMacOSsPromptIsUp() async throws {
+        let fixture = Fixture(permissions: (false, true), answers: ["allow"])
+        var setup = fixture.setup()
+        let gate = AnswerGate()
+        setup.requestScreen = {
+            fixture.screenRequests += 1
+            _ = await gate.answer() // macOS's prompt is up until the gate opens
+        }
+        let task = Task { @MainActor in try await setup.proceed(after: "continue", present: fixture.present) }
+
+        await gate.waitForEntry()
+        #expect(fixture.presented == ["cmux.dialog.screenSharing.setup.screen"])
+        fixture.permissions.screen = true // the person allowed it in macOS's prompt
+        gate.cancel()
+
+        #expect(try await task.value)
+        #expect(fixture.screenRequests == 1)
+        #expect(fixture.enables == 1)
+        #expect(fixture.presented == ["cmux.dialog.screenSharing.setup.screen"])
+    }
+
+    /// Denied in macOS's prompt: Check Again comes only after macOS's prompt is gone.
+    @Test func checkAgainComesOnlyAfterMacOSsPromptIsDone() async throws {
+        let fixture = Fixture(permissions: (false, true), answers: ["allow", "cancel"])
+        var setup = fixture.setup()
+        var promptOpen = false
+        var sheetsWhilePromptOpen = 0
+        setup.requestScreen = {
+            promptOpen = true
+            fixture.screenRequests += 1
+            await Task.yield()
+            promptOpen = false
+        }
+        let present: (CmuxDialogSpec) async -> String = { spec in
+            if promptOpen { sheetsWhilePromptOpen += 1 }
+            return fixture.present(spec)
+        }
+
+        let shared = try await setup.proceed(after: "continue", present: present)
+        #expect(!shared)
+        #expect(sheetsWhilePromptOpen == 0)
+        #expect(fixture.presented == [
+            "cmux.dialog.screenSharing.setup.screen",
+            "cmux.dialog.screenSharing.setup.screenCheck",
+        ])
+    }
+
     @Test(arguments: [true, false])
     func losingScreenRecordingDuringControlCheckReturnsToScreenGuide(controlGranted: Bool) async throws {
         let fixture = Fixture(permissions: (true, false), answers: ["allow", "check", "cancel"])
