@@ -165,6 +165,11 @@ path = "tests/test_nightly_next_live_feed_check.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_network_bounds.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_nightly_next_network_bounds.py yourself after changing the workflow steps it reads."
+
+[[test]]
 path = "tests/test_nightly_next_notary_full_import.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Runs decide's browser-import block from nightly.yml in node and checks the outputs the build and publish jobs read; run python3 tests/test_nightly_next_notary_full_import.py yourself after changing that block or NIGHTLY_NEXT_BROWSER_DATA_IMPORT."
