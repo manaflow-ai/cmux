@@ -145,15 +145,41 @@ top, so a block copies between the two:
 - A background picture may sit beside the theme: `"appearance.background":
   "file:harbor.jpg"` (or `folder:walls`, or `file:~/Pictures/x.png`) resolves against
   `~/.config/cmux/themes`, so a theme and its pictures move as one folder.
+- A look is more than colors: shape the tabs, the sidebar and the buttons too.
+  `"density"` is the theme's own density, the blockiness of every horizontal tab and
+  sidebar row, the sidebar's width, the tab strip's height and the toolbar's buttons:
+  a built-in (`basedOn`) with the Density Playground's tokens over it (Cmd-Shift-P,
+  Density Playground, lists every token with its range). While the file applies it is
+  the density in use, over `appearance.density`. Edit it by hand (`cmux theme set`
+  takes settings only):
+
+  ```jsonc
+  "density": {
+    "basedOn": "compact",
+    "tokens": {
+      "tabCornerRadius": 2, "sidebarCornerRadius": 2, "verticalTabCornerRadius": 2, // square tabs
+      "browserRowHeight": 26, "tabGap": 2,                                          // the tab strip
+      "sidebarWidth": 250, "sidebarRowHeight": 26, "sidebarRowGap": 1,             // the sidebar
+      "toolbarGlyphSize": 13, "omnibarButtonSpacing": 2, "itemCornerRadius": 3     // the buttons
+    }
+  }
+  ```
 - Only look settings apply (`appearance.*`, `ui.animation*`, `ui.calm`,
   `browser.omnibar.glass*`, `app.uiScale`, `terminal.fontFamily`,
-  `terminal.fontSize`, the sidebar's shape (`sidebar.style`, `sidebar.border`,
-  `sidebar.borderWidth`, `sidebar.sectionLook`), how its rows draw (`sidebar.density`,
-  `sidebar.textSize`, `sidebar.detailedStatusIcons`, `sidebar.showTimestamps`,
-  `sidebar.showColors`, `workspaceColors.indicatorStyle`, and every
-  `sidebar.workspaceRow.<name>`, such as `statusPlacement` and `lines`, but not the per-kind
-  `sidebar.workspaceRow.<kind>.*`) and its grouping (`sidebar.groupBy`,
-  `sidebar.groupHeader.*`, `sidebar.groupPalette`, `sidebar.groupGradient`)), each checked like `cmux settings set`.
+  `terminal.fontSize`; the sidebar's shape, text and buttons: `sidebar.style`, `sidebar.border`,
+  `sidebar.borderWidth`, `sidebar.sectionLook`, `sidebar.density`, `sidebar.textSize`,
+  `sidebar.showSearchButton`, `sidebar.showProfileControl`, `sidebar.showNewWorkspaceChooser`,
+  `sidebar.controlsOnHover`, `sidebar.spacesVisibility`; how its rows draw:
+  `sidebar.detailedStatusIcons`, `sidebar.showTimestamps`, `sidebar.showColors`,
+  `workspaceColors.indicatorStyle`, and every `sidebar.workspaceRow.<name>`, such as
+  `statusPlacement` and `lines`, but not the per-kind `sidebar.workspaceRow.<kind>.*`; its
+  grouping: `sidebar.groupBy`, `sidebar.groupHeader.*`, `sidebar.groupPalette`,
+  `sidebar.groupGradient`; the top right buttons and tabs: `tabs.toolbarButtons`,
+  `tabs.plusButton`, `window.titlebarButtons`, `focus.inactiveTabStyle`; pane corners:
+  `layout.paneCornerRadius`, `layout.cornerPadding`, `layout.paneBorderWidth`; the agent
+  chat's text sizes and Session Info: `agentPane.display.font.*`, `agentPane.display.code.scale`,
+  `agentPane.display.senderIcon.*`, `agentPane.display.sessionInfo.placement`,
+  `agentPane.display.trayHandle`), each checked like `cmux settings set`.
   A refused value or key is dropped with the toast settings use, naming the
   theme file and the key (`themes/tokyo.json: appearance.accent = "purple" was
   ignored: ...`); the rest still applies. Look keys up as in
@@ -188,7 +214,17 @@ The other verbs:
 - `cmux theme get [KEY]` shows what the file sets.
 - `cmux theme list` lists the files and marks the active one.
 - `cmux theme use NAME` picks a different file.
-- `cmux theme import FILE.json [--use]` installs someone else's theme file.
+- `cmux theme import FILE.json [--use]` copies someone else's theme file in; without `--use`
+  the look does not change.
+- A shared theme in a git repository (`cmux-theme.json` at its root): `cmux theme install
+  github.com/OWNER/REPO` installs it and puts it on in one step, wallpapers included. Never tell
+  the person to run commands after it: run it yourself (`--yes` once they said yes), then say
+  what changed. `cmux apps install` and `cmux theme import` of that repository do the same;
+  `cmux theme remove OWNER/REPO` puts back the earlier look. A snippet repository
+  (`cmux-snippet.json`: look settings and stylesheets, such as fonts) is `cmux snippet install`.
+- To make a repository show up for others, give it the GitHub topics `cmux-extension` (what
+  cmux.com's candidate list searches), `cmux-theme` (or `cmux-snippet`) and `cmux`, and list it
+  in manaflow-ai/cmux-extensions: [theme-recipes.md](../../docs/cmux-next/theme-recipes.md#share-a-theme-so-people-find-it).
 - `cmux theme schema --install` writes `themes/.schema.json` for editor completion.
   The exported file's `$schema` already points at it.
 - A base16, iTerm2, Windows Terminal or Ghostty color scheme is a terminal theme, not

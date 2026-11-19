@@ -239,8 +239,17 @@ fn the_look_lists_match_the_apps() {
     let set = |list: &[&str]| list.iter().map(|key| (*key).to_owned()).collect::<BTreeSet<_>>();
     assert_eq!(literal("lookKeys"), set(&LOOK_KEYS));
     assert_eq!(literal("lookPrefixes"), set(&LOOK_PREFIXES));
-    // Swift names the theme file's own key through `ThemeFileSetting.configPath`.
-    assert_eq!(literal("excludedKeys"), set(&EXCLUDED_KEYS[1..]));
+    // Swift names the theme file's own key and its exceptions key through their settings' `configPath`.
+    let named: Vec<&str> = EXCLUDED_KEYS
+        .iter()
+        .copied()
+        .filter(|key| ![SETTING_KEY, EXCEPTIONS_KEY].contains(key))
+        .collect();
+    assert_eq!(literal("excludedKeys"), set(&named));
+    assert!(
+        swift.contains("ThemeFileSetting.configPath")
+            && swift.contains("ThemeFileExceptionsSetting.configPath")
+    );
     assert!(swift.contains(&format!("static let rowPrefix = \"{ROW_PREFIX}\"")));
 }
 
@@ -336,6 +345,36 @@ fn a_theme_file_of_five_thousand_junk_keys_still_applies_its_valid_ones() {
     }
     // Each refusal looks up its line in the text: keep that from going quadratic.
     assert!(elapsed.as_secs_f64() < 5.0, "reading 5,000 keys took {elapsed:?}");
+}
+
+/// Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a lot
+/// deeper too. prob likewise the session info and the top right buttons as
+/// well". A theme sets the toolbar's buttons, Session Info and the sidebar's
+/// buttons, and carries its own density (the app reads it), which the
+/// schema checks.
+#[test]
+fn a_theme_file_sets_the_buttons_session_info_and_its_own_density() {
+    let file = overlay(
+        r#"{ "tabs.toolbarButtons": ["file.open"], "window.titlebarButtons": "always", "sidebar.showSearchButton": false, "agentPane.display.sessionInfo.placement": "overlay", "density": { "basedOn": "compact", "tokens": { "tabCornerRadius": 2 } } }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(
+        file.keys(),
+        [
+            "agentPane.display.sessionInfo.placement",
+            "sidebar.showSearchButton",
+            "tabs.toolbarButtons",
+            "window.titlebarButtons"
+        ]
+    );
+    let schema = Schema::embedded().theme_file_json_schema(is_look);
+    let validator = jsonschema::validator_for(&schema).expect("a valid schema");
+    assert!(
+        validator
+            .is_valid(&json!({"density": {"basedOn": "cozy", "tokens": {"sidebarWidth": 250}}}))
+    );
+    assert!(!validator.is_valid(&json!({"density": {"basedOn": "huge"}})));
+    assert!(!validator.is_valid(&json!({"density": {"tokens": {"tabCornerRadius": "round"}}})));
 }
 
 #[test]
@@ -560,4 +599,44 @@ fn with_no_theme_file_nothing_changes() {
     );
     assert_eq!(state.effective().root, plain.root);
     assert!(state.theme_file().is_none());
+}
+
+/// #44894: a key the person changed in Settings while the theme file sets it
+/// (`appearance.themeFileExceptions`) keeps the person's value; the file still
+/// applies everywhere else, as the Mac app's `ThemeFileOverlay` does.
+#[test]
+fn the_settings_owner_keeps_the_keys_changed_over_the_theme_file() {
+    use crate::managed::{FixedManagedReader, ManagedPreferences};
+    use crate::owner::ConfigStore;
+
+    let dir = std::env::temp_dir().join(format!("cmux-theme-exceptions-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("themes")).expect("dir");
+    let settings = dir.join("cmux-next.json");
+    std::fs::write(
+        &settings,
+        r#"{ "ui": { "reducedBackgrounds": false },
+             "appearance": { "themeFile": "tokyo", "backgroundOpacity": 0.6,
+                             "themeFileExceptions": ["appearance.backgroundOpacity", "ui.reducedBackgrounds"] } }"#,
+    )
+    .expect("write");
+    std::fs::write(
+        dir.join("themes/tokyo.json"),
+        r#"{ "ui.reducedBackgrounds": true, "appearance.backgroundOpacity": 0.85, "appearance.accent": "blue" }"#,
+    )
+    .expect("write");
+    let store = ConfigStore::open(
+        settings,
+        None,
+        None,
+        Box::new(FixedManagedReader(ManagedPreferences::default())),
+    );
+    let root = store.state().effective().root.clone();
+    assert_eq!(at(&root, "appearance.backgroundOpacity"), Some(&json!(0.6)));
+    assert_eq!(at(&root, "ui.reducedBackgrounds"), Some(&json!(false)));
+    assert_eq!(at(&root, "appearance.accent"), Some(&json!("blue")));
+    // A theme file never sets the list itself.
+    let file = overlay(r#"{ "appearance.themeFileExceptions": ["appearance.accent"] }"#);
+    assert!(file.keys().is_empty(), "{:?}", file.keys());
+    let _ = std::fs::remove_dir_all(&dir);
 }

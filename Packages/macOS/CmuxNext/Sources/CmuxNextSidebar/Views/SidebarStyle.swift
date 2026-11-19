@@ -309,6 +309,13 @@ enum SidebarStyle {
     /// every level and density (Lawrence 2026-10-23: "the bar, left side, should be aligned with the
     /// header part left side"), while the header's name keeps the rows' text column.
     static var groupRailReach: CGFloat { Metrics.space1 + groupBarWidth }
+    /// How far right of its header bar's left edge an `edge` rail sits: half the gap between the rail and its members,
+    /// so the rail is centred in its lane, with the same room on each side (Lawrence 2026-11-17: "have slight padding
+    /// on left as well"). The other half stays between the rail and its members' fills. Only under the band, whose
+    /// header is a pane with its own left edge; the quieter looks keep the rail on their leading dot.
+    static var groupRailInset: CGFloat {
+        SidebarGroupHeaderStyle.tunable.value == .band ? (groupRailReach - groupBarWidth) / 2 : 0
+    }
     /// The least room a group header's bar and rail keep from the list's left edge (Lawrence 2026-10-25: "groups
     /// headers and rails need more left padding"): they sat flush at 0 and 2 pt. The rows' inset less the rail and
     /// its gap (`groupRailReach`; 2 pt compact, 4 pt comfortable), so the padding never eats the rail's gap: at

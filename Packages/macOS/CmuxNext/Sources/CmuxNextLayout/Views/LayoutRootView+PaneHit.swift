@@ -14,4 +14,10 @@ extension LayoutRootView {
         guard !frame.isNull, frame.contains(local) else { return nil }
         return (pane, convert(frame, from: view))
     }
+
+    /// Displayed frame of `pane` in this view's coordinates (active screen only).
+    public func frame(of pane: PaneID) -> CGRect? {
+        guard let active = model.activeScreenID, let view = screenViews[active], let rect = view.displayedFrame(of: pane) else { return nil }
+        return convert(rect, from: view)
+    }
 }

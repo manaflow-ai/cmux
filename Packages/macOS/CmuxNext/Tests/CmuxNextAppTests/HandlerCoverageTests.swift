@@ -34,11 +34,12 @@ struct HandlerCoverageTests {
     /// A same-tree build can load a catalog that holds the floating pane rows before the App's
     /// handlers for them (decision 2026-11-17: the catalog rows land first). They bind unavailable
     /// and stay out of each menu, so the Debug app still launches and no menu offers a row that
-    /// cannot run.
+    /// cannot run. The ids are the list of the placeholders: the change that binds a real handler
+    /// takes its id out of that list, or this test is red for that id.
     @Test func floatingPaneRowsAheadOfTheirHandlersStillHaveOne() {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let ids: [ActionID] = ["toggleFloatingPane", "newFloatingPane", "toggleQuickTerminal"]
+        let ids = FloatingPanePlaceholders.ids
         services.registry.seed(ids.map { ActionDescriptor(id: $0, title: $0.rawValue, category: .pane) })
         AppActions.bind(services)
 
