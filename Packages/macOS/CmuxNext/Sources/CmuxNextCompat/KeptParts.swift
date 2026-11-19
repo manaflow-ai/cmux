@@ -9,10 +9,17 @@ import Observation
 /// Here each part has its own observation (``SingleArmedTracking``): ``parts(of:_:make:)`` runs `make` for a model
 /// that is new to the owner and for a model whose part read something that changed after, and gives the kept part
 /// for each other model. A caller that runs under an observation hears the change of a kept part too: the call
-/// reads one cell of the owner, which moves when a kept part of that owner changes.
+/// reads one cell of the owner, which moves when a kept part of that owner changes. A caller whose own call made
+/// a part read that part's values too (a part's `make` runs inside the caller's observation), so one change
+/// reaches it by 2 ways: ``SingleArmedTracking`` and ``ObservationStream`` count one registration one time, and a
+/// caller under a plain `withObservationTracking` can have its callback called 2 times for one change.
 ///
 /// `make` reads only what its part needs. A part is made again only when something that `make` read changes, so a
-/// value that `make` reads and that is not observable keeps its old part.
+/// value that `make` reads and that is not observable keeps its old part. Such a value is the part's input:
+/// ``parts(of:_:input:make:)`` reads `input` for each model at each call, outside the part's observation, gives it
+/// to `make`, and makes the part again when it is not the input that the kept part was made with. The read of an
+/// input is the caller's: a caller under an observation hears what `input` read, and each call reads it for each
+/// model, so an input is a small read.
 ///
 /// The parts of a model that left the owner's list go at the next call for that owner, with their observations.
 /// An owner is held weakly; the parts of an owner that is gone go when the owners doubled.
@@ -28,9 +35,20 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
         /// The model the part is of: an id whose model is gone, or is another object, has no part here.
         weak var model: Model?
         var part: Part
+        /// The input that the part was made with (a ``Given``).
+        let input: Any
         let mark: KeptPartMark
         let tracking: SingleArmedTracking
     }
+
+    /// The input that a kept part was made with, as its own type: a part is kept only for an input of the same
+    /// type that is equal.
+    private struct Given<Input: Equatable> {
+        let value: Input
+    }
+
+    /// The input of a part that has none (``parts(of:_:make:)``): each one equals each other one.
+    private struct NoInput: Equatable {}
 
     /// One owner's parts, by model.
     @MainActor private final class Store {
@@ -70,6 +88,18 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
     ///   - models: The owner's models, in order (its tabs).
     ///   - make: One model's part. It runs under the part's own observation.
     public func parts(of owner: Owner, _ models: [Model], make: (Model) -> Part) -> [Part] {
+        parts(of: owner, models, input: { _ in NoInput() }, make: { model, _ in make(model) })
+    }
+
+    /// The parts of `models` as ``parts(of:_:make:)``, each with an input: what its `make` needs and can not
+    /// observe. A kept part is given only while its input is the one that it was made with.
+    /// - Parameters:
+    ///   - owner: What the models belong to (a workspace).
+    ///   - models: The owner's models, in order (its tabs).
+    ///   - input: One model's input, read at each call for each model, outside the part's observation.
+    ///   - make: One model's part from its input. It runs under the part's own observation.
+    public func parts<Input: Equatable>(of owner: Owner, _ models: [Model], input: (Model) -> Input,
+                                        make: (Model, Input) -> Part) -> [Part] {
         let store = held(for: owner)
         store.signal.observe()
         var parts: [Part] = []
@@ -83,9 +113,16 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
                 entry.mark.drop()
                 kept = nil
             }
-            if let kept, !kept.mark.isStale {
-                parts.append(kept.part)
-                continue
+            let now = input(model)
+            if let entry = kept, !entry.mark.isStale {
+                if let with = entry.input as? Given<Input>, with.value == now {
+                    parts.append(entry.part)
+                    continue
+                }
+                // Another input: the part's observation is of what the old part read, and it is still armed. It
+                // ends here, and the new part gets its own, so what the new part reads is observed.
+                entry.mark.drop()
+                kept = nil
             }
             let mark = kept?.mark ?? KeptPartMark(store.signal)
             let tracking = kept?.tracking ?? SingleArmedTracking()
@@ -93,9 +130,9 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
             mark.fresh()
             let part = tracking.track(shape: [], { () -> Part in
                 mark.observe()
-                return make(model)
+                return make(model, now)
             }, onChange: { mark.fire() }, fileID: site.fileID, line: site.line)
-            store.entries[id] = Entry(model: model, part: part, mark: mark, tracking: tracking)
+            store.entries[id] = Entry(model: model, part: part, input: Given(value: now), mark: mark, tracking: tracking)
             made += 1
             parts.append(part)
         }
@@ -104,11 +141,12 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
         return parts
     }
 
-    /// The parts of `models` from `kept`, as ``parts(of:_:make:)``; with no holder each part is made now and none is
-    /// kept: one map for a caller that keeps its parts (a feed) and for one that does not (a walk).
-    public static func parts(of owner: Owner, _ models: [Model], kept: KeptParts?, make: (Model) -> Part) -> [Part] {
-        guard let kept else { return models.map(make) }
-        return kept.parts(of: owner, models, make: make)
+    /// The parts of `models` from `kept`, as ``parts(of:_:input:make:)``; with no holder each part is made now and
+    /// none is kept: one map for a caller that keeps its parts (a feed) and for one that does not (a walk).
+    public static func parts<Input: Equatable>(of owner: Owner, _ models: [Model], kept: KeptParts?, input: (Model) -> Input,
+                                               make: (Model, Input) -> Part) -> [Part] {
+        guard let kept else { return models.map { make($0, input($0)) } }
+        return kept.parts(of: owner, models, input: input, make: make)
     }
 
     /// Removes each part of `store` whose model is not in `models`, with its observation.

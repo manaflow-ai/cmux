@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextHomeModel
 @testable import CmuxNextSidebar
 import Foundation
+import Observation
 import Testing
 
 /// ONE TAB THAT CHANGES MAKES ONLY ITS OWN PART AGAIN.
@@ -362,6 +363,41 @@ struct TabPartsKeptTests {
         }
         print("TAB-PARTS agent glances, a pane's first tab closed: \(costs[0]) parts in a workspace of \(Self.sizes[0]) tabs, \(costs[1]) parts in a workspace of \(Self.sizes[1]) tabs")
         #expect(costs == [0, 0], "a pane's first tab closed made \(costs[0]) tab parts in a workspace of \(Self.sizes[0]) tabs and \(costs[1]) in one of \(Self.sizes[1]), want none: no agent changed")
+    }
+
+    /// A report with no condition on its times: what one map of a workspace of 84 tabs costs when each agent's
+    /// part is kept. That map is the list of the workspace's tabs, each tab's input (for each chat, what the page
+    /// rule reads from the app's agent tabs, and one read of the workspace's name) and the join of the kept parts.
+    /// The list alone is timed beside it. Under an observation each run arms its own, as the feed's map does.
+    @Test func theTimeOfOneMapOfAWorkspaceWhoseAgentsAreKept() throws {
+        let services = try Self.app(Self.keys(40), storm: Self.sizes[1], chats: true)
+        let glances = HomeAgentGlances(services: services)
+        func tabs(_ workspace: WorkspaceModel) -> [TabModel] { workspace.screens.flatMap(\.panes).flatMap(\.tabs) }
+        let workspace = try #require(services.machines.allWorkspaces.map { $0.0 }.first { tabs($0).count == Self.sizes[1] },
+                                     "setup: the session has no workspace of \(Self.sizes[1]) tabs")
+        let kept = KeptParts<WorkspaceModel, TabModel, HomeAgentGlance?>(step: "TabPartsKeptTests.timed")
+        let work = ObservationWork()
+        let first = ObservationWork.$current.withValue(work) { glances.glances(in: workspace, kept: kept) }
+        try #require(work.byStep["TabPartsKeptTests.timed"] == Self.sizes[1], "setup: the first map did not make a part for each tab")
+        try #require(first == glances.glances(in: workspace), "setup: the kept agents are not the walk's agents")
+
+        let runs = 200
+        /// The mean time of one run of `body`, in milliseconds.
+        func mean(_ body: () -> Void) -> Double {
+            let start = ContinuousClock.now
+            for _ in 0 ..< runs { body() }
+            let elapsed = ContinuousClock.now - start
+            return (Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1e3) / Double(runs)
+        }
+        let list = mean { _ = tabs(workspace) }
+        let plain = mean { _ = glances.glances(in: workspace, kept: kept) }
+        let observed = mean { withObservationTracking { _ = glances.glances(in: workspace, kept: kept) } onChange: {} }
+
+        work.reset()
+        let again = ObservationWork.$current.withValue(work) { glances.glances(in: workspace, kept: kept) }
+        #expect(again == first && (work.byStep["TabPartsKeptTests.timed"] ?? 0) == 0, "a map of a workspace with no change made a part or other agents")
+        print("TAB-PARTS agent glances, one map of a workspace of \(Self.sizes[1]) tabs with each part kept (\(first.count) agents): \(plain) ms with no observation, "
+            + "\(observed) ms under an observation; the list of its tabs alone = \(list) ms (each the mean of \(runs) runs in the tests' build; a report, no condition)")
     }
 
     /// A value that the page rule of a blank chat (`RestoredNewTabPages.shows`) reads from the app's agent tabs.
