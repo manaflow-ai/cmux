@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 public import CmuxNextCloud
-import CmuxNextDesign
+public import CmuxNextDesign
 public import Foundation
 
 /// GitHub's install redirect handed back to the app (``CloudGitHubCompletion/handle(_:auth:answered:)``): a connect that
