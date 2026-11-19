@@ -3131,3 +3131,21 @@ export const hexclaveWebhookInboxState = pgTable("hexclave_webhook_inbox_state",
 }, (table) => [
   check("hexclave_webhook_inbox_state_singleton", sql`${table.id} = 1`),
 ]);
+
+/**
+ * One-time native sign-in codes (PKCE S256). Only the code's SHA-256 is
+ * stored; a row lives at most 60 seconds and is deleted by its first
+ * redemption (app/lib/native-sign-in-codes.ts).
+ */
+export const nativeSignInCodes = pgTable("native_sign_in_codes", {
+  codeHash: text("code_hash").primaryKey(),
+  codeChallenge: text("code_challenge").notNull(),
+  scheme: text("scheme").notNull(),
+  userId: text("user_id").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("native_sign_in_codes_expiry_idx").on(table.expiresAt),
+  check("native_sign_in_codes_hash_check", sql`${table.codeHash} ~ '^[0-9a-f]{64}$'`),
+  check("native_sign_in_codes_challenge_check", sql`${table.codeChallenge} ~ '^[A-Za-z0-9_-]{43}$'`),
+]);

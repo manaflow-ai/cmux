@@ -6,6 +6,7 @@ import {
 } from "../native-handoff-cookie";
 import { requestOrigin } from "../../lib/request-origin";
 import { SELECT_ACCOUNT_PROMPT } from "../sign-in-entry";
+import { isValidCodeChallenge, PKCE_METHOD_S256 } from "../../lib/native-sign-in-codes";
 
 
 function canSetAutoHandoff(request: NextRequest): boolean {
@@ -30,6 +31,19 @@ export function GET(request: NextRequest) {
   const afterSignInURL = sameOriginURL(afterAuthReturnTo, request);
   if (!afterSignInURL || afterSignInURL.pathname !== "/handler/after-sign-in") {
     return NextResponse.redirect(new URL("/", requestOrigin(request)));
+  }
+
+  // The app's PKCE challenge rides on the entry URL; after-sign-in binds the
+  // one-time code to it. A malformed challenge or another method is refused
+  // rather than silently downgraded to the legacy token hand-off.
+  const codeChallenge = request.nextUrl.searchParams.get("code_challenge");
+  if (codeChallenge !== null) {
+    const method = request.nextUrl.searchParams.get("code_challenge_method");
+    if (!isValidCodeChallenge(codeChallenge) || method !== PKCE_METHOD_S256) {
+      return NextResponse.redirect(new URL("/", requestOrigin(request)));
+    }
+    afterSignInURL.searchParams.set("code_challenge", codeChallenge);
+    afterSignInURL.searchParams.set("code_challenge_method", PKCE_METHOD_S256);
   }
 
   const nativeReturnTo = afterSignInURL.searchParams.get("native_app_return_to");
