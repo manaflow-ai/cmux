@@ -266,13 +266,18 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn(JOB, HOLD_GATED[WORKFLOW.name])
         self.assertIn(JOB, DRAFT_SKIPPED[WORKFLOW.name])
 
-    def test_every_edit_runs_it(self) -> None:
-        # Edited runs share one cancel-in-progress group: a title edit that skipped the job could cancel
-        # the run of a body edit and leave no measured answer.
+    def test_an_edit_it_skips_never_cancels_one_that_runs_it(self) -> None:
+        # An edit runs it when the description gains or loses a `Size:` line; any other edit skips it. A
+        # skipping edit must take a concurrency group of its own run: in the shared edited group a title edit
+        # that skipped could cancel a body edit's run and leave no measured answer.
         condition = str(self.job["if"])
         self.assertIn('"edited"', condition)
-        self.assertNotIn("changes.body", condition)
+        self.assertIn("contains(github.event.changes.body.from, 'Size:') == "
+                      "contains(github.event.pull_request.body, 'Size:')", condition)
         self.assertNotIn("changes.title", condition)
+        skip = condition[condition.index("!(github.event.action == 'edited'") + 2:].rsplit(")", 1)[0]
+        group = str(self.workflow["concurrency"]["group"])
+        self.assertIn(f"({skip}) && format('-noop-{{0}}', github.run_id)", group)
 
     def run_step(self, script_exit: int | None, gh_exit: int = 0, checkout: str = "success",
                  live_body: str | None = None, event_body: str = "", lines: int = 10) -> int:

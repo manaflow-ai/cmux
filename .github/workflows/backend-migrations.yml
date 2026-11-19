@@ -31,12 +31,19 @@ on:
 permissions:
   contents: read
 
+# Into feat-cmux-next, a title or description edit and any label but backend:apply-migrations change
+# nothing this gate reads (the head's migrations and that label): every job skips, in a group of its own
+# run, so it neither waits behind nor holds up a real run. feat-cmux-next's landers read past a skipped
+# run to the newest real verdict. Into main every such event still runs the gate, since gh-merge-green
+# reads a skipped run as a pass. On 2026-11-19 this workflow held 30 queued and 13 running runs, most
+# of them label and edit events.
 concurrency:
-  group: backend-migrations-${{ github.event.pull_request.number || github.event.merge_group.head_sha }}
+  group: backend-migrations-${{ github.event.pull_request.number || github.event.merge_group.head_sha }}${{ (github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'edited' && !github.event.changes.base || github.event.action == 'labeled' && github.event.label.name != 'backend:apply-migrations')) && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 jobs:
   plan:
+    if: ${{ !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'edited' && !github.event.changes.base || github.event.action == 'labeled' && github.event.label.name != 'backend:apply-migrations')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
     # Recent runs: 20s median, 51s max (GitHub API reads and a SQL lint).
     timeout-minutes: 10
@@ -244,7 +251,7 @@ jobs:
   gate:
     name: backend migrations applied
     needs: [plan, apply-production]
-    if: always()
+    if: ${{ always() && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'edited' && !github.event.changes.base || github.event.action == 'labeled' && github.event.label.name != 'backend:apply-migrations')) }}
     # merge_group runs this file from the queue commit (PR content), so it never gets an
     # environment or secrets (the environments allow only main and feat-cmux-next); the queue
     # only admits PRs whose pull_request_target gate passed. Fork PRs never get secrets here.

@@ -31,8 +31,15 @@ permissions: {}
 # a base-only push after it runs every check rather than keep answers that never
 # finished. A description edit (the PR size check alone) has its own group and
 # never cancels a push's run.
+#
+# An edit only matters to the two checks that read the description: PR size (a
+# `Size:` line) and the UI review advisory (a `UI review` heading and a
+# `Verdict:` line). A title edit, or a description edit that neither adds nor
+# removes any of those, starts no job (every job's `if:` below) and takes a group
+# of its own run, so it never cancels an edit that does. On 2026-11-19 edits were
+# 42 of the 79 queued PR-checks runs, each holding two Linux runners.
 concurrency:
-  group: pr-checks-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && 'edited' || 'push' }}
+  group: pr-checks-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && 'edited' || 'push' }}${{ (github.event.action == 'edited' && !github.event.changes.base && (!github.event.changes.body || (contains(github.event.changes.body.from, 'Size:') == contains(github.event.pull_request.body, 'Size:') && contains(github.event.changes.body.from, 'UI review') == contains(github.event.pull_request.body, 'UI review') && contains(github.event.changes.body.from, 'Verdict:') == contains(github.event.pull_request.body, 'Verdict:')))) && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -46,7 +53,7 @@ jobs:
   # missing publication keeps the existing hosted/Blacksmith route.
   portable-placement:
     name: portable light placement
-    if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' }}
+    if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' && !(github.event.action == 'edited' && !github.event.changes.base && (!github.event.changes.body || (contains(github.event.changes.body.from, 'Size:') == contains(github.event.pull_request.body, 'Size:') && contains(github.event.changes.body.from, 'UI review') == contains(github.event.pull_request.body, 'UI review') && contains(github.event.changes.body.from, 'Verdict:') == contains(github.event.pull_request.body, 'Verdict:')))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 4
     permissions:
@@ -324,12 +331,13 @@ jobs:
   # passes, and so does a measured size over the limit.
   size:
     name: PR size
-    # Every edit runs it, a title-only one too: edits share one cancelling group, so a
-    # title edit can cancel a body edit's run, and its own run must answer. It runs on a
+    # An edit that adds or removes a `Size:` line (or a UI review part) runs it; any other
+    # edit skips in a group of its own (the concurrency block), so it cancels no edit
+    # that runs it, and the last run that measured still answers. It runs on a
     # base-only update too: it costs one API call, and a previous head's green run
     # from before it could fail (or that a later Size: edit changed) must not
     # answer for it.
-    if: ${{ always() && !cancelled() && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
+    if: ${{ always() && !cancelled() && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && !(github.event.action == 'edited' && !github.event.changes.base && (!github.event.changes.body || (contains(github.event.changes.body.from, 'Size:') == contains(github.event.pull_request.body, 'Size:') && contains(github.event.changes.body.from, 'UI review') == contains(github.event.pull_request.body, 'UI review') && contains(github.event.changes.body.from, 'Verdict:') == contains(github.event.pull_request.body, 'Verdict:')))) }}
     # A light job: one GraphQL read, 4 s of work. The reconciled Linux pool on every attempt (no
     # secret), never GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
     needs: portable-placement
@@ -413,7 +421,7 @@ jobs:
   ui-review:
     name: UI review advisory
     needs: [base-only, portable-placement]
-    if: ${{ always() && !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
+    if: ${{ always() && !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && !(github.event.action == 'edited' && !github.event.changes.base && (!github.event.changes.body || (contains(github.event.changes.body.from, 'Size:') == contains(github.event.pull_request.body, 'Size:') && contains(github.event.changes.body.from, 'UI review') == contains(github.event.pull_request.body, 'UI review') && contains(github.event.changes.body.from, 'Verdict:') == contains(github.event.pull_request.body, 'Verdict:')))) }}
     # A light job: one file list read, 4 s of work. The reconciled Linux pool on every attempt (no
     # secret), never GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' ui-review ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' ui-review ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
