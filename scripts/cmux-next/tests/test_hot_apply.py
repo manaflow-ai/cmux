@@ -1010,7 +1010,10 @@ class LiveFromWholeApp(unittest.TestCase):
         # The app bundles this helper separately from app try's bin payload.
         project = self.repo / "cmux.xcodeproj/project.pbxproj"
         project.parent.mkdir(parents=True)
-        project.write_text('"$(SRCROOT)/cmux-tui/crates/cmux-mobile-host/src/main.rs"\n')
+        project.write_text('"$(SRCROOT)/cmux-tui"\n'
+                           '"$(SRCROOT)/cmux-tui/crates/cmux-mobile-host/src/main.rs"\n'
+                           '"$(SRCROOT)/cmux-tui/Cargo.toml"\n'
+                           '"$(SRCROOT)/cmux-tui/Cargo.lock"\n')
         self.base = self.commit("README.md", "base\n")
 
     def git(self, *args):
@@ -1063,6 +1066,14 @@ class LiveFromWholeApp(unittest.TestCase):
         self.assertEqual(out["live_from"], [helper])
         self.assertIn(path, out["floor_paths"])
         self.assertEqual(self.hot.pins_daemon(self.repo, helper), [])
+
+    def test_workspace_dependencies_can_change_separately_bundled_helpers(self):
+        for path in ("cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock"):
+            with self.subTest(path=path):
+                head = self.commit(path, "# changed workspace dependency\n")
+                out = self.hot.live_from(self.repo, head, 2)
+                self.assertEqual(out["live_from"], [head])
+                self.assertIn(path, out["floor_paths"])
 
 
 class PinCompatibility(unittest.TestCase):

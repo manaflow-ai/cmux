@@ -721,6 +721,8 @@ def pins_daemon(repo: Path, commit: str, *, whole_app: bool = False) -> list[str
     if whole_app:
         uncarried = [path for kind in ("swift-live", "rebuild", "web-live") for path in files.get(kind, [])]
         uncarried.extend(helper_rust(repo, daemon))
+        # The separately bundled helpers share the workspace dependency graph.
+        uncarried.extend(path for path in daemon if path in ("cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock"))
     before, after = pinned_ffi_source(repo, parent), pinned_ffi_source(repo, commit)
     if before is None and after is None:
         return sorted(set(uncarried + linked_rust(repo, daemon)))
