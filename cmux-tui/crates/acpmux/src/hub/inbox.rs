@@ -1568,7 +1568,12 @@ impl Hub {
                             // the chat is in a 429 streak, `rate_hold.rs`): a steer would be a
                             // second full-context request into the same limit. What is new
                             // waits for the turn's end: the next probe, or after a success.
+                            // It is due then, as after a Stop: a report that wakes no idle
+                            // chat would otherwise wait for the flush once the limit lifts.
                             let probing = session.rate_hold.probing();
+                            if probing {
+                                inbox.due_now = true;
+                            }
                             if stopping
                                 || probing
                                 || !steers
