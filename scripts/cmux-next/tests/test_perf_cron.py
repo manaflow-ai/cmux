@@ -754,6 +754,15 @@ class WebUiTests(unittest.TestCase):
         self.assertIsNone(wake.find_key({}, "terminal_id"))
         term = wake.Terminal(mock.MagicMock(cli_path="/b/cmux", socket="/s.sock"))
         self.assertEqual(term.argv("x")[:3], ["/b/cmux", "--app-socket", "/s.sock"], "the app socket, not the daemon's")
+        # The views of its own workspace, else the focused terminal; never another workspace's text.
+        panes = [{"kind": "terminal", "workspace": "ws_other", "text": "old"},
+                 {"kind": "terminal", "workspace": "ws_1", "text": "wake-3"}, {"kind": "browser", "workspace": "ws_1"}]
+        term.app.call.return_value = {"windows": [{"panes": panes}]}
+        term.workspace = "ws_1"
+        self.assertEqual(term.view_text(), "wake-3")
+        term.workspace = "ws_none"
+        panes[0]["focused"] = True
+        self.assertEqual(term.view_text(), "old")
 
     def test_the_memory_agents_part_measures_the_optimized_app(self):
         """CMUX-571 ram-baseline compares the app with other apps' release builds and with the 2026-11-08 Release

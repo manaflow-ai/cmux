@@ -97,7 +97,7 @@ class Terminal:
         self.app = app
         self.env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_SOCKET_PATH": app.socket, "CMUX_QUIET": "1",
                     "HOME": os.environ.get("HOME", "/tmp")}
-        self.surface = None
+        self.surface = self.workspace = None
 
     def argv(self, *args) -> list[str]:
         # The app's control socket (`--app-socket`), as bench_memory.App and the other benches of this build call it.
@@ -120,18 +120,29 @@ class Terminal:
             raise SystemExit(f"wake-proxy: workspace create answered {(done.stdout + done.stderr).strip()[:300]}")
         self.app.call("action.run", {"action": "goToWorkspace", "target": f"workspace:{workspace}", "origin": "script",
                                      "focus": True}, timeout=ECHO_TIMEOUT_S)
-        self.surface = term
+        self.surface, self.workspace = term, workspace
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
-            if self.view_text().strip():
+            if self.view_panes():
                 return term
-            time.sleep(0.5)  # test script: the shell draws its first prompt by itself
-        raise SystemExit(f"wake-proxy: {workspace} never showed its terminal")
+            time.sleep(0.5)  # test script: the workspace's terminal view appears by itself
+        raise SystemExit(f"wake-proxy: {workspace} never showed its terminal; panes {self.pane_summary()}")
+
+    def view_panes(self) -> list[dict]:
+        """The terminal views that draw this workspace (a pane's `workspace`, as shared-space-windows-e2e reads it),
+        else the focused terminal view (the workspace was created with --focus)."""
+        reply = self.app.call("debug.surfaces", {"text": True}, timeout=ECHO_TIMEOUT_S)
+        panes = [p for w in reply.get("windows") or [] for p in w.get("panes") or [] if p.get("kind") == "terminal"]
+        mine = [p for p in panes if self.workspace and p.get("workspace") == self.workspace]
+        return mine or [p for p in panes if p.get("focused")]
+
+    def pane_summary(self) -> str:
+        reply = self.app.call("debug.surfaces", {"text": True}, timeout=ECHO_TIMEOUT_S)
+        return json.dumps([{k: p.get(k) for k in ("kind", "workspace", "presence", "focused")} | {"text": len(p.get("text") or "")}
+                           for w in reply.get("windows") or [] for p in w.get("panes") or []] or reply)[:600]
 
     def view_text(self) -> str:
-        reply = self.app.call("debug.surfaces", {"text": True}, timeout=ECHO_TIMEOUT_S)
-        return "\n".join(str(p.get("text") or "") for w in reply.get("windows", []) for p in w.get("panes", [])
-                         if p.get("kind") == "terminal" and p.get("presence") == "visible")
+        return "\n".join(str(p.get("text") or "") for p in self.view_panes())
 
     def echo_start(self) -> tuple[subprocess.Popen, str]:
         """Types `echo wake-$((A+B))`; only the shell's output line holds wake-<sum>, never the typed text."""
@@ -202,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
         term = Terminal(app)
         term.open()
         if term.echo() is None:
-            raise SystemExit("wake-proxy: the terminal never echoed before any freeze")
+            raise SystemExit(f"wake-proxy: the terminal never echoed before any freeze; panes {term.pane_summary()}")
         for index in range(args.rounds):
             time.sleep(args.settle)  # test script: an idle app between rounds
             entry = run_round(args.app, app_pid, app, term, args.sleep)
