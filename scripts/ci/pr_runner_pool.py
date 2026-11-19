@@ -1276,7 +1276,8 @@ def snapshot_truncated(snapshot: Mapping[str, Any]) -> str:
     without the key (written before it existed) does not."""
     if "truncated" not in snapshot or snapshot.get("truncated") is False:
         return ""
-    return (f"pool snapshot is truncated (it lists {snapshot.get('listed', '?')} of {snapshot.get('total', '?')} "
+    bound = "at least " if snapshot.get("total_at_least") else ""
+    return (f"pool snapshot is truncated (it lists {snapshot.get('listed', '?')} of {bound}{snapshot.get('total', '?')} "
             "in-flight runs), so its queues are unknown")
 
 
