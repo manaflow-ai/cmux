@@ -68,6 +68,9 @@ env:
 jobs:
   scope:
     name: tab switch scope
+    # A draft is measured once it is ready for review (ready_for_review starts the workflow again), and the
+    # verdict was green for it whatever the scope said: a draft takes no runner (scope and verdict skip).
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
@@ -200,7 +203,7 @@ jobs:
     # The context a ruleset requires: keep this name.
     name: tab switch (frames, under load)
     needs: [scope, frames]
-    if: always()
+    if: ${{ always() && !github.event.pull_request.draft }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:

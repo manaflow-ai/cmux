@@ -11,7 +11,8 @@ name: iOS E2E
 # No workflow-level path filter on purpose: the route job decides skips so the
 # ios-e2e-status aggregate always reports a deterministic conclusion.
 # Pull requests into feat-cmux-next run it (Leo, 2026-11-14: "ios e2e yes on
-# feat next"); a docs-only diff skips the Mac job in `route`. It stays
+# feat next"); a docs-only diff skips the Mac job in `route`, and while
+# IOS_E2E_PR_TAILNET is not true every job's `if` skips (no runner). It stays
 # dispatchable on any branch the `ios-e2e` environment allows.
 on:
   pull_request:
@@ -63,6 +64,11 @@ jobs:
   route:
     # Cheap Linux layer so every PR gets a routed conclusion once the trigger
     # is promoted. The classifier integration remains intentionally explicit.
+    # A pull request routes only once IOS_E2E_PR_TAILNET admits its tailnet
+    # join. Until then the route step turned every pull request off anyway, so
+    # route and ios-e2e-status are skipped here, decided from the same variable
+    # before a runner is picked: a pull request takes no runner for this file.
+    if: ${{ github.event_name != 'pull_request' || vars.IOS_E2E_PR_TAILNET == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     outputs:
@@ -575,7 +581,9 @@ jobs:
     # and the Mac job failed. Fork PRs are a neutral skip because secret-fenced
     # jobs cannot run there.
     needs: [route, backend, mac-ios-e2e]
-    if: always()
+    # Skipped with route while pull requests stay off the tailnet (route's
+    # `if`): a skipped check passes, as its "route skipped the lane" green did.
+    if: ${{ always() && (github.event_name != 'pull_request' || vars.IOS_E2E_PR_TAILNET == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
