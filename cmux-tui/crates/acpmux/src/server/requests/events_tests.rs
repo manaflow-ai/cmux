@@ -496,6 +496,25 @@ fn prompt_page(before: u64, limit: u64, max_bytes: u64) -> Value {
 fn the_prompt_index_answers_bounded_pages_newest_first() {
     let (root, hub) = prompted_chat(2000);
     let last = 4000u64;
+    // The newest page reads its few segments, not the chat's every copy. Measured first (the
+    // copies made by a first read), so a run on a daemon without pages prints its cost too.
+    if cfg!(target_os = "linux") {
+        handle(&hub, method::MUX_EVENTS, &prompt_page(last + 1, 1_000_000, 64 << 20), None)
+            .unwrap();
+        let all = read_bytes();
+        handle(&hub, method::MUX_EVENTS, &prompt_page(last + 1, 1_000_000, 64 << 20), None)
+            .unwrap();
+        let all = read_bytes() - all;
+        let newest = read_bytes();
+        let page =
+            handle(&hub, method::MUX_EVENTS, &prompt_page(last + 1, 16, 256 << 10), None).unwrap();
+        let newest = read_bytes() - newest;
+        let reply = serde_json::to_string(&page).unwrap().len();
+        eprintln!(
+            "prompt index, 2000 prompts: newest 16-prompt page read {newest} bytes, reply {reply} bytes; every prompt read {all} bytes"
+        );
+        assert!(newest * 10 < all, "the newest page read {newest} bytes, every prompt {all}");
+    }
     // Pages back from the end hold every prompt once, in order.
     let mut before = last + 1;
     let mut seen = Vec::new();
@@ -520,16 +539,5 @@ fn the_prompt_index_answers_bounded_pages_newest_first() {
     let page = handle(&hub, method::MUX_EVENTS, &prompt_page(last + 1, 5000, 1), None).unwrap();
     assert_eq!(seqs(&page), [last - 1]);
     assert_eq!(page["hasMore"], true);
-    // The newest page reads its few segments, not the chat's every copy.
-    if cfg!(target_os = "linux") {
-        let all = read_bytes();
-        handle(&hub, method::MUX_EVENTS, &prompt_page(last + 1, 1_000_000, 64 << 20), None)
-            .unwrap();
-        let all = read_bytes() - all;
-        let newest = read_bytes();
-        handle(&hub, method::MUX_EVENTS, &prompt_page(last + 1, 16, 256 << 10), None).unwrap();
-        let newest = read_bytes() - newest;
-        assert!(newest * 10 < all, "the newest page read {newest} bytes, every prompt {all}");
-    }
     let _ = std::fs::remove_dir_all(&root);
 }
