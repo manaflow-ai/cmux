@@ -106,7 +106,8 @@ def summarize(reports: list[dict]) -> dict:
                 continue
             rows = [{"label": s["label"], "items": s.get("items", 0), "gpu": s.get("gpu"), "groups": grouped(s),
                      **({"page_frames": s["page_frames"]} if "page_frames" in s else {}),
-                     **({"renderer_priorities": p} if (p := renderer_priorities(s)) else {})}
+                     **({"renderer_priorities": p} if (p := renderer_priorities(s)) else {}),
+                     **({"renderers": s["renderers"]} if "renderers" in s else {})}
                     for s in samples]
             marginal: dict[str, dict] = {}
             for name in GROUPS + ("total",):
@@ -190,6 +191,24 @@ def markdown(summary: dict, machine: str = "") -> str:
                                   for p, b in sorted((row.get("renderer_priorities") or {}).items(),
                                                      key=lambda item: -int(item[0]))) or "-"
                 lines.append(f"| {row['label']} | {row['items']} | {frames} | {bands} |")
+        held = [(row["label"], row["renderers"]) for _phase, data in axis["phases"].items() for row in data["samples"]
+                if row.get("renderers")]
+        if held:
+            lines += ["", "Renderers and what they hold (priority, CPU %, extension, tabs):", ""]
+            seen_held = set()
+            for label, renderers in held:
+                if label in seen_held:
+                    continue
+                seen_held.add(label)
+                cells = []
+                for r in renderers:
+                    if "error" in r:
+                        cells.append(f"error {r['error']}")
+                        continue
+                    tabs = ",".join(t.get("title") or t.get("url") or "?" for t in r.get("tabs") or []) or "no tab"
+                    cells.append(f"pri {r.get('priority')} cpu {fmt(r.get('cpu_pct'), 3)}"
+                                 f"{' ext' if r.get('extension') else ''} [{tabs}]")
+                lines.append(f"- {label}: " + "; ".join(cells))
         if axis.get("show_latency"):
             got = [s.get("first_frame_ms") for s in axis["show_latency"]]
             lines += ["", "Show latency, request to first frame (ms): " + ", ".join(fmt(v, 0) for v in got)]
