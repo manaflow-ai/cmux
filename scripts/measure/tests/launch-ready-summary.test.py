@@ -206,5 +206,41 @@ class LayoutTests(unittest.TestCase):
         self.assertIn("n=0 n_missing=1 first_frame_ms=none settle_ms=none", line)
 
 
+def layout(window_moved, window_changes, sidebar_moved=None, sidebar_changes=0):
+    def part(moved, changes):
+        if moved is None:
+            return {"first": None, "last": None, "moved_pt": 0.0, "changes": 0}
+        return {"first": [0.0], "last": [moved], "moved_pt": moved, "changes": changes}
+    return {"window": part(window_moved, window_changes), "sidebar": part(sidebar_moved, sidebar_changes),
+            "samples": 60, "complete": True}
+
+
+class FramesTests(unittest.TestCase):
+    def test_layout_rows_print_lr_frames_per_side(self):
+        rows = [row("head", "prime", TAB, layout=layout(50.0, 1, 60.0, 1)),
+                row("head", "run1", TAB, TAB_MARKS, "tabs", layout=layout(0.0, 0, 60.0, 2)),
+                row("head", "run2", TAB, TAB_MARKS, "tabs", layout=layout(120.0, 3, 0.0, 0))]
+        _, lines = run(rows)
+        frames = [l for l in lines if l.startswith("LR-FRAMES head ")]
+        self.assertEqual(len(frames), 1)
+        data = module.json.loads(frames[0].split(" ", 2)[2])
+        self.assertEqual(data["n"], 2)  # the priming launch is not measured
+        self.assertEqual(data["window"]["moved_pt"], [0.0, 120.0])
+        self.assertEqual(data["window"]["max_moved_pt"], 120.0)
+        self.assertEqual(data["window"]["median_changes"], 1.5)
+        self.assertEqual(data["window"]["launches_that_moved"], "1/2")
+        self.assertEqual(data["sidebar"]["median_moved_pt"], 30.0)
+
+    def test_a_release_build_has_no_sidebar_reading(self):
+        _, lines = run([row("head", "prime", TAB), row("head", "run1", TAB, TAB_MARKS, "tabs", layout=layout(0.0, 0))])
+        data = module.json.loads(next(l for l in lines if l.startswith("LR-FRAMES")).split(" ", 2)[2])
+        self.assertEqual(data["sidebar"], {"n": 0, "moved_pt": [], "changes": [], "median_moved_pt": None,
+                                           "max_moved_pt": None, "median_changes": None, "launches_that_moved": "0/0"})
+
+    def test_no_layout_no_line(self):
+        _, lines = run([row("head", "prime", TAB), row("head", "run1", TAB, TAB_MARKS, "tabs")])
+        self.assertFalse(any(l.startswith("LR-FRAMES") for l in lines))
+
+
 if __name__ == "__main__":
     unittest.main()

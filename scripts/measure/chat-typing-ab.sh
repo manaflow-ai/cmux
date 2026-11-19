@@ -70,6 +70,14 @@ cleanup() {
 trap cleanup EXIT
 echo "CHAT-TYPING-AB disk free before: $(df -h "$here" | awk 'NR==2 {print $4}')"
 echo "CHAT-TYPING-AB host $(hostname -s) macOS $(sw_vers -productVersion 2>/dev/null) base $base head $head rounds $rounds"
+# The benches launch the app, which draws only in this account's GUI session. Without one every round measures
+# nothing, after both arms' app builds (2026-11-18: cmux21-23, the austin minis and a display mini each spent about an
+# hour, then "no-gui-session" and 0 rounds), so check before building (the bench_launch session rule).
+if ! session="$(python3 scripts/cmux-next/bench_launch.py session 2>&1)"; then
+  echo "CHAT-TYPING-AB no-gui-session: $session" >&2
+  echo "CHAT-TYPING-AB verdict exit 3 base $base head $head rounds $rounds"
+  exit 3
+fi
 # Steps run with a per-step HOME; node and cargo for the app build live under the account's real home.
 # The worker puts the bun webviews/package.json pins (<fleet>/tools/bun-<pin>) first on PATH; the
 # account's ~/.bun/bin may hold an older one, so that pinned bun goes back in front after the prepends

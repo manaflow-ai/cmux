@@ -217,6 +217,19 @@ def summarize(rows, case="kept", seeded="", params=""):
         mix = ",".join(f"{k}:{v}" for k, v in sorted(surfaces.items()))
         print("LR-SURFACE", side, f"first={first} home_page_drawn={drawn}/{measured} mix={mix}", flush=True)
         layout = layout_line(side, [r for r in runs if r.get("window_on_screen") is not None], params)
+        # layout=1: what moved after the first frame, per measured launch (moved_pt, changes) and its median and highest.
+        laid = [r["layout"] for r in runs if r.get("layout")]
+        if laid:
+            frames = {"n": len(laid)}
+            for part in ("window", "sidebar"):
+                seen = [l[part] for l in laid if l[part].get("first") is not None]
+                moved, changes = [s["moved_pt"] for s in seen], [s["changes"] for s in seen]
+                frames[part] = {"n": len(seen), "moved_pt": moved, "changes": changes,
+                                "median_moved_pt": round(statistics.median(moved), 1) if moved else None,
+                                "max_moved_pt": max(moved) if moved else None,
+                                "median_changes": statistics.median(changes) if changes else None,
+                                "launches_that_moved": f"{sum(1 for m in moved if m > 0)}/{len(seen)}"}
+            print("LR-FRAMES", side, json.dumps(frames), flush=True)
         result[side] = {"failed": failed, "surface": first, "layout": layout}
     # An A/B whose arms first showed different surfaces times different work: not like for like.
     firsts = {side: data["surface"] for side, data in result.items()}

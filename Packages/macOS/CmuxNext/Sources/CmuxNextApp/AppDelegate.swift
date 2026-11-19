@@ -162,6 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, peerApprover: PeerApprovalsApp.approver())
         AppProcessRoot.shared.adopt(services)
         self.services = services
+        services.home.ensure.ensuresAtLaunch = true // before the restore asks: the launch waits for Home, which may start after the first frame
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), files: services.agentPaneStateFiles)
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -399,10 +400,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.followMacScreenSettings(settings)
         services.startDeviceHub(settings)
         services.updater.follow(settings)
-        ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak services] in
-            services?.registry.disabledFeatures.contains(.computerUse) ?? true
-        })
-        services.computerUsePreview.follow(settings)
         services.startHibernation(settings: settings)
         services.autoArchive.start() // workspaces.autoArchive: first pass 30 s after launch
         services.workspaceHibernation.start() // workspaces.hibernation: first pass 60 s after launch
@@ -529,9 +526,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let services else { return }
         // Something the user opened with cmux: an update relaunch's startup ends, so it can come forward.
         services.input.endRelaunchBehind("external open")
-        let auth = services.cloud.auth
-        let destination = OpenedURLRouting(isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) }).route(url)
-        guard destination == .auth else { return }
+        let auth = services.cloud.auth // GitHub's install redirect handed back here: the app finishes it itself (#46018)
+        guard !CloudGitHubCompletion.handle(url, auth: auth), OpenedURLRouting(isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) }).route(url) == .auth else { return }
         Task {
             guard await !auth.handleCallback(url) else { return }
             await auth.awaitRestored()
@@ -549,7 +545,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.updater.stopReleasePush()
         services?.agentTabs.pageChats.stopNotices()
         AppProcessRoot.shared.hangReports?.applicationWillTerminate()
-        ComputerUseHelperDaemon.shared.applicationWillTerminate()
         services?.viewers.diffPages.terminate()
         services?.viewers.markdownPages.terminate()
         services?.viewers.editorPages.terminate()
