@@ -4,7 +4,7 @@
 //! a relayed message runs as a peer's and reads none of this host's peers; control messages go to
 //! the hook; a message for another host or daemon never runs here; the heartbeat lists the
 //! sessions here; with no hub nothing changes; no loop calls a failing or impatient hub in a busy
-//! loop, and the relay ends when the daemon stops or the mesh hub refuses it.
+//! loop, and the relay ends when the daemon stops; a refusal from the mesh hub only pauses it.
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -61,6 +61,7 @@ fn quick() -> RelayOptions {
         min_poll_gap: Duration::from_millis(100),
         backoff_first: Duration::from_millis(100),
         backoff_cap: Duration::from_millis(400),
+        refused_retry: Duration::from_millis(300),
         max_in_flight: 4,
         on_reconnect: None,
     }
@@ -117,10 +118,12 @@ struct FakeHub {
     down: bool,
     /// The inbox answers at once, never long-polling.
     impatient: bool,
-    /// Every call is refused for good (a bad credential).
+    /// Every call is refused (a bad credential).
     refusing: bool,
-    /// Only inbox calls are refused for good; heartbeats are taken.
+    /// Only inbox calls are refused; heartbeats are taken.
     refusing_inbox: bool,
+    /// The heartbeats refused before the hub takes this daemon (a hub deploy, a proxy's 403).
+    refused_beats: std::sync::atomic::AtomicUsize,
     /// The inbox long-polls for a minute, far past the test's wait.
     long: bool,
     /// The row TTL a heartbeat reply names (90 s, the hub's old TTL, when unset).
@@ -212,6 +215,10 @@ impl MeshHub for FakeHub {
             });
             if self.refusing {
                 return Err(HubError::refused("401 mesh.unauthorized"));
+            }
+            let left = std::sync::atomic::Ordering::SeqCst;
+            if self.refused_beats.fetch_update(left, left, |n| n.checked_sub(1)).is_ok() {
+                return Err(HubError { status: Some(403), ..HubError::refused("403 forbidden") });
             }
             Ok(HeartbeatReply {
                 daemon_id: "inst_b".into(),
@@ -531,7 +538,7 @@ async fn ends(relay: &MeshRelay, what: &str) {
 }
 
 #[tokio::test]
-async fn the_relay_ends_when_the_daemon_stops_or_the_mesh_hub_refuses_it() {
+async fn the_relay_ends_when_the_daemon_stops_and_a_refusal_only_pauses_it() {
     // The daemon stops (as `_acpmux/shutdown` does) while the inbox is long-polling an empty
     // inbox: both loops end at once instead of polling on, the heartbeat with an empty one.
     let stopping = hub();
@@ -546,26 +553,54 @@ async fn the_relay_ends_when_the_daemon_stops_or_the_mesh_hub_refuses_it() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), calls);
 
-    // A refused heartbeat (a bad credential) is not retried, and the inbox, which waits for the
-    // hub to name this daemon, never polls: one call in all, then the relay is off.
+    // A refused heartbeat (a bad credential) is tried again only every `refused_retry`, and the
+    // inbox, which waits for the hub to name this daemon, never polls; the relay keeps running.
     let refused = hub();
     let fake = Arc::new(FakeHub { refusing: true, ..FakeHub::default() });
     let relay = MeshRelay::start(&refused, fake.clone(), Arc::new(RefuseControl), quick());
-    ends(&relay, "a refused heartbeat").await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), (0, 1));
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    assert!(!relay.is_finished(), "a refused heartbeat ended the relay");
+    let (inbox_calls, beats) = fake.with(|s| (s.inbox_calls, s.heartbeats.len()));
+    assert_eq!(inbox_calls, 0);
+    // 300 ms apart: about 4 in a second, never a busy loop.
+    assert!((2..=6).contains(&beats), "{beats} refused heartbeats in a second");
     relay.stop().await;
 
-    // The hub takes heartbeats but refuses the inbox: both loops end, the heartbeat with an
-    // empty one, so the address book does not list sessions no message can reach.
+    // The hub takes heartbeats but refuses the inbox: the heartbeat lists no session, so the
+    // address book does not list sessions no message can reach, and the inbox is tried again
+    // every `refused_retry`.
     let refused = hub();
     let fake = Arc::new(FakeHub { refusing_inbox: true, ..FakeHub::default() });
     let relay = MeshRelay::start(&refused, fake.clone(), Arc::new(RefuseControl), quick());
-    ends(&relay, "a refused inbox").await;
-    let beats = fake.with(|s| s.heartbeats.len());
+    fake.until("a second refused inbox", |s| s.inbox_calls >= 2).await;
+    assert!(!relay.is_finished(), "a refused inbox ended the relay");
     assert!(fake.with(|s| s.heartbeats.last().is_some_and(|b| b.sessions.is_empty())));
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), (1, beats));
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    let calls = fake.with(|s| s.inbox_calls);
+    assert!((3..=8).contains(&calls), "{calls} refused inbox calls");
+    relay.stop().await;
+}
+
+/// The coordinator chats that stopped hearing from other machines: a hub that refused this
+/// daemon's heartbeats for a while (a deploy, a proxy's 403) switched its relay off until the
+/// daemon restarted. Once the hub takes it again, the sessions here are listed and a message
+/// waiting for one is delivered.
+#[tokio::test]
+async fn a_daemon_the_hub_refused_for_a_while_is_listed_and_delivered_to_again() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    local.new_session("coordinator").await;
+    let fake = Arc::new(FakeHub { refused_beats: 3.into(), ..FakeHub::default() });
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    fake.lease(message("msg-after-refusal", "coordinator", Kind::Prompt));
+    fake.until("the message after the refusals", |s| !s.acked("msg-after-refusal").is_empty())
+        .await;
+    assert_eq!(
+        fake.with(|s| s.acked("msg-after-refusal")),
+        vec![Ack::delivered("msg-after-refusal", None)]
+    );
+    assert!(fake.with(|s| s.heartbeats.iter().any(|b| !b.sessions.is_empty())));
+    assert!(!relay.is_finished());
     relay.stop().await;
 }
 

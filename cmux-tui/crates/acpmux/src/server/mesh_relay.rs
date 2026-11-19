@@ -57,6 +57,8 @@ pub struct RelayOptions {
     pub min_poll_gap: Duration,
     pub backoff_first: Duration,
     pub backoff_cap: Duration,
+    /// The wait before a call the hub refused this daemon's credential for is tried again.
+    pub refused_retry: Duration,
     /// Deliveries running at once; the inbox waits for one to end past it.
     pub max_in_flight: usize,
     /// Called when the hub takes a heartbeat again after failing ones (the joined relay states
@@ -72,6 +74,7 @@ impl Default for RelayOptions {
             min_poll_gap: Duration::from_secs(1),
             backoff_first: Duration::from_secs(1),
             backoff_cap: Duration::from_secs(60),
+            refused_retry: Duration::from_secs(60),
             max_in_flight: 32,
             on_reconnect: None,
         }
