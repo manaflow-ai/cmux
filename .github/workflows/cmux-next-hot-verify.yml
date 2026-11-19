@@ -31,7 +31,7 @@ name: cmux-next hot verify
 #   - publish (the look_result run): the pr-media environment (it admits only the protected branches) downloads
 #     out.tar as data, checks every file with the shared pr-media privacy check (the worker's own text reader's
 #     lines too), uploads through .github/actions/pr-media-publish and writes the comment
-#     (scripts/cmux-next/hot-verify-ci.py render/post). A look with no out.tar gets one `look again`.
+#     (scripts/cmux-next/hot-verify-ci.py render/post), all in one job. A look with no out.tar starts one more look.
 # No engine on the PR head or the base yet, a needs-build plan (against the published nightly's CMUXCommit, as the
 # worker plans): each ends the run with a step-summary line and no comment.
 on:
@@ -64,7 +64,7 @@ on:
         default: ""
         type: string
       attempt:
-        description: "1 for the one more look `look again` starts after a look that failed on the fleet"
+        description: "1 for the one more look a result run starts after a look the fleet lost"
         required: false
         default: "0"
         type: string
@@ -419,8 +419,6 @@ jobs:
             scripts/cmux-next/hot-verify-ci.py
             scripts/cmux-next/hot-verify-pr.sh
           sparse-checkout-cone-mode: false
-      # The fleet step's out.tar, from the fleet artifact store's signed link (the controller's look_result): data
-      # from a fleet worker, unpacked and checked below before anything is published.
       - name: Read the pull request
         id: check
         env:
@@ -460,6 +458,8 @@ jobs:
           gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
             -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$EVENT_AT" -f kind="${KIND:-head}" -f attempt=1
           echo "hot verify: the look returned no out.tar; one more look runs for ${HEAD_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
+      # The fleet step's out.tar, from the fleet artifact store's signed link (the controller's look_result): data
+      # from a fleet worker, unpacked and checked below before anything is published.
       - name: Download the look's out.tar
         if: ${{ steps.check.outputs.ok == 'true' && steps.result.outputs.tar == 'true' }}
         env:
