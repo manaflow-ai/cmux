@@ -176,7 +176,18 @@ def parse_linux(text: str, keymap: dict[int, str] | None = None) -> list[dict]:
     down = False
     drags = 0
     last_press: tuple[float, float, float] | None = None
+    # XI2 reports each input twice on the root window, for the slave device and for its master (both with the
+    # same time, detail and position): one input is kept once (job 76df53c967332a6e3eaa673b read "hheelllloo").
+    # The two copies come one after the other, so a block is dropped only when it repeats the one before it.
+    previous = None
+    unique = []
     for kind, fields in blocks:
+        key = (kind, fields.get("time", ""), fields.get("detail", ""), fields.get("root", ""))
+        if key == previous:
+            continue
+        previous = key
+        unique.append((kind, fields))
+    for kind, fields in unique:
         detail = fields.get("detail", "")
         t = float(fields.get("time", "0") or 0) / 1000.0
         root = fields.get("root", "0/0").split("/")
