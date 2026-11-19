@@ -1,6 +1,5 @@
-import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { isAllowedNativeReturnTo } from "../../lib/native-callback";
+import { isAllowedNativeReturnTo, nativeAppDisplayName } from "../../lib/native-callback";
 import {
   isValidCodeChallenge,
   issueNativeSignInCode,
@@ -15,12 +14,10 @@ import type { Locale } from "../../../i18n/routing";
 import { locales, routing } from "../../../i18n/routing";
 import {
   clearNativeConfirmCookie,
-  clearNativeHandoffCookie,
   issueNativeConfirmCookie,
-  NATIVE_CONFIRM_COOKIE_NAME,
+  makeNativeConfirmNonce,
   NATIVE_CONFIRM_QUERY_PARAM,
-  NATIVE_HANDOFF_COOKIE_NAME,
-  NATIVE_HANDOFF_QUERY_PARAM,
+  verifiedNativeConfirmation,
 } from "../native-handoff-cookie";
 import { requestOrigin } from "../../lib/request-origin";
 import { hasAuthRateLimitSignal } from "../../../services/vms/authErrors";
@@ -30,6 +27,7 @@ const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 type AfterSignInMessages = {
   title: string;
   body: string;
+  confirmBody: string;
   button: string;
   switchAccountButton: string;
   rateLimitedTitle: string;
@@ -173,35 +171,6 @@ function requestedCodeChallenge(request: NextRequest): string | null | "invalid"
   return isValidCodeChallenge(challenge) && method === PKCE_METHOD_S256 ? challenge : "invalid";
 }
 
-function hasAuthState(href: string): boolean {
-  try {
-    return new URL(href).searchParams.has("cmux_auth_state");
-  } catch {
-    return false;
-  }
-}
-
-function verifiedNativeHandoff(
-  request: NextRequest,
-  cookieStore: { get: (name: string) => { value: string } | undefined },
-  nativeReturnTo: string
-): boolean {
-  if (!hasAuthState(nativeReturnTo)) return false;
-  const handoffNonce = request.nextUrl.searchParams.get(NATIVE_HANDOFF_QUERY_PARAM);
-  if (!handoffNonce) return false;
-  return cookieStore.get(NATIVE_HANDOFF_COOKIE_NAME)?.value === handoffNonce;
-}
-
-/** The person clicked this page's own confirmation link. */
-function verifiedNativeConfirmation(
-  request: NextRequest,
-  cookieStore: { get: (name: string) => { value: string } | undefined },
-): boolean {
-  const nonce = request.nextUrl.searchParams.get(NATIVE_CONFIRM_QUERY_PARAM);
-  if (!nonce) return false;
-  return cookieStore.get(NATIVE_CONFIRM_COOKIE_NAME)?.value === nonce;
-}
-
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -246,10 +215,17 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
   };
 }
 
+/** Who is signed in and which app the hand-off goes to, as the page shows them. */
+type HandoffIdentity = {
+  readonly account: string | null;
+  readonly app: string;
+};
+
 function nativeReturnResponse(
   href: string,
   localized: LocalizedAfterSignInMessages,
-  switchAccountHref: string | null
+  switchAccountHref: string | null,
+  identity: HandoffIdentity,
 ): NextResponse {
   const { locale, messages } = localized;
   const escapedHref = escapeHtml(href);
@@ -257,8 +233,12 @@ function nativeReturnResponse(
     ? `      <a class="secondary" href="${escapeHtml(switchAccountHref)}">${escapeHtml(messages.switchAccountButton)}</a>\n`
     : "";
   const escapedTitle = escapeHtml(messages.title);
-  const escapedBody = escapeHtml(messages.body);
+  const escapedBody = escapeHtml(messages.confirmBody);
   const escapedButton = escapeHtml(messages.button);
+  // Names are data, not copy: the account's email and the app's own name.
+  const identityLine = identity.account
+    ? `<strong>${escapeHtml(identity.account)}</strong> &rarr; <strong>${escapeHtml(identity.app)}</strong>`
+    : `&rarr; <strong>${escapeHtml(identity.app)}</strong>`;
   const response = new NextResponse(
     `<!doctype html>
 <html lang="${escapeHtml(locale)}">
@@ -292,6 +272,11 @@ function nativeReturnResponse(
       line-height: 1.5;
       margin: 0 0 24px;
     }
+    p.identity {
+      color: #111;
+      margin: 0 0 12px;
+      overflow-wrap: anywhere;
+    }
     .actions {
       align-items: center;
       display: flex;
@@ -318,6 +303,7 @@ function nativeReturnResponse(
 <body>
   <main>
     <h1>${escapedTitle}</h1>
+    <p class="identity">${identityLine}</p>
     <p>${escapedBody}</p>
     <div class="actions">
       <a class="primary" href="${escapedHref}">${escapedButton}</a>
@@ -338,29 +324,32 @@ ${switchAccountAction}    </div>
 function nativeRedirectResponse(request: NextRequest, href: string): NextResponse {
   const response = NextResponse.redirect(href);
   response.headers.set("Cache-Control", "no-store");
-  clearNativeHandoffCookie(response, request);
-  clearNativeConfirmCookie(response, request);
+  clearNativeConfirmCookie(response);
   return response;
 }
 
 /**
- * The page that asks for a click before the hand-off. Its button returns to
- * this callback with a nonce that only this response's cookie matches; no
- * session or code exists until that click.
+ * The page that asks for a click before every hand-off to an app. It names
+ * the signed-in account and the destination app. Its button returns to this
+ * callback with a nonce that only this response's cookie matches; no code or
+ * session exists until that click. Anyone can start a sign-in for any
+ * allowed scheme, so nothing but this click may release one.
  */
 function nativeConfirmationResponse(
   request: NextRequest,
   localized: LocalizedAfterSignInMessages,
+  identity: HandoffIdentity,
 ): NextResponse {
-  const nonce = randomUUID();
+  const nonce = makeNativeConfirmNonce();
   const confirm = new URL(currentAfterSignInPath(request), requestOrigin(request));
   confirm.searchParams.set(NATIVE_CONFIRM_QUERY_PARAM, nonce);
   const response = nativeReturnResponse(
     `${confirm.pathname}${confirm.search}`,
     localized,
     switchAccountHref(request),
+    identity,
   );
-  issueNativeConfirmCookie(response, request, nonce);
+  issueNativeConfirmCookie(response, nonce);
   return response;
 }
 
@@ -638,7 +627,12 @@ async function nativeCodeHandoff(context: NativeReturnContext, codeChallenge: st
   let code: string;
   try {
     if (!store) throw new Error("native sign-in code store is not configured");
-    code = await issueNativeSignInCode(store, { userId: user.id, codeChallenge, scheme });
+    code = await issueNativeSignInCode(store, {
+      userId: user.id,
+      codeChallenge,
+      scheme,
+      issuer: context.projectId,
+    });
   } catch (error) {
     console.error("auth.after_sign_in.native_code_unavailable", { failure: "store_unavailable" }, error);
     return stackThrottledResponse(request, localizedMessages);
@@ -672,17 +666,20 @@ async function nativeReturnFlow(context: NativeReturnContext): Promise<NextRespo
   }
   const codeChallenge = requestedCodeChallenge(request);
   if (codeChallenge === "invalid") return homeRedirect(request);
-  const confirmed = verifiedNativeConfirmation(request, stackCookies);
-  if (codeChallenge) {
-    if (confirmed || verifiedNativeHandoff(request, stackCookies, nativeReturnTo)) {
-      return nativeCodeHandoff(context, codeChallenge);
-    }
-    return nativeConfirmationResponse(request, localizedMessages);
+  // Every hand-off, PKCE or legacy, waits for the person's click on the page
+  // that names the account and the app: a sign-in any local app can start
+  // must not release a code or tokens on its own.
+  if (!verifiedNativeConfirmation(request, stackCookies)) {
+    if (context.userLookupFailed) return stackThrottledResponse(request, localizedMessages);
+    return nativeConfirmationResponse(request, localizedMessages, {
+      account: context.user?.primaryEmail ?? null,
+      app: nativeAppDisplayName(nativeReturnScheme(nativeReturnTo) ?? ""),
+    });
   }
-  // Builds without PKCE keep signing in during the transition, but their
-  // token URL is never sent without the person's click on this page.
-  console.warn("auth.after_sign_in.legacy_native_handoff", { confirmed });
-  if (!confirmed) return nativeConfirmationResponse(request, localizedMessages);
+  if (codeChallenge) return nativeCodeHandoff(context, codeChallenge);
+  // Builds without PKCE keep signing in during the transition; logged so the
+  // path can be retired.
+  console.warn("auth.after_sign_in.legacy_native_handoff", { scheme: nativeReturnScheme(nativeReturnTo) });
   return nativeLegacyTokenHandoff(context);
 }
 

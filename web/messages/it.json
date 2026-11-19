@@ -3477,6 +3477,7 @@
     "brandPage": "Asset del brand"
   },
   "afterSignIn": {
+    "confirmBody": "Continua solo se hai appena avviato l'accesso da questa app.",
     "title": "Accesso a cmux effettuato",
     "body": "Se cmux non si è aperto automaticamente, usa il pulsante qui sotto.",
     "button": "Torna a cmux",

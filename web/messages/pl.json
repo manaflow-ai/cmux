@@ -3477,6 +3477,7 @@
     "brandPage": "Zasoby marki"
   },
   "afterSignIn": {
+    "confirmBody": "Kontynuuj tylko wtedy, gdy właśnie rozpocząłeś logowanie z tej aplikacji.",
     "title": "Zalogowano do cmux",
     "body": "Jeśli cmux nie otworzył się automatycznie, użyj przycisku poniżej.",
     "button": "Wróć do cmux",

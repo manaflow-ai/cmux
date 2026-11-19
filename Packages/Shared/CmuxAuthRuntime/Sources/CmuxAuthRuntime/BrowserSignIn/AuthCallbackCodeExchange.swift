@@ -6,6 +6,10 @@ import Security
 /// `<scheme>://auth-callback?code=…` for the session tokens. The code is useless
 /// without the attempt's PKCE verifier, which never leaves the app.
 public protocol AuthCallbackCodeRedeeming: Sendable {
+    /// Whether the sign-in origin hands sign-ins over with a one-time code
+    /// (it lists S256). Asked before the browser opens; false for an origin
+    /// without the code route, which keeps the token hand-off.
+    func supportsCodeExchange() async -> Bool
     /// Exchanges `code` and `verifier` for the session tokens.
     func redeem(code: String, verifier: String) async throws -> AuthCallbackPayload
 }
@@ -57,8 +61,32 @@ public struct NativeSignInCodeRedeemer: AuthCallbackCodeRedeeming {
         }
     }
 
+    private struct Capability: Decodable {
+        let pkce: [String]
+    }
+
+    /// One request may take this long; the code itself lives 60 seconds.
+    static let requestTimeout: TimeInterval = 10
+    /// The capability check runs before the browser opens, so it is kept short.
+    static let capabilityTimeout: TimeInterval = 5
+
+    /// `GET /api/native/token`: `{"pkce":["S256"]}` on a server with the code
+    /// route. A server without it answers 404 (or the sign-in page), so
+    /// anything but a listed S256 means no.
+    public func supportsCodeExchange() async -> Bool {
+        var request = URLRequest(url: endpoint, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.capabilityTimeout)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        guard let (data, response) = try? await transport(request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let capability = try? JSONDecoder().decode(Capability.self, from: data) else {
+            return false
+        }
+        return capability.pkce.contains("S256")
+    }
+
     public func redeem(code: String, verifier: String) async throws -> AuthCallbackPayload {
-        var request = URLRequest(url: endpoint, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
+        var request = URLRequest(url: endpoint, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.requestTimeout)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -68,6 +96,8 @@ public struct NativeSignInCodeRedeemer: AuthCallbackCodeRedeeming {
         do {
             (data, response) = try await transport(request)
         } catch is CancellationError {
+            throw AuthError.cancelled
+        } catch let error as URLError where error.code == .cancelled {
             throw AuthError.cancelled
         } catch {
             throw AuthError.networkError
@@ -116,34 +146,44 @@ struct HostBrowserPKCE: Sendable, Equatable {
     }
 }
 
-/// PKCE verifiers for the app's live and recently issued callback states.
-/// Bounded: the oldest is dropped past ``capacity``. A verifier is taken
-/// (removed) by the callback that redeems its code.
-@MainActor
-struct HostBrowserCodeVerifiers {
-    static let capacity = 8
-    private var entries: [(state: String, pkce: HostBrowserPKCE)] = []
+/// How one callback state hands the sign-in back, fixed before its URL is
+/// opened: with a one-time code for this PKCE pair, or (for a sign-in origin
+/// without the code route) with the token pair.
+enum HostBrowserHandoffMode: Sendable, Equatable {
+    case pkce(HostBrowserPKCE)
+    case legacy
+}
 
-    /// The PKCE pair for `state`, made on first use.
-    mutating func pkce(for state: String) -> HostBrowserPKCE? {
-        if let entry = entries.first(where: { HostBrowserIssuedCallbackStates.constantTimeEquals($0.state, state) }) {
-            return entry.pkce
-        }
-        guard let pkce = HostBrowserPKCE.make() else { return nil }
-        entries.append((state, pkce))
-        if entries.count > Self.capacity { entries.removeFirst(entries.count - Self.capacity) }
-        return pkce
+/// The hand-off mode of the app's live and recently issued callback states.
+/// Bounded: the oldest is dropped past ``capacity``, and a stateful callback
+/// whose mode is gone is refused. A mode is taken (removed) by the callback
+/// that uses it.
+@MainActor
+struct HostBrowserHandoffModes {
+    static let capacity = 8
+    private var entries: [(state: String, mode: HostBrowserHandoffMode)] = []
+
+    /// The mode chosen for `state`, if any.
+    func mode(for state: String) -> HostBrowserHandoffMode? {
+        entries.first { HostBrowserIssuedCallbackStates.constantTimeEquals($0.state, state) }?.mode
     }
 
-    /// Removes and returns the verifier for `state`.
-    mutating func take(_ state: String) -> String? {
+    /// Records `mode` for `state` unless it already has one; a state's mode never changes.
+    mutating func choose(_ mode: HostBrowserHandoffMode, for state: String) {
+        guard self.mode(for: state) == nil else { return }
+        entries.append((state, mode))
+        if entries.count > Self.capacity { entries.removeFirst(entries.count - Self.capacity) }
+    }
+
+    /// Removes and returns the mode for `state`.
+    mutating func take(_ state: String) -> HostBrowserHandoffMode? {
         guard let index = entries.firstIndex(where: { HostBrowserIssuedCallbackStates.constantTimeEquals($0.state, state) }) else {
             return nil
         }
-        return entries.remove(at: index).pkce.verifier
+        return entries.remove(at: index).mode
     }
 
-    /// Drops every verifier except `kept`'s.
+    /// Drops every mode except `kept`'s.
     mutating func removeAll(keeping kept: String?) {
         entries.removeAll { !HostBrowserIssuedCallbackStates.constantTimeEquals($0.state, kept) }
     }

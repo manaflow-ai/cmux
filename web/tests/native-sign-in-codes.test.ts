@@ -11,12 +11,13 @@ const {
   redeemNativeSignInCode,
   s256CodeChallenge,
 } = await import("../app/lib/native-sign-in-codes");
-const { makeNativeTokenHandler } = await import("../app/api/native/token/handler");
+const { makeNativeTokenCapabilityHandler, makeNativeTokenHandler } = await import("../app/api/native/token/handler");
 type NativeSignInCodeRecord = import("../app/lib/native-sign-in-codes").NativeSignInCodeRecord;
 
 const VERIFIER = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
 // RFC 7636 appendix B.
 const RFC_CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+const ISSUER = "project-production";
 
 /** An in-memory store with the Postgres store's contract: consume is atomic and honours expiry. */
 function memoryStore() {
@@ -44,7 +45,7 @@ describe("native sign-in codes", () => {
   test("issues a 256-bit code, stores only its hash, and expires within 60 seconds", async () => {
     const store = memoryStore();
     const now = 1_000_000;
-    const code = await issueNativeSignInCode(store, { userId: "u1", codeChallenge: RFC_CHALLENGE, scheme: "cmux" }, () => now);
+    const code = await issueNativeSignInCode(store, { userId: "u1", codeChallenge: RFC_CHALLENGE, scheme: "cmux", issuer: ISSUER }, () => now);
 
     expect(code).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(Buffer.from(code, "base64url")).toHaveLength(32);
@@ -57,49 +58,58 @@ describe("native sign-in codes", () => {
 
   test("redeems once with the right verifier and scheme", async () => {
     const store = memoryStore();
-    const code = await issueNativeSignInCode(store, { userId: "u1", codeChallenge: RFC_CHALLENGE, scheme: "cmux" });
+    const code = await issueNativeSignInCode(store, { userId: "u1", codeChallenge: RFC_CHALLENGE, scheme: "cmux", issuer: ISSUER });
 
-    expect((await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux" }))?.userId).toBe("u1");
-    expect(await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux" })).toBeNull();
+    expect((await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux", issuer: ISSUER }))?.userId).toBe("u1");
+    expect(await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux", issuer: ISSUER })).toBeNull();
   });
 
   test("a wrong verifier fails and burns the code", async () => {
     const store = memoryStore();
-    const code = await issueNativeSignInCode(store, { userId: "u1", codeChallenge: RFC_CHALLENGE, scheme: "cmux" });
+    const code = await issueNativeSignInCode(store, { userId: "u1", codeChallenge: RFC_CHALLENGE, scheme: "cmux", issuer: ISSUER });
 
-    expect(await redeemNativeSignInCode(store, { code, codeVerifier: `${VERIFIER.slice(0, -1)}A`, scheme: "cmux" })).toBeNull();
-    expect(await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux" })).toBeNull();
+    expect(await redeemNativeSignInCode(store, { code, codeVerifier: `${VERIFIER.slice(0, -1)}A`, scheme: "cmux", issuer: ISSUER })).toBeNull();
+    expect(await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux", issuer: ISSUER })).toBeNull();
   });
 
   test("a different scheme fails and burns the code", async () => {
     const store = memoryStore();
-    const code = await issueNativeSignInCode(store, { userId: "u1", codeChallenge: RFC_CHALLENGE, scheme: "cmux-next" });
+    const code = await issueNativeSignInCode(store, { userId: "u1", codeChallenge: RFC_CHALLENGE, scheme: "cmux-next", issuer: ISSUER });
 
-    expect(await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux" })).toBeNull();
-    expect(await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux-next" })).toBeNull();
+    expect(await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux", issuer: ISSUER })).toBeNull();
+    expect(await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux-next", issuer: ISSUER })).toBeNull();
+  });
+
+  test("a code issued by another sign-in project fails and burns the code", async () => {
+    const store = memoryStore();
+    const code = await issueNativeSignInCode(store, { userId: "u1", codeChallenge: RFC_CHALLENGE, scheme: "cmux", issuer: "project-staging" });
+
+    expect(store.rows.get(hashNativeSignInCode(code))?.issuer).toBe("project-staging");
+    expect(await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux", issuer: ISSUER })).toBeNull();
+    expect(await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux", issuer: "project-staging" })).toBeNull();
   });
 
   test("an expired code fails", async () => {
     const store = memoryStore();
     let now = 5_000;
-    const code = await issueNativeSignInCode(store, { userId: "u1", codeChallenge: RFC_CHALLENGE, scheme: "cmux" }, () => now);
+    const code = await issueNativeSignInCode(store, { userId: "u1", codeChallenge: RFC_CHALLENGE, scheme: "cmux", issuer: ISSUER }, () => now);
     now += NATIVE_SIGN_IN_CODE_TTL_MS;
 
-    expect(await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux" }, () => now)).toBeNull();
+    expect(await redeemNativeSignInCode(store, { code, codeVerifier: VERIFIER, scheme: "cmux", issuer: ISSUER }, () => now)).toBeNull();
   });
 
   test("malformed input never reaches the store", async () => {
     const store = memoryStore();
     const consume = mock(store.consume);
     for (const code of ["", "short", 42, null, "a".repeat(44)]) {
-      expect(await redeemNativeSignInCode({ ...store, consume }, { code, codeVerifier: VERIFIER, scheme: "cmux" })).toBeNull();
+      expect(await redeemNativeSignInCode({ ...store, consume }, { code, codeVerifier: VERIFIER, scheme: "cmux", issuer: ISSUER })).toBeNull();
     }
     expect(consume).not.toHaveBeenCalled();
   });
 
   test("refuses to issue for a malformed challenge", async () => {
     const store = memoryStore();
-    await expect(issueNativeSignInCode(store, { userId: "u1", codeChallenge: "plain-text", scheme: "cmux" })).rejects.toThrow();
+    await expect(issueNativeSignInCode(store, { userId: "u1", codeChallenge: "plain-text", scheme: "cmux", issuer: ISSUER })).rejects.toThrow();
     expect(store.rows.size).toBe(0);
   });
 });
@@ -118,7 +128,7 @@ describe("POST /api/native/token", () => {
   });
 
   function handler() {
-    return makeNativeTokenHandler({ store, getUserById });
+    return makeNativeTokenHandler({ store, getUserById, issuer: ISSUER });
   }
 
   function redeemRequest(body: unknown, headers: Record<string, string> = {}, origin = "https://cmux.test"): NextRequest {
@@ -130,7 +140,7 @@ describe("POST /api/native/token", () => {
   }
 
   async function issued(scheme = "cmux", userId = "u1") {
-    return issueNativeSignInCode(store, { userId, codeChallenge: RFC_CHALLENGE, scheme });
+    return issueNativeSignInCode(store, { userId, codeChallenge: RFC_CHALLENGE, scheme, issuer: ISSUER });
   }
 
   test("mints the session at redemption and returns tokens only in the body", async () => {
@@ -145,6 +155,25 @@ describe("POST /api/native/token", () => {
     expect(getUserById).toHaveBeenCalledWith("u1");
     expect(createSession).toHaveBeenCalledWith({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });
     expect(store.rows.size).toBe(0);
+  });
+
+  test("a code issued on another deployment is refused here", async () => {
+    const code = await issueNativeSignInCode(store, { userId: "u1", codeChallenge: RFC_CHALLENGE, scheme: "cmux", issuer: "project-staging" });
+
+    const response = await handler()(redeemRequest({ code, code_verifier: VERIFIER, scheme: "cmux" }));
+
+    expect(response.status).toBe(400);
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
+  test("answers 503 when this deployment has no sign-in project", async () => {
+    const code = await issued();
+    const unconfigured = makeNativeTokenHandler({ store, getUserById, issuer: undefined });
+
+    const response = await unconfigured(redeemRequest({ code, code_verifier: VERIFIER, scheme: "cmux" }));
+
+    expect(response.status).toBe(503);
+    expect(store.rows.size).toBe(1);
   });
 
   test("a second redemption of the same code is refused", async () => {
@@ -207,6 +236,7 @@ describe("POST /api/native/token", () => {
     let failNext = true;
     const flaky = makeNativeTokenHandler({
       store,
+      issuer: ISSUER,
       getUserById: async () => ({
         createSession: async () => {
           if (failNext) {
@@ -233,6 +263,7 @@ describe("POST /api/native/token", () => {
     const code = await issued();
     const failing = makeNativeTokenHandler({
       store,
+      issuer: ISSUER,
       getUserById: async () => {
         throw new Error("unavailable");
       },
@@ -265,6 +296,7 @@ describe("POST /api/native/token", () => {
 
   test("answers 503 without detail when storage fails", async () => {
     const failing = makeNativeTokenHandler({
+      issuer: ISSUER,
       store: { insert: async () => undefined, consume: async () => { throw new Error("db down: secret detail"); } },
       getUserById,
     });
@@ -273,5 +305,40 @@ describe("POST /api/native/token", () => {
 
     expect(response.status).toBe(503);
     expect(await response.text()).not.toContain("secret detail");
+  });
+});
+
+describe("GET /api/native/token", () => {
+  const getUserById = async () => null;
+
+  test("advertises S256 with no-store when the code exchange is configured", async () => {
+    const response = makeNativeTokenCapabilityHandler({ store: memoryStore(), getUserById, issuer: ISSUER })();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ pkce: ["S256"] });
+  });
+
+  test("advertises nothing when any part of the exchange is missing", async () => {
+    for (const deps of [
+      { store: null, getUserById, issuer: ISSUER },
+      { store: memoryStore(), getUserById: null, issuer: ISSUER },
+      { store: memoryStore(), getUserById, issuer: undefined },
+    ]) {
+      const response = makeNativeTokenCapabilityHandler(deps)();
+      expect(await response.json()).toEqual({ pkce: [] });
+    }
+  });
+});
+
+describe("nativeAppDisplayName", () => {
+  test("names each app the way its menu bar does", async () => {
+    const { nativeAppDisplayName } = await import("../app/lib/native-callback");
+    expect(nativeAppDisplayName("cmux")).toBe("cmux");
+    expect(nativeAppDisplayName("cmux-rc")).toBe("cmux RC");
+    expect(nativeAppDisplayName("cmux-next")).toBe("cmux NEXT");
+    expect(nativeAppDisplayName("cmux-next-dev")).toBe("cmux NEXT DEV");
+    expect(nativeAppDisplayName("cmux-dev-pr-1-fix")).toBe("cmux DEV pr-1-fix");
+    expect(nativeAppDisplayName("")).toBe("cmux");
   });
 });

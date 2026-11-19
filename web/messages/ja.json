@@ -4978,6 +4978,7 @@
     "brandPage": "ブランドアセット"
   },
   "afterSignIn": {
+    "confirmBody": "このアプリからサインインを開始した場合のみ続行してください。",
     "title": "cmux にサインインしました",
     "body": "cmux が自動的に開かない場合は、下のボタンを使用してください。",
     "button": "cmux に戻る",

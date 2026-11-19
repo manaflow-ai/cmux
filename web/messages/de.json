@@ -3477,6 +3477,7 @@
     "brandPage": "Brand-Assets"
   },
   "afterSignIn": {
+    "confirmBody": "Fahre nur fort, wenn du die Anmeldung gerade in dieser App gestartet hast.",
     "title": "Bei cmux angemeldet",
     "body": "Wenn cmux nicht automatisch geöffnet wurde, verwende die Schaltfläche unten.",
     "button": "Zurück zu cmux",

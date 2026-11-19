@@ -3142,10 +3142,13 @@ export const nativeSignInCodes = pgTable("native_sign_in_codes", {
   codeChallenge: text("code_challenge").notNull(),
   scheme: text("scheme").notNull(),
   userId: text("user_id").notNull(),
+  /** The sign-in project that issued the code (staging and production never share one). */
+  issuer: text("issuer").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("native_sign_in_codes_expiry_idx").on(table.expiresAt),
+  check("native_sign_in_codes_issuer_check", sql`char_length(${table.issuer}) between 1 and 128`),
   check("native_sign_in_codes_hash_check", sql`${table.codeHash} ~ '^[0-9a-f]{64}$'`),
   check("native_sign_in_codes_challenge_check", sql`${table.codeChallenge} ~ '^[A-Za-z0-9_-]{43}$'`),
 ]);

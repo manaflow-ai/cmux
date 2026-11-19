@@ -3479,6 +3479,7 @@
     "brandPage": "Ressources de marque"
   },
   "afterSignIn": {
+    "confirmBody": "Continuez uniquement si vous venez de lancer la connexion depuis cette app.",
     "title": "Connecté à cmux",
     "body": "Si cmux ne s’est pas ouvert automatiquement, utilisez le bouton ci-dessous.",
     "button": "Retourner à cmux",

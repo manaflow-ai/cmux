@@ -22,8 +22,30 @@ type SessionUser = {
 export type NativeTokenHandlerDependencies = {
   store: NativeSignInCodeStore | null;
   getUserById: ((userId: string) => Promise<SessionUser | null>) | null;
+  /** This deployment's sign-in project; a code redeems only where it was issued. */
+  issuer: string | undefined;
   now?: () => number;
 };
+
+/**
+ * `GET /api/native/token`: whether this deployment hands sign-ins to the app
+ * with a one-time code. The app asks before it opens the browser and sends a
+ * PKCE challenge only when the answer lists S256; a deployment without this
+ * route keeps the token hand-off for that attempt.
+ */
+export function makeNativeTokenCapabilityHandler(dependencies: Pick<NativeTokenHandlerDependencies, "store" | "getUserById" | "issuer">) {
+  return function GET(): Response {
+    const available = Boolean(dependencies.store && dependencies.getUserById && dependencies.issuer);
+    return new Response(JSON.stringify({ pkce: available ? ["S256"] : [] }), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+        Pragma: "no-cache",
+      },
+    });
+  };
+}
 
 function json(body: Record<string, string>, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -77,8 +99,8 @@ async function mintTokens(
  */
 export function makeNativeTokenHandler(dependencies: NativeTokenHandlerDependencies) {
   return async function POST(request: NextRequest): Promise<Response> {
-    const { store, getUserById } = dependencies;
-    if (!store || !getUserById) return json({ error: "unavailable" }, 503);
+    const { store, getUserById, issuer } = dependencies;
+    if (!store || !getUserById || !issuer) return json({ error: "unavailable" }, 503);
     const body = await readBody(request);
     if (!body) return invalidGrant();
     const { code, code_verifier: codeVerifier, scheme } = body;
@@ -87,7 +109,7 @@ export function makeNativeTokenHandler(dependencies: NativeTokenHandlerDependenc
     }
     let redeemed: Awaited<ReturnType<typeof redeemNativeSignInCode>>;
     try {
-      redeemed = await redeemNativeSignInCode(store, { code, codeVerifier, scheme }, dependencies.now);
+      redeemed = await redeemNativeSignInCode(store, { code, codeVerifier, scheme, issuer }, dependencies.now);
     } catch {
       console.error("auth.native_token.redeem_failed", { failure: "store_unavailable" });
       return json({ error: "unavailable" }, 503);

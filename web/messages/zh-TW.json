@@ -3476,6 +3476,7 @@
     "brandPage": "品牌素材"
   },
   "afterSignIn": {
+    "confirmBody": "僅在你剛從此 App 開始登入時才繼續。",
     "title": "已登入 cmux",
     "body": "如果 cmux 沒有自動開啟，請使用下方按鈕。",
     "button": "返回 cmux",

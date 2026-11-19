@@ -8,15 +8,26 @@ import Testing
 /// only when the verifier hashes to the challenge the sign-in URL carried.
 actor FakeCodeRedeemer: AuthCallbackCodeRedeeming {
     private(set) var redemptions: [(code: String, verifier: String)] = []
+    private(set) var capabilityChecks = 0
     private var challenge: String?
     private let failure: AuthError?
+    /// What the server's `GET /api/native/token` says, check by check; the last answer repeats.
+    private var capabilityAnswers: [Bool]
 
-    init(failure: AuthError? = nil) {
+    init(failure: AuthError? = nil, supportsCodeExchange: [Bool] = [true]) {
         self.failure = failure
+        capabilityAnswers = supportsCodeExchange
     }
 
     func expect(challenge: String?) {
         self.challenge = challenge
+    }
+
+    func supportsCodeExchange() async -> Bool {
+        capabilityChecks += 1
+        let answer = capabilityAnswers.first ?? false
+        if capabilityAnswers.count > 1 { capabilityAnswers.removeFirst() }
+        return answer
     }
 
     func redeem(code: String, verifier: String) async throws -> AuthCallbackPayload {
@@ -33,10 +44,61 @@ actor FakeCodeRedeemer: AuthCallbackCodeRedeeming {
 actor FlakyCodeRedeemer: AuthCallbackCodeRedeeming {
     private(set) var verifiers: [String] = []
 
+    func supportsCodeExchange() async -> Bool { true }
+
     func redeem(code: String, verifier: String) async throws -> AuthCallbackPayload {
         verifiers.append(verifier)
         if verifiers.count == 1 { throw AuthError.rateLimited }
         return AuthCallbackPayload(refreshToken: "redeemed-refresh", accessToken: "redeemed-access")
+    }
+}
+
+/// Parks each redemption like a request still in flight, until its task is cancelled.
+actor HangingCodeRedeemer: AuthCallbackCodeRedeeming {
+    private(set) var wasCancelled = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var started = false
+    private var parked: AsyncStream<Void>.Continuation?
+
+    func supportsCodeExchange() async -> Bool { true }
+
+    func redeem(code: String, verifier: String) async throws -> AuthCallbackPayload {
+        started = true
+        for waiter in startWaiters { waiter.resume() }
+        startWaiters.removeAll()
+        // A stream that never yields (its continuation is kept) ends its loop
+        // only when the task is cancelled.
+        let (never, continuation) = AsyncStream<Void>.makeStream()
+        parked = continuation
+        for await _ in never {}
+        parked = nil
+        wasCancelled = Task.isCancelled
+        throw CancellationError()
+    }
+
+    func waitUntilStarted() async {
+        if started { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+}
+
+/// Fails every redemption with a transient error, optionally after moving `clock` on.
+actor AlwaysTransientCodeRedeemer: AuthCallbackCodeRedeeming {
+    private(set) var redemptions = 0
+    private let clock: ManualTestClock
+    private let elapsedPerRequest: Duration
+
+    init(clock: ManualTestClock, elapsedPerRequest: Duration = .zero) {
+        self.clock = clock
+        self.elapsedPerRequest = elapsedPerRequest
+    }
+
+    func supportsCodeExchange() async -> Bool { true }
+
+    func redeem(code: String, verifier: String) async throws -> AuthCallbackPayload {
+        redemptions += 1
+        if elapsedPerRequest > .zero { clock.advance(by: elapsedPerRequest) }
+        throw AuthError.networkError
     }
 }
 
@@ -229,6 +291,134 @@ actor FlakyCodeRedeemer: AuthCallbackCodeRedeeming {
         #expect(Set(verifiers).count == 1)
     }
 
+    // MARK: Server capability
+
+    @Test func anOriginWithoutTheCodeRouteKeepsTheTokenHandOff() async {
+        let redeemer = FakeCodeRedeemer(supportsCodeExchange: [false])
+        let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: redeemer)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let session = harness.factory.sessions[0]
+
+        #expect(Self.query("code_challenge", in: session.signInURL) == nil)
+        session.deliver(harness.callbackURL(state: harness.callbackState(session)))
+
+        #expect(await attempt.value)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        #expect(await redeemer.redemptions.isEmpty)
+        #expect(await redeemer.capabilityChecks == 1)
+    }
+
+    @Test func aTokenStateRefusesACode() async {
+        // The callback never picks the mode: a state sent without a challenge
+        // takes only the token pair.
+        let redeemer = FakeCodeRedeemer(supportsCodeExchange: [false])
+        let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: redeemer)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let session = harness.factory.sessions[0]
+
+        session.deliver(Self.codeCallback(state: harness.callbackState(session)))
+
+        #expect(await attempt.value == false)
+        #expect(await redeemer.redemptions.isEmpty)
+        #expect(harness.flow.lastFailure == .invalidCallback)
+    }
+
+    @Test func onceTheOriginOffersTheCodeItIsNeverDowngraded() async throws {
+        // The second check would say no; it is never asked, and the next attempt still sends a challenge.
+        let redeemer = FakeCodeRedeemer(supportsCodeExchange: [true, false])
+        let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: redeemer)
+
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+        harness.flow.cancelSignIn()
+        harness.flow.beginSignIn()
+        await harness.waitForSession(count: 2)
+
+        #expect(Self.query("code_challenge", in: harness.factory.sessions[0].signInURL) != nil)
+        #expect(Self.query("code_challenge", in: harness.factory.sessions[1].signInURL) != nil)
+        #expect(await redeemer.capabilityChecks == 1)
+        // A token pair for the code attempt is still refused.
+        let tokens = harness.callbackURL(state: harness.callbackState(harness.factory.sessions[1]))
+        #expect(await harness.flow.handleCallbackURL(tokens) == false)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        harness.flow.cancelSignIn()
+    }
+
+    // MARK: Redemption lifetime
+
+    @Test func cancelDuringRedemptionCancelsItAndStaysSignedOut() async {
+        let redeemer = HangingCodeRedeemer()
+        let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: redeemer)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let session = harness.factory.sessions[0]
+
+        session.deliver(Self.codeCallback(state: harness.callbackState(session)))
+        await redeemer.waitUntilStarted()
+        harness.flow.cancelSignIn()
+
+        #expect(await attempt.value == false)
+        #expect(await redeemer.wasCancelled)
+        #expect(harness.flow.isSigningIn == false)
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+    }
+
+    @Test func cancelDuringTheRetryWaitStopsRetrying() async {
+        let clock = ManualTestClock()
+        let redeemer = AlwaysTransientCodeRedeemer(clock: clock)
+        let harness = HostBrowserSignInFlowHarness(user: user, clock: clock, codeRedeemer: redeemer)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let session = harness.factory.sessions[0]
+
+        session.deliver(Self.codeCallback(state: harness.callbackState(session)))
+        await clock.waitUntilSleeper(dueWithin: .seconds(3))
+        harness.flow.cancelSignIn()
+
+        #expect(await attempt.value == false)
+        #expect(await redeemer.redemptions == 1)
+        #expect(harness.flow.lastFailure == nil)
+    }
+
+    @Test func noRetryStartsAfterTheCodeLifetime() async {
+        // The first request alone outlasts the budget: the code is gone by now.
+        let clock = ManualTestClock()
+        let redeemer = AlwaysTransientCodeRedeemer(clock: clock, elapsedPerRequest: .seconds(55))
+        let harness = HostBrowserSignInFlowHarness(user: user, clock: clock, codeRedeemer: redeemer)
+        let attempt = Task { await harness.flow.signIn(timeout: 600) }
+        await harness.waitForSession()
+        let session = harness.factory.sessions[0]
+
+        session.deliver(Self.codeCallback(state: harness.callbackState(session)))
+
+        #expect(await attempt.value == false)
+        #expect(await redeemer.redemptions == 1)
+        #expect(harness.flow.lastFailure == .networkError)
+    }
+
+    // MARK: Manual URL
+
+    @Test func manualSignInURLReadsCannotPushOutTheLiveVerifier() async throws {
+        let redeemer = FakeCodeRedeemer()
+        let harness = HostBrowserSignInFlowHarness(user: user, codeRedeemer: redeemer)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let session = harness.factory.sessions[0]
+        await redeemer.expect(challenge: Self.query("code_challenge", in: session.signInURL))
+
+        let first = harness.flow.manualSignInURL
+        for _ in 0..<(HostBrowserHandoffModes.capacity * 3) {
+            #expect(harness.flow.manualSignInURL == first)
+        }
+        session.deliver(Self.codeCallback(state: harness.callbackState(session)))
+
+        #expect(await attempt.value)
+        #expect(await redeemer.redemptions.count == 1)
+    }
+
     @Test func withoutARedeemerTheSignInURLIsUnchanged() async {
         let harness = HostBrowserSignInFlowHarness(user: user)
         harness.flow.beginSignIn()
@@ -282,6 +472,40 @@ actor FlakyCodeRedeemer: AuthCallbackCodeRedeeming {
         }
         await #expect(throws: AuthError.serverError(200, "code_redeem_malformed")) {
             try await Self.redeemer(status: 200, body: #"{"refresh_token":""}"#).redeem(code: "c", verifier: "v")
+        }
+    }
+
+    @Test func redemptionRequestsTimeOutWellInsideTheCodeLifetime() async throws {
+        let captured = Captured()
+        _ = try await Self.redeemer(status: 200, body: #"{"refresh_token":"r","access_token":"a"}"#, captured: captured)
+            .redeem(code: "c", verifier: "v")
+        #expect(try #require(captured.request).timeoutInterval == 10)
+    }
+
+    @Test func capabilityIsAskedWithAGetAndNeedsS256() async throws {
+        let captured = Captured()
+        #expect(await Self.redeemer(status: 200, body: #"{"pkce":["S256"]}"#, captured: captured).supportsCodeExchange())
+        let request = try #require(captured.request)
+        #expect(request.httpMethod == "GET")
+        #expect(request.url?.absoluteString == "https://cmux.test/api/native/token")
+        #expect(request.httpBody == nil)
+
+        #expect(await Self.redeemer(status: 200, body: #"{"pkce":[]}"#).supportsCodeExchange() == false)
+        #expect(await Self.redeemer(status: 200, body: #"{"pkce":["plain"]}"#).supportsCodeExchange() == false)
+        #expect(await Self.redeemer(status: 404, body: "Not Found").supportsCodeExchange() == false)
+        #expect(await Self.redeemer(status: 200, body: "<html>sign in</html>").supportsCodeExchange() == false)
+        let offline = NativeSignInCodeRedeemer(authWebOrigin: URL(string: "https://cmux.test")!, scheme: "cmux") { _ in
+            throw URLError(.notConnectedToInternet)
+        }
+        #expect(await offline.supportsCodeExchange() == false)
+    }
+
+    @Test func aCancelledRequestIsACancellationNotANetworkError() async {
+        let redeemer = NativeSignInCodeRedeemer(authWebOrigin: URL(string: "https://cmux.test")!, scheme: "cmux") { _ in
+            throw URLError(.cancelled)
+        }
+        await #expect(throws: AuthError.cancelled) {
+            try await redeemer.redeem(code: "c", verifier: "v")
         }
     }
 

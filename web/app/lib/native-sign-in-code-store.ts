@@ -7,7 +7,7 @@ import type { NativeSignInCodeRecord, NativeSignInCodeStore } from "./native-sig
  * The Postgres store for native sign-in codes. `consume` is one
  * `DELETE ... RETURNING`, so two concurrent redemptions cannot both win.
  */
-export function postgresNativeSignInCodeStore(getDb: typeof cloudDb = cloudDb): NativeSignInCodeStore {
+export function postgresNativeSignInCodeStore(getDb: () => ReturnType<typeof cloudDb> = cloudDb): NativeSignInCodeStore {
   return {
     insert: async (record) => {
       const db = getDb();
@@ -18,6 +18,7 @@ export function postgresNativeSignInCodeStore(getDb: typeof cloudDb = cloudDb): 
         codeChallenge: record.codeChallenge,
         scheme: record.scheme,
         userId: record.userId,
+        issuer: record.issuer,
         expiresAt: record.expiresAt,
       });
     },
@@ -32,6 +33,7 @@ export function postgresNativeSignInCodeStore(getDb: typeof cloudDb = cloudDb): 
         codeChallenge: row.codeChallenge,
         scheme: row.scheme,
         userId: row.userId,
+        issuer: row.issuer,
         expiresAt: row.expiresAt,
       };
     },

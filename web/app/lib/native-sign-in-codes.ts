@@ -25,6 +25,8 @@ export type NativeSignInCodeRecord = {
   readonly codeChallenge: string;
   readonly scheme: string;
   readonly userId: string;
+  /** The sign-in project that issued the code; redemption must be in the same one. */
+  readonly issuer: string;
   readonly expiresAt: Date;
 };
 
@@ -77,42 +79,46 @@ function constantTimeStringEqual(left: string, right: string): boolean {
  */
 export async function issueNativeSignInCode(
   store: NativeSignInCodeStore,
-  input: { userId: string; codeChallenge: string; scheme: string },
+  input: { userId: string; codeChallenge: string; scheme: string; issuer: string },
   now: () => number = Date.now,
 ): Promise<string> {
   if (!isValidCodeChallenge(input.codeChallenge)) {
     throw new Error("invalid code challenge");
   }
-  if (!input.userId || !input.scheme) throw new Error("invalid code binding");
+  if (!input.userId || !input.scheme || !input.issuer) throw new Error("invalid code binding");
   const code = randomBytes(32).toString("base64url");
   await store.insert({
     codeHash: hashNativeSignInCode(code),
     codeChallenge: input.codeChallenge,
     scheme: input.scheme,
     userId: input.userId,
+    issuer: input.issuer,
     expiresAt: new Date(now() + NATIVE_SIGN_IN_CODE_TTL_MS),
   });
   return code;
 }
 
 /**
- * Consume `code` and return its user when the verifier and scheme match.
- * Every failure answers `null`, and the code is gone after any attempt.
+ * Consume `code` and return its user when the verifier, the scheme and the
+ * issuing sign-in project match. Every failure answers `null`, and the code
+ * is gone after any attempt.
  */
 export async function redeemNativeSignInCode(
   store: NativeSignInCodeStore,
-  input: { code: unknown; codeVerifier: unknown; scheme: unknown },
+  input: { code: unknown; codeVerifier: unknown; scheme: unknown; issuer: string },
   now: () => number = Date.now,
 ): Promise<{ userId: string; record: NativeSignInCodeRecord } | null> {
   const { code, codeVerifier, scheme } = input;
-  if (!isValidNativeSignInCode(code) || typeof scheme !== "string") return null;
+  if (!isValidNativeSignInCode(code) || typeof scheme !== "string" || !input.issuer) return null;
   const record = await store.consume(hashNativeSignInCode(code), new Date(now()));
   if (!record) return null;
   if (record.expiresAt.getTime() <= now()) return null;
   if (!isValidCodeVerifier(codeVerifier)) return null;
+  // Every check runs, so the time taken does not say which one failed.
   const challengeMatches = constantTimeStringEqual(s256CodeChallenge(codeVerifier), record.codeChallenge);
   const schemeMatches = constantTimeStringEqual(scheme.trim().toLowerCase(), record.scheme);
-  if (!challengeMatches || !schemeMatches) return null;
+  const issuerMatches = constantTimeStringEqual(input.issuer, record.issuer);
+  if (!challengeMatches || !schemeMatches || !issuerMatches) return null;
   return { userId: record.userId, record };
 }
 

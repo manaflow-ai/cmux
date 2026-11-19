@@ -5104,6 +5104,7 @@
     "brandPage": "Brand assets"
   },
   "afterSignIn": {
+    "confirmBody": "Only continue if you just started signing in from this app.",
     "title": "Signed in to cmux",
     "body": "If cmux did not open automatically, use the button below.",
     "button": "Return to cmux",

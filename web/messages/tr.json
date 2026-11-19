@@ -3475,6 +3475,7 @@
     "brandPage": "Marka varlıkları"
   },
   "afterSignIn": {
+    "confirmBody": "Yalnızca oturum açmayı bu uygulamadan az önce başlattıysanız devam edin.",
     "title": "cmux oturumu açıldı",
     "body": "cmux otomatik olarak açılmadıysa aşağıdaki düğmeyi kullanın.",
     "button": "cmux’a dön",

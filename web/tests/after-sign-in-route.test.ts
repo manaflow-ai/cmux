@@ -6,7 +6,6 @@ process.env.NEXT_PUBLIC_STACK_PROJECT_ID = "00000000-0000-4000-8000-000000000000
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = "test-publishable-key";
 process.env.STACK_SECRET_SERVER_KEY = "test-secret-key";
 
-const HANDOFF_COOKIE = "cmux-native-auth-handoff";
 type TestStackAuthSession = {
   getTokens: () => Promise<{ refreshToken?: string; accessToken?: string }>;
 };
@@ -18,7 +17,6 @@ type TestStackAuthUser = {
   createSession: (options: { expiresInMillis: number }) => Promise<TestStackAuthSession>;
 };
 
-let handoffCookie: string | undefined;
 let rawRefreshCookie: string;
 let rawAccessCookie: string;
 let getUserResponses: Array<TestStackAuthUser | null | Error> = [];
@@ -48,7 +46,7 @@ const { makeSignOutAndSignInHandler } = await import("../app/handler/sign-out-an
 const { hashNativeSignInCode, s256CodeChallenge } = await import("../app/lib/native-sign-in-codes");
 type NativeSignInCodeRecord = import("../app/lib/native-sign-in-codes").NativeSignInCodeRecord;
 
-const CONFIRM_COOKIE = "cmux-native-auth-confirm";
+const CONFIRM_COOKIE = "__Host-cmux-native-auth-confirm";
 const VERIFIER = "v".repeat(43) + "-verifier_for.tests~0123456789";
 const CHALLENGE = s256CodeChallenge(VERIFIER);
 let confirmCookie: string | undefined;
@@ -73,7 +71,6 @@ const GET = makeAfterSignInHandler({
   nativeSignInCodeStore: codeStore,
   getCookieStore: async () => ({
     get: (name: string) => {
-      if (name === HANDOFF_COOKIE && handoffCookie) return { value: handoffCookie };
       if (name === CONFIRM_COOKIE && confirmCookie) return { value: confirmCookie };
       return undefined;
     },
@@ -130,14 +127,31 @@ function signedInUser(id = "user-1") {
 }
 
 /** Follow the confirmation page's own button, carrying the cookie it set. */
-function confirmFromPage(html: string, response: Response): NextRequest {
+function confirmFromPage(html: string, response: Response, origin = "https://cmux.test"): NextRequest {
   const href = returnHref(html);
-  const confirmURL = new URL(href, "https://cmux.test");
+  const confirmURL = new URL(href, origin);
   const nonce = confirmURL.searchParams.get("cmux_auth_confirm");
-  expect(nonce).toBeTruthy();
-  expect(response.headers.get("set-cookie")).toContain(`${CONFIRM_COOKIE}=${nonce}`);
-  confirmCookie = nonce!;
+  expect(nonce).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  confirmCookie = setCookieValue(response, CONFIRM_COOKIE);
+  // The cookie carries the nonce bound to its purpose and path, not the bare nonce.
+  expect(confirmCookie).not.toBe(nonce);
+  expect(confirmCookie).toContain(nonce!);
   return new NextRequest(confirmURL, { headers: { "accept-language": "en" } });
+}
+
+/** The decoded value `response` sets for cookie `name`. */
+function setCookieValue(response: Response, name: string): string {
+  const header = response.headers.get("set-cookie") ?? "";
+  const match = new RegExp(`(?:^|,\\s*)${name.replace(/[$]/g, "\\$&")}=([^;]*)`).exec(header);
+  expect(match).toBeTruthy();
+  return decodeURIComponent(match![1]);
+}
+
+/** The person signs in and clicks the confirmation page's button. */
+async function handOff(request: NextRequest): Promise<Response> {
+  const page = await GET(request);
+  if (page.status !== 200) return page;
+  return GET(confirmFromPage(await page.text(), page, request.nextUrl.origin));
 }
 
 function expectNoTokens(value: string | null) {
@@ -149,7 +163,6 @@ function expectNoTokens(value: string | null) {
 
 describe("after sign-in native handoff", () => {
   beforeEach(() => {
-    handoffCookie = undefined;
     confirmCookie = undefined;
     storedCodes.clear();
     const signedIn = signedInUser();
@@ -166,43 +179,75 @@ describe("after sign-in native handoff", () => {
     applyAdminGrants.mockClear();
   });
 
-  test("issues and clears the handoff nonce with one cookie contract", async () => {
+  test("native sign-in sets nothing that could skip the confirmation click", async () => {
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
     const afterSignIn = new URL("/handler/after-sign-in", "https://cmux.test");
     afterSignIn.searchParams.set("native_app_return_to", nativeReturnTo);
     const startURL = new URL("/handler/native-sign-in", "https://cmux.test");
-    startURL.searchParams.set(
-      "after_auth_return_to",
-      `${afterSignIn.pathname}${afterSignIn.search}`
-    );
+    startURL.searchParams.set("after_auth_return_to", `${afterSignIn.pathname}${afterSignIn.search}`);
 
-    const startResponse = startNativeSignIn(
-      new NextRequest(startURL, {
-        headers: { "sec-fetch-site": "none" },
-      })
-    );
-    const issuedCookie = startResponse.headers.get("set-cookie");
-    expect(issuedCookie).toBeTruthy();
+    const startResponse = startNativeSignIn(new NextRequest(startURL, { headers: { "sec-fetch-site": "none" } }));
 
+    expect(startResponse.headers.get("set-cookie")).toBeNull();
     const signInURL = new URL(startResponse.headers.get("location")!);
     const callbackURL = new URL(signInURL.searchParams.get("after_auth_return_to")!);
-    const handoffNonce = callbackURL.searchParams.get("cmux_auth_handoff");
-    expect(handoffNonce).toBeTruthy();
-    handoffCookie = handoffNonce!;
+    expect(callbackURL.searchParams.has("cmux_auth_handoff")).toBe(false);
+  });
 
-    const finishResponse = await GET(signInRequest(nativeReturnTo, handoffNonce!));
-    const clearedCookie = finishResponse.headers.get("set-cookie");
-    expect(clearedCookie).toBeTruthy();
+  test("the confirmation cookie is __Host-, Secure, Path=/ and cleared by the hand-off", async () => {
+    const page = await GET(signInRequest("cmux://auth-callback?cmux_auth_state=s", "unused"));
+    const issued = page.headers.get("set-cookie")!;
+    expect(issued).toContain(`${CONFIRM_COOKIE}=`);
+    expect(issued).toContain("Path=/");
+    expect(issued).not.toContain("Path=/handler");
+    expect(issued).not.toMatch(/Domain=/i);
+    expect(issued).toContain("Secure");
+    expect(issued).toContain("HttpOnly");
+    expect(issued).toContain("SameSite=lax");
+    expect(issued).toContain("Max-Age=600");
 
-    for (const cookie of [issuedCookie!, clearedCookie!]) {
-      expect(cookie).toContain(`${HANDOFF_COOKIE}=`);
-      expect(cookie).toContain("Path=/handler/after-sign-in");
-      expect(cookie).toContain("HttpOnly");
-      expect(cookie).toContain("SameSite=lax");
-      expect(cookie).toContain("Secure");
-    }
-    expect(issuedCookie).toContain("Max-Age=600");
-    expect(clearedCookie).toContain("Max-Age=0");
+    const handedOff = await GET(confirmFromPage(await page.text(), page));
+    const cleared = handedOff.headers.get("set-cookie")!;
+    expect(cleared).toContain(`${CONFIRM_COOKIE}=;`);
+    expect(cleared).toContain("Max-Age=0");
+    expect(cleared).toContain("Path=/");
+  });
+
+  test("a bare nonce planted as the cookie value is not a confirmation", async () => {
+    const nonce = "n".repeat(43);
+    confirmCookie = nonce;
+    const request = signInRequest("cmux://auth-callback?cmux_auth_state=s", "unused");
+    request.nextUrl.searchParams.set("cmux_auth_confirm", nonce);
+
+    const response = await GET(new NextRequest(request.nextUrl, { headers: { "accept-language": "en" } }));
+
+    expect(response.status).toBe(200);
+    expect(storedCodes.size).toBe(0);
+  });
+
+  test("a confirmation bound to after-sign-in is refused on another path", async () => {
+    const page = await GET(signInRequest("cmux://auth-callback?cmux_auth_state=s", "unused"));
+    const confirmed = confirmFromPage(await page.text(), page);
+    const elsewhere = new URL(confirmed.nextUrl);
+    elsewhere.pathname = "/handler/other";
+    const { verifiedNativeConfirmation } = await import("../app/handler/native-handoff-cookie");
+    const store = { get: (name: string) => (name === CONFIRM_COOKIE ? { value: confirmCookie! } : undefined) };
+
+    expect(verifiedNativeConfirmation(confirmed, store)).toBe(true);
+    expect(verifiedNativeConfirmation(new NextRequest(elsewhere), store)).toBe(false);
+  });
+
+  test("the page names the signed-in account and the destination app", async () => {
+    getUserResponses = [{ id: "user-1", primaryEmail: "person@example.com", createSession: defaultCreateSession }];
+
+    const page = await GET(signInRequest("cmux-rc://auth-callback?cmux_auth_state=s", "unused"));
+
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain("<strong>person@example.com</strong>");
+    expect(html).toContain("<strong>cmux RC</strong>");
+    expect(html).toContain("Only continue if you just started signing in from this app.");
+    expect(storedCodes.size).toBe(0);
   });
 
   test("native sign-in carries the app's challenge into the callback and refuses a bad one", async () => {
@@ -229,11 +274,20 @@ describe("after sign-in native handoff", () => {
     }
   });
 
-  test("redirects verified native handoffs with a one-time code and no tokens", async () => {
-    handoffCookie = "handoff-nonce";
+  test("a PKCE request never redirects without the click, even for an app-initiated attempt", async () => {
+    // A local app can start its own sign-in for any allowed scheme; a
+    // signed-in browser must not hand it a code by itself.
+    const response = await GET(signInRequest("cmux-rc://auth-callback?cmux_auth_state=attacker", "unused"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+    expect(storedCodes.size).toBe(0);
+  });
+
+  test("after the click, hands off a one-time code and no tokens", async () => {
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
 
-    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+    const response = await handOff(signInRequest(nativeReturnTo, "handoff-nonce"));
 
     expect(response.status).toBe(307);
     expect(response.headers.get("cache-control")).toBe("no-store");
@@ -252,20 +306,16 @@ describe("after sign-in native handoff", () => {
     expect(record?.userId).toBe("user-1");
     expect(record?.codeChallenge).toBe(CHALLENGE);
     expect(record?.scheme).toBe("cmux");
+    expect(record?.issuer).toBe("test-project");
     expect(record!.expiresAt.getTime() - Date.now()).toBeLessThanOrEqual(60_000);
     // The session is minted only when the app redeems the code.
     expect(defaultCreateSession).not.toHaveBeenCalled();
-    const setCookie = response.headers.get("set-cookie");
-    expect(setCookie).toContain(`${HANDOFF_COOKIE}=;`);
-    expect(setCookie).toContain("Max-Age=0");
-    expect(setCookie).toContain("Path=/handler/after-sign-in");
   });
 
   test("redirects verified release-candidate handoffs directly to cmux-rc", async () => {
-    handoffCookie = "handoff-nonce";
     const nativeReturnTo = "cmux-rc://auth-callback?cmux_auth_state=state-rc";
 
-    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+    const response = await handOff(signInRequest(nativeReturnTo, "handoff-nonce"));
 
     expect(response.status).toBe(307);
     const location = response.headers.get("location");
@@ -279,10 +329,9 @@ describe("after sign-in native handoff", () => {
   test("redirects verified cmux NEXT handoffs directly to cmux-next", async () => {
     // nightly-next installs beside classic NIGHTLY as cmux NEXT with its own
     // scheme, so its sign-in never lands in the NIGHTLY app.
-    handoffCookie = "handoff-nonce";
     const nativeReturnTo = "cmux-next://auth-callback?cmux_auth_state=state-next";
 
-    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+    const response = await handOff(signInRequest(nativeReturnTo, "handoff-nonce"));
 
     expect(response.status).toBe(307);
     const callbackURL = new URL(response.headers.get("location")!);
@@ -294,10 +343,9 @@ describe("after sign-in native handoff", () => {
   test("redirects verified signed NEXT DEV handoffs on staging to cmux-next-dev", async () => {
     // Signed NEXT DEV is a Release build that signs into staging, so its
     // callback must survive the deployed after-sign-in handoff there.
-    handoffCookie = "handoff-nonce";
     const nativeReturnTo = "cmux-next-dev://auth-callback?cmux_auth_state=state-next-dev";
 
-    const response = await GET(
+    const response = await handOff(
       signInRequest(nativeReturnTo, "handoff-nonce", undefined, "https://cmux-staging.vercel.app"),
     );
 
@@ -309,7 +357,6 @@ describe("after sign-in native handoff", () => {
   });
 
   test("rejects signed NEXT DEV handoffs on production", async () => {
-    handoffCookie = "handoff-nonce";
     const nativeReturnTo = "cmux-next-dev://auth-callback?cmux_auth_state=state-next-dev";
 
     const response = await GET(
@@ -323,10 +370,9 @@ describe("after sign-in native handoff", () => {
   for (const scheme of ["cmux-dev", "cmux-dev-pr-28950-next-cloud-dev-v1"]) {
     test(`redirects verified ${scheme} handoffs on staging`, async () => {
       // Debug and tagged fleet builds sign in on staging by default (CloudConfiguration.resolve).
-      handoffCookie = "handoff-nonce";
-      const nativeReturnTo = `${scheme}://auth-callback?cmux_auth_state=state-dev`;
+        const nativeReturnTo = `${scheme}://auth-callback?cmux_auth_state=state-dev`;
 
-      const response = await GET(
+      const response = await handOff(
         signInRequest(nativeReturnTo, "handoff-nonce", undefined, "https://cmux-staging.vercel.app"),
       );
 
@@ -337,8 +383,7 @@ describe("after sign-in native handoff", () => {
     });
 
     test(`rejects ${scheme} handoffs on production`, async () => {
-      handoffCookie = "handoff-nonce";
-      const nativeReturnTo = `${scheme}://auth-callback?cmux_auth_state=state-dev`;
+        const nativeReturnTo = `${scheme}://auth-callback?cmux_auth_state=state-dev`;
 
       const response = await GET(
         signInRequest(nativeReturnTo, "handoff-nonce", undefined, "https://cmux.com"),
@@ -350,7 +395,6 @@ describe("after sign-in native handoff", () => {
   }
 
   test("keeps the manual return page when the handoff nonce is not verified", async () => {
-    handoffCookie = "different-nonce";
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
 
     const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
@@ -395,7 +439,6 @@ describe("after sign-in native handoff", () => {
   });
 
   test("preserves the embedded pricing return path when switching accounts", async () => {
-    handoffCookie = "different-nonce";
     const nativeReturnTo = "cmux://auth-callback";
     const webReturnTo =
       "/app-pricing?cmux_app=1&cmux_scheme=cmux-dev-test&appearance=dark&interval=year";
@@ -434,7 +477,6 @@ describe("after sign-in native handoff", () => {
   });
 
   test("refuses a malformed challenge or another method instead of downgrading", async () => {
-    handoffCookie = "handoff-nonce";
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
     for (const challenge of ["short", `${CHALLENGE}x`, "%"]) {
       const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce", undefined, undefined, challenge));
@@ -449,11 +491,10 @@ describe("after sign-in native handoff", () => {
   });
 
   test("drops credential parameters the return target tries to carry", async () => {
-    handoffCookie = "handoff-nonce";
     const nativeReturnTo =
       "cmux://auth-callback?cmux_auth_state=state-123&code=planted&stack_refresh=planted&stack_access=planted";
 
-    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+    const response = await handOff(signInRequest(nativeReturnTo, "handoff-nonce"));
 
     const callbackURL = new URL(response.headers.get("location")!);
     expect(callbackURL.searchParams.getAll("code")).toHaveLength(1);
@@ -464,7 +505,6 @@ describe("after sign-in native handoff", () => {
 
   test("a legacy request without a challenge needs a click, then mints its session", async () => {
     // Builds that predate PKCE keep working, but never without the click.
-    handoffCookie = "handoff-nonce";
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
 
     const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce", undefined, undefined, null));
@@ -510,13 +550,12 @@ describe("after sign-in native handoff", () => {
   });
 
   test("issues a code for an existing anonymous purchaser session", async () => {
-    handoffCookie = "handoff-nonce";
     const createSession = mock(async () => ({
       getTokens: async () => ({ refreshToken: "anon-refresh", accessToken: "anon-access" }),
     }));
-    getUserResponses = [null, { id: "anon-1", createSession }];
+    getUserResponses = [null, { id: "anon-1", createSession }, null, { id: "anon-1", createSession }];
 
-    const response = await GET(signInRequest("cmux://auth-callback?cmux_auth_state=s", "handoff-nonce"));
+    const response = await handOff(signInRequest("cmux://auth-callback?cmux_auth_state=s", "handoff-nonce"));
 
     expect(getUser).toHaveBeenNthCalledWith(1, { or: "return-null" });
     expect(getUser).toHaveBeenNthCalledWith(2, { or: "anonymous-if-exists[deprecated]" });
@@ -526,7 +565,6 @@ describe("after sign-in native handoff", () => {
   });
 
   test("a failed user lookup answers the retry page, not home", async () => {
-    handoffCookie = "handoff-nonce";
     getUserResponses = [new Error("Stack unavailable")];
     const request = signInRequest("cmux://auth-callback?cmux_auth_state=s", "handoff-nonce");
 
@@ -539,7 +577,6 @@ describe("after sign-in native handoff", () => {
   });
 
   test("answers a retry page when the code store is unavailable", async () => {
-    handoffCookie = "handoff-nonce";
     const failing = makeAfterSignInHandler({
       projectId: "test-project",
       stackServerApp: { getUser },
@@ -550,12 +587,14 @@ describe("after sign-in native handoff", () => {
         consume: async () => null,
       },
       getCookieStore: async () => ({
-        get: (name: string) => (name === HANDOFF_COOKIE ? { value: "handoff-nonce" } : undefined),
+        get: (name: string) => (name === CONFIRM_COOKIE && confirmCookie ? { value: confirmCookie } : undefined),
         getAll: () => [],
       }),
     });
 
-    const response = await failing(signInRequest("cmux://auth-callback?cmux_auth_state=s", "handoff-nonce"));
+    const page = await failing(signInRequest("cmux://auth-callback?cmux_auth_state=s", "handoff-nonce"));
+    expect(page.status).toBe(200);
+    const response = await failing(confirmFromPage(await page.text(), page));
 
     expect(response.status).toBe(503);
     expect(response.headers.get("location")).toBeNull();

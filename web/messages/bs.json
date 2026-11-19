@@ -3477,6 +3477,7 @@
     "brandPage": "Materijali brenda"
   },
   "afterSignIn": {
+    "confirmBody": "Nastavite samo ako ste upravo započeli prijavu iz ove aplikacije.",
     "title": "Prijavljeni ste u cmux",
     "body": "Ako se cmux nije automatski otvorio, koristite dugme ispod.",
     "button": "Vrati se u cmux",
