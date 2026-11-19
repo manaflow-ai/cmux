@@ -2112,7 +2112,7 @@ impl Hub {
             harness_sandbox_calls: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
-            sign_in_refused_turn: StdMutex::new(None),
+            refused_retry_turn: StdMutex::new(None),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
