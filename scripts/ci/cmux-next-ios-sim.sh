@@ -62,11 +62,12 @@
 #                     terminal's per-frame main-thread work (its frame log)
 #           Each recording is replayed at the rate the program wrote it (capped
 #           at 50 Mbit/s), with screenshots during and after the flood.
-#           Optional arguments (each one `--arg`):
-#             only=LIST   the workloads to run (default cat,vim,top,agent)
-#             profile     a 10 s Time Profiler recording of the app during the
-#                         agent workload's stream: bench/agent-profile/summary.md
-#                         (main-thread symbols, self and total) and the trace
+#           The agent workload runs twice: once for its numbers, then once
+#           under a 10 s Time Profiler recording of the app during its stream
+#           (bench/agent-profile/summary.md: main-thread symbols, self and
+#           total; and the trace), whose timings are not read.
+#           CMUX_IOS_BENCH_WORKLOADS (`cmux-ci run --env`) picks the workloads,
+#           space- or comma-separated (default: cat vim top agent agent-profile).
 #   all     build, test and bench.
 #   shots   build, plus one screenshot per scene, in dark and in light, from
 #           the app's own DEBUG launch arguments and demo drivers (mock data,
@@ -247,22 +248,13 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
 fi
 run_kit=1
 
-# bench's optional selection (see MODE above).
-bench_workloads=(cat vim top agent)
-bench_profile=0
-if [[ ( "$mode" == bench || "$mode" == all ) && $# -gt 1 ]]; then
-  for sel in "${@:2}"; do
-    case "$sel" in
-      only=?*)
-        IFS=',' read -r -a bench_workloads <<< "${sel#only=}"
-        for item in "${bench_workloads[@]}"; do
-          [[ "$item" =~ ^(cat|vim|top|agent)$ ]] || { echo "cmux-next-ios-sim.sh: bench only= wants cat, vim, top or agent, got '$item'" >&2; exit 2; }
-        done ;;
-      profile) bench_profile=1 ;;
-      *) echo "cmux-next-ios-sim.sh: bench takes only=LIST and profile, got '$sel'" >&2; exit 2 ;;
-    esac
-  done
-fi
+# bench's workloads (see MODE above).
+read -r -a bench_workloads <<< "${CMUX_IOS_BENCH_WORKLOADS:-cat vim top agent agent-profile}"
+IFS=', ' read -r -a bench_workloads <<< "${bench_workloads[*]}"
+for item in "${bench_workloads[@]}"; do
+  [[ "$item" =~ ^(cat|vim|top|agent|agent-profile)$ ]] ||
+    { echo "cmux-next-ios-sim.sh: CMUX_IOS_BENCH_WORKLOADS wants cat, vim, top, agent or agent-profile, got '$item'" >&2; exit 2; }
+done
 
 # listperf's cases (label, screen, settings), as verify/listperf/final.sh runs them.
 listperf_table=(
@@ -1232,7 +1224,7 @@ VIM
   for name in "${bench_workloads[@]}"; do
     data="$(simctl get_app_container "$udid" "$bundle_id" data 2>/dev/null || true)"
     if [[ -n "$data" ]]; then rm -f "$data/Documents/flood-bench.json" "$data/Documents/frame-log.ndjson"; fi
-    if [[ "$name" == agent ]]; then
+    if [[ "$name" == agent || "$name" == agent-profile ]]; then
       mbps=0 size=0
       launched="$(simctl launch "$udid" "$bundle_id" -CmuxMobileFloodBench -CmuxMobileFloodBenchMode agent \
         -CmuxMobileFrameLog -CmuxMobileFloodBenchSeconds 10)"
@@ -1244,7 +1236,12 @@ VIM
     data="$(simctl get_app_container "$udid" "$bundle_id" data)"
     result="$data/Documents/flood-bench.json"
     app_pid="${launched##*: }"
-    if [[ "$name" == agent && $bench_profile -eq 1 && "$app_pid" =~ ^[0-9]+$ ]]; then
+    if [[ "$name" == agent-profile ]]; then
+      if [[ ! "$app_pid" =~ ^[0-9]+$ ]]; then
+        note "- agent Time Profiler: no app pid in '$launched'"
+        simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+        continue
+      fi
       # The stream starts about 5 s after launch (attach, 2 s settle, 3 s idle); record 10 s of it.
       sleep 6
       prof="$out/bench/agent-profile"
@@ -1264,6 +1261,11 @@ VIM
       fi
       rm -f "$prof/time-profile.xml"
       if [[ -d "$prof/time.trace" ]]; then ditto -c -k --keepParent "$prof/time.trace" "$prof/time.trace.zip" 2>/dev/null || true; rm -rf "$prof/time.trace"; fi
+      # A profiled run's timings are not read: no table row.
+      deadline=$((SECONDS + 60))
+      until [[ -s "$result" ]] || (( SECONDS > deadline )); do sleep 1; done
+      simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+      continue
     fi
     # Screens at fixed points of the run (3 s idle, 10 s flood, 6 s after): bounded delays, not a sync.
     sleep 9; simctl io "$udid" screenshot "$out/screens/$name-flood.png" >/dev/null
