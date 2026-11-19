@@ -27,18 +27,27 @@ test("a slow but open daemon answers after the request progress threshold, and t
   const socket = new MockAcpmuxSocket((ms) => (ms === SLOW_MS ? replyHeld : Promise.resolve()));
   let saidWaiting = false;
   let latest: { daemonWaitingSince?: number } | undefined;
-  const client = await AcpmuxDirectClient.connect(
+  // The request crossing its threshold emits a snapshot ("waiting: daemon"); this resolves on it.
+  let client: InstanceType<typeof AcpmuxDirectClient> | undefined;
+  let sawCrossing = () => {};
+  const crossed = new Promise<void>((resolve) => {
+    sawCrossing = resolve;
+  });
+  const waitingRequests = () => (client as unknown as { waitingRequests?: number } | undefined)?.waitingRequests ?? 0;
+  const connected = await AcpmuxDirectClient.connect(
     mockHost,
     (snapshot) => {
       latest = snapshot;
       if (snapshot.daemonWaitingSince !== undefined) saidWaiting = true;
+      if (waitingRequests() > 0) sawCrossing();
     },
     undefined,
     () => socket as unknown as WebSocket,
   );
+  client = connected;
   try {
     const request = (
-      client as unknown as {
+      connected as unknown as {
         request(method: string, params: Record<string, unknown>, deadline: number): Promise<unknown>;
       }
     ).request(
@@ -50,11 +59,8 @@ test("a slow but open daemon answers after the request progress threshold, and t
     // threshold: the request stays pending, and a deadline that failed it would settle it here.
     // The daemon owes no answer yet (no probe is out), so the pane does not say it waits on the
     // service: a long chat that is slow to read is not a service that is down.
-    const waitingRequests = () => (client as unknown as { waitingRequests: number }).waitingRequests;
     await Promise.race([
-      (async () => {
-        while (waitingRequests() === 0) await new Promise((resolve) => setTimeout(resolve, 5));
-      })(),
+      crossed,
       request.then(() => {
         throw new Error("the request settled before the daemon replied");
       }),
@@ -66,6 +72,6 @@ test("a slow but open daemon answers after the request progress threshold, and t
     expect(saidWaiting).toBe(false);
   } finally {
     releaseReply();
-    client.close();
+    connected.close();
   }
 });
