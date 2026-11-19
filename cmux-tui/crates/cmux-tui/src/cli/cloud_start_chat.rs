@@ -1899,7 +1899,10 @@ pub(super) fn settings_script(request: &Request, session: &str) -> Option<String
 
 /// Step 3b, `--effort` and `--mode` on the new session (the composer's picks, applied as its
 /// chip would), in one exec before the first prompt. A refusal fails the start with the chat's
-/// answer so far, so nothing runs at an effort or in a mode that was not asked for.
+/// answer so far, so nothing runs at an effort or in a mode that was not asked for. An exec
+/// nothing answered is not a refusal (cmuxterm-hq#13943): it is asked once more, as a read is
+/// ([`read_again`]; `acp session set` asked twice sets the same), and when that goes unanswered
+/// too the start fails as `chat.unreachable`, naming the command that sends the prompt.
 fn apply_settings(
     runner: &mut dyn Runner,
     request: &Request,
@@ -1924,9 +1927,30 @@ fn apply_settings(
             1,
         )
     };
-    let ran = exec(runner, machine_id, &script).map_err(|error| {
-        refused(at(&error, "message").as_str().unwrap_or("cloud exec failed").to_owned())
-    })?;
+    let mut ran = exec(runner, machine_id, &script);
+    if let Err(error) = &ran
+        && read_again(error)
+        && !deadline.passed(runner)
+    {
+        runner.pause(unanswered_pause(1));
+        ran = exec(runner, machine_id, &script);
+    }
+    let ran = match ran {
+        Ok(ran) => ran,
+        Err(error) => {
+            let message = at(&error, "message").as_str().unwrap_or("cloud exec failed");
+            return Err(failed(
+                "chat.unreachable",
+                format!(
+                    "the chat started, but its machine did not answer while its effort or mode was \
+                     set: {message}; nothing was sent (`{}` sends it)",
+                    send_again(request, machine_id, session)
+                ),
+                json!({"answer": answer, "app": error, "effort": request.effort, "mode": request.mode}),
+                1,
+            ));
+        }
+    };
     let reported = sections(&ran);
     if reported.get("exit").map(|code| code.trim()) == Some("0") {
         return Ok(());
