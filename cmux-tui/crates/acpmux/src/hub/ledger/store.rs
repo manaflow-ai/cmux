@@ -154,7 +154,7 @@ pub(crate) struct Disk {
     file: Option<File>,
     size: u64,
     compact_bytes: u64,
-    /// The next compaction waits for the file to double past what the last one wrote.
+    /// The next compaction waits for the file to double past the last one's snapshot.
     floor: u64,
     /// A first start that the hub will seed: nothing reaches the file before the seed's rewrite.
     /// A line appended before it (a watcher's turn while the store loads) would read as a ledger,
@@ -341,7 +341,11 @@ impl Writer {
             Ok(()) => {
                 disk.file = reopened;
                 disk.size = (text.len() + tail.len()) as u64;
-                disk.floor = disk.size;
+                // The snapshot's size, not the tail's too: a burst appended during the rewrite
+                // (any number of lines) would raise the floor with it, and the next compaction
+                // would wait for twice that. An append that landed in the tail queued a step,
+                // which compacts again when the tail took the file past the bound.
+                disk.floor = text.len() as u64;
                 // The whole state is in the file: a first start's hold is over.
                 disk.seed_pending = false;
                 true
