@@ -22,6 +22,14 @@ export const sendMenuLook = defineExperiment({
       label: "Icons + text",
       description: "A leading icon per row (send, waiting, fork) and the key as plain text.",
     },
+    "icons-caps": {
+      label: "Icons + key caps",
+      description: "A leading icon per row and each key in its own small cap on the right.",
+    },
+    tiles: {
+      label: "Icon tiles",
+      description: "Each icon on a small tinted tile and the keys as caps: an action panel more than a list.",
+    },
   },
   defaultArm: "text",
 });
