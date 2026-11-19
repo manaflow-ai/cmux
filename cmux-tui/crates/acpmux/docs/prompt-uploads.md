@@ -348,7 +348,11 @@ repeated finish answers the same.
   `uploadsMaxAgeDays`. A write to its `.part` or a status call counts as use. So no part file
   is left orphaned past the age cap, and one still being written or resumed is never taken.
   Deleting the chat removes them at once. (`uploadsMaxAgeDays: 0` turns the sweep off, and then
-  every upload stays until its chat is deleted.)
+  every finished upload stays until its chat is deleted.)
+- Whatever `uploadsMaxAgeDays` says, and in a kept chat too, an unfinished upload (its `.part`)
+  that no write or status call touched for a day goes at the same sweep. No prompt was ever
+  given its path; a sender that comes back is told `upload.unknown` and starts it again from its
+  file.
 - Sending a prompt does not consume them, so a retried send never uploads again.
 
 ## 4. Errors
