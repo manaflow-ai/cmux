@@ -50,7 +50,7 @@ export function CloudSetupSteps({ current, look = "rail" }: { current: CloudSetu
         return (
           <li key={id} className="acpmux-cloud-steps__step" data-step={state} data-step-id={id}>
             <span className="acpmux-cloud-steps__mark" aria-hidden>
-              {state === "done" ? <Check size={10} /> : index + 1}
+              {state === "done" ? <Check size={12} /> : index + 1}
             </span>
             <span className="acpmux-cloud-steps__label" {...(state === "current" ? { "aria-current": "step" } : {})}>
               {t(LABELS[id])}
