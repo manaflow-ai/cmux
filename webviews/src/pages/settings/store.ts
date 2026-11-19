@@ -64,7 +64,11 @@ import {
   type HarnessesState,
   type HostLists,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
+  type McpServersRun,
+  type McpServersState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
@@ -75,13 +79,13 @@ import {
   type SettingsStreams,
   type WireError,
   type WorkspaceBackground,
-  type ModelsRun,
-  type ModelsState,
   SETTINGS_SENTENCES,
   type CustomizeTryOn,
   type JoinConsentSurface,
   type LibraryListing,
   type LibraryRun,
+  type ModelsRun,
+  type ModelsState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -620,10 +624,15 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
-  /** Settings > Devices: one of this joined Mac's consent switches on or off, then re-read the host lists. */
-  async setJoinConsent(surface: JoinConsentSurface, on: boolean): Promise<void> {
-    await this.request("cmux.settings.devices.join_consent", { surface, on });
+  /** Settings > Devices: one of this joined Mac's consent switches on or off, then re-read the host lists.
+   * Answers the host's refusal of the call itself (an on without the person's own click), or the reason a
+   * reply that ran carries (`error`: busy with another write), else null; a write that failed later says
+   * why in the host lists' `devices_join.error`. */
+  async setJoinConsent(surface: JoinConsentSurface, on: boolean): Promise<string | null> {
+    const reply = await this.request("cmux.settings.devices.join_consent", { surface, on });
     await this.refreshHost();
+    if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
+    return reply.value.error || null;
   }
 
   /** Settings > Machines: a Cloud machine's "Dedicated agent machine" on or off, then re-read the host lists. */
@@ -758,10 +767,29 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
+  /** Settings > Agents > Agents on This Mac: one gesture (a refresh reads), and the card as it is
+   * after it; null when the host has none. */
+  async runAgentTools(run: AgentToolsCardRun): Promise<AgentToolsCardState | null> {
+    const reply = await this.request("cmux.settings.agentTools.run", run);
+    return reply.ok ? reply.value : null;
+  }
+
   /** One Agent integrations gesture, then the part as it is after it (null: the host has none). */
   async runIntegrations(run: IntegrationsRun): Promise<IntegrationsState | null> {
     await this.request("cmux.settings.integrations.run", run);
     return this.integrationsState();
+  }
+
+  /** Settings > MCP Servers; null when the host has none. */
+  async mcpServersState(): Promise<McpServersState | null> {
+    const reply = await this.request("cmux.settings.mcp.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One MCP Servers gesture, then the page as it is after it (null: the host has none). */
+  async runMcpServers(run: McpServersRun): Promise<McpServersState | null> {
+    await this.request("cmux.settings.mcp.run", run);
+    return this.mcpServersState();
   }
 
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */

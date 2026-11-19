@@ -41,6 +41,9 @@ SPEED_KEYS = ("speed", "speed_before", "speed_after", "speed_at_stop", "speed_fa
 PREFLIGHT_KEYS = 5
 NO_ROOM = "Not enough room to split this column"  # the app's refusal of a split, by a read of its source (RefusalStrings.swift)
 ASKED = 'Close "/sbin/ping -i 0.2 127.0.0.1"?: Still running: ping.'  # the title and the line of the fake's close question
+HOME = "workspace-of-home"  # the fake's id of the app's own Home workspace
+# The page that each action opens, by a read of the app's code (the ids of its internal pages).
+PAGE_OF = {"home.tab": "home-tab", "openMarkdownFile": "markdown", "openSettings": "settings"}
 
 
 class Clock:
@@ -125,6 +128,13 @@ class World:
         # The workspaces that the session's maker made, and each `goToWorkspace` action: (the workspace, if the
         # recorder of a film captured).
         self.session, self.shows = [], []
+        # The group `pages`. `opened`: each action that opens a page: (the action, its `path`, its target, the pane that
+        # had the focus). The app's own Home workspace, which no film makes and no film closes: with `home-workspace`
+        # its pane has a shell, with `chief-tab` it has the Chief's conversation tab; with none the fake has no Home.
+        self.opened = []
+        if faults & {"home-workspace", "chief-tab"}:
+            kind = "conversation" if "chief-tab" in faults else "terminal"
+            self.spaces[HOME] = {"panes": [{"id": "pane-of-home", "tabs": [{"id": "tab-of-home", "kind": kind, "title": "Chief"}]}], "zoomed": None}
 
     def film(self, state):
         """If the recorder of a FILM (not of the preflight) is in `state` now: `capturing` or `written`."""
@@ -534,6 +544,21 @@ class FakeStress:
             for space in self.world.spaces.values():
                 for pane in space["panes"]:
                     pane["tabs"][:] = [tab for tab in pane["tabs"] if tab["id"] != ident]
+                # The close of a pane's last tab closes the pane (not the last pane of a workspace).
+                space["panes"][:] = [pane for pane in space["panes"] if pane["tabs"] or len(space["panes"]) == 1]
+        elif name in PAGE_OF:
+            self.world.opened.append((name, (params or {}).get("path"), target, self.world.focus))
+            if "page-actions-dead" in self.world.faults:
+                return {"error": "a fake refusal of the page"}
+            # By a read of the app's code: `home.tab` and `openSettings` take no target and open in the pane with the
+            # focus; `openMarkdownFile` opens in its target pane.
+            where = ident if name == "openMarkdownFile" else self.world.focus
+            page = {"id": self.world.ident("tab"), "kind": "page", "page": PAGE_OF[name]}
+            next(p for s in self.world.spaces.values() for p in s["panes"] if p["id"] == where)["tabs"].append(page)
+        elif name == "home.show":
+            if HOME not in self.world.spaces:
+                return {"error": "a fake refusal: Home is not ready"}
+            self.world.shown = HOME
         return {}
 
 
@@ -888,7 +913,10 @@ class FilmsCase(unittest.TestCase):
     def test_the_group_cap_is_the_6_films_with_a_speed_and_the_group_kinds_stays_the_9(self):
         ids = [spec["id"] for spec in M.FILMS]
         self.assertEqual([i for i in ids if M.GROUPS["cap"](i)], ["T-C", "T-Z.2", "T-ZT", "T-C.N", "T-Z.N", "T-ZT.N"])
-        self.assertEqual({spec["id"]: spec["speed"] for spec in M.FILMS if spec.get("speed")},
+        # (The 8 films of the group `pages` and the 2 new films of the group `close` have a speed too, and they are no
+        # films of the group `cap`.)
+        self.assertEqual({spec["id"]: spec["speed"] for spec in M.FILMS
+                          if spec.get("speed") and not M.GROUPS["pages"](spec["id"]) and spec["id"] not in ("B-C", "A-C")},
                          {"T-C": "fast", "T-Z.2": "fast", "T-ZT": "fast", "T-C.N": "normal", "T-Z.N": "normal", "T-ZT.N": "normal"})
         self.assertEqual([i for i in ids if M.GROUPS["kinds"](i)], [f"{kind}-{act}" for kind in "TBA" for act in ("D", "SD", "Z")])
         self.assertEqual(len(ids), len(set(ids)))
@@ -1563,6 +1591,118 @@ class FilmsCase(unittest.TestCase):
         self.assertEqual((M.label(act), M.label(act, "key")), ("Cmd-Shift-Enter", "Cmd-Shift-Enter"))
         self.assertEqual(M.label(act, M.BY_ACTION), "action toggleSplitZoom (zoom by action.run, not by a key)")
         self.assertEqual(M.label(M.K("cmd+d"), M.BY_ACTION), "Cmd-D")
+
+    def test_the_group_pages_is_a_split_with_its_close_and_a_zoom_on_each_of_4_set_ups(self):
+        ids = [spec["id"] for spec in M.FILMS]
+        pages = [i for i in ids if M.GROUPS["pages"](i)]
+        self.assertEqual(pages, [f"{kind}-{act}" for kind in "HDSC" for act in ("C", "Z")])
+        self.assertEqual({kind: M.SETUPS[kind] for kind in "HDSC"}, {"H": ("row", ("home", "redraw")), "D": ("row", ("markdown", "redraw")),
+                                                                     "S": ("row", ("settings", "redraw")), "C": ("home", ("chief",))})
+        # Each one records the app's motions (a speed) and is `made` only with the 2 `layout` spans of its 2 acts.
+        specs = {spec["id"]: spec for spec in M.FILMS}
+        self.assertEqual({(specs[i]["speed"], specs[i]["layout"]) for i in pages}, {("fast", (2, 2))})
+        self.assertEqual([specs[i]["acts"] for i in ("H-C", "H-Z")], [M.SPLIT_CLOSE, M.ZOOM])
+        # No film of another group is a film of this one, and the old groups have no film of it.
+        self.assertFalse([i for i in pages if any(M.GROUPS[group](i) for group in ("kinds", "mixed", "plist", "extra", "cap"))])
+        self.assertFalse(set("HDSC") & set(M.MOCK_SETUPS))  # ONE launch, with the page mock off
+
+    def test_a_film_of_a_page_set_up_opens_the_page_in_the_pane_with_the_focus_and_closes_its_shell(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "H-C,D-Z,S-C")
+        rows, world = report["films"], launches[0].world
+        self.assertEqual((code, [(row["id"], row["status"], row["panes"], row["pages"], row["layout_spans"]) for row in rows]),
+                         (0, [("H-C", "made", ["home", "redraw"], ["home-tab"], 2), ("D-Z", "made", ["markdown", "redraw"], ["markdown"], 2),
+                              ("S-C", "made", ["settings", "redraw"], ["settings"], 2)]))
+        self.assertEqual([name for name, _, _, _ in world.opened], ["home.tab", "openMarkdownFile", "openSettings"])
+        for name, path, target, focus in world.opened:
+            # The pane had the focus before the action; only the Markdown action has a path and a target.
+            self.assertEqual((path is not None, target), (name == "openMarkdownFile", f"pane:{focus}" if name == "openMarkdownFile" else None), name)
+        path = world.opened[1][1]
+        self.assertEqual((os.path.dirname(path), os.path.splitext(path)[1]), (self.out, ".md"))
+        with open(path) as f:
+            self.assertIn("\n## ", f.read())  # a Markdown text with headings: the page has more than one line to draw
+        self.assertEqual((rows[0]["speed"], rows[0]["source_ms"], rows[1]["source_ms"]),
+                         ("fast", {"split": "101 ms", "paneClose": "75 ms"}, {"zoom": "235 ms", "unzoom": "177 ms"}))
+        # The time of each `layout` span is in the row by itself: a motion that is at rest in its first frame is a span too.
+        self.assertEqual([(len(row["layout_ms"]), row["layout_ms"] == [span["ms"] for span in row["spans"] if span["name"] == "layout"]) for row in rows],
+                         [(2, True)] * 3)
+        self.assertEqual(world.spaces, {})  # each film's workspace is closed again
+
+    def test_a_page_that_does_not_open_is_no_film_and_the_row_has_the_app_s_reply(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "page-actions-dead"}, "--films", "H-C,S-Z")
+        self.assertEqual((code, [row["status"] for row in report["films"]]), (1, ["not_run", "not_run"]))
+        self.assertIn("no tab of the page `home-tab` in the pane in 20 s", report["films"][0]["reason"])
+        self.assertIn("a fake refusal of the page", report["films"][0]["reason"])
+        self.assertIn("no tab of the page `settings`", report["films"][1]["reason"])
+        self.assertFalse([name for name in os.listdir(self.out) if name.startswith(("H-C", "S-Z"))])  # no movie of a film that did not run
+
+    def test_the_chief_s_films_are_in_the_app_s_home_workspace_and_make_no_workspace(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "chief-tab"}, "--films", "C-C,C-Z")
+        rows, world = report["films"], launches[0].world
+        self.assertEqual((code, [(row["id"], row["status"], row["panes"], row["layout_spans"]) for row in rows]),
+                         (0, [("C-C", "made", ["chief"], 2), ("C-Z", "made", ["chief"], 2)]))
+        self.assertEqual([row["chief_tab"] for row in rows], ["Chief", "Chief"])  # the tab's title, as the layout gives it
+        self.assertEqual((rows[0]["panes_before"], rows[0]["panes_after"], rows[0]["dock"]), (1, 1, "not asked: the app's own Home workspace"))
+        # The Home workspace is there after the films, with its one pane, not zoomed; the films opened no page.
+        self.assertEqual((list(world.spaces), [pane["id"] for pane in world.spaces[HOME]["panes"]], world.spaces[HOME]["zoomed"], world.opened),
+                         ([HOME], ["pane-of-home"], None, []))
+        self.assertEqual([name for name, _ in world.actions if name == "home.show"], ["home.show", "home.show"])
+
+    def test_a_home_workspace_with_no_chief_s_tab_gives_no_film_and_the_row_says_what_it_has(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "home-workspace"}, "--films", "C-Z")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"]), (1, "not_run"))
+        self.assertIn("no tab of the kind `conversation` in the workspace that the window shows after home.show", row["reason"])
+        self.assertIn("[['terminal']]", row["reason"])  # the tab kinds of each pane that the script found
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "C-Z")
+        self.assertEqual((code, report["films"][0]["status"]), (1, "not_run"))
+        self.assertIn("the app refused home.show: a fake refusal: Home is not ready", report["films"][0]["reason"])
+
+    def test_a_pane_that_a_film_left_in_the_home_workspace_is_closed_again(self):
+        # The split leaves the focus in the Chief's pane, so the close is not sent and the new pane stays: the script
+        # closes it at the film's end (no film closes the Home workspace).
+        code, report, lines, launches = self.run_films({"chief-tab", "split-keeps-focus"}, "--films", "C-C", "--launch-form", "one-key")
+        row, world = report["films"][0], launches[-1].world
+        self.assertEqual((code, row["status"], row["left_open"]), (1, "not_made", []))
+        self.assertEqual([pane["id"] for pane in world.spaces[HOME]["panes"]], ["pane-of-home"])
+
+    def test_the_group_close_is_a_split_with_its_close_on_each_of_the_3_pane_kinds(self):
+        ids = [spec["id"] for spec in M.FILMS]
+        specs = {spec["id"]: spec for spec in M.FILMS}
+        close = [i for i in ids if M.GROUPS["close"](i)]
+        self.assertEqual(close, ["T-C", "B-C", "A-C"])
+        # Each one has the speed `fast` set and read back, so its row has the app's spans: `made` only with the 2
+        # `layout` spans of its 2 acts. The close goes to the NEW pane only (the read between the 2 keys).
+        self.assertEqual([(specs[i]["setup"], specs[i]["acts"], specs[i]["speed"], specs[i]["springs"], specs[i]["layout"]) for i in close],
+                         [(kind, M.SPLIT_CLOSE, "fast", ("split", "paneClose"), (2, 2)) for kind in "TBA"])
+        self.assertEqual([specs[i]["title"] for i in ("B-C", "A-C")], ["A split, then a close, in a row of 2 loaded browser pages, speed fast",
+                                                                      "A split, then a close, in a row of 2 chats with a thread that streams, speed fast"])
+        # The 2 new films are films of no older group, and each older group keeps its films.
+        self.assertFalse([i for i in ("B-C", "A-C") if any(M.GROUPS[group](i) for group in ("kinds", "mixed", "plist", "extra", "cap", "pages"))])
+        self.assertEqual([i for i in ids if M.GROUPS["kinds"](i)], [f"{kind}-{act}" for kind in "TBA" for act in ("D", "SD", "Z")])
+        self.assertEqual([i for i in ids if M.GROUPS["cap"](i)], ["T-C", "T-Z.2", "T-ZT", "T-C.N", "T-Z.N", "T-ZT.N"])
+        self.assertEqual(len([i for i in ids if M.GROUPS["pages"](i)]), 8)
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_the_films_of_the_group_close_are_made_with_the_close_of_the_new_pane_and_2_layout_spans(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "close")
+        rows = report["films"]
+        self.assertEqual((code, [(row["id"], row["status"], row["panes"], row["panes_before"], row["panes_after"], row["layout_spans"]) for row in rows]),
+                         (0, [("T-C", "made", ["redraw", "stream"], 2, 2, 2), ("B-C", "made", ["page", "page"], 2, 2, 2),
+                              ("A-C", "made", ["chat", "chat"], 2, 2, 2)]))
+        for row in rows:
+            self.assertEqual((row["keys"], [act["label"] for act in row["acts"]], row["acts"][1]["new_pane"], row["speed"]),
+                             ("Cmd-D, Cmd-W", ["Cmd-D", "read: the tabs of the pane with the focus", "Cmd-W"], True, "fast"), row["id"])
+            self.assertIn("the new pane before the close, the `layout` spans", row["act_check"], row["id"])
+        # The chat film alone needs the page mock: 2 launches, as for the group `kinds`.
+        self.assertEqual(([row["agent_page_mock"] for row in rows], len(launches)), ([False, False, True], 2))
+
+    def test_a_close_film_of_a_page_or_a_chat_set_up_sends_no_close_to_a_pane_of_the_set_up(self):
+        code, report, lines, launches = self.run_films({"split-keeps-focus"}, "--films", "B-C,A-C", "--launch-form", "one-key")
+        rows = report["films"]
+        self.assertEqual((code, [(row["id"], row["status"], [act["label"] for act in row["acts"]]) for row in rows]),
+                         (1, [(i, "not_made", ["Cmd-D", "read: the tabs of the pane with the focus"]) for i in ("B-C", "A-C")]))
+        for row in rows:
+            self.assertIn(M.NO_NEW_PANE, row.get("reason", ""), row["id"])
 
 
 if __name__ == "__main__":

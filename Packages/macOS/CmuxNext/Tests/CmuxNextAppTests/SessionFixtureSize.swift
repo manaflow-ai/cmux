@@ -7,7 +7,7 @@ import Testing
 ///
 /// - `large`: the session of plans/cmux-next/main-thread-scheduling.md 1.5: 60 workspaces x 6 tabs (3 terminals, 1 agent
 ///   chat, 1 Chromium page, 1 WebKit page), 5 agent terminals. The tests written for 60 keep their meaning.
-/// - `real`: the session of the person who uses the app, read from his one session daemon on 2026-11-10: 826
+/// - `real`: a session of real use, read from one session daemon on 2026-11-10: 826
 ///   workspaces, 858 panes, 1600 tabs, 798 terminals, 170 agents. 14 times `large`. A count test must be
 ///   O(shown + changed) here as at 60.
 ///

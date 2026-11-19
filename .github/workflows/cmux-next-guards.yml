@@ -9,7 +9,9 @@ name: cmux-next guards
 # shows on the push that caused it.
 #
 # A push runs the group in nightly-guards, judged at its tip, so a base red
-# still fails the push that caused it. A pull request runs it inside the CI
+# still fails the push that caused it, and in the CI guard group, so the merge
+# gate's base-red excuse finds a base verdict for every release-notary step a
+# pull request's guard group can fail. A pull request runs it inside the CI
 # guard group's head-and-base comparison instead (ci-guard-group, below), which
 # fails only on a step red on the change and not on its base, and only when the
 # change reaches what the group reads: release, notary and signing paths, the
@@ -229,7 +231,7 @@ jobs:
   # never ran for feat-cmux-next (tests/pr-lane-exemptions.json). This job runs them too: --feat-routes picks
   # the groups a pull request's paths route to (detect_linux_guard_changes.classify_feat, workflow_guard_groups.py's
   # ownership), and every routed group on a push. The main-only release-ios group never runs here; release-notary runs here
-  # on a pull request that reaches its inputs (compared with its base) and in nightly-guards on a push (judged at the tip).
+  # on a pull request that reaches its inputs (compared with its base) and on every push (here, and in nightly-guards).
   ci-guard-group:
     name: cmux-next CI guard group
     # 32 vCPU, a guard worker per core: the head and the base each run every routed group, on every pull request
@@ -357,26 +359,23 @@ jobs:
           persist-credentials: false
 
       # A pull request routes release-notary by its paths like the other groups (classify_feat,
-      # RELEASE_NOTARY_INPUTS); a push leaves it out here, since nightly-guards runs it at the tip (header).
+      # RELEASE_NOTARY_INPUTS). A push runs every routed group, release-notary included, so every guard step a pull
+      # request's run can fail has a verdict in the base's newest push run of this job, the run the merge gate's
+      # base-red excuse reads (base_red_excuse.py GUARD_GROUP_JOB). While a push left release-notary to
+      # nightly-guards, a release-notary red on a pull request had no base verdict here and was never excused
+      # (cmux#45374, cmux#44413).
       - name: Run the ci guard group and the routed groups
         env:
           CMUX_GUARDS_BASE_SHA: ${{ steps.changes.outputs.base }}
           GUARDS_AT_TIP: ${{ steps.changes.outputs.tip }}
-          EVENT_NAME: ${{ github.event_name }}
         run: |
           # The job ends at 25 minutes; the base pass gets what the head pass leaves of 23, so a slow base ends in a
           # verdict (with unfinished base steps deferred to the merge gate) instead of a cancelled job that merge_hold waits on.
           step_started=$(date +%s)
           # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
           echo "/.guard-base/" >> .git/info/exclude
-          # The groups are literal flags so scripts/ci/pr_test_lanes.py sees what a pull request runs.
-          groups=()
-          if [ "$EVENT_NAME" = pull_request ]; then
-            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
-          else
-            groups=(--skip-group release-notary)
-            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --skip-group release-notary --results "$RUNNER_TEMP/guards-head.json" || true
-          fi
+          # The same call on a pull request and a push: a push has no changed-files list, so --feat-routes routes every group.
+          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
           # The base re-runs only the steps red on the head (guards_new_reds.py --red-steps): a step green on the
           # head is never the change's, and the full base pass doubled the job once release-notary joined it.
           steps=()
@@ -388,7 +387,7 @@ jobs:
             budget=$(( 23 * 60 - ( $(date +%s) - step_started ) ))
             if [ "$budget" -lt 60 ]; then budget=60; fi
             timeout --kill-after=10 "$budget" \
-              scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" "${groups[@]}" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${steps[@]}" --root .guard-base \
+              scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${steps[@]}" --root .guard-base \
               --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 \
               || echo "::warning::the base re-run ended early (exit $?, budget ${budget}s); unfinished steps are deferred to the merge gate"
             tail -1 "$RUNNER_TEMP/guards-base.log"
@@ -535,7 +534,7 @@ jobs:
           fi
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
           changed="$(git diff --name-only "$BASE_SHA" HEAD)"
-          pattern='(^|/)Cargo\.(toml|lock)$|^scripts/cmux-next/remote-browser-host\.pin\.json$|^cmux-tui/build-support/notices/|^scripts/cmux-next/generate-third-party-notices\.sh$|^scripts/cmux-next/notices/|^Packages/macOS/CmuxNext/Package\.resolved$|^scripts/build-cmux-cua\.sh$'
+          pattern='(^|/)Cargo\.(toml|lock)$|^scripts/cmux-next/remote-browser-host\.pin\.json$|^cmux-tui/build-support/notices/|^scripts/cmux-next/generate-third-party-notices\.sh$|^scripts/cmux-next/notices/|^Packages/macOS/CmuxNext/Package\.resolved$'
           if grep -qE "$pattern" <<<"$changed"; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Generate the Rust notices from this tree (as the nightly does)
@@ -791,15 +790,20 @@ jobs:
 
       # Four of these tests and the registry check read workflows with PyYAML. Fleet Linux and Blacksmith images
       # carry it, but a mini's python3 does not (ModuleNotFoundError: yaml on cmux14, 2026-11-03), so the job
-      # puts its own copy first on PATH wherever it lands.
-      - name: Prepare tooling-test Python (PyYAML)
+      # puts its own copy first on PATH wherever it lands. pytest-xdist runs the two slowest files (the
+      # webviews runner's and the web lint hook's tests, about 80 s each, nearly all of it waiting on
+      # subprocesses and their timeouts at about 0.2 cores) four tests at a time; every test still runs,
+      # each in its own temporary directory.
+      - name: Prepare tooling-test Python (PyYAML, pytest-xdist)
         run: |
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/tooling-tests-venv"
           "$RUNNER_TEMP/tooling-tests-venv/bin/python" -m pip install \
             --disable-pip-version-check \
             --no-input \
-            PyYAML==6.0.3
+            PyYAML==6.0.3 \
+            pytest==8.3.5 \
+            pytest-xdist==3.6.1
           echo "$RUNNER_TEMP/tooling-tests-venv/bin" >> "$GITHUB_PATH"
 
       - name: nightly-next's App ID and profile through the ASC API
@@ -838,8 +842,7 @@ jobs:
       - name: Remote Powerlevel10k prompt reset compatibility
         run: |
           if ! command -v zsh >/dev/null 2>&1; then
-            sudo apt-get -o DPkg::Lock::Timeout=300 update
-            sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh
+            bash scripts/ci/apt-ensure.sh zsh
           fi
           python3 tests/test_issue_4148_remote_p10k_keyboard_reset.py
 
@@ -870,7 +873,7 @@ jobs:
       # web-validation.yml ran this only on main pushes, so a2d6b35 broke the runner's test on
       # feat-cmux-next unseen (#23430). A fake bun stands in; no web test runs.
       - name: The per-file webviews test runner (scripts/ci/run-webviews-tests.sh)
-        run: python3 tests/test_webviews_tests_per_file.py
+        run: python3 -m pytest -p no:cacheprovider -n 4 -v tests/test_webviews_tests_per_file.py
 
       # The TAP health classifier and its base-red integration stay on the same
       # tooling-tests PR lane as the producer's published snapshot contract.
@@ -921,7 +924,7 @@ jobs:
           bun-version: "1.4.4"
 
       - name: The web lint pre-push hook
-        run: python3 tests/test_web_lint_prepush.py
+        run: python3 -m pytest -p no:cacheprovider -n 4 -v tests/test_web_lint_prepush.py
 
       # Tests of feat-cmux-next tooling that no feat pull request ran: some had no registry entry,
       # others ran only from a push, schedule, release or main-only job, so a feat pull request
@@ -1026,16 +1029,17 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash scripts/cmux-next/tests/origin-net.test.sh
 
-      # A tab switch build step on a Mac without the CEF R2 read key fails in seconds, not after a 7 to 13 minute
-      # build under the host lock (cmux19, 2026-11-16).
-      - name: tab-switch.sh checks the CEF read credentials before it builds
+      # Every scripts/measure test, each named PASS, FAIL or SKIP with its reason: only 4 of 45 had their own step
+      # and the rest went unrun (2026-11-18). A new measure test runs here with no step of its own.
+      - name: Every scripts/measure test passes (run-all.sh)
         if: ${{ !cancelled() }}
-        run: bash scripts/measure/tests/tab-switch-cef-creds.test.sh
+        run: bash scripts/measure/tests/run-all.sh
 
-      # A submodule pointer the fork lacks, or a stale host mirror, fails in seconds, not after the step took the host.
-      - name: tab-switch.sh checks the submodule commits are fetchable before it builds
+
+      # A Mac whose sudoers grants purge but not launchctl ran every launch-ready step into "a password is required".
+      - name: console-session.sh hops into Aqua only when it must and sudo grants launchctl
         if: ${{ !cancelled() }}
-        run: bash scripts/measure/tests/tab-switch-submodule-refs.test.sh
+        run: bash scripts/ci/tests/console-session-hop.test.sh
 
       - name: install-zig-ci.sh installs only a reviewed Zig
         if: ${{ !cancelled() }}
