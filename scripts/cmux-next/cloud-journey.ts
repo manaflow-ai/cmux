@@ -55,7 +55,7 @@
  * copies no login (a Cloud machine's agents reach models through the Cloud service's model route), so the
  * preflight and installer programs are the journey's own, read from cloud-journey-login-installer.txt and run
  * through the exec and fs/write routes. Without a token the step is skipped and the reply fails "Not logged in".
- * With --model stub and Claude the login is instead what a Cloud chat runs on since cmux#40159: the person's model
+ * A Claude login (stub or real model) is instead what a Cloud chat runs on since cmux#40159: the person's model
  * connection, given to the agent at its start (`session/new` `_meta.acpmux.credentials`, as the app's
  * `agent-session-start` relays it), never written onto the machine.
  *
@@ -2889,6 +2889,18 @@ export const CREDENTIAL_PROCESSES_PROGRAM =
   `n=$((n + 1)); [ "$n" -ge 8 ] && break; done; true`;
 
 /**
+ * Whether the journey's Claude login goes with the agent's start as its launch credential (cmux#40159), never onto the
+ * machine: the way the app sends a person's Cloud model connection, on the stub and on the real model alike. Staging
+ * and production machines have no model route of their own (acpmux cloud_model_plane.rs where_resolves), so a copied
+ * login proved a path no person's chat takes. A --preclaim-login run measures the spare.ready copy itself, so a
+ * real-model one keeps it. Codex keeps the machine login and the stub's own provider
+ * (CODEX_STUB_CONFIG), which a launch credential would replace with api.openai.com.
+ */
+export function startsOnLaunchCredential(o: { modelStub: boolean; provider?: string; login: string; gatewayAny: boolean; startVia: string; preclaimLogin?: boolean }): boolean {
+  return o.provider === "claude" && Boolean(o.login) && !o.gatewayAny && o.startVia === "acp" && (o.modelStub || !o.preclaimLogin);
+}
+
+/**
  * The app's Cloud start, with the person's model connection as the agent's launch credential (cmux#40159: the machine
  * holds no login; acpmux agent_credentials.rs): `session/new` on the machine's acpmux socket with
  * `_meta.acpmux.credentials: {env: {NAME: value}}`, as the guest cmux-tui's `agent-session-start` relays it from the
@@ -3679,10 +3691,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const askedModel = agent.includes("/") ? agent.slice(agent.indexOf("/") + 1) : "";
   const login = provider === "codex" ? codexLogin : provider === "claude" ? claudeLogin : "";
   const loginStep = provider === "codex" ? "pass Codex login" : "pass Claude login";
-  // --model stub with Claude: the login goes with the agent's start as its launch credential (cmux#40159), never onto
-  // the machine. Codex keeps the machine login and the stub's own provider (CODEX_STUB_CONFIG), which a launch
-  // credential would replace with api.openai.com.
-  const launchCredential = modelStub && provider === "claude" && Boolean(login) && !gatewayAny && startVia === "acp";
+  const launchCredential = startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: Boolean(preclaimLoginCmux) });
   const tag =`jr-${Date.now().toString(36)}`;
   // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
