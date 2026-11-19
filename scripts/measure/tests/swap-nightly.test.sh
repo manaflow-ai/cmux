@@ -63,6 +63,15 @@ log="$(swap_nightly "$out" "sha256:$hex" head="$head")"
 grep -q "^LR nightly https://files-next.cmux.com/.* sha256=$hex " <<<"$log" || fail "sha256: did not reuse the DMG: $log"
 echo "swap-nightly: nightly=sha256:HEX reuses the host's DMG"
 
+# A nightly stamps CMUXCommit with the commit's first 7 hex (nightly.yml SHORT_SHA): resolved to the full commit.
+full="1234567$(printf 'd%.0s' {1..33})"
+git() { [[ "$*" == "rev-parse -q --verify 1234567^{commit}" ]] && echo "$full"; }
+rm -rf "$out" && mkdir -p "$out"
+log="$(NIGHTLY_COMMIT=1234567 swap_nightly "$out" "sha256:$hex" head="$head")" || fail "a short CMUXCommit was refused: $log"
+grep -q "^LR nightly .* commit=$full$" <<<"$log" || fail "the short CMUXCommit was not resolved: $log"
+unset -f git
+echo "swap-nightly: a nightly's short CMUXCommit resolves to its full commit"
+
 # A commit a swap cannot carry: refused before any build, exit 3.
 rm -rf "$out" "$CMUX_SWAP_BINARY_ROOT/calls" && mkdir -p "$out"
 set +e
