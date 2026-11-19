@@ -305,15 +305,18 @@ public final class LiveCoordinator {
                     AgentSessionDirectory.shared.invalidate(id: summary.id, macID: summary.macID)
                 }
             }
-            let session = owner?.tree?.agentTabs[summary.id]?.session
+            // A tab this phone just bound opens on its chat before the tree lists the bind (which then changes nothing).
+            let listed = owner?.tree?.agentTabs[summary.id]?.session
+            if listed != nil { self.boundHere[key] = nil }
+            let session = listed ?? self.boundHere[key]
             self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: session, provisional: false)
             guard let owner, let session else {
                 // The first send starts the chat in this tab, on the tab's own Mac.
                 let start: UnboundAgentSource.Start? = owner.map { owner in
-                    { [weak owner] text, attachments, failed in
-                        guard let owner else { throw WorkspaceCreationError("Not connected", isForPerson: true) }
-                        try await owner.creation.startUnboundChat(tabID: summary.id, harness: summary.harness,
-                                                                  text: text, attachments: attachments, failed: failed)
+                    { [weak self, weak owner] text, attachments in
+                        guard let self, let owner else { throw WorkspaceCreationError("Not connected", isForPerson: true) }
+                        let session = try await owner.creation.startUnboundChat(tabID: summary.id, harness: summary.harness)
+                        self.sendFirst(text, attachments: attachments, session: session, summary: summary, key: key)
                     }
                 }
                 return UnboundAgentSource(summary: summary, macName: owner?.name ?? self.link.target?.name, start: start)
@@ -324,6 +327,21 @@ public final class LiveCoordinator {
         // Which chat each terminal agent shows, read now: an offline relaunch opens on its kept turns.
         if let kept = transcriptCache?.terminalChats { Task { await kept.load() } }
         watchNetwork()
+    }
+
+    /// A tab this phone just bound to the chat it started (its first send), until the Mac's tree
+    /// lists the bind: its chat opens on that session meanwhile. Gone with the tab's store.
+    @ObservationIgnored var boundHere: [String: String] = [:]
+
+    /// The first message of a chat this phone just started in tab `summary`: the tab's chat is
+    /// rebuilt on `session` now (its store reads the session's source), and the message goes as
+    /// that chat's own Send, so a failure to send it hands the draft back in the chat on screen.
+    private func sendFirst(_ text: String, attachments: [AgentAttachment], session: String,
+                           summary: AgentSessionSummary, key: String) {
+        boundHere[key] = session
+        sourcedSessions[key] = nil
+        AgentSessionDirectory.shared.invalidate(id: summary.id, macID: summary.macID)
+        AgentSessionDirectory.shared.store(for: summary).send(prompt: text, attachments: attachments)
     }
 
     /// The Mac's acpmux source for `session`; one that drops a kept copy too old to catch up from
@@ -1141,9 +1159,9 @@ final class PendingAgentSource: AgentSessionSource {
 /// once the tab is bound the coordinator rebuilds the store live on its session.
 @MainActor
 final class UnboundAgentSource: AgentSessionSource {
-    /// Starts the tab's chat with a first message; nil when the phone cannot (no link to the tab's Mac).
-    typealias Start = @MainActor (_ text: String, _ attachments: [AgentAttachment],
-                                  _ failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) async throws -> Void
+    /// Starts the tab's chat and sends it the first message (through the bound chat, which then shows);
+    /// nil when the phone cannot (no link to the tab's Mac). Throws, with nothing sent, when the chat did not start.
+    typealias Start = @MainActor (_ text: String, _ attachments: [AgentAttachment]) async throws -> Void
 
     let summary: AgentSessionSummary
     let macName: String
@@ -1170,7 +1188,8 @@ final class UnboundAgentSource: AgentSessionSource {
         return stream
     }
 
-    /// The first message starts the chat; until the tab is bound, the draft comes back with why on any failure.
+    /// The first message starts the chat; a start that fails hands the draft back here with why
+    /// (once bound, the chat on screen is the session's, which hands back a failed send itself).
     func send(_ intent: AgentClientIntent) {
         guard case .prompt(let text, let attachments, _, let promptID, _) = intent else { return }
         let notSent = { [weak self] (reason: String) in
@@ -1182,10 +1201,10 @@ final class UnboundAgentSource: AgentSessionSource {
         guard !starting else { return notSent("\(summary.agentName) is still starting. Send again in a moment.") }
         starting = true
         for continuation in continuations { continuation.yield(.historyLoading(true)) }
-        // task-owner: one start; the tab's bind rebuilds this chat on its session's source
+        // task-owner: one start; the bound chat replaces this one on screen
         Task { [weak self] in
             do {
-                try await start(text, attachments) { failure in notSent(failure.reason) }
+                try await start(text, attachments)
             } catch {
                 notSent((error as? WorkspaceCreationError)?.message ?? String(describing: error))
                 for continuation in self?.continuations ?? [] { continuation.yield(.historyLoading(false)) }

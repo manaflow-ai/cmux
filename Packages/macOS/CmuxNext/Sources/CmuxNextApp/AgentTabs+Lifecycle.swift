@@ -61,10 +61,8 @@ extension AgentTabStore {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
             throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch)
         }
-        // A new chat in a pane of another machine runs on that machine: the tab records that
-        // machine's store as its host and its session daemon starts the chat there
-        // (``startRemoteChat``), never this Mac's acpmux (cx-k21v). A session, an outside chat or
-        // a past chat of this Mac was refused above.
+        // A new chat in a pane of another machine runs on that machine: the tab records that machine's store as its host and its
+        // session daemon starts the chat there (``startRemoteChat``), never this Mac's acpmux (cx-k21v); this Mac's chats were refused above.
         let remote = !daemon.isLocal && host == nil
         var seed = seed, spare = spare
         if remote {
@@ -202,8 +200,7 @@ extension AgentTabStore {
         moveSelection(key, created.surface)
     }
 
-    /// The store answered the creation: view state under provisional `key` moves to `real`, and
-    /// `key` keeps resolving to it until the provisional tab is gone.
+    /// The store answered the creation: view state under provisional `key` moves to `real`, and `key` keeps resolving to it until the provisional tab is gone.
     func rekey(_ key: String, to real: String, machine: String? = nil) {
         guard key != real else { return }
         let scoped = tabKey(key, machine: machine)
@@ -230,7 +227,7 @@ extension AgentTabStore {
         if let store = tabStores.removeValue(forKey: scoped) { tabStores[realKey] = store }
         if checkpointFocusTab == key { checkpointFocusTab = real }
         // The provisional alias goes once the tree settles: live callbacks then name the store tab (conversion, project reads).
-        if let view = views[realKey] { wire(view.model, key: real, machine: scoped.machine) }
+        if let view = views[realKey] { wire(view.model, key: real, machine: scoped.machine); followBound(realKey) }
         seenLive.remove(scoped)
     }
 
@@ -427,10 +424,13 @@ extension AgentTabStore {
         }
     }
 
-    /// Follows tab `key` in `store`'s tree, so its view state goes when the tree drops it (its page takes a chat bound elsewhere).
+    /// Tab `scoped`'s page with no chat takes one another device binds to the tab (a phone's first send; AgentPaneView.adoptWhenBound).
+    func followBound(_ scoped: AgentTabKey) { if sessions[scoped] == nil { views[scoped]?.adoptWhenBound({ [weak self] in self?.record(for: scoped)?.record.session }, tab: scoped.key) { [weak self] in self?.sessions[scoped] = $0 } } }
+
+    /// Follows tab `key` in `store`'s tree, so its view state goes when the tree drops it.
     func track(_ key: String, in store: DaemonStore, machine: String? = nil) {
         let scoped = tabKey(key, machine: machine)
-        if tabStores[scoped] == nil, sessions[scoped] == nil { views[scoped]?.adoptWhenBound({ [weak self] in self?.record(for: scoped).map { $0.record.session } }, tab: key) { [weak self] in self?.sessions[scoped] = $0 } }
+        if tabStores[scoped] == nil { followBound(scoped) }
         tabStores[scoped] = store
         if store.liveTreeLists(tab: key) == true { seenLive.insert(scoped) }
         let id = ObjectIdentifier(store)

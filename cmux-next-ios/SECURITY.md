@@ -601,11 +601,13 @@ the Mac.
   to just start the chat right there"): a New Agent Chat tab the Mac made that nobody wrote in has
   no session. Its first send on the phone starts the session over `acpmux` (`session/new`, the same
   start and guard as the phone's New Agent Chat above), then binds the tab to it with
-  `bind-conversation-tab-session`, which is new on the allowlist. `unbound_bind_refusal` narrows it:
+  `bind-conversation-tab-session`, which is new on the allowlist. The phone starts only a tab
+  recorded for this Mac (`install:` host, or none); a tab whose chat another machine starts is
+  refused on the phone. `unbound_bind_refusal` narrows the command:
 
 | Rule 2 question | Answer |
 | --- | --- |
-| Executes commands or opens content on local objects? | No. It records which acpmux session an existing agent tab shows. The phone may send only `surface` (a number), `session` and an optional `harness` (short identifiers, as above), and `expected_session`, which must be `null`. Any other field is refused. |
+| Executes commands or opens content on local objects? | No. It records which acpmux session an existing agent tab shows. The phone may send only `surface` (a number), `session` (a short identifier, as above) and `expected_session`, which must be `null`. Any other field is refused, `harness` included: the daemon changes a bound tab's harness when the named session is the tab's own, whatever `expected_session` says, so a phone could relabel a live chat. Without it, binding a tab's own session changes nothing, and the tab keeps the agent the Mac recorded. |
 | Mutates or destroys objects the session does not own? | Only a tab with no chat yet. `expected_session: null` is the daemon's compare-and-swap, so a tab that has a session (the Mac or another phone started one first) refuses with `conversation_tab.session_conflict`, and a phone never takes a chat away from a tab. The daemon also refuses a tab whose chat another machine starts (`machine:` host). |
 | Reads local state the remote should not see? | No new read. The tab then shows a session the phone can already attach to over `acpmux`, the same reach as `new-conversation-tab`'s `agent_session.session`. |
 

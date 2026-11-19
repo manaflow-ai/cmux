@@ -124,13 +124,6 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         guard let (session, cwd) = taskSessions.removeValue(forKey: workspace.id) else {
             throw WorkspaceCreationError("The chat for this task isn't on the Mac.", isForPerson: true)
         }
-        try sendFirstPrompt(task.prompt, attachments: Self.taskAttachments(task), session: session, cwd: cwd, failed: failed)
-    }
-
-    /// `text` and `attachments` as chat `session`'s first message (its folder `cwd` takes the files):
-    /// New Task's, and an unbound tab's first send (LiveWorkspaceCreation+UnboundStart.swift).
-    func sendFirstPrompt(_ text: String, attachments: [AgentAttachment], session: String, cwd: String,
-                         failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) throws {
         guard let acpmux, acpmux.isReady else {
             throw WorkspaceCreationError("Agents on this Mac aren't connected.", isForPerson: true)
         }
@@ -141,7 +134,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         Task {
             let blocks: [JSONValue]
             do {
-                blocks = try await AcpmuxSessionSource.promptBlocks(text: text, attachments: attachments,
+                blocks = try await AcpmuxSessionSource.promptBlocks(text: task.prompt, attachments: Self.taskAttachments(task),
                                                                     link: acpmux.macLink, cwd: cwd, macName: macName)
             } catch {
                 // A file that couldn't be uploaded: nothing was sent, the task waits in the chat.

@@ -2,42 +2,56 @@ import CmuxMobileAgentChat
 import CmuxMobileModel
 import Foundation
 
-/// The first send of an agent tab the Mac made that has no chat yet (a New Agent Chat tab nobody
-/// wrote in) starts its chat from the phone, in that tab (Leo, 2026-11-18: "you should be able to
-/// just start the chat right there"). The same start as the phone's New Agent Chat
+/// An agent tab the Mac made that has no chat yet (a New Agent Chat tab nobody wrote in) gets its
+/// chat from the phone's first send, in that tab (Leo, 2026-11-18: "you should be able to just
+/// start the chat right there"). The same start as the phone's New Agent Chat
 /// (``startAgentSession(_:cwd:macID:)``: `session/new` with policy `ask`, in the tab's folder),
 /// then the tab takes the session with `bind-conversation-tab-session` from no session
-/// (`expected_session` null: a chat the Mac or another phone started first wins, and this send's
-/// draft comes back), then the prompt, as New Task's first message is sent.
+/// (`expected_session` null: a chat the Mac or another phone started first wins). The first
+/// message then goes through the bound chat's own source (LiveCoordinator), so a failure to send
+/// it hands the draft back in the chat on screen.
 extension LiveWorkspaceCreationBackend {
-    /// Starts tab `tabID`'s chat with `text` and `attachments` as its first message. Throws, with
-    /// nothing sent, when the chat could not start or the tab took another chat first; a prompt
-    /// that fails after the start goes to `failed`, as New Task's does.
-    func startUnboundChat(tabID: String, harness: String?, text: String, attachments: [AgentAttachment],
-                          failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) async throws {
+    /// Starts tab `tabID`'s chat and binds the tab to it; returns the session. Throws, with
+    /// nothing bound, when the chat could not start or the tab took another chat first.
+    func startUnboundChat(tabID: String, harness: String?) async throws -> String {
         guard let client = sync.daemon, let tree = sync.tree, let surface = tree.surfaces[tabID] else {
             throw WorkspaceCreationError("This tab isn't on the Mac anymore.", isForPerson: true)
         }
-        guard tree.agentTabs[tabID]?.session == nil else {
+        let binding = tree.agentTabs[tabID]
+        guard binding?.session == nil else {
             throw WorkspaceCreationError("This tab has a chat now. Send again once it loads.", isForPerson: true)
         }
+        // Only a chat of this Mac: a tab whose chat another machine starts (`registry:`, `machine:`) starts there.
+        guard Self.startsHere(host: binding?.host) else {
+            throw WorkspaceCreationError("This chat runs on another machine. Start it from cmux on that machine.", isForPerson: true)
+        }
         let cwd = try Self.unboundChatFolder(tabID: tabID, in: tree)
-        let macID = sync.macID ?? link.target?.macID ?? ""
-        let (harness, session) = try await startAgentSession(AgentChatStart(harness: harness?.nilIfEmpty), cwd: cwd, macID: macID)
+        let macID = sync.macID.isEmpty ? (link.target?.macID ?? "") : sync.macID
+        // The tab's own agent, as the Mac recorded it; else the one the chat names, else the Mac's default.
+        let start = AgentChatStart(harness: [binding?.harness, harness].compactMap { $0 }.first { !$0.isEmpty })
+        let (_, session) = try await startAgentSession(start, cwd: cwd, macID: macID)
         do {
+            // No harness: the tab keeps the agent the Mac recorded (the phone's lane refuses one).
             try WorkspaceSync.check(await client.request(Self.bindCommand, params: [
-                "surface": surface, "session": session, "expected_session": NSNull(), "harness": harness,
+                "surface": surface, "session": session, "expected_session": NSNull(),
             ]))
         } catch let error as DaemonReplyError {
             // The session stays in acpmux's list, unbound, like a chat whose tab closed.
             throw WorkspaceCreationError(error.message.contains("session_conflict")
                 ? "This tab started a chat on the Mac first. Send again once it loads." : error.message, isForPerson: true)
         }
-        try sendFirstPrompt(text, attachments: attachments, session: session, cwd: cwd, failed: failed)
+        return session
     }
 
     /// `bind-conversation-tab-session`: the phone's lane allows it only from no session (cmux-mobile-host policy).
     nonisolated static let bindCommand = "bind-conversation-tab-session"
+
+    /// Whether a tab recorded for `host` starts its chat on this Mac's acpmux: the Mac app's own
+    /// `install:<id>` (the host a phone's agent tab gets too), or none recorded.
+    nonisolated static func startsHere(host: String?) -> Bool {
+        guard let host, !host.isEmpty else { return true }
+        return host.hasPrefix("install:")
+    }
 
     /// The folder the tab's chat starts in: the tab's own, else its workspace's first (as a new
     /// agent tab of that workspace starts); never the home folder or above.
@@ -50,8 +64,4 @@ extension LiveWorkspaceCreationBackend {
         }
         return cwd
     }
-}
-
-private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

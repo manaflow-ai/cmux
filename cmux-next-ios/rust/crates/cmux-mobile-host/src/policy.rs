@@ -466,12 +466,14 @@ impl DaemonPolicy {
 
 /// Why a phone's `bind-conversation-tab-session` is refused, or `None`. A phone binds only an
 /// agent tab with no chat yet (`expected_session` null: the daemon's compare-and-swap refuses
-/// any tab that has one, so no chat is ever taken from a tab) to a session, by its short id,
-/// with an optional harness id. Nothing else: no other field, never a rebind. It reaches no
-/// more than `new-conversation-tab`'s `agent_session.session` already does (a tab that shows a
-/// chat of this Mac's acpmux); the daemon refuses a tab another machine starts (`machine:` host).
+/// any tab that has one, so no chat is ever taken from a tab) to a session, by its short id.
+/// Never a `harness`: the daemon changes a bound tab's harness when the session is the tab's
+/// own, whatever `expected_session` says, so a phone could relabel a live chat; with none, the
+/// tab keeps the agent the Mac recorded. Nothing else: no other field, never a rebind. It
+/// reaches no more than `new-conversation-tab`'s `agent_session.session` already does (a tab
+/// that shows a chat of this Mac's acpmux); the daemon refuses a tab another machine starts.
 fn unbound_bind_refusal(object: &Map<String, Value>) -> Option<String> {
-    const FIELDS: &[&str] = &["surface", "session", "expected_session", "harness"];
+    const FIELDS: &[&str] = &["surface", "session", "expected_session"];
     if let Some(key) =
         object.keys().find(|key| !FIELDS.contains(&key.as_str()) && *key != "id" && *key != "cmd")
     {
@@ -491,9 +493,6 @@ fn unbound_bind_refusal(object: &Map<String, Value>) -> Option<String> {
     };
     if !token(object.get("session"), 128) {
         return Some("session is a short identifier".into());
-    }
-    if object.get("harness").is_some_and(|harness| !token(Some(harness), 64)) {
-        return Some("harness is a short identifier".into());
     }
     None
 }
@@ -1080,7 +1079,7 @@ mod tests {
 
     #[test]
     fn a_phone_binds_only_an_unbound_agent_tab() {
-        let line = br#"{"id":1,"cmd":"bind-conversation-tab-session","surface":7,"session":"0199-abc","expected_session":null,"harness":"claude"}"#;
+        let line = br#"{"id":1,"cmd":"bind-conversation-tab-session","surface":7,"session":"0199-abc","expected_session":null}"#;
         assert!(matches!(policy().evaluate(line), Verdict::Forward));
         for line in [
             // Never a rebind: a tab's chat is never taken from it by a phone.
@@ -1088,7 +1087,8 @@ mod tests {
             br#"{"id":1,"cmd":"bind-conversation-tab-session","surface":7,"session":"b"}"#,
             br#"{"id":1,"cmd":"bind-conversation-tab-session","session":"b","expected_session":null}"#,
             br#"{"id":1,"cmd":"bind-conversation-tab-session","surface":7,"session":"a b","expected_session":null}"#,
-            br#"{"id":1,"cmd":"bind-conversation-tab-session","surface":7,"session":"b","expected_session":null,"harness":7}"#,
+            // Never a harness: the daemon relabels a bound tab's agent when the session is its own.
+            br#"{"id":1,"cmd":"bind-conversation-tab-session","surface":7,"session":"b","expected_session":null,"harness":"codex"}"#,
             br#"{"id":1,"cmd":"bind-conversation-tab-session","surface":7,"session":"b","expected_session":null,"host":"registry:x"}"#,
         ] {
             let Verdict::Refuse(answer) = policy().evaluate(line) else {
