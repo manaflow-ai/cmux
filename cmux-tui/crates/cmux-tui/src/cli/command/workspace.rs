@@ -38,7 +38,7 @@ pub(super) fn workspace_create(
         // Run from a cmux terminal: the new workspace goes below the one
         // the script runs in, not next to the person's selection
         // (ask-48544d7525). A place hint only; an older daemon gets the
-        // request without it (wire/workspace_created_by.rs).
+        // request without it (wire/created_by_stamp.rs).
         params.insert("created_by".into(), json!({"kind": "script", "workspace": key}));
     }
     insert_purpose(&mut params, flags);

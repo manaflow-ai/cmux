@@ -206,38 +206,47 @@ public struct WorkspaceHoverCardGallery {
     /// "acpmux should expose these a lot better"): an agent with every field, an agent with no purpose, a
     /// script, and a workspace the person made, which shows nothing new. The shipped style says so in its name.
     @MainActor static func originCards(now: Date) -> [(name: String, view: NSView)] {
+        let made = WorkspaceHoverCardOrigin.Style.allCases.flatMap { style in
+            originStates.filter { $0.1 != nil }.map { state, origin in
+                let shipped = style == WorkspaceHoverCardOrigin.shipped ? " · chosen" : ""
+                return card("Origin · \(style.rawValue) · \(state)\(shipped)", originView(origin, style, now: now))
+            }
+        }
+        return made + originStates.filter { $0.1 == nil }.map { state, _ in
+            card("Origin · \(state) · nothing new", originView(nil, WorkspaceHoverCardOrigin.shipped, now: now))
+        }
+    }
+
+    @MainActor private static func card(_ name: String, _ view: WorkspaceHoverCardView) -> (name: String, view: NSView) {
+        (name, HoverCardGalleryHost(body: view) { [weak view] in view?.applyColors() })
+    }
+
+    /// The origin gallery's states. Made-up session and machine names: the capture's privacy check refuses a real
+    /// host's.
+    static let originStates: [(String, SidebarWorkspaceOrigin?)] = [
+        ("agent", SidebarWorkspaceOrigin(kind: .agent, sessionName: "desktop-helper", sessionID: "5f2c9a7e-81d4-4b6a-9e1f",
+                                         host: "dev-mini", purpose: "Demo project for the weather widget")),
+        ("agent, no purpose", SidebarWorkspaceOrigin(kind: .agent, sessionID: "5f2c9a7e-81d4-4b6a-9e1f", host: "dev-mini")),
+        ("script", SidebarWorkspaceOrigin(kind: .script, host: "dev-mini", purpose: "Nightly example.com smoke test")),
+        ("person", nil),
+    ]
+
+    /// The expanded card of a workspace `origin` made, its origin drawn in `style`.
+    @MainActor static func originView(_ origin: SidebarWorkspaceOrigin?, _ style: WorkspaceHoverCardOrigin.Style,
+                                      now: Date) -> WorkspaceHoverCardView {
         typealias Fact = WorkspaceHoverCardContent.Fact
-        // Made-up session and machine names: the capture's privacy check refuses a real host's.
-        let states: [(String, SidebarWorkspaceOrigin?)] = [
-            ("agent", SidebarWorkspaceOrigin(kind: .agent, sessionName: "desktop-helper", sessionID: "5f2c9a7e-81d4-4b6a-9e1f",
-                                             host: "dev-mini", purpose: "Demo project for the weather widget")),
-            ("agent, no purpose", SidebarWorkspaceOrigin(kind: .agent, sessionID: "5f2c9a7e-81d4-4b6a-9e1f", host: "dev-mini")),
-            ("script", SidebarWorkspaceOrigin(kind: .script, host: "dev-mini", purpose: "Nightly example.com smoke test")),
-            ("person", nil),
-        ]
         let folder = Fact(icon: .folder, text: "tiny-weather", kind: "folder")
         let reply = Fact(icon: .agentChatList, text: "Done: the widget shows the forecast for the next six hours.",
                          lines: 2, kind: Fact.lastReplyKind, isPreview: true)
-        func card(_ name: String, _ origin: SidebarWorkspaceOrigin?, _ style: WorkspaceHoverCardOrigin.Style) -> (name: String, view: NSView) {
-            var detail = SidebarWorkspaceDetail()
-            detail.origin = origin
-            let lines = WorkspaceHoverCardOrigin.facts(detail, style: style)
-            let facts = WorkspaceHoverCardOrigin.isFooter(style) ? [folder, reply] + lines : [folder] + lines + [reply]
-            let content = WorkspaceHoverCardContent(title: "Weather widget", icon: .agentChat, age: "2h", facts: facts)
-            let view = WorkspaceHoverCardView()
-            view.configure(content, now: now)
-            view.detailsToggle.performClick(nil)
-            return (name, HoverCardGalleryHost(body: view) { [weak view] in view?.applyColors() })
-        }
-        let made = WorkspaceHoverCardOrigin.Style.allCases.flatMap { style in
-            states.filter { $0.1 != nil }.map { state, origin in
-                let shipped = style == WorkspaceHoverCardOrigin.shipped ? " · chosen" : ""
-                return card("Origin · \(style.rawValue) · \(state)\(shipped)", origin, style)
-            }
-        }
-        return made + states.filter { $0.1 == nil }.map { state, _ in
-            card("Origin · \(state) · nothing new", nil, WorkspaceHoverCardOrigin.shipped)
-        }
+        var detail = SidebarWorkspaceDetail()
+        detail.origin = origin
+        let lines = WorkspaceHoverCardOrigin.facts(detail, style: style)
+        let facts = WorkspaceHoverCardOrigin.isFooter(style) ? [folder, reply] + lines : [folder] + lines + [reply]
+        let content = WorkspaceHoverCardContent(title: "Weather widget", icon: .agentChat, age: "2h", facts: facts)
+        let view = WorkspaceHoverCardView()
+        view.configure(content, now: now)
+        view.detailsToggle.performClick(nil)
+        return view
     }
 
 }
