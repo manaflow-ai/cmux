@@ -54,7 +54,10 @@ fn a_send_that_waits_answers_its_turn_from_the_send_s_own_exec() {
     // the prompt's way), then the wait in what is left of the slice: first for the sent turn to start, then for
     // its end.
     assert!(sent.starts_with("e=$(( $(date +%s) + 20 )); "), "{sent}");
-    let at = |needle: &str| sent.find(needle).unwrap_or_else(|| panic!("{needle} in {sent}"));
+    let at = |needle: &str| {
+        sent.find(needle)
+            .unwrap_or_else(|| panic!("{needle} in {sent}"))
+    };
     assert!(at("echo @@before") < at("acp send --no-wait sess-1 -"));
     assert!(at("acp send --no-wait sess-1 -") < at("acp ls --live"));
     assert!(at("acp ls --live") < at("acp wait sess-1 --timeout \"$s\" --until running"));
@@ -91,13 +94,20 @@ fn run_send_exec(script: &str, send_cost: u64) -> (String, String) {
     let tools = [
         (guest_bin.join("cmux-tui"), cmux_tui),
         (bin.join("date"), format!("#!/bin/sh\ncat '{root}/clock'\n")),
-        (bin.join("timeout"), "#!/bin/sh\nshift\nexec \"$@\"\n".to_owned()),
+        (
+            bin.join("timeout"),
+            "#!/bin/sh\nshift\nexec \"$@\"\n".to_owned(),
+        ),
     ];
     for (path, body) in tools {
         std::fs::write(&path, body).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
-    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
     let ran = cmux_process::Command::new("sh")
         .arg("-c")
         .arg(script)
@@ -107,7 +117,13 @@ fn run_send_exec(script: &str, send_cost: u64) -> (String, String) {
         .unwrap();
     let log = std::fs::read_to_string(dir.path().join("log")).unwrap_or_default();
     let stderr = String::from_utf8_lossy(&ran.stderr);
-    (log, format!("{}\n@@stderr\n{stderr}", String::from_utf8_lossy(&ran.stdout)))
+    (
+        log,
+        format!(
+            "{}\n@@stderr\n{stderr}",
+            String::from_utf8_lossy(&ran.stdout)
+        ),
+    )
 }
 
 /// The send's exec is bounded from its first command: a slow send leaves the wait only what is left of the slice,
@@ -123,14 +139,23 @@ fn a_slow_send_leaves_its_exec_s_wait_only_what_is_left_of_the_slice() {
     let sent = script(&fake.ran[0]).to_owned();
 
     let (log, stdout) = run_send_exec(&sent, 4);
-    assert!(log.contains("acp wait sess-1 --timeout 16 --until running"), "{log}{stdout}");
+    assert!(
+        log.contains("acp wait sess-1 --timeout 16 --until running"),
+        "{log}{stdout}"
+    );
     assert!(log.contains("acp wait sess-1 --timeout 16\n"), "{log}");
     assert!(stdout.contains("@@wait 0"), "{stdout}");
 
     let (log, stdout) = run_send_exec(&sent, 25);
     assert!(log.contains("acp send --no-wait sess-1 -"), "{log}");
-    assert!(!log.contains("acp wait"), "no wait once the slice is spent: {log}");
-    assert!(stdout.contains("@@exit 0") && !stdout.contains("@@wait"), "{stdout}");
+    assert!(
+        !log.contains("acp wait"),
+        "no wait once the slice is spent: {log}"
+    );
+    assert!(
+        stdout.contains("@@exit 0") && !stdout.contains("@@wait"),
+        "{stdout}"
+    );
 }
 
 /// A send's exec that skipped its wait (no time left of its slice) answers no wait sections: the turn is read by the
@@ -166,7 +191,10 @@ fn the_turn_before_the_send_is_never_its_answer() {
     assert_eq!(fake.paused, Duration::ZERO);
     // The sent turn not seen yet: the next read waits for it to start again.
     assert!(script(&fake.ran[1]).contains("acp wait sess-1 --timeout 20 --until running"));
-    assert!(!script(&fake.ran[1]).contains("acp send"), "the prompt is sent once");
+    assert!(
+        !script(&fake.ran[1]).contains("acp send"),
+        "the prompt is sent once"
+    );
 }
 
 /// A machine's older CLI refuses `--until running` (a usage error: exit 2, nothing printed), so its wait returned
@@ -190,7 +218,10 @@ fn a_machine_cli_without_until_running_reads_again_after_a_pause() {
 #[test]
 fn once_the_sent_turn_is_seen_the_next_read_waits_for_its_end_only() {
     let running = "@@wait 3\n@@history\n{\"turns\":[{\"seq\":4,\"status\":\"running\"}]}\n";
-    let mut fake = Fake::new(vec![exec_out(&format!("{SENT}{STARTED}{running}")), exec_out(ENDED)]);
+    let mut fake = Fake::new(vec![
+        exec_out(&format!("{SENT}{STARTED}{running}")),
+        exec_out(ENDED),
+    ]);
     let Outcome::Done(answer) = send_to(&mut fake, &existing(true), "vm-1", "sess-1") else {
         panic!("{:?}", fake.ran)
     };
@@ -198,13 +229,18 @@ fn once_the_sent_turn_is_seen_the_next_read_waits_for_its_end_only() {
     assert_eq!(fake.paused, Duration::ZERO);
     let next = script(&fake.ran[1]);
     assert!(!next.contains("--until running"), "{next}");
-    assert!(next.contains("acp wait sess-1 --timeout 20 >/dev/null"), "{next}");
+    assert!(
+        next.contains("acp wait sess-1 --timeout 20 >/dev/null"),
+        "{next}"
+    );
 }
 
 /// A send that does not wait runs no wait on the machine, and its baseline is the plain `@@history`.
 #[test]
 fn a_send_without_wait_runs_no_wait() {
-    let mut fake = Fake::new(vec![exec_out("@@history\n{\"turns\":[]}\n@@send\nd-2\n@@exit 0\n")]);
+    let mut fake = Fake::new(vec![exec_out(
+        "@@history\n{\"turns\":[]}\n@@send\nd-2\n@@exit 0\n",
+    )]);
     let Outcome::Done(answer) = send_to(&mut fake, &existing(false), "vm-1", "sess-1") else {
         panic!("{:?}", fake.ran)
     };
@@ -214,10 +250,35 @@ fn a_send_without_wait_runs_no_wait() {
     assert!(sent.contains("echo @@history;"), "{sent}");
 }
 
+/// A chat that `start-chat` just created has no earlier turn, so its first send skips the
+/// otherwise-required history round trip. The existing-chat path above still reads it.
+#[test]
+fn a_fresh_chat_send_does_not_read_an_empty_history() {
+    let mut fake = Fake::new(vec![exec_out("@@send\nd-1\n@@exit 0\n@@cwd\n\n")]);
+    let mut progress = Progress::default();
+    let Outcome::Done(answer) = send_prompt(
+        &mut fake,
+        &existing(false),
+        "vm-1",
+        "sess-1",
+        ("hello", json!({"machine_id": "vm-1"}), None, false),
+        Deadline(None),
+        &mut progress,
+    ) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["sent"], true);
+    let sent = script(&fake.ran[0]);
+    assert!(!sent.contains("acp history"), "{sent}");
+    assert!(sent.contains("acp send --no-wait sess-1 -"), "{sent}");
+}
+
 #[test]
 fn a_wait_for_the_start_is_known_by_what_it_printed_or_its_timeout() {
     let polled = |text: &str| sections(text);
-    assert!(waited_for_start(&polled("@@startedexit 0\n@@started\nsess-1 running\n")));
+    assert!(waited_for_start(&polled(
+        "@@startedexit 0\n@@started\nsess-1 running\n"
+    )));
     assert!(waited_for_start(&polled(
         "@@startedexit 2\n@@started\nsess-1 waiting for permission (1)\n"
     )));
@@ -226,5 +287,8 @@ fn a_wait_for_the_start_is_known_by_what_it_printed_or_its_timeout() {
         !waited_for_start(&polled("@@startedexit 2\n@@started\n\n")),
         "an older CLI's usage error"
     );
-    assert!(!waited_for_start(&polled("@@wait 0\n")), "a read without the step");
+    assert!(
+        !waited_for_start(&polled("@@wait 0\n")),
+        "a read without the step"
+    );
 }
