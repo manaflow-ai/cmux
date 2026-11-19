@@ -63,9 +63,12 @@ fn start(mut cmd: Command, home: &Path, socket: &Path) -> (Child, Value) {
         }
     };
     std::thread::spawn(move || {
-        let mut sink = String::new();
-        while stdout.read_line(&mut sink).is_ok_and(|n| n > 0) {
-            sink.clear();
+        // Its log (warnings and up), shown with the test's own output: a handoff that fell back
+        // says why there.
+        let mut line = String::new();
+        while stdout.read_line(&mut line).is_ok_and(|n| n > 0) {
+            eprint!("daemon: {line}");
+            line.clear();
         }
     });
     (child, ready)
@@ -164,6 +167,13 @@ fn three_restarts_in_a_row_are_each_an_exec_in_place() {
         // The pause a client saw, for the PR's numbers (not a bound): the request sent to the
         // new image's first answer.
         println!("HANDOFF-PAUSE restart={n} ms={}", asked.elapsed().as_millis());
+        #[cfg(target_os = "linux")]
+        if let Ok(argv) = std::fs::read(format!("/proc/{pid}/cmdline")) {
+            println!(
+                "HANDOFF-ARGS restart={n} {}",
+                String::from_utf8_lossy(&argv).replace('\0', " ")
+            );
+        }
         assert_eq!(status["pid"].as_u64(), Some(pid), "restart {n}: {status}");
         assert_eq!(status["listen"], listen, "restart {n}: {status}");
         assert_eq!(inode(&socket), socket_id, "restart {n}: the socket was bound again");
