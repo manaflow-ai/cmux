@@ -138,6 +138,9 @@ struct TeamSidebar: View {
             .foregroundStyle(theme.colors.label)
             .padding(.horizontal, typeSize.isAccessibilitySize ? 0 : 14)
             .frame(minWidth: 44, minHeight: 44)
+            // Its natural width, always: the header row gives way at the title
+            // (which scales down), never by truncating "Invite".
+            .fixedSize()
             .contentShape(.capsule)
         }
         .buttonStyle(.cmuxPressFill)

@@ -59,6 +59,11 @@ final class TeamDrawerInviteUITests: XCTestCase {
         XCTAssertTrue(invite.waitForExistence(timeout: 10), "header Invite\n\(app.debugDescription)")
         XCTAssertEqual(invite.label, "Invite to Manaflow")
         XCTAssertTrue(invite.isHittable)
+        if !largeText {
+            // "Invite" in full: the truncated "In…" capsule measured 84 pt, the
+            // full one (glyph, gap, word, 14 pt sides) is about 108 pt.
+            XCTAssertGreaterThanOrEqual(invite.frame.width, 96, "the capsule truncates Invite")
+        }
         XCTAssertEqual(invite.frame.midY, add.frame.midY, accuracy: 2, "Invite and + share the header row")
         XCTAssertLessThan(invite.frame.maxX, add.frame.minX, "Invite sits before +")
         XCTAssertLessThan(title.frame.maxX, invite.frame.minX, "the title is not under Invite")
