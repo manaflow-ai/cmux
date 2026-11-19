@@ -521,5 +521,169 @@ class RatchetAgainstBaseTests(unittest.TestCase):
         self.assertEqual(self.judge(clippy_jsonl(693)).returncode, 0)
 
 
+REPO = Path(__file__).resolve().parents[2]
+WORKSPACES_SCRIPT = Path(__file__).with_name("rust-workspaces.py")
+SPEC_WORKFLOW = REPO / ".github/workflows/cmux-tui-spec.yml"
+
+
+def load_workspaces():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("rust_workspaces", WORKSPACES_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def unlinted(repo: Path) -> list[str]:
+    """The detector: each Cargo workspace in `repo` that the required clippy job neither lints (cmux-tui's
+    members here, the rest through rust-workspaces.py clippy) nor excludes by name with a reason (`skip`, or
+    `required_clippy_skip`, in .github/rust-workspaces.toml)."""
+    workspaces = load_workspaces()
+    entries = {entry.get("root"): entry for entry in workspaces.load_list(repo)}
+    found = []
+    for root in sorted(workspaces.Tree(repo).roots()):
+        entry = entries.get(root)
+        if entry is None:
+            found.append(f"{root}: no entry in {workspaces.LIST}")
+        elif not (root == workspaces.MEMBER_LINTED or workspaces.required_clippy(entry)
+                  or str(entry.get("skip", "")).strip() or str(entry.get("required_clippy_skip", "")).strip()):
+            found.append(f"{root}: neither linted by the required clippy nor excluded with a reason")
+    return found
+
+
+class EveryWorkspaceIsLinted(unittest.TestCase):
+    """2026-11-19: cmux-rd-host is a Cargo workspace of its own, and the required check
+    `clippy (changed cmux-tui packages)` linted only cmux-tui's members; the rust workspaces
+    workflow that did lint it is advisory. Four clippy -D warnings errors in its x11_view.rs
+    reached a head with every required check green. A workspace is now either linted by the
+    required job or excluded by name, and these tests fail otherwise."""
+
+    def test_every_cargo_workspace_in_the_repository_is_linted_or_excluded_by_name(self) -> None:
+        self.assertEqual(unlinted(REPO), [], "add the workspace to .github/rust-workspaces.toml with run = true, "
+                         "or exclude it there with skip = \"why\" or required_clippy_skip = \"why\"")
+
+    def test_cmux_rd_host_and_the_app_ffi_workspace_are_linted_by_the_required_job(self) -> None:
+        workspaces = load_workspaces()
+        entries = {entry["root"]: entry for entry in workspaces.load_list(REPO)}
+        for root in ("cmux-tui/crates/cmux-rd-host", "cmux-tui/crates/cmux-app-ffi"):
+            self.assertTrue(workspaces.required_clippy(entries[root]), root)
+        self.assertIn("openh264", " ".join(entries["cmux-tui/crates/cmux-rd-host"]["clippy_args"]))
+
+    def test_the_required_job_runs_the_other_workspaces_lint(self) -> None:
+        text = SPEC_WORKFLOW.read_text(encoding="utf-8")
+        job = text[text.index("\n  clippy:\n"):]
+        job = job[:job.index("\n  # ", 1) if "\n  # " in job[1:] else len(job)]
+        self.assertIn("name: clippy (changed cmux-tui packages)", job)
+        self.assertIn("needs.changes.outputs.clippy_workspaces != '[]'", job)
+        self.assertRegex(job, r'cmux-tui-clippy-changed\.py" --repo [^\n]*\|\| rc=\$\?')
+        self.assertRegex(job, r'rust-workspaces\.py" clippy --repo [^\n]*\|\| rc=\$\?')
+        changes = text[text.index("\n  changes:\n"):text.index("\n  clippy:\n")]
+        self.assertIn("clippy_workspaces: ${{ steps.route.outputs.clippy_workspaces }}", changes)
+        self.assertIn("rust-workspaces.py plan --required-clippy", changes)
+
+    # The detector and the required plan on a scratch repository.
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.repo = self.tmp / "repo"
+        files = {
+            "cmux-tui/Cargo.toml": '[workspace]\nmembers = ["crates/m"]\n',
+            "cmux-tui/crates/m/Cargo.toml": '[package]\nname = "m"\n',
+            "cmux-tui/crates/host/Cargo.toml": '[package]\nname = "host"\n\n[workspace]\n',
+            "cmux-tui/crates/host/src/lib.rs": "pub fn host() {}\n",
+            "relay/Cargo.toml": '[package]\nname = "relay"\n',
+            "relay/src/lib.rs": "pub fn relay() {}\n",
+            "side/Cargo.toml": '[package]\nname = "side"\n',
+            "side/src/lib.rs": "pub fn side() {}\n",
+            "bench/Cargo.toml": '[package]\nname = "bench"\n',
+            ".github/workflows/relay.yml": "# lints relay\n",
+            ".github/workflows/side.yml": "# lints side\n",
+            ".github/rust-workspaces.toml": (
+                '[[workspace]]\nroot = "cmux-tui"\ncovered_by = ".github/workflows/relay.yml"\n\n'
+                '[[workspace]]\nroot = "cmux-tui/crates/host"\nrun = true\nargs = ["--features", "t"]\n'
+                'clippy_args = ["--features", "t,c"]\n\n'
+                '[[workspace]]\nroot = "relay"\ncovered_by = ".github/workflows/relay.yml"\n\n'
+                '[[workspace]]\nroot = "side"\ncovered_by = ".github/workflows/side.yml"\n'
+                'required_clippy_skip = "warn-only there"\n\n'
+                '[[workspace]]\nroot = "bench"\nskip = "run by hand"\n'),
+        }
+        for path, text in files.items():
+            (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / path).write_text(text)
+        (self.repo / ".github/workflows/relay.yml").write_text("# lints relay and cmux-tui\n")
+        self.git("init", "-q")
+        self.git("add", ".")
+        self.git("commit", "-qm", "base")
+        self.base = self.git("rev-parse", "HEAD").strip()
+
+    def git(self, *args: str) -> str:
+        return subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t",
+                               "-c", "commit.gpgsign=false", *args], check=True, capture_output=True, text=True).stdout
+
+    def change(self, path: str, text: str = "// changed\n") -> None:
+        (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
+        (self.repo / path).write_text(text)
+        self.git("add", "-A")
+        self.git("commit", "-qm", "change")
+
+    def planned(self) -> list[str]:
+        result = subprocess.run([sys.executable, str(WORKSPACES_SCRIPT), "plan", "--required-clippy", "--repo",
+                                 str(self.repo), "--base", self.base], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return [job["root"] for job in json.loads(result.stdout)]
+
+    def test_a_listed_tree_has_nothing_unlinted(self) -> None:
+        self.assertEqual(unlinted(self.repo), [])
+
+    def test_a_new_workspace_with_no_entry_is_found(self) -> None:
+        self.change("tools/new/Cargo.toml", '[package]\nname = "new"\n')
+        self.assertEqual(unlinted(self.repo), ["tools/new: no entry in .github/rust-workspaces.toml"])
+
+    def test_an_exclusion_without_a_reason_is_found(self) -> None:
+        listed = (self.repo / ".github/rust-workspaces.toml").read_text()
+        self.change(".github/rust-workspaces.toml", listed.replace('required_clippy_skip = "warn-only there"',
+                                                                    'required_clippy_skip = " "'))
+        self.assertEqual(unlinted(self.repo), ["side: neither linted by the required clippy nor excluded with a reason"])
+        check = subprocess.run([sys.executable, str(WORKSPACES_SCRIPT), "check", "--repo", str(self.repo)],
+                               capture_output=True, text=True)
+        self.assertEqual(check.returncode, 1)
+        self.assertIn("side: required_clippy_skip needs a reason", check.stdout)
+
+    def test_the_required_plan_takes_covered_by_and_run_entries_but_no_exclusion(self) -> None:
+        self.change("relay/src/lib.rs")
+        self.change("cmux-tui/crates/host/src/lib.rs")
+        self.change("side/src/lib.rs")
+        self.change("bench/src/main.rs")
+        self.assertEqual(self.planned(), ["cmux-tui/crates/host", "relay"])
+
+    def test_a_list_change_plans_only_the_entries_it_changed_and_a_script_change_none(self) -> None:
+        self.change(".github/scripts/rust-workspaces.py", "# changed\n")
+        self.assertEqual(self.planned(), [])
+        listed = (self.repo / ".github/rust-workspaces.toml").read_text()
+        self.change(".github/rust-workspaces.toml", listed.replace('"t,c"', '"t,c,d"'))
+        self.assertEqual(self.planned(), ["cmux-tui/crates/host"])
+        self.change("cmux-tui/rust-toolchain.toml", '[toolchain]\nchannel = "1.95.0"\n')
+        self.assertEqual(self.planned(), ["cmux-tui/crates/host", "relay"])
+
+    def test_clippy_lints_each_planned_workspace_with_its_clippy_args(self) -> None:
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        log = self.tmp / "cargo.log"
+        (bin_dir / "cargo").write_text('#!/usr/bin/env bash\nprintf "%s|%s\\n" "$PWD" "$*" >> "$CARGO_LOG"\n'
+                                       '[[ "$PWD" == */relay ]] && exit 101\nexit 0\n')
+        (bin_dir / "cargo").chmod(0o755)
+        self.change("relay/src/lib.rs")
+        self.change("cmux-tui/crates/host/src/lib.rs")
+        result = subprocess.run([sys.executable, str(WORKSPACES_SCRIPT), "clippy", "--repo", str(self.repo),
+                                 "--base", self.base], capture_output=True, text=True,
+                                env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "CARGO_LOG": str(log)})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        calls = [(Path(cwd).name, args) for cwd, args in (line.split("|", 1) for line in log.read_text().splitlines())]
+        self.assertEqual(calls, [("host", "clippy --workspace --all-targets --features t,c -- -D warnings"),
+                                 ("relay", "clippy --workspace --all-targets -- -D warnings")])
+        self.assertIn("::error title=relay clippy::clippy -D warnings failed in relay", result.stdout)
+        self.assertIn("required clippy red in relay", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

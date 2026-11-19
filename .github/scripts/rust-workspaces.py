@@ -3,8 +3,9 @@
 
 Usage:
   rust-workspaces.py check [--repo ROOT]
-  rust-workspaces.py plan [--repo ROOT] [--base SHA]
+  rust-workspaces.py plan [--repo ROOT] [--base SHA] [--required-clippy]
   rust-workspaces.py run ROOT [--repo ROOT]
+  rust-workspaces.py clippy [--repo ROOT] [--base SHA]
 
 Only cmux-tui's own workspace had PR clippy (cmux-tui-spec.yml), and the
 workspaces beside it (optchat-chief, the cmux-tui FFI and host crates with a
@@ -24,6 +25,20 @@ literal naming a tracked path), or a path in the entry's `inputs`. With no usabl
 this check changes, it plans every one. `run` lints and tests one workspace:
 `cargo clippy --workspace --all-targets -- -D warnings`, then `cargo test --workspace`,
 with --locked when it tracks a Cargo.lock; both run, and either failing fails it.
+
+`clippy` is the required check's half (2026-11-19). feat-cmux-next requires only
+`clippy (changed cmux-tui packages)`; this workflow and the `covered_by` ones are
+advisory, so clippy -D warnings reds in cmux-rd-host's own workspace reached pull request
+heads whose required checks were green. That job runs `clippy` after its cmux-tui member
+lint: each workspace the change reaches whose entry is `run = true` or `covered_by`, unless
+the entry says `required_clippy_skip = "why"`, gets `cargo clippy --workspace --all-targets
+-- -D warnings` with the entry's `clippy_args` (else `args`). `plan --required-clippy` lists
+the same workspaces; the job's router reads it, so a change outside cmux-tui that reaches
+one still runs the job. In that mode a change to the list plans only the entries it
+changed, and a change to these scripts or workflows plans nothing by itself (their tests
+cover them); the toolchain pin and the setup action still plan every one. The detector,
+test_cmux_tui_clippy_changed.py's EveryWorkspaceIsLinted, fails when a workspace is
+neither linted by the required job nor excluded by name with a reason.
 """
 
 from __future__ import annotations
@@ -52,6 +67,13 @@ EVERYTHING = frozenset({
     ".github/actions/runner-cargo-home/runner-cargo-home.sh",
     "cmux-tui/rust-toolchain.toml",
 })
+# In --required-clippy mode a change to these plans every workspace: the pinned toolchain each one builds with.
+EVERYTHING_REQUIRED = frozenset({
+    ".github/actions/setup-cmux-tui-rust/action.yml",
+    "cmux-tui/rust-toolchain.toml",
+})
+# Linted member by member by .github/scripts/cmux-tui-clippy-changed.py in the same required job.
+MEMBER_LINTED = "cmux-tui"
 DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
 # A literal path a source file reads: include_str!("p"), include_bytes!(concat!("p", ...)),
 # relative to the file; or env!("CARGO_MANIFEST_DIR") joined with "p", relative to the package.
@@ -243,7 +265,26 @@ def check(repo: Path) -> list[str]:
             workflow = repo / entry["covered_by"]
             if not workflow.is_file() or root not in workflow.read_text(encoding="utf-8"):
                 problems.append(f"{root}: {entry['covered_by']} does not exist or does not name {root}")
+        if "required_clippy_skip" in entry and (kinds == ["skip"] or root == MEMBER_LINTED
+                                                or not str(entry["required_clippy_skip"]).strip()):
+            problems.append(f"{root}: required_clippy_skip needs a reason, on a run = true or covered_by entry")
     return problems
+
+
+def required_clippy(entry: dict) -> bool:
+    """The required clippy job lints this entry's workspace when a change reaches it."""
+    return ((entry.get("run") is True or "covered_by" in entry) and entry.get("root") != MEMBER_LINTED
+            and "required_clippy_skip" not in entry)
+
+
+def changed_entries(repo: Path, base: str) -> set[str]:
+    """Roots whose entry in the list differs from the base's (a new entry too)."""
+    try:
+        before = tomllib.loads(git(repo, "show", f"{base}:{LIST}")).get("workspace", [])
+    except (subprocess.CalledProcessError, tomllib.TOMLDecodeError):
+        return {entry.get("root", "") for entry in load_list(repo)}
+    old = {entry.get("root"): entry for entry in before}
+    return {entry.get("root", "") for entry in load_list(repo) if old.get(entry.get("root")) != entry}
 
 
 def changed(repo: Path, base: str) -> list[str] | None:
@@ -263,18 +304,24 @@ def under(path: str, directory: str) -> bool:
     return directory == "." or path == directory or path.startswith(directory + "/")
 
 
-def plan(repo: Path, base: str) -> list[dict]:
+def plan(repo: Path, base: str, required: bool = False) -> list[dict]:
     tree = Tree(repo)
     paths = changed(repo, base)
-    if paths is not None and any(path in EVERYTHING for path in paths):
+    relisted: set[str] = set()
+    if paths is not None and required:
+        if any(path in EVERYTHING_REQUIRED for path in paths):
+            paths = None
+        elif LIST in paths:
+            relisted = changed_entries(repo, base)
+    elif paths is not None and any(path in EVERYTHING for path in paths):
         paths = None
     jobs = []
     for entry in load_list(repo):
-        if entry.get("run") is not True:
+        if not (required_clippy(entry) if required else entry.get("run") is True):
             continue
         root = entry["root"]
         reach = tree.reach(root)
-        if paths is not None:
+        if paths is not None and root not in relisted:
             # A dependency outside the workspace may inherit from its own workspace's manifest.
             watched = reach | {f"{above}/Cargo.toml" for above in map(tree.workspace_above, reach) if above}
             # Files named explicitly (read by literal path, or listed as inputs) count wherever they are, inside a
@@ -312,7 +359,11 @@ def stale_lock_explained(repo: Path, refusals: list[str]) -> bool:
     """True when REFUSALS hold cargo's stale-lock refusal: cargo-locks.py explain has then printed its cause and fix."""
     if not refusals:
         return False
-    explain = [sys.executable, str(Path(__file__).resolve().parents[2] / "scripts/cmux-next/cargo-locks.py"),
+    # The required job runs a copy of this script from outside the checkout (a replay checks an older tree).
+    locks = Path(__file__).resolve().parents[2] / "scripts/cmux-next/cargo-locks.py"
+    if not locks.is_file():
+        locks = repo.resolve() / "scripts/cmux-next/cargo-locks.py"
+    explain = [sys.executable, str(locks),
                "explain", "-", "--repo", str(repo.resolve())]
     sys.stdout.flush()
     return subprocess.run(explain, input="".join(refusals), text=True).returncode == 0
@@ -326,7 +377,8 @@ def run(repo: Path, root: str) -> int:
     locked = ["--locked"] if git(repo, "ls-files", "--", f"{root}/Cargo.lock").strip() else []
     args = list(entry.get("args", []))
     commands = [
-        ("clippy", ["cargo", "clippy", *locked, "--workspace", "--all-targets", *args, "--", "-D", "warnings"]),
+        ("clippy", ["cargo", "clippy", *locked, "--workspace", "--all-targets", *entry.get("clippy_args", args),
+                    "--", "-D", "warnings"]),
         ("test", ["cargo", "test", *locked, "--workspace", *args]),
     ]
     red = []
@@ -349,12 +401,57 @@ def run(repo: Path, root: str) -> int:
     return 1 if red else 0
 
 
+def own_toolchain(repo: Path, root: str) -> bool:
+    """The workspace builds with a rust-toolchain pin other than cmux-tui's (which the job installed)."""
+    for directory in (PurePosixPath(root), *PurePosixPath(root).parents):
+        for name in ("rust-toolchain.toml", "rust-toolchain"):
+            if (repo / directory / name).is_file():
+                return str(directory / name) != "cmux-tui/rust-toolchain.toml"
+    return False
+
+
+def clippy(repo: Path, base: str) -> int:
+    """The required job's lint of every other workspace the change reaches (the module docstring)."""
+    jobs = plan(repo, base, required=True)
+    if not jobs:
+        print("rust-workspaces: the change reaches no other Cargo workspace the required clippy lints")
+        return 0
+    entries = {entry["root"]: entry for entry in load_list(repo)}
+    red = []
+    for job in jobs:
+        root = job["root"]
+        entry = entries[root]
+        locked = ["--locked"] if git(repo, "ls-files", "--", f"{root}/Cargo.lock").strip() else []
+        args = list(entry.get("clippy_args", entry.get("args", [])))
+        command = ["cargo", "clippy", *locked, "--workspace", "--all-targets", *args, "--", "-D", "warnings"]
+        print(f"::group::{root}: {' '.join(command)}", flush=True)
+        if own_toolchain(repo, root):
+            # rustup's cargo reads the pin from the working directory: install it, with clippy, first.
+            for setup in (["rustup", "toolchain", "install"], ["rustup", "component", "add", "clippy"]):
+                subprocess.run(setup, cwd=repo / root)
+        rc, refusals = run_cargo(command, repo / root, dict(os.environ))
+        print("::endgroup::", flush=True)
+        if rc:
+            red.append(root)
+            if stale_lock_explained(repo, refusals):
+                print(f"::error title={root} clippy::a stale Cargo.lock in {root} (cargo --locked refused it; "
+                      "the fix is above)")
+            else:
+                print(f"::error title={root} clippy::clippy -D warnings failed in {root}: run `{' '.join(command)}` "
+                      "there and fix each lint (an allow needs a comment saying why)")
+    print("rust-workspaces: required clippy " + (f"red in {', '.join(red)}" if red
+                                                   else f"green in {', '.join(job['root'] for job in jobs)}"))
+    return 1 if red else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("check", "plan", "run"))
+    parser.add_argument("command", choices=("check", "plan", "run", "clippy"))
     parser.add_argument("root", nargs="?")
     parser.add_argument("--repo", type=Path)
     parser.add_argument("--base", default="")
+    parser.add_argument("--required-clippy", action="store_true",
+                        help="plan: the workspaces the required clippy job lints (the module docstring)")
     args = parser.parse_args(argv)
     repo = (args.repo or Path(git(Path.cwd(), "rev-parse", "--show-toplevel").strip())).resolve()
     if args.command == "check":
@@ -365,8 +462,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"rust-workspaces: {LIST} lists every Cargo workspace")
         return 1 if problems else 0
     if args.command == "plan":
-        print(json.dumps(plan(repo, args.base.strip())))
+        print(json.dumps(plan(repo, args.base.strip(), args.required_clippy)))
         return 0
+    if args.command == "clippy":
+        return clippy(repo, args.base.strip())
     if not args.root:
         parser.error("run needs a workspace root")
     return run(repo, args.root)

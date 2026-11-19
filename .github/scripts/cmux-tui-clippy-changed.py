@@ -13,8 +13,11 @@ and examples included), plus every member that depends on one of them, in one
 path dependencies come from `cargo metadata --no-deps`. A change to the workspace
 manifest, the lockfile, a clippy config or the toolchain pin, or no usable base,
 lints the whole workspace. Packages in a workspace of their own (the app FFI
-workspace with cmux-rd-ffi, cmux-rd-host, ...) and vendored crates are not members and stay with
-cmux-tui.yml's dispatch run. Which files map to which package is
+workspace with cmux-rd-ffi, cmux-rd-host, ...) are not members: the same required step lints them
+next with `.github/scripts/rust-workspaces.py clippy` (their entries in .github/rust-workspaces.toml;
+until 2026-11-19 they were left to cmux-tui.yml's dispatch run and the advisory rust workspaces
+workflow, and cmux-rd-host clippy reds reached heads with this check green). Vendored crates are
+skipped there by name. Which files map to which package is
 cmux-tui-fmt-changed.py's rule, shared from there.
 
 --panic-ratchet JSONL runs the panic ratchet (scripts/cmux-next/rust_panic_ratchet.py,
@@ -165,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         touched = fmt_changed.touched(paths, known, fmt_changed.manifest_dirs(repo, base))
         for path in sorted(touched - workspace.keys()):
-            print(f"cmux-tui-clippy-changed: {path} is not a cmux-tui workspace member (cmux-tui.yml lints it)")
+            print(f"cmux-tui-clippy-changed: {path} is not a cmux-tui workspace member (rust-workspaces.py clippy lints it)")
         changed = {workspace[path] for path in touched if path in workspace}
         if not changed:
             print("cmux-tui-clippy-changed: no cmux-tui workspace package changed")

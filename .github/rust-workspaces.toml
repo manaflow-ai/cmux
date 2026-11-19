@@ -20,6 +20,17 @@
 #   covered_by = "FILE"    another workflow runs clippy --all-targets and the tests
 #                          on its own paths; FILE must name the root.
 #   skip = "why"           nothing checks it, for the reason given.
+#
+# The required check `clippy (changed cmux-tui packages)` (cmux-tui-spec.yml, the only
+# required check on feat-cmux-next) also lints every `run = true` and `covered_by` workspace
+# a change reaches (`rust-workspaces.py clippy`), since this workflow and the covered_by
+# ones are advisory. Optional on those entries:
+#   clippy_args = [...]    used instead of `args` for clippy, here and in that job.
+#   required_clippy_skip = "why"
+#                          the required job leaves it to its own workflow, for the reason
+#                          given. test_cmux_tui_clippy_changed.py (EveryWorkspaceIsLinted)
+#                          fails on a workspace that is neither linted there nor excluded
+#                          by `skip` or this key.
 
 [[workspace]]
 root = "cmux-screen"
@@ -32,6 +43,7 @@ covered_by = ".github/workflows/cmux-tui-spec.yml"
 [[workspace]]
 root = "Native/DiffSidecar"
 covered_by = ".github/workflows/ci-web.yml"
+required_clippy_skip = "ci-web.yml lints it through scripts/run-diff-sidecar-cargo.sh with and without its features, warn-only into feat-cmux-next (fmt and clippy there are style, Leo 2026-10-19); making it blocking is his call"
 
 [[workspace]]
 root = "coderouter"
@@ -113,6 +125,9 @@ run = true
 root = "cmux-tui/crates/cmux-rd-host"
 run = true
 args = ["--no-default-features", "--features", "bench,link,portal-dbus"]
+# Clippy adds openh264, the default encoder a release ships: its code (encoder.rs, the
+# Linux host's serve path) is cfg(feature = "openh264"), which the test set never compiles.
+clippy_args = ["--no-default-features", "--features", "bench,openh264,link,portal-dbus"]
 apt = ["dbus"]
 
 [[workspace]]
