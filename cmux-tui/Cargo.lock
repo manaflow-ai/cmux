@@ -2459,6 +2459,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-theme-pack"
+version = "0.1.0"
+dependencies = [
+ "cmux-config",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-theme-tokens"
 version = "0.1.0"
 
@@ -2526,6 +2536,7 @@ dependencies = [
  "cmux-server",
  "cmux-server-core",
  "cmux-terminal-client",
+ "cmux-theme-pack",
  "cmux-theme-tokens",
  "cmux-tui-cdp",
  "cmux-tui-core",
