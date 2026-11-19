@@ -1669,6 +1669,25 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
         time.sleep(3600)
         return
+    # "tagged:N:MS" streams N rounds of a reply chunk, a thought, a tool call and its end and a
+    # plan, every MS ms. Each update carries one tag [[t:ROUND:KIND]] that names it alone, so a
+    # client that follows the chat can count each update it got (tests/follower_once.rs).
+    if text.startswith("tagged:"):
+        n, ms = (int(v) for v in text[len("tagged:"):].split(":"))
+        for i in range(n):
+            tag = lambda k: f"[[t:{i}:{k}]]"
+            send_all([{"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": u}} for u in [
+                {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"{tag('m')} said "}},
+                {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": f"{tag('th')} thought "}},
+                {"sessionUpdate": "tool_call", "toolCallId": f"tg-{i}", "title": tag("tc"), "kind": "execute",
+                 "status": "in_progress", "rawInput": {"command": f"echo {tag('tc')}"}},
+                {"sessionUpdate": "tool_call_update", "toolCallId": f"tg-{i}", "status": "completed",
+                 "content": [{"type": "content", "content": {"type": "text", "text": f"{tag('tu')} out"}}]},
+                {"sessionUpdate": "plan", "entries": [{"content": f"{tag('p')} step", "priority": "medium", "status": "in_progress"}]},
+            ]])
+            time.sleep(ms / 1000)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "ticking:N:MS" streams a word every MS ms, N times, then ends: a model that keeps working,
     # each sign well inside the stall limit (`hub/stalled_turn.rs`).
     if text.startswith("ticking:"):
