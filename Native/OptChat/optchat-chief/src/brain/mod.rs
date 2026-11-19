@@ -888,6 +888,9 @@ pub struct Brain {
     /// The steer on its way into the running turn (`steer.rs`), and the
     /// last steer's number.
     steering: Vec<steer::Steering>,
+    /// The turn (its key) a written but unread steer was taken back from
+    /// (`steer.rs`): its session is not kept (turns.rs `keep_turn_session`).
+    steer_left: Option<String>,
     steer_seq: u64,
     /// A draft could not be published (logged once).
     draft_failed: bool,
@@ -1185,6 +1188,7 @@ impl Brain {
             owner_stopped: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
             steering: Vec::new(),
+            steer_left: None,
             steer_seq: 0,
             draft_failed: false,
             run_failed: false,

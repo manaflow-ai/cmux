@@ -2500,11 +2500,27 @@ impl Brain {
             return;
         };
         let first = outcome.stats.first.unwrap_or_default();
-        let tokens = first.input + first.cache_read + first.cache_write;
+        // The session's size at the turn's end (its last request), which the
+        // next turn's first request starts from; else its first request.
+        let tokens = kept
+            .context
+            .unwrap_or(first.input + first.cache_read + first.cache_write);
+        // A cancelled turn with a message written to its harness and not read
+        // (a steer the cancel left in Claude Code's queue, which acpmux takes
+        // back only for another agent's message): the harness may still act
+        // on it, and the next turn sends it again. Not kept.
+        let steer_left = outcome.cancelled
+            && (self.steering.iter().any(|st| st.key == key)
+                || self.steer_left.as_deref() == Some(key));
+        if steer_left {
+            (self.log)(&format!(
+                "turn {key}: a message it was sent is still unread in its session; not kept"
+            ));
+        }
         let uncached =
             first.cache_read == 0 && first.cache_write == 0 && first.input > UNCACHED_LIMIT;
         match pending {
-            Some((_, sig)) if !uncached && tokens < KEEP_MAX_TOKENS => {
+            Some((_, sig)) if !uncached && !steer_left && tokens < KEEP_MAX_TOKENS => {
                 self.state.kept_session = Some(kept.session.clone());
                 self.kept = Some(KeptTurn {
                     kept,
