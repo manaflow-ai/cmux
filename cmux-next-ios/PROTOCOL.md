@@ -1346,6 +1346,16 @@ answers it on that Mac by typing into the terminal (`send`) while
 `read-screen` shows the question; see SECURITY.md "Answering a terminal
 agent's question from the phone".
 
+A Claude Code terminal's approval (its PermissionRequest hook, for any tool but
+AskUserQuestion and ExitPlanMode) rides the same way: the `list-notifications`
+row carries `approval` `{harness: "claude", tool, command?, target?,
+description?}` while the agent waits on it (memory only; cmux-tui
+`agent_hook_live_approval`, `session.journal.append` `live_approval`). The
+Feed shows it as a permission card with Allow once (types `1`) and Deny
+(Escape), sent only after a fresh `list-notifications` still carries it and
+`read-screen` shows its dialog; see SECURITY.md "Answering a terminal agent's
+approval from the phone".
+
 ### Phone actions
 
 | Identifier | Kind | Options | Delivery |
