@@ -1047,6 +1047,21 @@ async function bedrockMessages(
   }
   const parsed = parseJsonObject(body);
   if (!parsed.ok) return parsed.response;
+  // Message threads (`thread`, beta message-threads-2026-08-12) live in Anthropic's API; Bedrock has no such field. Answer
+  // as the API does for a request it cannot thread, so a client resends the full conversation without `thread`.
+  if (parsed.value.thread !== undefined && parsed.value.thread !== null) {
+    return Response.json(
+      {
+        type: "error",
+        error: {
+          type: "invalid_request_error",
+          message: "message threads are not supported on this upstream; send the full conversation without thread",
+          details: { error_code: "thread_unsupported_request", unsupported: "upstream" },
+        },
+      },
+      { status: 400, headers: { "cache-control": "no-store" } },
+    );
+  }
   const invoke = bedrockInvokeBody(parsed.value);
   const modelId = invoke.model ? bedrockModelId(invoke.model, upstream.config.modelIds) : null;
   if (!invoke.model || !modelId) {

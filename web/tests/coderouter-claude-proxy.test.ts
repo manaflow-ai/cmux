@@ -414,6 +414,20 @@ describe("claude proxy Bedrock upstream", () => {
     expect(events.find((event) => event.event === "coderouter_model_request_completed")).toBeUndefined();
   });
 
+  test("refuses a message thread the way the API does, without calling Bedrock", async () => {
+    const response = await messages(
+      messagesRequest({
+        model: "claude-sonnet-4-5",
+        max_tokens: 8,
+        messages: [],
+        thread: { type: "continue", previous_message_id: "msg_01abc" },
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.details.error_code).toBe("thread_unsupported_request");
+    expect(fetchCalls).toHaveLength(0);
+  });
+
   test("converts the AWS event stream into Anthropic SSE", async () => {
     const chunk = (event: Record<string, unknown>) =>
       encodeAwsEventStreamMessage(
