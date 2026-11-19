@@ -114,8 +114,9 @@ Read live in a terminal (`claude --permission-mode default`, a `mkdir … && tou
 - AskUserQuestion on the same build still takes a bare option number (`2` picked "Green"; rows
   `1. Red` … `4. Type something.`, `5. Chat about this`).
 
-`TerminalApprovalKeys` types only these keys, and only while the screen shows "Do you want to",
-"1. Yes" and the start of the approval's command.
+`TerminalApprovalKeys` types only these keys, and only while the screen's last block is the
+dialog: from the rule above "Do you want to" down to "Esc to cancel" as the last line, "1. Yes"
+right under the question, and the approval's whole command above it (whitespace ignored).
 
 A file tool's dialog names the file relative to the folder (Write `notes/todo.txt`, read live):
 
@@ -131,4 +132,18 @@ A file tool's dialog names the file relative to the folder (Write `notes/todo.tx
 ```
 
 Escape here answered "Rejected write to notes/todo.txt" (after Claude Code's short Escape wait); no file was written.
-The phone matches a file approval by its file name inside the dialog.
+The phone matches a file approval by its file name in the dialog's question line.
+
+### End to end on the tagged daemon (2026-11-19, `feat-cmux-next-terminal-feed-content` at 80be6ff7)
+
+A real Claude Code 2.1.328 (`--permission-mode default`) ran in a terminal of the fleet-built
+`cmux DEV tfeed` daemon (its own socket and state). The phone's requests were sent as they are
+(`list-notifications`, `read-screen`, `send`):
+
+| Step | Ledger row | Keys | Result |
+| --- | --- | --- | --- |
+| Finished turn | `message` "The capital of France is Paris.", `prompt` | none | the card shows the answer |
+| Bash approval | `approval` `{tool: Bash, command, description}` | `1` | the command ran; `approval` left the row |
+| AskUserQuestion | `question` (Red / Green / Blue) | `2` | the agent answered "Green" |
+| Bash approval | `approval` | Escape | the dialog closed; nothing ran |
+| Write approval | `approval` `{tool: Write, target}` | `1` | the file was written; `approval` left the row |
