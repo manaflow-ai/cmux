@@ -192,7 +192,7 @@ public nonisolated struct AutomationRow: Equatable, Identifiable, Sendable {
 
     private static func result(_ state: String?, reason: String? = nil) -> LastResult {
         if state == "failed", reason == "needs_permission" { return .needsYou }
-        switch state {
+        return switch state {
         case "succeeded": .succeeded
         case "failed", "dead", "cancelled": .failed
         case "running", "queued", "sleeping", "waiting": .running
