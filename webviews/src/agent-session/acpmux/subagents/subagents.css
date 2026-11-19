@@ -508,6 +508,12 @@ button.cv-subagent > :last-child {
   padding-inline: var(--acpmux-row-inset, 8px) var(--grid-composer-quiet-row-text);
   color: var(--agent-muted);
 }
+/* + keeps its slot and glyph, dimmed with no hover pill: the relay to a subagent is text only. */
+.acpmux-subagent-composer .acpmux-composer-plus .acpmux-picker-button:disabled {
+  opacity: 0.4;
+  background: none;
+  cursor: default;
+}
 .acpmux-subagent-via-text {
   min-width: 0;
   overflow: hidden;

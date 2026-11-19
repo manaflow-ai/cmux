@@ -114,8 +114,6 @@ export function SubagentComposer({
       return next;
     });
   const field = useRef<MarkdownFieldHandle | null>(null);
-  const promptRefNow = useRef(promptRef);
-  promptRefNow.current = promptRef;
   useEffect(() => {
     if (!quoteRef) return;
     const handle = {
@@ -136,12 +134,22 @@ export function SubagentComposer({
   const typedNow = () => field.current?.value() ?? textRef.current;
   const draft = () => draftMessage({ text: typedNow(), attachments: attachmentsRef.current });
   const listening = dictation !== undefined && isActive(dictation.state);
+  /// Set while the send a finished dictation session waited for goes.
+  const dictationEnded = useRef(false);
   const ready = Boolean(onSend) && (text.trim().length > 0 || attachments.length > 0);
   const submit = () => {
     // A dictation session still running ends first, keeping its words, and the send goes once they
     // are in the prompt (dictation.ts finish), as the chat's composer does.
-    if (dictation && isActive(dictation.state)) {
-      dictation.finish(() => submit());
+    if (dictation && isActive(dictation.state) && !dictationEnded.current) {
+      dictation.finish(() => {
+        // The session is over even if this render has not heard so yet.
+        dictationEnded.current = true;
+        try {
+          submit();
+        } finally {
+          dictationEnded.current = false;
+        }
+      });
       return;
     }
     const message = draft();
@@ -229,7 +237,7 @@ export function SubagentComposer({
         }}
         fieldRef={(handle) => {
           field.current = handle;
-          if (promptRefNow.current) promptRefNow.current.current = handle;
+          if (promptRef) promptRef.current = handle;
         }}
         attachments={attachments}
         setAttachments={(update) => setAttachments((current) => update(current))}
