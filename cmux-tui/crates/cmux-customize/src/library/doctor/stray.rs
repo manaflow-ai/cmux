@@ -25,26 +25,11 @@ use std::path::{Path, PathBuf};
 use cmux_config::jsonc;
 use serde_json::Value;
 
-use super::{FindingKind, Fix, Found, Level, dir_names, display_dir, looks_like_theme};
+use super::{
+    FindingKind, Fix, Found, KNOWN_TOP_FILES, Level, dir_names, display_dir, looks_like_theme,
+    secret_name,
+};
 use crate::Customize;
-
-/// Top-level files cmux or its tools read, or that hold secrets: never stray.
-const KNOWN: &[&str] = &[
-    "cmux-next.json",
-    "cmux.json",
-    "keybindings.json",
-    "web-dev.json",
-    "web-dev.json.unreadable",
-    "settings.json",
-    "cmux-tui.json",
-    "mux.json",
-    "host-budget.json",
-    "server.json",
-    "cloud-secrets.json",
-    "keys.json",
-    "auth.json",
-    "vm.json",
-];
 
 /// Environment variables that move or turn off part of a customization.
 const ENV: &[(&str, &str)] = &[
@@ -156,7 +141,15 @@ impl Customize {
             let Some(value) = std::env::var_os(name).filter(|value| !value.is_empty()) else {
                 continue;
             };
+            // A URL keeps only its scheme, host and path: a query or a user may be a credential.
             let value = value.to_string_lossy();
+            let value = value.split('?').next().unwrap_or_default();
+            let value = match value.split_once("://") {
+                Some((scheme, rest)) => {
+                    format!("{scheme}://{}", rest.rsplit('@').next().unwrap_or_default())
+                }
+                None => value.to_owned(),
+            };
             if matches!(value.as_ref(), "0" | "false" | "no") {
                 continue;
             }
@@ -181,7 +174,8 @@ impl Customize {
                 .any(|ending| lower.ends_with(ending));
             if !config_like
                 || !path.is_file()
-                || KNOWN.contains(&name.as_str())
+                || KNOWN_TOP_FILES.contains(&name.as_str())
+                || secret_name(&name)
                 || path == self.roots().settings_file
                 || looks_like_theme(&path)
             {

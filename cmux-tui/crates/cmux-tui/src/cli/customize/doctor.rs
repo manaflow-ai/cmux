@@ -11,8 +11,7 @@ use serde_json::json;
 use super::Failure;
 use super::render::Answer;
 
-pub(super) const USAGE: &str =
-    "customize doctor [--announce] | fix ID off|remove|restore | dismiss ID | recover";
+pub(super) const USAGE: &str = "customize doctor [--announce] | fix ID off|remove|restore|follow-default | dismiss ID | recover";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::cli) enum Request {
@@ -45,8 +44,9 @@ pub(super) fn parse(rest: &[String]) -> Result<Request, String> {
         [flag] if flag == "--announce" => Ok(Request::Report { announce: true }),
         [verb, finding, kind] if verb == "fix" => Ok(Request::Fix {
             id: id(finding)?,
-            kind: doctor::fix_kind(kind)
-                .ok_or_else(|| format!("a fix is off, remove or restore, got {kind:?}; {USAGE}"))?,
+            kind: doctor::fix_kind(kind).ok_or_else(|| {
+                format!("a fix is off, remove, restore or follow-default, got {kind:?}; {USAGE}")
+            })?,
         }),
         [verb, finding] if verb == "dismiss" => Ok(Request::Dismiss { id: id(finding)? }),
         [verb] if verb == "recover" => Ok(Request::Recover),
@@ -125,6 +125,10 @@ fn report_lines(report: &Report) -> String {
                 )),
                 FixKind::Restore => out.push_str(&format!(
                     "  restore: cmux customize doctor fix {} restore   (its last version that loaded)\n",
+                    finding.id
+                )),
+                FixKind::FollowDefault => out.push_str(&format!(
+                    "  default: cmux customize doctor fix {} follow-default   (the settings file is kept)\n",
                     finding.id
                 )),
             }

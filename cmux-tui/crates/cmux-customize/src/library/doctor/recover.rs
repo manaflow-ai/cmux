@@ -152,14 +152,20 @@ impl Customize {
         None
     }
 
-    /// Writes `path`'s last good version back; the broken text is moved aside first.
+    /// Writes `path`'s last good version back; the broken text is copied aside first. The file
+    /// is written in place (through a link: a file in a dotfiles repo stays linked), so it is
+    /// never missing, even if cmux stops between the copy and the write.
     pub(super) fn restore_file(&self, path: &str, now_ms: u64) -> Result<(u32, String), Error> {
         let (n, bytes) = self.last_good_version(path).ok_or_else(|| {
             Error::Library(format!("no generation holds a version of {path} that loads"))
         })?;
         let file = tree::locate(self.roots(), path)
             .ok_or_else(|| Error::Library(format!("{path} is not a customization file")))?;
-        let kept = if file.exists() { Some(self.move_aside(&file, now_ms)?) } else { None };
+        let kept = match std::fs::read(&file) {
+            Ok(broken) => Some(self.keep_copy(&file, &broken, now_ms)?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.into()),
+        };
         tree::write(self.roots(), path, &bytes, false)?;
         Ok((
             n,

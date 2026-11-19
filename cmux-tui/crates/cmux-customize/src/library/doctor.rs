@@ -774,6 +774,7 @@ impl Customize {
             if path.is_file()
                 && name.ends_with(".json")
                 && !KNOWN_TOP_FILES.contains(&name.as_str())
+                && !secret_name(&name)
                 && Some(path.as_path()) != Some(roots.settings_file.as_path())
                 && looks_like_theme(&path)
             {
@@ -871,16 +872,38 @@ impl Customize {
         let roots = self.roots();
         let inside = [&roots.config_dir, &roots.customize_dir, &roots.state_dir]
             .iter()
-            .any(|root| path.starts_with(root));
+            .any(|root| path.starts_with(root) && path != root.as_path());
         if !inside || path.components().any(|part| part == std::path::Component::ParentDir) {
             return Err(Error::Library(format!("{} is not in your customization", path.display())));
         }
-        let name =
-            path.file_name().ok_or_else(|| Error::Library("nothing to remove".to_owned()))?;
-        let folder = roots.state_dir.join(REMOVED).join(now_ms.to_string());
-        std::fs::create_dir_all(&folder)?;
-        let kept = folder.join(name);
+        let kept = self.kept_path(path, now_ms)?;
         std::fs::rename(path, &kept)?;
+        Ok(kept)
+    }
+
+    /// Writes `bytes` (what `path` holds now) into `<state dir>/doctor/removed/<ms>/`.
+    fn keep_copy(&self, path: &Path, bytes: &[u8], now_ms: u64) -> Result<PathBuf, Error> {
+        let kept = self.kept_path(path, now_ms)?;
+        std::fs::write(&kept, bytes)?;
+        Ok(kept)
+    }
+
+    /// A new place for `path`'s copy under `<state dir>/doctor/removed/<ms>/`, keeping its name;
+    /// a second copy in the same millisecond gets `-2`, `-3`, ... so none overwrites another.
+    fn kept_path(&self, path: &Path, now_ms: u64) -> Result<PathBuf, Error> {
+        let name = path
+            .file_name()
+            .ok_or_else(|| Error::Library("nothing to keep".to_owned()))?
+            .to_string_lossy()
+            .into_owned();
+        let folder = self.roots().state_dir.join(REMOVED).join(now_ms.to_string());
+        std::fs::create_dir_all(&folder)?;
+        let mut kept = folder.join(&name);
+        let mut n = 2;
+        while std::fs::symlink_metadata(&kept).is_ok() {
+            kept = folder.join(format!("{name}-{n}"));
+            n += 1;
+        }
         Ok(kept)
     }
 
@@ -900,9 +923,32 @@ impl Customize {
     }
 }
 
-/// Files at the top of the config folder cmux or its tools own.
-const KNOWN_TOP_FILES: &[&str] =
-    &["cmux-next.json", "cmux.json", "keybindings.json", "web-dev.json", "settings.json"];
+/// Top-level files cmux or its tools read, or that hold credentials: never named stray, and
+/// never opened unless the doctor reads them for what they set (cmux-tui.json, cmux.json, ...).
+pub(super) const KNOWN_TOP_FILES: &[&str] = &[
+    "cmux-next.json",
+    "cmux.json",
+    "keybindings.json",
+    "web-dev.json",
+    "web-dev.json.unreadable",
+    "settings.json",
+    "cmux-tui.json",
+    "mux.json",
+    "host-budget.json",
+    "server.json",
+    "cloud-secrets.json",
+    "keys.json",
+    "auth.json",
+    "vm.json",
+];
+
+/// A name that may hold a credential: the doctor never opens it.
+pub(super) fn secret_name(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    ["secret", "token", "key", "auth", "credential", "password", "passwd", ".env"]
+        .iter()
+        .any(|word| lower.contains(word))
+}
 
 #[derive(Default)]
 struct Found(Vec<Finding>);
@@ -1066,6 +1112,10 @@ fn line_of_key(text: &str, dotted: &str) -> Option<u32> {
 }
 
 fn looks_like_theme(path: &Path) -> bool {
+    // Size first: a large file is no theme, and is never read whole.
+    if std::fs::metadata(path).map_or(true, |meta| meta.len() > theme_file::MAXIMUM_BYTES as u64) {
+        return false;
+    }
     let Ok(text) = std::fs::read_to_string(path) else { return false };
     if text.len() > theme_file::MAXIMUM_BYTES {
         return false;

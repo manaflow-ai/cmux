@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use cmux_config::{Schema, jsonc};
 use serde_json::Value;
 
-use super::{FindingKind, Fix, Found, Level, REMOVED, file_name, line_of_key};
+use super::{FindingKind, Fix, Found, Level, file_name, line_of_key};
 use crate::{Customize, Error};
 
 /// Name parts of a setting whose 0 makes something vanish.
@@ -123,11 +123,12 @@ impl Customize {
             .ok_or_else(|| Error::Library(format!("{key} is not set in {}", file_name(&file))))?;
         let edited = jsonc::remove(&text, &set.written)
             .map_err(|error| Error::Library(format!("{key} was not taken out: {error}")))?;
-        let folder = self.roots().state_dir.join(REMOVED).join(now_ms.to_string());
-        std::fs::create_dir_all(&folder)?;
-        let kept = folder.join(file_name(&file));
-        std::fs::write(&kept, &text)?;
-        cmux_config::fsio::write_atomic(&file, edited.as_bytes())?;
+        let kept = self.keep_copy(&file, text.as_bytes(), now_ms)?;
+        // Through a link: a settings file in a dotfiles repo stays linked.
+        cmux_config::fsio::write_atomic(
+            &cmux_config::fsio::resolve_symlinks(&file),
+            edited.as_bytes(),
+        )?;
         Ok(format!(
             "{key} follows its default ({}) again; the file as it was is at {}",
             set.default_words(),

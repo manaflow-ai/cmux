@@ -464,3 +464,58 @@ fn a_default_that_changed_since_you_set_yours_is_said_once_it_was_seen() {
         changed.detail
     );
 }
+
+/// A settings file linked into a dotfiles repo stays linked after Follow default and Restore.
+#[cfg(unix)]
+#[test]
+fn fixes_write_through_a_linked_settings_file_and_never_open_credentials() {
+    let home = Home::new();
+    let dotfiles = home.dir.path().join("dotfiles");
+    fs::create_dir_all(&dotfiles).unwrap();
+    let real = dotfiles.join("cmux-next.json");
+    fs::write(
+        &real,
+        "{ \"appearance\": { \"surfaces\": { \"splitDivider\": { \"opacity\": 0 } } } }\n",
+    )
+    .unwrap();
+    fs::create_dir_all(home.config("")).unwrap();
+    std::os::unix::fs::symlink(&real, home.config("cmux-next.json")).unwrap();
+    let customize = home.customize();
+    customize
+        .doctor_fix(
+            "not-default:appearance.surfaces.splitDivider.opacity",
+            FixKind::FollowDefault,
+            &at(NOW),
+            "cli",
+        )
+        .unwrap();
+    assert!(fs::symlink_metadata(home.config("cmux-next.json")).unwrap().file_type().is_symlink());
+    assert!(!fs::read_to_string(&real).unwrap().contains("opacity"));
+
+    // Restore: the broken text is copied aside, the link is written through.
+    home.write("themes/night.json", "{ \"appearance\": { \"accent\": \"blue\" } }\n");
+    customize.ensure_baseline(NOW).unwrap();
+    let theme_real = dotfiles.join("night.json");
+    fs::write(&theme_real, "{ \"appearance\": { \"accent\": }\n").unwrap();
+    fs::remove_file(home.config("themes/night.json")).unwrap();
+    std::os::unix::fs::symlink(&theme_real, home.config("themes/night.json")).unwrap();
+    customize
+        .doctor_fix("broken:themes/night.json", FixKind::Restore, &at(NOW + 1), "cli")
+        .unwrap();
+    assert!(
+        fs::symlink_metadata(home.config("themes/night.json")).unwrap().file_type().is_symlink()
+    );
+    assert_eq!(
+        fs::read_to_string(&theme_real).unwrap(),
+        "{ \"appearance\": { \"accent\": \"blue\" } }\n"
+    );
+
+    // A file named like a credential is never read, so even one shaped like a theme is not named.
+    home.write("github-token.json", "{ \"colors\": { \"background\": \"#000000\" } }\n");
+    let report = customize.doctor(&at(NOW + 2));
+    assert!(
+        report.findings.iter().all(|f| !f.id.contains("github-token")),
+        "{:#?}",
+        kinds(&report)
+    );
+}

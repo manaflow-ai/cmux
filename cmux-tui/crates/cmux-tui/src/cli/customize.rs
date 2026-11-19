@@ -55,7 +55,7 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize recipes [--open]             Ten ready-made changes to try with `use` (--open: the guide, in cmux)
   cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
   cmux customize doctor                       What changes your customization unexpectedly: stale layers, broken,
-                                              shadowed, leftover or misplaced files, unknown keys; `fix ID off|remove`
+                                              shadowed, leftover or misplaced files, unknown keys, values off their default; `fix ID ...`, `recover`
 
 If a layer broke cmux (no app needed, with cmux quit too):
   cmux customize library status               Which layers are on, in one line (also in `cmux version`)
