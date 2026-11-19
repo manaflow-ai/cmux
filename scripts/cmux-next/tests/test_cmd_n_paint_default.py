@@ -180,6 +180,25 @@ class DefaultPathTests(unittest.TestCase):
         labels = [row["label"] for row in json.loads(got["report"])["rows"]]
         self.assertEqual(labels, ["cmd-w-idle-0", "cmd-w-key100-0", "cmd-w-downs100-0", "cmd-w-hold100-0"])
 
+    def test_screen_takes_the_counts_of_the_keys_workspaces_tabs_through_the_driver(self):
+        # This app lists no window, so the tool can make no tab and no key window: each row says the count asked and
+        # that the app listed none, and the tool asks the app for no tab.
+        mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
+        asked = ["--screen", "--runs", "1", "--keys", "t", "--gaps", "0", "--page-watch", "0", "--key-tabs", "6,84"]
+        got = outcome(str(HERE.parent), asked, bad=False, files=mode)
+        self.assertEqual((got["exit"], got["stderr"]), (0, []))
+        self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 2 rows, 2 INVALID, 0 pictures kept")
+        report = json.loads(got["report"])
+        self.assertEqual([(size["asked"], size["tabs"]) for size in report["key_tabs"]["sizes"]], [(6, None), (84, None)])
+        self.assertEqual([row["label"] for row in report["rows"]], ["cmd-t-idle-tabsnolistof6-0", "cmd-t-idle-tabsnolistof84-0"])
+        for row in report["rows"]:
+            self.assertTrue(any(reason.startswith("key-tabs: ") for reason in row["invalid"]), row["invalid"])
+        self.assertEqual([call for call in got["calls"] if '"action.run"' in call or '"debug.window.focus"' in call], [])
+        # Counts that do not rise are refused before a call to the app.
+        falls = outcome(str(HERE.parent), ["--screen", "--key-tabs", "84,6"], bad=False, files=mode)
+        self.assertEqual((falls["exit"], falls["calls"]), (2, []))
+        self.assertIn("--key-tabs", falls["stderr"][-1])
+
     def test_screen_refuses_what_it_cannot_count_before_a_call_to_the_app(self):
         mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
         # The app keeps its newest 64 opening records, and the tool counts the new ones of ONE recording by the
