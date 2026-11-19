@@ -848,3 +848,5 @@ fn a_list_workspaces_reply_has_the_bytes_of_the_tree_built_under_the_state_lock(
     }
     session.end();
 }
+
+mod git_head_watch;
