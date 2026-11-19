@@ -13,7 +13,7 @@ import { SearchField } from "./SearchField";
 import { TryOnSlot } from "./TryOnBar";
 import { SearchResults } from "./SearchResults";
 import { SectionList } from "./SectionList";
-import { personalizationPartOf } from "./PersonalizationCard";
+import { personalizationPartOf } from "../personalizationParts";
 import { ScrollArea } from "../../../ui/ScrollArea";
 import { whenPageShown } from "../../shared/paintGate";
 
