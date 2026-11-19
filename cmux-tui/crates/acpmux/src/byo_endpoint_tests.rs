@@ -827,6 +827,7 @@ fn options(key: &'static str, prompt: bool) -> DoctorOptions {
             ("byo-test", Some("key")) => Ok(key.to_owned()),
             _ => Err("not found".into()),
         }),
+        extra_env: Default::default(),
     }
 }
 

@@ -125,7 +125,7 @@ class ShardSize(unittest.TestCase):
         env = self.test_step["env"]
         self.assertEqual(env["CMUX_WEB_TEST_JOB_MINUTES"], self.shard["timeout-minutes"])
         self.assertNotIn("CMUX_WEB_TEST_RETRY_DEADLINE", env)
-        self.assertIn("CMUX_WEB_TEST_RETRY_DEADLINE=$(( CMUX_WEB_TEST_JOB_MINUTES * 60 - 480 ))", self.test_step["run"])
+        self.assertIn("left=$(( job_started + CMUX_WEB_TEST_JOB_MINUTES * 60 - 480 - now ))", self.test_step["run"])
         self.assertEqual(env["CMUX_WEB_TEST_JOBS"], "8")
         self.assertEqual(env["CMUX_WEB_TEST_SIZED_FOR_VCPU"], "16")
         early = next(s for s in self.jobs["react-apps-base-early"]["steps"] if s["name"] == "Run the base reds")
