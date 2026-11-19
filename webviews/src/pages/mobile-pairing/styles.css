@@ -101,7 +101,38 @@
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  margin: 4px 0 14px;
+  margin: 10px 0 4px;
+}
+
+.pairing-another {
+  margin-top: 8px;
+}
+
+/* "Pair another way": a quiet text button; hover and press change only its fill. */
+.pairing-link {
+  margin-left: -6px;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  padding: 2px 6px;
+  background: transparent;
+  color: var(--cmux-accent, LinkText);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
+  cursor: default;
+}
+
+.pairing-link:hover {
+  background: var(--ds-color-hover);
+}
+
+.pairing-link:active {
+  background: var(--ds-color-pressed);
+}
+
+.pairing-link:focus-visible {
+  outline: 2px solid var(--cmux-accent, currentColor);
+  outline-offset: 1px;
 }
 
 .pairing-qr {

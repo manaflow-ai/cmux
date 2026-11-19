@@ -1,12 +1,13 @@
 // The Mobile Pairing page (palette "Open Mobile Pairing", Settings > Accounts, the composer's
 // machine picker): three steps to a phone that reaches this Mac (sign in, iPhone connections, the
 // iPhone host), the button for the one missing step, then how to connect, the phones asking to
-// connect (Allow, Don't Allow) and the account's phones. A QR code shows only when the host sends
-// one; it sends none until cmux on iPhone opens a pairing link.
-import { useEffect, useSyncExternalStore } from "react";
+// connect (Allow, Don't Allow) and the account's phones. A phone signed in to the same account
+// already lists this Mac, so the host's QR code (a one-time pre-approval that skips the Allow
+// prompt) stays behind "Pair another way" until the person asks for it.
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import type { MobilePairingStore } from "./store";
-import type { MobilePairingStatus, PairingHost, PairingState } from "./types";
+import type { MobilePairingStatus, PairingHost, PairingQR, PairingState } from "./types";
 
 const ORDER: PairingState[] = ["signedOut", "accessOff", "preparing", "ready"];
 
@@ -154,21 +155,47 @@ function Content({ status, store, strings }: Props) {
     case "ready":
       return (
         <div className="pairing-panel pairing-ready">
-          {status.qr && (
-            <figure className="pairing-code">
-              <img className="pairing-qr" src={status.qr.image} alt={strings.t("mobilePairing.page.qrAlt")} />
-              <figcaption className="pairing-body">{strings.t("mobilePairing.page.ready.scan")}</figcaption>
-            </figure>
-          )}
           {status.qr && status.account ? (
-            <p className="pairing-body">{strings.format("mobilePairing.page.ready.list", status.account)}</p>
+            <p className="pairing-body pairing-open">
+              {strings.format("mobilePairing.page.ready.open", status.account)}
+            </p>
           ) : (
             status.host?.how && <p className="pairing-body pairing-how">{status.host.how}</p>
           )}
+          {status.qr && <PairAnotherWay qr={status.qr} strings={strings} />}
           <Footer status={status} store={store} strings={strings} />
         </div>
       );
   }
+}
+
+/**
+ * The QR code, folded away: a phone on the same account already lists this Mac. Open, it pairs a
+ * phone from the camera without the Allow prompt (and moves it to this Mac's team); a new code
+ * from the host keeps it open.
+ */
+function PairAnotherWay({ qr, strings }: { qr: PairingQR; strings: Strings }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="pairing-another">
+      <button
+        type="button"
+        className="pairing-link"
+        data-action="pair-another-way"
+        aria-expanded={shown}
+        aria-controls="pairing-code"
+        onClick={() => setShown((open) => !open)}
+      >
+        {strings.t(shown ? "mobilePairing.page.hideCode" : "mobilePairing.page.pairAnotherWay")}
+      </button>
+      {shown && (
+        <figure id="pairing-code" className="pairing-code">
+          <img className="pairing-qr" src={qr.image} alt={strings.t("mobilePairing.page.qrAlt")} />
+          <figcaption className="pairing-body">{strings.t("mobilePairing.page.ready.scan")}</figcaption>
+        </figure>
+      )}
+    </div>
+  );
 }
 
 function Footer({ status, store, strings }: Props) {

@@ -1,7 +1,8 @@
 // The Mobile Pairing page (cmux-page://cmux.mobile-pairing/) over a fake host: it loads the
 // status, asks again on every change event, names the one missing step with its button, shows the
-// iPhone host's status, its waiting requests (Allow, Don't Allow) and phones once ready, shows a QR
-// code only when the host sends one, asks for a new code when the shown one expires, and a missing
+// iPhone host's status, its waiting requests (Allow, Don't Allow) and phones once ready, keeps the
+// host's QR code behind "Pair another way" until the person opens it, asks for a new code when the
+// shown one expires, and a missing
 // host says so instead of loading forever.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -228,21 +229,49 @@ test("the page names the missing step, then the host's status, requests and phon
   expect(host.querySelector(".pairing-phones-error")?.textContent).toBe("Couldn't read your phones.");
   expect(host.textContent).not.toContain("No phones yet.");
 
-  // A code the host sends shows, with the account line in place of how to connect.
-  fake.set({
+  // A code the host sends stays folded behind "Pair another way": the account line says the phone
+  // already lists this Mac, and no QR shows until the person asks for it.
+  const withCode = (image: string): MobilePairingStatus => ({
     ...BASE,
     state: "ready",
     allowed: true,
     account: "me@example.com",
     host: HOST,
-    qr: { url: "cmux-dev://attach?t=1", image: "data:image/png;base64,AAAA", expiresAt: Date.now() + 600_000 },
+    qr: { url: "cmux-dev://attach?t=1", image, expiresAt: Date.now() + 600_000 },
   });
+  fake.set(withCode("data:image/png;base64,AAAA"));
   await act(async () => fake.emit());
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(host.querySelector("img.pairing-qr")).toBeNull();
+  expect(host.querySelector(".pairing-how")).toBeNull();
+  expect(host.querySelector(".pairing-open")?.textContent).toBe(
+    "Open cmux on your iPhone, signed in as me@example.com: this Mac is in its list of Macs.",
+  );
+  const another = host.querySelector<HTMLButtonElement>("[data-action=pair-another-way]");
+  expect(another?.textContent).toBe("Pair another way");
+  expect(another?.getAttribute("aria-expanded")).toBe("false");
+
+  // Opened, the code shows with how to scan it; a new code from the host keeps it open.
+  await act(async () => another!.click());
   expect(host.querySelector<HTMLImageElement>("img.pairing-qr")?.getAttribute("src")).toBe(
     "data:image/png;base64,AAAA",
   );
-  expect(host.querySelector(".pairing-how")).toBeNull();
+  expect(host.querySelector(".pairing-code figcaption")?.textContent).toBe(
+    "Scan this code with your iPhone camera to open this Mac in cmux.",
+  );
+  expect(another?.textContent).toBe("Hide QR code");
+  expect(another?.getAttribute("aria-expanded")).toBe("true");
+  fake.set(withCode("data:image/png;base64,BBBB"));
+  await act(async () => fake.emit());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(host.querySelector<HTMLImageElement>("img.pairing-qr")?.getAttribute("src")).toBe(
+    "data:image/png;base64,BBBB",
+  );
+
+  // Hide QR code folds it again.
+  await act(async () => host.querySelector<HTMLButtonElement>("[data-action=pair-another-way]")!.click());
+  expect(host.querySelector("img.pairing-qr")).toBeNull();
+  expect(host.querySelector("[data-action=pair-another-way]")?.textContent).toBe("Pair another way");
 
   fake.set({ ...BASE, state: "failed", allowed: true, account: "me@example.com", failure: "relay refused" });
   await act(async () => fake.emit());

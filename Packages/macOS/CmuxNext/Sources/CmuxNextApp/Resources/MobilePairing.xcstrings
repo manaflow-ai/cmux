@@ -394,6 +394,137 @@
         }
       }
     },
+    "mobilePairing.page.hideCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide QR code"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء رمز QR"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakrij QR kod"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul QR-kode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR-Code ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar código QR"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer le code QR"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi codice QR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QRコードを隠す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់កូដ QR"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR 코드 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul QR-kode"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukryj kod QR"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar código QR"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть QR-код"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนคิวอาร์โค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR kodunu gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховати QR-код"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn mã QR"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏二维码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏 QR 碼"
+          }
+        }
+      }
+    },
     "mobilePairing.page.loadFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -787,6 +918,137 @@
         }
       }
     },
+    "mobilePairing.page.pairAnotherWay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair another way"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإقران بطريقة أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uparite na drugi način"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par på en anden måde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf andere Weise koppeln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vincular de otra forma"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jumeler autrement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbina in un altro modo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の方法でペアリング"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្គូផ្គងតាមវិធីផ្សេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 방법으로 페어링"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par på en annen måte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparuj w inny sposób"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parear de outro jeito"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Связать другим способом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จับคู่ด้วยวิธีอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka bir yolla eşleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Під’єднати іншим способом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghép nối theo cách khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以其他方式配对"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以其他方式配對"
+          }
+        }
+      }
+    },
     "mobilePairing.page.preparing": {
       "extractionState": "manual",
       "localizations": {
@@ -1049,133 +1311,133 @@
         }
       }
     },
-    "mobilePairing.page.ready.list": {
+    "mobilePairing.page.ready.open": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Or open cmux on your iPhone, signed in as %@: this Mac is in its list of Macs."
+            "value": "Open cmux on your iPhone, signed in as %@: this Mac is in its list of Macs."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أو افتح cmux على iPhone مسجّلاً الدخول باسم %@: هذا الـ Mac موجود في قائمة أجهزة Mac."
+            "value": "افتح cmux على iPhone مسجّلاً الدخول باسم %@: هذا الـ Mac موجود في قائمة أجهزة Mac."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ili otvorite cmux na iPhoneu, prijavljeni kao %@: ovaj Mac je na listi Macova."
+            "value": "Otvorite cmux na iPhoneu, prijavljeni kao %@: ovaj Mac je na listi Macova."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eller åbn cmux på din iPhone, logget ind som %@: denne Mac står på listen over Macs."
+            "value": "Åbn cmux på din iPhone, logget ind som %@: denne Mac står på listen over Macs."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oder öffne cmux auf deinem iPhone, angemeldet als %@: Dieser Mac steht in der Liste der Macs."
+            "value": "Öffne cmux auf deinem iPhone, angemeldet als %@: Dieser Mac steht in der Liste der Macs."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "O abre cmux en tu iPhone con la sesión de %@: este Mac aparece en su lista de Mac."
+            "value": "Abre cmux en tu iPhone con la sesión de %@: este Mac aparece en su lista de Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ou ouvrez cmux sur votre iPhone, connecté en tant que %@ : ce Mac figure dans sa liste de Mac."
+            "value": "Ouvrez cmux sur votre iPhone, connecté en tant que %@ : ce Mac figure dans sa liste de Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oppure apri cmux sull’iPhone con l’account %@: questo Mac è nell’elenco dei Mac."
+            "value": "Apri cmux sull’iPhone con l’account %@: questo Mac è nell’elenco dei Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "または、%@としてサインインしたiPhoneでcmuxを開いてください。このMacがMacの一覧に表示されます。"
+            "value": "%@としてサインインしたiPhoneでcmuxを開いてください。このMacがMacの一覧に表示されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ឬបើក cmux នៅលើ iPhone ដែលបានចូលជា %@៖ Mac នេះមាននៅក្នុងបញ្ជី Mac។"
+            "value": "បើក cmux នៅលើ iPhone ដែលបានចូលជា %@៖ Mac នេះមាននៅក្នុងបញ្ជី Mac។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "또는 %@(으)로 로그인한 iPhone에서 cmux를 여세요. 이 Mac이 Mac 목록에 표시됩니다."
+            "value": "%@(으)로 로그인한 iPhone에서 cmux를 여세요. 이 Mac이 Mac 목록에 표시됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eller åpne cmux på iPhonen, logget på som %@: denne Macen står i listen over Macer."
+            "value": "Åpne cmux på iPhonen, logget på som %@: denne Macen står i listen over Macer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Albo otwórz cmux na iPhonie zalogowanym jako %@: ten Mac jest na liście Maców."
+            "value": "Otwórz cmux na iPhonie zalogowanym jako %@: ten Mac jest na liście Maców."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ou abra o cmux no iPhone com a sessão de %@: este Mac aparece na lista de Macs."
+            "value": "Abra o cmux no iPhone com a sessão de %@: este Mac aparece na lista de Macs."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Или откройте cmux на iPhone с учётной записью %@: этот Mac есть в списке Mac."
+            "value": "Откройте cmux на iPhone с учётной записью %@: этот Mac есть в списке Mac."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "หรือเปิด cmux บน iPhone ที่ลงชื่อเข้าใช้เป็น %@ แล้ว Mac เครื่องนี้จะอยู่ในรายการ Mac"
+            "value": "เปิด cmux บน iPhone ที่ลงชื่อเข้าใช้เป็น %@ แล้ว Mac เครื่องนี้จะอยู่ในรายการ Mac"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ya da %@ olarak giriş yapılmış iPhone’unda cmux’u aç: bu Mac, Mac listesinde."
+            "value": "%@ olarak giriş yapılmış iPhone’unda cmux’u aç: bu Mac, Mac listesinde."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Або відкрийте cmux на iPhone, де ви ввійшли як %@: цей Mac є у списку Mac."
+            "value": "Відкрийте cmux на iPhone, де ви ввійшли як %@: цей Mac є у списку Mac."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hoặc mở cmux trên iPhone đã đăng nhập %@: máy Mac này có trong danh sách máy Mac."
+            "value": "Mở cmux trên iPhone đã đăng nhập %@: máy Mac này có trong danh sách máy Mac."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "或者在以 %@ 登录的 iPhone 上打开 cmux：这台 Mac 会出现在 Mac 列表中。"
+            "value": "在以 %@ 登录的 iPhone 上打开 cmux：这台 Mac 会出现在 Mac 列表中。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "或在以 %@ 登入的 iPhone 上開啟 cmux：這台 Mac 會出現在 Mac 列表中。"
+            "value": "在以 %@ 登入的 iPhone 上開啟 cmux：這台 Mac 會出現在 Mac 列表中。"
           }
         }
       }
