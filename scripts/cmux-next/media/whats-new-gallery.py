@@ -5,6 +5,7 @@
     whats-new-gallery.py manifest --plan PLAN.json --cases ALL.json [--notes NOTES.json] [--covers COVERS.json]
                           [--parent SHA] --out MANIFEST.json
     whats-new-gallery.py parents --plan PLAN.json                     the commits to render befores at
+    whats-new-gallery.py grafts --plan PLAN.json --parent SHA         the gallery files to write there
     whats-new-gallery.py publish --plan PLAN.json --results DIR       privacy check, then upload
 
 Leo, 2026-10-20: "tho i think vids and before/afters for our techincal stuff is p important... we
@@ -27,7 +28,9 @@ whats-new-gallery.yml runs this on each push to feat-cmux-next that changes a hi
   added one to, else the first entry's first variant), writes them back to the plan, and keeps, from
   webviews/scripts/gallery/manifest.ts's cases (default dark theme, normal width, component frame),
   the one case per planned state, named HIGHLIGHT--ROLE; with `--parent SHA`, from the cases of the
-  checkout at SHA, the befores rendered there (the same state, else the entry's first one);
+  checkout at SHA, the befores rendered there (the same state, never another one); a state the
+  highlight's commit added is rendered there from its gallery file as that commit wrote it (`grafts`),
+  so the new variant draws the components as they were before the change;
 - scripts/gallery-matrix/runner.ts renders them in Chromium;
 - `publish` crops each picture to what it shows (the stage's empty background off, a small margin
   kept; an after and its before to the same box, so they line up), then reads it through
@@ -144,6 +147,7 @@ def plan(days: int, everything: bool, exists=published) -> list[dict]:
                             continue
                 if role == "before":
                     row["parent"] = git("rev-parse", f"{commit}^").strip()
+                    row["commit"] = commit
             if row["state"]:
                 row["entry"], _, row["variant"] = row["state"].partition("/")
             rows.append(row)
@@ -281,9 +285,11 @@ def resolve(rows: list[dict], cases: list[dict], text_at=show, notes: dict | Non
             covers: dict | None = None) -> tuple[list[dict], list[str]]:
     """The rows with their inferred states filled in, and the highlights none could be picked for. A before
     with no `before:` line takes the old look its entry marks (``marked_before``), rendered now beside the
-    after; only an entry that marks none renders the after's state at the commit before the highlight's, and only
-    when its gallery file has that state there: a state its commit added has no look to render (a new file's
-    cards, 2026-11-09), so it is named as missing instead of rendering nothing at a checkout there."""
+    after; only an entry that marks none renders the after's state at the commit before the highlight's. A state its
+    commit added is not in the gallery file there (new-tab-run-command's typed-command, 2026-11-17, shipped with no
+    before), so the row names that file (`graft`): written into the checkout at the parent as the highlight's commit
+    wrote it, the new variant drives the components as they were, which is the old look. A graft whose imports the
+    parent lacks renders nothing there, and publish names it."""
     out, missing = [], []
     for row in rows:
         if not row.get("state"):
@@ -302,10 +308,12 @@ def resolve(rows: list[dict], cases: list[dict], text_at=show, notes: dict | Non
                 row = {key: value for key, value in row.items() if key != "parent"} | {"state": old}
             elif (source := _source(row["state"], cases)) and not _key(row["state"].partition("/")[2]).search(
                     text_at(row["parent"], f"webviews/{source}") or ""):
-                missing.append(f"{row['id']} before: {row['state']} is new in its commit, not in {source} at "
-                               f"{row['parent'][:12]}; give its gallery file the old look, a variant whose note "
-                               "opens \"Before:\"")
-                continue
+                if not row.get("commit"):
+                    missing.append(f"{row['id']} before: {row['state']} is new in its commit, not in {source} at "
+                                   f"{row['parent'][:12]}; give its gallery file the old look, a variant whose note "
+                                   "opens \"Before:\"")
+                    continue
+                row = {**row, "graft": f"webviews/{source}"}
         row["entry"], _, row["variant"] = row["state"].partition("/")
         out.append(row)
     return out, missing
@@ -481,6 +489,9 @@ def main(argv: list[str] | None = None) -> int:
     a = sub.add_parser("parents")
     a.add_argument("--plan", type=Path, required=True)
     a.add_argument("--limit", type=int, default=4)
+    g = sub.add_parser("grafts")
+    g.add_argument("--plan", type=Path, required=True)
+    g.add_argument("--parent", required=True)
     u = sub.add_parser("publish")
     u.add_argument("--plan", type=Path, required=True)
     u.add_argument("--results", type=Path, required=True)
@@ -498,6 +509,12 @@ def main(argv: list[str] | None = None) -> int:
         newest = sorted((r for r in rows if r.get("parent")), key=lambda r: -r.get("born", 0))
         parents = list(dict.fromkeys(r["parent"] for r in newest))
         print(" ".join(parents[:args.limit]))
+        return 0
+    if args.cmd == "grafts":
+        # COMMIT PATH per line: the gallery files to write into the checkout at --parent, as those commits wrote them.
+        for graft in dict.fromkeys((r["commit"], r["graft"]) for r in rows
+                                   if r.get("parent") == args.parent and r.get("graft")):
+            print(*graft)
         return 0
     if args.cmd == "manifest":
         cases = json.loads(args.cases.read_text())

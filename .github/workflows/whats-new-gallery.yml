@@ -122,6 +122,13 @@ jobs:
               git -C "$GITHUB_WORKSPACE" worktree add --no-checkout --detach "$at" "$parent" &&
               git -C "$at" sparse-checkout set --no-cone '/*' '!/cmux-next-ios/verify/' &&
               git -C "$at" reset -q --hard &&
+              # A state the highlight's commit added: its gallery file as that commit wrote it, so the new
+              # variant draws the components as they were there (the old look).
+              python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" grafts --plan "$out/plan.json" \
+                --parent "$parent" > "$RUNNER_TEMP/grafts-$parent" &&
+              (while read -r rev path; do
+                mkdir -p "$(dirname "$at/$path")" && git -C "$GITHUB_WORKSPACE" show "$rev:$path" > "$at/$path" || exit 1
+              done < "$RUNNER_TEMP/grafts-$parent") &&
               (cd "$at/webviews" && bun install --frozen-lockfile &&
                 bun scripts/gallery/manifest.ts --themes pair --widths normal --frame component \
                   --out "$RUNNER_TEMP/cases-$parent.json") &&
