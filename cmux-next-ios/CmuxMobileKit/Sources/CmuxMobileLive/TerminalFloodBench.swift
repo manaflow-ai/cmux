@@ -468,6 +468,9 @@ struct AgentScreen {
     private var paragraph = 0
     /// Rows the last render wrote (its trailing newline included).
     private var drawn = 0
+    /// Rows the cursor was left above the end of the last render (it waits in the input box,
+    /// as Claude Code's does, with the box's bottom edge and the hint row below it).
+    private var parkedAbove = 0
     private static let words = ("Looking at `TerminalSurfaceView.swift`, the keystroke path runs **insertText** on the main "
         + "thread and hands the bytes to the session. The reply streams while you type, so every frame redraws "
         + "the live area: the spinner, these lines and the input box below. Next I'll read `pumpOutput` and the "
@@ -497,7 +500,8 @@ struct AgentScreen {
 
     /// The bytes of one render: the erase of the last one, a finished paragraph when due, the live area.
     mutating func redraw(rows: Int) -> String {
-        var out = ""
+        // Back to the end of the last render, then erase it row by row upward.
+        var out = parkedAbove > 0 ? "\u{1B}[\(parkedAbove)B\r" : ""
         for row in 0..<drawn {
             out += "\u{1B}[2K" + (row < drawn - 1 ? "\u{1B}[1A" : "")
         }
@@ -524,6 +528,10 @@ struct AgentScreen {
                   "  \u{1B}[2m? for shortcuts\u{1B}[22m"]
         out += lines.joined(separator: "\r\n") + "\r\n"
         drawn = lines.count + 1
+        // The cursor goes to the end of the typed text in the box: 3 rows up (the hint row, the
+        // box's bottom edge, and the row after the last newline), after "│ > " and the text.
+        parkedAbove = 3
+        out += "\u{1B}[3A\u{1B}[\(5 + shown.count)G"
         return out
     }
 }
