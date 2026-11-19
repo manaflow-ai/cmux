@@ -104,18 +104,23 @@ while :; do
       esac
     done
     if [[ -z "$publisher" ]]; then
-      found="$(CMUX_TUI_TREE_SKIP_PUBLISHERS="$skip" bash "$script_dir/pin-cmux-tui.sh" active-publisher "$key" 2>/dev/null || echo unknown)"
-      case "$found" in
-        unknown) publisher=unknown ;;
-        "") ;;
-        *)
-          progress="$(bash "$script_dir/pin-cmux-tui.sh" run-progress "$found" 2>/dev/null || echo unknown)"
-          case "$progress" in
-            # none: the commit-filtered list lags the full one; the full list said active.
-            building|unknown|none) publisher="$found" ;;
-            *) stuck="the run of ${found:0:12} is $progress" ;;
-          esac ;;
-      esac
+      # active-publisher returns one same-key commit at a time. Pass over a
+      # stalled or failed run and ask again: owner and takeover runs may share
+      # a tree key, so the first match is not necessarily the viable publisher.
+      while :; do
+        found="$(CMUX_TUI_TREE_SKIP_PUBLISHERS="$skip" bash "$script_dir/pin-cmux-tui.sh" active-publisher "$key" 2>/dev/null || echo unknown)"
+        case "$found" in
+          unknown) publisher=unknown; break ;;
+          "") break ;;
+          *)
+            progress="$(bash "$script_dir/pin-cmux-tui.sh" run-progress "$found" 2>/dev/null || echo unknown)"
+            case "$progress" in
+              # none: the commit-filtered list lags the full one; the full list said active.
+              building|unknown|none) publisher="$found"; break ;;
+              *) stuck="the run of ${found:0:12} is $progress"; skip="$skip $found" ;;
+            esac ;;
+        esac
+      done
     fi
     case "$publisher" in
       unknown) idle_checks=0; echo "the cmux-tui artifacts runs could not all be read; waiting on" >&2 ;;
