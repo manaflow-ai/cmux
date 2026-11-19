@@ -58,13 +58,6 @@
       "why": "The Stashed Tabs page; a leaf page that no other page imports. Stashed groups live in the daemon, not the page, so a build without it loses no data."
     },
     {
-      "id": "webview-page:changelog",
-      "kind": "webview-page",
-      "name": "changelog",
-      "paths": ["webviews/src/pages/changelog/**"],
-      "why": "The What's New page; only the gallery and tests import it, and no first-run flow waits on it."
-    },
-    {
       "id": "gallery",
       "kind": "gallery",
       "name": "gallery",
@@ -81,6 +74,7 @@
     }
   ],
   "not_units": {
+    "changelog page": "Core, not optional: the Updated card and What's New after an update render from it (dozens of updated-card and whats-new tests import it).",
     "theme packs": "Resources/ghostty/themes and Resources/cmux-themes are data with no compile step: a bad theme file fails a test, not a compile, so there is nothing to drop.",
     "first-party apps": "first-party-apps/* commit their built dist/main.js and `bun first-party-apps/build.ts --check` gates them together; dropping one app needs build.ts to take a skip list (proposed, not built).",
     "cargo features": "PR clippy lints default features only, so no optional cargo feature compiles on a pull request today; the sim and iroh-transport feature runs are their own named steps."
