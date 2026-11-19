@@ -6,7 +6,7 @@
 
 GUI host only (cmux-lawrence-2); never on a laptop. Launches the tagged DEV or NIGHTLY app (no activation,
 automation socket, isolated Chief) and opens the Liquid Glass Parity playground (`debug.glass_parity`): every
-surface the web UI draws as glass (menu, popover, hover card, tooltip, dialog, toast) rendered natively, in a
+surface the web UI draws as glass (menu, popover, hover card, tooltip, dialog, toast, docked chrome glass) rendered natively, in a
 see-through WebKit page and in a see-through Chromium page, ON TOP OF EACH OTHER at the same boxes over one
 backdrop. For each scenario the App captures each renderer alone (`debug.window_snapshot`: the window
 server's composite, no Screen Recording grant needed) in the same frame, and writes per surface:
@@ -16,7 +16,7 @@ server's composite, no Screen Recording grant needed) in the same frame, and wri
   KIND-ENGINE-diff-STEM.png     the per-pixel difference, x8 (black is equal, an error of 32 is white)
   window-STEM-RENDERER.png, window-STEM-ENGINE-onion.png, window-STEM-ENGINE-diff.png   the whole stage
 
-STEM names the scenario: backdrop[-color|-oOPACITY][-sOFFSET]-mode-active|inactive-appearance[-rt][-ic]-Sx.
+STEM names the scenario: backdrop[-color|-oOPACITY][-sOFFSET]-mode-active|inactive[-hover|-pressed]-appearance[-rt][-ic]-Sx.
 
 THE SCENARIO MATRIX IS THE REGRESSION GATE (SCENARIOS below): every host-mode cell (a surface in one engine in
 one scenario) must match the native glass within GATE (mean and p99 of the per-pixel worst-channel error over
@@ -25,8 +25,18 @@ measured, and writes results.json and summary.md (the matrix). `css` scenarios m
 without the App's (the path a web surface takes when no host glass is under it): reported, not gated.
 
 1x needs a 1x screen: --vdisplay starts a 1x virtual display (scripts/ci/frame-pacing/vdisplay.m) for the run.
-Reduce Transparency is the App's own override (`debug.reduce_transparency`); Increase Contrast is the Mac's
-setting and is measured only when it is on (`ic` in the stem).
+Reduce Transparency is the App's own override (`debug.reduce_transparency`). Increase Contrast has no override
+the App could honour: the system's Liquid Glass and the pages' `prefers-contrast` read the Mac's setting, so an
+`ic` scenario turns the Mac's setting on (`defaults write com.apple.universalaccess increaseContrast`, the test
+Mac only), checks that the App sees it (`increase_contrast` in the playground's status), and puts it back after;
+when the Mac refuses the write (the domain needs the runner's Full Disk Access) the scenario is skipped, with
+the reason, and never passes.
+
+The menu's row states (`row`: hover, pressed) draw the native row's highlight (PopupRowView's hover and pressed
+fills) and the web menu's own highlighted row (ui.css, popupSurface.css) at the same box.
+
+A backdrop that moves is measured frame by frame at fixed offsets (`offset`): each renderer is captured alone,
+one after the other, so a capture mid-motion would compare two different frames of Liquid Glass's adaptive look.
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
 
@@ -62,6 +72,11 @@ BASE = [
     {"backdrop": "wallpaper", "active": False},           # an inactive window
     {"backdrop": "plain", "rt": True},                    # Reduce Transparency
     {"backdrop": "wallpaper", "rt": True},
+    {"backdrop": "plain", "row": "hover"},                # the menu's row under the pointer
+    {"backdrop": "wallpaper", "row": "hover"},
+    {"backdrop": "wallpaper", "row": "pressed"},
+    {"backdrop": "plain", "ic": True},                    # Increase Contrast (the Mac's setting)
+    {"backdrop": "wallpaper", "ic": True},
 ]
 CSS = [{"backdrop": "plain", "mode": "css"}, {"backdrop": "wallpaper", "mode": "css"}]
 QUICK = [{"backdrop": "plain"}, {"backdrop": "wallpaper"}, {"backdrop": "terminal", "opacity": 0.6}]
@@ -71,6 +86,28 @@ def scenarios():
     if opts.matrix == "quick":
         return [dict(s, mode="host") for s in QUICK]
     return [dict({"mode": "host"}, **s) for s in BASE] + CSS
+
+
+UA_DOMAIN = "com.apple.universalaccess"
+
+
+def read_increase_contrast():
+    out = subprocess.run(["defaults", "read", UA_DOMAIN, "increaseContrast"], capture_output=True, text=True)
+    return out.stdout.strip() == "1" if out.returncode == 0 else None
+
+
+def set_increase_contrast(on):
+    """Sets the Mac's Increase Contrast (the test Mac only); answers the error text when the Mac refuses it."""
+    out = subprocess.run(["defaults", "write", UA_DOMAIN, "increaseContrast", "-bool", "true" if on else "false"],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        return (out.stderr or out.stdout).strip() or f"defaults exited {out.returncode}"
+    subprocess.run(["notifyutil", "-p", "com.apple.accessibility.cache.enhance.background.contrast"], capture_output=True)
+    return None
+
+
+IC_BEFORE = read_increase_contrast()
+ic_refused = None
 
 
 def rpc(method, params=None, timeout=180):
@@ -144,20 +181,37 @@ try:
         time.sleep(1.0)  # capture harness: the theme repaints
         for scale in (2.0, 1.0):
             for scenario in scenarios():
-                rpc("debug.reduce_transparency", {"enabled": bool(scenario.get("rt"))})
-                params = {k: v for k, v in scenario.items() if k != "rt"}
-                params.setdefault("offset", 0)
-                params.setdefault("active", True)
-                params.setdefault("opacity", 1)
-                params.update({"scale": scale, "measure": True, "dir": opts.out})
                 label = json.dumps(dict(scenario, appearance=appearance, scale=scale))
                 if opts.only and opts.only not in label:
                     continue
+                want_ic = bool(scenario.get("ic"))
+                if want_ic and ic_refused:
+                    skipped.append(f"{label}: Increase Contrast not settable ({ic_refused})")
+                    continue
+                if want_ic or read_increase_contrast():
+                    refused = set_increase_contrast(want_ic)
+                    if refused and want_ic:
+                        ic_refused = refused
+                        skipped.append(f"{label}: Increase Contrast not settable ({refused})")
+                        print("skip", skipped[-1], flush=True)
+                        continue
+                    time.sleep(1.0)  # capture harness: the system glass and the pages repaint for the setting
+                rpc("debug.reduce_transparency", {"enabled": bool(scenario.get("rt"))})
+                params = {k: v for k, v in scenario.items() if k not in ("rt", "ic")}
+                params.setdefault("offset", 0)
+                params.setdefault("active", True)
+                params.setdefault("opacity", 1)
+                params.setdefault("row", "rest")
+                params.update({"scale": scale, "measure": True, "dir": opts.out})
                 reply = rpc("debug.glass_parity", params) or {}
                 status = reply.get("status") or {}
                 if status.get("scale") is not None and abs(float(status["scale"]) - scale) > 0.01:
                     skipped.append(f"{label}: no {scale:g}x screen (window at {status['scale']}x)")
                     print("skip", skipped[-1], flush=True)
+                    continue
+                if want_ic and status.get("increase_contrast") is not True:
+                    failures.append(f"{label}: the App does not see Increase Contrast after the Mac's setting changed")
+                    print("error", failures[-1], flush=True)
                     continue
                 results.append({"scenario": scenario, "appearance": appearance, "scale": scale, "reply": reply})
                 if reply.get("error") or not reply.get("cells"):
@@ -183,6 +237,10 @@ try:
                 print(f"{reply['stem']}: worst mean {worst:.3f} rt={status.get('reduce_transparency')} "
                       f"key={status.get('key')} host_glass={status.get('host_glass')}", flush=True)
 finally:
+    if IC_BEFORE is not None and read_increase_contrast() != IC_BEFORE:
+        set_increase_contrast(IC_BEFORE)
+    elif IC_BEFORE is None and read_increase_contrast():
+        set_increase_contrast(False)
     rpc("debug.reduce_transparency", {"enabled": None})
     rpc("debug.glass_parity", {"close": True})
     rpc("debug.appearance", {"mode": "system"})
