@@ -5,7 +5,7 @@
 //!
 //! Prints `TTI-BENCH launch_record_read rows=<n> n=<reads> median_ms=<ms> bytes=<size>`.
 //!
-//! cd cmux-tui && cargo test --release -p cmux-launch-record --test launch_read_bench -- --ignored --nocapture
+//! cd cmux-tui/crates/cmux-launch-record && cargo test --release --test launch_read_bench -- --ignored --nocapture
 
 use cmux_launch_record::{
     Frame, LaunchRecord, LaunchRecordData, SidebarRow, WindowRecord, write_atomic,
