@@ -26,6 +26,9 @@ nonisolated enum WorkspaceVerbStrings {
     static var subgroupTooDeep: String { text("workspaceVerbs.refusal.subgroupTooDeep", "groups nest at most 16 levels deep") }
     static var subgroupNeedsDocument: String { text("workspaceVerbs.refusal.subgroupNeedsDocument", "this sidebar cannot nest groups yet") }
     static var expandGroup: String { text("workspaceVerbs.expandGroup", "Expand Group") }
+    /// Show Nested Sessions while the session tree (`sidebar.sessionTree`) is off, and on a workspace that started none.
+    static var sessionTreeOff: String { text("workspaceVerbs.refusal.sessionTreeOff", "the Session Tree is off") }
+    static var noNestedSessions: String { text("workspaceVerbs.refusal.noNestedSessions", "the workspace started no other sessions") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "WorkspaceVerbs", bundle: .module)

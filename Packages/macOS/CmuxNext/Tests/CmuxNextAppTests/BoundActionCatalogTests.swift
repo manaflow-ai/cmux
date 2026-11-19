@@ -20,6 +20,8 @@ struct BoundActionCatalogTests {
         // which adds these rows to the Rust catalog: until it lands and re-pins, they do nothing.
         "macScreen.viewOnly", "macScreen.fullControl", "macScreen.fullScreen", "macScreen.sendSwitchApp",
         "macScreen.sendSpotlight", "macScreen.reconnect", "macScreen.stopAllViewing",
+        // Show Nested Sessions (the workspace row's session tree toggle): its Rust row and its handler land together.
+        "workspace.toggleNestedSessions",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {

@@ -36,8 +36,12 @@ nonisolated enum ContextMenuEssentials {
         // Rename and the color row open the menu as its name field and swatches (MenuIdentityHeader,
         // Leo 2026-10-20: "like Chrome"). Duplicate remains in More so the workspace menu stays
         // within its twelve-row cap after the top-level Copy folder.
+        // Show Nested Sessions sits just above Move ▸, as the chat row's "Show nested sessions" sits above
+        // "Move to section" (Leo). It shows only on a row that started sessions of its own while the session
+        // tree is on (WorkspaceNestedSessionsHandlers), so every other row keeps twelve.
         .workspaceRow: Rows(top: [.action("renameWorkspace"), .action("palette.toggleWorkspacePin"), .choices("palette.workspaceColor"),
-                                  .action("workspace.newBelow"), .action("home.messageAbout"), .folder(.move, [])],
+                                  .action("workspace.newBelow"), .action("home.messageAbout"),
+                                  .action("workspace.toggleNestedSessions"), .folder(.move, [])],
                             group: [.choices("moveWorkspaceToGroup"), .action("groupSelectedWorkspaces"), .action("removeWorkspaceFromGroup")],
                             close: ["closeWorkspace"], beforeMore: copyFolder),
         // New Tab to the Right and the group rows stay at the top (Lawrence 2026-10-14, "my groups
