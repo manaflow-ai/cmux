@@ -58,21 +58,15 @@ extension AgentPaneView {
     }
 
     private func makeHostGlassView(_ surface: AgentPaneHostGlassSurface, in container: NSView) -> OverlaySurfaceView {
-        let view = Glass.makeSurface(Self.hostGlassRole(surface.level), interactive: false)
+        let view = Glass.makeHostSurface(level: surface.level, role: surface.role)
         view.translatesAutoresizingMaskIntoConstraints = true
         container.addSubview(view)
         model.hostGlass.views[surface.id] = view
         return view
     }
 
-    /// The overlay role whose glass a level draws: popovers and menus their own, chips a tooltip's.
-    static func hostGlassRole(_ level: GlassLevel) -> SurfaceRole {
-        switch level {
-        case .menu: .menu
-        case .chip: .tooltip
-        case .chrome, .popover: .popover
-        }
-    }
+    /// The overlay role whose glass a level draws (``Glass/hostGlassRole(_:)``).
+    static func hostGlassRole(_ level: GlassLevel) -> SurfaceRole { Glass.hostGlassRole(level) }
 
     /// A surface's viewport box (top-left CSS pixels) in a page frame `page` at `zoom`, in the
     /// coordinates `page` is in.
