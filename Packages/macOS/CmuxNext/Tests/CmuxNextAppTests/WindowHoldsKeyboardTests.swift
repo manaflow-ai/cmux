@@ -18,7 +18,7 @@ import Testing
 struct WindowHoldsKeyboardTests {
     /// `CefNSWindow`, a Chromium page window's class: the app has it from the Chromium framework, a
     /// test process makes a stand-in of the same name.
-    private static func pageWindowClass() throws -> NSWindow.Type {
+    static func pageWindowClass() throws -> NSWindow.Type {
         if let existing = objc_lookUpClass("CefNSWindow") { return try #require(existing as? NSWindow.Type) }
         let made: AnyClass = try #require(objc_allocateClassPair(NSWindow.self, "CefNSWindow", 0))
         objc_registerClassPair(made)

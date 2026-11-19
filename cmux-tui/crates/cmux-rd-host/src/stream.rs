@@ -19,8 +19,12 @@ use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
-use cmux_rd_proto::FrameTimes;
+use cmux_rd_proto::{DatagramHeader, DatagramKind, FrameTimes};
+use paced::{PacedFrame, PacedFrames};
 use std::collections::VecDeque;
+
+#[path = "stream_paced.rs"]
+mod paced;
 
 #[derive(Clone)]
 pub struct SessionCfg {
@@ -97,54 +101,17 @@ pub struct MediaSession {
     ledger: bool,
 }
 
-/// A frame in the pacer whose send times are still owed to its timing line or the ledger.
-struct PacedFrame {
-    /// Its datagrams not yet handed to the carrier.
-    remaining: usize,
-    stream: u16,
-    frame: u32,
-    times: FrameTimes,
-    /// Its timing line, without the send times.
-    line: Option<serde_json::Value>,
-}
-
-/// The frames in the pacer, oldest first, matched to the datagrams it releases. The pacer keeps
-/// frame order, so the oldest frame owns the first datagrams due.
-#[derive(Default)]
-struct PacedFrames(VecDeque<PacedFrame>);
-
-impl PacedFrames {
-    fn push(&mut self, frame: PacedFrame) {
-        self.0.push_back(frame);
-    }
-
-    /// `count` datagrams were handed to the carrier between `first_us` and `last_us`: stamps
-    /// each frame's first send and returns the frames whose last datagram went.
-    fn sent(&mut self, mut count: usize, first_us: u64, last_us: u64) -> Vec<PacedFrame> {
-        let mut done = Vec::new();
-        while count > 0 {
-            let Some(front) = self.0.front_mut() else { break };
-            if front.times.first_sent_us == 0 {
-                front.times.first_sent_us = first_us;
-            }
-            let take = count.min(front.remaining);
-            front.remaining -= take;
-            count -= take;
-            if front.remaining > 0 {
-                break;
-            }
-            if let Some(mut frame) = self.0.pop_front() {
-                frame.times.last_sent_us = last_us;
-                done.push(frame);
-            }
-        }
-        done
-    }
-}
-
 /// Whether frames are paced (`CMUX_RD_PACE=0` turns it off, for A/B measurement).
 fn pacing_enabled() -> bool {
     std::env::var_os("CMUX_RD_PACE").is_none_or(|v| v != "0")
+}
+
+/// A frame shard or parity datagram: what the engine resends on a NACK or a tail-loss
+/// probe. These go through the pacer; input acks and clock pongs (small, latency-bound)
+/// do not.
+fn is_media_datagram(datagram: &[u8]) -> bool {
+    DatagramHeader::decode(datagram)
+        .is_ok_and(|(header, _)| matches!(header.kind, DatagramKind::Video | DatagramKind::Fec))
 }
 
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
@@ -605,11 +572,13 @@ impl MediaSession {
         let Some(pacer) = self.pacer.as_mut() else { return Ok(()) };
         let now = now_us();
         let due = pacer.due(now);
+        // Repairs left first; only the frame datagrams count toward a frame's send time.
+        let left = pacer.take_frame_datagrams_sent();
         for datagram in &due {
             carrier.send_datagram(datagram)?;
             self.engine.datagram_sent(datagram, now);
         }
-        for done in self.paced.sent(due.len(), now, now_us()) {
+        for done in self.paced.sent(left, now, now_us()) {
             if self.ledger {
                 // Measurement only: a lost one leaves the viewer's row without host times.
                 let _ = carrier.send_datagram(&done.times.datagram(done.stream, done.frame));
@@ -621,19 +590,48 @@ impl MediaSession {
         Ok(())
     }
 
+    /// D12: the path came back from an outage. What queued in the pacer while the
+    /// radio was away delays the newest picture, but dropping a frame the encoder
+    /// predicts from costs a keyframe; the engine picks the whole unstarted frames
+    /// worth dropping (`outage_drop_plan`). They leave the queue and its timing
+    /// lines, then the engine retires them (else their missing receipts read as
+    /// loss) and makes the next frame a keyframe where one is needed.
+    fn drop_stale_queue(&mut self, out: &mut Output) {
+        let Some(pacer) = self.pacer.as_mut() else { return };
+        let drop = self.engine.outage_drop_plan(pacer.queued(), out);
+        if drop.is_empty() {
+            return;
+        }
+        let is_dropped = |d: &[u8]| {
+            DatagramHeader::decode(d).is_ok_and(|(h, _)| {
+                matches!(h.kind, DatagramKind::Video | DatagramKind::Fec)
+                    && drop.contains(&(h.stream, h.frame))
+            })
+        };
+        let stale = pacer.take_where(is_dropped);
+        self.paced.forget(|stream, frame| drop.contains(&(stream, frame)));
+        trace(&format!(
+            "outage ended: dropped {} queued datagrams of {} unstarted frames",
+            stale.len(),
+            drop.len()
+        ));
+        self.engine.retire_unsent(&stale, out, now_us());
+    }
+
     /// Sends an engine output's datagrams, injects its input and hands its
     /// requested frame to the encode thread.
     fn apply(
         &mut self,
         carrier: &mut dyn Carrier,
-        out: Output,
+        mut out: Output,
         table: &SessionTable,
         session: SessionId,
         viewer: &Principal,
     ) {
-        for datagram in &out.datagrams {
-            let _ = carrier.send_datagram(datagram);
+        if out.outage_ended.is_some() {
+            self.drop_stale_queue(&mut out);
         }
+        self.send_output(carrier, std::mem::take(&mut out.datagrams));
         self.upstreams.deliver(&out.upstream);
         if out.release_all {
             let _ = self.desktop.release_all();
@@ -643,6 +641,29 @@ impl MediaSession {
         }
         if let Some(req) = out.encode {
             self.encoder.submit(req);
+        }
+    }
+
+    /// Sends an engine output's datagrams: resent frame shards (NACK answers, tail-loss
+    /// probes) through the pacer, ahead of queued frames, so a recovery never leaves as an
+    /// unpaced burst; everything else at once.
+    fn send_output(&mut self, carrier: &mut dyn Carrier, datagrams: Vec<Vec<u8>>) {
+        let Some(pacer) = self.pacer.as_mut() else {
+            for datagram in &datagrams {
+                let _ = carrier.send_datagram(datagram);
+            }
+            return;
+        };
+        let (repairs, direct): (Vec<_>, Vec<_>) =
+            datagrams.into_iter().partition(|d| is_media_datagram(d));
+        for datagram in &direct {
+            let _ = carrier.send_datagram(datagram);
+        }
+        if !repairs.is_empty() {
+            pacer.push_repair(repairs, self.engine.target_bps(), now_us());
+            if let Err(e) = self.send_paced(carrier) {
+                eprintln!("cmux-rd host: paced repair send failed: {e}");
+            }
         }
     }
 
@@ -729,35 +750,12 @@ impl MediaSession {
 
 #[cfg(test)]
 mod tests {
-    use super::{viewer_silent_too_long, FrameTimes, PacedFrame, PacedFrames};
+    use super::viewer_silent_too_long;
 
     #[test]
     fn viewer_silence_allows_the_ninety_second_reattach_window() {
         assert!(!viewer_silent_too_long(90_000_000));
         assert!(viewer_silent_too_long(90_000_001));
-    }
-
-    fn paced(frame: u32, remaining: usize) -> PacedFrame {
-        PacedFrame { remaining, stream: 0, frame, times: FrameTimes::default(), line: None }
-    }
-
-    #[test]
-    fn paced_frames_get_their_first_and_last_send_from_the_pacers_releases() {
-        let mut q = PacedFrames::default();
-        q.push(paced(1, 3));
-        q.push(paced(2, 2));
-        // Two of frame 1's three datagrams: nothing done yet.
-        assert!(q.sent(2, 10, 11).is_empty());
-        // Frame 1's last and frame 2's first.
-        let done = q.sent(2, 20, 21);
-        assert_eq!(done.len(), 1);
-        let (f1, t1) = (done[0].frame, done[0].times);
-        assert_eq!((f1, t1.first_sent_us, t1.last_sent_us), (1, 10, 21));
-        // Frame 2's last: its first send was the release at 20, not this one.
-        let done = q.sent(1, 30, 31);
-        let (f2, t2) = (done[0].frame, done[0].times);
-        assert_eq!((f2, t2.first_sent_us, t2.last_sent_us), (2, 20, 31));
-        assert!(q.sent(5, 40, 41).is_empty());
     }
 }
 
@@ -767,7 +765,7 @@ mod encode_off_loop_tests {
     use crate::carrier::{Carrier, Incoming};
     use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, PrincipalClass};
     use cmux_rd_core::session::StartRequest;
-    use cmux_rd_proto::{DatagramHeader, DatagramKind, InputEvent, InputPacket};
+    use cmux_rd_proto::{InputEvent, InputPacket};
     use std::os::fd::{AsRawFd, RawFd};
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
@@ -970,3 +968,10 @@ mod encode_off_loop_tests {
         );
     }
 }
+
+/// D12 detector, host half: when an outage ends, what queued in the pacer during it never
+/// goes out, its missing receipts are not loss, and the newest frame goes out next as a
+/// keyframe.
+#[cfg(test)]
+#[path = "stream_outage_tests.rs"]
+mod outage_drop_tests;

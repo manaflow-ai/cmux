@@ -173,10 +173,11 @@ export function SubagentComposer({
             <ArrowUpIcon />
           </button>
         }
-        // The quiet row's middle names the chat that passes the message on (where the chat's own
-        // composer draws its look dots).
-        bottom={<span className="cv-subagent-composer-via">{t("subagents.messageVia", { name: chat })}</span>}
       />
+      {/* The chat that passes the message on, on its own line under the box. Not ComposerBox's
+          `bottom`: that host has no height and draws over a chat's quiet row, which this composer
+          has none of, so the line stood on the prompt's own row, over its placeholder (#45911). */}
+      <p className="cv-subagent-composer-via">{t("subagents.messageVia", { name: chat })}</p>
     </form>
   );
 }

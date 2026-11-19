@@ -18,6 +18,9 @@ pub(crate) struct Candidate {
     pub(crate) id: String,
     #[serde(default)]
     pub(crate) title: String,
+    /// The machine's disk in MB as the App's list knows it (`disk_mb`); None for a list that names none.
+    #[serde(default)]
+    pub(crate) disk_mb: Option<i64>,
 }
 
 /// The name a machine made for chats gets.

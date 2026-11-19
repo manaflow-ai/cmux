@@ -44,6 +44,8 @@ final class CEFPaneHost {
     /// API 11): the hidden Chromium window this popup host attaches to its
     /// view when the panel first shows it (`CEFPaneHost+PopupWindows`).
     var popupWindow: Int32?
+    /// Closes `popupWindow`'s tab when no panel attached the window in time (`closeUnattachedPopupWindow`).
+    var popupAttachDeadline: DemandTimer?
 
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
@@ -156,6 +158,7 @@ final class CEFPaneHost {
         tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.
         if !holdsOwnTab { runtime.lastShownHost = self }
+        if hostsExtensionWindows { runtime.lastShownWebHost = self }
         if attachPopupWindowIfNeeded(tab) { return }
         // A tab shown before its browser exists (a new tab, a hibernated one waking) gets it once
         // this turn's frame is committed: building or joining a Chromium window holds the main
