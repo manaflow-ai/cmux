@@ -84,9 +84,22 @@ final class DevShow {
         }
     }
 
-    /// The request waiting for the shell (set by RootView or the simulator request watch,
-    /// applied by `DevShowObserver`).
+    /// The request waiting for the shell (set by `deliver`, applied by `DevShowObserver`).
     var request: Request?
+    /// Where the root is (`welcome`, `setup` or `shell`), kept by RootView as it changes, and the
+    /// person's look, for a request that arrives off the shell.
+    @ObservationIgnored var rootDestination = "shell"
+    @ObservationIgnored var rootAppearance: AppearanceMode = .system
+
+    /// A request from a link or the simulator request watch: the shell applies it; on Welcome or
+    /// setup the receipt says where the app is, and the CLI reports the miss.
+    func deliver(_ request: Request) {
+        if rootDestination == "shell" {
+            self.request = request
+        } else {
+            linkShown(request, destination: rootDestination, appearance: rootAppearance)
+        }
+    }
 
     /// The launch's request from the CLI, if any (`CMUX_DEV_SHOW_NONCE`, `CMUX_DEV_SHOW_TARGET`).
     @ObservationIgnored private let launch: (nonce: String, target: String)?
@@ -173,6 +186,9 @@ final class DevShow {
         }
     }
 
+    /// The person's Appearance setting changed in the app: the window follows it again.
+    func appearanceSettingChanged() { lookOverride = nil }
+
     func write(nonce: String, target: String, source: String, destination: String, shell: ShellModel?,
                appearance: AppearanceMode, demo: String?, demoDone: Bool) {
         let depth: Int = switch shell?.tab {
@@ -226,14 +242,14 @@ final class DevShow {
     private func readRequest() {
         let file = Self.containerURL(Self.requestPath)
         Task.detached(priority: .userInitiated) {
-            guard let text = try? String(contentsOf: file, encoding: .utf8),
-                  let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+            let text = try? String(contentsOf: file, encoding: .utf8)
+            try? FileManager.default.removeItem(at: file)
+            guard let text, let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
                   let request = Request(url: url) else {
                 devShowLog.error("dev show request unreadable")
                 return
             }
-            try? FileManager.default.removeItem(at: file)
-            await MainActor.run { DevShow.shared.request = request }
+            await MainActor.run { DevShow.shared.deliver(request) }
         }
     }
 
@@ -264,7 +280,6 @@ struct DevShowObserver: ViewModifier {
     func body(content: Content) -> some View {
         content
             .task {
-                DevShow.shared.startRequestWatch()
                 // The shell's state is set; the CLI's per-target settle covers its first frame and animations.
                 await Task.yield()
                 DevShow.shared.launchShown(destination: "shell", shell: shell, appearance: shell.settings.appearance, demo: demo)

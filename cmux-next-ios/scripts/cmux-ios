@@ -306,9 +306,12 @@ def show(device, target: dict, look: str | None, shot: Path | None, live: bool, 
             receipt = wait_receipt(device, nonce, timeout)
             if "-cmux-mobile-demo" in target.get("args", []) and not live:
                 # The demo driver sets its state after the shell is up: wait for its demo_done receipt.
-                done = wait_receipt(device, nonce, timeout, demo_done=True, required=False)
+                # Catalog demos return within a few seconds; one that never returns is noted, not fatal.
+                done = wait_receipt(device, nonce, min(timeout, 15), demo_done=True, required=False)
                 receipt = done or receipt
                 result["demo_done"] = bool(done)
+                if not done:
+                    result["warning"] = "the demo driver did not report demo_done in 15 s; shot after settle"
             result["receipt"] = {k: receipt.get(k) for k in ("destination", "tab", "path_depth", "settings_path", "sidebar_open",
                                                              "appearance", "demo", "demo_done", "source")}
             check_receipt(target, receipt, live)
@@ -356,6 +359,8 @@ def cmd_show(a, targets):
     else:
         status = f"MISS: {result['miss']}" if "miss" in result else "shown"
         print(f"{target['id']} ({target['screen']}, {target['state']}, {result['look']}) on {result['device']}: {status} in {result['seconds']} s")
+        if "warning" in result:
+            print(f"warning: {result['warning']}")
         if "shot" in result:
             print(f"screenshot: {result['shot']}")
     return 1 if "miss" in result else 0

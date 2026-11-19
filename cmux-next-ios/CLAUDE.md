@@ -46,11 +46,12 @@ and a look that is never saved. A demo target also waits for the receipt's `demo
 a missed target fails the step). A state that needs a tap (a swipe, a long press, a typed draft) stays in the
 UI-state capture suites; add a launch hook and a catalog row to make one showable.
 
-## Hand-off command (under verification)
+## Hand-off command
 
 This is the root [CLAUDE.md](../CLAUDE.md#finishing-a-task) "Finishing a task" hand-off for the
-iPhone app. Its phone leg has not yet had one green end-to-end run; report any failure as the
-phone's blocker. It leaves the task's build on every connected iPhone,
+iPhone app. Its phone leg passed end to end on 2026-11-18 on a real iPhone 16 Plus (tag
+`phone-e2e-1118`, [#46718](https://github.com/manaflow-ai/cmux/pull/46718)) in all three modes:
+default, `--manual-pairing` and `--no-auth`. Report any failure as the phone's blocker. It leaves the task's build on every connected iPhone,
 signed in and paired with the same-tag Mac build, from one command at the pushed head:
 
 ```bash

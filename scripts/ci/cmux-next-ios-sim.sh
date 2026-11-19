@@ -799,7 +799,10 @@ if [[ "$mode" == handoff ]]; then
     account="$CMUX_FLEET_SIGNIN_EMAIL"
     client="$(python3 -I -c 'import uuid,sys; print(uuid.uuid5(uuid.NAMESPACE_URL, "cmux-ios-dogfood-client:%s:%s" % (sys.argv[1], sys.argv[2])))' "$bundle_id" "$udid")"
     receipt="$work/readiness.json"
-    simctl io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
+    # xcrun itself in the background, never the simctl() wrapper: `wrapper &` is a subshell, which
+    # ignores SIGINT (an async command in a non-interactive shell) and waits on its xcrun, so the
+    # SIGINT below never reached the recorder and the step hung until its 6 h timeout (2026-11-18).
+    xcrun simctl --set "$sims" io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
     rec_pid=$!
     sleep 1  # the recorder's first frame; a bounded start, it has no ready signal
     for leg in auto_login restored; do
@@ -836,7 +839,8 @@ if [[ "$mode" == handoff ]]; then
       note "- simulator $leg: $verdict (screens/signed-in-$leg.png)"
     done
     cmux_fleet_signin_forget
-    if [[ -n "$rec_pid" ]]; then kill -INT "$rec_pid" 2>/dev/null || true; wait "$rec_pid" 2>/dev/null || true; fi
+    # recordVideo finishes the file on SIGINT; one that has not stopped in 30 s is ended (bounded).
+    if [[ -n "$rec_pid" ]]; then kill -INT "$rec_pid" 2>/dev/null || true; for _ in $(seq 1 30); do kill -0 "$rec_pid" 2>/dev/null || break; sleep 1; done; ! kill -0 "$rec_pid" 2>/dev/null || kill -TERM "$rec_pid" 2>/dev/null || true; wait "$rec_pid" 2>/dev/null || true; fi
     simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
     [[ -z "$handoff_sim_reason" ]]
   }
