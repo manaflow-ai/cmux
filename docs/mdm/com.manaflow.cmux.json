@@ -520,6 +520,12 @@
       "title" : "Your Skills in Every Chat",
       "type" : "boolean"
     },
+    "agents.mcpServers.enabled" : {
+      "default" : true,
+      "description" : "New chats can use the servers listed above.",
+      "title" : "Saved Servers in Agent Chats",
+      "type" : "boolean"
+    },
     "agents.modelRouter.model" : {
       "default" : "deepseek/deepseek-v4.1-flash-1017",
       "description" : "The model new cmux model router chats start on.",
@@ -2702,6 +2708,12 @@
       "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
+    "customize.fromTheApp" : {
+      "default" : false,
+      "description" : "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both.",
+      "title" : "Customize From the Window",
+      "type" : "boolean"
+    },
     "developerTools.appPages" : {
       "default" : true,
       "description" : "Inspect Element and ⌥⌘I in chats, Home, Markdown and Settings.",
@@ -3407,7 +3419,7 @@
       "type" : "string"
     },
     "home.chiefDock.openBeside" : {
-      "default" : true,
+      "default" : false,
       "description" : "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
       "title" : "Show Chief When Opening Workspaces",
       "type" : "boolean"
