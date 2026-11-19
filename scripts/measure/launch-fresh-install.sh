@@ -29,7 +29,8 @@
 # checkers, reduced to LF-TRACE: when the app's process made its first file call (dyld's first look: everything
 # before it is before the executable's first instruction), when it opened CmuxNextApp.framework and Chromium's
 # framework, and the checkers' first and last read of the copy's files.
-# Prints LF-RUN per launch, LF-TABLE per row, LF-TRACE per traced launch. Deletes every copy and DMG it made.
+# Prints LF-LAYOUT once (the build's layout; layout.txt in the report has the ls, otool -L and codesign -dv it rests
+# on), LF-RUN per launch, LF-TABLE per row, LF-TRACE per traced launch. Deletes every copy and DMG it made.
 # With row q or m it declares the Gatekeeper prompts it raises to the fleet's dialog alarm (a marker in
 # /Users/Shared/cmux-build-fleet/expected-dialogs, removed on exit) and answers each itself: Open while the DMG mounts
 # and for the measured open, Cancel for one still up after a launch or at exit (LF-PROMPT lines). It never presses
@@ -75,6 +76,14 @@ main() {
   gate dmg open "$out/app.dmg"
   source scripts/ci/lib/signing-runtime-guard.sh
   cmux_signing_runtime_guard || exit 3
+  # The build's layout (bundle_layout: stub executable and CmuxNextApp.framework or not), from the DMG's own app.
+  mkdir -p "$out/mnt-layout"
+  if hdiutil attach "$out/app.dmg" -nobrowse -readonly -mountpoint "$out/mnt-layout" >/dev/null; then
+    bundle_layout "$(find "$out/mnt-layout" -maxdepth 1 -name '*.app' | head -1)" "$out/layout.txt" LF
+    hdiutil detach "$out/mnt-layout" >/dev/null || hdiutil detach -force "$out/mnt-layout" >/dev/null
+  else
+    echo "LF-LAYOUT unknown: attach failed"
+  fi
   OUT="$out"
   CUA=/Applications/CuaDriver.app/Contents/MacOS/cua-driver
   [[ -x "$CUA" ]] && echo "LF cua $(console "$CUA" permissions status 2>&1 | tr '\n' ' ' | head -c 200)" || echo "LF cua none: a prompt cannot be pressed"
