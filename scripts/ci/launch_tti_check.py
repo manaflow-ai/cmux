@@ -21,10 +21,12 @@ with an agent chat on the acpmux test agent, one turn answered), then workspaces
 
 Each round is Quit and Keep Sessions, then the app started again with the run's environment, the typing probe on
 (CMUX_NEXT_TYPING_PROBE, a release build's own key-to-echo timeline) and a fresh launch-marks pipe. From the start the
-harness posts a key (`x`) to the process every KEY_EVERY_S (CGEventPostToPid) until the front accepts one:
+harness posts a key (`x`) to the process every KEY_EVERY_S (CGEventPostToPid) until the front accepts one (a
+terminal key that reached the pty holds further keys for up to a second, so its echo closes the probe sample):
 
   chat       the app's launch mark `agent_pane.input_echoed`: the composer drew a key the person typed (the page's
-             pane.inputEchoed). A build without that mark reads no chat number (`no_mark`), never a harness time.
+             pane.inputEchoed). A build without that mark reads no chat number (`no_mark`, NO_MARK_S after the chat
+             drew), never a harness time, and the round fails nothing.
   terminal   the typing probe's first complete row: a key that went through the app's terminal, reached the pty and
              whose echo the app presented (`contents_ms`); its `event_uptime_ns` and the process start in the same
              clock (CLOCK_UPTIME_RAW) put it on the launch marks' clock.
@@ -34,7 +36,7 @@ first_frame_ms (`first_window_frame_committed`), main_ms (`main_start`), input_m
 interaction), split at `main` into premain_ms (the system's part: a new copy's policy check, dyld) and ours_ms (main
 to the key taken), accepted_ms (terminal: the first key the app wrote toward the pty), and spawn_to_start_ms (the harness's
 exec to the process start; a Dock click's own delta is not measured here). Keys are paced KEY_EVERY_S apart, so
-input_ms is late by at most that. Each round prints `TTI-ROUND {json}`, the run prints `TTI {json}` with its verdict.
+a chat input_ms is late by at most that; the terminal's is the echo of the key that reached the pty, each key on its own clock. Each round prints `TTI-ROUND {json}`, the run prints `TTI {json}` with its verdict.
 Exit 0 when every round measured its front.
 
 A NIGHTLY is a Release build: only release control methods and the bundled CLI are used. Posting keys needs the
@@ -65,9 +67,10 @@ FRONTS = ("chat", "terminal")
 DEFAULT_PLAN = ("cold:chat,cold:terminal,warm:chat,warm:terminal,warm60:chat,warm60:terminal,"
                 "cold:chat,cold:terminal,warm:chat,warm:terminal")
 PRERUN_S = 60.0
+NO_MARK_S = 5.0  # a drawn chat with no input mark this long after: a build without the mark
 CHAT_MARK = "agent_pane.input_echoed"
 KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reveal.home", "agent_pane.painted",
-              CHAT_MARK, "first_terminal_surface_created")
+              CHAT_MARK, "first_terminal_surface_created", "terminal_input_accepted", "terminal_echo")
 
 
 def log(message: str) -> None:
@@ -279,7 +282,12 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     if why:
         failures.append(why)
     if kind == "cold":
-        fresh_copy(app, pristine)
+        try:
+            fresh_copy(app, pristine)
+        except (OSError, subprocess.SubprocessError) as error:
+            failures.append(f"the fresh copy failed: {error}")
+            rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
+            return row, process
     elif kind == "warm60":
         _, why = prerun(inst, app, env, out, PRERUN_S)
         if why:
@@ -294,11 +302,18 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     marks: dict = {}
     buf = bytearray()
     posted, activated, last_post = 0, 0.0, 0.0
+    painted_at = None
     term: dict = {"accepted_ms": None, "input_ms": None}
     end = time.monotonic() + args.settle
     while time.monotonic() < end and process.poll() is None:
         read_marks(fd, buf, marks)
         if which == "chat" and CHAT_MARK in marks:
+            break
+        # A build without the composer's input mark: the chat drew and NO_MARK_S of keys later still no mark. Stop
+        # typing into its draft; the round reads `no_mark`, not a failure of the app.
+        if which == "chat" and "agent_pane.painted" in marks and painted_at is None:
+            painted_at = time.monotonic()
+        if painted_at is not None and time.monotonic() - painted_at > NO_MARK_S:
             break
         if which == "terminal":
             term = terminal_reading(probe_rows(probe), start_ns)
@@ -335,9 +350,8 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         failures.append(f"the app exited (status {process.poll()})")
     if not keys.access:
         failures.append("this process may not post keys (CGPreflightPostEventAccess false)")
-    if row.get("input_ms") is None:
-        failures.append(f"the {which} took no key within {args.settle:.0f} s"
-                        + (" (the build has no agent_pane.input_echoed mark)" if row.get("no_mark") else ""))
+    if row.get("input_ms") is None and not row.get("no_mark"):
+        failures.append(f"the {which} took no key within {args.settle:.0f} s")
     rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
     return row, process
 
@@ -362,7 +376,8 @@ def check(args) -> int:
             result["seed_error"] = str(error)
             return [f"seed: {error}"]
         result["seed"] = {**made["list"], "seed_s": round(time.monotonic() - started, 1)}
-        pristine = out / "pristine.noindex" / app.name
+        # Under the smoke's own root, never the evidence folder: the smoke's cleanup removes it whatever happens.
+        pristine = Path(env["HOME"]).parent / "pristine.noindex" / app.name
         pristine.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["ditto", str(app), str(pristine)], check=True, timeout=600)
         failures = []
@@ -401,7 +416,8 @@ def check(args) -> int:
             got = [r["input_ms"] for r in result["rounds"] if r.get("kind") == kind and r.get("front") == which
                    and isinstance(r.get("input_ms"), (int, float))]
             summary[f"{kind}_{which}_ms"] = max(got) if got else None
-    measured = [r for r in result["rounds"] if isinstance(r.get("input_ms"), (int, float))]
+    # A chat round on a build without the input mark measured nothing about the app and fails nothing (`no_mark`).
+    measured = [r for r in result["rounds"] if isinstance(r.get("input_ms"), (int, float)) or r.get("no_mark")]
     passed = status == 0 and len(result["rounds"]) == len(args.plan) and len(measured) == len(args.plan)
     result.update(summary, verdict="pass" if passed else "fail", post_access=keys.access)
     if args.out:
