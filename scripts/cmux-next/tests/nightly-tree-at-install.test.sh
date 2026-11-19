@@ -140,6 +140,8 @@ check '[[ $status == 1 && $took -ge 600 ]] && grep -q "after 10 min" "$TMP/err"'
 # the wait goes on to the limit instead of failing fast.
 reset_cdn; set_runs "$no_runs"
 printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":2,\"status\":\"queued\",\"head_sha\":\"$own\"}]}" > "$runs_dir/runs-$own"
+mkdir -p "$TMP/api/repos/o/r/actions/runs/2"
+printf '%s\n' '{"jobs":[{"name":"cmux-tui tree preflight","status":"in_progress","runner_name":"linux-2"}]}' > "$TMP/api/repos/o/r/actions/runs/2/jobs"
 client "$own" "$app"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a candidate's own active run counts as a publisher (took $took s)"
 rm -f "$runs_dir/runs-$own"
@@ -236,6 +238,7 @@ check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/e
 reset_cdn; own_run "$own" 3 3
 set_runs "{\"total_count\":2,\"workflow_runs\":[{\"id\":3,\"status\":\"in_progress\",\"head_sha\":\"$own\",\"head_branch\":\"feat-cmux-next\"},{\"id\":6,\"status\":\"in_progress\",\"head_sha\":\"$app\",\"head_branch\":\"feat-cmux-next\"}]}"
 own_run "$app" 6
+jobs_file 6 '{"jobs":[{"name":"cmux-tui tree preflight","status":"in_progress","runner_name":"linux-6"}]}'
 client "$own"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "run of ${app:0:12} is building tree" "$TMP/err"' "a failed owner is passed over for a same-key run that builds (took $took s)"
 rm -f "$runs_dir/runs-$own" "$runs_dir/runs-$app"; rm -rf "$TMP/api/repos/o/r/actions/runs"
