@@ -57,8 +57,8 @@ below do not:
 - Input never takes the user's focus. The app shows your input with the cmux
   agent cursor; it does not move the user's pointer.
 
-For native macOS apps (not web pages) the tool is cmux Computer Use (the
-`cmux-cua` skill), for a task that needs an app on the Mac; never `osascript`.
+For desktop apps (not web pages) the tool is cmux Computer Use (the
+`cmux-cua` skill), for a task that needs an app on the computer; never `osascript`.
 
 ## Read the CLI contract first
 
