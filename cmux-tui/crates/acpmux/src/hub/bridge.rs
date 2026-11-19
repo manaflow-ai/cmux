@@ -61,6 +61,9 @@ pub(super) struct Pending {
     shown: bool,
     order: u64,
     turn: watch::Sender<Outcome>,
+    /// The prompts a rate-limit hold folded into this delivery (`bridge_hold.rs`): each one's
+    /// kept delivery answers with this one's turn.
+    riders: Vec<String>,
 }
 
 #[derive(Default)]
@@ -108,6 +111,7 @@ impl Deliveries {
             shown: false,
             order: self.next,
             turn,
+            riders: Vec::new(),
         };
         self.by_uuid.insert(uuid, pending);
         while self.by_uuid.len() > KEPT {
@@ -159,8 +163,14 @@ pub(super) fn delivered_text(session_id: &str, text: &str) -> Option<(String, St
 
 /// The watch ended the turn of `prompt_id`: its call (and any resend's) answers with `turn_id`.
 pub(super) fn answered(session_id: &str, prompt_id: &str, turn_id: &str) {
-    if let Some((_, p)) = deliveries().of_prompt(session_id, prompt_id) {
-        p.turn.send_replace(Some(Ok(turn_id.to_owned())));
+    let all = deliveries();
+    let Some((_, p)) = all.of_prompt(session_id, prompt_id) else { return };
+    p.turn.send_replace(Some(Ok(turn_id.to_owned())));
+    // The prompts a rate-limit hold folded into this one went in the same turn.
+    for rider in &p.riders {
+        if let Some((_, r)) = all.of_prompt(session_id, rider) {
+            r.turn.send_replace(Some(Ok(turn_id.to_owned())));
+        }
     }
 }
 
@@ -236,7 +246,7 @@ impl Hub {
         if family != "claude" && family != "codex" {
             return None;
         }
-        let agent_session_id = session.meta().agent_session_id?;
+        session.meta().agent_session_id.as_ref()?;
         // Only a chat the bridge listed (`desktop_bridge.rs`) takes prompts; any other watched
         // chat stays read-only, whatever runs its conversation.
         if session.meta().tags.get("bridge").is_none_or(|t| t.value != family) {
@@ -270,56 +280,7 @@ impl Hub {
                 return Some(Ok(reply));
             }
         }
-        let homes = self.harness_homes.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let acpmux_home = crate::config::home();
-        let chat_id = session.id.clone();
-        let target = tokio::task::spawn_blocking(move || {
-            // A chat its session registered is bridged whatever the setting says: the session
-            // asked for it from its own shell (`register.rs`).
-            if !registered && !crate::claude_peers::enabled() {
-                return None;
-            }
-            // A chat nobody registered: the app's own record must name an entrypoint (Claude
-            // Code) or originator (Codex) the setting lists, since a tag alone is anyone's to
-            // set. A registered chat never goes by an entrypoint (anyone's to write): only by the
-            // process its registration recorded, below.
-            let listed = crate::claude_peers::listed_entrypoints();
-            if family == "codex" {
-                // Only Claude Code sessions register (`register.rs`).
-                if registered {
-                    return None;
-                }
-                let thread = crate::codex_desktop::find(&homes.codex, &agent_session_id, &listed)?;
-                return Some(Target::Codex { home: homes.codex, thread });
-            }
-            let by_setting = |p: &crate::claude_peers::Peer| {
-                crate::claude_peers::enabled()
-                    && p.entrypoint.as_ref().is_some_and(|e| listed.contains(e))
-            };
-            if registered {
-                // A registered chat opens only with the token its session handed over, into the
-                // process that registration recorded (pid, inbox, start), while it is its
-                // conversation's only live claimant. A restarted session's new process has none
-                // until it registers again, so the send waits (`bridge.not_running`), never
-                // opening with the undocumented peer key, with the bridge setting on or off.
-                let live = crate::claude_peers::live(&homes.claude);
-                let (peer, token) =
-                    live.iter().filter(|p| p.session_id == agent_session_id).find_map(|p| {
-                        let started = crate::claude_peers::started_at(&homes.claude, p.pid);
-                        let token =
-                            crate::claude_peers::token_for(&acpmux_home, &chat_id, p, started)?;
-                        crate::claude_peers::sole_claimant(p, &live).then(|| (p.clone(), token))
-                    })?;
-                return Some(Target::Claude { config: homes.claude, peer, token: Some(token) });
-            }
-            let peer =
-                crate::claude_peers::find(&homes.claude, &agent_session_id).filter(by_setting)?;
-            let token = None;
-            Some(Target::Claude { config: homes.claude, peer, token })
-        })
-        .await
-        .ok()
-        .flatten();
+        let target = self.bridge_target(session).await;
         let Some(target) = target else {
             // A registered name keeps its address while its app is closed: a send the outbox
             // carries (here, or a peer's forwarded) waits and is tried again, instead of failing
@@ -366,13 +327,27 @@ impl Hub {
         if let Err(e) = checked {
             return Some(Err(e));
         }
+        let sender = opts.agent.clone().unwrap_or_else(|| "person".to_owned());
+        // The app's last turn stopped on the account's rate limit: kept until the reset, then
+        // sent with the others the hold kept as one message (`bridge_hold.rs`).
+        match hold::park(&session.id, &prompt_id, &text, &wire, &sender) {
+            Some(Ok((rx, until))) => {
+                if let Some(f) = opts.on_accepted.take() {
+                    f(
+                        json!({"sessionId": session.id, "promptId": prompt_id, "queued": true, "state": "held", "bridged": true, "rateLimitedUntil": until}),
+                    );
+                }
+                return Some(answer(&prompt_id, turn_of(rx).await, None));
+            }
+            Some(Err(rx)) => return Some(resent(session, &prompt_id, rx, opts).await),
+            None => {}
+        }
         // Claimed under one lock: two sends of one id never both go.
         let claimed = deliveries().claim(uuid.clone(), &session.id, &prompt_id, &text, &wire);
         let rx = match claimed {
             Ok(rx) => rx,
             Err(rx) => return Some(resent(session, &prompt_id, rx, opts).await),
         };
-        let sender = opts.agent.clone().unwrap_or_else(|| "person".to_owned());
         if let Err(e) = target.deliver(&wire, &uuid, &sender).await {
             // A resend waiting on this delivery fails with it, and a later one delivers again.
             let gone = deliveries().by_uuid.remove(&uuid);
@@ -396,6 +371,65 @@ impl Hub {
             );
         }
         Some(answer(&prompt_id, turn_of(rx).await, Some(&details)))
+    }
+
+    /// Where a prompt to bridged chat `session` goes now: its app's inbox or thread, while that
+    /// app runs the conversation (and, for a registered chat, the process its registration
+    /// recorded); `None` otherwise.
+    async fn bridge_target(self: &Arc<Self>, session: &Session) -> Option<Target> {
+        let family = session.meta().watching?.family;
+        let agent_session_id = session.meta().agent_session_id?;
+        let registered = super::register::is_registered(session);
+        let homes = self.harness_homes.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let acpmux_home = crate::config::home();
+        let chat_id = session.id.clone();
+        tokio::task::spawn_blocking(move || {
+            // A chat its session registered is bridged whatever the setting says: the session
+            // asked for it from its own shell (`register.rs`).
+            if !registered && !crate::claude_peers::enabled() {
+                return None;
+            }
+            // A chat nobody registered: the app's own record must name an entrypoint (Claude
+            // Code) or originator (Codex) the setting lists, since a tag alone is anyone's to
+            // set. A registered chat never goes by an entrypoint (anyone's to write): only by the
+            // process its registration recorded, below.
+            let listed = crate::claude_peers::listed_entrypoints();
+            if family == "codex" {
+                // Only Claude Code sessions register (`register.rs`).
+                if registered {
+                    return None;
+                }
+                let thread = crate::codex_desktop::find(&homes.codex, &agent_session_id, &listed)?;
+                return Some(Target::Codex { home: homes.codex, thread });
+            }
+            let by_setting = |p: &crate::claude_peers::Peer| {
+                crate::claude_peers::enabled()
+                    && p.entrypoint.as_ref().is_some_and(|e| listed.contains(e))
+            };
+            if registered {
+                // A registered chat opens only with the token its session handed over, into the
+                // process that registration recorded (pid, inbox, start), while it is its
+                // conversation's only live claimant. A restarted session's new process has none
+                // until it registers again, so the send waits (`bridge.not_running`), never
+                // opening with the undocumented peer key, with the bridge setting on or off.
+                let live = crate::claude_peers::live(&homes.claude);
+                let (peer, token) =
+                    live.iter().filter(|p| p.session_id == agent_session_id).find_map(|p| {
+                        let started = crate::claude_peers::started_at(&homes.claude, p.pid);
+                        let token =
+                            crate::claude_peers::token_for(&acpmux_home, &chat_id, p, started)?;
+                        crate::claude_peers::sole_claimant(p, &live).then(|| (p.clone(), token))
+                    })?;
+                return Some(Target::Claude { config: homes.claude, peer, token: Some(token) });
+            }
+            let peer =
+                crate::claude_peers::find(&homes.claude, &agent_session_id).filter(by_setting)?;
+            let token = None;
+            Some(Target::Claude { config: homes.claude, peer, token })
+        })
+        .await
+        .ok()
+        .flatten()
     }
 
     /// Whether `session`'s log records `prompt_id` as delivered. The first ask of a session reads
