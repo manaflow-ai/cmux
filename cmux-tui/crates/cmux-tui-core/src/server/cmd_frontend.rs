@@ -208,6 +208,12 @@ pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow
                         .as_ref()
                         .and_then(|terminal| mux.pending_agent_question(terminal, row.id.as_str()))
                         .as_deref(),
+                    // The approval the row's agent still waits on (memory only).
+                    "approval": row
+                        .terminal_id
+                        .as_ref()
+                        .and_then(|terminal| mux.pending_agent_approval(terminal, row.id.as_str()))
+                        .as_deref(),
                     "message": texts.as_ref().and_then(|texts| texts.message.as_deref()),
                     "prompt": texts.as_ref().and_then(|texts| texts.prompt.as_deref()),
                     "detail": texts.as_ref().map(|texts| &*texts.detail),

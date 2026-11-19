@@ -91,3 +91,28 @@ Failures found and fixed in this round:
    (`notify_terminal` tests on rbx; `TerminalQuestionFeedTests` on mini-cmux7s).
 5. **Rig only.** A new rig build is a new Mac device: the phone must be pinned to it
    (`PUSHPHONE_LAUNCH_ARGS`) and its link id seeded for pairing.
+
+## Terminal approvals: Claude Code 2.1.328's approval screen (2026-11-18)
+
+Read live in a terminal (`claude --permission-mode default`, a `mkdir … && touch …` Bash call):
+
+```
+ Bash command
+ Create out directory and touch a.txt file
+ mkdir -p /tmp/tfc-claude/out && touch /tmp/tfc-claude/out/a.txt
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for mkdir -p /tmp/tfc-claude/out and touch /tmp/tfc-claude/out/a.txt commands
+      in /private/tmp/tfc-claude
+   3. Yes, and switch to auto mode · auto mode handles these prompts for you
+   4. No
+ Esc to cancel · Tab to amend
+```
+
+- `1` alone approves at once (the command ran; no Return).
+- The "No" row moves (3 in older builds, 4 here), so Deny presses Escape, which stays the cancel key.
+- AskUserQuestion on the same build still takes a bare option number (`2` picked "Green"; rows
+  `1. Red` … `4. Type something.`, `5. Chat about this`).
+
+`TerminalApprovalKeys` types only these keys, and only while the screen shows "Do you want to",
+"1. Yes" and the start of the approval's command.

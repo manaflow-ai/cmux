@@ -695,6 +695,58 @@ fn an_approval_notification_carries_the_command_it_waits_on() {
         items.iter().any(|item| item["detail"].as_str() == Some(message)),
         "the feed item carries it: {listed}"
     );
+    // The phone's Allow / Deny card: the ledger row carries what the approval asks, structured,
+    // while the agent waits on it (memory only, like a question).
+    let rows = request(&harness.socket, serde_json::json!({"id": 6, "cmd": "list-notifications"}));
+    let row = rows["notifications"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["id"] == event["id"]))
+        .unwrap_or_else(|| panic!("no ledger row for the approval: {rows}"));
+    assert_eq!(
+        row["approval"],
+        serde_json::json!({"harness":"claude","tool":"Bash","command":command,
+            "description":"Clean the build folder"}),
+        "{row}"
+    );
+}
+
+/// An approval's card stops being answerable once the agent moves on (answered on the Mac): the
+/// ledger row no longer carries it, so the phone never types into a prompt that is gone.
+#[test]
+fn an_approval_leaves_the_ledger_row_once_the_agent_moves_on() {
+    let _exclusive = exclusive_process_test();
+    let input = serde_json::json!({"command":"feed-approval-gone-marker","description":"Gone"});
+    let (harness, event, payload_dir) = agent_notification(
+        "command-activity-feed-approval-gone",
+        &[
+            (
+                "PermissionRequest",
+                serde_json::json!({"session_id":"feed-6","hook_event_name":"PermissionRequest",
+                    "cwd":"/tmp","tool_name":"Bash","tool_input":input}),
+            ),
+            (
+                "PostToolUse",
+                serde_json::json!({"session_id":"feed-6","hook_event_name":"PostToolUse","cwd":"/tmp",
+                    "tool_name":"Bash","tool_input":input,"tool_response":{"stdout":""}}),
+            ),
+        ],
+    );
+    let _ = fs::remove_dir_all(&payload_dir);
+    assert_eq!(event["title"], "Claude needs approval", "{event}");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let rows =
+            request(&harness.socket, serde_json::json!({"id": 7, "cmd": "list-notifications"}));
+        let row = rows["notifications"]
+            .as_array()
+            .and_then(|rows| rows.iter().find(|row| row["id"] == event["id"]).cloned())
+            .unwrap_or_else(|| panic!("no ledger row for the approval: {rows}"));
+        if row["approval"].is_null() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the approval stayed after the tool ran: {row}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// A question's feed item lists the question and its options, so the Feed shows what the agent

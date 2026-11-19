@@ -263,6 +263,11 @@ impl Mux {
         // agent waits (`list-notifications`).
         let question = agent_terminal
             .and_then(|terminal| self.take_agent_question(terminal, notification.id.as_str()));
+        // An approval hook's notification takes its approval the same way (the phone's Allow /
+        // Deny card, `list-notifications` `approval`).
+        if let Some(terminal) = agent_terminal {
+            self.take_agent_approval(terminal, notification.id.as_str());
+        }
         // What the agent said stays for a Feed that reads later (memory only, `FeedTexts`):
         // the ledger row and the feed item that took it show it.
         let detail = question

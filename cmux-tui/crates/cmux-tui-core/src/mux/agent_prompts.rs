@@ -80,6 +80,13 @@ pub(crate) struct AgentTexts {
     /// The question each terminal's agent waits on, with the ledger id of the notification
     /// that asked it: `list-notifications` shows it on that row until the agent moves on.
     questions: HashMap<TerminalPublicId, (String, Arc<Value>)>,
+    /// An approval hook's approval (`live_approval`), kept by the append's thread until its
+    /// notification takes it, as a question is.
+    noted_approvals: HashMap<TerminalPublicId, (std::thread::ThreadId, Arc<Value>)>,
+    /// The approval each terminal's agent waits on, with the ledger id of the notification that
+    /// asked for it: `list-notifications` shows it on that row until the agent moves on, so the
+    /// phone can answer it (Allow once / Deny) on the agent's approval screen.
+    approvals: HashMap<TerminalPublicId, (String, Arc<Value>)>,
     /// Each agent notification's Feed texts, by ledger id and feed item id, oldest key first.
     feed: HashMap<String, Arc<FeedTexts>>,
     feed_order: VecDeque<String>,
@@ -108,6 +115,8 @@ impl AgentTexts {
         self.last_sessions.remove(terminal);
         self.noted_questions.remove(terminal);
         self.questions.remove(terminal);
+        self.noted_approvals.remove(terminal);
+        self.approvals.remove(terminal);
     }
 }
 
@@ -360,13 +369,62 @@ impl Mux {
         }
     }
 
-    /// The agent left its question (working again, idle, done): it no longer waits on it.
+    /// The agent left its question or approval (working again, idle, done): it no longer
+    /// waits on it.
     pub(super) fn forget_agent_question(&self, terminal: &TerminalPublicId) {
-        self.agent_prompts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .questions
-            .remove(terminal);
+        let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        texts.questions.remove(terminal);
+        texts.approvals.remove(terminal);
+    }
+
+    /// Keeps an approval hook's approval (`live_approval`, checked by `kept_approval`) for
+    /// `terminal`'s next agent notification. Returns whether it kept one.
+    pub(crate) fn note_agent_approval(&self, terminal: &TerminalPublicId, text: &str) -> bool {
+        let Some(approval) = crate::agent_hooks::kept_approval(text) else { return false };
+        if self.resource_surface_for_terminal(terminal).is_none() {
+            return false;
+        }
+        let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        let owner = std::thread::current().id();
+        texts.noted_approvals.insert(terminal.clone(), (owner, Arc::new(approval)));
+        true
+    }
+
+    /// The approval this thread's append kept for `terminal`, taken by its notification
+    /// (`ledger_id`), which shows it from now on.
+    pub(super) fn take_agent_approval(&self, terminal: &TerminalPublicId, ledger_id: &str) {
+        let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        let owner = std::thread::current().id();
+        if texts.noted_approvals.get(terminal).is_none_or(|(kept_by, _)| *kept_by != owner) {
+            return;
+        }
+        if let Some((_, approval)) = texts.noted_approvals.remove(terminal) {
+            texts.approvals.insert(terminal.clone(), (ledger_id.to_owned(), approval));
+        }
+    }
+
+    /// Drops an approval no notification took (the append failed, replayed or posted nothing).
+    pub(crate) fn forget_noted_agent_approval(&self, terminal: &TerminalPublicId) {
+        let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        let owner = std::thread::current().id();
+        if texts.noted_approvals.get(terminal).is_some_and(|(kept_by, _)| *kept_by == owner) {
+            texts.noted_approvals.remove(terminal);
+        }
+    }
+
+    /// The approval the notification `ledger_id` of `terminal` asked for, while its agent still
+    /// waits on it.
+    pub(crate) fn pending_agent_approval(
+        &self,
+        terminal: &TerminalPublicId,
+        ledger_id: &str,
+    ) -> Option<Arc<Value>> {
+        let texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        texts
+            .approvals
+            .get(terminal)
+            .filter(|(asked_by, _)| asked_by == ledger_id)
+            .map(|(_, approval)| Arc::clone(approval))
     }
 
     /// The question the notification `ledger_id` of `terminal` asked, while its agent still

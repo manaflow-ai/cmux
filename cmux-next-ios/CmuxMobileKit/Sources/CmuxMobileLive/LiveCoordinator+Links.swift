@@ -1179,6 +1179,7 @@ final class MultiMacFeedActions: FeedActions {
     }
 
     func respond(_ item: FeedItem, request: ACPPermissionRequest, option: ACPPermissionOption) async throws {
+        if item.opensTerminal { return try await terminalOwner(item).respond(item, request: request, option: option) }
         try await owner(item).respond(item, request: request, option: option)
     }
 

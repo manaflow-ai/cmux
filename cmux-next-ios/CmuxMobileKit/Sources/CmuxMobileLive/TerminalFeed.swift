@@ -50,6 +50,10 @@ public final class TerminalFeed {
         /// question's text), while the Mac's daemon keeps it in memory: a Feed that reads the
         /// ledger after the live event (the phone connected later) still shows it.
         public var texts: Texts?
+        /// The approval a terminal agent still waits on (a Claude Code permission prompt; the
+        /// daemon's `approval`, memory only, while the agent is blocked on it): the card answers
+        /// it with Allow once / Deny, typed on its approval screen (`TerminalApprovalKeys`).
+        public var approval: TerminalApproval?
 
         public init?(json: [String: Any]) {
             guard let id = json["id"] as? String, !id.isEmpty else { return nil }
@@ -71,6 +75,7 @@ public final class TerminalFeed {
             let message = text("message") ?? text("detail")
             let prompt = text("prompt")
             texts = message == nil && prompt == nil ? nil : Texts(prompt: prompt, message: message)
+            approval = (json["approval"] as? [String: Any]).flatMap(TerminalApproval.init(json:))
         }
 
         /// cmux-mobile-host `question_event_id`: `q-` and the 64-bit FNV-1a, in hex, of the
@@ -434,6 +439,15 @@ public final class TerminalFeed {
                         store.resolveElsewhere(id, text: "Answered in the terminal")
                         continue
                     }
+                    // An approval answered here keeps what the person did; one the agent left
+                    // (its card would lose its buttons) was answered in the terminal.
+                    if case .permission = known.kind {
+                        if known.resolution != nil || known.pending != nil { continue }
+                        if case .permission = item.kind {} else {
+                            store.resolveElsewhere(id, text: "Answered in the terminal")
+                            continue
+                        }
+                    }
                     item.createdAt = known.createdAt
                     // Unchanged: no merge (each one rewrites and saves the Feed).
                     if known.kind == item.kind, known.markdown == item.markdown, known.quote == item.quote,
@@ -524,9 +538,12 @@ public final class TerminalFeed {
     static func item(_ entry: Entry, id: String, harness: String, workspace: Workspace, tab: WorkspaceTab,
                      texts: Texts? = nil) -> FeedItem {
         let agentName = harness == "terminal" ? "Terminal" : DaemonTree.agentName(harness)
-        var kind: FeedItem.Kind = entry.question.map { .question($0) } ?? kind(entry)
-        var markdown = entry.question?.items.first?.prompt ?? text(entry, agentName: agentName, kind: kind)
-        if entry.question == nil, let message = texts?.message {
+        var kind: FeedItem.Kind = entry.question.map { .question($0) }
+            ?? entry.approval.flatMap { approval in entry.surface.map { .permission(approval.request(ledgerID: entry.id, surface: $0)) } }
+            ?? kind(entry)
+        var markdown = entry.question?.items.first?.prompt ?? entry.approval?.markdown
+            ?? text(entry, agentName: agentName, kind: kind)
+        if entry.question == nil, entry.approval == nil, let message = texts?.message {
             switch kind {
             // The answer itself, as a GUI chat's finished turn shows it.
             case .finished: kind = .response; markdown = message
@@ -734,12 +751,13 @@ public final class TerminalFeed {
 
 extension FeedItem {
     /// A terminal agent's ask still open on the phone: a needs-input card, or a
-    /// question card nobody answered yet.
+    /// question or approval card nobody answered yet.
     var waitsInTerminal: Bool {
         guard resolution == nil else { return false }
         switch kind {
         case .needsInput: return true
         case .question(let question): return opensTerminal && question.isPending
+        case .permission: return opensTerminal && pending == nil
         default: return false
         }
     }
@@ -776,6 +794,23 @@ extension TerminalFeed {
             throw QuestionRefused(message: refusal.message)
         }
         try await typeOnQuestionScreen(item, question: question, answer: answer, keys: keys)
+    }
+
+    /// Answers a terminal agent's approval (Allow once or Deny) by typing it on its approval
+    /// screen (`TerminalApprovalKeys`), only while that terminal shows this approval.
+    public func respond(_ item: FeedItem, request permission: ACPPermissionRequest, option: ACPPermissionOption) async throws {
+        guard let entry = entries.first(where: { Self.itemID(macID: macID, entry: $0.id) == item.id }),
+              let approval = entry.approval, let surface = entry.surface, permission.id == entry.id else {
+            throw QuestionRefused(message: String(localized: "The agent isn't waiting on this anymore. Nothing was typed."))
+        }
+        guard let request, let type, let connection else { throw QuestionRefused(message: FeedStore.notConnectedMessage) }
+        let reply = try WorkspaceSync.check(try await request("read-screen", ["surface": surface], connection))
+        let screen = (reply["data"] as? [String: Any])?["text"] as? String ?? ""
+        guard TerminalApprovalKeys.screenShows(screen, approval: approval) else {
+            log.info("terminal approval \(item.id, privacy: .public): the terminal no longer shows it; nothing typed")
+            throw QuestionRefused(message: String(localized: "The terminal isn't showing this approval anymore. Nothing was typed."))
+        }
+        for key in TerminalApprovalKeys.keys(option) { try await type(surface, key, connection) }
     }
 
     /// Declines it: Escape, on the question's screen only.
