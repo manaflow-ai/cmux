@@ -31,7 +31,7 @@ const again = "Restarted the web renderer; it stopped answering again.";
 
 const STATES: Record<string, { note: string; snapshot: HealthSnapshot }> = {
   "page-repairing": {
-    note: "A page stopped answering; the app reloads it and keeps the draft.",
+    note: "A page stopped answering; the app reloads it and keeps the draft. The automatic indicator stays quiet while the popover retains the detail.",
     snapshot: {
       worst: "repairing",
       parts: [

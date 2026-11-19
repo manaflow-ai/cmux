@@ -69,7 +69,7 @@ export function ChatUnavailableState({
   // shifts nothing when it appears.
   const pausedShown = useAfterDelay(unavailable.reason === "paused", noteDelayMs);
   const resumeSlow = useAfterDelay(resuming, noteDelayMs);
-  // A machine whose link just dropped: "Reconnecting…" shows only once the drop has lasted past
+  // A machine whose link just dropped: its offline line with Reconnect shows only after
   // LINK_DOWN_SAID_MS, the time acpmux takes to notice a dead link and redial it, so a link back on
   // its own never shows the state (Leo, 2026-11-14: "i also want all our connectivity stuff to shut
   // the fuck up").
@@ -133,7 +133,7 @@ export function ChatUnavailableState({
     title = t("unavailable.notFound.title");
     detail = named ? t("unavailable.notFound.detailOn", { machine: named }) : t("unavailable.notFound.detail");
   } else {
-    title = `${t("header.reconnecting")}…`;
+    title = named ? t("unavailable.offline.titleOn", { machine: named }) : t("unavailable.offline.title");
     detail =
       unavailable.lastSeen !== undefined
         ? t("unavailable.offline.lastSeen", {
@@ -178,9 +178,7 @@ export function ChatUnavailableState({
         data-enter="top"
       >
         <p className="acpmux-peer-copy-title">
-          {(unavailable.reason === "offline" || resuming) && (
-            <Spinner size={12} loading className="acpmux-peer-copy-spinner" />
-          )}
+          {resuming && <Spinner size={12} loading className="acpmux-peer-copy-spinner" />}
           {title}
         </p>
         {error && (
@@ -200,33 +198,29 @@ export function ChatUnavailableState({
       role={unavailable.reason === "offline" || unavailable.reason === "paused" ? "status" : "alert"}
       data-enter="fade"
     >
-      {unavailable.reason === "offline" ? (
-        <Spinner size={28} loading className="acpmux-unavailable-spinner" />
-      ) : (
-        <svg
-          className="acpmux-empty-glyph"
-          width={36}
-          height={36}
-          viewBox="0 0 36 36"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
-          {unavailable.reason === "deleted" ||
-          unavailable.reason === "notFound" ||
-          unavailable.reason === "gone" ||
-          unavailable.reason === "unreached" ? (
-            <path d="M13.5 18h9" />
-          ) : (
-            <path d="M11.5 18h1M17.5 18h1M23.5 18h1" />
-          )}
-        </svg>
-      )}
+      <svg
+        className="acpmux-empty-glyph"
+        width={36}
+        height={36}
+        viewBox="0 0 36 36"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
+        {unavailable.reason === "deleted" ||
+        unavailable.reason === "notFound" ||
+        unavailable.reason === "gone" ||
+        unavailable.reason === "unreached" ? (
+          <path d="M13.5 18h9" />
+        ) : (
+          <path d="M11.5 18h1M17.5 18h1M23.5 18h1" />
+        )}
+      </svg>
       <h2 className="acpmux-empty-title acpmux-unavailable-title">{title}</h2>
       <div className="acpmux-unavailable-copy">
         {unavailable.reason === "paused" ? (

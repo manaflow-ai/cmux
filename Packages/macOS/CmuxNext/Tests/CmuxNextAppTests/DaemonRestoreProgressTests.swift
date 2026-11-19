@@ -4,7 +4,6 @@ import AppKit
 @testable import CmuxNextDaemonRecovery
 @testable import CmuxNextDaemonService
 import Observation
-import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
 import os
@@ -13,8 +12,8 @@ import Testing
 /// Leo, 2026-11-08: after a restart the session owner restored for 30 minutes, the window said only
 /// "cmux's background service isn't connected", and clicks on chats did nothing. While `server ensure
 /// --restore-progress` reports the restore, the app now publishes it (`DaemonRecovery.restoring`), the
-/// launch window says "Restoring sessions… <time>" and the sidebar shows the same status card; both go
-/// once the ensure answers.
+/// launch window stays quiet during normal restoration and retains recovery actions only after
+/// the startup deadline. The restore progress still reaches diagnostics until the ensure answers.
 ///
 /// The app runs its real startup path against a stand-in `cmux-tui` script (as DaemonRestartTests):
 /// `server status` finds no owner, the first `server ensure` prints three progress lines a second
@@ -148,40 +147,34 @@ struct DaemonRestoreProgressTests {
         #expect(snapshot?.tree.workspaces.map(\.name) == ["alpha", "beta"], "the read gave another snapshot")
     }
 
-    @Test func theRestoreShowsWhileTheEnsureWaitsAndGoesWhenItAnswers() async throws {
+    @Test func aShortRestoreStaysQuietWhileTheEnsureWaits() async throws {
         let started = ContinuousClock.now
         let launched = try await Self.launch()
         defer { launched.stop() }
         let recovery = launched.services.daemon.recovery
         var waited: [UInt64] = []
-        var shownAt: ContinuousClock.Instant?
         var clearedAt: ContinuousClock.Instant?
         // Samples the published report until it came and went; only the suite's time limit ends a run that never
         // gets there (as DaemonRestartTests' wait).
         while clearedAt == nil, !Task.isCancelled {
             if let report = recovery.restoring {
                 if waited.last != report.waitedMs { waited.append(report.waitedMs) }
-                let title = RefusalStrings.restoringSessions(waitedMs: report.waitedMs)
-                if shownAt == nil, launched.view?.titleText == title { shownAt = .now }
+                #expect(launched.view?.titleText.isEmpty != false, "automatic restore has no actionable notice")
             } else if !waited.isEmpty {
                 clearedAt = .now
             }
             try? await Task.sleep(for: .milliseconds(50))  // test harness sampling of the app's own steps
         }
-        let shown = try #require(shownAt, "the launch window never said the sessions are restoring")
         let cleared = try #require(clearedAt)
         #expect(waited.count >= 2, "progress lines did not reach the app as they came: \(waited)")
         #expect(waited == waited.sorted() && Set(waited).count == waited.count, "the time shown stepped back: \(waited)")
         #expect(recovery.restoring == nil)
         #expect(launched.view?.titleText != RefusalStrings.restoringSessions(waitedMs: waited.last ?? 0))
-        let card = SidebarNoticeCard.restoring(RefusalStrings.restoringSessions(waitedMs: 65_000))
-        #expect(card.title == RefusalStrings.restoringSessions(waitedMs: 65_000))
-        #expect(card.dismissLabel == nil && card.actions.isEmpty, "the status card asks the person for something")
         func ms(_ instant: ContinuousClock.Instant) -> Int64 {
             let elapsed = instant - started
             return elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000
         }
-        print("SELF_HEAL_PROBE app restore_status_shown_after_ms=\(ms(shown)) connected_after_ms=\(ms(cleared))")
+        print("SELF_HEAL_PROBE app restore_status_quiet=true connected_after_ms=\(ms(cleared))")
     }
 
     /// Stands in for "connected" in the usable-during-restore probe: the stand-in's socket never answers, so the

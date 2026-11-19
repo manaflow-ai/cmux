@@ -264,8 +264,8 @@ extension AgentPaneView {
     /// Shown while the pane's connection did not prove the person to its acpmux: what the person
     /// types would reach the agent as an unverified sender's until the identity reconnects.
     static var personUnprovenMessage: String {
-        String(localized: "agentPane.personUnproven.message",
-               defaultValue: "Not verified as you. Reconnecting your identity to the agent service…",
+        String(localized: "agentPane.personUnproven.waitBeforeSending",
+               defaultValue: "Your identity is not verified. Wait before sending a message.",
                bundle: .module)
     }
 

@@ -1,6 +1,6 @@
 import { type ReactNode, useId, useState } from "react";
 import { Notice } from "../../ui/Notice";
-import { HOST_ERROR_DEADLINE_MS, type HostRestoring, hostRecoveryLine } from "./hostRetry";
+import { HOST_ERROR_DEADLINE_MS, type HostRestoring } from "./hostRetry";
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
 import { waitedText } from "./hostErrorModel";
@@ -50,12 +50,8 @@ export function HostError({
 /// holds this app's socket (`onRestart`, in flight while `restarting`), else Retry, which asks again
 /// now (`retrying` while it waits on the attempt in flight).
 ///
-/// While the pane asks again by itself (`selfRetrying`: every failure but one asking again cannot
-/// change, such as a machine that is rebooting or an agent service that is starting), the line is
-/// only "Reconnecting…": no Retry, no Details, no reassurance under it, since nothing waits on the
-/// person and the chat comes back by itself (Leo, 2026-11-12: "the recovery needs to be a lot better
-/// and it shouldn't talk so much bullshit"; "try what? no, it should just automatically do stuff").
-/// Only a failure asking again cannot clear keeps its message and its one action.
+/// Automatic retries stay silent, however long they take. Only a failure requiring the person's
+/// action keeps its message and action (Leo, 2026-11-16: "pls no messages like this :(").
 export function HostUnavailableLine({
   message,
   detail,
@@ -76,7 +72,7 @@ export function HostUnavailableLine({
   const t = useT();
   const [open, setOpen] = useState(false);
   const detailId = useId();
-  if (selfRetrying && !onRestart) return <ReconnectingLine />;
+  if (selfRetrying && !onRestart) return null;
   return (
     <div className="acpmux-host-line-group" role="alert">
       <div className="acpmux-host-line">
@@ -120,17 +116,6 @@ export function HostUnavailableLine({
   );
 }
 
-/// The one quiet line while the pane gets its agent back by itself: "Reconnecting…", the same line
-/// HostRecoveringLine shows for a short reconnect, so a long one changes nothing on screen.
-function ReconnectingLine() {
-  const t = useT();
-  return (
-    <output className="acpmux-host-line" data-host-recovering="reconnecting">
-      <p className="acpmux-host-line-message">{t("host.reconnecting")}</p>
-    </output>
-  );
-}
-
 /// The pane's handshake waits for this app's acpmux, which has not answered yet. The app never
 /// restarts a slow acpmux on its own (rule R5: a late answer is not a crash, and under load a
 /// restart reloads every chat), so the person sees how long the pane has waited, and may decide:
@@ -157,9 +142,9 @@ export function HostWaitingLine({
   now?: number;
 }) {
   const t = useT();
-  const ticking = useNow(fixedNow === undefined);
+  const ticking = useNow(fixedNow === undefined && onRestart !== undefined);
   const waited = (fixedNow ?? ticking) - since;
-  if (waited < HOST_ERROR_DEADLINE_MS && !restarting) return otherwise;
+  if (!onRestart || (waited < HOST_ERROR_DEADLINE_MS && !restarting)) return otherwise;
   return (
     <output className="acpmux-host-line-group" data-host-waiting>
       <div className="acpmux-host-line">
@@ -174,36 +159,15 @@ export function HostWaitingLine({
   );
 }
 
-/// The quiet line while the pane gets its chat back on its own (hostRetry.ts `hostRecoveryLine`):
-/// "Restoring sessions… m:ss" while the host says acpmux restores its chats, "Reconnecting…" while
-/// a lost connection comes back. No button and no card: nothing waits on the person. Otherwise
-/// (`otherwise`) the host's other line, if any.
+/// Automatic reconnects and restores never cover the cached chat or an actionable failure.
 export function HostRecoveringLine({
-  relinkingSince,
-  restoring,
-  failureShown,
   otherwise = null,
-  now: fixedNow,
 }: {
   relinkingSince?: number;
   restoring?: HostRestoring;
-  /// The pane already says a failure (`hostErrorSaid`): "Reconnecting…" leaves the line to it.
   failureShown?: boolean;
   otherwise?: ReactNode;
-  /// A fixed clock for the gallery and tests; the pane passes none and the line counts each second.
   now?: number;
 }) {
-  const t = useT();
-  const ticking = useNow(fixedNow === undefined && (relinkingSince !== undefined || restoring !== undefined));
-  const line = hostRecoveryLine({ relinkingSince, restoring, failureShown, now: fixedNow ?? ticking });
-  if (!line) return otherwise;
-  return (
-    <output className="acpmux-host-line" data-host-recovering={line.kind}>
-      <p className="acpmux-host-line-message">
-        {line.kind === "restoring"
-          ? t("host.restoringSessions", { time: waitedText(line.waitedMs) })
-          : t("host.reconnecting")}
-      </p>
-    </output>
-  );
+  return otherwise;
 }

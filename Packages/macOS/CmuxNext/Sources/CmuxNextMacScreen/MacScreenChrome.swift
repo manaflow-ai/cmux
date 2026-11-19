@@ -167,21 +167,21 @@ extension MacScreenPaneModel {
     /// refresh); the palette's viewer rows follow it (``MacScreenViewerControl``).
     var showsSessionControls: Bool { session != nil && showsStreamControls }
 
-    /// Send Keys can send: a live picture in a session that is not View Only.
-    var canSendKeys: Bool { isLive && !viewOnly }
+    /// Send Keys can send only to a current, unstalled frame; a quiet reconnect keeps
+    /// the picture visible while disabling input.
+    var canSendKeys: Bool { isLive && hasFrame && session?.isStalled != true && session?.isReconnecting != true && !viewOnly }
 
-    /// A connected session's card: none while the picture flows, Reconnecting
-    /// as soon as the connection stalls (never a frozen picture), Waiting
-    /// until the first picture.
+    /// A stalled connection keeps its last picture. Only an ended or failed session
+    /// needs a card; initial connection still waits for its first picture.
     static func connectedCard(hasFrame: Bool, stalled: Bool) -> MacScreenCard? {
-        if stalled { return .connecting(reconnecting: true) }
+        if stalled && hasFrame { return nil }
         return hasFrame ? nil : .waitingForPicture
     }
 
-    /// Every connect retries, so the reconnecting flag is set on a first
-    /// connect too: the card says Reconnecting only once the Mac was shown.
-    static func connectingCard(isReconnecting: Bool, everConnected: Bool) -> MacScreenCard {
-        .connecting(reconnecting: isReconnecting && everConnected)
+    /// Preserve initial connection progress. A reconnect after a picture was shown
+    /// is automatic recovery and leaves that picture unobstructed.
+    static func connectingCard(isReconnecting: Bool, everConnected: Bool) -> MacScreenCard? {
+        isReconnecting && everConnected ? nil : .connecting(reconnecting: false)
     }
 
     var isLive: Bool {

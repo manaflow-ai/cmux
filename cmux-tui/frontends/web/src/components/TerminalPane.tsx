@@ -16,6 +16,7 @@ import { RenderTerminal } from "./RenderTerminal";
 
 interface TerminalPaneProps {
   client: CmuxClient | null;
+  connected?: boolean;
   clients: ClientInfo[];
   screen: ScreenView | null;
   onRefreshClients(): void;
@@ -100,7 +101,10 @@ function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: 
             {
               label: t("renameTab"),
               onSelect: () =>
-                dispatchRename({ type: "begin", target: { kind: "surface", id: tab.surface, value: label } }),
+                dispatchRename({
+                  type: "begin",
+                  target: { kind: "surface", id: tab.surface, value: label },
+                }),
             },
             { label: t("newTabRight"), onSelect: onNewTab },
             { label: t("closeTab"), danger: true, onSelect: () => onClose(tab.surface) },
@@ -121,6 +125,7 @@ interface PaneLeafProps extends Omit<TerminalPaneProps, "screen" | "onSetSplitRa
 
 function PaneLeaf({
   client,
+  connected = true,
   clients,
   pane,
   paneId,
@@ -173,7 +178,9 @@ function PaneLeaf({
     [client, surface],
   );
   const terminalError =
-    errorState !== null && errorState.client === client && errorState.surface === surface ? errorState.message : null;
+    connected && errorState !== null && errorState.client === client && errorState.surface === surface
+      ? errorState.message
+      : null;
   const commitPaneRename = () => {
     if (!renameCanCommit(rename)) return;
     onRenamePane(paneId, rename.value.trim());
@@ -303,9 +310,15 @@ function PaneLeaf({
             {
               label: t("renamePane"),
               onSelect: () =>
-                dispatchRename({ type: "begin", target: { kind: "pane", id: paneId, value: pane?.name || "" } }),
+                dispatchRename({
+                  type: "begin",
+                  target: { kind: "pane", id: paneId, value: pane?.name || "" },
+                }),
             },
-            { label: zoomed ? t("restorePane") : t("zoomPane"), onSelect: () => onZoomPane(paneId) },
+            {
+              label: zoomed ? t("restorePane") : t("zoomPane"),
+              onSelect: () => onZoomPane(paneId),
+            },
             ...(paneMenuSummary ? [{ label: paneMenuSummary.label, children: paneMenuClientItems }] : []),
             { label: t("closePane"), danger: true, onSelect: () => onClosePane(paneId) },
           ]}
@@ -677,7 +690,7 @@ export function TerminalPane({ screen, ...props }: TerminalPaneProps) {
   if (!screen) return <section className="terminal-empty terminal-root">{t("noSurface")}</section>;
   const node = layoutToViewModel(screen.layout, screen.zoomedPane, screen.activePane);
   return (
-    <div className="pane-layout">
+    <div className="pane-layout" inert={props.connected === false}>
       <LayoutNode {...props} node={node} screen={screen} paneById={paneById} />
     </div>
   );

@@ -2,6 +2,7 @@ import CmuxNextCompat
 @testable import CmuxNextDaemon
 @testable import CmuxNextDaemonService
 import CmuxNextRemote
+import CmuxNextWakeupsTestSupport
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
@@ -100,77 +101,55 @@ struct DaemonStartupFailureStateTests {
         #expect(!store.dropGrace.isActive, "only a connection that was up starts the drop grace")
     }
 
-    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". This Mac's header drew a
-    /// spinner from the first frame of every daemon restart, handoff and launch connect (with more than one
-    /// machine listed). It now waits out the same 10 s grace as one list's "Connecting…" label: a connect that
-    /// heals within it draws nothing, one that lasts draws the spinner, and a connected Mac never waits.
-    @Test func thisMacsHeaderDrawsNoSpinnerForAConnectUnderTheGrace() async {
-        let grace = SidebarPlaceholderGrace(wait: .seconds(10), clock: NowClock())
-        let local = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "Mac", kind: .local, status: .connecting)), nodes: [])
-        await withCheckedContinuation { (ended: CheckedContinuation<Void, Never>) in
-            grace.onEnd = { ended.resume() }
-            let held = grace.holdingConnectingLabels([local])
-            let machine = try? #require(held.first?.machine)
-            #expect(machine?.holdsStatusLabel == true)
-            #expect(machine.map { SectionHeaderRowView.tone(SectionHeaderRowView.drawn($0), hostGroup: false) } == .some(nil), "no spinner within the grace")
-        }
+    /// Even an already expired grace cannot turn automatic recovery into a line or spinner.
+    @Test func aReconnectStaysQuietAfterSixtySeconds() async throws {
+        let clock = ManualClock()
+        let grace = SidebarPlaceholderGrace(wait: .seconds(10), clock: clock)
+        let section = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: MachineID("long-reconnect"), name: "Studio", kind: .ssh,
+                                                                  status: .reconnecting)), nodes: [])
+        let (expired, finish) = AsyncStream<Void>.makeStream()
+        grace.onEnd = { finish.yield(()); finish.finish() }
+        // Expire the existing grace deterministically, then project the still-reconnecting machine.
+        #expect(!grace.allows(section.id))
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(60))
+        for await _ in expired { break }
         grace.onEnd = nil
-        let lasting = try? #require(grace.holdingConnectingLabels([local]).first?.machine)
-        #expect(lasting.map { SectionHeaderRowView.tone(SectionHeaderRowView.drawn($0), hostGroup: false) } == .working, "a lasting connect draws the spinner")
-        let connected = SidebarMachine(id: .local, name: "Mac", kind: .local, status: .connected)
-        #expect(SectionHeaderRowView.tone(connected, hostGroup: false) == nil)
+        let shown = try #require(grace.holdingConnectingLabels([section]).first?.machine)
+        #expect(shown.holdsStatusLabel)
+        let drawn = SectionHeaderRowView.drawn(shown)
+        #expect(SectionHeaderRowView.statusText(drawn.status, hostGroup: false) == nil)
+        #expect(SectionHeaderRowView.tone(drawn, hostGroup: false) == .success)
+        #expect(SectionHeaderRowView.statusWords(drawn.status) == SectionHeaderRowView.statusWords(.connected))
     }
 
-    /// One list's "Connecting…" label waits out the grace; a connected machine is never held.
-    @Test func theConnectingLabelWaitsOutTheGrace() async {
+    /// Automatic reconnect never schedules a late label or spinner. Actionable failures remain visible.
+    @Test func automaticReconnectKeepsHeadersQuiet() async {
         let grace = SidebarPlaceholderGrace(wait: .seconds(10), clock: NowClock())
-        let connecting = SidebarSection(kind: .machine(SidebarMachine(id: MachineID("vm-a"), name: "A", kind: .cloud, status: .connecting)), nodes: [])
-        let connected = SidebarSection(kind: .machine(SidebarMachine(id: MachineID("vm-b"), name: "B", kind: .cloud, status: .connected)), nodes: [])
-        let local = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "Mac", kind: .local, status: .connecting)), nodes: [])
-        // Two waits run (A and This Mac): the continuation resumes when both ended, once.
-        var ends = 0
-        await withCheckedContinuation { (ended: CheckedContinuation<Void, Never>) in
-            grace.onEnd = { ends += 1; if ends == 2 { ended.resume() } }
-            let held = grace.holdingConnectingLabels([connecting, connected, local])
-            #expect(held.map { $0.machine?.holdsStatusLabel } == [true, false, true])
-        }
-        grace.onEnd = nil
-        #expect(grace.holdingConnectingLabels([connecting]).first?.machine?.holdsStatusLabel == false, "a lasting connect still says so")
-    }
-
-    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up". An ssh machine whose
-    /// link dropped, or cannot be reached, redials on its own: its header showed a spinner and
-    /// "Reconnecting…" from the first frame of every drop. Now it keeps the connected look for the grace,
-    /// and a state a person must act on is said at once.
-    @Test func aDroppedLinkSaysNothingInItsHeaderUntilTheGrace() async {
-        let grace = SidebarPlaceholderGrace(wait: .seconds(10), clock: NowClock())
-        func ssh(_ id: String, _ status: SidebarMachine.Status) -> CmuxNextSidebar.SidebarSection {
-            CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: MachineID(id), name: id, kind: .ssh, status: status)), nodes: [])
+        func machine(_ id: String, _ status: SidebarMachine.Status, kind: SidebarMachine.Kind = .ssh) -> CmuxNextSidebar.SidebarSection {
+            CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: MachineID(id), name: id, kind: kind, status: status)), nodes: [])
         }
         let healing: [SidebarMachine.Status] = [.reconnecting, .unreachable, .offline, .connecting]
         let needsPerson: [SidebarMachine.Status] = [.authFailed, .installRequired, .updateRequired, .failed]
-        let sections = (healing + needsPerson).enumerated().map { ssh("m\($0.offset)", $0.element) }
-        let held = grace.holdingConnectingLabels(sections).compactMap(\.machine)
-        #expect(held.map(\.holdsStatusLabel) == healing.map { _ in true } + needsPerson.map { _ in false })
-        for machine in held.prefix(healing.count) {
-            let drawn = SectionHeaderRowView.drawn(machine)
-            #expect(SectionHeaderRowView.tone(drawn, hostGroup: false) == .success, "the connected dot, no spinner: \(machine.status)")
-            #expect(SectionHeaderRowView.statusText(drawn.status, hostGroup: false) == nil, "no words: \(machine.status)")
+        let sections = (healing + needsPerson).enumerated().map { machine("m\($0.offset)", $0.element) }
+        var timerEnded = false
+        grace.onEnd = { timerEnded = true }
+        for _ in 0..<2 {
+            let held = grace.holdingConnectingLabels(sections).compactMap(\.machine)
+            #expect(held.map(\.holdsStatusLabel) == healing.map { _ in true } + needsPerson.map { _ in false })
+            for entry in held.prefix(healing.count) {
+                let drawn = SectionHeaderRowView.drawn(entry)
+                #expect(SectionHeaderRowView.tone(drawn, hostGroup: false) == .success)
+                #expect(SectionHeaderRowView.statusText(drawn.status, hostGroup: false) == nil)
+            }
+            for entry in held.dropFirst(healing.count) {
+                #expect(SectionHeaderRowView.statusText(SectionHeaderRowView.drawn(entry).status, hostGroup: false) != nil)
+            }
+            for _ in 0..<100 { await Task.yield() }
         }
-        for machine in held.dropFirst(healing.count) {
-            #expect(SectionHeaderRowView.statusText(SectionHeaderRowView.drawn(machine).status, hostGroup: false) != nil,
-                    "a person must act: said at once (\(machine.status))")
-        }
-        // Past the grace, a drop that lasts is said, once, in place.
-        let late = ssh("late", .reconnecting), lasting = SidebarPlaceholderGrace(wait: .seconds(10), clock: NowClock())
-        await withCheckedContinuation { (ended: CheckedContinuation<Void, Never>) in
-            lasting.onEnd = { ended.resume() }
-            #expect(lasting.holdingConnectingLabels([late]).first?.machine?.holdsStatusLabel == true)
-        }
-        lasting.onEnd = nil
-        let said = lasting.holdingConnectingLabels([late]).first?.machine ?? SidebarMachine(id: MachineID("none"), name: "", kind: .ssh)
-        #expect(!said.holdsStatusLabel)
-        #expect(SectionHeaderRowView.statusText(SectionHeaderRowView.drawn(said).status, hostGroup: false) == SectionHeaderRowView.statusWords(.reconnecting))
+        #expect(!timerEnded, "automatic recovery never schedules a late connection label")
+        let local = grace.holdingConnectingLabels([machine("local", .connecting, kind: .local)]).first?.machine
+        #expect(local.map { SectionHeaderRowView.tone(SectionHeaderRowView.drawn($0), hostGroup: false) } == .some(nil))
     }
 }
 

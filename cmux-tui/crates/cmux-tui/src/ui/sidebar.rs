@@ -318,12 +318,20 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         let recoverable = managed.is_some_and(|managed| {
             managed.status == crate::machine::ManagedMachineStatus::Recoverable
         });
-        let connection_phase = machine_ui.connection_phase(machine.key);
+        // An automatic reconnect keeps the last ready presentation, including
+        // the rail. Its bounded actionable failure has one status line.
+        let recovering = app.machine_has_recovery_frame(machine.key);
+        let connection_phase = if recovering {
+            crate::machine::MachineConnectionPhase::Ready
+        } else {
+            machine_ui.connection_phase(machine.key)
+        };
+        let machine_status = if recovering { MachineStatus::Running } else { machine.status };
         let status = match connection_phase {
             crate::machine::MachineConnectionPhase::Connecting => messages.connecting,
             crate::machine::MachineConnectionPhase::Failed => messages.unavailable,
             crate::machine::MachineConnectionPhase::Disconnected
-            | crate::machine::MachineConnectionPhase::Ready => match machine.status {
+            | crate::machine::MachineConnectionPhase::Ready => match machine_status {
                 MachineStatus::Running => messages.running,
                 MachineStatus::Connecting => messages.connecting,
                 MachineStatus::Sleeping => messages.sleeping,
@@ -351,7 +359,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
                     Some(app.config.theme.notification_error)
                 }
                 crate::machine::MachineConnectionPhase::Ready
-                | crate::machine::MachineConnectionPhase::Disconnected => match machine.status {
+                | crate::machine::MachineConnectionPhase::Disconnected => match machine_status {
                     MachineStatus::Running => Some(app.config.theme.notification_info),
                     MachineStatus::Connecting | MachineStatus::Sleeping => {
                         Some(app.config.theme.notification_warning)

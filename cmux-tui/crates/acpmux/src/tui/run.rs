@@ -176,10 +176,8 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                         // The daemon went away (restart, update, crash). Come
                         // back on the new one instead of dying with a bare
                         // "connection closed".
-                        let reason = client.closed("attached to the daemon").to_string();
-                        app.report_error(reason.clone());
-                        app.status = "daemon connection closed; reconnecting…".into();
-                        if let Err(e) = terminal.draw(&mut app) { break Err(e.into()); }
+                        // Keep the last frame while the bounded retry owns recovery.
+                        // Only a failure after the deadline needs a person.
                         match reconnect(&mut app).await {
                             Ok(new_notes) => {
                                 notes = new_notes;
@@ -363,7 +361,6 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
                     .notifications()
                     .await
                     .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
-                let build = c.daemon_build().unwrap_or_else(|| "?".into());
                 app.client = c;
                 app.sessions =
                     sessions.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -372,13 +369,12 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
                 if let Some(id) = app.selected_id() {
                     app.attach(&id);
                 }
-                app.status = format!("reconnected to the daemon (build {build})");
                 return Ok(notes);
             }
             Err(e) => {
                 if std::time::Instant::now() > deadline {
                     return Err(anyhow::anyhow!(
-                        "daemon connection closed and no daemon came back within 60s: {e}"
+                        "The session service did not return within 60s. Run acpmux again to reconnect: {e}"
                     ));
                 }
                 delay = (delay * 2).min(std::time::Duration::from_secs(3));

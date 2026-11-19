@@ -9,7 +9,7 @@
 //   (DaemonGate). No Swift serves Home data.
 // In the gallery and dev loop (`?mock`) the in-memory mock provider stands in.
 import "../shared/desktop";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { PAGE_COMMAND, type PageCommand } from "../shared/pageStreams";
@@ -22,6 +22,7 @@ import table from "./generated/strings.json";
 import { MockHomeProvider } from "./mockProvider";
 import { HomeChannelsStore, PendingCarry } from "./store";
 import { DaemonGate, type DaemonSource, type HostCredential } from "./DaemonGate";
+import { HomeStorePresentation } from "./HomeStorePresentation";
 import { DaemonHomeClient } from "./daemonHome";
 import { ComposerEdit, hostEdit } from "./composerEdit";
 import { QUOTE_COMMAND, quoteSelection } from "./quoteSelection";
@@ -60,8 +61,6 @@ export function mountDaemonHomeChannelsPage(
 ): void {
   const strings = createStrings(table);
   document.title = strings.t("page.title");
-  // One per mount: each reconnect makes a new store, and unsent messages carry over to it.
-  const carry = new PendingCarry();
   // In the app, the composers' Cut, Copy and Paste run as the page view's own edits.
   const edit = client ? hostEdit(client) : undefined;
   // The app's menu on selected message text: Quote in Reply.
@@ -80,7 +79,7 @@ export function mountDaemonHomeChannelsPage(
         <DaemonGate source={source} strings={strings} restart={restart}>
           {(daemon, _pages, owner) => (
             <div className="hc-daemon">
-              <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} carry={carry} />
+              <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} />
             </div>
           )}
         </DaemonGate>
@@ -95,7 +94,6 @@ function DaemonHome({
   owner,
   host,
   strings,
-  carry,
 }: {
   daemon: DaemonSocket;
   /** This build's Chief home's owner, when it serves the local conversations. */
@@ -103,14 +101,23 @@ function DaemonHome({
   /** The app host: it relays the person's click for a Chief's grant and delete (none in a browser). */
   host: PageClient | null;
   strings: Strings;
-  carry: PendingCarry;
 }) {
-  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host));
+  // DaemonGate preserves this component only for the same endpoints. Pending sends and the
+  // displayed store therefore survive a socket replacement, never an endpoint change.
+  const [carry] = useState(() => new PendingCarry());
+  const store = useMemo(
+    () => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host),
+    [daemon, owner, carry, host],
+  );
   // Web links: the page could send them to workspace.open_url, but the daemon takes that operation
   // from a page only with the person's confirmation (page-router gesture list), which this
   // WebSocket cannot present yet. Until the host relays the click with a confirmation
   // (cx-ebm.59.6), the page leaves link clicks to the host.
-  return <HomeChannelsPage store={store} strings={strings} />;
+  return (
+    <HomeStorePresentation store={store}>
+      {(shown) => <HomeChannelsPage store={shown} strings={strings} />}
+    </HomeStorePresentation>
+  );
 }
 
 /** The daemon endpoint in the query (`?daemon=ws://127.0.0.1:7681`): only ws/wss URLs. */

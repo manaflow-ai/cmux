@@ -174,8 +174,12 @@ fn the_cap_counts_every_episode_in_ten_minutes() {
         h.beat(ID, t + 10_500);
         t += 10_500;
     }
-    // The fourth hang inside the window gives up at once.
+    // The fourth hang inside the window exhausts the cap at once, but remains
+    // quiet until this episode has lasted ten seconds.
     assert!(run(&mut h, t + 10_000).is_empty());
+    assert_eq!(part(&h, ID).map(|p| p.state), Some(State::Repairing));
+    assert_eq!(h.next_tick_ms(), Some(t + 20_000));
+    assert!(run(&mut h, t + 20_000).is_empty());
     assert_eq!(part(&h, ID).map(|p| p.state), Some(State::Failed));
 }
 

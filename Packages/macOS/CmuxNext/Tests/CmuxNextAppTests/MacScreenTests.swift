@@ -405,18 +405,18 @@ struct MacScreenThemeTests {
     }
 }
 
-/// A stalled connection shows Reconnecting at once, not a frozen picture.
+/// A stalled connection retains its last frame without an automatic reconnect card.
 @MainActor
 @Suite(.closesItsWindows)
 struct MacScreenPaneConnectTests {
-    @Test func aStalledStreamShowsReconnecting() {
+    @Test func aStalledStreamKeepsTheLastFrameQuietly() {
         #expect(MacScreenPaneModel.connectedCard(hasFrame: true, stalled: false) == nil)
-        #expect(MacScreenPaneModel.connectedCard(hasFrame: true, stalled: true) == .connecting(reconnecting: true))
+        #expect(MacScreenPaneModel.connectedCard(hasFrame: true, stalled: true) == nil)
         #expect(MacScreenPaneModel.connectedCard(hasFrame: false, stalled: false) == .waitingForPicture)
     }
 }
 
-/// The connecting card says "Reconnecting…" only after the tab has shown the Mac once.
+/// The initial connection retains its progress; automatic reconnect leaves the last frame alone.
 @Suite(.closesItsWindows)
 struct MacScreenConnectingCardTests {
     @Test func firstConnectSaysConnecting() {
@@ -424,8 +424,8 @@ struct MacScreenConnectingCardTests {
         #expect(MacScreenPaneModel.connectingCard(isReconnecting: false, everConnected: false) == .connecting(reconnecting: false))
     }
 
-    @Test func aDroppedStreamSaysReconnecting() {
-        #expect(MacScreenPaneModel.connectingCard(isReconnecting: true, everConnected: true) == .connecting(reconnecting: true))
+    @Test func aDroppedStreamRendersNoReconnectCard() {
+        #expect(MacScreenPaneModel.connectingCard(isReconnecting: true, everConnected: true) == nil)
     }
 }
 
@@ -446,12 +446,17 @@ struct MacScreenOpenKeyboardTests {
 @Suite(.closesItsWindows)
 struct MacScreenCardInputTests {
     @Test func onlyALiveScreenWithNoCardTakesInput() {
-        #expect(MacScreenPaneView.takesInput(gate: .open, card: nil))
+        #expect(MacScreenPaneView.takesInput(gate: .open, card: nil, hasFrame: true, sessionConnected: true))
         for card: MacScreenCard in [.connecting(reconnecting: false), .connecting(reconnecting: true), .waitingForPicture, .failed, .ended,
                                     .hubConnect] {
-            #expect(!MacScreenPaneView.takesInput(gate: .open, card: card))
+            #expect(!MacScreenPaneView.takesInput(gate: .open, card: card, hasFrame: true, sessionConnected: true))
         }
-        #expect(!MacScreenPaneView.takesInput(gate: .unsupported, card: .unsupported))
+        #expect(!MacScreenPaneView.takesInput(gate: .unsupported, card: .unsupported, hasFrame: true, sessionConnected: true))
+        // A quiet reconnect hides its card but its old frame is not a live input target.
+        #expect(!MacScreenPaneView.takesInput(gate: .open, card: nil, hasFrame: true, sessionConnected: true, stalled: true))
+        #expect(!MacScreenPaneView.takesInput(gate: .open, card: nil, hasFrame: true, sessionConnected: false, reconnecting: true))
+        #expect(!MacScreenPaneView.takesInput(gate: .open, card: nil, hasFrame: false, sessionConnected: true))
+        #expect(MacScreenPaneView.takesInput(gate: .open, card: nil, hasFrame: true, sessionConnected: true))
     }
 
     @Test func aClickBesideACardNeverReachesTheCaptureView() throws {

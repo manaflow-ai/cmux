@@ -140,7 +140,11 @@ public final class MacScreenPane {
         // connecting, waiting, failed or ended).
         view.input.onFocusChange = { [weak self] focused in
             guard let self else { return }
-            model.capturesKeyboard = focused && MacScreenPaneView.takesInput(gate: model.gate, card: model.card, viewOnly: model.viewOnly)
+            model.capturesKeyboard = focused && MacScreenPaneView.takesInput(gate: model.gate, card: model.card, viewOnly: model.viewOnly,
+                                                                                hasFrame: model.hasFrame,
+                                                                                sessionConnected: model.session?.phase == .connected,
+                                                                                stalled: model.session?.isStalled == true,
+                                                                                reconnecting: model.session?.isReconnecting == true)
             handlers.keyboardChanged()
         }
         view.onInputGateChange = { [weak self] in self?.handlers.keyboardChanged() }
@@ -383,14 +387,15 @@ public final class MacScreenPaneView: NSView {
         }
     }
 
-    /// Input goes to the other Mac only while the screen is live with no card
-    /// over it (connected, with a picture), and the keyboard state says
-    /// exactly that. Under a card a click neither reaches the host nor takes
-    /// the keyboard. A screen that had the keyboard before a drop keeps it
-    /// (nothing is sent meanwhile; keys stay in cmux) and uses it again once
-    /// the picture is back; a released one still needs a click.
+    /// Input goes to the other Mac only while the screen has a current live frame.
+    /// A hidden reconnect card must not make a stale frame interactive; turning
+    /// the mode off also releases any held host keys through the input controller.
     func syncInputGate() {
-        let live = Self.takesInput(gate: model.gate, card: model.card, viewOnly: model.viewOnly)
+        let live = Self.takesInput(gate: model.gate, card: model.card, viewOnly: model.viewOnly,
+                                   hasFrame: model.hasFrame,
+                                   sessionConnected: model.session?.phase == .connected,
+                                   stalled: model.session?.isStalled == true,
+                                   reconnecting: model.session?.isReconnecting == true)
         input.controlMode = live
         input.acceptsPointer = live
         let captures = input.hasKeyboard
@@ -398,11 +403,13 @@ public final class MacScreenPaneView: NSView {
         onInputGateChange?()
     }
 
-    /// Whether the screen takes input: open, with no card (live, with a
-    /// picture), and not a View Only session (its keys, clicks and scrolls
-    /// stay here; the host would ignore them too).
-    static func takesInput(gate: MacScreenPaneModel.Gate, card: MacScreenCard?, viewOnly: Bool = false) -> Bool {
-        gate == .open && card == nil && !viewOnly
+    /// Whether the screen takes input: open, with no card, a current frame and
+    /// a connected, unstalled session. Card visibility is not enough because
+    /// automatic reconnect keeps the last frame visible without a card.
+    static func takesInput(gate: MacScreenPaneModel.Gate, card: MacScreenCard?, viewOnly: Bool = false,
+                           hasFrame: Bool, sessionConnected: Bool,
+                           stalled: Bool = false, reconnecting: Bool = false) -> Bool {
+        gate == .open && card == nil && hasFrame && sessionConnected && !stalled && !reconnecting && !viewOnly
     }
 
     /// Tells the session how fast this window's display refreshes (nil: no

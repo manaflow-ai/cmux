@@ -251,9 +251,8 @@ test("a working chat whose stream stops while its socket stays open gets every t
   expect(result.duplicates).toBe(0);
   // Quiet 20 s, the check, a refused reconnect, then a 12 s handshake: well under a minute.
   expect(result.timeToRecoverMs!).toBeLessThan(60_000);
-  // While it came back the pane said so, quietly.
-  expect(result.lineWhileWedged).toContain("Reconnecting…");
-  expect(result.lineWhileWedged).toContain('data-host-recovering="reconnecting"');
+  // Automatic recovery keeps the cached chat without a progress line.
+  expect(result.lineWhileWedged).toBe("");
   // The deaf socket, the refused one, the slow one: no reconnect loop after it is back.
   expect(result.sockets).toBe(3);
 });
@@ -310,16 +309,14 @@ test("a quiet working chat whose acpmux holds nothing newer keeps its connection
   }
 });
 
-test("the host's restore status reads as a quiet line with its elapsed time", () => {
+test("the host's restore status keeps elapsed diagnostics without rendering a progress line", () => {
   expect(readHostRestoring({ restoring: { waitedMs: 12_000 } }, 5)).toEqual({ waitedMs: 12_000, at: 5 });
   expect(readHostRestoring({ restoring: null }, 5)).toBeUndefined();
   expect(readHostRestoring({ restoring: { waitedMs: "soon" } }, 5)).toBeUndefined();
   expect(readHostRestoring(undefined, 5)).toBeUndefined();
   const restoring = { waitedMs: 12_000, at: 1_000 };
   expect(hostRecoveryLine({ restoring, now: 4_000 })).toEqual({ kind: "restoring", waitedMs: 15_000 });
-  expect(renderToStaticMarkup(<HostRecoveringLine restoring={restoring} now={4_000} />)).toContain(
-    "Restoring sessions… 0:15",
-  );
+  expect(renderToStaticMarkup(<HostRecoveringLine restoring={restoring} now={4_000} />)).toBe("");
   // A lost link says nothing for its first moment, and leaves the line to the failure past 25 s.
   expect(hostRecoveryLine({ relinkingSince: 0, now: 500 })).toBeUndefined();
   expect(hostRecoveryLine({ relinkingSince: 0, now: 12_000 })).toEqual({ kind: "reconnecting" });
@@ -342,6 +339,13 @@ test("a lost link or a restore that heals within 10 s shows no line on the chat"
     kind: "restoring",
     waitedMs: 10_000,
   });
+});
+
+test("automatic reconnects and restores render no line even after the duration bound", () => {
+  for (const now of [0, 9_999, 10_000, 60_000]) {
+    expect(renderToStaticMarkup(<HostRecoveringLine relinkingSince={0} now={now} />)).toBe("");
+    expect(renderToStaticMarkup(<HostRecoveringLine restoring={{ waitedMs: 0, at: 0 }} now={now} />)).toBe("");
+  }
 });
 
 test("a refusal the pane says at once is never covered by the quiet Reconnecting line", () => {

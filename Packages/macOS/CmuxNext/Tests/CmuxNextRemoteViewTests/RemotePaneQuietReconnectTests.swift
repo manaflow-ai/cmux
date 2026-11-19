@@ -4,8 +4,8 @@ import Foundation
 import Testing
 
 /// conn-quiet (Leo, 2026-11-14: connectivity should "shut the f*** up and load faster"): a
-/// Cloud desktop that reconnects over its last frame says nothing until it has tried for
-/// ``RemotePaneState/reconnectNoticeDelay``, and a path that closed under a live picture comes
+/// Cloud desktop that reconnects over its last frame says nothing while recovery is automatic,
+/// and a path that closed under a live picture comes
 /// back by itself instead of showing "Connection lost" with a Reconnect button.
 @MainActor
 @Suite struct RemotePaneQuietReconnectTests {
@@ -25,7 +25,7 @@ import Testing
         #expect(streamingAgain.overlay == nil, "streaming, before the new session's first frame")
     }
 
-    @Test func theCardShowsOnlyOnceTheReconnectRanForTheBound() {
+    @Test func automaticReconnectStaysQuietPastTheBound() {
         let start = ContinuousClock.now
         let reducer = RemotePaneReducer()
         let restarted = reducer.reduce(streamingWithFrame(), .restartForMode, now: start)
@@ -33,7 +33,7 @@ import Testing
         let early = reducer.reduce(restarted, .reconnectNoticeCheck, now: start + .seconds(9))
         #expect(early.overlay == nil)
         let due = reducer.reduce(restarted, .reconnectNoticeCheck, now: start + RemotePaneState.reconnectNoticeDelay)
-        #expect(due.overlay == .connecting)
+        #expect(due.overlay == nil, "a duration alone is not an actionable failure")
         let back = reducer.reduce(reducer.reduce(due, .status(RemoteViewStatus(state: .streaming))), .frameShown)
         #expect(back.overlay == nil)
         #expect(back.reconnectingSince == nil)

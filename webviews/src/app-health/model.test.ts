@@ -75,21 +75,24 @@ describe("app health model", () => {
     expect(indicatorHeadline(snapshot, strings)).toBeNull();
   });
 
-  test("the indicator names the part and what is happening to it", () => {
+  test("automatic reconnects stay quiet and a failed repair asks the person", () => {
     const one = (state: HealthPart["state"]) =>
       indicatorHeadline({ worst: state, parts: [part("Agent chat", state)], receipts: [] }, strings);
-    expect(one("stuck")).toMatchObject({ tone: "danger", text: "Agent chat isn’t responding" });
-    expect(one("repairing")).toMatchObject({ tone: "attention", text: "Repairing Agent chat…" });
+    expect(one("stuck")).toBeNull();
+    expect(one("repairing")).toBeNull();
     expect(one("failed")).toMatchObject({ tone: "danger", text: "Agent chat needs a repair" });
   });
 
-  test("a slow part never hides a queued action behind it", () => {
+  test("queued actions stay quiet while the app retries", () => {
     const snapshot: HealthSnapshot = {
       worst: "slow",
       parts: [part("Agent chat", "slow")],
       receipts: [],
       pending: [{ id: "i", label: "close Background task", sinceMs: 1 }],
     };
-    expect(indicatorHeadline(snapshot, strings)?.text).toBe("Reconnecting; will close Background task when back");
+    expect(indicatorHeadline(snapshot, strings)).toBeNull();
+    snapshot.parts = [part("Agent chat", "repairing")];
+    snapshot.worst = "repairing";
+    expect(indicatorHeadline(snapshot, strings)).toBeNull();
   });
 });
