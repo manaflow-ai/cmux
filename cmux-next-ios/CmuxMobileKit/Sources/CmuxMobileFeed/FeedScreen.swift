@@ -64,7 +64,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 }
             }
             .agentChatDestinations()
-            .sheet(isPresented: $choosingWorkspaces) { FeedWorkspacesSheet(store: store).environment(appStore) }
+            .sheet(isPresented: $choosingWorkspaces) { FeedWorkspacesSheet(store: store) }
             .alert("Couldn't clear notifications", isPresented: Binding(get: { clearFailure != nil }, set: { if !$0 { clearFailure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -397,7 +397,9 @@ private struct FeedWorkspacesSheet: View {
     @State private var query = ""
 
     var body: some View {
-        NavigationStack {
+        // Worked out once per render, not per row: the Mac names only matter with more than one Mac.
+        let macNames = macNamesIfSeveral
+        return NavigationStack {
             List {
                 if !rows.isEmpty {
                     Section {
@@ -405,7 +407,7 @@ private struct FeedWorkspacesSheet: View {
                             Toggle(isOn: shown(workspace.id)) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(workspace.title).lineLimit(1)
-                                    if let mac = macName(workspace) {
+                                    if let mac = macNames?[workspace.macID] {
                                         Text(mac).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
                                     }
                                 }
@@ -460,11 +462,11 @@ private struct FeedWorkspacesSheet: View {
         )
     }
 
-    /// The workspace's Mac, only when more than one Mac is linked (with one, it says nothing).
-    private func macName(_ workspace: Workspace) -> String? {
-        let macs = appStore.teams.flatMap(\.macs)
+    /// Each Mac's name by id, only when the workspaces span more than one Mac (with one, it says
+    /// nothing).
+    private var macNamesIfSeveral: [String: String]? {
         guard Set(appStore.workspaces.map(\.macID)).count > 1 else { return nil }
-        return macs.first { $0.id == workspace.macID }?.name
+        return Dictionary(appStore.teams.flatMap(\.macs).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
     }
 }
 

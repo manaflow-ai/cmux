@@ -96,6 +96,9 @@ import Testing
         store.mutedWorkspaces.insert("w1")
         #expect(store.hiddenWorkspaceCount == 2)
         #expect(store.visibleItems.isEmpty)
+        store.filter = .errors
+        #expect(store.hiddenWorkspaceCount == 0)
+        store.filter = .all
         store.markDone("a")
         #expect(store.hiddenWorkspaceCount == 1)
         store.mutedWorkspaces.removeAll()

@@ -136,12 +136,25 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
         steps([{ feedMore(app) }, { tap(app.buttons["feed.chooseWorkspaces"].firstMatch, "Workspaces") }, { wait(app.switches.firstMatch, "workspace switch", timeout: 10) }])
     }
 
+    /// Turns the sheet's first workspace switch off. A SwiftUI Toggle's element is the whole row,
+    /// and a tap at its centre lands on the title, so tap the switch at the trailing edge
+    /// (ScreenSharingSheetUITests does the same) and wait for it to read off.
+    @MainActor
+    private static func turnOffFirstWorkspace(_ app: XCUIApplication) -> String? {
+        let toggle = app.switches.firstMatch
+        if let miss = wait(toggle, "first workspace switch", timeout: 10) { return miss }
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        let off = NSPredicate(format: "value == '0' OR value == 0")
+        let result = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: off, object: toggle)], timeout: 5)
+        return result == .completed ? nil : "first workspace switch did not turn off"
+    }
+
     /// Hides the first workspace in the sheet and closes it: the Feed shows its hidden line.
     @MainActor
     private static func hideFirstWorkspace(_ app: XCUIApplication) -> String? {
         steps([
             { openWorkspaces(app) },
-            { tap(app.switches.firstMatch, "first workspace switch") },
+            { turnOffFirstWorkspace(app) },
             { tap(app.buttons["feed.workspaces.done"], "Done") },
             { wait(app.buttons["feed.hiddenWorkspaces.showAll"], "hidden workspaces line", timeout: 10) },
         ])
@@ -160,7 +173,7 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "more-menu", args: Self.feed) { app in Self.feedMore(app) },
             Scene(group: g, id: "workspaces-sheet", args: Self.feed) { app in Self.openWorkspaces(app) },
             Scene(group: g, id: "workspaces-sheet-one-hidden", args: Self.feed) { app in
-                C.steps([{ Self.openWorkspaces(app) }, { C.tap(app.switches.firstMatch, "first workspace switch") }])
+                C.steps([{ Self.openWorkspaces(app) }, { Self.turnOffFirstWorkspace(app) }])
             },
             Scene(group: g, id: "workspaces-sheet-large", args: Self.feed) { app in
                 C.steps([{ Self.openWorkspaces(app) }, {
