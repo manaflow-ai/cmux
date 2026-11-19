@@ -701,22 +701,30 @@ mod tests {
         }
     }
 
-    /// Reads the fake host's events until `pick` returns something, for at most 5 s.
-    fn host_wait<T>(host: &Net, mut pick: impl FnMut(NetEvent) -> Option<T>) -> T {
+    /// Reads the fake host's events until `pick` returns something, for at most 5 s;
+    /// a timeout names what it waited for and the kinds of event it saw instead.
+    fn host_wait<T>(host: &Net, what: &str, mut pick: impl FnMut(NetEvent) -> Option<T>) -> T {
         let deadline = Instant::now() + Duration::from_secs(5);
+        let mut other = Vec::new();
         while Instant::now() < deadline {
             for event in host.events() {
+                let kind = match &event {
+                    NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(_))) => "datagram".to_owned(),
+                    NetEvent::Endpoint(EndpointEvent::Link(Event::Control(_))) => "control".to_owned(),
+                    e => format!("{e:?}").chars().take(60).collect(),
+                };
                 if let Some(found) = pick(event) {
                     return found;
                 }
+                other.push(kind);
             }
             std::thread::sleep(Duration::from_millis(2));
         }
-        panic!("the fake host waited 5 s");
+        panic!("the fake host waited 5 s for {what}; it saw {other:?}");
     }
 
-    fn host_control(host: &Net) -> Control {
-        host_wait(host, |event| match event {
+    fn host_control(host: &Net, what: &str) -> Control {
+        host_wait(host, what, |event| match event {
             NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))) => {
                 Some(serde_json::from_slice::<Control>(&record).expect("a typed control record"))
             }
@@ -725,7 +733,7 @@ mod tests {
     }
 
     fn host_input(host: &Net) -> InputPacket {
-        host_wait(host, |event| match event {
+        host_wait(host, "an input datagram", |event| match event {
             NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) => {
                 let (h, payload) = DatagramHeader::decode(&d).ok()?;
                 (h.kind == DatagramKind::Input)
@@ -849,7 +857,7 @@ mod tests {
         host.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: stream.local_addr });
 
         // hello names the desktop service and start asks for control.
-        match host_control(&host) {
+        match host_control(&host, "hello") {
             Control::Hello { service, user, max_datagram, caps, .. } => {
                 assert_eq!(
                     (service.as_str(), user.as_str(), max_datagram),
@@ -859,7 +867,7 @@ mod tests {
             }
             other => panic!("expected hello, got {other:?}"),
         }
-        match host_control(&host) {
+        match host_control(&host, "start") {
             Control::Start { mode, .. } => assert_eq!(mode, "control"),
             other => panic!("expected start, got {other:?}"),
         }
@@ -897,7 +905,9 @@ mod tests {
                 Ok(Seen::Frame(f)) => frames.push(f),
                 Ok(Seen::Message(m)) => messages.push(m),
                 Ok(Seen::Path(p)) => paths.push(p),
-                Ok(Seen::Candidate(_)) | Err(_) => {}
+                // What Swift sends on the signaling socket: a candidate the host can read.
+                Ok(Seen::Candidate(c)) => assert!(Candidate::from_wire(&c).is_some(), "{c}"),
+                Err(_) => {}
                 Ok(Seen::Closed(reason)) => panic!("closed early: {reason}"),
             }
         }
@@ -937,7 +947,7 @@ mod tests {
         // Close sends stop and reports the app's close.
         stream.close();
         loop {
-            match host_control(&host) {
+            match host_control(&host, "stop") {
                 Control::Stop => break,
                 _ => continue,
             }
