@@ -19,8 +19,6 @@
     "agentPane.display.width": 736,
     "agentPane.display.minimap": "off",
     "agentPane.display.statusVerbs.mode": "thinking",
-    "terminal.fontFamily": "Menlo",
-    "terminal.fontSize": 13,
     "sidebar.density": "comfortable",
     "sidebar.groupBy": "folder",
     "sidebar.workspaceRow.icon": false,

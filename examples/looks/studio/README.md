@@ -10,7 +10,7 @@ It is built only from public surfaces, so you can copy any part of it:
 
 | File | What it does |
 | --- | --- |
-| `cmux-setup.json` | Picks the theme file; sets the chat's system font, 14 px type and 736 px width (the line height stays at cmux's default, 1.625), a 255 px sidebar, Menlo 13 in the terminal, the minimap off, and the sidebar: rows grouped by project folder (`sidebar.groupBy`), the folder, PR and agent status on each row, and the age at the right end of the title line (`sidebar.showTimestamps`) |
+| `cmux-setup.json` | Picks the theme file; sets the chat's system font, 14 px type and 736 px width (the line height stays at cmux's default, 1.625), a 255 px sidebar, the minimap off, and the sidebar: rows grouped by project folder (`sidebar.groupBy`), the folder, PR and agent status on each row, and the age at the right end of the title line (`sidebar.showTimestamps`) |
 | `themes/studio.json` | Default. Black sidebar, near-black chat, white-at-8% hairlines, bright blue |
 | `themes/studio-light.json` | Off-white chat, pale zinc sidebar, zinc hairlines, deep blue |
 | `themes/studio-ember.json` | The dark layout warmed through: brown-black sidebar, warm charcoal chat, copper accent |
