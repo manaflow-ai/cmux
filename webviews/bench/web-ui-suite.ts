@@ -9,13 +9,15 @@
 // A busy runner can't make a timing row regress by accident: the suite probes the host's CPU contention right
 // before and after each bench (bench/hostLoad.ts) and divides that bench's ms rows by it (1 on a host with a free
 // core, so most runs keep their rows as measured). Each bench's factor is in the report's `benches`.
+// A slow runner can't either: the suite times a fixed canary around each bench and stamps the bench's time rows with
+// it (`speed`); the cron judges a row only against values from a runner about as fast.
 //   bun bench/web-ui-suite.ts [--only chat-open,chat-switch] [--out report.json]
 // The browser benches need Playwright's webkit (playwright install --with-deps webkit) and Chrome
 // (scripts/ci/ensure-system-chrome.sh; bench/browsers.ts launches it) and build the pane themselves.
 /// <reference types="bun" />
 import fs from "node:fs";
 import path from "node:path";
-import { contentionFactor, normalizeRows, probe } from "./hostLoad";
+import { contentionFactor, hostSpeed, normalizeRows, probe, speedProbe, stampSpeed } from "./hostLoad";
 import { PERF_ROW_MARK, type PerfRow } from "./perfRow";
 
 /// `ownPart`: run only when `--only` names it (perf-cron.py gives it a part of its own, outside the 30-minute cap).
@@ -305,19 +307,22 @@ async function main() {
   }
   const rows: PerfRow[] = [];
   const failed: Failure[] = [];
-  const benches: Record<string, { exit: number | null; seconds: number; rows: number; load: number }> = {};
+  const benches: Record<string, { exit: number | null; seconds: number; rows: number; load: number; speed: number }> =
+    {};
   for (const bench of BENCHES.filter((each) => (only ? only.includes(each.name) : !each.ownPart))) {
     console.log(`web-ui-suite: ${bench.name} ${bench.args.join(" ")}`);
     const before = probe();
+    const canary = speedProbe();
     const result = await run(bench);
+    const speed = hostSpeed([...canary, ...speedProbe()]);
     const load = contentionFactor([...before, ...probe()]);
     const { rows: measured, bad } = parseRows(result.stdout);
-    const got = normalizeRows(measured, load);
+    const got = stampSpeed(normalizeRows(measured, load), speed);
     if (load > 1) console.log(`web-ui-suite: ${bench.name} ran on a busy host: its ms rows are divided by ${load}`);
     // The bench's own human output stays readable in the log.
     for (const line of result.stdout.split("\n"))
       if (line && !line.startsWith(PERF_ROW_MARK)) console.log(`  ${bench.name}| ${line}`);
-    benches[bench.name] = { exit: result.exit, seconds: result.seconds, rows: got.length, load };
+    benches[bench.name] = { exit: result.exit, seconds: result.seconds, rows: got.length, load, speed };
     const why = result.timedOut
       ? `timed out after ${bench.timeoutMs / 1000} s`
       : result.exit !== 0

@@ -2,7 +2,15 @@
 // ms rows by the host's contention factor, and leaves every row that is not a time, and every row on an idle host, as
 // measured.
 import { describe, expect, test } from "bun:test";
-import { contentionFactor, MAX_FACTOR, normalizeRows, spinRatio } from "../bench/hostLoad";
+import {
+  contentionFactor,
+  hostSpeed,
+  MAX_FACTOR,
+  normalizeRows,
+  speedProbe,
+  spinRatio,
+  stampSpeed,
+} from "../bench/hostLoad";
 
 describe("hostLoad contentionFactor", () => {
   test("the median spin ratio, at least 1, at most MAX_FACTOR", () => {
@@ -43,5 +51,51 @@ describe("hostLoad normalizeRows", () => {
 
   test("an idle host leaves every row as measured", () => {
     expect(normalizeRows(rows, 1)).toEqual(rows);
+  });
+});
+
+// A slow runner can't either (cmux#24569): the spin reads 1 on a host that runs the same code 2x slower, so the suite
+// also times a fixed canary and stamps each time row with it; the perf cron judges a row only against values from a
+// runner about as fast.
+describe("hostLoad host speed", () => {
+  test("the median canary sample, walk plus work, and 0 when not known", () => {
+    expect(
+      hostSpeed([
+        { walk: 10, work: 5 },
+        { walk: 30, work: 20 },
+        { walk: 12, work: 6.0004 },
+      ]),
+    ).toBe(18);
+    expect(
+      hostSpeed([
+        { walk: 10, work: 5 },
+        { walk: 12, work: 5 },
+      ]),
+    ).toBe(16);
+    expect(hostSpeed([])).toBe(0);
+    expect(hostSpeed([{ walk: Number.NaN, work: 1 }])).toBe(0);
+  });
+
+  test("the canary takes time on this host", () => {
+    const samples = speedProbe(2);
+    expect(samples).toHaveLength(2);
+    for (const sample of samples) {
+      expect(sample.walk).toBeGreaterThan(0);
+      expect(sample.work).toBeGreaterThan(0);
+    }
+  });
+
+  test("time rows carry the speed, wall and CPU alike; counts and an unknown speed do not", () => {
+    const rows = [
+      { name: "chat_open.latest", p95: 600 },
+      { name: "chat_switch.unread.idle_cpu_ms", p95: 3, clock: "cpu" as const },
+      { name: "delta_renders.rows", p95: 4, unit: "count" },
+    ];
+    expect(stampSpeed(rows, 21.5)).toEqual([
+      { name: "chat_open.latest", p95: 600, speed: 21.5 },
+      { name: "chat_switch.unread.idle_cpu_ms", p95: 3, clock: "cpu", speed: 21.5 },
+      { name: "delta_renders.rows", p95: 4, unit: "count" },
+    ]);
+    expect(stampSpeed(rows, 0)).toEqual(rows);
   });
 });
