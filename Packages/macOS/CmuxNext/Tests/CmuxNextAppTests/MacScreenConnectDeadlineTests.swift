@@ -8,7 +8,7 @@ import Testing
 /// forever or the generic "awake and online" (cmuxterm-hq#13721).
 @MainActor @Suite struct MacScreenConnectDeadlineTests {
     static func session() -> MacScreenSession {
-        MacScreenSession(title: "cosmic-gray", preferences: ScreenPreferences(), signaling: { nil })
+        MacScreenSession(title: "Studio", preferences: ScreenPreferences(), signaling: { nil })
     }
 
     @Test func stagesOnlyMoveForward() {
@@ -23,9 +23,9 @@ import Testing
     }
 
     @Test(arguments: [
-        (MacScreenConnectStage.answer, "No answer from cosmic-gray within 15 seconds."),
-        (.link, "cosmic-gray answered, but no link came up within 15 seconds."),
-        (.frame, "Connected to cosmic-gray, but no picture arrived within 15 seconds."),
+        (MacScreenConnectStage.answer, "No answer from Studio within 15 seconds."),
+        (.link, "Studio answered, but no link came up within 15 seconds."),
+        (.frame, "Connected to Studio, but no picture arrived within 15 seconds."),
     ])
     func aTimedOutConnectFailsNamingItsStage(stage: MacScreenConnectStage, text: String) {
         let session = Self.session()
@@ -34,11 +34,11 @@ import Testing
         #expect(session.timedOutStage == stage)
         #expect(session.phase == .failed(message: text, needsSignIn: false))
         // The card says the stage, not the generic "awake and online".
-        let detail = MacScreenPaneModel.failedDetail(relayErrors: [], relayOnly: false, hubTab: true, name: "cosmic-gray",
+        let detail = MacScreenPaneModel.failedDetail(relayErrors: [], relayOnly: false, hubTab: true, name: "Studio",
                                                      timedOut: session.timedOutStage)
         #expect(detail == text)
         // This Mac's own hub link being down still says that first.
-        let offline = MacScreenPaneModel.failedDetail(relayErrors: [], relayOnly: false, hubTab: true, name: "cosmic-gray",
+        let offline = MacScreenPaneModel.failedDetail(relayErrors: [], relayOnly: false, hubTab: true, name: "Studio",
                                                       hubOnline: false, timedOut: stage)
         #expect(offline != text)
     }
