@@ -102,7 +102,7 @@
   min-height: 20px;
   padding: 0 8px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-inset);
   font-variant-numeric: tabular-nums;
 }
 .acpmux-cloud-start__chips li > span:last-child {
