@@ -1413,7 +1413,14 @@ class Orchestrator:
             return None
         off_us = offset_ns / 1000.0
         start = t["start_ns"] / 1000.0
+        ready = opened["desktop_ready_us"]
+        # The first frame is the session's from when both it and the desktop were ready: a
+        # frame that arrived before (the encoder still starting, or a desktop opened before
+        # Start) counts from desktop ready, so capture_start + first_capture + gate is
+        # always release - open.
         arrived = f.get("arrived_us")
+        usable = max(arrived, ready) if arrived else None
+        ahead = (opened.get("ahead_open_us"), opened.get("ahead_ready_us"))
 
         def ms(us):
             return None if us is None else round(us / 1000.0, 3)
@@ -1421,11 +1428,14 @@ class Orchestrator:
         return {
             # the viewer has the answer -> the host opens the session (handshake, hello, start)
             "signal": ms(opened["open_us"] - off_us - start),
-            # capture stream and encoder start
-            "capture_start": ms(opened["desktop_ready_us"] - opened["open_us"]),
-            # the capture's first frame arrives
-            "first_capture": ms(arrived - opened["desktop_ready_us"]) if arrived else None,
-            "gate": ms(f["release_us"] - arrived) if arrived else None,
+            # Start waits for the capture stream and encoder (opened before Start: the rest of
+            # that open, else all of it)
+            "capture_start": ms(ready - opened["open_us"]),
+            # after that, the capture's first frame arrives
+            "first_capture": ms(usable - ready) if arrived else None,
+            "gate": ms(f["release_us"] - usable) if arrived else None,
+            # the open that ran before Start, off the Start path (null when it ran after Start)
+            "ahead_open": ms(ahead[1] - ahead[0]) if None not in ahead else None,
             "encode": ms(f["encoded_us"] - f["release_us"]),
             "send": ms(f["sent_us"] - f["encoded_us"]),
             "down": ms(t["complete_ns"] / 1000.0 - (f["sent_us"] - off_us)),

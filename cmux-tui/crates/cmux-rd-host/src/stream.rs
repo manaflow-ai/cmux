@@ -165,10 +165,16 @@ impl Timing {
         let _ = writeln!(self.out, "{line}");
     }
 
-    /// The session opened its capture and encoder: asked at `open_us`, ready at `ready_us`.
-    fn opened(&mut self, open_us: u64, ready_us: u64) {
+    /// The session opened its capture and encoder: asked at `open_us`, ready at `ready_us`;
+    /// `ahead`, when it opened before Start (serve on macOS): that open's start and end.
+    fn opened(&mut self, open_us: u64, ready_us: u64, ahead: Option<(u64, u64)>) {
         use std::io::Write;
-        let line = serde_json::json!({ "open_us": open_us, "desktop_ready_us": ready_us });
+        let line = serde_json::json!({
+            "open_us": open_us,
+            "desktop_ready_us": ready_us,
+            "ahead_open_us": ahead.map(|a| a.0),
+            "ahead_ready_us": ahead.map(|a| a.1),
+        });
         let _ = writeln!(self.out, "{line}");
     }
 
@@ -234,26 +240,27 @@ impl MediaSession {
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
         Self::open_with(cfg, max_datagram, negotiated_caps, sink, |cursor_metadata| {
-            crate::desktop::open(cfg, cursor_metadata)
+            crate::desktop::open(cfg, cursor_metadata).map(|halves| (halves, None))
         })
     }
 
     /// [`MediaSession::open`] with the desktop from `open_desktop`, called with whether the
-    /// viewer draws the cursor (serve's desktop opened ahead of Start, `desktop::open_ahead`).
+    /// viewer draws the cursor: the halves, and when they opened if that was before Start
+    /// (serve's `desktop::open_ahead`).
     pub fn open_with(
         cfg: &SessionCfg,
         max_datagram: usize,
         negotiated_caps: &[String],
         sink: Box<dyn UpstreamSink>,
-        open_desktop: impl FnOnce(bool) -> Res<crate::desktop::Halves>,
+        open_desktop: impl FnOnce(bool) -> Res<(crate::desktop::Halves, Option<(u64, u64)>)>,
     ) -> Res<Self> {
         let open_us = now_us();
-        let (desktop, frames) = open_desktop(wants_cursor(negotiated_caps))?;
+        let ((desktop, frames), ahead) = open_desktop(wants_cursor(negotiated_caps))?;
         let ready_us = now_us();
         let mut session =
             Self::with_desktop(desktop, frames, cfg, max_datagram, negotiated_caps, sink)?;
         if let Some(timing) = session.timing.as_mut() {
-            timing.opened(open_us, ready_us);
+            timing.opened(open_us, ready_us, ahead);
         }
         Ok(session)
     }

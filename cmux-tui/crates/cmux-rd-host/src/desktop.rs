@@ -157,8 +157,11 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
 #[cfg_attr(not(feature = "link"), allow(dead_code))]
 #[cfg(target_os = "macos")]
 pub struct Opening {
-    thread: std::thread::JoinHandle<Res<(crate::mac::MacDesktop, crate::mac::MacFrames)>>,
+    /// The opened halves, and when the open finished (protocol clock, µs).
+    thread: std::thread::JoinHandle<(Res<(crate::mac::MacDesktop, crate::mac::MacFrames)>, u64)>,
     cursor_metadata: bool,
+    /// When the open started (protocol clock, µs).
+    started_us: u64,
 }
 
 /// Starts opening the display's desktop for `cfg` (as [`open`] would) on its own thread, or
@@ -170,29 +173,41 @@ pub fn open_ahead(cfg: &SessionCfg, cursor_metadata: bool) -> Option<Opening> {
         return None;
     }
     let cfg = cfg.clone();
+    let started_us = crate::clock::now_ns() / 1000;
     let thread = std::thread::Builder::new()
         .name("cmux-rd-open".into())
-        .spawn(move || crate::mac::open_halves(&cfg, cursor_metadata))
+        .spawn(move || {
+            let opened = crate::mac::open_halves(&cfg, cursor_metadata);
+            (opened, crate::clock::now_ns() / 1000)
+        })
         .ok()?;
-    Some(Opening { thread, cursor_metadata })
+    Some(Opening { thread, cursor_metadata, started_us })
 }
 
 #[cfg_attr(not(feature = "link"), allow(dead_code))]
 #[cfg(target_os = "macos")]
 impl Opening {
     /// The opened desktop at the session's Start, set to the session's start bitrate (the
-    /// link's path picks it after the desktop opened). None when the session negotiated the
-    /// other cursor choice: this desktop is dropped (its capture stops) and the caller opens
-    /// one with [`open`].
-    pub fn finish(self, cursor_metadata: bool, start_kbps: u32) -> Option<Res<Halves>> {
-        let opened =
-            self.thread.join().unwrap_or_else(|_| Err("opening the desktop panicked".into()));
+    /// link's path picks it after the desktop opened), with when its open started and finished
+    /// (µs). None when the session negotiated the other cursor choice: the open is left to
+    /// finish and drop itself (its capture stops) and the caller opens one with [`open`].
+    pub fn finish(
+        self,
+        cursor_metadata: bool,
+        start_kbps: u32,
+    ) -> Option<Res<(Halves, (u64, u64))>> {
         if cursor_metadata != self.cursor_metadata {
             return None;
         }
-        Some(opened.map(|(desktop, mut frames)| {
+        let (opened, ready_us) =
+            self.thread.join().unwrap_or_else(|_| (Err("opening the desktop panicked".into()), 0));
+        Some(opened.map(|(mut desktop, mut frames)| {
             frames.set_bitrate(start_kbps);
-            (Box::new(desktop) as Box<dyn Desktop>, Box::new(frames) as Box<dyn FrameSource>)
+            // What changed before Start: the session's first frame covers the whole screen.
+            let _ = desktop.drain(&mut Vec::new());
+            let halves =
+                (Box::new(desktop) as Box<dyn Desktop>, Box::new(frames) as Box<dyn FrameSource>);
+            (halves, (self.started_us, ready_us))
         }))
     }
 }

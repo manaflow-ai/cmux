@@ -549,9 +549,9 @@ fn serve_session(
         MediaSession::open_with(&cfg, MAX_DATAGRAM, &negotiated.caps, sink, |cursor_metadata| {
             #[cfg(target_os = "macos")]
             if let Some(opened) = opening.and_then(|o| o.finish(cursor_metadata, cfg.start_kbps)) {
-                return opened;
+                return opened.map(|(halves, ahead)| (halves, Some(ahead)));
             }
-            crate::desktop::open(&cfg, cursor_metadata)
+            crate::desktop::open(&cfg, cursor_metadata).map(|halves| (halves, None))
         })?;
     let (width, height) = media.size();
     carrier.send_control(&Control::Welcome {
