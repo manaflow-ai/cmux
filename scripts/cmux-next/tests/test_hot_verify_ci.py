@@ -471,11 +471,12 @@ class Workflow(unittest.TestCase):
                    len(lines))
         return lines[start:end]
 
-    def run_block(self, job: str, gh_out: str, env: dict) -> tuple[subprocess.CompletedProcess, Path, list[str]]:
-        """Run JOB's one `run: |` script with a gh on PATH that prints GH_OUT and logs its argv; returns the
-        process, the GITHUB_OUTPUT file and the gh calls."""
+    def run_block(self, job: str, gh_out: str, env: dict, step: str = "") -> tuple[subprocess.CompletedProcess, Path, list[str]]:
+        """Run JOB's first `run: |` script (or STEP's), from the checkout's root, with a gh on PATH that prints GH_OUT
+        and logs its argv; returns the process, the GITHUB_OUTPUT file and the gh calls."""
         block = self.job_block(job)
-        at = next(i for i, line in enumerate(block) if line.strip() == "run: |")
+        first = next(i for i, line in enumerate(block) if line.strip() == f"- name: {step}") if step else 0
+        at = next(i for i in range(first, len(block)) if block[i].strip() == "run: |")
         indent = len(block[at]) - len(block[at].lstrip()) + 2
         end = next((j for j in range(at + 1, len(block)) if block[j].strip()
                     and len(block[j]) - len(block[j].lstrip()) < indent), len(block))
@@ -486,7 +487,7 @@ class Workflow(unittest.TestCase):
         fake.write_text('#!/bin/bash\nprintf "%s\\0" "$@" >> "$GH_CALLS"; printf "%s\\n" "$GH_OUT"\n')
         fake.chmod(0o755)
         out, summary, calls = scratch / "out", scratch / "summary", scratch / "calls"
-        done = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+        done = subprocess.run(["bash", "-c", script], cwd=ROOT, capture_output=True, text=True,
                               env={**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}", "GH_OUT": gh_out,
                                    "GH_CALLS": str(calls), "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
                                    "GITHUB_REPOSITORY": "manaflow-ai/cmux", **env})
@@ -513,7 +514,7 @@ class Workflow(unittest.TestCase):
                 self.assertIn(f"ok={ok}\n", out.read_text())
 
     def test_a_look_result_waits_for_one_runner_not_two(self) -> None:
-        # 2026-11-19: every result run (the controller's look_result dispatch) queued for a Blacksmith 4 vCPU runner
+        # 2026-11-19: every result run (the controller's look_result dispatch) queued for a shared 4 vCPU Linux runner
         # at `target`, then queued again for `publish` or `again`; 15 of 16 PRs without a receipt lost their look to
         # runner queues (goals/hot-verify-share.md). The result run is one job with no needs.
         lines = WORKFLOW.read_text().split("\njobs:\n", 1)[1].splitlines()
@@ -531,22 +532,22 @@ class Workflow(unittest.TestCase):
         # 2026-11-16: run 43788086518's step failed on three lent Macs' disk declines, run 43788591989's worker
         # stopped renewing its lease, and a reserved fleet Mac's gateway runner refused 8 looks (runs
         # 43833883489, 43834069668, ...). Each lost its look for good: nothing started one again.
-        block = "\n".join(self.job_block("again"))
-        self.assertIn("needs: target", block)
-        self.assertIn("needs.target.outputs.tar == 'false'", block)
-        self.assertIn("inputs.look_result != ''", block)
-        self.assertIn("inputs.attempt != '1'", block)
-        self.assertIn("!cancelled()", block)
+        block = self.job_block("publish")
+        self.assertIn("inputs.look_result != ''", "\n".join(block))
+        step = block.index("      - name: Dispatch one more look")
+        self.assertEqual(block[step + 1].strip(), "if: ${{ steps.check.outputs.ok == 'true' && "
+                                                  "steps.result.outputs.tar == 'false' && inputs.attempt != '1' }}")
         self.assertIn("attempt:", WORKFLOW.read_text().split("jobs:", 1)[0])
-        done, _, argv = self.run_block("again", "", {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web,rust",
-                                                      "EVENT_AT": "1794800000"})
+        again = "Dispatch one more look"
+        done, _, argv = self.run_block("publish", "", {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web,rust",
+                                                        "EVENT_AT": "1794800000"}, again)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(argv[:2], ["workflow", "run"])
         self.assertIn("cmux-next-hot-verify.yml", argv)
         for field in ("pr=7", f"head={HEAD}", "layers=web,rust", "event_at=1794800000", "attempt=1"):
             self.assertIn(field, argv)
-        done, _, argv = self.run_block("again", "", {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "rust", "EVENT_AT": "",
-                                                      "KIND": "merge"})
+        done, _, argv = self.run_block("publish", "", {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "rust", "EVENT_AT": "",
+                                                        "KIND": "merge"}, again)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("kind=merge", argv)
 
