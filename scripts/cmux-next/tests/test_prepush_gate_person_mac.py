@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """prepush-gate.py on a person's Mac: background priority, one gate at a time, one scanner at a time, a fixed limit.
 
-2026-11-19 on cosmic-gray (a person's interactive Mac, in the fleet registry's reconcilers.never_on): load 58 on 15
+2026-11-19 on a person's interactive Mac (in the fleet registry's reconcilers.never_on): load 58 on 15
 cores, swap nearly full, the gate at 87% CPU among ten gits. On such a host the gate re-runs itself under
 `taskpolicy -b` (macOS) or `nice -n 19`, so every check it starts runs at background priority, and waits for the
 Mac's one gate turn (an flock) before it starts any check.
@@ -36,13 +36,13 @@ def load_gate():
 
 
 REGISTRY = {
-    "reconcilers": {"never_on": ["cosmic-gray"]},
+    "reconcilers": {"never_on": ["person-mac"]},
     "machines": {
-        "cosmic-gray": {"hostname": "cosmic-gray.local", "roles": ["agents"]},
-        "air-blue": {"roles": ["leo-mac"]},
-        "mini-7": {"hostname": "mini-7", "roles": ["mac-build"]},
+        "person-mac": {"hostname": "person-mac.local", "roles": ["agents"]},
+        "person-laptop": {"roles": ["leo-mac"]},
+        "fleet-mini": {"hostname": "fleet-mini", "roles": ["mac-build"]},
     },
-    "origins": {"mini-7": {"hostnames": ["mini-7.tailnet"]}},
+    "origins": {"fleet-mini": {"hostnames": ["fleet-mini.tailnet"]}},
 }
 
 
@@ -53,10 +53,10 @@ class PersonMacTest(unittest.TestCase):
 
     def test_the_registry_names_a_persons_mac(self):
         judge = self.gate.registry_person
-        self.assertTrue(judge(REGISTRY, "cosmic-gray"))  # reconcilers.never_on
-        self.assertTrue(judge(REGISTRY, "cosmic-gray.local"))  # by its hostname
-        self.assertTrue(judge(REGISTRY, "air-blue"))  # a person role
-        self.assertFalse(judge(REGISTRY, "mini-7.tailnet"))  # a fleet Mac
+        self.assertTrue(judge(REGISTRY, "person-mac"))  # reconcilers.never_on
+        self.assertTrue(judge(REGISTRY, "person-mac.local"))  # by its hostname
+        self.assertTrue(judge(REGISTRY, "person-laptop"))  # a person role
+        self.assertFalse(judge(REGISTRY, "fleet-mini.tailnet"))  # a fleet Mac
         self.assertIsNone(judge(REGISTRY, "someone-elses-laptop"))  # not listed
 
     def test_person_mac_reads_the_named_registry_and_the_override_wins(self):
@@ -64,11 +64,11 @@ class PersonMacTest(unittest.TestCase):
             path = Path(tmp) / "fleet-registry.json"
             path.write_text(json.dumps(REGISTRY))
             env = {"HOME": tmp, "CMUX_FLEET_REGISTRY": str(path)}
-            self.assertTrue(self.gate.person_mac(env, hostname="cosmic-gray"))
-            self.assertFalse(self.gate.person_mac(env, hostname="mini-7"))
-            self.assertFalse(self.gate.person_mac({"HOME": tmp}, hostname="cosmic-gray"))  # no registry: as before
-            self.assertFalse(self.gate.person_mac({**env, "CMUX_PREPUSH_PERSON_MAC": "0"}, hostname="cosmic-gray"))
-            self.assertTrue(self.gate.person_mac({"HOME": tmp, "CMUX_PREPUSH_PERSON_MAC": "1"}, hostname="mini-7"))
+            self.assertTrue(self.gate.person_mac(env, hostname="person-mac"))
+            self.assertFalse(self.gate.person_mac(env, hostname="fleet-mini"))
+            self.assertFalse(self.gate.person_mac({"HOME": tmp}, hostname="person-mac"))  # no registry: as before
+            self.assertFalse(self.gate.person_mac({**env, "CMUX_PREPUSH_PERSON_MAC": "0"}, hostname="person-mac"))
+            self.assertTrue(self.gate.person_mac({"HOME": tmp, "CMUX_PREPUSH_PERSON_MAC": "1"}, hostname="fleet-mini"))
 
     def test_a_persons_mac_runs_one_scanner_with_a_fixed_limit(self):
         self.assertGreater(self.gate.side_workers({}, cpus=15), 1)

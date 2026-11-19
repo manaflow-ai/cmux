@@ -3999,7 +3999,7 @@ def gate_limit() -> float:
 
 # ---------------------------------------------------------------- a person's Mac
 #
-# 2026-11-19 13:2xZ, cosmic-gray (Leo's interactive Mac, in the fleet registry's reconcilers.never_on): load 58 on 15
+# 2026-11-19 13:2xZ, a person's interactive Mac (in the fleet registry's reconcilers.never_on): load 58 on 15
 # cores, swap 22.9 of 24.7 GB, this gate at 87% CPU among ten gits. Each gate ran up to one scanner per core
 # (side_workers), the hook let two gates run at once, and the limit grew with the load to an hour. On a person's Mac
 # the gate now runs bounded instead:
