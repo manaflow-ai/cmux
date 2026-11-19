@@ -43,5 +43,6 @@
 
 .kit-gallery-glass {
   padding: var(--ds-space-2) var(--ds-space-3);
-  font-size: 12px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
 }
