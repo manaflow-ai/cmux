@@ -428,7 +428,6 @@ final class GlassMenuListView: NSView {
         if item.submenu != nil { return symbol("chevron.right", ink: .tertiary) }
         if item.state == .on { return symbol("checkmark", ink: .primary) }
         if item.state == .mixed { return symbol("minus", ink: .primary) }
-        guard look.shortcuts != .none else { return nil }
         return GlassMenuRow.shortcut(item).map(PopupRowView.shortcut)
     }
 
