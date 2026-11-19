@@ -2906,11 +2906,17 @@ function TranscriptView({
     // One whose row was taken out (an older page's date line, drawn again over the page) is looked
     // for among the rows that came in, not walked for.
     if (hinted && hinted !== rows)
-      movedHints(presenceHints.current, rows, rowsDelta(hinted, rows), {
-        active: activeRowRef.current,
-        anchor: transcriptRangeRef.current?.anchorId,
-        focus: transcriptRangeRef.current?.focusId,
-      });
+      movedHints(
+        presenceHints.current,
+        rows,
+        rowsDelta(hinted, rows),
+        {
+          active: activeRowRef.current,
+          anchor: transcriptRangeRef.current?.anchorId,
+          focus: transcriptRangeRef.current?.focusId,
+        },
+        hinted,
+      );
     if (sessionChanged) {
       setSelectionSessionKey(sessionKey);
       setActiveRowId(rows[0]?.id);

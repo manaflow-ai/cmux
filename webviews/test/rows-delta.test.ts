@@ -313,9 +313,43 @@ describe("rowPresence hints over a delta", () => {
       const pick = () => (next() % 5 === 0 ? `n${serial + 1}` : rows[next() % rows.length]!.id);
       const ids =
         step % 3 === 0 ? { active: pick(), anchor: pick(), focus: pick() } : { active: hints.gone?.active ?? pick() };
-      movedHints(hints, rows, rowsDelta(before, rows), ids);
+      movedHints(hints, rows, rowsDelta(before, rows), ids, before);
       const hinted = rowPresence(rows, ids.active, ids.anchor, ids.focus, hints);
       expect(hinted).toEqual(rowPresence(rows, ids.active, ids.anchor, ids.focus));
+    }
+  });
+
+  test("a hint left from an earlier focus is not proof its row was taken out", () => {
+    // The hints were found for r0 (the first row takes the tab stop), then the reader focused r30
+    // and selected r20..r25 with no rows changing; an older page then draws the first date line again.
+    const before = Array.from({ length: 40 }, (_, at) => row(`r${at}`));
+    const hints: RowPresenceHints = {};
+    rowPresence(before, "r0", "r0", "r0", hints);
+    expect(hints).toMatchObject({ active: 0, anchor: 0, focus: 0 });
+    const rows = [row("p0"), row("p1"), row("p2"), row("p3"), ...before.slice(1)];
+    noteKeptSuffix(rows, before, before.length - 1);
+    const delta = rowsDelta(before, rows);
+    expect(delta).toMatchObject({ from: 0, end: 4, baseEnd: 1 });
+    const ids = { active: "r30", anchor: "r20", focus: "r25" };
+    movedHints(hints, rows, delta, ids, before);
+    const hinted = rowPresence(rows, ids.active, ids.anchor, ids.focus, hints);
+    expect(hinted).toEqual({ active: true, anchor: true, focus: true });
+    expect(hinted).toEqual(rowPresence(rows, ids.active, ids.anchor, ids.focus));
+    // Found where they are now: the next page moves them without a walk.
+    expect(hints).toMatchObject({ active: 33, anchor: 23, focus: 28 });
+  });
+
+  test("a stale hint anywhere finds what a walk finds", () => {
+    const before = Array.from({ length: 40 }, (_, at) => row(`r${at}`));
+    for (const stale of [0, 1, 3, 4, 5, 6, 39]) {
+      const hints: RowPresenceHints = { active: stale, anchor: stale, focus: stale };
+      // r3..r5 taken out for two new rows.
+      const rows = [...before.slice(0, 3), row("x0"), row("x1"), ...before.slice(6)];
+      const ids = { active: "r30", anchor: "r1", focus: "r39" };
+      movedHints(hints, rows, rowsDelta(before, rows), ids, before);
+      expect(rowPresence(rows, ids.active, ids.anchor, ids.focus, hints)).toEqual(
+        rowPresence(rows, ids.active, ids.anchor, ids.focus),
+      );
     }
   });
 });
