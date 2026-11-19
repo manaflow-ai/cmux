@@ -44,6 +44,8 @@ use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use ghostty_vt::{Callbacks, RenderState, Terminal};
+
+use crate::session::{ScrolledBackAnchor, restore_scrolled_back_anchor, scrolled_back_anchor};
 use serde_json::{Value, json};
 
 pub(crate) const MODE: &str = "__scroll-probe";
@@ -500,22 +502,13 @@ impl Mirror {
         self.term.scrollbar().is_none_or(|s| !s.scrolled_back())
     }
 
-    /// `session/remote.rs`' anchor: rows from the viewport top to the end.
-    fn anchor(&self) -> Option<u64> {
-        let s = self.term.scrollbar()?;
-        s.scrolled_back().then(|| s.total.saturating_sub(s.offset))
+    /// `session/remote.rs`' own anchor, so the probe measures what the app does.
+    fn anchor(&mut self) -> Option<ScrolledBackAnchor> {
+        scrolled_back_anchor(&mut self.term)
     }
 
-    fn restore_anchor(&mut self, rows_from_top_to_end: u64) {
-        let Some(s) = self.term.scrollbar() else { return };
-        let live_offset = s.total.saturating_sub(s.len);
-        let target = s.total.saturating_sub(rows_from_top_to_end).min(live_offset);
-        let delta = i128::from(target) - i128::from(s.offset);
-        if let Ok(delta) = isize::try_from(delta)
-            && delta != 0
-        {
-            self.term.scroll_delta(delta);
-        }
+    fn restore_anchor(&mut self, anchor: &ScrolledBackAnchor) {
+        restore_scrolled_back_anchor(&mut self.term, anchor);
     }
 }
 
@@ -945,7 +938,7 @@ impl<'s, 'e> Probe<'s, 'e> {
                 // anchor is restored so the run goes on scrolled back.
                 let resync_anchor = self
                     .mirror
-                    .as_ref()
+                    .as_mut()
                     .filter(|m| m.attach == n && m.was_back)
                     .and_then(Mirror::anchor);
                 match Mirror::from_replay(cols, rows, &replay, &decode("pending"), n) {
@@ -953,7 +946,7 @@ impl<'s, 'e> Probe<'s, 'e> {
                         if let Some(anchor) = resync_anchor {
                             self.m.jumps += 1;
                             self.m.note(format!("mirror rebuilt by {event} while scrolled back"));
-                            mirror.restore_anchor(anchor);
+                            mirror.restore_anchor(&anchor);
                         }
                         self.mirror = Some(mirror);
                     }
@@ -1224,18 +1217,19 @@ impl<'s, 'e> Probe<'s, 'e> {
 
     /// Drops the byte attach while output flows, attaches again, rebuilds the
     /// mirror from the replay and restores the scroll position the way
-    /// `session/remote.rs` does (rows from the viewport top to the end).
+    /// `session/remote.rs` does (its own `restore_scrolled_back_anchor`).
     fn detach_and_reattach(&mut self, why: &str, gap: Duration) -> Result<(), String> {
         let before_top = self.check_mirror(false);
-        let anchor = self.mirror.as_ref().and_then(Mirror::anchor);
+        let anchor = self.mirror.as_mut().and_then(Mirror::anchor);
         if let Some(link) = self.bytes.take() {
             let _ = link.writer.shutdown(std::net::Shutdown::Both);
         }
         self.pump_for(gap)?;
         self.attach_bytes()?;
-        if let (Some(anchor), Some(m)) = (anchor, self.mirror.as_mut()) {
+        if let (Some(anchor), Some(m)) = (anchor.as_ref(), self.mirror.as_mut()) {
             m.restore_anchor(anchor);
         }
+        let anchor = anchor.map(|a| a.rows_from_end);
         let after_top = self.check_mirror(true);
         let shift = match (before_top, after_top) {
             (Some(b), Some(a)) => Some(a as i64 - b as i64),
