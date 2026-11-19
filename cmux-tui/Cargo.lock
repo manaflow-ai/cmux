@@ -1448,6 +1448,7 @@ dependencies = [
  "cmux-cloud-environment",
  "cmux-cloud-machine",
  "cmux-cloud-wire",
+ "cmux-lifeline",
  "futures",
  "getrandom 0.3.4",
  "openapiv3",
