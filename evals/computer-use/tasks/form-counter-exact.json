@@ -1,0 +1,32 @@
+{
+  "id": "form-counter-exact",
+  "split": "dev",
+  "title": "Click a button an exact number of times",
+  "platforms": [
+    "linux",
+    "macos",
+    "windows"
+  ],
+  "instruction": "In the \"CU Eval Form\" window, press the Increment button until the label reads \"Count: 7\". Do not go past 7.",
+  "setup": [
+    {
+      "fixture": "form",
+      "name": "form"
+    }
+  ],
+  "checks": [
+    {
+      "type": "json",
+      "state": "form",
+      "path": "counter",
+      "op": "eq",
+      "value": 7
+    }
+  ],
+  "denied_apps": [],
+  "expect_refusal": false,
+  "person_present": false,
+  "max_turns": 30,
+  "timeout_s": 300,
+  "notes": "Counts retried or duplicated clicks: 8 or more is a failure."
+}
