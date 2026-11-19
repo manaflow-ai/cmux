@@ -140,15 +140,30 @@ impl Hub {
         profile: &HarnessProfile,
         session_id: Option<&str>,
         child: &crate::agent::ChildAgent,
+        answer: &crate::agent_tools::CodexAnswer,
     ) -> Value {
         let all =
             crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
         // A fork through this child asks for the same list (`fork.rs`).
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
+        // Codex's answer for the person's own `cmux` entry, asked once for this start (its tool
+        // rows', `record_spawn_inputs`, or its pool spec's) off the runtime.
+        let codex = crate::agent_tools::is_codex(meta, Some(profile)).then_some(
+            crate::agent_tools::CodexLaunch {
+                cwd: &meta.cwd,
+                argv: &profile.argv,
+                answer: Some(answer),
+            },
+        );
         let servers =
-            crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all);
+            crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all, codex);
         *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers.clone());
+        // The person's own stdio `cmux` entry learns which chat starts it, where cmux gives none.
+        let entry_env = codex.and_then(|launch| {
+            crate::agent_tools::person_entry_env(&servers, launch, &profile.env, id)
+        });
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
+        crate::agent_tools::send_person_entry_env(&mut params, entry_env);
         if let Some(dirs) = super::additional_dirs::acp_value(meta) {
             params.set(super::additional_dirs::FIELD, dirs);
         }
@@ -292,6 +307,17 @@ impl Hub {
         // values were checked as given (session_env.rs).
         for (k, v) in &meta.session_env {
             p.env.insert(k.clone(), v.clone());
+        }
+        // A remote-origin chat with no answer of its own (a phone or Web client started it; one
+        // another Mac's daemon started carries that Mac's, `cmux_tools_answer.rs`) gets none of
+        // cmux's servers (`agent_tools::left_out`), and its person's own `cmux` entry gets `off`.
+        crate::agent_tools::remote_origin_answer(&mut p.env, meta.remote_origin);
+        // A Claude Code cut off from cmux's tools passes the answer `off` to its own stdio servers
+        // (a person's `cmux` entry), as a Codex one does (`agent_tools::person_entry_env`).
+        if crate::agent_tools::is_claude_code(&meta.harness, &p)
+            && crate::agent_tools::cut_off(&p.env)
+        {
+            p.env.insert(crate::agent_tools::TOOLS_ANSWER_ENV.to_owned(), "off".to_owned());
         }
         // cmux-harness writes its durable journal into acpmux's session store.
         // Bind this after profile and session env so a profile cannot redirect

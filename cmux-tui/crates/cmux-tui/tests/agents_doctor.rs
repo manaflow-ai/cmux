@@ -350,7 +350,7 @@ fn agents_doctor_reports_missing_wiring_without_changing_anything() {
     assert_eq!(codex["reason"], "not_on_path", "{report}");
     assert!(codex["fix"].as_str().is_some_and(|fix| !fix.is_empty()), "{report}");
 
-    // Without a user-level cmux-cua server, Claude Code has computer use only
+    // Without a user-level cmux-computer-use server, Claude Code has computer use only
     // in chats cmux launches (cmux injects it there); not an error.
     let claude_mcp = row(&report, "mcp.claude");
     assert_eq!(claude_mcp["status"], "cmux_only", "{report}");
@@ -437,14 +437,14 @@ fn agents_doctor_reports_configured_wiring_and_app_grants() {
     world.harness("codex");
     std::fs::write(
         world.home.join(".claude.json"),
-        r#"{"mcpServers":{"cmux-cua":{"command":"/opt/cmux/bin/cmux-cua","args":["mcp"]}}}"#,
+        r#"{"mcpServers":{"computer":{"command":"/opt/cmux/bin/cmux","args":["computer-use","mcp"]}}}"#,
     )
     .unwrap();
     std::fs::create_dir_all(world.home.join(".codex")).unwrap();
     let codex_config = world.home.join(".codex").join("config.toml");
     std::fs::write(
         &codex_config,
-        "model = \"x\"\n\n[mcp_servers.computer]\ncommand = \"/opt/cmux/bin/cmux-cua\"\nargs = [\"mcp\"]\n",
+        "model = \"x\"\n\n[mcp_servers.computer]\ncommand = \"/opt/cmux/bin/cmux\"\nargs = [\"computer-use\", \"mcp\"]\n",
     )
     .unwrap();
     let app = FakeApp::start(
@@ -454,19 +454,19 @@ fn agents_doctor_reports_configured_wiring_and_app_grants() {
 
     let configured = world.run(&app.socket, &["--json", "agents", "doctor"]);
 
-    // A project .mcp.json that names cmux-cua is pending until Claude Code approves it,
+    // A project .mcp.json that names cmux-computer-use is pending until Claude Code approves it,
     // and a config that does not parse is reported, not guessed.
     std::fs::write(world.home.join(".claude.json"), r#"{"mcpServers":{}}"#).unwrap();
     std::fs::write(
         world.work.join(".mcp.json"),
-        r#"{"mcpServers":{"cmux-cua":{"command":"cmux-cua","args":["mcp"]}}}"#,
+        r#"{"mcpServers":{"cmux-computer-use":{"command":"cmux","args":["computer-use","mcp"]}}}"#,
     )
     .unwrap();
     std::fs::write(&codex_config, "[mcp_servers.computer\ncommand = ").unwrap();
     let pending = world.run(&app.socket, &["--json", "agents", "doctor"]);
 
     let cwd = std::fs::canonicalize(&world.work).unwrap();
-    let approved = json!({"mcpServers": {}, "projects": {cwd.to_str().unwrap(): {"enabledMcpjsonServers": ["cmux-cua"]}}});
+    let approved = json!({"mcpServers": {}, "projects": {cwd.to_str().unwrap(): {"enabledMcpjsonServers": ["cmux-computer-use"]}}});
     std::fs::write(world.home.join(".claude.json"), approved.to_string()).unwrap();
     let approved = world.run(&app.socket, &["--json", "agents", "doctor"]);
     let methods = app.stop();
@@ -526,7 +526,7 @@ fn agents_doctor_fix_commands_are_runnable() {
     world.harness("claude");
     std::fs::write(
         world.work.join(".mcp.json"),
-        r#"{"mcpServers":{"cmux-cua":{"command":"cmux-cua"}}}"#,
+        r#"{"mcpServers":{"cmux-computer-use":{"command":"cmux","args":["computer-use","mcp"]}}}"#,
     )
     .unwrap();
     std::fs::create_dir_all(world.home.join(".codex")).unwrap();
@@ -586,7 +586,7 @@ fn agents_doctor_mcp_tool_reports_the_cli_findings() {
     world.harness("claude");
     std::fs::write(
         world.work.join(".mcp.json"),
-        r#"{"mcpServers":{"cmux-cua":{"command":"cmux-cua"}}}"#,
+        r#"{"mcpServers":{"cmux-computer-use":{"command":"cmux","args":["computer-use","mcp"]}}}"#,
     )
     .unwrap();
     let claude_json = r#"{"mcpServers":{}}"#;
@@ -751,7 +751,7 @@ fn agents_doctor_mcp_and_cli_redact_symlinked_home_and_config_dirs() {
     std::fs::write(real_home.join(".claude.json"), r#"{"mcpServers":{}}"#).unwrap();
     std::fs::write(
         project.join(".mcp.json"),
-        r#"{"mcpServers":{"cmux-cua":{"command":"cmux-cua"}}}"#,
+        r#"{"mcpServers":{"cmux-computer-use":{"command":"cmux","args":["computer-use","mcp"]}}}"#,
     )
     .unwrap();
     let codex_home = world.dir.join("codex-home");
@@ -761,7 +761,7 @@ fn agents_doctor_mcp_and_cli_redact_symlinked_home_and_config_dirs() {
     std::fs::create_dir_all(&claude_config).unwrap();
     std::fs::write(
         claude_config.join(".claude.json"),
-        r#"{"mcpServers":{"cmux-cua":{"command":"cmux-cua"}}}"#,
+        r#"{"mcpServers":{"cmux-computer-use":{"command":"cmux","args":["computer-use","mcp"]}}}"#,
     )
     .unwrap();
     world.cwd = Some(link_home.join("proj"));
