@@ -1068,6 +1068,36 @@ fn claude_layout(store: &[OJson], root: &OJson, hook: &HookEntry, handler: &OJso
     layout
 }
 
+/// The order of the file's events before cmux turned any of its hooks off:
+/// the one its disabled records keep, with any event the file has now and the
+/// order lacks placed after the event before it in the file.
+fn claude_event_order(store: &[OJson], root: &OJson, file: &str) -> OJson {
+    let current: Vec<&str> = root
+        .get("hooks")
+        .and_then(OJson::as_object)
+        .map(|events| events.keys().map(String::as_str).collect())
+        .unwrap_or_default();
+    let mut order: Vec<String> = store
+        .iter()
+        .filter(|record| record.get("file").and_then(OJson::as_str) == Some(file))
+        .find_map(|record| record.get("layout").and_then(|layout| layout.get("events")))
+        .and_then(OJson::as_array)
+        .map(|names| names.iter().filter_map(OJson::as_str).map(str::to_owned).collect())
+        .unwrap_or_default();
+    for (at, name) in current.iter().enumerate() {
+        if order.iter().any(|known| known == name) {
+            continue;
+        }
+        let after = current[..at]
+            .iter()
+            .rev()
+            .find_map(|previous| order.iter().position(|known| known == previous))
+            .map_or(0, |index| index + 1);
+        order.insert(after, (*name).to_owned());
+    }
+    OJson::Array(order.iter().map(|name| OJson::from(name.as_str())).collect())
+}
+
 fn claude_disable(paths: &AgentPaths, hook: &HookEntry) -> anyhow::Result<()> {
     // The store gets the handler first; when the settings write then fails,
     // the store entry is taken back, so a failure never loses the handler.
@@ -1086,15 +1116,25 @@ fn claude_disable(paths: &AgentPaths, hook: &HookEntry) -> anyhow::Result<()> {
     record.insert("index".to_owned(), OJson::from(hook.location.handler as u64));
     record.insert("handler".to_owned(), handler.clone());
     edit_disabled_store(paths, |store| {
-        let layout = claude_layout(store, &original, hook, &handler);
-        // Every record of this file and event shares the one layout.
+        let events = claude_event_order(store, &original, &file);
+        let mut layout = claude_layout(store, &original, hook, &handler);
+        if let Some(map) = layout.as_object_mut() {
+            map.insert("events".to_owned(), events.clone());
+        }
+        // Every record of this file and event shares the one layout, and
+        // every record of this file the one order of the events.
         for other in store.iter_mut() {
-            if other.get("file").and_then(OJson::as_str) == Some(file.as_str())
-                && other.get("event").and_then(OJson::as_str) == Some(hook.event.as_str())
+            if other.get("file").and_then(OJson::as_str) != Some(file.as_str()) {
+                continue;
+            }
+            let same_event =
+                other.get("event").and_then(OJson::as_str) == Some(hook.event.as_str());
+            let Some(map) = other.as_object_mut() else { continue };
+            if same_event {
+                map.insert("layout".to_owned(), layout.clone());
+            } else if let Some(other_layout) = map.get_mut("layout").and_then(OJson::as_object_mut)
             {
-                if let Some(map) = other.as_object_mut() {
-                    map.insert("layout".to_owned(), layout.clone());
-                }
+                other_layout.insert("events".to_owned(), events.clone());
             }
         }
         record.insert("layout".to_owned(), layout);
