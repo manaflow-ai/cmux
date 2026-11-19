@@ -402,12 +402,14 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
     /// A Mac's appearance, live: it wins over the cached one and is kept for the next launch. The
     /// palette changes at once; the write happens off the main actor (``settled()`` awaits it).
     /// `chatWallpaper` is the chat picture's bytes when they were just fetched; the picture's write
-    /// and decode happen off the main actor too.
+    /// and decode happen off the main actor too. `keep: false` applies the palette for this launch
+    /// only (a demo's theme): nothing is cached and no picture loads.
     @MainActor
-    public func apply(_ appearance: CmuxMobileMacAppearance, chatWallpaper: Data? = nil) {
+    public func apply(_ appearance: CmuxMobileMacAppearance, chatWallpaper: Data? = nil, keep: Bool = true) {
         guard let palette = CmuxMobileMacPalette(appearance) else { return }
         if self.appearance != appearance { self.appearance = appearance }
         if macPalette != palette { macPalette = palette }
+        guard keep else { return }
         let cache = cache
         enqueue { cache.save(appearance) }
         let newID = appearance.chatWallpaper?.id

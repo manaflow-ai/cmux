@@ -12,14 +12,12 @@ mkdir -p \
   "$APP/Contents/MacOS" \
   "$APP/Contents/Resources/bin" \
   "$APP/Contents/Frameworks" \
-  "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS" \
   "$FAKE_BIN"
 APP="$(cd "$APP" && pwd -P)"
 
 for binary in \
   "$APP/Contents/MacOS/cmux" \
-  "$APP/Contents/Resources/bin/cmux-cua" \
-  "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua" \
+  "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
   "$APP/Contents/Frameworks/nested-macho"; do
   : > "$binary"
 done
@@ -30,7 +28,7 @@ cat > "$FAKE_BIN/file" <<'EOF'
 set -euo pipefail
 target="$(printf '%s\n' "$@" | tail -n 1)"
 case "$target" in
-  */cmux|*/cmux-cua|*/nested-macho) echo 'Mach-O universal binary with 2 architectures' ;;
+  */cmux|*/cmux-diff-sidecar|*/nested-macho) echo 'Mach-O universal binary with 2 architectures' ;;
   *) echo 'ASCII text' ;;
 esac
 EOF
@@ -40,7 +38,7 @@ cat > "$FAKE_BIN/otool" <<EOF
 set -euo pipefail
 [[ "\$1" == '-arch' && "\$2" == all && "\$3" == '-l' ]] || exit 2
 target="\$4"
-if [[ "\${CMUX_FAKE_MODE:-}" == bad-rpath && "\$target" == */cmux-cua ]]; then
+if [[ "\${CMUX_FAKE_MODE:-}" == bad-rpath && "\$target" == */cmux-diff-sidecar ]]; then
   cat <<'BAD_RPATH'
 Load command 0
       cmd LC_RPATH
@@ -128,7 +126,7 @@ if CMUX_FAKE_MODE=bad-rpath run_guard > "$TMP_DIR/bad-rpath.log" 2>&1; then
   exit 1
 fi
 grep -Fq '/Applications/Xcode_26.6.app/Contents/Developer/Toolchains' "$TMP_DIR/bad-rpath.log"
-grep -Fq 'cmux-cua' "$TMP_DIR/bad-rpath.log"
+grep -Fq 'cmux-diff-sidecar' "$TMP_DIR/bad-rpath.log"
 
 if CMUX_FAKE_MODE=bad-load run_guard > "$TMP_DIR/bad-load.log" 2>&1; then
   echo 'FAIL: the guard accepted an absolute third-party load path' >&2
