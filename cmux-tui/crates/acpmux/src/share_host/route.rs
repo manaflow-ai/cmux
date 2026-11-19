@@ -4,7 +4,9 @@
 //! is. The daemon applies the gate the app applies (`JoinConsent+App.swift` `macScreenGate`):
 //! with join consent on (`labs.machineJoin`), View Only needs Screen sharing and Full Control
 //! needs Control too, read from acpmux's consent record (`cli/machine_consent.rs`) as
-//! `_acpmux/machine_consent_get` answers it. A refusal ends the session `failed`, as the app does.
+//! `_acpmux/machine_consent_get` answers it. A ticket the hub marks as the person's own device
+//! (`ownerKind: "user"`, see ``own_account``) skips that gate, as the app's host does. A refusal
+//! ends the session `consent_required`, as the app does.
 
 use cmux_hub_host::session::Ticket;
 use serde_json::Value;
@@ -99,6 +101,14 @@ pub(crate) fn route(
         return Route::End("failed");
     }
     Route::Daemon { view_only: !control }
+}
+
+/// The hub says both devices are signed in to one account (`ownerKind: "user"`, which the hub
+/// writes from its own authenticated record, never from the viewer): the person reaching their
+/// own machine, served with no consent read (Leo, 2026-11-16, ask-da398bba67). A missing field
+/// (an older hub) or any other owner (`team`, `shared`) still goes through the consent.
+pub(crate) fn own_account(push: &Value) -> bool {
+    push.get("ownerKind").and_then(Value::as_str) == Some("user")
 }
 
 /// The push as the app's device channel gets it: a host ticket says who serves it.

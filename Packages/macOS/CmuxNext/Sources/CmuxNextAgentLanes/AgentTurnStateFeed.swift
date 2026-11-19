@@ -385,13 +385,13 @@ public final class AgentTurnStateFeed {
                 held = whole
             }
             if let peerRow { paging?.changedPeers[session, default: []].insert(peerRow.name) } else { paging?.changed.insert(session) }
-            // Most session records leave the indicator as it was: the store writes (and so
-            // redraws the tabs and rows that read this session) only what differs.
+            // Most records leave the indicator as it was: the store writes (and redraws) only what differs.
             turns.apply(session: session, sessionName: sessionName, state: state, lastMessage: lastMessage, muted: muted, title: title,
                         generatedTitle: generatedTitle, detail: detail, source: source, peer: peerRow?.row)
             if let peerRow, peerRow.row == nil { turns.removePeerRow(peerRow.name, session: session) }
             turns.setStartedBy(startedBy, session: session, source: source)
             if lanes.lanes[session] != lane { lanes.set(session, lane) }
+            if deleted { turns.sessionEnded(session) } // the chat is gone: its record goes too
             if deleted, !isMirror { Self.purged?(session) }
             if let peer, !isMirror { peerSessionChanged?(peer.name, peer.stale) }
         case .usage(let numbers, let next):

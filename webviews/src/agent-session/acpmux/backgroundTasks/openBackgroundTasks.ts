@@ -64,17 +64,27 @@ export function requestBackgroundFocus(sessionId: string, toolCallId: string, at
   notify();
 }
 
-// Another page (Session Info in the chat's tab) asked: read it again.
-if (typeof globalThis.addEventListener === "function")
-  globalThis.addEventListener("storage", (event: StorageEvent) => {
-    if (event.key !== KEY && event.key !== null) return;
-    current = stored();
-    notify();
-  });
+// Another page (Session Info in the chat's tab) asked: read it again. Heard only while a panel reads
+// requests (`subscribe`), so loading this module adds no listener.
+function onStorage(event: StorageEvent): void {
+  if (event.key !== KEY && event.key !== null) return;
+  current = stored();
+  notify();
+}
 
+/// The first reader adds the storage listener (and takes a request made while none was heard); the
+/// last one gone removes it.
 const subscribe = (listener: () => void) => {
+  if (listeners.size === 0 && typeof globalThis.addEventListener === "function") {
+    globalThis.addEventListener("storage", onStorage);
+    const asked = stored();
+    if (asked && asked.at > (current?.at ?? 0)) current = asked;
+  }
   listeners.add(listener);
-  return () => void listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) globalThis.removeEventListener?.("storage", onStorage);
+  };
 };
 const snapshot = () => current;
 

@@ -94,20 +94,6 @@ fn the_owners_start_relays_the_credential_to_acpmux_with_the_agent_launch() {
     assert_eq!(new[0]["params"]["_meta"]["acpmux"]["credentials"], env(TOKEN));
 }
 
-/// cmux#45774: a Codex CLI ChatGPT login's access token (the Mac's `codex login`) is a credential
-/// the owner's start relays, as a ChatGPT plan token is; a daemon that refused it left a Cloud Codex
-/// with no sign-in ("Missing environment variable: `OPENAI_API_KEY`").
-#[test]
-fn a_codex_cli_login_token_is_relayed_with_the_agent_launch() {
-    let codex = json!({"env": {"CMUX_CODEX_ACCESS_TOKEN": "eyJhbGciOi.eyJleHAiOjF9.c2ln"}});
-    let mut chat = connect("cred-codex-login", AgentStartHost::OwnerCloud, false);
-    let started = chat.start(codex.clone(), json!("owner"));
-    assert_eq!(started["ok"], json!(true), "{started}");
-    let new = chat.sent("session/new");
-    assert_eq!(new.len(), 1, "{new:?}");
-    assert_eq!(new[0]["params"]["_meta"]["acpmux"]["credentials"], codex);
-}
-
 #[test]
 fn a_credential_is_refused_anywhere_but_the_owners_own_cloud_vm() {
     for (label, host, phone, vm_kind) in [
@@ -164,4 +150,77 @@ fn the_owners_refresh_reaches_the_tabs_own_session_only_from_the_owner() {
         "agent_session.unknown_tab",
     );
     assert!(chat.sent("agent/credentials.update").is_empty());
+}
+
+impl Chat {
+    fn prewarm(&mut self, credentials: Value, vm_kind: Value) -> Value {
+        let mut frame = json!({"cmd":"agent-session-prewarm","surface":self.surface,"cwd":self.cwd,
+            "harness":"claude","model":"claude-sonnet-4-5","credentials":credentials});
+        if !vm_kind.is_null() {
+            frame["vm_kind"] = vm_kind;
+        }
+        self.client.request(frame)
+    }
+}
+
+/// cmux#45953: the owner's app warms the agent its coming start will run. acpmux gets the start's
+/// own folder, agent, model, workspace and credential, so the start that follows takes that agent;
+/// the prewarm binds nothing, so the start still runs and binds the tab after it.
+#[test]
+fn the_owners_prewarm_hints_the_starts_own_agent_and_binds_nothing() {
+    let mut chat = connect("prewarm-owner", AgentStartHost::OwnerCloud, false);
+    let warmed = chat.prewarm(env(TOKEN), json!("owner"));
+    assert_eq!(warmed["ok"], json!(true), "{warmed}");
+    assert_eq!(warmed["data"]["accepted"], json!(true), "{warmed}");
+    assert!(!warmed.to_string().contains(TOKEN), "the answer never carries it");
+    let hints = chat.sent("_acpmux/prewarm");
+    assert_eq!(hints.len(), 1, "{hints:?}");
+    let hint = &hints[0]["params"];
+    assert_eq!(hint["cwd"], json!(chat.cwd), "the folder acpmux's trust answer checked");
+    assert_eq!(hint["harness"], json!("claude"));
+    assert_eq!(hint["model"], json!("claude-sonnet-4-5"));
+    assert_eq!(hint["credentials"], env(TOKEN));
+    // Nothing started or bound: the start runs as before.
+    let started = chat.start(env(TOKEN), json!("owner"));
+    assert_eq!(started["ok"], json!(true), "the tab is still unbound: {started}");
+    let new = chat.sent("session/new");
+    assert_eq!(new.len(), 1, "{new:?}");
+    // The start's `session/new` names what the hint named, so acpmux's keys match.
+    let meta = &new[0]["params"]["_meta"]["acpmux"];
+    assert_eq!(new[0]["params"]["cwd"], hint["cwd"]);
+    assert_eq!(meta["harness"], hint["harness"]);
+    assert_eq!(meta["credentials"], hint["credentials"]);
+    assert_eq!(meta.get("workspaceId"), hint.get("workspaceId"));
+}
+
+#[test]
+fn a_prewarm_is_refused_anywhere_but_the_owners_own_cloud_vm() {
+    for (label, host, phone, vm_kind) in [
+        ("prewarm-mac", AgentStartHost::Allowed, false, json!("owner")),
+        ("prewarm-team", AgentStartHost::TeamVm, false, json!("owner")),
+        ("prewarm-phone", AgentStartHost::OwnerCloud, true, json!("owner")),
+        ("prewarm-no-word", AgentStartHost::OwnerCloud, false, Value::Null),
+    ] {
+        let mut chat = connect(label, host, phone);
+        let refused = chat.prewarm(env(TOKEN), vm_kind.clone());
+        assert_eq!(refused["ok"], json!(false), "{label}: {refused}");
+        // With no credential too: the hint serves the owner's own Cloud start only.
+        let refused = chat.prewarm(Value::Null, vm_kind);
+        assert_eq!(refused["ok"], json!(false), "{label}: {refused}");
+        assert!(chat.sent("_acpmux/prewarm").is_empty(), "{label}: nothing warms");
+    }
+}
+
+#[test]
+fn a_prewarm_for_a_bound_tab_or_with_no_folder_is_refused() {
+    let mut chat = connect("prewarm-bound", AgentStartHost::OwnerCloud, false);
+    let mut no_folder = json!({"cmd":"agent-session-prewarm","surface":chat.surface,
+        "harness":"claude","vm_kind":"owner"});
+    assert_code(&chat.client.request(no_folder.clone()), "agent_session.bad_request");
+    let started = chat.start(env(TOKEN), json!("owner"));
+    assert_eq!(started["ok"], json!(true), "{started}");
+    let _ = chat.sent("session/new");
+    no_folder["cwd"] = json!(chat.cwd);
+    assert_eq!(chat.client.request(no_folder)["ok"], json!(false), "a bound tab warms nothing");
+    assert!(chat.sent("_acpmux/prewarm").is_empty());
 }

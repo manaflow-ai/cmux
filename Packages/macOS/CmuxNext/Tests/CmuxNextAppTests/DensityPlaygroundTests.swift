@@ -195,7 +195,10 @@ struct DensityPlaygroundTests {
         #expect(f.model.isChanged(gap) && f.model.changedCount == 1)
         f.model.reset(gap)
         #expect(!f.model.isChanged(gap) && f.model.changedCount == 0)
-        try await Task.sleep(for: .milliseconds(50))
+        let drawn = ContinuousClock.now + .seconds(5)
+        while f.design.densityTokens != f.model.draft, ContinuousClock.now < drawn {
+            await Task.yield()
+        }
         #expect(f.design.densityTokens == f.model.draft, "edits draw live")
     }
 
@@ -255,6 +258,22 @@ struct DensityPlaygroundTests {
         #expect(Self.fixture(active: DensityPreset.cozy.tokens).model.statusNotice == nil)
     }
 
+    /// A theme file's own density: a change shows, but nothing is written (no dangling `appearance.customDensity`
+    /// naming the theme's density), and the window says the theme file sets it.
+    @Test func aThemeFilesDensitySaysItWillNotSave() throws {
+        var theirs = DensityPreset.compact.tokens
+        theirs.id = "theme-arcade"
+        theirs.name = "Arcade"
+        let f = Self.fixture(active: theirs)
+        f.design.densityFromThemeFile = true
+        #expect(f.model.savesBlocked)
+        f.model.set(try #require(DensityTokenCatalog.entry("tabCornerRadius")), to: 4)
+        #expect(f.design.densityTokens.tokens["tabCornerRadius"] == 4, "it still applies live")
+        f.model.flush()
+        #expect(f.saves.isEmpty)
+        #expect(f.model.statusNotice == DensityPlaygroundStrings.themeFileNotice)
+    }
+
     /// Export writes what Import (and the Settings density card) reads; importing again adds a copy, never a replacement.
     @Test func exportedJSONImportsAsANewDensity() throws {
         let f = Self.fixture(active: DensityPreset.cozy.tokens)
@@ -267,6 +286,34 @@ struct DensityPlaygroundTests {
         #expect(f.model.draft.tokens == f.model.customs[0].tokens)
         #expect(f.model.importJSON("not json") == 0 && f.model.notice != nil)
         #expect(f.model.exportSwift.contains("\"tabGap\": 8,"))
+    }
+
+    /// A copy's name: the name asked for when it is free, else "<name> N" with the smallest free N from 2,
+    /// compared without case, against the list and the densities the same import adds before it.
+    @Test func aCopyTakesTheSmallestFreeName() {
+        let f = Self.fixture(active: DensityPreset.cozy.tokens)
+        #expect(f.model.duplicate(name: "Shared").name == "Shared", "no clash: the name as asked")
+        #expect(f.model.duplicate(name: "Shared").name == "Shared 2", "a clash with the name itself starts at 2")
+        #expect(f.model.duplicate(name: "Shared").name == "Shared 3")
+        #expect(f.model.duplicate(name: "Shared 5").name == "Shared 5")
+        #expect(f.model.duplicate(name: "Shared").name == "Shared 4", "the smallest free number, not one past the largest")
+        #expect(f.model.duplicate(name: "Shared").name == "Shared 6")
+        #expect(f.model.duplicate(name: "SHARED").name == "SHARED 7", "case-folded, and the copy keeps the case asked for")
+        #expect(f.model.duplicate(name: "Shared 2").name == "Shared 2 2", "a numbered name clashes as a whole")
+        #expect(f.model.duplicate(name: "Share").name == "Share", "another name's prefix is no clash")
+
+        let gaps = Self.fixture(active: DensityPreset.cozy.tokens)
+        for name in ["Gap", "Gap 02", "gap 3", "GAP 4"] { gaps.model.duplicate(name: name) }
+        #expect(gaps.model.duplicate(name: "gap").name == "gap 2", "2 is free (\"02\" is another name) while 3 and 4 are taken")
+        #expect(gaps.model.duplicate(name: "Gap").name == "Gap 5")
+
+        // `extra:`: one import's densities avoid each other's names, not only the list's.
+        let imports = Self.fixture(active: DensityPreset.cozy.tokens)
+        imports.model.duplicate(name: "Mine")
+        let one = imports.model.exportJSON
+        #expect(imports.model.importJSON("[\(one), \(one), \(one)]") == 3)
+        #expect(imports.model.customs.map(\.name) == ["Mine", "Mine 2", "Mine 3", "Mine 4"])
+        #expect(Set(imports.model.customs.map(\.id)).count == 4)
     }
 
     // MARK: Palette

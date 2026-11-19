@@ -127,7 +127,7 @@ public final class BrowserPopupWindows {
             (page as? any BrowserBackForwardListing)?.goToEntry(offset: offset)
         case .openPopup(let child, let request):
             // A popup an agent drives passes that on, as a tab does (BrowserPageRequests).
-            if page.isAgentDriven { child.markAgentDriven() }
+            if page.isAgentDriven { child.takeOpenersAgentMark() }
             // Placed from the popup that opened it, as Chrome cascades from
             // the last active window.
             open(child, request: request, from: entry.window, openerKey: entry.openerKey)
