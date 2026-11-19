@@ -383,6 +383,7 @@
       "wake-nightly-next-tick": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Ask main's nightly-next tick": {"nightly_only": "dispatches main's nightly-next-tick.yml when nightly-next-one ends (tests/test_nightly_next_push_slot_at_build.py)"},
+        "Retry the commit that left the slot unless nightly-next moved": {"nightly_only": "dispatches nightly.yml with nightly_next_loop_retry after nightly-next-one left the slot before nightly-next moved (scripts/ci/nightly-steps/slot-left-retry.sh; tests/test_nightly_next_push_slot_at_build.py)"},
         "Check the published feed offers deltas": {"nightly_only": "reads the live nightly-next feed and fails when the published build lists no served delta (tests/test_nightly_next_delta_check.py)"}},
       "dispatch-nightly-next-sign": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
