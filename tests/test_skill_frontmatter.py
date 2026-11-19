@@ -18,24 +18,27 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SKILLS = sorted((ROOT / "skills").glob("*/SKILL.md"))
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
-DESCRIPTION = re.compile(r"^description:[ \t]*(.*)$", re.MULTILINE)
-# `description: >-` or `|`: the value is the indented lines that follow, not the indicator.
-BLOCK_SCALAR = re.compile(r"[>|][+-]?")
-INDENTED = re.compile(r"(?:[ \t]+.*(?:\n|\Z)|[ \t]*\n)*")
+# The top-level `description:` line and the indented or blank lines that continue it.
+DESCRIPTION = re.compile(r"^description:(.*(?:\n(?:[ \t].*|[ \t]*$))*)", re.MULTILINE)
+# A block scalar header such as `>-`, `|` or `>2 # note`; its text is on the lines below.
+BLOCK_HEADER = re.compile(r"[>|][1-9+-]{0,2}(?:[ \t]+#.*)?")
 
 
 def description(path: Path) -> str | None:
-    """The `description:` value in a SKILL.md frontmatter, without its quotes."""
+    """The `description:` value in a SKILL.md frontmatter on one line, without its quotes.
+
+    A value continued on indented lines, plain, quoted or block scalar, is read in full.
+    """
     frontmatter = FRONTMATTER.match(path.read_text(encoding="utf-8"))
     if frontmatter is None:
         return None
-    line = DESCRIPTION.search(frontmatter.group(1))
-    if line is None:
+    match = DESCRIPTION.search(frontmatter.group(1))
+    if match is None:
         return None
-    value = line.group(1).strip()
-    if BLOCK_SCALAR.fullmatch(value):
-        block = INDENTED.match(frontmatter.group(1), line.end() + 1).group(0)
-        return " ".join(block.split())
+    lines = match.group(1).split("\n")
+    if BLOCK_HEADER.fullmatch(lines[0].strip()):
+        lines[0] = ""
+    value = " ".join(" ".join(lines).split())
     if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
         value = value[1:-1]
     return value
@@ -56,6 +59,11 @@ class DescriptionParserTests(unittest.TestCase):
     def test_reads_the_lines_of_a_block_scalar(self) -> None:
         self.assertEqual(self.parse("description: >-\n  no brackets\n  here\nname: x"), "no brackets here")
         self.assertEqual(self.parse("description: |\n  set <x>\n\n  in cmux"), "set <x> in cmux")
+        self.assertEqual(self.parse("description: >2 # note\n  no brackets"), "no brackets")
+
+    def test_reads_a_value_continued_on_indented_lines(self) -> None:
+        self.assertEqual(self.parse("description: Use when\n  set <x> in cmux\nname: x"), "Use when set <x> in cmux")
+        self.assertEqual(self.parse('description: "Use when\n  set <x>"'), "Use when set <x>")
 
     def test_ignores_a_nested_description_key(self) -> None:
         self.assertIsNone(self.parse("metadata:\n  description: a"))

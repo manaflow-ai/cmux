@@ -83,7 +83,7 @@ jobs:
       - name: Exercise capture skill regression guard
         run: python3 tests/test_cmux_capture_skill.py
 
-      - name: Check skill descriptions for angle brackets
+      - name: Exercise skill description regression guard
         run: python3 tests/test_skill_frontmatter.py
 
       - name: Exercise settings JSONC mutation regressions
