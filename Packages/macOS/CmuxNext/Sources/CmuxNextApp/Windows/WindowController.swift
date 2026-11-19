@@ -10,6 +10,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextFocusUI
 import CmuxNextLayout
 import CmuxNextAppCore
 import CmuxNextSettings
@@ -529,6 +530,12 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
         super.addChildWindow(childWin, ordered: place)
         if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
         WindowOverlayHost.childWindowsDidChange(of: self)
+        // A page window that took the keys before it was this window's child (an agent chat still
+        // loading when its pane was focused) holds this window's keyboard only from now on, and no
+        // key change comes with that: the viewed-tab rules look again, so its ring goes (cmux#46908).
+        if childWin.isChromiumPageWindow, let controller = windowController as? WindowController {
+            controller.services.notifications.focusDidSettle(controller.focus.state, in: controller)
+        }
     }
 
     /// The display cycle's layout pass (`-[NSWindow layoutIfNeeded]`).
