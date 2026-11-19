@@ -43,7 +43,9 @@ permissions:
 
 concurrency:
   group: required-checks-drift-${{ github.ref }}
-  cancel-in-progress: false
+  # A newer push to a pull request supersedes its run; scheduled and push runs
+  # on main still finish, since a red one there is the signal.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   reconcile:
