@@ -101,6 +101,11 @@ public final class LiveCoordinator {
     @ObservationIgnored let store: AppStore
     @ObservationIgnored let api: LiveAPI
     @ObservationIgnored let identity: DeviceIdentity
+    #if DEBUG
+    /// This phone's device ids for the account (link, then presence): the ids a Mac lists the phone by.
+    /// DEBUG only: the dogfood readiness receipt is its one reader.
+    public var deviceIDs: [String] { [identity.link, identity.presence] }
+    #endif
     /// Where `identity` and the pairing keys are kept (the Keychain; memory in tests).
     @ObservationIgnored let secrets: any DeviceSecretStore
     @ObservationIgnored let userID: String
@@ -284,7 +289,10 @@ public final class LiveCoordinator {
             // comes); with none kept, the chat loads instead of saying it hasn't started.
             if let owner, owner.tree == nil {
                 let keptKey = AgentTranscriptCache.key(accountID: scoped.accountID, macID: summary.macID, tabID: summary.id)
-                if let keptKey, let keptSession = self.transcriptCache?.cached(keptKey)?.sessionID ?? self.keptSessionIDs[key] {
+                // The kept session from memory, else the chat's small head file in this turn (no
+                // "Loading chat…" first frame for a chat this phone holds).
+                if let keptKey, let keptSession = self.transcriptCache?.cached(keptKey)?.sessionID ?? self.keptSessionIDs[key]
+                    ?? self.transcriptCache?.firstScreen(keptKey)?.sessionID {
                     self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: keptSession, provisional: true)
                     return self.agentSource(owner, session: keptSession, summary: scoped)
                 }

@@ -1,8 +1,9 @@
 // l10n-allow-file: gallery fixture repository names and error text, not shipped UI.
 //
 // A new Cloud chat's folder menu with its GitHub part (githubRepos.ts, FolderPopover `github`): the
-// Add repositories from GitHub row before the cmux GitHub App is installed, its install card and the
-// wait after Install on GitHub, the repositories once it is ready, and a failed read with Retry.
+// one Connect to GitHub row while GitHub is not connected (at rest, waiting for the browser, refused,
+// signed out), none where it can't connect (not set up, unchecked), the repositories once it is ready,
+// and a failed read with Retry.
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
@@ -54,12 +55,6 @@ const openFolder: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
 };
 
-const openCard: Play = async (ctx) => {
-  await openFolder(ctx);
-  await ctx.click({ role: "option", name: /Add repositories from GitHub/ });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-github-card"));
-};
-
 export default componentEntry<Props>({
   id: "agent-pane.github-folders",
   title: "Folder menu: GitHub repositories",
@@ -67,9 +62,8 @@ export default componentEntry<Props>({
   pane: true,
   covers: [
     "agent-session/acpmux/FolderPopover.tsx#FolderPopover",
-    "agent-session/acpmux/GitHubInstallCard.tsx#GitHubInstallCard",
-    "agent-session/acpmux/GitHubInstallCard.tsx#GitHubMark",
-    "agent-session/acpmux/GitHubInstallCard.tsx#LockIcon",
+    "agent-session/acpmux/GitHubIcons.tsx#GitHubMark",
+    "agent-session/acpmux/GitHubIcons.tsx#LockIcon",
   ],
   styles: () => Promise.all([import("./styles.css"), import("./composerLocation.css")]),
   load: () => import("./ComposerContext").then((module) => module.ComposerContext),
@@ -79,35 +73,30 @@ export default componentEntry<Props>({
   checks: {
     anchorMovePx: {
       value: 0,
-      reason: "The folder menu and its install card open in a portal and leave the composer row in place.",
+      reason: "The folder menu opens in a portal and leaves the composer row in place.",
     },
     layoutShiftMax: {
       value: 0,
-      reason: "Choosing the GitHub row swaps the menu's content without moving the row.",
+      reason: "Connect to GitHub keeps the menu open and its list in place; the row draws its title alone.",
     },
     longFrameFailMs: {
       value: 33,
-      reason: "Opening the folder menu and its install card must stay responsive on the gallery host.",
+      reason: "Opening the folder menu must stay responsive on the gallery host.",
     },
   },
   variants: {
     "not-connected": {
-      note: "A new Cloud chat before the cmux GitHub App is installed: one Add repositories from GitHub row ends the list.",
+      note: "A new Cloud chat before GitHub is connected: Connect to GitHub sits with the fixed actions under the list, its title alone; one click opens the install page, the menu stays open.",
       props: { ...base, github: notConnected },
       play: openFolder,
     },
-    "install-card": {
-      note: "The row opens the install card in the menu: the GitHub mark, what it is, one full-width Install on GitHub; Back or Escape returns to the list.",
-      props: { ...base, github: notConnected },
-      play: openCard,
-    },
     waiting: {
-      note: "After Install on GitHub: a quiet Waiting for GitHub… until the window comes back and the status says ready.",
+      note: "After the click: the row stays its title alone (GitHub's own page is the one wait, #46018) until the window comes back and the status says ready.",
       props: { ...base, github: picker({ status: { state: "not_connected", reposScope: null }, waiting: true }) },
-      play: openCard,
+      play: openFolder,
     },
     ready: {
-      note: "Installed for selected repositories: a GitHub group under the folders, a lock on private ones, then Choose more repositories….",
+      note: "Installed for selected repositories: a GitHub group in the list, a lock on private ones; Choose more repositories… sits with the fixed actions under Add folder….",
       props: { ...base, github: picker({ status: { state: "ready", reposScope: "selected" }, repos: REPOS }) },
       play: openFolder,
     },
@@ -121,8 +110,37 @@ export default componentEntry<Props>({
       },
       play: openFolder,
     },
+    unavailable: {
+      note: "GitHub unavailable (the check did not answer): no Connect to GitHub row, since a connected team's check can fail too (#46018).",
+      props: { ...base, github: picker({ status: { state: "unavailable", reposScope: null, reason: "unreachable" } }) },
+      play: openFolder,
+    },
+    "unavailable-signed-out": {
+      note: "Signed out of the Cloud service: the same row, its title alone; a click opens sign-in.",
+      props: { ...base, github: picker({ status: { state: "unavailable", reposScope: null, reason: "signed_out" } }) },
+      play: openFolder,
+    },
+    "unavailable-not-configured": {
+      note: "No GitHub App on this Cloud service: no Connect to GitHub row, since a click could connect nothing (#46018).",
+      props: {
+        ...base,
+        github: picker({ status: { state: "unavailable", reposScope: null, reason: "not_configured" } }),
+      },
+      play: openFolder,
+    },
+    "unavailable-refused": {
+      note: "A click was refused: the host's words are the row's second line, and another click tries again.",
+      props: {
+        ...base,
+        github: picker({
+          status: { state: "unavailable", reposScope: null, reason: "unreachable" },
+          connectError: "GitHub didn't answer. Try again.",
+        }),
+      },
+      play: openFolder,
+    },
     error: {
-      note: "Reading the repositories failed: one short line with Retry under the list.",
+      note: "Reading the repositories failed: the GitHub row becomes Retry, the error its second line; a click reads again with the menu open.",
       props: {
         ...base,
         github: picker({ status: { state: "ready", reposScope: "all" }, error: "GitHub didn't answer." }),
