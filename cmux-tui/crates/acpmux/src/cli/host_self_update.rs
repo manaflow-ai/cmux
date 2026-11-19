@@ -143,19 +143,19 @@ where
     S: FnMut(std::time::Duration) -> Fs,
     Fs: std::future::Future<Output = ()>,
 {
-    let mut tries = 0;
+    let mut waits = waits.iter();
+    let mut tries: usize = 1;
     loop {
-        tries += 1;
-        match attempt().await {
+        let failed = match attempt().await {
             Ok(value) => return Ok(value),
-            Err(failed) if failed.transient && tries <= waits.len() => {
-                sleep(waits[tries - 1]).await;
-            }
-            Err(failed) if tries > 1 => {
-                return Err(format!("{} (after {tries} tries)", failed.message));
-            }
-            Err(failed) => return Err(failed.message),
+            Err(failed) => failed,
+        };
+        match waits.next() {
+            Some(wait) if failed.transient => sleep(*wait).await,
+            _ if tries > 1 => return Err(format!("{} (after {tries} tries)", failed.message)),
+            _ => return Err(failed.message),
         }
+        tries = tries.saturating_add(1);
     }
 }
 
