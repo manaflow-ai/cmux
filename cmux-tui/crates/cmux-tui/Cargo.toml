@@ -98,6 +98,7 @@ cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
 cmux-customize.workspace = true
+cmux-customize-recipes.workspace = true
 cmux-usage-patterns.workspace = true
 # `cmux ext dev`: the manifest validator the daemon runs, and the folder watch.
 cmux-app-manifest.workspace = true
@@ -161,6 +162,12 @@ acpmux = { path = "../acpmux", default-features = false, features = ["tui"] }
 acpmux-build-id = { path = "../acpmux-build-id" }
 # A device row's kind and glyph (`devices/model.rs`).
 cmux-device-kind = { path = "../cmux-device-kind" }
+
+# The hidden `__computer-use-worker` mode (computer_use_worker.rs): the Linux
+# and Windows Computer Use worker the daemon supervises. macOS runs it in the
+# signed cmux Remote host instead.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+cmux-computer-use = { workspace = true, features = ["desktop", "server"] }
 
 [target.'cfg(unix)'.dependencies]
 # The browser host and the app host run from this binary, chosen by argv[0]

@@ -276,7 +276,7 @@ impl Overlay {
                 return true;
             }
             match at.rfind('/') {
-                Some(cut) => at = &at[..cut],
+                Some(cut) => at = at.get(..cut).unwrap_or_default(),
                 None => return false,
             }
         }
@@ -474,7 +474,9 @@ impl Overlay {
         }
         if total <= CHUNK {
             let whole = self.whole(index)?;
-            return Ok(whole[offset as usize..end as usize].to_vec());
+            let from = usize::try_from(offset).unwrap_or(usize::MAX);
+            let to = usize::try_from(end).unwrap_or(usize::MAX);
+            return Ok(whole.get(from..to).unwrap_or_default().to_vec());
         }
         let mut out = Vec::with_capacity((end - offset) as usize);
         let mut at = offset;
@@ -657,7 +659,7 @@ impl Overlay {
     }
 
     fn parent_of(path: &str) -> &str {
-        path.rfind('/').map_or("", |cut| &path[..cut])
+        path.rfind('/').map_or("", |cut| path.get(..cut).unwrap_or_default())
     }
 
     /// Copies lower `path` (entry `index`) into the upper layer, unless it is there already.
@@ -840,7 +842,7 @@ impl Overlay {
         inner.paths.insert(moved, to.clone());
         inner.inos.insert(to.clone(), moved);
         for (path, ino) in below {
-            let renamed = format!("{to}/{}", &path[prefix.len()..]);
+            let renamed = format!("{to}/{}", path.get(prefix.len()..).unwrap_or_default());
             inner.inos.remove(&path);
             inner.paths.insert(ino, renamed.clone());
             inner.inos.insert(renamed, ino);
