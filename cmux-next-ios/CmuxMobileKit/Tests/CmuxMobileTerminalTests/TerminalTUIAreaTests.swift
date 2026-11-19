@@ -173,7 +173,7 @@ import UIKit
     static func expectKeepsRowsWithKeyboardUp(_ page: Page, _ state: String, areaTop: CGFloat, rows: CGFloat) throws {
         let view = try #require(page.screen.view)
         let host = try #require(page.screen.surface.superview, "\(state): the surface has no TUI host")
-        let clip = try #require(host.superview, "\(state): the TUI host has no clip")
+        let clip = try #require(host.superview?.superview, "\(state): the TUI host has no clip")
         let area = clip.convert(clip.bounds, to: view)
         let grid = host.convert(host.bounds, to: view)
         let surface = page.screen.surface
@@ -193,7 +193,7 @@ import UIKit
         let screen = page.screen
         let view = try #require(screen.view)
         let host = try #require(screen.surface.superview, "\(state): the surface has no TUI host")
-        let clip = try #require(host.superview, "\(state): the TUI host has no clip")
+        let clip = try #require(host.superview?.superview, "\(state): the TUI host has no clip")
         let area = clip.convert(clip.bounds, to: view)
         let surface = screen.surface
         let cell = surface.cellSize.height
