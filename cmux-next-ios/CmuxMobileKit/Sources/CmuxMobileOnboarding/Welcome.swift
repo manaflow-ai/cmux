@@ -125,16 +125,22 @@ public struct WelcomeView: View {
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
+            // The prototype picker sits above the page, never over it.
+            .safeAreaInset(edge: .top, spacing: 0) { heroPicker }
             launchMark(t: rawT)
-            #if DEBUG
-            if !heroPinned {
-                WelcomeHeroPicker(selection: $hero) { heroShownAt = .now }
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .padding(.top, 4)
-                    .onChange(of: hero) { heroShownAt = .now }
-            }
-            #endif
         }
+    }
+
+    /// DEBUG, unless a launch argument pinned a variant: the prototype picker.
+    @ViewBuilder
+    private var heroPicker: some View {
+        #if DEBUG
+        if !heroPinned {
+            WelcomeHeroPicker(selection: $hero) { heroShownAt = .now }
+                .padding(.vertical, 6)
+                .onChange(of: hero) { heroShownAt = .now }
+        }
+        #endif
     }
 
     /// Keeps the timeline running while a re-mounted hero plays its entrance.
