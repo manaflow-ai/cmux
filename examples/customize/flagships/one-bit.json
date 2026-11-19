@@ -1,0 +1,16 @@
+{
+  "cmuxProfile": 1,
+  "name": "flagship-one-bit",
+  "description": "Flagship theme one-bit (cmux#47278), with its type set as settings for builds before the theme-file font keys.",
+  "created_ms": 0,
+  "settings": {
+    "appearance.themeFile": "one-bit",
+    "agentPane.display.font.ui": "hanken",
+    "agentPane.display.font.preset": "mono",
+    "markdown.font.preset": "mono",
+    "sidebar.density": "compact"
+  },
+  "files": {
+    "themes/one-bit.json": "// 1-Bit: ultra minimal. Black and white and one grey, no picture, no glass, square edges, monospace\n// everywhere, nothing that moves. Copy it to ~/.config/cmux/themes/one-bit.json (yours wins over\n// this one), edit and save: the running app repaints at once, no relaunch.\n{\n  \"name\": \"1-Bit\",\n  \"description\": \"Black, white and one grey. No picture, no glass, monospace, still.\",\n\n  // The terminal theme and its colors: greys only, so the danger, success and warning tones show as\n  // weight, not hue.\n  \"appearance.theme\": \"Sequoia Monochrome Dark\",\n  \"colors\": {\n    \"background\": \"#131313\",\n    \"foreground\": \"#fcfcfc\",\n    \"cursor\": \"#fcfcfc\",\n    \"selection\": \"#3a3a3a\",\n    \"accent\": \"#fcfcfc\",\n    \"0\": \"#131313\",\n    \"1\": \"#fcfcfc\",\n    \"2\": \"#c8c8c8\",\n    \"3\": \"#e0e0e0\",\n    \"4\": \"#a8a8a8\",\n    \"5\": \"#d0d0d0\",\n    \"6\": \"#b8b8b8\",\n    \"7\": \"#e8e8e8\",\n    \"8\": \"#606060\",\n    \"9\": \"#ffffff\",\n    \"10\": \"#dcdcdc\",\n    \"11\": \"#f0f0f0\",\n    \"12\": \"#c0c0c0\",\n    \"13\": \"#e4e4e4\",\n    \"14\": \"#d4d4d4\",\n    \"15\": \"#ffffff\"\n  },\n  \"appearance.accent\": \"theme\",\n  \"appearance.saturation\": 0,\n\n  // Nothing behind the window.\n  \"appearance.background\": \"none\",\n  \"appearance.backgroundOpacity\": 1,\n  \"appearance.backgroundBlur\": \"none\",\n  \"appearance.glassTransparency\": 0,\n\n  // Bare chrome, one rail of icons, hairlines between sections.\n  \"appearance.chromeStyle\": \"bare\",\n  \"appearance.sidebarSurface\": \"same\",\n  \"appearance.surfaces.sidebar.color\": \"#131313\",\n  \"appearance.surfaces.sidebar.opacity\": 1,\n  \"sidebar.border\": true,\n  \"sidebar.borderWidth\": 1,\n  \"sidebar.sectionLook\": \"lines\",\n  \"sidebar.density\": \"compact\",\n  \"appearance.surfaces.terminal.color\": \"#131313\",\n  \"appearance.surfaces.terminal.opacity\": 1,\n  \"appearance.surfaces.agentPane.color\": \"#131313\",\n  \"appearance.surfaces.agentPane.opacity\": 1,\n  \"appearance.focusIndicator\": \"border\",\n\n  // Type: monospace for reading too.\n  \"agentPane.display.font.ui\": \"hanken\",\n  \"agentPane.display.font.preset\": \"mono\",\n  \"markdown.font.preset\": \"mono\",\n  \"terminal.fontFamily\": \"Menlo\",\n  \"terminal.fontSize\": 12,\n  \"appearance.metrics.chromeFontSize\": 12,\n\n  // Still: no animation, a static white dot for work.\n  \"ui.calm\": \"still\",\n  \"appearance.statusIndicator.style\": \"dot\",\n  \"appearance.statusIndicator.animation\": \"static\",\n  \"appearance.statusIndicator.color\": \"#fcfcfc\",\n  \"appearance.colorTransition.duration\": 0,\n\n  \"appearance.density\": \"compact\"\n}\n"
+  }
+}
