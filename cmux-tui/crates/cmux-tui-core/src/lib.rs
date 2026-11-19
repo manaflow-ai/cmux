@@ -23,6 +23,8 @@ mod browser;
 pub mod browser_host;
 mod browser_host_history;
 mod browser_provider;
+/// The Linux and Windows Computer Use worker the daemon supervises.
+pub mod computer_use_host;
 /// Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
 pub mod first_party_dir;
 #[cfg(all(test, unix))]
@@ -55,6 +57,8 @@ mod git_ops;
 pub mod git_seed;
 mod history_ops;
 pub mod history_search;
+#[cfg(unix)]
+pub mod projection;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;

@@ -35,7 +35,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public private(set) var browserID: Int32?
     /// Set once by `markAgentDriven`; saved passwords do not fill in this tab.
     @ObservationIgnored public internal(set) var isAgentDriven = false
+    /// An extension's popup window shown over a pane (`CEFPaneHost+PopupWindows`): its host holds the window.
+    public var isExtensionWindow: Bool { host.popupWindow != nil }
     @ObservationIgnored var passwordFill = PasswordFillState()
+    /// The current omnibox edit's texts and matches, sent to the predictor (CEFTab+OmniboxPreload).
+    @ObservationIgnored var omniboxRegistrations: [OmniboxPendingLearns.Registration] = []
     /// The browser host's raw DevTools relay of this page.
     @ObservationIgnored public private(set) lazy var agentRelay = CEFAgentRelay(tab: self)
     /// Files an agent offered this page's next file chooser; Chromium sends choosers to the app while one
@@ -396,6 +400,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // The page the person waits for: the next spare is made once it arrived (`CEFArrivingPages`).
         if navigates, host.visibleTab === self, !isAgentDriven { runtime.arriving.began(id) }
         CEFAgentURLGuard.applyShimGuard(self)
+        // Before any load: an agent tab's page never reaches a passkey ceremony.
+        applyWebAuthnRefusal()
         // An address committed during creation replaces the page creation was started with (and an
         // agent tab's deferred load of that page): it is the tab's one navigation.
         let committed = loadSinceCreation
