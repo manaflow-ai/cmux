@@ -355,7 +355,7 @@ class Stress(Journey):
         a = self._agent("gui")
         self.open_ws_row(a["name"])
         check(self.sim.wait(ident="conversation.transcript", timeout=25), f"{a['name']}: chat not shown")
-        field = self.sim.wait(ident="conversation.composer.field", timeout=5) or \
+        field = self.sim.wait(ident="conversation.composer.text", timeout=5) or self.sim.wait(ident="chat.composer.field", timeout=2) or \
             self.sim.wait(contains="Follow up", timeout=5) or self.sim.wait(kind="TextView", timeout=3)
         check(field, f"{a['name']}: no composer in the agent chat; screen {self.screen_labels()}")
         self.sim.tap_el(field)
@@ -390,26 +390,28 @@ class Stress(Journey):
 
     def p_settings(self):
         self.back_to_list()
-        self.tab("Home")
-        found = self.sim.find(ident="home.settings") or self.sim.find(label="Settings", kind="Button") or \
-            self.sim.find(contains="settings", kind="Button")
-        check(found, f"no Settings entry on Home; screen {self.screen_labels()}")
-        t = self.sim.tap_el(found[0])
-        time.sleep(1.5)
-        rows = [e.label for e in self.sim.find(kind="Button") if e.label][:12]
-        visited = []
-        for r in rows[:6]:
+        t = time.time()
+        self.tab("Settings")
+        time.sleep(1.2)
+        rows = [e.label for e in self.sim.find(kind="Button") if e.label and 100 < e.frame[1] < 780][:14]
+        check(rows, f"Settings shows no rows; screen {self.screen_labels()}")
+        visited, slow = [], []
+        for r in random.sample(rows, min(6, len(rows))):
             el = self.sim.find(label=r, kind="Button")
             if not el:
                 continue
-            self.sim.tap_el(el[0])
+            t1 = self.sim.tap_el(el[0])
             time.sleep(1.2)
             visited.append(r)
-            back = self.sim.find(ident="BackButton") or self.sim.find(label="Back", kind="Button")
+            back = self.sim.find(ident="BackButton") or self.sim.find(label="Back", kind="Button") or \
+                self.sim.find(label="Settings", kind="Button")
             if back:
                 self.sim.tap_el(back[0])
                 time.sleep(0.8)
-        return {"notes": f"Settings in {time.time()-t:.2f} s; visited {visited}", "metric_s": round(time.time() - t, 2)}
+            elif self.sim.find(label="Sheet Grabber"):
+                self.back_to_list()
+                self.tab("Settings")
+        return {"notes": f"Settings in {time.time()-t:.2f} s; rows {rows[:8]}; visited {visited}", "metric_s": round(time.time() - t, 2)}
 
     def p_create_ws(self):
         self.back_to_list()
