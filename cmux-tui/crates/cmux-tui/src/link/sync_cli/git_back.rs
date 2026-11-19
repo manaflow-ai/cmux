@@ -22,6 +22,7 @@ use std::fs::File;
 use std::io::{Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, bail};
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,12 @@ use sha2::{Digest as _, Sha256};
 
 use super::remote::Remote;
 use super::{Manifest, names};
+
+/// How long the branch and index moves wait for a lock this Mac's own git
+/// holds (`git status`, `add` or `commit` running beside the pull): git
+/// itself fails at once on a held `index.lock`, and waits only 100 ms for a
+/// ref's lock. Past this the pull still fails, and nothing of it stays.
+const LOCK_WAIT: Duration = Duration::from_secs(10);
 
 /// The git state of a working copy, as a push records it and a pull
 /// compares it.
@@ -278,7 +285,10 @@ impl GitPlan {
         let zero = |id: &str| "0".repeat(id.len());
         let move_ref = |new: &str, old: &str| {
             let mut command = local(folder);
-            command.args(["update-ref", "-m", "cmux sync pull: bring back from the machine"]);
+            command
+                .arg("-c")
+                .arg(format!("core.filesRefLockTimeout={}", LOCK_WAIT.as_millis()))
+                .args(["update-ref", "-m", "cmux sync pull: bring back from the machine"]);
             match &self.local.head_ref {
                 Some(name) => command.arg(name),
                 None => command.args(["--no-deref", "HEAD"]),
@@ -291,7 +301,9 @@ impl GitPlan {
             move_ref(head, old).context("cannot move the branch")?;
         }
         if let Some(staged) = &self.staged {
-            let read = checked(local(folder).arg("read-tree").arg(format!("{staged}^{{tree}}")));
+            let read = waiting_for_the_index(|| {
+                checked(local(folder).arg("read-tree").arg(format!("{staged}^{{tree}}")))
+            });
             if let Err(error) = read {
                 if let (Some(head), Some(old)) = (&self.head, &old) {
                     let _ = move_ref(old, head);
@@ -494,6 +506,25 @@ fn clean(mut command: Command) -> Command {
         .env_remove("GIT_OBJECT_DIRECTORY")
         .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES");
     command
+}
+
+/// Runs `op` until it does not fail on a held `index.lock`, for up to
+/// [`LOCK_WAIT`]: this Mac's own git takes it for a moment at a time.
+fn waiting_for_the_index<T>(op: impl Fn() -> anyhow::Result<T>) -> anyhow::Result<T> {
+    let started = Instant::now();
+    let mut pause = Duration::from_millis(20);
+    loop {
+        match op() {
+            Err(error)
+                if format!("{error:#}").contains("index.lock")
+                    && started.elapsed() + pause < LOCK_WAIT =>
+            {
+                std::thread::sleep(pause);
+                pause = (pause * 2).min(Duration::from_millis(500));
+            }
+            done => return done,
+        }
+    }
 }
 
 /// The command's stdout, or an error with its stderr.
