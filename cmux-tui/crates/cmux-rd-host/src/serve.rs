@@ -444,9 +444,10 @@ fn serve_session(
     if crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
-    // LTR only where this host encodes with VideoToolbox, as `cmux-rd host` does; OpenH264
-    // hosts and viewers without the cap keep IDR recovery.
-    if cfg!(target_os = "macos") {
+    // LTR only when asked for (`--ltr 1`, default off) and where this host encodes with
+    // VideoToolbox, as `cmux-rd host` does; OpenH264 hosts and viewers without the cap keep
+    // IDR recovery.
+    if cfg!(target_os = "macos") && opts.flag("ltr") {
         host_caps.push(cmux_rd_core::service::caps::LTR);
     }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
@@ -507,6 +508,7 @@ fn serve_session(
         // On by default: the frame that shows an input's effect goes out at once instead of
         // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
         input_frame_now: opts.flag_or("input-frame-now", true),
+        ltr: opts.flag("ltr"),
         // Enough frames in flight to cover the path's round trip, at least two: the next
         // frame encodes while the last one waits for its acknowledgement.
         frames_in_flight: carrier

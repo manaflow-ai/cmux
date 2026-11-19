@@ -67,9 +67,10 @@ impl MediaEngine {
                 || unstarted.iter().any(|&(frame, _)| frame == state.last_frame);
             let keyframe_due = state.force_idr.is_some()
                 || state.force_ltr_refresh
-                || out.encode.as_ref().is_some_and(|r| {
-                    r.stream == stream && (r.force_idr || r.force_ltr_refresh)
-                });
+                || out
+                    .encode
+                    .as_ref()
+                    .is_some_and(|r| r.stream == stream && (r.force_idr || r.force_ltr_refresh));
             let bytes: usize = unstarted.iter().map(|&(_, b)| b).sum();
             let worth_a_keyframe =
                 state.last_keyframe_bytes > 0 && bytes > state.last_keyframe_bytes;

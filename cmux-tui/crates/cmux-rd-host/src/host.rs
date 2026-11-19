@@ -145,6 +145,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         // stream moving while that measurement is still unknown.
         frames_in_flight: 2,
         input_frame_now: opts.flag("input-frame-now"),
+        ltr: opts.flag("ltr"),
         max_width: opts
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))
@@ -511,9 +512,9 @@ fn serve_viewer<S: ViewerStream>(
     if crate::desktop::reports_cursor() {
         host_caps.push(caps::CURSOR);
     }
-    // LTR is only advertised when this host uses the VideoToolbox encoder;
-    // OpenH264 and unknown viewers retain the IDR recovery path.
-    if cfg!(target_os = "macos") {
+    // LTR is only advertised when asked for (`--ltr 1`, default off) and this host uses the
+    // VideoToolbox encoder; OpenH264 and unknown viewers retain the IDR recovery path.
+    if cfg!(target_os = "macos") && cfg.ltr {
         host_caps.push(caps::LTR);
     }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {

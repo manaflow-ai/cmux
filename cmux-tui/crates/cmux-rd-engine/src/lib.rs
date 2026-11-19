@@ -858,8 +858,13 @@ impl MediaEngine {
             // keyframe: a keyframe per loss on a lossy path is the IDR storm. A refresh still
             // being encoded, or sent less than a round trip ago, is the answer on its way; an
             // ask after that means it was lost, and the stream starts over from a keyframe.
-            let answering = state.force_ltr_refresh
-                || state.refresh_sent.is_some_and(|(_, sent)| now_us.saturating_sub(sent) < rtt_us);
+            // A viewer that reset (acked frame 0, no tokens) can decode no refresh at all.
+            let usable = fb.acked_frame > 0 && !state.acknowledged_ltr_tokens.is_empty();
+            let answering = usable
+                && (state.force_ltr_refresh
+                    || state
+                        .refresh_sent
+                        .is_some_and(|(_, sent)| now_us.saturating_sub(sent) < rtt_us));
             if !answering {
                 let refresh = fb.acked_frame > 0 && state.can_refresh(ltr_enabled);
                 state.last_forced_idr_us = Some(now_us);

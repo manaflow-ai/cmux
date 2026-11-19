@@ -63,6 +63,7 @@ host_start() {
   host_flags=()
   [[ -n "${EVAL_BIND:-}" ]] && host_flags=(--single-tenant-overlay 1)
   [[ "${EVAL_RD_INPUT_FRAME_NOW:-0}" == 1 ]] && host_flags+=(--input-frame-now 1)
+  [[ "${EVAL_RD_LTR:-0}" == 1 ]] && host_flags+=(--ltr 1)
   : >"$EVAL_STATE/timing.jsonl"
   rm -f "$EVAL_STATE/timing.offset"
   mkdir -p "$EVAL_STATE/quality"
