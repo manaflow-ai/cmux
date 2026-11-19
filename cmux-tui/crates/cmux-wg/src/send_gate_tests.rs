@@ -1,7 +1,7 @@
 //! The send gate ([`crate::send_gate`]) between two real stacks over a
 //! simulated link: a writer that schedules by priority (a latency-bound
 //! "echo" before a flood, as cmux-mobile-link's link writer does) gets its
-//! echo out within about one round trip of data, not behind every byte the
+//! echo out within a few milliseconds of data, not behind every byte the
 //! stream would otherwise have queued, and the flood keeps its throughput.
 //!
 //! The link is a fixed one-way delay, no loss, on Tokio's paused clock, so a
@@ -161,11 +161,11 @@ async fn flood_then_echo(rtt: Duration, echo_at: Duration) -> Run {
 
 /// Over a 40 ms round trip, an echo queued behind a flood used to wait for
 /// the stream's channel (32 writes) and the socket's 256 KiB send buffer to
-/// drain, three round trips and more; with the gate it waits for at most
-/// about one bandwidth-delay product of unsent bytes, and the flood loses no
+/// drain (200 ms, and 25 Mbit/s of flood); with the gate it waits for a few
+/// milliseconds of unsent bytes and the flood's burst in flight, and the flood loses no
 /// throughput: the window, not the gate, still bounds it.
 #[tokio::test(start_paused = true)]
-async fn an_echo_waits_for_about_one_round_trip_of_a_flood_not_the_whole_backlog() {
+async fn an_echo_queued_behind_a_flood_waits_milliseconds_not_the_whole_backlog() {
     let rtt = Duration::from_millis(40);
     let run = flood_then_echo(rtt, Duration::from_secs(4)).await;
     eprintln!(
@@ -173,8 +173,8 @@ async fn an_echo_waits_for_about_one_round_trip_of_a_flood_not_the_whole_backlog
         run.echo,
         run.flood_bytes_per_second as f64 * 8.0 / 1e6
     );
-    // One way (20 ms) plus about one round trip of bytes ahead of it.
-    assert!(run.echo <= rtt * 2, "the echo waited {:?}", run.echo);
+    // One way (20 ms), plus at most half a round trip for the window in flight.
+    assert!(run.echo <= rtt * 3 / 2, "the echo waited {:?}", run.echo);
     // The receive window (256 KiB) per round trip is 52 Mbit/s; the flood
     // keeps most of it.
     assert!(

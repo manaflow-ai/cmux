@@ -273,6 +273,7 @@ impl TcpStack {
                     }
                     match socket.send_slice(pending) {
                         Ok(written) => {
+                            conn.send.moved(written);
                             pending.advance(written);
                             progressed |= written > 0;
                             if pending.is_empty() {

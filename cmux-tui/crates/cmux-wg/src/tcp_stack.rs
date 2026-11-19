@@ -31,12 +31,13 @@ use tokio_util::sync::PollSender;
 use crate::config::InterfaceAddress;
 use crate::device::VirtualDevice;
 use crate::error::WgError;
+use crate::send_gate::{SendGate, SendPacer};
 use crate::stream::{Outbound, WgStream};
 use crate::wire::{ip_address, socket_addr};
 
 /// Per-socket receive and transmit buffers. Terminal traffic is small; the
 /// bulk lane (screen replay) benefits from a full window.
-const SOCKET_BUFFER_BYTES: usize = 256 * 1024;
+pub(crate) const SOCKET_BUFFER_BYTES: usize = 256 * 1024;
 /// Largest chunk moved from a smoltcp socket into a stream at once.
 pub(crate) const INBOUND_CHUNK_BYTES: usize = 16 * 1024;
 /// Queued chunks per direction per connection before backpressure.
@@ -131,6 +132,9 @@ pub(crate) struct Conn {
     /// as an error (its peer was removed, or the socket was reset or timed
     /// out before the peer's FIN).
     pub(crate) reset: Arc<AtomicBool>,
+    /// Measures the delivery rate and holds the stream's writes at the
+    /// low-water mark of unsent bytes ([`crate::send_gate`]).
+    pub(crate) send: SendPacer,
 }
 
 pub(crate) struct Listener {
@@ -254,7 +258,20 @@ impl TcpStack {
         self.process_listeners();
         let progressed = self.process_conns();
         self.poll();
+        self.update_send_gates();
         progressed
+    }
+
+    /// Tell each stream how many of its bytes TCP has not sent yet and its
+    /// low-water mark, after the poll that sent what the window allowed;
+    /// a writer held at the mark is woken once there is room.
+    fn update_send_gates(&mut self) {
+        let now = Instant::now();
+        for conn in &mut self.conns {
+            let socket = self.sockets.get::<tcp::Socket>(conn.handle);
+            let srtt = socket.smoothed_rtt().map(|srtt| Duration::from_micros(srtt.total_micros()));
+            conn.send.update(now, socket.send_queue(), socket.unsent_queue(), srtt);
+        }
     }
 
     /// Queue a decrypted packet for the next poll. In tagged mode `origin` is
@@ -399,6 +416,7 @@ impl TcpStack {
         let (inbound_tx, inbound_rx) = mpsc::channel(STREAM_CHANNEL_DEPTH);
         let (outbound_tx, outbound_rx) = mpsc::channel(STREAM_CHANNEL_DEPTH);
         let reset = Arc::new(AtomicBool::new(false));
+        let gate = Arc::new(SendGate::default());
         let stream = WgStream {
             local,
             remote,
@@ -408,6 +426,7 @@ impl TcpStack {
             wake: Arc::clone(&self.wake),
             shutdown_sent: false,
             reset: Arc::clone(&reset),
+            gate: Arc::clone(&gate),
         };
         let conn = Conn {
             handle,
@@ -421,6 +440,7 @@ impl TcpStack {
             remote_fin: false,
             drained: VecDeque::new(),
             reset,
+            send: SendPacer::new(gate),
         };
         (conn, stream)
     }

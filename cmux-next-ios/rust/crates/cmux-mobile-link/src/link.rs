@@ -37,8 +37,12 @@ pub const DATA_CHUNK: usize = 16 * 1024;
 /// flood sooner) and keeps the memory of a fast producer bounded.
 const CHANNEL_QUEUE_BYTES: usize = 256 * 1024;
 /// The writer flushes after this many bytes, so the transport sees frames
-/// in priority order rather than one large batch.
-const FLUSH_BYTES: usize = 64 * 1024;
+/// in priority order rather than one large batch. One data chunk: small
+/// frames still go out together, and a transport that holds writes while
+/// its unsent bytes are at a low-water mark (cmux-wg's streams) holds at
+/// most one chunk the scheduler has already committed, so a frame queued
+/// meanwhile still goes next by priority.
+const FLUSH_BYTES: usize = DATA_CHUNK;
 /// How long an attached lane may stay silent before it is given up.
 const LANE_CONFIRM: Duration = Duration::from_secs(10);
 /// How long opening an input-lane channel waits for a negotiated lane that
