@@ -116,6 +116,7 @@ describe("console sign-in authorize", () => {
     expect(consoleSignInClient("cmux-console-staging", "cmux.com", secrets)).toBeNull();
     expect(consoleSignInClient("cmux-console", "cmux-staging.vercel.app", secrets)).toBeNull();
     expect(consoleSignInClient("cmux-console", "localhost", secrets)).toBeNull();
+    expect(consoleSignInClient("cmux-console", "www.cmux.com", secrets)).toBeNull();
     expect(consoleSignInClient("cmux-console", "preview-abc.vercel.app", secrets)).toBeNull();
     expect(consoleSignInClient("other", "cmux.com", secrets)).toBeNull();
     // A client without its secret on this deployment is off.
@@ -281,6 +282,13 @@ describe("console sign-in token", () => {
       body: new URLSearchParams(body).toString(),
     });
     expect((await env.token(form)).status).toBe(400);
+    const oversized = new NextRequest("https://cmux.com/handler/console-sign-in/token", {
+      method: "POST",
+      headers: { host: "cmux.com", "content-type": "application/json" },
+      body: JSON.stringify({ ...body, padding: "x".repeat(16 * 1024) }),
+    });
+    oversized.headers.delete("content-length");
+    expect((await env.token(oversized)).status).toBe(400);
     expect((await env.token(tokenRequest("cmux.com", body))).status).toBe(200);
   });
 });

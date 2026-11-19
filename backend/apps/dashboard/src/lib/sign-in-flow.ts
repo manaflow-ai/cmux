@@ -10,6 +10,9 @@
  *   server to server with the verifier and this console's client secret. The session cmux.com
  *   answers goes straight into the HttpOnly session cookies; the browser only ever carries the code.
  *
+ * One flow cookie per browser: starting sign-in in a second tab replaces it, and the first tab's
+ * return then fails closed to the generic "did not finish" page.
+ *
  * No browser-only API and no framework import: the server routes and the tests both call this.
  */
 
@@ -26,6 +29,8 @@ export const HANDOFF_PATH = "/auth/handoff"
 /** Where every failure lands; the page says only that sign-in did not finish. */
 export const FAILED_PATH = "/?signin=failed"
 const MAX_RETURN_PATH = 2048
+/** cmux.com's one-time codes: 256 bits, base64url. */
+const CODE_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const TOKEN_TIMEOUT_MS = 10_000
 
 export type SignInConfig = {
@@ -66,10 +71,13 @@ export const safeReturnPath = (raw: unknown): string => {
     const url = new URL(raw, base)
     if (url.origin !== base) return "/"
     if (url.pathname.startsWith("/auth/")) return "/"
+    // The parsed form is percent-encoded ASCII, so it is always a valid Location header value.
+    const normalized = `${url.pathname}${url.search}${url.hash}`
+    if (normalized[1] === "/" || normalized[1] === "\\" || normalized.length > MAX_RETURN_PATH * 3) return "/"
+    return normalized
   } catch {
     return "/"
   }
-  return raw
 }
 
 const base64url = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_")
@@ -185,7 +193,8 @@ export const finishSignIn = async (request: Request, deps: FinishDeps): Promise<
   if (!flow || !state || !(await constantTimeEqual(flow.state, state))) {
     // Not a flow this browser started: burn the code (a wrong verifier consumes it on cmux.com) so
     // a code that reached the wrong browser cannot be replayed elsewhere.
-    if (code) await redeem(config, code, randomToken(32), deps.fetch)
+    // Only a well-formed code (cmux.com's format) is worth a request.
+    if (CODE_PATTERN.test(code)) await redeem(config, code, randomToken(32), deps.fetch)
     return fail("state")
   }
   if (!code) return fail("code")

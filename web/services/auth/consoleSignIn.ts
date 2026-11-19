@@ -43,7 +43,7 @@ export const CONSOLE_SIGN_IN_CLIENTS: readonly ConsoleSignInClient[] = [
   {
     id: "cmux-console",
     redirectUri: "https://console.cmux.dev/auth/handoff",
-    issuerHosts: ["cmux.com", "www.cmux.com"],
+    issuerHosts: ["cmux.com"],
     secret: "production",
   },
   {
@@ -199,13 +199,33 @@ function jsonResponse(status: number, body: Record<string, string>): NextRespons
   return NextResponse.json(body, { status, headers: noStoreHeaders });
 }
 
+/** The body as text, or null past `limit` bytes; stops reading there (a chunked body has no Content-Length). */
+async function readCapped(request: NextRequest, limit: number): Promise<string | null> {
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let size = 0;
+  let text = "";
+  for (;;) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    size += chunk.value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      return null;
+    }
+    text += decoder.decode(chunk.value, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
 async function readJsonBody(request: NextRequest): Promise<Record<string, unknown> | null> {
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.startsWith("application/json")) return null;
   const declared = Number(request.headers.get("content-length") ?? "0");
   if (!Number.isFinite(declared) || declared > MAX_TOKEN_BODY_BYTES) return null;
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_TOKEN_BODY_BYTES) return null;
+  const text = await readCapped(request, MAX_TOKEN_BODY_BYTES);
+  if (text === null) return null;
   try {
     const parsed: unknown = JSON.parse(text);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;

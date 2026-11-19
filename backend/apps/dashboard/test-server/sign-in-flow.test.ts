@@ -25,6 +25,13 @@ describe("return path", () => {
     }
   })
 
+  test("answers a percent-encoded ASCII path, so the redirect header is always valid", () => {
+    const path = safeReturnPath("/integrations/callback?repo=日本&x=é")
+    expect(path).toBe("/integrations/callback?repo=%E6%97%A5%E6%9C%AC&x=%C3%A9")
+    expect(() => new Headers({ location: path })).not.toThrow()
+    expect(safeReturnPath("/日本")).toBe("/%E6%97%A5%E6%9C%AC")
+  })
+
   test("refuses every open-redirect form", () => {
     const bad: unknown[] = [
       "//evil.example",
@@ -183,22 +190,27 @@ describe("finish", () => {
   test("a state that does not match the cookie is refused, the cookie cleared and the code burned", async () => {
     const { flow, decoded } = await start("/devices")
     const { calls, fetchImpl } = issuer(tokens)
-    const response = await finishSignIn(handoff({ code: "injected-code", state: "attacker-state-aaaaaaaaaaaaaa" }, flow), { config, fetch: fetchImpl, now: () => NOW })
+    const injected = "i".repeat(43)
+    const response = await finishSignIn(handoff({ code: injected, state: "attacker-state-aaaaaaaaaaaaaa" }, flow), { config, fetch: fetchImpl, now: () => NOW })
     expect(response.headers.get("location")).toBe(FAILED_PATH)
     expect(cookieValue(response, ACCESS_COOKIE)).toBeUndefined()
     expect(setCookies(response).find((c) => c.startsWith(`${FLOW_COOKIE}=`))).toContain("Max-Age=0")
     // The only call burns the code with a verifier that is not this flow's.
     expect(calls).toHaveLength(1)
-    expect(calls[0]!.body.code).toBe("injected-code")
+    expect(calls[0]!.body.code).toBe(injected)
     expect(calls[0]!.body.code_verifier).not.toBe(decoded.verifier)
   })
 
   test("a code with no flow cookie (login CSRF) is refused", async () => {
     const { calls, fetchImpl } = issuer(tokens)
-    const response = await finishSignIn(handoff({ code: "attacker-code", state: "attacker-state-aaaaaaaaaaaaaa" }), { config, fetch: fetchImpl, now: () => NOW })
+    const response = await finishSignIn(handoff({ code: "a".repeat(43), state: "attacker-state-aaaaaaaaaaaaaa" }), { config, fetch: fetchImpl, now: () => NOW })
     expect(response.headers.get("location")).toBe(FAILED_PATH)
     expect(cookieValue(response, ACCESS_COOKIE)).toBeUndefined()
     expect(calls.every((c) => c.body.code_verifier.length >= 43)).toBe(true)
+    // A malformed code is not worth a request to cmux.com.
+    const before = calls.length
+    await finishSignIn(handoff({ code: "not-a-code", state: "attacker-state-aaaaaaaaaaaaaa" }), { config, fetch: fetchImpl, now: () => NOW })
+    expect(calls.length).toBe(before)
   })
 
   test("an expired flow cookie is refused", async () => {
@@ -226,6 +238,14 @@ describe("finish", () => {
       expect(cookieValue(response, ACCESS_COOKIE)).toBeUndefined()
       expect(setCookies(response).find((c) => c.startsWith(`${FLOW_COOKIE}=`))).toContain("Max-Age=0")
     }
+  })
+
+  test("a non-ASCII return path still finishes with a valid redirect", async () => {
+    const { flow, decoded } = await start("/integrations/callback?repo=日本")
+    const { fetchImpl } = issuer(tokens)
+    const response = await finishSignIn(handoff({ code: "c", state: decoded.state }, flow), { config, fetch: fetchImpl, now: () => NOW })
+    expect(response.headers.get("location")).toBe("/integrations/callback?repo=%E6%97%A5%E6%9C%AC")
+    expect(cookieValue(response, ACCESS_COOKIE)).toBe("at.jwt.value")
   })
 
   test("the return path is validated again on finish", async () => {
