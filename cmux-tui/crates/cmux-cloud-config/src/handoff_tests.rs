@@ -86,7 +86,8 @@ fn a_signed_out_production_dev_build_asks() {
 
 #[test]
 fn every_other_launch_does_not_ask() {
-    let cases: [(&str, fn(&mut ClientFacts)); 9] = [
+    type Change = fn(&mut ClientFacts);
+    let cases: [(&str, Change); 9] = [
         ("nightly", |f| f.bundle_id = Some(NIGHTLY_BUNDLE_ID.to_owned())),
         ("not a cmux app", |f| f.bundle_id = Some("com.example.app".to_owned())),
         ("no bundle id", |f| f.bundle_id = None),
