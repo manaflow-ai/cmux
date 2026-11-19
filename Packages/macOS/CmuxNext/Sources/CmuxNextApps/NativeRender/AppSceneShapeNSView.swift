@@ -6,6 +6,9 @@ import CmuxNextDesign
 /// also be a gradient (``AppSceneGradient``), drawn clipped to the shape. `size`
 /// makes it a square of that side; without it, it takes the width it gets and its `frame` height
 /// (a shape has no height of its own, so with no frame it draws nothing in a vertical stack).
+/// `trim` (``AppSceneTrim``) draws part of the stroked outline with `strokeStart`/`strokeEnd`: a
+/// circle's from 12 o'clock, clockwise (a ring gauge). This renderer draws the end state of a trim
+/// change; the web renderer sweeps it on `animation`.
 final class AppSceneShapeNSView: AppSceneNodeNSView {
     private let shape = CAShapeLayer()
     /// The gradient `fill`, masked to the shape's path; made the first time a node asks for one.
@@ -14,12 +17,15 @@ final class AppSceneShapeNSView: AppSceneNodeNSView {
 
     override init(id: String, node: AppSceneNode) {
         super.init(id: id, node: node)
-        shape.actions = ["path": NSNull(), "fillColor": NSNull(), "strokeColor": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        shape.actions = ["path": NSNull(), "fillColor": NSNull(), "strokeColor": NSNull(), "bounds": NSNull(), "position": NSNull(),
+                         "strokeStart": NSNull(), "strokeEnd": NSNull(), "lineCap": NSNull()]
         gradientMask.actions = shape.actions
         layer?.addSublayer(shape)
     }
 
     private var side: CGFloat? { node.number("size").map { CGFloat(max(0, $0)) } }
+    /// The `trim` of a stroked shape; a shape with no stroke has no outline to trim.
+    private var trim: AppSceneTrim? { node.props["stroke"]?.stringValue == nil ? nil : AppSceneTrim(node.props["trim"]) }
 
     override var contentNaturalWidth: CGFloat? { side }
     override func contentHeight(width: CGFloat) -> CGFloat { side ?? 0 }
@@ -35,10 +41,22 @@ final class AppSceneShapeNSView: AppSceneNodeNSView {
         case .roundedRectangle: CGFloat(node.number("cornerRadius") ?? 4)
         default: 0
         }
-        shape.path = node.type == .circle
-            ? CGPath(ellipseIn: CGRect(x: path.midX - radius, y: path.midY - radius, width: 2 * radius, height: 2 * radius), transform: nil)
-            : CGPath(roundedRect: path, cornerWidth: min(radius, path.width / 2), cornerHeight: min(radius, path.height / 2), transform: nil)
+        let trim = self.trim
+        if node.type == .circle, trim != nil {
+            // A trimmed circle starts at 12 o'clock and runs clockwise, where the trim counts from.
+            shape.path = AppSceneTrim.circle(center: CGPoint(x: path.midX, y: path.midY), radius: max(0, radius),
+                                             yDown: shape.contentsAreFlipped())
+        } else {
+            shape.path = node.type == .circle
+                ? CGPath(ellipseIn: CGRect(x: path.midX - radius, y: path.midY - radius, width: 2 * radius, height: 2 * radius), transform: nil)
+                : CGPath(roundedRect: path, cornerWidth: min(radius, path.width / 2), cornerHeight: min(radius, path.height / 2), transform: nil)
+        }
         shape.lineWidth = lineWidth
+        // An untrimmed shape keeps the layer's defaults: the whole outline, butt caps.
+        shape.strokeStart = trim?.from ?? 0
+        shape.strokeEnd = trim?.to ?? 1
+        // An empty arc draws nothing, even with round caps (a zero-length round dash is a dot).
+        shape.lineCap = trim.map { $0.to > $0.from ? $0.lineCap : .butt } ?? .butt
         if let gradient {
             // The gradient's points depend on the box's shape, so repaint after a resize.
             if gradient.frame.size != box.size { needsDisplay = true }

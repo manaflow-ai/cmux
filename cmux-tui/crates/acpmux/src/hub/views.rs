@@ -919,6 +919,11 @@ impl Hub {
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
+        // The account's plan usage limits as its harness last reported them (Claude Code's
+        // rate_limit_event, Codex's rateLimits; `{windows: [{id, usedPercent, resetsAt?}], plan?,
+        // credits?}`), null before one: the daemon's chat list and the extensions' usage meter
+        // read them from the list, without a detail read per chat. No credential or email.
+        summary.set("usageLimits", m.usage_limits.clone().unwrap_or(Value::Null));
         // A cold-archived chat's preview (`cold_archive.rs`): the list draws it without its log.
         if let Some(cold) = &m.cold {
             summary.set("coldArchive", json!(cold));
