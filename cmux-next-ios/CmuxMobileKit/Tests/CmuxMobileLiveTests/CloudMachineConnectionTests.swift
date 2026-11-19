@@ -64,6 +64,39 @@ import Testing
         mac.relay.disconnect()
     }
 
+    /// A kept chat tapped while the first connect fails, then Reconnect: the pushed chat says it is
+    /// unavailable while nothing is connecting, waits again while the new attempt connects, and opens
+    /// as a working chat once the Mac answers.
+    @Test func aKeptChatTappedThroughAFailedConnectAndReconnectOpens() async throws {
+        let connection = CloudMachineConnection()
+        let kept = [try #require(AcpmuxSession(.object(["sessionId": .string("shared"), "name": .string("vm"),
+                                                        "harness": .string("fake")])))]
+        struct Offline: Error {}
+        let failing = Task { connection.open(attempt: 0, connect: { throw Offline() }) }
+        failing.cancel()  // the push cancels the list's `.task`
+        #expect(await until { connection.error != nil })
+        guard case .unavailable = connection.destination(for: "shared", kept: kept) else {
+            Issue.record("a failed connect does not leave the tapped chat waiting"); return
+        }
+
+        let mac = DelayedConnect(Self.machine)
+        connection.open(attempt: 1, connect: mac.connect)  // Reconnect
+        #expect(connection.error == nil)
+        for _ in 0..<1000 where mac.gate == nil { await Task.yield() }
+        guard case .waiting = connection.destination(for: "shared", kept: kept) else {
+            Issue.record("the tapped chat waits while Reconnect connects"); return
+        }
+        try #require(mac.gate).resume()
+        #expect(await until { connection.relay?.hub.isReady == true })
+        guard case .chat(let store) = connection.destination(for: "shared", kept: kept) else {
+            Issue.record("the tapped chat opens after Reconnect"); return
+        }
+        store.send(prompt: "hello after reconnect")
+        #expect(await until { !store.turns.isEmpty })
+        #expect(mac.wire.sent.contains { $0.0 == "vm" && $0.1 == "shared" && $0.2 == "hello after reconnect" })
+        mac.relay.disconnect()
+    }
+
     /// Reconnect is a new attempt: it connects again, and the earlier attempt's late answer is dropped.
     @Test func reconnectStartsANewAttemptAndDropsTheOldAnswer() async throws {
         let old = DelayedConnect(Self.machine)
