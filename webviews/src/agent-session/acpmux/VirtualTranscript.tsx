@@ -229,6 +229,7 @@ import {
 } from "./virtualTranscriptModel";
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
+import { DOCK_NOTICE } from "./noticeSlotModel";
 
 /// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
 /// conversation.css sizes the line with them. Constant, so the scroller's per-scroll restyle never changes them.
@@ -2344,9 +2345,10 @@ function TranscriptView({
   dockTrayRef.current = dockTray;
   /// The reader opened or folded something in the tray, and the room has not taken it yet.
   const trayToggled = useRef(false);
-  /// The host's line in that stack (HostError.tsx: "Reconnecting…", or a refusal and its Retry), which
-  /// comes and goes while the pane finds acpmux: the room under the last row takes it only once the
-  /// rows move anyway (`noticeHold`).
+  /// The notices in that stack (noticeSlotModel.ts `DOCK_NOTICE`): the host's line (HostError.tsx:
+  /// "Reconnecting…", or a refusal and its Retry), which comes and goes while the pane finds acpmux, an
+  /// app notice (PaneNotices.tsx), the daemon's Retrying… (AutoResumeNotice.tsx) and the rest a relaunch
+  /// can bring late: the room under the last row takes them only once the rows move anyway (`noticeHold`).
   const [dockNotice, setDockNotice] = useState(0);
   /// The same, as the stack's observer last measured it (it writes both), for the handlers below.
   const dockNoticeRef = useRef(0);
@@ -2444,12 +2446,12 @@ function TranscriptView({
       space > 0
         ? (dock.querySelector(`:scope > .acpmux-running-tray:not(.${TRAY_GHOST})`)?.getBoundingClientRect().height ?? 0)
         : 0;
-    // The host's line, while the stack reaches over the view.
+    // The stack's notices (the host's line, an app notice, Retrying…: noticeSlotModel.ts DOCK_NOTICE),
+    // while the stack reaches over the view.
     const notice = (space: number) => {
       if (space <= 0) return 0;
       let height = 0;
-      for (const line of dock.querySelectorAll(":scope > .acpmux-host-line, :scope > .acpmux-host-line-group"))
-        height += line.getBoundingClientRect().height;
+      for (const line of dock.querySelectorAll(DOCK_NOTICE)) height += line.getBoundingClientRect().height;
       return height;
     };
     // A click on one of its disclosures (the header, View all, a command's line) is the reader's.
