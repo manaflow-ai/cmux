@@ -63,10 +63,10 @@ final class CloudMachineCreation: Identifiable {
     /// part of ``request``: a named request is a request option the app server's create refuses.
     var pinnedMachineName: String?
 
-    /// The create went to the server once, to `team`: a Retry may find the machine it made, and
-    /// goes to that same team.
-    func markRequestSent(team: String?) {
-        if !request.wasSent { request.team = team }
+    /// The create went to the server once, to `team` on `route`: a Retry may find the machine it made, and
+    /// goes to that same team on that same route (the server keeps each key per caller).
+    func markRequestSent(team: String?, route: CloudCreateRoute = .relay) {
+        if !request.wasSent { request.team = team; request.route = route }
         request.wasSent = true
     }
 
@@ -378,12 +378,12 @@ struct CloudCreationFlow {
                 let existing = creation.session, session: CloudMachineSession
                 if let existing { session = existing } else { session = try await create(creation) }
                 try Task.checkCancellation()
-                // Before attach: a caller waiting for the machine reads the bootstrap's outcome with it.
+                // Attached first: a create answers once attached (30 s); the bootstrap waits up to 180 s for the machine to run.
+                if existing == nil { creation.attach(session) }
                 if Self.needsBootstrap(creation) {
                     await bootstrap(creation, session)
                     try Task.checkCancellation()
                 }
-                if existing == nil { creation.attach(session) }
                 guard await Self.ready(creation) else { return }
                 creation.markReady()
                 let id = try await open(session)

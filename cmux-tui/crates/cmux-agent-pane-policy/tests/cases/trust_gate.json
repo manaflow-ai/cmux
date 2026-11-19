@@ -509,7 +509,7 @@
    "needs": false
   },
   {
-   "name": "trust gate: the gated prompt needs a gesture",
+   "name": "trust gate: the gated prompt needs no gesture (Leo, 2026-11-17: a Send needs no key press or click)",
    "frame": {
     "jsonrpc": "2.0",
     "method": "session/prompt",
@@ -520,7 +520,7 @@
     }
    },
    "denies": [],
-   "needs": true
+   "needs": false
   },
   {
    "name": "trust gate: peer trusted write needs a gesture",

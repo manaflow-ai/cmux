@@ -885,8 +885,9 @@ pulsing (new content below).
 | Alert style (mode change notice) | `claude-04-new-session-alert` |
 
 No reference exists for tool rows, permission and question cards, or plans: compare against
-Claude's and Codex's own mobile session views when captured (TapKit only with explicit
-permission), and against Cursor iOS / T3 Code App Store screenshots.
+Claude's and Codex's own mobile session views when captured (from the user's real phone only
+when the user explicitly asks and the phone is connected), and against Cursor iOS / T3 Code
+App Store screenshots.
 
 ---
 

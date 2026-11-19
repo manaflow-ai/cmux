@@ -175,20 +175,12 @@ impl Mux {
                 // identity below; this destination starts unfocused.
                 focused_at: 0,
             });
-            state.workspaces[destination].screens.push(Screen {
-                id: screen,
-                public_id: ScreenPublicId::random()?,
-                name: None,
-                root: Node::Leaf(pane),
-                active_pane: pane,
-                zoomed_pane: None,
-                creation_order_auto_layout: Some(vec![pane]),
-                viewport_splits: Default::default(),
-                viewport_base_width: None,
-                layout_columns: Vec::new(),
-                layout_revision: 0,
-                layout_undo: Default::default(),
-            });
+            state.workspaces[destination].screens.push(Screen::with_one_pane(
+                screen,
+                ScreenPublicId::random()?,
+                None,
+                pane,
+            ));
             state.workspaces[destination].active_screen = 0;
             pane
         };

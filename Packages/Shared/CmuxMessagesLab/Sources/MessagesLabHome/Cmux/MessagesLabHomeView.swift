@@ -20,6 +20,9 @@ public final class MessagesLabHomeView: NSView {
         get { projection.approvals }
         set { projection.approvals = newValue }
     }
+    /// A message field took the keyboard (its `becomeFirstResponder` succeeded), with the field: the host app's
+    /// launch mark for "the window takes keys" (cmux NEXT's `window_usable`). Nil: nothing is told.
+    public var onComposerFocused: ((NSView) -> Void)?
     private var warmed = false
     private var appliedComposerSpellChecking: Bool?
     /// The palette generation this view's rows were last refreshed for (applyTheme).

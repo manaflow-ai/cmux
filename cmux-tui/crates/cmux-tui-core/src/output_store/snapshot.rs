@@ -29,6 +29,7 @@
 //! `CMUXSNAP1\n` + one JSON line (`generation`, `stream_end`, `cols`, `rows`,
 //! `written_at_ms`) + gzip of the replay bytes.
 
+use std::collections::HashSet;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
@@ -773,8 +774,24 @@ fn write(
     Ok(())
 }
 
+#[cfg(test)]
+thread_local! {
+    /// What the calling thread read from the store's directory: (lists of the directory through [`list`], reads
+    /// of a snapshot header). The count tests of the start read it: counts, no clock.
+    pub(super) static DISK_READS: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+/// The entries of the store's directory, for a pass over the snapshot files.
+pub(super) fn list(directory: &Path) -> std::io::Result<fs::ReadDir> {
+    #[cfg(test)]
+    DISK_READS.with(|reads| reads.set((reads.get().0 + 1, reads.get().1)));
+    fs::read_dir(directory)
+}
+
 /// The header line of a snapshot file (it is short; the replay follows).
 pub(super) fn read_header(file: &Path) -> Option<serde_json::Value> {
+    #[cfg(test)]
+    DISK_READS.with(|reads| reads.set((reads.get().0, reads.get().1 + 1)));
     let mut reader = std::io::BufReader::new(fs::File::open(file).ok()?);
     let mut magic = [0_u8; MAGIC.len()];
     reader.read_exact(&mut magic).ok()?;
@@ -784,23 +801,42 @@ pub(super) fn read_header(file: &Path) -> Option<serde_json::Value> {
     serde_json::from_slice(line.strip_suffix(b"\n")?).ok()
 }
 
-/// The stream end each snapshot recorded, by terminal: (generation, end).
-pub(super) fn stream_ends(
+/// One snapshot file as [`scan`] read it: its terminal and its header.
+#[derive(Debug)]
+pub(super) struct Scanned {
+    pub(super) terminal_id: TerminalPublicId,
+    pub(super) header: serde_json::Value,
+    entry: fs::DirEntry,
+}
+
+impl Scanned {
+    /// The size of the file on disk.
+    pub(super) fn bytes(&self) -> Option<u64> {
+        Some(self.entry.metadata().ok()?.len())
+    }
+}
+
+/// One list of the directory and one read of the header of each snapshot file whose terminal is `wanted`. A
+/// file with no readable header is not in it. The count: the entries of the directory that the list gave.
+pub(super) fn scan(
     directory: &Path,
-) -> std::collections::HashMap<TerminalPublicId, (String, u64)> {
-    let Ok(entries) = fs::read_dir(directory) else { return Default::default() };
-    entries
+    wanted: impl Fn(&TerminalPublicId) -> bool,
+) -> (usize, Vec<Scanned>) {
+    let Ok(entries) = list(directory) else { return (0, Vec::new()) };
+    let mut listed = 0_usize;
+    let scanned = entries
         .flatten()
+        .inspect(|_| listed += 1)
         .filter_map(|entry| {
             let path = entry.path();
             (path.extension()? == SUFFIX).then_some(())?;
             let terminal_id = TerminalPublicId::parse(path.file_stem()?.to_str()?).ok()?;
+            wanted(&terminal_id).then_some(())?;
             let header = read_header(&path)?;
-            let generation = header.get("generation")?.as_str()?.to_owned();
-            let end = header.get("stream_end")?.as_u64()?;
-            Some((terminal_id, (generation, end)))
+            Some(Scanned { terminal_id, header, entry })
         })
-        .collect()
+        .collect();
+    (listed, scanned)
 }
 
 /// The terminal's last snapshot, the generation it belongs to and the stream
@@ -840,20 +876,32 @@ pub(super) fn read(
     ))
 }
 
-/// The parked trim of one [`prune`]: how long it took and how many rewrites
-/// of a snapshot file it ran. Zero also when the prune did not come to it.
-#[derive(Debug, Clone, Copy, Default)]
-pub(super) struct ParkedTrimLap {
-    pub(super) took: Duration,
-    pub(super) rewrites: usize,
+/// The writer's prune (a mode change, a forgotten terminal, once a day): [`remove_unowned`], then the parked trim.
+pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
+    let Some(directory) = store.directory() else { return };
+    let Some(parked) = remove_unowned(mux, store, directory, policy) else { return };
+    let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+    super::parked_trim::run(
+        directory,
+        &parked,
+        now_ms,
+        policy.parked_max_total_bytes,
+        policy.min_free_disk_bytes,
+    );
 }
 
 /// Remove files the policy does not allow: everything in memory mode, and
 /// the files of terminals that are no longer in the session otherwise.
-/// Returns the share of the parked trim, for the start log.
-pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) -> ParkedTrimLap {
-    let Some(directory) = store.directory() else { return ParkedTrimLap::default() };
-    let Ok(entries) = fs::read_dir(directory) else { return ParkedTrimLap::default() };
+/// Returns the parked terminals of the session, for the parked trim; `None`
+/// when no trim follows (memory mode, a directory or a registry that cannot
+/// be read).
+pub(super) fn remove_unowned(
+    mux: &Mux,
+    store: &OutputStore,
+    directory: &Path,
+    policy: PersistencePolicy,
+) -> Option<HashSet<TerminalPublicId>> {
+    let entries = list(directory).ok()?;
     if policy.mode == PersistenceMode::Memory {
         let mut removed = 0_usize;
         for entry in entries.flatten() {
@@ -869,14 +917,14 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) -
                  terminal.persistence.mode is memory"
             );
         }
-        return ParkedTrimLap::default();
+        return None;
     }
     let live = mux
         .workspace_registry
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .live_terminal_public_ids();
-    let Ok(live) = live else { return ParkedTrimLap::default() };
+        .live_terminal_public_ids()
+        .ok()?;
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
@@ -894,17 +942,7 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) -
         store.full.forget_all();
     }
     // Parked: a kept tab and no running shell (after a daemon restart too).
-    let parked = mux.parked_terminal_ids(live);
-    let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-    let trimming = Instant::now();
-    let rewrites = super::parked_trim::run(
-        directory,
-        &parked,
-        now_ms,
-        policy.parked_max_total_bytes,
-        policy.min_free_disk_bytes,
-    );
-    ParkedTrimLap { took: trimming.elapsed(), rewrites }
+    Some(mux.parked_terminal_ids(live))
 }
 
 /// Delete the oldest files with `suffix` until their total is at most `cap`.
