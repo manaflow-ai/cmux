@@ -45,7 +45,7 @@ trap 'rm -rf "$work"' EXIT
 run_dir="${keep:-$work/run}"
 mkdir -p "$run_dir" "$work/chats"
 shape="$crate/shapes/default.json"
-"$sim" gen --shape "$shape" --seed "$seed" --coordinators "$coordinators" --scale 1 \
+"$sim" gen --format script --shape "$shape" --seed "$seed" --coordinators "$coordinators" --scale 1 \
   --out "$work/chats" >&2
 "$sim" drive --coordinators "$coordinators" --rate "$rate" --target acpmux --duration "$seconds" --seed "$seed" \
   --readers "$readers" --shape "$shape" --scripts "$work/chats" --acpmux "$tui_target/release/acpmux" --out "$run_dir" >&2
