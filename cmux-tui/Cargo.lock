@@ -1276,6 +1276,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-agent-customize"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "cmux-tui-platform",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml_edit 0.22.27",
+]
+
+[[package]]
 name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
@@ -2482,6 +2494,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-action-catalog",
+ "cmux-agent-customize",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",
