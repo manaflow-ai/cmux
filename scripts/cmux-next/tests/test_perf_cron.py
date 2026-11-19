@@ -74,6 +74,33 @@ class DecideTests(unittest.TestCase):
         d = cron.decide(state, at(1), None, None, lambda sha: ALL, busy)
         self.assertEqual((d["action"], d["part"], d["linux_part"]), ("part", "", "diff-viewer"))
 
+    def test_a_queued_linux_runner_class_leaves_the_mac_part_to_run_alone(self):
+        # 2026-11-18/19: a Linux job queued for hours on Blacksmith holds its run, its report, and the controller's
+        # result run behind it in the concurrency group: no Mac row was stored for two days.
+        state = cron.empty_state(T0)
+        state["linux_wait"] = {"at": cron.iso(T0), "minutes": 420.0}
+        d = cron.decide(state, at(1), "a" * 40, None, lambda sha: ALL, None)
+        self.assertEqual((d["part"], d["linux_part"]), ("build", ""))
+        self.assertIn("420 min", d["reason"])
+        # With no Mac part to run (the bench host is busy elsewhere), the Linux part still runs and measures the queue.
+        state["current"]["host"] = "aws-m4pro-9"
+        d = cron.decide(state, at(1), None, None, lambda sha: ALL, "nightly.yml waits for a runner")
+        self.assertEqual((d["part"], d["linux_part"]), ("", "diff-viewer"))
+        # A short wait, or an old one, pairs them again.
+        for wait in ({"at": cron.iso(T0), "minutes": 3.0},
+                     {"at": cron.iso(at(-cron.LINUX_BACKLOG_HOURS - 1)), "minutes": 420.0}):
+            state = cron.empty_state(T0)
+            state["linux_wait"] = wait
+            d = cron.decide(state, at(1), "a" * 40, None, lambda sha: ALL, None)
+            self.assertEqual((d["part"], d["linux_part"]), ("build", "diff-viewer"))
+
+    def test_the_linux_wait_is_from_the_plan_to_the_linux_job_start(self):
+        self.assertEqual(cron.linux_wait_of(cron.iso(T0), {"started_at": cron.iso(at(7))}),
+                         {"at": cron.iso(at(7)), "minutes": 420.0})
+        self.assertIsNone(cron.linux_wait_of(None, {"started_at": cron.iso(at(7))}))
+        self.assertIsNone(cron.linux_wait_of(cron.iso(T0), None))
+        self.assertIsNone(cron.linux_wait_of(cron.iso(at(1)), {"started_at": cron.iso(T0)}))
+
     def test_a_measurement_held_by_a_busy_fleet_gives_its_runner_host_up_for_the_bench_host(self):
         # Nightly runs start about every 25 minutes, so a job of one is queued at most ticks: a pinned measurement
         # that only waited would never run a Mac part again.
@@ -992,6 +1019,28 @@ class MissingResultTests(unittest.TestCase):
                                                issues=False, output=os.path.join(d, "report.out")))
         with open(os.path.join(d, "state.json")) as f:
             return json.load(f)
+
+    def test_the_report_keeps_how_long_the_linux_part_waited_for_its_runner(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = cron.empty_state(T0)
+            state["persisted"] = True
+            state["current"] = cron.new_measurement("b" * 40, "tip", ["diff-viewer", "motion"], T0)
+            state["linux_asked_at"] = cron.iso(T0)
+            part_dir = os.path.join(d, "linux")
+            os.makedirs(part_dir)
+            with open(os.path.join(part_dir, "result.json"), "w") as f:
+                json.dump({"state": "failed", "seconds": 5, "tail": [], "worker": "blacksmith-4vcpu-ubuntu-2404",
+                           "started_at": cron.iso(at(0.75))}, f)
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            with mock.patch.object(cron, "now_utc", lambda: at(1)):
+                cron.cmd_report(argparse.Namespace(repo="o/r", dir=d, result=[f"diff-viewer={part_dir}"], run_url="u",
+                                                   finish=False, issues=False, output=os.path.join(d, "report.out")))
+            with open(os.path.join(d, "state.json")) as f:
+                state = json.load(f)
+            self.assertEqual(state["linux_wait"], {"at": cron.iso(at(0.75)), "minutes": 45.0})
+            self.assertNotIn("linux_asked_at", state)
+            self.assertTrue(cron.linux_backlog(state, at(1)))
 
     def test_a_job_that_left_no_result_is_one_attempt(self):
         with tempfile.TemporaryDirectory() as d:
@@ -2182,6 +2231,16 @@ class RateLimitTests(unittest.TestCase):
         called = re.findall(r"python3 -I scripts/cmux-next/perf-cron\.py (\S+)", workflow)
         self.assertIn("plan", called)
         self.assertEqual([c for c in called if c not in known], [])
+
+    def test_the_control_jobs_take_our_own_linux_runners_on_attempt_one(self):
+        # A control job queued on the shared Blacksmith pool holds every tick (run 44346891004 waited 16 h).
+        import re
+        root = os.path.join(HERE, "..", "..", "..")
+        workflow = open(os.path.join(root, ".github", "workflows", "cmux-next-perf-budgets.yml")).read()
+        for job in ("plan", "request", "frame-pacing", "report"):
+            block = re.search(rf"^  {re.escape(job)}:\n(.*?)(?=^  [a-z-]+:\n|\Z)", workflow, re.S | re.M).group(1)
+            runs_on = re.search(r"^    runs-on: (.*)$", block, re.M).group(1)
+            self.assertIn("github.run_attempt == 1 && 'cmux-fleet-linux-x64' ||", runs_on, job)
 
     def test_any_other_403_is_still_an_error(self):
         def forbidden(*a, **k):
