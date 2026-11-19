@@ -22,7 +22,9 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   - the overflow probe's per-label health, CI_CLOUD_LABEL_HEALTH (`labels`: label -> "started"
     or "stalled"; the switch probes every x64 Linux size a pool can point at, cloud_overflow_switch.HEALTH_LABELS),
     read live through the API so it is this run's and not the job's start value;
-    used while its `checked` is at most HEALTH_MAX_AGE old;
+    used while its `checked` is at most HEALTH_MAX_AGE old. A "stalled" counts only beside a fresh, complete
+    janitor snapshot (below), which tells a dead size from one the vCPU cap keeps full; without one a stall
+    adds no mark (2026-11-18 11:37Z: a 403 snapshot read and four sizes falsely marked dead);
   - the queue janitor's snapshot (macos-pool-load), only while its `generated_at` is at most
     SNAPSHOT_MAX_AGE old: a Blacksmith label in `pools` whose oldest
     queued job has waited BLACKSMITH_STALL_MINUTES (simple_pool_picker.blacksmith_stalled()) while
@@ -34,7 +36,8 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
     pool members, so they are not read;
   - a label whose `label_started` is within RECENT_START is serving and never dead, whatever the
     probe saw (recently_started()): under Blacksmith's org vCPU cap a probe can wait out its
-    minutes on a size that keeps starting jobs;
+    minutes on a size that keeps starting jobs. This holds for a truncated snapshot too (the queue
+    outgrew one sweep): its queue counts are partial and decide nothing, but its starts are starts;
 - marks dead labels in RUNNER_POOLS' `_dead` (label -> when last seen dead). A mark expires after
   DEAD_TTL unless seen again; evidence that the label started a job clears it at once. A mark expires
   only on a pass whose evidence covers its label (evidence_covers()): the probe's health for the sizes
@@ -63,8 +66,10 @@ moves it back once that label leaves `_dead` (raw_homes(), raw_writes()); each m
 that is not a Blacksmith Linux pool label is left alone.
 
 Moving jobs already queued on a dead member is not done here: GitHub binds a job's label when it
-creates the job, and the queue janitor's dead-label re-dispatch (cmux#27114) re-runs those jobs,
-which then read the pool's new member.
+creates the job. The queue janitor reports dead labels (cmux#27114) but re-runs nothing for a pool
+that starts no job at all, so on 2026-11-18 runs queued on dead 4, 8 and 16 vCPU waited hours.
+The watch's next step, `cloud_overflow_switch.py --rescue-dead`, force-cancels and re-runs those
+runs once (dead_labels() there), and they then read the pool's new member.
 
 RUNNER_POOLS never names a reused machine: every member is an ephemeral Blacksmith label, so a
 job reading it can never land on an owned Mac, whoever started it (a fork's pull request
@@ -570,9 +575,16 @@ def started_nothing_while_queued(snapshot: Mapping[str, Any], label: str, load: 
 
 def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None, *,
                    now: dt.datetime) -> tuple[set[str], set[str], list[str]]:
-    """(dead, started, notes): the labels seen starting nothing, the labels seen starting a job."""
+    """(dead, started, notes): the labels seen starting nothing, the labels seen starting a job.
+
+    A probe's stall counts only beside a fresh, complete janitor snapshot, whose `label_started` tells a dead size
+    from one the org's vCPU cap keeps full (recently_started()). Without one a stall decides nothing and the marks
+    keep their state: in run 44296348389 (2026-11-18 11:37Z) the snapshot read returned 403 with the cmux-bot App's
+    budget spent, the 4, 8, 16 and 32 vCPU probes waited behind the cap while 2,618 jobs were queued, and all four
+    were marked dead, which squeezed every Linux pool onto 2 vCPU. A probe's start always counts."""
     dead: set[str] = set()
     started: set[str] = set()
+    stalls: set[str] = set()
     notes: list[str] = []
     if isinstance(health, Mapping):
         checked = parse_time(health.get("checked"))
@@ -584,7 +596,7 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         else:
             for label, state in labels.items():
                 if state == "stalled":
-                    dead.add(str(label))
+                    stalls.add(str(label))
                 elif state == "started":
                     started.add(str(label))
     generated = parse_time(snapshot.get("generated_at")) if isinstance(snapshot, Mapping) else None
@@ -594,12 +606,13 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         notes.append(f"the janitor snapshot is from {iso(generated)}, outside the last {SNAPSHOT_MAX_AGE}; "
                      "no snapshot evidence")
     elif generated is not None and pr_runner_pool.snapshot_truncated(snapshot):
-        # A cut listing undercounts queues, so it marks nothing dead, but a start it saw is still a start: on
-        # 2026-11-18 from 13:18Z every snapshot was truncated (over 3,000 runs in flight), the probe alone judged,
-        # and 4, 8, 16 and 32 vCPU stayed marked dead while they kept starting jobs.
+        # Its queue counts are partial, so they decide nothing; its starts are still starts. On 2026-11-18 at 14:14Z
+        # dropping them sent every Linux pool to the 2 vCPU release valve while 4 and 8 vCPU kept starting jobs.
         started |= recently_started(snapshot, now=now)
         notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; only its recent starts count")
     elif generated is not None:
+        dead |= stalls
+        stalls = set()
         age = max(0.0, (now - generated).total_seconds() / 60)
         started |= recently_started(snapshot, now=now)
         for label, load in (snapshot.get("pools") or {}).items():
@@ -624,6 +637,9 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 live = entry.get("live")
                 if isinstance(live, list):
                     started |= {str(label) for label in live if isinstance(label, str)}
+    if stalls - started:
+        notes.append(f"probe stalled on {', '.join(sorted(stalls - started))} with no fresh janitor snapshot to tell a "
+                     "dead size from a full vCPU cap; no new dead mark")
     # A label both started and stalled in one pass (two probes, or a probe and a stale queue) started.
     return dead - started, started, notes
 
@@ -643,9 +659,10 @@ def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any
                 dt.timedelta(minutes=-1) <= now - checked <= HEALTH_MAX_AGE:
             covered |= {str(label) for label in labels}
     generated = parse_time(snapshot.get("generated_at")) if isinstance(snapshot, Mapping) else None
-    if generated is not None and dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE:
-        if not pr_runner_pool.snapshot_truncated(snapshot):
-            covered |= {label for spec in pools.values() for label in members(spec)} - probed
+    fresh = generated is not None and dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE
+    if fresh and not pr_runner_pool.snapshot_truncated(snapshot):
+        covered |= {label for spec in pools.values() for label in members(spec)} - probed
+    if fresh:
         # A size the janitor saw start a job recently is covered too, truncated or not: label_evidence() calls it
         # started.
         covered |= recently_started(snapshot, now=now)

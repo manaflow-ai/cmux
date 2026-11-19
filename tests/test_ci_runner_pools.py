@@ -41,6 +41,12 @@ POOLS = {
 }
 
 
+def fresh_snapshot(now):
+    """A complete janitor snapshot from a minute before NOW that saw no Linux start: beside it a probe's stall
+    counts (label_evidence())."""
+    return dict(copy.deepcopy(RECORDED), generated_at=runner_pools.iso(now - dt.timedelta(minutes=1)), label_started={})
+
+
 def health(labels, checked=NOW):
     # Exactly what the overflow switch writes to CI_CLOUD_LABEL_HEALTH (cloud_overflow_switch.label_health()).
     import cloud_overflow_switch as switch
@@ -288,10 +294,36 @@ class Evidence(unittest.TestCase):
         self.assertEqual(runner_pools._labels("a,b+c"), {"a", "b", "c"})
 
     def test_probe_health_per_label(self) -> None:
+        fresh = dict(copy.deepcopy(RECORDED), label_started={})
         dead, started, _ = runner_pools.label_evidence(health({
-            "blacksmith-32vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "started"}), None, now=NOW)
+            "blacksmith-32vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "started"}), fresh, now=NOW)
         self.assertEqual(dead, {"blacksmith-32vcpu-ubuntu-2404"})
         self.assertEqual(started, {"blacksmith-16vcpu-ubuntu-2404"})
+
+    def test_a_probe_stall_without_a_fresh_snapshot_marks_nothing_dead(self) -> None:
+        # Run 44296348389, 11:37Z on 2026-11-18: the cmux-bot App's budget was spent, the snapshot read
+        # returned 403 ("judging on the probe alone"), and the 4, 8, 16 and 32 vCPU probes, queued behind the
+        # org's vCPU cap while 2,618 jobs waited, read "stalled"; all four were marked dead and every Linux pool
+        # was squeezed onto 2 vCPU. A stall cannot tell a dead size from a full cap without the janitor's starts.
+        probe = health({"blacksmith-4vcpu-ubuntu-2404": "stalled", "blacksmith-8vcpu-ubuntu-2404": "stalled",
+                        "blacksmith-2vcpu-ubuntu-2404": "started"})
+        stale = dict(copy.deepcopy(RECORDED), label_started={},
+                     generated_at=runner_pools.iso(NOW - runner_pools.SNAPSHOT_MAX_AGE - dt.timedelta(minutes=1)))
+        for snapshot in (None, stale, dict(copy.deepcopy(RECORDED), truncated=True)):
+            with self.subTest(snapshot=bool(snapshot)):
+                dead, started, notes = runner_pools.label_evidence(probe, snapshot, now=NOW)
+                self.assertEqual(dead, set())
+                self.assertEqual(started, {"blacksmith-2vcpu-ubuntu-2404"})
+                self.assertTrue(any("no fresh janitor snapshot" in note for note in notes), notes)
+        # The marks already there keep their state: no fresh evidence, so none expires or is renewed, and a
+        # probe start still clears its label.
+        pools = runner_pools.load_pools()
+        since = runner_pools.iso(NOW - dt.timedelta(minutes=5))
+        current = {"_dead": {"blacksmith-4vcpu-ubuntu-2404": since, "blacksmith-2vcpu-ubuntu-2404": since}}
+        dead, started, _ = runner_pools.label_evidence(probe, None, now=NOW)
+        value, _ = runner_pools.reconcile(current, pools, dead_now=dead, served_now=started, now=NOW,
+                                          covered=runner_pools.evidence_covers(probe, None, pools, now=NOW))
+        self.assertEqual(value["_dead"], {"blacksmith-4vcpu-ubuntu-2404": since})
 
     def test_no_evidence_retires_nothing(self) -> None:
         # Fail closed: with CI_CLOUD_LABEL_HEALTH absent (cmux#27121 not deployed) and no snapshot,
@@ -581,7 +613,8 @@ class Main(unittest.TestCase):
             "blacksmith-4vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "stalled",
             "blacksmith-2vcpu-ubuntu-2404": "started", "blacksmith-8vcpu-ubuntu-2404": "started",
             "blacksmith-32vcpu-ubuntu-2404": "stalled"}, checked=now))})
-        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": live}, api=self.Api(None), switch=switch, now=now), 0)
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": live}, api=self.Api(fresh_snapshot(now)), switch=switch,
+                                           now=now), 0)
         value = json.loads(switch.writes[0][1])
         self.assertEqual(value["linux_16"], "blacksmith-8vcpu-ubuntu-2404")
         # linux_32 is [32, 16] vCPU, both stalled: it keeps 32 vCPU rather than leave its members.
@@ -591,7 +624,8 @@ class Main(unittest.TestCase):
         self.assertEqual(value["linux"], "blacksmith-4vcpu-ubuntu-2404")
         # The next pass keeps it. It rewrites the variable only to refresh the dead marks' times.
         again = self.Switch(switch.variables)
-        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": switch.writes[0][1]}, api=self.Api(None),
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": switch.writes[0][1]},
+                                           api=self.Api(fresh_snapshot(now + dt.timedelta(minutes=1))),
                                            switch=again, now=now + dt.timedelta(minutes=1)), 0)
         kept = json.loads(dict(again.writes).get("RUNNER_POOLS", switch.writes[0][1]))
         self.assertEqual((kept["linux_16"], kept["linux_32"]),
@@ -832,7 +866,8 @@ class RawLabelVars(unittest.TestCase):
             json.loads(switch.variables[runner_pools.HEALTH_VARIABLE])["labels"], checked=now))
         switch.writes.clear()
         with redirect_stdout(out):
-            code = runner_pools.main([], {"RUNNER_POOLS": pools_value}, api=Main.Api(None), switch=switch, now=now)
+            code = runner_pools.main([], {"RUNNER_POOLS": pools_value}, api=Main.Api(fresh_snapshot(now)), switch=switch,
+                                     now=now)
         self.assertEqual(code, 0)
         written = dict(switch.writes)
         return written, json.loads(written.get("RUNNER_POOLS", pools_value)), out.getvalue()
@@ -1015,27 +1050,33 @@ class TruncatedSnapshot(unittest.TestCase):
         self.assertEqual((dead, started), (set(), set()))
         self.assertTrue(any("truncated" in note for note in notes))
 
-    def test_a_truncated_snapshots_recent_starts_still_beat_a_probe_stall(self) -> None:
-        # 2026-11-18 13:31Z (run 44313558822): the snapshot listed part of 3,186 in-flight runs, so it decided
-        # nothing, and the probe alone kept 4, 8, 16 and 32 vCPU dead while each had started jobs since 13:20Z.
+    def test_a_truncated_snapshot_still_supplies_its_recent_starts(self) -> None:
+        # 2026-11-18 14:14Z: the snapshot was truncated (the queue outgrew one sweep), the writer dropped all of it,
+        # and with the probes alone (every x64 size but 2 vCPU stalled under the vCPU cap) every Linux pool went
+        # to the 2 vCPU release valve, while its label_started showed 4 and 8 vCPU starting jobs minutes before.
         four, eight = "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"
-        stalled = health({four: "stalled", eight: "stalled", "blacksmith-2vcpu-ubuntu-2404": "started"})
+        sixteen, thirty_two = "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"
+        two = "blacksmith-2vcpu-ubuntu-2404"
         snapshot = copy.deepcopy(RECORDED)
         snapshot["generated_at"] = runner_pools.iso(NOW - dt.timedelta(minutes=1))
-        snapshot["label_started"] = {four: runner_pools.iso(NOW - dt.timedelta(minutes=3)),
-                                     eight: runner_pools.iso(NOW - runner_pools.RECENT_START - dt.timedelta(minutes=5))}
-        snapshot.update(truncated=True, listed=2500, total=3186)
-        dead, started, _ = runner_pools.label_evidence(stalled, snapshot, now=NOW)
-        self.assertIn(four, started)
-        self.assertNotIn(four, dead)
-        self.assertIn(eight, dead)
+        snapshot["truncated"] = True
+        # Its counts are partial: a queue they show must not mark anything dead.
+        snapshot["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, running=0, oldest_queued_minutes=30)
+        snapshot["label_started"] = {four: runner_pools.iso(NOW - dt.timedelta(minutes=2)),
+                                     eight: runner_pools.iso(NOW - dt.timedelta(minutes=1))}
+        probes = health({two: "started", four: "stalled", eight: "stalled", sixteen: "stalled",
+                         thirty_two: "stalled"})
+        dead, started, _ = runner_pools.label_evidence(probes, snapshot, now=NOW)
+        self.assertEqual(dead, {sixteen, thirty_two})
+        self.assertTrue({four, eight} <= started)
+        self.assertNotIn("blacksmith-6vcpu-macos-26", dead)
         pools = runner_pools.load_pools()
-        self.assertIn(four, runner_pools.evidence_covers(stalled, snapshot, pools, now=NOW))
-        current = {"_dead": {four: runner_pools.iso(NOW - dt.timedelta(minutes=10))}}
-        value, _ = runner_pools.reconcile(current, pools, dead_now=dead, served_now=started, now=NOW,
-                                          covered=runner_pools.evidence_covers(stalled, snapshot, pools, now=NOW))
-        self.assertNotIn(four, value["_dead"])
-        self.assertEqual(value["linux"], four)
+        covered = runner_pools.evidence_covers(probes, snapshot, pools, now=NOW)
+        current = {"_dead": {four: runner_pools.iso(NOW - dt.timedelta(minutes=10)),
+                             eight: runner_pools.iso(NOW - dt.timedelta(minutes=10))}}
+        value, _ = runner_pools.reconcile(current, pools, dead_now=dead, served_now=started, now=NOW, covered=covered)
+        self.assertEqual((value["linux"], value["linux_8"], value["linux_16"]), (four, eight, eight))
+        self.assertNotEqual(value["linux_32"], two)
 
 
 class CapBound(unittest.TestCase):
