@@ -280,11 +280,16 @@ describe("searchAdminUsers Gmail spellings", () => {
     const queries = adminUserSearchQueries("patlee@googlemail.com");
     const hits = await Promise.all(queries.map((query) => app.listUsers({ query })));
     expect(hits.filter((page) => page.some((user) => user.id === "u1")).length).toBeGreaterThan(1);
+    const billingCalls: string[] = [];
     const rows = await searchAdminUsers("patlee@googlemail.com", {
       app,
-      stripeBillingStatus: async () => noStripe,
+      stripeBillingStatus: async (userId) => {
+        billingCalls.push(userId);
+        return noStripe;
+      },
     });
     expect(rows.map((row) => row.id)).toEqual(["u1"]);
+    expect(billingCalls).toEqual(["u1"]);
   });
 
   test("searches a non-Gmail query once, as typed", async () => {
