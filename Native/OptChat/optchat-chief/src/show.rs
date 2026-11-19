@@ -85,8 +85,9 @@ pub fn block(report: &str) -> Option<String> {
 /// `workspace.open_url`'s right side), never in the chat's own pane, where 14
 /// pages once piled up in one chat's tab strip (Lawrence 2026-11-19: "agent
 /// chat that is on left, will open stuff to the right"); the block says so,
-/// so the Chief names no pane for a page, and a pane right of the chat for a
-/// terminal or a file.
+/// so the Chief names no pane for a page. A terminal made the same way uses
+/// a pane right of the chat when there is one, and a file names its pane: one
+/// right of the chat, and the chat's own only when there is no other.
 pub fn block_in(report: &str, workspace: Option<&str>) -> Option<String> {
     let shown = find(report);
     if shown.is_empty() {
@@ -120,7 +121,7 @@ fn block_in_workspace(shown: &Shown, ws: &str) -> String {
     let mut lines = vec![
         "<show>".to_owned(),
         format!(
-            "Done work to show (show.afterReport): open the one or two most useful as new tabs in the subagent's own workspace {ws}, on the right of its chat (a `tab create browser --workspace` below opens in the column right of the chat, and makes that column when there is none; for a terminal or a file, name a pane right of the chat when `cmux pane list --workspace {ws}` shows one; never name the chat's own pane), without moving focus, and link each tab in your reply ([diff](cmux://tab/tab_…), the id from the command's answer); show nothing if none helps."
+            "Done work to show (show.afterReport): open the one or two most useful as new tabs in the subagent's own workspace {ws}, on the right of its chat (a `tab create browser --workspace` below opens in the column right of the chat, and makes that column when there is none; a terminal uses a pane right of the chat when there is one; a file names its pane), without moving focus, and link each tab in your reply ([diff](cmux://tab/tab_…), the id from the command's answer); show nothing if none helps."
         ),
     ];
     push_items(

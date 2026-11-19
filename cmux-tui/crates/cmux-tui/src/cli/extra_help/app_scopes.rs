@@ -194,13 +194,13 @@ usage: cmux open <path|url>... [--workspace <ws_…>] [--focus [true|false]] [--
        cmux open --as-text <file>... [--focus [true|false]] [--no-focus]
        cmux open - [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
        cmux open --link [--caller <names>] [--target <target>] (<url>... | -)
-URLs open as a browser tab beside the caller: in the column right of its agent
-chat or terminal. With --workspace the tab goes to that workspace's pane, or,
-when that pane holds an agent chat, to the column right of the chat (made when
-there is none), never among the chat's own tabs. Folders open in a new
-workspace, files in the app. `open -` reads one http(s) URL per stdin line, so
-a URL with a token never appears in argv; it checks every line first and stops
-at the first URL the app refuses.
+URLs open as a browser tab where the caller is: in the column right of an
+agent's chat, in a terminal's own pane. With --workspace the tab goes to that
+workspace's pane, or, when that pane holds an agent chat, to the column right
+of the chat (made when there is none), never among the chat's own tabs. Folders
+open in a new workspace, files in the app. `open -` reads one http(s) URL per
+stdin line, so a URL with a token never appears in argv; it checks every line
+first and stops at the first URL the app refuses.
 --as-text (or --source) opens HTML, SVG and Markdown files as their source in
 the code editor instead of rendered; Edit Source and Open as Page on a tab
 switch between the two (cmux browser edit-source, cmux file open-as-page).
