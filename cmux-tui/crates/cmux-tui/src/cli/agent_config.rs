@@ -374,7 +374,7 @@ mod tests {
             assert_eq!(run(&words(&line), &env, true), Ok(0), "{line}");
         }
         let paths = Paths::from_env(&env).unwrap();
-        let options = Options { project: Some(home.clone()), codex_cli: None };
+        let options = Options { project: Some(home), codex_cli: None };
         let claude = mcp::list(&paths, Agent::Claude, &options);
         assert_eq!(claude.servers.len(), 1);
         assert!(!claude.servers[0].enabled);

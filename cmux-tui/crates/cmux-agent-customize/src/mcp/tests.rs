@@ -292,7 +292,7 @@ fn claude_refuses_what_it_cannot_do() {
     // A switch for a server Claude Code does not have writes nothing.
     let err = apply(
         &h.paths,
-        &target(Agent::Claude, "nope", Some(Scope::User), None),
+        &target(Agent::Claude, "nope", Some(Scope::User), Some(&h.project)),
         &Edit::Disable,
         &opts,
     )
