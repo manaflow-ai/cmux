@@ -71,6 +71,13 @@ fn print_status(status: &Value) {
     if !running {
         return;
     }
+    // A Linux machine's host is cmux-rd's own: its device and shares are `cmux-rd linux-host status`'s.
+    if text("host") == "cmux-rd" {
+        println!("  host:    {} ({})", text("unit"), text("cmuxRd"));
+        println!("  hub:     {}", text("hub"));
+        println!("  more:    cmux-rd linux-host status");
+        return;
+    }
     println!("  device:  {} ({})", text("deviceName"), text("deviceId"));
     println!("  hub:     {}", text("hub"));
     let flag = |key: &str| match status.get(key).and_then(Value::as_bool) {
@@ -91,6 +98,13 @@ fn print_status(status: &Value) {
 
 #[cfg(unix)]
 async fn set_shared(shared: bool) -> Result<()> {
+    if cfg!(target_os = "linux") {
+        // cmux-rd holds a Linux machine's device (`share_host/linux.rs`), not this daemon.
+        anyhow::bail!(
+            "on Linux the switch is cmux-rd's: cmux-rd linux-host share {}",
+            if shared { "on" } else { "off" }
+        );
+    }
     tokio::task::spawn_blocking(move || {
         let hub = super::machine_hub(&crate::config::home(), false)?;
         hub.set_shared(shared).map_err(|e| anyhow::anyhow!("{e}"))?;

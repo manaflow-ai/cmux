@@ -474,6 +474,24 @@ rows, or returned in errors and VM responses. A retry with changed network
 intent or credentials under the same Idempotency-Key is 409. Forks do not
 inherit network intent.
 
+### Joining a mesh at creation
+
+`POST /v1/vms` accepts optional `meshId` (`"meshId": "mesh_..."`). The VM is
+then created on that mesh's private network, instead of being moved onto it by
+a second provider call after it booted. It requires `mesh:write` besides
+`vm:write`, and a mesh of the caller's team: a missing scope is 403, and a mesh
+that is not the caller's (or the mesh experiment being off for the team) is
+404, both before anything is created. Omit it and nothing changes.
+
+`PUT /v1/meshes/{meshId}/vms/{vmId}` is still required: it applies the mesh's
+access rules, and the VM is reachable only after it. For a VM created with
+`meshId` it finds the membership already recorded, makes no provider attach
+call and only applies the rules. The membership is recorded only when the
+provider's create answer shows the VM on exactly that network with an address;
+otherwise the `PUT` attaches as before, which the provider treats as setting
+the same network again. A retry with a different `meshId` (or none) under the
+same Idempotency-Key is 409. Forks do not take a `meshId`.
+
 `GET /v1/vms/{vmId}/public-egress` reads, and `PUT` turns on, an existing
 VM's public egress: `{ "id": "vm_...", "publicEgress": true }`. Both require
 `vm:network` and ownership of the VM. It counts only a rule that allows the
@@ -587,6 +605,25 @@ integration tests (fake upstream), the PGlite store tests and the bundle size
 budget. CI runs the same in `.github/workflows/cmux-vm.yml`.
 
 ## Operations
+
+Where a create or a wake spends its time is one JSON log line each, in the
+shape of the mesh handler's `mesh_vm_attach` line (`wrangler tail`, or the
+`tail-production` action). Durations are milliseconds; a line carries the
+public VM id (and mesh id) and no tenant, provider id or request body.
+
+- `vm_create`: one per `POST /v1/vms` (or fork) that reached the provider,
+  success or failure (`ok`). `recoverMs` (the exact-slug read), `verifyImageMs`
+  (the boot image read, in flight with it; null without an approved image),
+  `createMs` (the provider create; null when the VM was recovered),
+  `recoverAfterMs` (the read after a failed create; null otherwise),
+  `resizeMs` (null without a grow), `recordMs` (the ownership write),
+  `preMs` (handler entry to the first provider call: validation, idempotency,
+  quota), `totalMs`, `recovered`, `meshAtCreate` (with `meshId`, `meshJoined`
+  and `memberMs` when a mesh was named), and the provider's own
+  `providerTotalMs` and `providerTimingsMs` when its create answer has them.
+- `vm_start`: one per start or resume whose provider start was called.
+  `route` (`start` or `resume`), `stateBefore` (resume reads it; start does
+  not, so null), `stateAfter`, `readMs` (resume only), `startMs`, `totalMs`.
 
 Entitlement until billing exists (`src/proofs/tenant-may-create.ts`): outside
 production every tenant may create; in production a tenant may create when it is
