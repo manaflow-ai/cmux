@@ -10,6 +10,7 @@ read the files only; they need no build and no running app.
 from __future__ import annotations
 
 import re
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -18,6 +19,9 @@ ROOT = Path(__file__).resolve().parent.parent
 SKILLS = sorted((ROOT / "skills").glob("*/SKILL.md"))
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 DESCRIPTION = re.compile(r"^description:[ \t]*(.*)$", re.MULTILINE)
+# `description: >-` or `|`: the value is the indented lines that follow, not the indicator.
+BLOCK_SCALAR = re.compile(r"[>|][+-]?")
+INDENTED = re.compile(r"(?:[ \t]+.*(?:\n|\Z)|[ \t]*\n)*")
 
 
 def description(path: Path) -> str | None:
@@ -29,9 +33,32 @@ def description(path: Path) -> str | None:
     if line is None:
         return None
     value = line.group(1).strip()
+    if BLOCK_SCALAR.fullmatch(value):
+        block = INDENTED.match(frontmatter.group(1), line.end() + 1).group(0)
+        return " ".join(block.split())
     if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
         value = value[1:-1]
     return value
+
+
+class DescriptionParserTests(unittest.TestCase):
+    def parse(self, frontmatter: str) -> str | None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "SKILL.md"
+            path.write_text(f"---\n{frontmatter}\n---\nbody\n", encoding="utf-8")
+            return description(path)
+
+    def test_reads_plain_and_quoted_values(self) -> None:
+        self.assertEqual(self.parse("name: x\ndescription: Use when a"), "Use when a")
+        self.assertEqual(self.parse('description: "set <x> in cmux"'), "set <x> in cmux")
+        self.assertEqual(self.parse("description: 'a b'"), "a b")
+
+    def test_reads_the_lines_of_a_block_scalar(self) -> None:
+        self.assertEqual(self.parse("description: >-\n  no brackets\n  here\nname: x"), "no brackets here")
+        self.assertEqual(self.parse("description: |\n  set <x>\n\n  in cmux"), "set <x> in cmux")
+
+    def test_ignores_a_nested_description_key(self) -> None:
+        self.assertIsNone(self.parse("metadata:\n  description: a"))
 
 
 class SkillDescriptionTests(unittest.TestCase):
