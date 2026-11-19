@@ -436,22 +436,6 @@ impl LocalStore {
         strict: bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_kinds_past(id, 0, kinds, strict, visit)
-    }
-
-    /// [`Self::scan_kinds_in`] of the records past `after` (`scan_kinds_after`, a restore point's
-    /// seq): from the segment that holds `after + 1` on (`store/segment_starts.rs`, its first
-    /// seqs kept), so the copies of the segments before it are not opened. Each fold of a restored
-    /// chat's log load read every copy from the log's first: a load from a restore point cost the
-    /// chat's whole history in opens and copied lines, five times over.
-    pub(super) fn scan_kinds_past(
-        &self,
-        id: &str,
-        after: u64,
-        kinds: &[&str],
-        strict: bool,
-        visit: &mut dyn FnMut(EventRecord) -> bool,
-    ) -> Result<()> {
         test_scan_delay();
         // A strict read learns that the log's segments could not be listed (`segments` lists
         // none then), as `scan_strict` does.
@@ -461,11 +445,8 @@ impl LocalStore {
         }
         let copied = kinds.iter().all(|k| INDEXED_KINDS.contains(k));
         let scan = Scan { kinds, copied, strict, heads: false };
-        let segments = self.segments(id)?;
-        let start = self.segment_starts.start(id, &segments, after)?;
-        let mut past = |rec: EventRecord| rec.seq <= after || visit(rec);
-        for (index, path) in &segments[start..] {
-            if !self.scan_segment(id, *index, path, &scan, &mut past)? {
+        for (index, path) in self.segments(id)? {
+            if !self.scan_segment(id, index, &path, &scan, visit)? {
                 break;
             }
         }
