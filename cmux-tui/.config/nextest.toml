@@ -68,7 +68,9 @@ priority = 50
 # the ordinary writer's progress under the same 48 sessions, joins it for its
 # p95 of 1 s. Two percentile budgets joined too: a keystroke echo's p95 and p99
 # beside a 64 MiB transfer each way (cmux-remote interactive_latency_e2e), and
-# the policy gate's hook round trip p50 (acpmux start_mode). Add a test
+# the policy gate's hook round trip p50 (acpmux start_mode), and the daemon's
+# stop under load, every one under a second (acpmux stop_under_load, which
+# brings its own busy threads). Add a test
 # only when its subject is latency; a test that fails under load for another
 # reason (a shared resource, a race) gets that cause fixed instead.
 [test-groups]
@@ -87,6 +89,7 @@ filter = '''
 | (binary_id(cmux-tui-core) & test(=state::group_update_latency_tests::ordinary_registry_writers_progress_while_personal_writes_stay_queued))
 | (binary_id(cmux-remote::interactive_latency_e2e) & test(=interactive_echo_stays_responsive_during_bidirectional_bulk_transfer))
 | (binary_id(acpmux::start_mode) & test(=the_policy_gate_round_trip_under_approve_all_is_measured))
+| (binary_id(acpmux::stop_under_load) & test(=a_stop_under_load_takes_under_a_second_whatever_the_home))
 '''
 test-group = 'timing-alone'
 threads-required = 'num-test-threads'
@@ -248,3 +251,17 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::disk_usage_read_cost::/)'
 success-output = "final"
+
+# The stop test (acpmux tests/stop_under_load.rs) prints its STOP-UNDER-LOAD lines (each
+# home's stops: p50, p95 and max, and the requests in flight that read an answer and not
+# the close) on stderr; a fleet step shows them only when a passing test's output is kept. It
+# starts and stops a daemon five times over each of two homes, the god one written first:
+# 300 s is the margin under load; a hang still fails.
+[[profile.default.overrides]]
+filter = 'binary_id(acpmux::stop_under_load)'
+slow-timeout = { period = "60s", terminate-after = 5, grace-period = "5s" }
+
+[[profile.ci.overrides]]
+filter = 'binary_id(acpmux::stop_under_load)'
+success-output = "final"
+slow-timeout = { period = "60s", terminate-after = 5, grace-period = "5s" }
