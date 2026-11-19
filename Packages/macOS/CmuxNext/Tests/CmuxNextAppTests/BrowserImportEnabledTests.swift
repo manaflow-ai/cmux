@@ -116,7 +116,7 @@ import Testing
         #expect(!h.services.registry.perform("importFromBrowser", invocation: ActionInvocation(origin: .user)))
         // The import tool window (onboarding's import step) does not open, whoever asks.
         h.services.onboarding.show(step: .importData)
-        #expect(!h.services.onboarding.isShowing, "the import window stays closed")
+        #expect(!(h.services.onboarding.controller != nil), "the import window stays closed")
         // Every run says why: the palette's subtitle and the socket's `unavailable` reason.
         #expect(h.services.registry.unavailableReason(for: "importFromBrowser") == BrowserImportOfferStrings.turnedOff)
         // The import suggestion cards are off in Settings › Import, and a card
@@ -156,10 +156,10 @@ import Testing
         let h = try await make()
         defer { h.tearDown() }
         h.services.onboarding.show(step: .importData)
-        #expect(h.services.onboarding.isShowing, "the import window opens while browser import is on")
+        #expect((h.services.onboarding.controller != nil), "the import window opens while browser import is on")
         try await h.set(false)
-        await h.until { !h.services.onboarding.isShowing }
-        #expect(!h.services.onboarding.isShowing, "turning browser import off closed the import window")
+        await h.until { !(h.services.onboarding.controller != nil) }
+        #expect(!(h.services.onboarding.controller != nil), "turning browser import off closed the import window")
 
         let app = AppOnboardingServices(owner: h.services.onboarding)
         #expect(await app.detectBrowsers().isEmpty, "no other browser's folders are read")
