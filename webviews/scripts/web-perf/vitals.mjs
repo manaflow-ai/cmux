@@ -118,11 +118,15 @@ async function once(browser, url) {
   };
 }
 
-// CI installs system Chrome (as scripts/latency/run.ts uses), not Playwright's bundled
-// Chromium; take whichever this machine has.
-const browser = await chromium
-  .launch({ headless: true, channel: "chrome" })
-  .catch(() => chromium.launch({ headless: true }));
+// The fleet's arm64 machines have only chrome-headless-shell (CMUX_CHROME_HEADLESS_SHELL);
+// x64 CI installs system Chrome (as scripts/latency/run.ts uses), not Playwright's bundled
+// Chromium. Take whichever this machine has.
+const headlessShell = process.env.CMUX_CHROME_HEADLESS_SHELL;
+const browser = await (
+  headlessShell
+    ? chromium.launch({ headless: true, executablePath: headlessShell })
+    : chromium.launch({ headless: true, channel: "chrome" })
+).catch(() => chromium.launch({ headless: true }));
 const results = [];
 for (const url of urls) {
   const samples = [];
