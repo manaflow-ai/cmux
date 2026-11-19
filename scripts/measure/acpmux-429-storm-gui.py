@@ -4,7 +4,7 @@
     acpmux-429-storm-gui.py --dmg DMG|--app APP --out DIR [--ocr OCR] [--agents 7] [--interval 15]
         [--storm 600] [--retry-after none|N] [--settle 900] [--quiet 240] [--shot-every 20] [--after 90]
 
-Leo, 2026-11-19: "I hope we aren't getting the fucking 429s anymore in our fucking app ... the GUI ones kept
+Leo, 2026-11-19: "I hope we aren't getting the f---ing 429s anymore in our f---ing app ... the GUI ones kept
 like getting busted". The Linux harness proves what acpmux does; this one reads what the app shows:
 
   1. The app launches from a fresh home (scripts/ci/fresh_home_launch_smoke.py: its own HOME, socket and

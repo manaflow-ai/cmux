@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A 429 storm on a real coordinator chat, driven through a built acpmux.
 
-Leo, 2026-11-19: "I hope we aren't getting the fucking 429s anymore in our fucking app ... the GUI ones
+Leo, 2026-11-19: "I hope we aren't getting the f---ing 429s anymore in our f---ing app ... the GUI ones
 kept like getting busted". cmuxterm-hq docs/handbook/rate-limit-spiral-resends-the-context.md names the
 class; cmux-tui/crates/acpmux/tests/hub_integration/auto_resume_429_storm.rs is its in-process test with a
 fake ACP agent. This harness runs the same storm end to end, on a published or built acpmux binary (a
