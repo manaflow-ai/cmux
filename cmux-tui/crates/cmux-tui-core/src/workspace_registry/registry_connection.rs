@@ -488,7 +488,9 @@ impl RegistryConnection {
         Some(RegistryConnectionGuard { guard, _rank: record_rank() })
     }
 
-    #[cfg(test)]
+    /// One try, for work that must not wait for the connection: `None`
+    /// while another thread holds it. A try waits for nothing, so its rank
+    /// is recorded and not checked.
     pub(crate) fn try_get(&self) -> Option<RegistryConnectionGuard<'_>> {
         let guard = self.connection.try_lock()?;
         Some(RegistryConnectionGuard { guard, _rank: record_rank() })

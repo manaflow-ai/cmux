@@ -25,28 +25,130 @@ public final class AcpmuxPersonLine {
     /// `machine.unlisted`): a word for a program, never a secret.
     public private(set) var lastErrorReason: String?
 
-    private init(environment: AcpmuxEnvironment) {
-        line = AcpmuxCheckedLine(environment: environment)
+    /// Why ``isPerson`` is false, in words for a log and a page: another install's daemon, no key of
+    /// this app for this daemon (it started or restarted outside this launch), no challenge, or the
+    /// daemon's own refusal. Nil while the line is the person's.
+    public private(set) var notPersonReason: NotPerson?
+    /// The executable of another install's daemon that answered (``connect(_:allowForeign:deadline:)``
+    /// with `allowForeign`); nil for the acpmux this app runs.
+    public var foreignPeerPath: String? { line.foreignPeerPath }
+
+    /// Why a line is not the person's.
+    public enum NotPerson: Equatable, Sendable, CustomStringConvertible {
+        /// Another install's daemon (`path`): this app never proves there (``AcpmuxServerPeer`` rule 3).
+        case foreignDaemon(path: String)
+        /// This app holds no key for this daemon: it neither started nor enrolled this instance.
+        case noKey
+        /// The daemon sent no person challenge.
+        case noChallenge
+        /// The daemon refused the proof (its words): it holds another key, as after a restart.
+        case refused(String)
+
+        public var description: String {
+            switch self {
+            case .foreignDaemon: "another install's acpmux holds no key of this app"
+            case .noKey: "this app holds no person key for this acpmux instance"
+            case .noChallenge: "acpmux sent no person challenge"
+            case .refused(let why): "acpmux refused the proof: \(why)"
+            }
+        }
+    }
+
+    /// Why ``connect(_:allowForeign:deadline:)`` got no line.
+    public enum OpenFailure: Error, Equatable, Sendable {
+        /// Nothing at the socket path: no acpmux runs for this home.
+        case noSocket(path: String)
+        /// The socket's peer failed the check (``AcpmuxServerPeer/Refusal``'s words), or the connect failed.
+        case refused(String)
+        /// The daemon closed or did not answer `initialize` within the deadline.
+        case noAnswer
+        /// Another install's daemon that predates the person challenge (rule 2).
+        case olderDaemon(path: String)
+    }
+
+    private init(environment: AcpmuxEnvironment, allowForeign: Bool) {
+        line = AcpmuxCheckedLine(environment: environment, allowForeign: allowForeign)
     }
 
     /// Connects, initializes and proves the person; nil when no acpmux answers. A connection
     /// whose proof was refused still reads and denies (``isPerson`` is false).
     public static func open(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(5)) async -> AcpmuxPersonLine? {
-        guard FileManager.default.fileExists(atPath: environment.socketPath) else { return nil }
-        let connection = AcpmuxPersonLine(environment: environment)
+        try? await connect(environment, deadline: deadline).get()
+    }
+
+    /// ``connect(_:allowForeign:deadline:)`` with another install's daemon allowed to answer. When this
+    /// app's own daemon did not take the proof (this launch never keyed that instance: it restarted
+    /// while the app ran, or no pane enrolled it yet), it enrolls it the way Home does
+    /// (``AcpmuxApprovalAnswerer/prepareForHome()``: never a hand-off) and connects once more.
+    public static func connectEnrolling(_ environment: AcpmuxEnvironment) async -> Result<AcpmuxPersonLine, OpenFailure> {
+        await connectEnrolling(environment, enrollRetryDelays: AcpmuxPersonKey.enrollRetryDelays)
+    }
+
+    static func connectEnrolling(_ environment: AcpmuxEnvironment,
+                                 enrollRetryDelays: [Duration]) async -> Result<AcpmuxPersonLine, OpenFailure> {
+        let first = await connect(environment, allowForeign: true)
+        guard case .success(let line) = first, !line.isPerson, line.foreignPeerPath == nil, !environment.isAttached
+        else { return first }
+        switch line.notPersonReason {
+        case .noKey?, .refused?: break
+        default: return first
+        }
+        // Once per daemon instance (pid): a daemon that keeps refusing (a DEV one with another launch's key)
+        // is not enrolled again on every read, app activation or Mac Screen ticket, and its first line answers.
+        guard let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: .seconds(1)),
+              status.serves(home: environment.home), let pid = status.pid,
+              AcpmuxPersonKey.claimReenroll(for: environment.socketPath, pid: pid) else { return first }
+        // The first line's deadline runs from its connect: closed here, and the answer is a fresh line.
+        line.close()
+        let outcome = await AcpmuxPersonKey.enrollOutcome(status, environment: environment, mayHandOff: false,
+                                                          retryDelays: enrollRetryDelays)
+        // A key that never reached the daemon (cancelled, or a refusal that may pass) gives the claim
+        // back, so a later read enrolls that instance once more; a refusal for good keeps it.
+        if outcome == .unsent || Task.isCancelled {
+            AcpmuxPersonKey.releaseReenroll(for: environment.socketPath, pid: pid)
+        }
+        return await connect(environment, allowForeign: true)
+    }
+
+    /// ``open(_:deadline:)`` that says why it got no line. With `allowForeign`, another install's
+    /// same-user daemon on this socket answers too (rules 1 and 2 of ``AcpmuxServerPeer``): the line
+    /// then reads only, since no proof goes there (rule 3), and ``foreignPeerPath`` names it.
+    public static func connect(_ environment: AcpmuxEnvironment, allowForeign: Bool = false,
+                               deadline: Duration = .seconds(5)) async -> Result<AcpmuxPersonLine, OpenFailure> {
+        guard FileManager.default.fileExists(atPath: environment.socketPath) else {
+            return .failure(.noSocket(path: environment.socketPath))
+        }
+        let connection = AcpmuxPersonLine(environment: environment, allowForeign: allowForeign)
         connection.timer.schedule(after: deadline) { @MainActor [weak connection] in connection?.close() }
         guard let initialized = await connection.start() else {
             connection.close()
-            return nil
+            // A socket file nothing answers on (left by a daemon that exited) is no acpmux, not a refused one.
+            if connection.line.unreachable { return .failure(.noSocket(path: environment.socketPath)) }
+            return .failure(connection.line.refusal.map(OpenFailure.refused) ?? .noAnswer)
         }
         let meta = (initialized["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+        if let path = connection.line.foreignPeerPath {
+            // Rule 2: another install's daemon must list the person challenge.
+            guard (meta?["features"] as? [String])?.contains("personChallenge") == true else {
+                connection.close()
+                return .failure(.olderDaemon(path: path))
+            }
+        }
         connection.capabilities = Set(meta?["capabilities"] as? [String] ?? [])
         let challenge = meta?["personChallenge"] as? [String: Any]
-        if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String,
-           let proof = connection.line.personProof(nonce: nonce, connection: id) {
-            connection.isPerson = (await connection.call("_acpmux/person_prove", ["proof": proof]))?["person"] as? Bool ?? false
+        if let path = connection.line.foreignPeerPath {
+            connection.notPersonReason = .foreignDaemon(path: path)
+        } else if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String {
+            if let proof = connection.line.personProof(nonce: nonce, connection: id) {
+                connection.isPerson = (await connection.call("_acpmux/person_prove", ["proof": proof]))?["person"] as? Bool ?? false
+                if !connection.isPerson { connection.notPersonReason = .refused(connection.lastError ?? "no answer") }
+            } else {
+                connection.notPersonReason = .noKey
+            }
+        } else {
+            connection.notPersonReason = .noChallenge
         }
-        return connection
+        return .success(connection)
     }
 
     /// One request; its `result`, or nil when it failed or the connection closed.

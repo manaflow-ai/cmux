@@ -13,6 +13,7 @@ import {
   googleReadOpNames,
   isConnectReturnTo,
   isDevReturnTo,
+  isIntegrationCompleteReturnTo,
   OwnerUnreachable,
   providerOpNames,
   providerReadOpNames,
@@ -32,7 +33,7 @@ import { codeRefOf } from "./code-check.ts"
 import { chiefJobGate, isChiefJobCreate } from "./chief-job-gate.ts"
 import type { CodeStorageError } from "./code-storage.ts"
 import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
-import { signState, verifyState, type ConnectState } from "./integrations/state.ts"
+import { integrationCallbackUrl, signState, verifyState, type ConnectState } from "./integrations/state.ts"
 import { configureAfterLink, githubConnectUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
@@ -145,7 +146,7 @@ const submitTo = (owner: string, principalIn: Principal, frame: { op: string; pa
     catch: unreachable
   }))
 
-const callbackUrl = () => `${(env.DASHBOARD_ORIGIN ?? "").replace(/\/$/, "")}/integrations/callback`
+const callbackUrl = () => integrationCallbackUrl(env)
 
 /** integration.complete and provider ops: verified state (complete), then the ConnectionDO's external path. */
 const externalOp = (principalIn: Principal, frameIn: { op: string; params: unknown; idempotency_key: string }) =>
@@ -172,7 +173,8 @@ const externalOp = (principalIn: Principal, frameIn: { op: string; params: unkno
         }
         frame = { ...frame, params: { ...(frame.params as Record<string, unknown>), installation_id: String(st.installation) } }
       }
-      returnTo = st.return_to && !(env.ENVIRONMENT === "production" && isDevReturnTo(st.return_to)) ? st.return_to : undefined
+      // The app's completion link is how this completion arrived (the app itself): nothing to return to.
+      returnTo = st.return_to && !isIntegrationCompleteReturnTo(st.return_to) && !(env.ENVIRONMENT === "production" && isDevReturnTo(st.return_to)) ? st.return_to : undefined
       verified = st
     }
     const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(principal.team!))
@@ -190,8 +192,9 @@ const connectAsk = (params: unknown): { repo?: string; return_to?: string } => {
   const p = (params ?? {}) as { repo?: unknown; return_to?: unknown }
   return {
     ...(typeof p.repo === "string" ? { repo: p.repo } : {}),
-    // cmux-dev links are for development builds: dropped on production.
-    ...(isConnectReturnTo(p.return_to) && !(env.ENVIRONMENT === "production" && isDevReturnTo(p.return_to)) ? { return_to: p.return_to } : {})
+    // cmux-dev links are for development builds: dropped on production, except the app's own completion link, which
+    // shows nothing and only hands the redirect to the app holding the person's session (the state still binds it).
+    ...(isConnectReturnTo(p.return_to) && !(env.ENVIRONMENT === "production" && isDevReturnTo(p.return_to) && !isIntegrationCompleteReturnTo(p.return_to)) ? { return_to: p.return_to } : {})
   }
 }
 

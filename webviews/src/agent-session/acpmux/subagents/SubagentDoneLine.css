@@ -5,6 +5,7 @@
 }
 .cv-subagent-done-row[data-report-look="compact"] .cv-subagent-done .cv-agent-tag {
   padding-inline: 0;
+  border-radius: 0;
   color: inherit;
   background: transparent;
   box-shadow: none;
