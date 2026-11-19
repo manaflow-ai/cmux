@@ -151,6 +151,7 @@ mod peer_row;
 pub(crate) mod v1_source;
 pub use peer_row::PeerRow;
 pub(crate) mod native_history;
+pub(crate) mod page_replies;
 pub(crate) mod row_log;
 pub(crate) mod subagent_transcript;
 mod team_information;
@@ -363,6 +364,7 @@ pub(crate) use peers::{
 mod permission_groups;
 mod permissions;
 pub(crate) use permissions::drop_display_lines;
+pub mod cmux_tools_answer;
 mod hunk_summary;
 pub mod person;
 pub mod presence;
@@ -1279,6 +1281,9 @@ pub struct Hub {
     /// Which predicted next prompts reach the person (`suggestion_gate.rs`): this daemon's own
     /// chats and the peers' chats it relays to its person.
     pub(crate) suggestion_gate: StdMutex<crate::suggestion_gate::Gate>,
+    /// The last few `_acpmux/events` replies, kept while their chat's log is unchanged
+    /// (`page_replies.rs`).
+    pub(crate) page_replies: page_replies::PageReplies,
 }
 
 /// What a cached closed row was built after: every row's changes (`Events::summary_generation`),
@@ -1570,6 +1575,7 @@ impl Hub {
             presence: Default::default(),
             workflow_index: Default::default(),
             suggestion_gate,
+            page_replies: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
@@ -2045,6 +2051,8 @@ impl Hub {
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),
             launched_with_tools: std::sync::atomic::AtomicU8::new(0),
+            codex_answer: StdMutex::default(),
+            codex_answer_asked: StdMutex::default(),
             launch_env: StdMutex::new(None),
             credential: StdMutex::new(None),
             route_switch: AtomicBool::new(false),

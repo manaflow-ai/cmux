@@ -3521,6 +3521,12 @@ class SignedHostGitHub(FakeGitHub):
 class BaseDispatchForPullRequestOnlyWorkflows(unittest.TestCase):
     """A workflow in BASE_DISPATCH with no base verdict starts one dispatch on the base tip and refuses, naming it;
     the check after it completes compares against it as any base run."""
+    LISTED = excuse.BASE_DISPATCH  # the real list, before setUp names the signed-host workflow it was written for
+
+    def setUp(self):
+        listed = unittest.mock.patch.object(excuse, "BASE_DISPATCH", frozenset({("feat-cmux-next", SIGNED_HOST_FILE)}))
+        listed.start()
+        self.addCleanup(listed.stop)
 
     def judge(self, gh):
         return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
@@ -3627,7 +3633,7 @@ class BaseDispatchForPullRequestOnlyWorkflows(unittest.TestCase):
 
     def test_each_base_dispatch_workflow_can_be_dispatched(self):
         yaml = excuse.yaml_module()
-        for branch, file in excuse.BASE_DISPATCH:
+        for branch, file in self.LISTED:
             workflow = yaml.safe_load((excuse.WORKFLOWS / file).read_text())
             triggers = workflow.get(True, workflow.get("on")) or {}
             self.assertIn("workflow_dispatch", triggers, file)
@@ -6696,6 +6702,13 @@ class JourneyPerStep(unittest.TestCase):
         self.assertIn("stub: forwarded login and a tool round trip", text)
         self.assertIn("run 20", text)
 
+    def test_an_unplaced_base_journey_is_unread_not_this_prs_own_red(self):
+        # Review F1 on cmux#46811: journey() reads the base through base_evidence itself; a base log not placed (a
+        # second `Run` header in the journey step) says the base was unread, never that the head's red is its own.
+        base = [f"##[group]Run {JOURNEY_STEP}", "##[group]Run inner/action@v1", *JOURNEY_BASE]
+        with self.assertRaisesRegex(excuse.Refused, "not this PR's own red: retry once a feat-cmux-next verdict"):
+            self.judge(JourneyGitHub(JOURNEY_HEAD, base))
+
     def test_a_pr_that_changes_the_journey_itself_is_not_excused(self):
         # cmux#44814 changes cloud-journey.ts: its steps and checks are the PR's, so the base's line proves nothing.
         github = JourneyGitHub(JOURNEY_HEAD, JOURNEY_BASE,
@@ -7677,6 +7690,78 @@ class WsCheckPerTest(unittest.TestCase):
         # a cmux head asked about no red is no failure (NoFailureExitsZero), never the ws-check path
         self.assertEqual(excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh),
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
+
+
+class WsCheckFleetRoute(unittest.TestCase):
+    """2026-11-18: merge_hold refused teamleaderleo/leo-workspace#5992 twice, "'ws-check' has no result: job 'checks'
+    in run 44407040407 is completed/cancelled: no result to read". The broker had cancelled that run and the build
+    fleet ran it; the verdict is in the fleet log the broker keeps beside the run's record (fleet_kept_log)."""
+    RED = WsCheckPerTest.DEPLOY
+
+    def setUp(self):
+        self.gh = WsCheckGitHub()
+        red = {self.RED: WsCheckPerTest.ws_deploy(None, "test_a")}
+        self.gh.verdict(HEAD, 1, red)
+        self.gh.verdict(self.gh.TIP, 2, red)
+        # HEAD's run 1 as the broker leaves it: its one check job cancelled, its log only on the fleet.
+        log = self.gh.logs.pop(11)
+        self.fleet_lines = [line.split(" ", 1)[1] for line in log.splitlines()]
+        for job in self.gh.jobs[1]:
+            job["conclusion"] = "cancelled"
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        self.folder = Path(folder)
+        env = unittest.mock.patch.dict(os.environ, {excuse.FLEET_RECORDS_ENV: folder})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def keep(self, *, run=1, receipt_run=1, conclusion="failure", state="done", ran_on="build-fleet", head=HEAD):
+        record = {"id": "j1", "repo": self.gh.REPO, "dispatch": self.gh.HOST, "head": head, "run_id": run,
+                  "conclusion": conclusion,
+                  "fleet": {"from_run": run, "state": state, "steps": [{"where": "linux-pool", "job_id": "f1"}]}}
+        (self.folder / "j1.json").write_text(json.dumps(record))
+        receipt = {"source_sha": HEAD, "run_id": str(receipt_run), "ran_on": ran_on, "exit_code": 1}
+        (self.folder / "j1.fleet-log").write_text(
+            "\n".join(self.fleet_lines + ["FAST_CHECKS_RECEIPT=" + json.dumps(receipt)]) + "\n")
+
+    def judge(self):
+        return excuse.judge(self.gh.REPO, "main", HEAD, [], self.gh)
+
+    def test_a_fleet_run_with_no_kept_log_has_no_result(self):
+        with self.assertRaisesRegex(excuse.Refused, r"'ws-check' has no result on .*completed/cancelled: no result "
+                                                    r"to read \(and this host keeps no build-fleet log"):
+            self.judge()
+
+    def test_a_fleet_runs_kept_log_is_read_and_its_base_red_excused(self):
+        self.keep()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+
+    def test_a_fleet_runs_own_red_is_still_refused(self):
+        self.fleet_lines = [line.replace("test_a", "test_b") for line in self.fleet_lines]
+        self.keep()
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_b"):
+            self.judge()
+
+    def test_a_kept_log_not_held_to_this_run_and_verdict_is_not_read(self):
+        for kwargs in ({"run": 7}, {"conclusion": "success"}, {"state": "running"}, {"head": "b" * 40}):
+            with self.subTest(**kwargs):
+                self.keep(**kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "has no result on"):
+                    self.judge()
+        for kwargs in ({"receipt_run": 7}, {"ran_on": "actions"}):
+            with self.subTest(**kwargs):
+                self.keep(**kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "has no FAST_CHECKS_RECEIPT naming that run"):
+                    self.judge()
+
+
+class WsCheckFleetRecordsFolders(unittest.TestCase):
+    """cmux#46667: with no BASE_RED_FLEET_RECORDS the primary broker's records are read, then the standby broker's."""
+
+    def test_the_standby_brokers_records_follow_the_primarys(self):
+        self.assertEqual(excuse.fleet_records_dirs({"HOME": "/h"}),
+                         [Path("/h/.local/state/lane-gh-broker/ci"), Path("/h/.local/state/lane-gh-broker-standby/ci")])
+        self.assertEqual(excuse.fleet_records_dirs({"HOME": "/h", excuse.FLEET_RECORDS_ENV: "/x"}), [Path("/x")])
 
 
 class WsCheckFailureText(unittest.TestCase):
@@ -10609,6 +10694,62 @@ class UnplacedSignature(unittest.TestCase):
                 # Head and base serve the same unplaced log: compared whole and excused on identity (UnplacedSignature).
                 self.assertIn("compared whole", "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)))
 
+    # hq#13746's red, word for word: one of the 4 subtests both its head and main failed.
+    RED_13746 = ("FAIL: test_open_pr_query_fails_closed (test_submodule_worktrees.SubmoduleWorktreeRemovalTests."
+                 "test_open_pr_query_fails_closed) [bad json]")
+
+    def unplaced_base(self, head_red, base_red, columns=False):
+        def lines(red, placed=False):
+            found = self.lines(red, placed=placed)
+            if red.startswith("FAIL: "):  # a unittest run's summary, as the job printed it
+                at = found.index(("Unit tests", 21, red)) + 1
+                found[at:at] = [("Unit tests", 21, "Ran 4 tests in 0.120s"), ("Unit tests", 21, "FAILED (failures=1)")]
+            return found
+        github = FakeGitHub()
+        github.jobs = {1: self.job(), 2: dict(self.job(), id=2, run_id=20, head_sha=BASE_SHA)}
+        github.logs = {1: framed_log(lines(head_red, placed=True), SWIFT, columns=columns),
+                       2: framed_log(lines(base_red), SWIFT, columns=columns)}
+        return github
+
+    def test_13746_a_placed_head_is_compared_whole_with_an_unplaced_base(self):
+        # hq#13746 at bcaa0c93: its 'Fleet tests' red was placed and failed test_open_pr_query_fails_closed's 4
+        # subtests; main's red verdict of the job failed the same 4, but its log (a git fetch's own `##[error]` lines)
+        # was not placed, and base_evidence refused before any line was compared: read as the PR's own red. A base log
+        # not placed is compared whole with the head by its failing tests, never refused as the head's.
+        for columns in (False, True):
+            with self.subTest(columns=columns):
+                said = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10],
+                                              self.unplaced_base(self.RED_13746, self.RED_13746, columns)))
+                self.assertIn("its base verdict's log does not map onto its steps, so it was compared whole", said)
+
+    def test_13746_a_different_test_beside_an_unplaced_base_is_unread_not_own(self):
+        other = self.RED_13746.replace("[bad json]", "[gh exits non-zero]").replace("fails_closed", "fails_open")
+        with self.assertRaisesRegex(excuse.Refused, r"compared whole, its failing tests are not .*per step: "
+                                                    r".*not this PR's own red: retry once"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.unplaced_base(self.RED_13746, other))
+
+    def test_13746_an_error_line_alone_is_never_matched_in_a_whole_base_log(self):
+        # The composite passes on the base and prints NEW_RED: a whole base log would match the head's NEW_RED there
+        # (#40542's fourth Codex BLOCK, F2). Only failing tests by name are compared with an unplaced base.
+        with self.assertRaisesRegex(excuse.Refused, "failed steps name no failing test.*not this PR's own red"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.unplaced_base(NEW_RED, NEW_RED))
+
+    def test_13746_a_passing_steps_failing_test_line_never_opens_the_whole_log_comparison(self):
+        # Review F1 on #46811 at 5d7cb257: a passing step that prints a unittest `FAIL:` line (an expected failure)
+        # named a test in the head's whole log, so the head's failed step, which names only an error line, was compared
+        # whole and matched that same error printed by the base. Only the placed head's failed steps name its tests.
+        def lines(placed):
+            found = self.lines(NEW_RED, placed=placed)
+            at = found.index(("Composite", 11, NEW_RED))
+            found[at:at + 1] = [("Composite", 11, self.RED_13746), ("Composite", 11, "Ran 4 tests in 0.120s"),
+                                ("Composite", 11, "FAILED (failures=1)")]
+            return found
+        github = FakeGitHub()
+        github.jobs = {1: self.job(), 2: dict(self.job(), id=2, run_id=20, head_sha=BASE_SHA)}
+        github.logs = {1: framed_log(lines(True), SWIFT), 2: framed_log(lines(False), SWIFT)}
+        with self.assertRaisesRegex(excuse.Refused, "failed steps name no failing test.*not this PR's own red"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
 
 class StepNamesAreRequired(unittest.TestCase):
     """step_owners and every reader of it take the workflow's step names as a required keyword (step_names): a call
@@ -11079,7 +11220,7 @@ RAW_LOG_READERS = {
 }
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
-LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "compile_base_evidence", "shared_generated_host", "shared_catalog_host", "pr_only_step_verdict", "other_pr_setup_verdict", "passed_on_base_verdict", "guard_routes_view", "guard_group_report",
+LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "unplaced_head_evidence", "compile_base_evidence", "shared_generated_host", "shared_catalog_host", "pr_only_step_verdict", "other_pr_setup_verdict", "passed_on_base_verdict", "guard_routes_view", "guard_group_report",
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
@@ -15325,14 +15466,14 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             # The Billing lane (cmux#42867): billing web, DB and iOS package tests.
             "billing.yml",
             "backend.yml", "ci.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloud-vm-image-lock.yml",
-            "cloudflare-relay.yml", "device-hub.yml", "cmux-cloud-cli.yml", "cmux-next-crash-class.yml", "cmux-next-cua-helper-identity.yml",
+            "cloudflare-relay.yml", "device-hub.yml", "cmux-cloud-cli.yml", "cmux-next-crash-class.yml",
             "cmux-next-media.yml", "cmux-next-hot-verify.yml", "cmux-next-motion-golden.yml", "cmux-next-remote-daemon.yml",
             "cmux-next-shell-integration.yml", "cmux-next-shim-cpp.yml", "cmux-tui-sdks.yml", "cmux-tui-spec.yml",
             "cmux-tui-windows-check.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vm.yml", "cmux-vnc.yml",
             "coderouter-ci.yml", "fleet-test-compile.yml", "fleet-rd-host-macos.yml", "gallery-advisory.yml",
             "gallery-health.yml",
             "indexnow-tests.yml", "ios-e2e.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
-            "nightly-next-canary.yml", "nightly-next-cua-signed-host.yml", "nightly-next-launch-smoke.yml",
+            "nightly-next-canary.yml", "nightly-next-launch-smoke.yml",
             "r2-upload-tests.yml", "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
             "swift-acpmux-protocol.yml", "swift-linux-packages.yml",
             "terminal-hang-diagnostics.yml", "test-ios.yml", "vendored-agent-cursor.yml", "web-complexity.yml",
@@ -15346,8 +15487,11 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
             "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
             "thunderdome-label.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
-            "cmux-next-pr-closed-cancel.yml", "language-boundaries.yml", "required-checks-drift.yml",
-            "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml"),
+            "cmux-next-pr-closed-cancel.yml", "ci-pr-closed-cancel.yml", "language-boundaries.yml",
+            "required-checks-drift.yml",
+            "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml",
+            # Dispatch-only secrets seal; on a pull request that edits it every job is skipped.
+            "cmux-vm-secrets-seal.yml"),
         "guard checks of their own whose reds are judged as any job's: no guard test declares its reads yet": (
             "ci-artifact-transport.yml", "classic-api-guard.yml", "cmux-next-batch.yml", "cmux-next-car-guards.yml",
             "cmux-next-fast-gates.yml", "fleet-artifact-cdn.yml", "pr-checks.yml",

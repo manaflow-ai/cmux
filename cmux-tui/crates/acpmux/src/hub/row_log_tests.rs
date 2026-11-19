@@ -529,3 +529,6 @@ async fn a_peer_list_is_one_batch_for_a_client_that_asked_and_every_row_for_one_
     assert_eq!(of_peer("peer-1"), 3, "{followed}");
     assert!(followed["listSeq"].as_u64().unwrap() >= through, "{followed}");
 }
+
+#[path = "phone_list_tests.rs"]
+mod phone;
