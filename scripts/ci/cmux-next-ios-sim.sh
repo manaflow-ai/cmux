@@ -1292,7 +1292,7 @@ if [[ "$mode" == devshow ]]; then
     ${screen_opt[@]+"${screen_opt[@]}"} >"$work/devshow-fixture.log" 2>&1 || devshow_status=1
   "${cli[@]}" show home --sim-set "$sims" --sim "$udid" --bundle "$bundle_id" >>"$work/devshow-live.log" 2>&1 || devshow_status=1
   "${cli[@]}" show-all --live --sim-set "$sims" --sim "$udid" --bundle "$bundle_id" --out "$out/devshow/live" \
-    >>"$work/devshow-live.log" 2>&1 || devshow_status=1
+    ${screen_opt[@]+"${screen_opt[@]}"} >>"$work/devshow-live.log" 2>&1 || devshow_status=1
   cp "$work/devshow-fixture.log" "$work/devshow-live.log" "$out/devshow/" 2>/dev/null || true
   note "- fixture: $(tail -n 1 "$work/devshow-fixture.log")"
   note "- live: $(tail -n 1 "$work/devshow-live.log")"
@@ -1624,5 +1624,7 @@ if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi
 if [[ "${listperf_status:-0}" -ne 0 ]]; then exit "$listperf_status"; fi
 if [[ "${energy_status:-0}" -ne 0 ]]; then exit "$energy_status"; fi
 if [[ "${clip_status:-0}" -ne 0 ]]; then exit "$clip_status"; fi
+# A dev CLI target the app did not reach fails the step, after evidence.zip is written.
+if [[ "${devshow_status:-0}" -ne 0 ]]; then exit "$devshow_status"; fi
 
 if [[ "${perf_status:-0}" -ne 0 ]]; then exit "$perf_status"; fi

@@ -13,18 +13,22 @@ and demo drivers on mock data, the same hooks the all-UI-states capture suites u
 relaunches the app with them plus a fresh nonce (CMUX_DEV_SHOW_NONCE), waits for the app's
 receipt with that nonce (CmuxMobileShell/DevShow.swift: what the root destination, tab and
 Settings page are), checks it against the target, lets the target's demo driver or animation
-settle, then takes the screenshot. `--live` does not relaunch: it opens the target's
-`cmux-next://dev/show` link in the running app, which navigates in process on whatever data the
-app has (the person's own account included), and waits for that link's receipt.
+settle, then takes the screenshot. A demo target also waits for the receipt's `demo_done` (the
+demo driver set its state). `--live` does not relaunch: it hands the running app the target's
+`cmux-next://dev/show` request (a simulator: a request file in the app's container and a Darwin
+notification; a phone: `devicectl --payload-url`, to this bundle only), which navigates in process
+on whatever data the app has (the person's own account included), with the tab's pushed pages
+cleared and the sidebar closed unless the target opens it; `--look` there changes the window for
+this process only, never the saved Appearance setting.
 
 Devices:
   sim (default)  a booted simulator with the app installed (`--sim` picks one by name or UDID;
                  `--sim-set` for a `simctl --set` device set, as fleet steps use). Never boots,
                  erases or deletes a simulator.
   iphone         the default iPhone (~/.config/cmux/iphone-device-id), or a UDID. Uses devicectl:
-                 the app comes to the front on the phone. Targets that sign out
-                 (`signed_in: false`) clear the build's stored session, so they need
-                 `--allow-sign-out` on a phone.
+                 the app comes to the front on the phone. A fixture target runs that launch on
+                 mock data (signed-out targets too: mock auth never touches the build's stored
+                 session); the next plain launch of the app is the person's own again.
 
 Exit codes: 0 shown (and shot), 1 the app did not reach the target (the receipt or its timeout
 says why; a screenshot of what it shows is still written, with `.miss` before `.png`), 2 usage.
@@ -46,6 +50,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 CATALOG = HERE / "cmux_ios_targets.json"
 RECEIPT = "Library/Application Support/cmux-dev-show/shown.json"
+REQUEST = "Library/Application Support/cmux-dev-show/request.txt"
 DEVELOPER_DIR = "/Applications/Xcode.app/Contents/Developer"
 DEFAULT_BUNDLE = "dev.cmux.mobile"
 
@@ -116,14 +121,22 @@ def dev_link(target: dict, nonce: str, look: str | None) -> str:
     link = target.get("link")
     if not link:
         raise SystemExit(f"cmux-ios: '{target['id']}' has no in-process link; drop --live (it relaunches on mock data)")
-    query = {"target": target["id"], "nonce": nonce, **link}
+    query = {"target": target["id"], "nonce": nonce, "sidebar": "closed", **link}
     if look:
         query["appearance"] = look
     return "cmux-next://dev/show?" + urllib.parse.urlencode(query)
 
 
-def check_receipt(target: dict, receipt: dict) -> None:
+def check_receipt(target: dict, receipt: dict, live: bool) -> None:
     expect = target.get("expect", {})
+    if receipt.get("destination") == "shell" and "sidebar_open" in receipt:
+        want = expect.get("sidebar", False)
+        if bool(receipt["sidebar_open"]) != want:
+            raise Miss(f"the team sidebar is {'open' if receipt['sidebar_open'] else 'closed'}, not {'open' if want else 'closed'}")
+    if live and "path_depth" in receipt:
+        want_depth = 1 if "settings" in expect else 0
+        if receipt["path_depth"] != want_depth:
+            raise Miss(f"{receipt['path_depth']} page(s) pushed on the {receipt.get('tab')} tab, not {want_depth}")
     if "destination" in expect and receipt.get("destination") != expect["destination"]:
         raise Miss(f"the app shows {receipt.get('destination')}, not {expect['destination']}")
     if "tab" in expect and receipt.get("tab") != expect["tab"]:
@@ -146,6 +159,8 @@ class Simulator:
             booted = [d for d in booted if pick in (d["udid"], d["name"])]
             if not booted:
                 raise SystemExit(f"cmux-ios: no booted simulator named or with UDID '{pick}'")
+            if len(booted) > 1:
+                raise SystemExit(f"cmux-ios: {len(booted)} booted simulators are named '{pick}'; pass a UDID")
         else:
             booted = [d for d in booted if self._has_app(d["udid"])]
             if len(booted) != 1:
@@ -162,9 +177,11 @@ class Simulator:
     def describe(self) -> str:
         return f"simulator {self.name} ({self.udid})"
 
+    def _container(self) -> Path:
+        return Path(run(self.base + ["get_app_container", self.udid, self.bundle, "data"]).stdout.strip())
+
     def _receipt_path(self) -> Path:
-        data = run(self.base + ["get_app_container", self.udid, self.bundle, "data"]).stdout.strip()
-        return Path(data) / RECEIPT
+        return self._container() / RECEIPT
 
     def clear_receipt(self) -> None:
         self._receipt_path().unlink(missing_ok=True)
@@ -183,9 +200,13 @@ class Simulator:
         run(self.base + ["launch", "--terminate-running-process", self.udid, self.bundle, *args], env=child)
 
     def open_link(self, url: str, look: str | None) -> None:
-        if look:
-            run(self.base + ["ui", self.udid, "appearance", look], check=False)
-        run(self.base + ["openurl", self.udid, url])
+        # Not `simctl openurl`: it asks "Open in …?" and could reach another tagged build that
+        # claims cmux-next://. The request goes to this bundle's container, and a Darwin
+        # notification named for the bundle tells the app to read it (DevShow.startRequestWatch).
+        request = self._container() / REQUEST
+        request.parent.mkdir(parents=True, exist_ok=True)
+        request.write_text(url, encoding="utf-8")
+        run(self.base + ["spawn", self.udid, "notifyutil", "-p", f"{self.bundle}.dev-show"])
 
     def screenshot(self, out: Path) -> None:
         run(self.base + ["io", self.udid, "screenshot", str(out)])
@@ -207,8 +228,14 @@ class IPhone:
     def describe(self) -> str:
         return f"iPhone {self.udid}"
 
-    def _devicectl(self, *args: str, timeout: float = 90) -> subprocess.CompletedProcess:
-        return run(["xcrun", "devicectl", "device", *args, "--device", self.udid], timeout=timeout)
+    def _devicectl(self, sub: list[str], opts: list[str], app: list[str] | None = None,
+                   timeout: float = 90) -> subprocess.CompletedProcess:
+        # `--device` right after the subcommand, the app's own arguments after `--`, so a
+        # dash-prefixed app argument is never read as a devicectl option.
+        cmd = ["xcrun", "devicectl", "device", *sub, "--device", self.udid, *opts]
+        if app is not None:
+            cmd += ["--", *app]
+        return run(cmd, timeout=timeout)
 
     def clear_receipt(self) -> None:
         # Nothing to delete remotely: the nonce check rejects a receipt from an earlier launch.
@@ -218,21 +245,22 @@ class IPhone:
         dest = self.tmp / "shown.json"
         dest.unlink(missing_ok=True)
         try:
-            self._devicectl("copy", "from", "--domain-type", "appDataContainer", "--domain-identifier", self.bundle,
-                            "--source", RECEIPT, "--destination", str(dest), timeout=30)
+            self._devicectl(["copy", "from"], ["--domain-type", "appDataContainer", "--domain-identifier", self.bundle,
+                            "--source", RECEIPT, "--destination", str(dest)], timeout=30)
             return json.loads(dest.read_text(encoding="utf-8"))
         except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired):
             return None
 
     def launch(self, args: list[str], env: dict, look: str) -> None:
-        self._devicectl("process", "launch", "--terminate-existing", "--environment-variables", json.dumps(env),
-                        self.bundle, *args)
+        self._devicectl(["process", "launch"], ["--terminate-existing", "--environment-variables", json.dumps(env), self.bundle],
+                        app=args)
 
     def open_link(self, url: str, look: str | None) -> None:
-        self._devicectl("process", "launch", "--payload-url", url, self.bundle)
+        # The payload URL goes to this bundle only, never to another build with the same scheme.
+        self._devicectl(["process", "launch"], ["--payload-url", url, self.bundle])
 
     def screenshot(self, out: Path) -> None:
-        self._devicectl("capture", "screenshot", "--destination", str(out), timeout=60)
+        self._devicectl(["capture", "screenshot"], ["--destination", str(out)], timeout=60)
 
 
 def make_device(a) -> Simulator | IPhone:
@@ -246,37 +274,44 @@ def make_device(a) -> Simulator | IPhone:
 
 # --- show --------------------------------------------------------------------------------------
 
-def wait_receipt(device, nonce: str, timeout: float) -> dict:
+def wait_receipt(device, nonce: str, timeout: float, demo_done: bool = False, required: bool = True) -> dict | None:
+    # Waits on the app's receipt file (a launcher's wait, as review.sh waits on its readiness receipt).
     deadline = time.monotonic() + timeout
     interval = 0.25 if device.kind == "sim" else 1.0
     while True:
         receipt = device.read_receipt()
-        if receipt and receipt.get("nonce") == nonce:
+        if receipt and receipt.get("nonce") == nonce and (not demo_done or receipt.get("demo_done")):
             return receipt
         if time.monotonic() >= deadline:
+            if not required:
+                return None
             raise Miss(f"no receipt from the app in {timeout:.0f} s (is this a DEBUG or Demo build at a head with DevShow?)")
         time.sleep(interval)
 
 
-def show(device, target: dict, look: str, shot: Path | None, live: bool, timeout: float, allow_sign_out: bool) -> dict:
+def show(device, target: dict, look: str | None, shot: Path | None, live: bool, timeout: float) -> dict:
     nonce = secrets.token_hex(8)
-    result = {"target": target["id"], "screen": target["screen"], "state": target["state"], "look": look,
+    result = {"target": target["id"], "screen": target["screen"], "state": target["state"], "look": look or "as is",
               "device": device.describe(), "mode": "live" if live else "fixture"}
-    if device.kind == "iphone" and not target.get("signed_in", True) and not live and not allow_sign_out:
-        raise SystemExit(f"cmux-ios: '{target['id']}' signs the build out on the phone; add --allow-sign-out")
     started = time.monotonic()
     device.clear_receipt()
     if live:
         device.open_link(dev_link(target, nonce, look), look)
     else:
-        args, env = launch_plan(target, look, nonce)
-        device.launch(args, env, look)
+        args, env = launch_plan(target, look or "dark", nonce)
+        device.launch(args, env, look or "dark")
     miss = None
     try:
         if target.get("receipt", True) or live:
             receipt = wait_receipt(device, nonce, timeout)
-            result["receipt"] = {k: receipt.get(k) for k in ("destination", "tab", "settings_path", "sidebar_open", "appearance", "demo", "source")}
-            check_receipt(target, receipt)
+            if "-cmux-mobile-demo" in target.get("args", []) and not live:
+                # The demo driver sets its state after the shell is up: wait for its demo_done receipt.
+                done = wait_receipt(device, nonce, timeout, demo_done=True, required=False)
+                receipt = done or receipt
+                result["demo_done"] = bool(done)
+            result["receipt"] = {k: receipt.get(k) for k in ("destination", "tab", "path_depth", "settings_path", "sidebar_open",
+                                                             "appearance", "demo", "demo_done", "source")}
+            check_receipt(target, receipt, live)
         else:
             result["receipt"] = None  # a gallery or bench root: it writes none
         # Pacing for the target's demo driver or animation, which gives no signal to wait on.
@@ -314,12 +349,13 @@ def cmd_show(a, targets):
     target = find_target(targets, a.target)
     device = make_device(a)
     shot = Path(a.shot) if a.shot else None
-    result = show(device, target, a.look, shot, a.live, a.timeout, a.allow_sign_out)
+    look = a.look if a.look else (None if a.live else "dark")
+    result = show(device, target, look, shot, a.live, a.timeout)
     if a.json:
         print(json.dumps(result, indent=2))
     else:
         status = f"MISS: {result['miss']}" if "miss" in result else "shown"
-        print(f"{target['id']} ({target['screen']}, {target['state']}, {a.look}) on {result['device']}: {status} in {result['seconds']} s")
+        print(f"{target['id']} ({target['screen']}, {target['state']}, {result['look']}) on {result['device']}: {status} in {result['seconds']} s")
         if "shot" in result:
             print(f"screenshot: {result['shot']}")
     return 1 if "miss" in result else 0
@@ -336,7 +372,11 @@ def cmd_show_all(a, targets):
     results = []
     for t in targets:
         for look in a.looks.split(","):
-            r = show(device, t, look, out / f"{t['id']}-{look}.png", a.live, a.timeout, a.allow_sign_out)
+            try:
+                r = show(device, t, look, out / f"{t['id']}-{look}.png", a.live, a.timeout)
+            except (RuntimeError, subprocess.TimeoutExpired) as e:
+                r = {"target": t["id"], "screen": t["screen"], "state": t["state"], "look": look,
+                     "device": device.describe(), "miss": f"error: {e}", "seconds": 0}
             r["about"] = t["about"]
             results.append(r)
             status = f"MISS {r['miss']}" if "miss" in r else "ok"
@@ -365,14 +405,14 @@ def main(argv: list[str]) -> int:
         s.add_argument("--bundle", help="the app's bundle id (default dev.cmux.mobile)")
         s.add_argument("--live", action="store_true", help="navigate the running app in process (link targets only)")
         s.add_argument("--timeout", type=float, default=30, help="seconds to wait for the receipt (default 30)")
-        s.add_argument("--allow-sign-out", action="store_true", help="allow signed-out targets on an iPhone")
 
     s = sub.add_parser("list", help="the targets")
     s.add_argument("--screen")
     s.add_argument("--json", action="store_true")
     s = sub.add_parser("show", help="drive the app to one target and screenshot it")
     s.add_argument("target")
-    s.add_argument("--look", choices=["light", "dark"], default="dark")
+    s.add_argument("--look", choices=["light", "dark"], default=None,
+                   help="default dark; with --live, the app's look as it is")
     s.add_argument("--shot", help="write the screenshot here")
     s.add_argument("--json", action="store_true")
     device_opts(s)

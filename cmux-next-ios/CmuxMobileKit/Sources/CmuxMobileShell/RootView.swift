@@ -713,7 +713,11 @@ struct ShellView: View {
             #endif
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
-            if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
+            if let demo = options.demo {
+                await DemoDriver(shell: shell).run(demo)
+                // The iOS dev CLI's receipt that the demo's state is set (DevShow).
+                DevShow.shared.demoReached(demo, shell: shell)
+            }
             await ListStressRig.runIfConfigured(shell: shell)
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
