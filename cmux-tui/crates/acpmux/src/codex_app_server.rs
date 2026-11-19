@@ -539,9 +539,22 @@ pub fn tap_kind(raw: &Value) -> Option<String> {
     }
 }
 
-/// The copy of an app-server line the session log keeps: [`redact`]ed.
+/// The copy of an app-server line the session log keeps: [`redact`]ed, and a resumed or read
+/// thread's history (`result.thread.turns`) left out as its count (`turnsOmitted`). A
+/// `thread/resume` answer holds the whole thread, up to 1.6 MB a line, and the same history is
+/// logged as the resume's replayed updates: a long Codex chat's log grew by it on every resume,
+/// and every read back over the log's raw lines walked those bytes.
 pub fn logged(raw: &Value) -> Value {
-    redact(raw)
+    let turns = raw.pointer("/result/thread/turns").and_then(Value::as_array).map_or(0, Vec::len);
+    if turns == 0 {
+        return redact(raw);
+    }
+    let mut stub = raw.clone();
+    if let Some(thread) = stub.pointer_mut("/result/thread").and_then(Value::as_object_mut) {
+        thread.remove("turns");
+        thread.insert("turnsOmitted".into(), Value::from(turns));
+    }
+    redact(&stub)
 }
 
 /// Redact credentials before a Codex wire value reaches the session log or
