@@ -88,8 +88,9 @@ pub(super) fn start(
                 // Never to a peer daemon's connection: its handshake watches, and this host's
                 // peers, their states and their errors are this machine's, not that peer's.
                 note = peer_states.recv() => {
-                    let hears = conn.origin != super::Origin::Peer
-                        && conn.watch_all.load(Ordering::SeqCst);
+                    // A hidden page hears none: each peer's last state comes on show
+                    // (`list_shown.rs`).
+                    let hears = conn.origin != super::Origin::Peer && conn.lists();
                     match note {
                         Ok(note) if hears => harness_admin::watch_note(&conn, note),
                         // Fell behind: a note carries one change, so each peer's last one again.

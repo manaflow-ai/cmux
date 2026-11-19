@@ -15,6 +15,7 @@ import {
   workedTurn,
   WORKED_SESSION,
   type SeedStep,
+  fleetListedSession,
 } from "./mockFixture";
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
@@ -61,6 +62,8 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSlowMs?: number;
   /** bench/update-one.bench.ts: that many more listed sessions beside the fixture's, with no history. */
   cmuxAcpmuxMockListSize?: number;
+  /** `fleet`: those listed sessions shaped as a fleet Mac's rows (mockFixture.ts `fleetListedSession`). */
+  cmuxAcpmuxMockListShape?: "fleet";
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -324,6 +327,9 @@ export class MockAcpmuxSocket {
   private openTurns = new Set<string>();
   /// A new chat opens in the project of the session the reader last opened.
   private attached = sessionId;
+  /// The page said it is hidden (`_acpmux/watch {shown: false}`, with `session-list-shown-v1` in
+  /// `cmuxAcpmuxMockCapabilities`): as acpmux (server/list_shown.rs), other chats' changes are not sent.
+  private listHidden = false;
   private closed = false;
   /// Prompts run one at a time, as the daemon queues them.
   private queue: Promise<unknown> = Promise.resolve();
@@ -360,7 +366,9 @@ export class MockAcpmuxSocket {
       if (entry.status === "running" || entry.permission) this.openTurns.add(entry.sessionId);
     }
     const listSize = Number((globalThis as MockAuthGlobals).cmuxAcpmuxMockListSize ?? 0);
-    for (let index = 0; index < listSize; index += 1) this.sessions.push(listedSession(index, now));
+    const listed =
+      (globalThis as MockAuthGlobals).cmuxAcpmuxMockListShape === "fleet" ? fleetListedSession : listedSession;
+    for (let index = 0; index < listSize; index += 1) this.sessions.push(listed(index, now));
   }
 
   /// One field change of one session (a status dot, unread, a rename, a cost), told the client the way
@@ -616,7 +624,9 @@ export class MockAcpmuxSocket {
           typeof params.model === "string" ? params.model : undefined,
         );
       case "_acpmux/watch":
-        return { sessions: this.sessions };
+        if (typeof params.shown === "boolean") this.listHidden = !params.shown;
+        // No list positions here: a show reads the list again, as acpmux's `reset`.
+        return { sessions: params.limit === 1 ? this.sessions.slice(0, 1) : this.sessions };
       // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
       case "_acpmux/resolve": {
         const query = String(params.query ?? "").trim();
@@ -1217,6 +1227,7 @@ export class MockAcpmuxSocket {
     if (index < 0) return;
     const changed = { ...this.sessions[index], ...fields, ...(moved ? { updatedAt: Date.now() } : {}) };
     this.sessions[index] = changed;
+    if (this.listHidden && target !== this.attached) return;
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "updated", session: changed } });
   }
 

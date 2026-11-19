@@ -196,6 +196,13 @@ pub struct Conn {
     /// [`Conn::MAX_CREATED`]): what `_acpmux/side` may tag besides a fork of the chat.
     created: StdMutex<std::collections::VecDeque<String>>,
     watch_all: AtomicBool,
+    /// The page that watches the list is hidden (`_acpmux/watch {shown: false}`,
+    /// `list_shown.rs`): it hears the chats it is attached to only. False for a client that
+    /// never says, so an older one hears every chat as before.
+    list_hidden: AtomicBool,
+    /// The last `listSeq` this connection was sent while shown (or the list it was answered): a
+    /// show follows the list from here, so it reads exactly the rows it was not sent.
+    list_sent: AtomicU64,
     watch_tools: AtomicBool,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
@@ -410,6 +417,12 @@ impl Conn {
         {
             cancel.send_replace(true);
         }
+    }
+
+    /// Whether this connection hears every chat's list changes: it watches and its page shows
+    /// (`list_shown.rs`).
+    pub(super) fn lists(&self) -> bool {
+        self.watch_all.load(Ordering::SeqCst) && !self.list_hidden.load(Ordering::SeqCst)
     }
 
     /// Whether this connection is the person (`hub/person.rs`).
@@ -1684,6 +1697,8 @@ async fn serve_connection_from(
         controls: Default::default(),
         created: StdMutex::default(),
         watch_all: AtomicBool::new(false),
+        list_hidden: AtomicBool::new(false),
+        list_sent: AtomicU64::new(0),
         watch_tools: AtomicBool::new(false),
         watch_inventory: StdMutex::new(false),
         peer,
@@ -2128,12 +2143,20 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         }
         return;
     }
+    // Whether every chat's row changes go out here: a hidden page hears only the chats it is
+    // attached to (`list_shown.rs`). Leo, 2026-11-18: "Why should non visible thing even affect
+    // the renderer thread anyways?" A shown list's position moves with each change it is sent,
+    // in order, so a show follows from the last one and reads every row it was not sent.
+    let listing = conn.lists();
+    if listing && ev.list_seq > 0 {
+        conn.list_sent.fetch_max(ev.list_seq, Ordering::SeqCst);
+    }
     // A chat's cold archive came or went (`hub/cold_archive.rs`): its row's `coldArchive`; or
     // another unlogged row change (`row_notice`). Not a logged record, so nothing but this
     // notice goes out for it.
     if ev.record.dir == crate::hub::COLD_CHANGED {
         let attached = conn.sub_opts(&ev.session_id).is_some();
-        if (attached || conn.watch_all.load(Ordering::SeqCst))
+        if (attached || listing)
             && let Ok(s) = hub.resolve(&ev.session_id)
         {
             let session = if attached || conn.watch_tools.load(Ordering::SeqCst) {
@@ -2286,7 +2309,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             // such row (`peer.rs` `watch_sessions`), so each change of one peer's row went out on
             // every other peer's link for nothing (24 copies of every change with one daemon's
             // 25 peers, 2026-10-30), and the row's origin hears it from its own.
-            if rec.dir == "peer" && !view::a_link(conn) {
+            if rec.dir == "peer" && !view::a_link(conn) && (listing || attached) {
                 let sid = remote
                     .summary
                     .get("sessionId")
@@ -2300,6 +2323,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         if rec.dir == "mux" && rec.kind == "purged" {
+            if !listing && !attached {
+                return;
+            }
             // `replaced`: the same chat came back under this id (`Session::replaced`).
             let mut params = json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq, "listSeq": ev.list_seq});
             if rec.msg.get("replaced") == Some(&Value::Bool(true)) {
@@ -2314,6 +2340,17 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
+        // A hidden page's other chats: no row is built or sent; it reads them on show. A waiting
+        // permission still goes out (below): it is rare, and the page counts it.
+        if !listing && !attached {
+            if is_permission_ask(&rec.kind) {
+                conn.send(&Message::notification(
+                    method::MUX_PERMISSION_PENDING,
+                    permission_pending(&ev.session_id, rec, "watch"),
+                ));
+            }
+            return;
+        }
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
@@ -2402,6 +2439,7 @@ pub(crate) mod host_notice;
 mod inventory_watch;
 mod lane_parent;
 mod list_reply;
+pub(crate) mod list_shown;
 use lane_parent::lane_parent;
 mod bg_tasks;
 mod goal;
@@ -2514,6 +2552,11 @@ mod session_list_pages_tests;
 #[cfg(test)]
 #[path = "list_follow_link_tests.rs"]
 mod list_follow_link_tests;
+
+// A hidden page hears its own chats only, and reads the rest on show (`_acpmux/watch {shown}`).
+#[cfg(test)]
+#[path = "list_shown_tests.rs"]
+mod list_shown_tests;
 
 #[cfg(test)]
 #[path = "compressed_link_tests.rs"]

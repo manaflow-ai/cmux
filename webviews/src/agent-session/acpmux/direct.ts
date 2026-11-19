@@ -1,4 +1,5 @@
 import { pageAttention } from "./attention";
+import { pageScrollQuiet } from "./scrollQuiet";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { stuckAttention } from "./loopEpisode";
 import { externalAccessFromRequest } from "./permissions/externalAccess";
@@ -174,7 +175,14 @@ import { errorMessage, startCancelled, knownRefusalText, switchFailedText } from
 import { failedSendText, heldSendNotice, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
-import { SessionPageError, SessionPager, type SessionPage, withUsage, LIST_FOLLOW_CAPABILITY } from "./sessionPages";
+import {
+  SessionPageError,
+  SessionPager,
+  type SessionPage,
+  withUsage,
+  LIST_FOLLOW_CAPABILITY,
+  LIST_SHOWN_CAPABILITY,
+} from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import {
   isCodexSleep,
@@ -3798,6 +3806,8 @@ export class AcpmuxDirectClient {
     this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.showChanged);
+    // Listens from the start: another page's scroll is heard only by a page already listening.
+    pageScrollQuiet();
     this.stopAttention = pageAttention()?.subscribe(this.attentionChanged);
     // The chat on screen is handed over when this page goes away as well as when it is left, so a
     // tab closed or reloaded on a chat leaves that chat warm for the next tab (keptAttachments.ts
@@ -4304,6 +4314,8 @@ export class AcpmuxDirectClient {
       const capabilities = initialized?._meta?.acpmux?.capabilities;
       this.capabilities = Array.isArray(capabilities) ? new Set(capabilities.map(String)) : undefined;
       this.sessionPages.follows = this.capabilities?.has(LIST_FOLLOW_CAPABILITY) === true;
+      // A hidden page hears only its own chats (acpmux server/list_shown.rs): every watch says.
+      this.sessionPages.shown = this.capabilities?.has(LIST_SHOWN_CAPABILITY) ? pageShown : undefined;
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
@@ -6136,11 +6148,16 @@ export class AcpmuxDirectClient {
   /// The page was hidden or shown (a tab in a background workspace, an occluded window): acpmux
   /// leaves a turn that ends while nobody shows the chat unread, and showing it is seeing it.
   private showChanged = (): void => {
-    if (this.listChangedWhileHidden && pageShown() && !this.closed) {
+    if (this.closed) return;
+    // An acpmux that takes `shown` (acpmux server/list_shown.rs) sends a hidden page only its own
+    // chats; shown again, the page follows the rows changed meanwhile, and draws once (Leo,
+    // 2026-11-18: "Why should non visible thing even affect the renderer thread anyways?").
+    if (this.listShownChanged()) this.listChangedWhileHidden = false;
+    else if (this.listChangedWhileHidden && pageShown()) {
+      // An older acpmux sent every chat while hidden: they draw now.
       this.listChangedWhileHidden = false;
       this.emitInFrame("session changed");
     }
-    if (this.closed) return;
     if (pageShown()) this.wake();
     if (pageShown() && this.readAheadOwed) {
       this.readAheadOwed = false;
@@ -6158,6 +6175,23 @@ export class AcpmuxDirectClient {
     if (owed === sessionId && this.stoppingAfterSeq !== undefined && this.workingNow())
       this.checkStall(sessionId, "stop");
   };
+
+  /// Tells acpmux the page was hidden or shown, when it takes `shown` (sessionPages.ts `shown`).
+  /// True when a show's follow reads the rows changed while hidden; `refreshSessions` draws them.
+  /// A socket that is not open says it on its reconnect's watch.
+  private listShownChanged(): boolean {
+    const pages = this.sessionPages;
+    if (!pages.shown || pages.shownSent === undefined) return false;
+    if (this.socket?.readyState !== WebSocket.OPEN || this.endedSocket === this.socket) return false;
+    const shown = pageShown();
+    if (shown === pages.shownSent) return false;
+    if (!shown) {
+      void pages.hide().catch(() => undefined);
+      return false;
+    }
+    void this.refreshSessions().catch(() => this.rereadSessionsLater());
+    return true;
+  }
 
   private stopAttention?: () => void;
   /// The reader stepped away from the page or came back by hand (attention.ts): acpmux hears the
@@ -7917,7 +7951,25 @@ export class AcpmuxDirectClient {
       this.listChangedWhileHidden = true;
       return;
     }
+    // A chat scrolling on this page or another of the renderer's (scrollQuiet.ts): another chat's
+    // change waits for the scroll to rest and draws then, every one held in one snapshot, so the
+    // wheel's frames are the scrolled chat's own.
+    if (session.sessionId !== this.selectedSessionId && this.holdForScroll()) return;
     this.emitInFrame("session changed");
+  }
+
+  /// The wait of other chats' changes held while a chat scrolls, if any: one at a time.
+  private scrollHold?: () => void;
+  /// Holds the drawing of other chats' changes while a chat scrolls; false when none does.
+  private holdForScroll(): boolean {
+    if (this.scrollHold) return true;
+    const quiet = pageScrollQuiet();
+    if (!quiet?.scrolling()) return false;
+    this.scrollHold = quiet.afterScroll(() => {
+      this.scrollHold = undefined;
+      if (!this.closed) this.emitInFrame("session changed");
+    });
+    return true;
   }
 
   private applyPermission(message: any): void {
@@ -8026,7 +8078,12 @@ export class AcpmuxDirectClient {
     // A record that opened the turn arms the watch; one that ended it stops it (`followQuietWatch`).
     this.followQuietWatch();
     this.noticeRefusal(event);
-    this.emitInFrame(event.kind, this.streamGrew);
+    // On a hidden page every record but a new tool call waits for the show, as the text stream does:
+    // a tool's progress, the plan, usage and the rest drew a busy hidden tab up to 20 times a second
+    // (Leo, 2026-11-18, "Why should non visible thing even affect the renderer thread anyways?").
+    // A new tool call still draws within 50 ms, since a subagent's start opens its own pane, and a
+    // turn's start or end draws at once (`emitInFrame`).
+    this.emitInFrame(event.kind, this.streamGrew || event.kind !== "tool_call");
     if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId) {
       this.checkFinishedTurn(event.sessionId, event.seq);
       this.shedOlderHeld();
@@ -16331,6 +16388,8 @@ export class AcpmuxDirectClient {
   }
   private stopPageListeners(): void {
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
+    this.scrollHold?.();
+    this.scrollHold = undefined;
     this.stopAttention?.();
     this.stopAttention = undefined;
     if (typeof window !== "undefined") {

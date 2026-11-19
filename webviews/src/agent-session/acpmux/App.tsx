@@ -144,10 +144,11 @@ import {
   folderFields,
   isAgentHome,
   projectLabel,
-  recentLocalFolders,
   SessionsBy,
   sessionTitle,
   type AcpmuxSessionEntry,
+  FolderRecency,
+  placeFields,
 } from "./sessionList";
 import { findSession } from "./sessionIndex";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
@@ -2258,7 +2259,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [rowsForEdits, editFamily],
   );
   // Each prompt's own turn, for the Fork under its bubble; rebuilt only when the turns change.
-  const promptSeqsKey = editableKey(promptTurns(forkable ? snapshot.rows : []));
+  // Read when the rows change, never on a render of anything else: another chat's change renders the
+  // pane, and a walk of every row and a string of every prompt then cost O(transcript) per change of any
+  // chat in the list (bench/session-scale-typing.bench.ts).
+  const promptSeqsRows = forkable ? snapshot.rows : NO_ROWS;
+  const promptSeqsKey = useMemo(() => editableKey(promptTurns(promptSeqsRows)), [promptSeqsRows]);
   const stablePromptSeqs = useMemo(() => editableSeqs(promptSeqsKey), [promptSeqsKey]);
   // Retry with another model (cx-ncc.62): the models the composer's picker lists for the chat's
   // harness (user-hidden ones left out, aliases folded, the session's own choices added) that it can
@@ -11728,11 +11733,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [directProjects, projectsAnswered, newTab?.projects, newTab?.home]);
   // The folder lists read only where each chat works and when it was active (sessionList.ts
   // `folderFields`): another chat's status, unread, title or cost changing leaves them as they are.
-  const folderLists = useRef<{ newTab: SessionsBy; composer: SessionsBy } | null>(null);
-  folderLists.current ??= { newTab: new SessionsBy(folderFields), composer: new SessionsBy(folderFields) };
+  // The New Tab list reads the folders apart from their order: a chat on this Mac working moves its
+  // folder up (`FolderRecency`) without naming every folder again.
+  const folderLists = useRef<{
+    newTab: SessionsBy;
+    composer: SessionsBy;
+    recency: FolderRecency;
+  } | null>(null);
+  folderLists.current ??= {
+    newTab: new SessionsBy(placeFields),
+    composer: new SessionsBy(folderFields),
+    recency: new FolderRecency(),
+  };
   const newTabFolderSessions = folderLists.current.newTab.of(newTabSnapshot.sessions);
   const composerFolderSessions = folderLists.current.composer.of(composerSnapshot.sessions);
-  const newTabProjectList = useMemo(() => {
+  const newTabRecentFolders = folderLists.current.recency.of(newTabSnapshot.sessions);
+  const newTabFolders = useMemo(() => {
     const byPath = new Map<string, Project>();
     // A folder the host listed keeps its repository (projectRepos.ts) when a chat names it again.
     const listed = (cwd: string): Project => {
@@ -11747,9 +11763,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       byPath.set(session.cwd, listed(session.cwd));
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
-    // The pickers list repositories in the order of their newest folder: the folder of the newest chat first.
-    return byRecentUse([...byPath.values()], recentLocalFolders(newTabFolderSessions));
+    return [...byPath.values()];
   }, [newTabFolderSessions, newTab?.cwd, newTab?.projects, directProjects]);
+  // The pickers list repositories in the order of their newest folder: the folder of the newest chat first.
+  const newTabProjectList = useMemo(
+    () => byRecentUse(newTabFolders, newTabRecentFolders),
+    [newTabFolders, newTabRecentFolders],
+  );
   // The same list while it holds the same folders in the same order (session-info/sameValue.ts): it is
   // built again from the chat list, which changes on every event of any chat that runs, and the
   // composer takes it as a prop (`projectChoices`), so a new copy of it drew the composer again four

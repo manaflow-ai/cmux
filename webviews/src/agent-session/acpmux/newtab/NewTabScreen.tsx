@@ -25,7 +25,15 @@ import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
-import { firstProject, homePath, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
+import {
+  firstProject,
+  homePath,
+  isAgentHome,
+  projectLabel,
+  sessionMark,
+  SessionsBy,
+  FolderRecency,
+} from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
 import { NewProjectName, NewProjectFailure, NewProjectUnsupported } from "./NewProjectName";
@@ -73,7 +81,7 @@ import { Spinner } from "../conversation/icons";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
-import { listingWanted, omnibarFolders } from "./launchRows";
+import { listingWanted, omnibarFolders, omnibarFolder } from "./launchRows";
 import { type CompleteFolder, useFolderListing } from "./omnibarReads";
 import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
@@ -369,6 +377,10 @@ function homeOrAbove(cwd: string | undefined): boolean {
 /// How long the folder chip holds its place for a daemon that has not listed the chats yet.
 const RESERVE_MS = 2_000;
 const NO_DEVICE_CHATS: ReturnType<typeof useDeviceChats> = [];
+/// Stable empties for the composer's lists: a new `[]` on each render made its machine and folder
+/// lists again from every listed chat.
+const NO_PEERS: string[] = [];
+const NO_PROJECTS: Project[] = [];
 
 /// The new tab screen, variant B (plans/cmux-next/new-tab.md): the project and model pickers on
 /// top, then one field that reads what is typed (`!` a shell command, an address, or a prompt for
@@ -444,9 +456,14 @@ export function NewTabScreen(props: Props) {
   }, [props.startMachine]);
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
   const startsRecent = !picked && folderless && !props.startCwd;
+  // This Mac's chat folders, newest first, kept as the chats change (sessionList.ts
+  // `FolderRecency`): a chat working moves its folder up without every chat being sorted again.
+  const recency = useRef<FolderRecency>(null);
+  recency.current ??= new FolderRecency();
+  const recentFolders = recency.current.of(snapshot.sessions);
   const candidate = useMemo(
-    () => (startsRecent ? mostRecentProject(snapshot.sessions, home, props.knownProjects) : undefined),
-    [startsRecent, snapshot.sessions, home, props.knownProjects],
+    () => (startsRecent ? firstProject(recentFolders, home, props.knownProjects) : undefined),
+    [startsRecent, recentFolders, home, props.knownProjects],
   );
   // Decided once, as the page mounts (Leo 2026-10-19: the first frame showed "Choose folder", then
   // flipped to the recent project): the newest in the chats the page already has, else the newest a
@@ -1022,10 +1039,12 @@ export function NewTabScreen(props: Props) {
   // The omnibar's agent sources (launchRows.ts): the folders and agents it starts. A typed path's
   // folder listing answers later (omnibarReads.ts), never in the keystroke's turn.
   const barText = touched && !shell && !commandTyping && !profilePick ? typed : "";
-  const barFolders = useMemo(
-    () => omnibarFolders(props.projects, snapshot.sessions),
-    [props.projects, snapshot.sessions],
-  );
+  // The chats' folders newest first, kept as the chats change (sessionList.ts `FolderRecency`):
+  // another chat working sorts no chat again.
+  const barRecency = useRef<FolderRecency>(null);
+  barRecency.current ??= new FolderRecency(omnibarFolder);
+  const barRecent = barRecency.current.of(snapshot.sessions);
+  const barFolders = useMemo(() => omnibarFolders(props.projects, barRecent), [props.projects, barRecent]);
   const barAgents = useMemo(
     () =>
       // A saved environment or New project picks where the chat starts (askChat), so a start in
@@ -1843,9 +1862,15 @@ export function NewTabScreen(props: Props) {
   };
   // This Mac's chats and the chats on acpmux's machines (their folders there): a Cloud chat's host
   // that acpmux does not list is no place a chat can start from this page.
+  // Filtered again only when where a chat runs changed (`SessionsBy` over what the composer's
+  // machine and folder lists read): another chat's status or title leaves the same array, so the
+  // composer reads none of them again.
+  const startablePlaces = useRef<SessionsBy>(null);
+  startablePlaces.current ??= new SessionsBy((session) => [session.cwd, session.peer, session.hostKind, session.host]);
+  const placedChats = startablePlaces.current.of(snapshot.sessions);
   const startableSessions = useMemo(
-    () => snapshot.sessions.filter((session) => session.peer || session.hostKind !== "cloud"),
-    [snapshot.sessions],
+    () => placedChats.filter((session) => session.peer || session.hostKind !== "cloud"),
+    [placedChats],
   );
   /// A New Worktree that failed; `retry`, when the same ask can go again from the notice (a saved
   /// environment's send goes again from the field, where its prompt stays).
@@ -2042,7 +2067,7 @@ export function NewTabScreen(props: Props) {
         // Every machine acpmux lists (`_acpmux/status`), as the chat composer lists them: a pick
         // starts the chat there (screenActions onAsk with its `peer`).
         sessions={startableSessions}
-        peers={snapshot.peers ?? []}
+        peers={snapshot.peers ?? NO_PEERS}
         {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
         {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
         {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
@@ -2052,7 +2077,7 @@ export function NewTabScreen(props: Props) {
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
         {...(props.onCloudMachinePicked ? { onCloudMachinePicked: props.onCloudMachinePicked } : {})}
         {...(props.machineName ? { localName: props.machineName } : {})}
-        projectChoices={props.projects ?? []}
+        projectChoices={props.projects ?? NO_PROJECTS}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
         onNoProject={() => pickProject(undefined)}
         noProject={none && !newProject}

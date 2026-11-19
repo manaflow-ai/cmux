@@ -116,6 +116,13 @@ pub const CAPABILITIES: &[Capability] = &[
         id: crate::hub::row_log::CAPABILITY,
         wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
     },
+    // A hidden page's list (`server/list_shown.rs`): `_acpmux/watch {shown: false}` sends a
+    // connection only the chats it is attached to; `{shown: true, afterSeq}` follows the rows it
+    // was not sent. Older daemons ignore `shown` and send every chat.
+    Capability {
+        id: crate::server::list_shown::CAPABILITY,
+        wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
+    },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
     // asks the daemon to pull or forget when the values live only in its memory.
