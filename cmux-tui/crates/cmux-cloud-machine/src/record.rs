@@ -283,6 +283,7 @@ pub struct Machine {
     pub id: String,
     #[serde(default)]
     pub provider: String,
+    #[serde(deserialize_with = "status_compat")]
     pub status: Status,
     #[serde(default)]
     pub display_name: Option<String>,
@@ -341,6 +342,7 @@ pub struct Machine {
     pub last_change_failure: Option<ChangeFailure>,
     /// The newest unresolved Pause, Resume or Kill sent from this app (never read from a server).
     #[serde(default)]
+    #[serde(deserialize_with = "optional_status_compat")]
     pub pending_change: Option<Status>,
     #[serde(default, rename = "pendingMutationID")]
     pub pending_mutation_id: Option<String>,
@@ -349,6 +351,25 @@ pub struct Machine {
     /// The cmux-next record's `desktop`: the machine serves its agent display over the link.
     #[serde(default)]
     pub serves_desktop: bool,
+}
+
+/// Presentation records are forward-compatible: an unknown provider word is
+/// retained as `Unknown`. Operation boundaries use `Status`'s strict parser and
+/// never deserialize through this compatibility adapter.
+fn status_compat<'de, D>(deserializer: D) -> Result<Status, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let word = String::deserialize(deserializer)?;
+    Ok(Status::from_word(&word))
+}
+
+fn optional_status_compat<'de, D>(deserializer: D) -> Result<Option<Status>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)
+        .map(|word| word.map(|word| Status::from_word(&word)))
 }
 
 impl Machine {

@@ -2867,6 +2867,7 @@ dependencies = [
  "base64",
  "clap",
  "cmux-cloud-config",
+ "cmux-lifeline",
  "cmux-vm-client",
  "futures",
  "nix 0.31.3",

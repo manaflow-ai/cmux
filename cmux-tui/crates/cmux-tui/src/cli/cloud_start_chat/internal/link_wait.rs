@@ -14,7 +14,7 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use cmux_lifeline::vm::{Attached, Ready, Running, Vm};
+use cmux_lifeline::vm::{Attached, Ready, Unidentified, Vm};
 use serde_json::{Value, json};
 
 /// The capability a daemon serves `agent-session-attach` under.
@@ -36,7 +36,19 @@ pub(crate) fn observe(
     let deadline = Instant::now() + wait;
     let connection = connect(socket, deadline)?;
     let ready = identify(connection)?;
-    let (mut attached, page) = attach(ready, surface, after)?;
+    let (attached, page) = attach(ready, surface, after)?;
+    follow(attached, page, surface, after, deadline)
+}
+
+/// Event requests require a completed attachment, including replay pages and
+/// the view hint. The phase orchestrator cannot start them on a merely ready VM.
+fn follow(
+    mut attached: Vm<Attached, Link>,
+    page: Value,
+    surface: u64,
+    after: u64,
+    deadline: Instant,
+) -> Result<Value, Failure> {
     let mut got = Got { records: Vec::new(), last_seq: after, ended: None };
     got.page(&page);
     // A permission asked before the attach is in the attach's session summary (`session.pending`, as `acpmux
@@ -124,19 +136,14 @@ impl Link {
     }
 }
 
-fn connect(socket: &Path, deadline: Instant) -> Result<Vm<Running, Link>, Failure> {
+fn connect(socket: &Path, deadline: Instant) -> Result<Vm<Unidentified, Link>, Failure> {
     let stream =
         UnixStream::connect(socket).map_err(|error| Failure::Link(format!("connect: {error}")))?;
     let writer = stream.try_clone().map_err(|error| Failure::Link(error.to_string()))?;
-    Ok(Vm::observed_running(Link {
-        writer,
-        lines: BufReader::new(stream),
-        early: Vec::new(),
-        deadline,
-    }))
+    Ok(Vm::connected(Link { writer, lines: BufReader::new(stream), early: Vec::new(), deadline }))
 }
 
-fn identify(mut connection: Vm<Running, Link>) -> Result<Vm<Ready, Link>, Failure> {
+fn identify(mut connection: Vm<Unidentified, Link>) -> Result<Vm<Ready, Link>, Failure> {
     let identity =
         connection.payload_mut().ask("identify", json!({"id": "identify", "cmd": "identify"}))?;
     let serves = identity

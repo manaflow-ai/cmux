@@ -22,6 +22,11 @@
 //! use cmux_lifeline::vm::{Vm, Unallocated};
 //! Vm::<Unallocated, _>::new("vm").provision().running().attach();
 //! ```
+//! A local proxy socket is not proof that the provider is running:
+//! ```compile_fail
+//! use cmux_lifeline::vm::Vm;
+//! Vm::connected("proxy").pause();
+//! ```
 //! A deleted VM has no pause operation:
 //! ```compile_fail
 //! use cmux_lifeline::vm::{Vm, Unallocated};
@@ -38,6 +43,12 @@
 //! let vm = Vm::<Unallocated, _>::new("vm").provision().running();
 //! let pausing = vm.pause();
 //! let deleting = vm.delete();
+//! ```
+//! A released reservation preserves power state; it cannot make a paused VM ready:
+//! ```compile_fail
+//! use cmux_lifeline::vm::{Observed, Status};
+//! let Observed::Paused(vm) = Status::Paused.bind("vm") else { unreachable!() };
+//! vm.preclaim().release().ready();
 //! ```
 
 use std::marker::PhantomData;
@@ -166,6 +177,7 @@ macro_rules! states {
 
 states!(
     Unallocated,
+    Unidentified,
     Provisioning,
     Preclaimed,
     Claimed,
@@ -194,10 +206,18 @@ impl<T> Vm<Unallocated, T> {
     }
 }
 
+impl<T> Vm<Unidentified, T> {
+    /// A transport to the VM exists, but the remote agent has not identified
+    /// itself. A local proxy accepting a socket grants no power capability.
+    pub fn connected(payload: T) -> Self {
+        Self { payload, state: PhantomData }
+    }
+}
+
 impl<T> Vm<Running, T> {
-    /// Bind an authoritative running observation to its subject. A connected
-    /// transport may also establish this fact, but must still identify the agent
-    /// before granting readiness. This does not allocate or resume a VM.
+    /// Bind an authoritative provider running observation to its subject.
+    /// A local proxy socket alone does not establish this fact; use
+    /// [`Vm::connected`] until the remote agent identifies itself.
     pub fn observed_running(payload: T) -> Self {
         Self { payload, state: PhantomData }
     }
@@ -214,11 +234,14 @@ macro_rules! edge {
     };
 }
 
-edge!(Provisioning, preclaim, Preclaimed, "The pool reserved this allocation for the caller.");
-edge!(Preclaimed, claim, Claimed, "The reservation was committed to the caller.");
 edge!(Provisioning, running, Running, "The provider observed a running VM (without a pool claim).");
-edge!(Claimed, running, Running, "The claimed VM is running according to the provider.");
 edge!(Starting, running, Running, "The resumed VM is running according to the provider.");
+edge!(
+    Unidentified,
+    ready,
+    Ready,
+    "The remote agent readiness handshake succeeded on this transport."
+);
 edge!(Running, ready, Ready, "The agent readiness handshake succeeded for this VM.");
 edge!(Ready, attach, Attached, "The attach handshake succeeded.");
 edge!(Attached, detach, Ready, "The attachment ended; the agent remains ready.");
@@ -246,8 +269,6 @@ macro_rules! deletable {
 
 deletable!(
     Provisioning,
-    Preclaimed,
-    Claimed,
     Running,
     Ready,
     Attached,
@@ -265,7 +286,7 @@ macro_rules! fallible {
     )+};
 }
 
-fallible!(Provisioning, Preclaimed, Claimed, Running, Ready, Attached, Pausing, Starting, Deleting);
+fallible!(Provisioning, Running, Ready, Attached, Pausing, Starting, Deleting);
 
 macro_rules! uncertain {
     ($($state:ident),+ $(,)?) => {$(
@@ -275,8 +296,6 @@ macro_rules! uncertain {
 
 uncertain!(
     Provisioning,
-    Preclaimed,
-    Claimed,
     Running,
     Ready,
     Attached,
@@ -287,6 +306,49 @@ uncertain!(
     Deleting,
     Failed
 );
+
+/// Pool ownership is independent of provider power. Releasing a reservation
+/// removes the claim marker, never starts, pauses, or readies its VM.
+#[derive(Debug)]
+#[must_use = "retain or release the reservation and its VM capability"]
+pub struct Reservation<Ownership, Power, T> {
+    vm: Vm<Power, T>,
+    ownership: PhantomData<Ownership>,
+}
+
+macro_rules! reservable {
+    ($($state:ident),+ $(,)?) => {$(
+        impl<T> Vm<$state, T> {
+            /// The pool authoritatively reserved this VM for the caller.
+            pub fn preclaim(self) -> Reservation<Preclaimed, $state, T> {
+                Reservation { vm: self, ownership: PhantomData }
+            }
+        }
+    )+};
+}
+
+reservable!(Provisioning, Running, Paused);
+
+impl<P, T> Reservation<Preclaimed, P, T> {
+    /// The reservation was committed to the caller; power is unchanged.
+    pub fn claim(self) -> Reservation<Claimed, P, T> {
+        Reservation { vm: self.vm, ownership: PhantomData }
+    }
+}
+
+impl<O, P, T> Reservation<O, P, T> {
+    /// The server removed the reservation marker; power is unchanged.
+    pub fn release(self) -> Vm<P, T> {
+        self.vm
+    }
+}
+
+impl<P, T> Reservation<Claimed, P, T> {
+    /// Continue using the adopted VM with its existing power capability.
+    pub fn into_vm(self) -> Vm<P, T> {
+        self.vm
+    }
+}
 
 impl<T> Vm<Unknown, T> {
     /// Reconcile the same subject using an authoritative observation. This does
