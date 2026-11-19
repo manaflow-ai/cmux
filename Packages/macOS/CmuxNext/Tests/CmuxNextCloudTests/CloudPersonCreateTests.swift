@@ -62,6 +62,76 @@ import Testing
         #expect(CloudMachineRequest().createRoute(personsOwnCreate: true, team: "") == .relay)
     }
 
+    // MARK: A chat's start
+
+    /// The start's plan as the ledger answers it (cmux-cloud-start-core's `StartChatPlan`, camelCase).
+    private func plan(_ json: String) throws -> CloudMoveCLI.StartChatPlan {
+        try JSONDecoder().decode(CloudMoveCLI.StartChatPlan.self, from: Data(json.utf8))
+    }
+
+    /// The route the app's create for a start takes, as `CloudStartChat` and `appServerCreate` pick it.
+    private func route(_ plan: CloudMoveCLI.StartChatPlan, personsOwnRun: Bool, relayOnly: Bool = false) -> (key: String, route: CloudCreateRoute) {
+        let request = CloudMachineRequest(startChatKey: plan.createKey, sizedFor: nil, team: "team_a", plan: plan)
+        return (request.idempotencyKey, request.createRoute(personsOwnCreate: plan.ownCreate(personsOwnRun: personsOwnRun, relayOnly: relayOnly), team: "team_a"))
+    }
+
+    /// A chat the person started with the composer's Send is their own create: it goes as them, in one call, with no
+    /// approval to hold, answer and wait out. It went over the relay (about 3 to 4 s of round trips, and a start that
+    /// failed still pending).
+    @Test func aChatThePersonStartedGoesDirect() throws {
+        let fresh = try plan(#"{"createKey":"cloud-start-chat-k","tabKey":"t","keepsCreateRoute":true}"#)
+        #expect(route(fresh, personsOwnRun: true).route == .direct)
+        #expect(fresh.recorded(.direct) == .direct)
+    }
+
+    @Test func aChatAnAgentAScriptOrTheCLIStartedStaysOnTheRelay() throws {
+        let fresh = try plan(#"{"createKey":"cloud-start-chat-k","tabKey":"t","keepsCreateRoute":true}"#)
+        #expect(route(fresh, personsOwnRun: false).route == .relay)
+        // The direct route refused this start before the op ran: its new key is the relay's.
+        #expect(route(fresh, personsOwnRun: true, relayOnly: true).route == .relay)
+    }
+
+    /// A ledger that keeps no route (an older cmux-tui, or an app core that does not read it) could not tell a retry
+    /// which route the key took, so the start never leaves the relay and names no route.
+    @Test func aLedgerThatKeepsNoRouteNeverGoesDirect() throws {
+        let old = try plan(#"{"createKey":"cloud-start-chat-k","tabKey":"t"}"#)
+        #expect(!old.keepsCreateRoute)
+        #expect(route(old, personsOwnRun: true).route == .relay)
+        #expect(old.recorded(.relay) == nil && old.recorded(.direct) == nil)
+    }
+
+    /// The server keeps a key per caller, so a retry on the other route would be a second machine: a retry of a sent
+    /// start sends the same key on the route the ledger kept, whoever retries it.
+    @Test func aRetryOfAStartKeepsItsKeyAndItsRoute() throws {
+        let direct = try plan(#"{"createKey":"cloud-start-chat-k","tabKey":"t","createSent":true,"createRoute":"direct","keepsCreateRoute":true}"#)
+        let relayed = try plan(#"{"createKey":"cloud-start-chat-k","tabKey":"t","createSent":true,"createRoute":"relay","keepsCreateRoute":true}"#)
+        // Sent before routes were kept, or on a route this app does not know: the relay.
+        let legacy = try plan(#"{"createKey":"cloud-start-chat-k","tabKey":"t","createSent":true,"keepsCreateRoute":true}"#)
+        let unknown = try plan(#"{"createKey":"cloud-start-chat-k","tabKey":"t","createSent":true,"createRoute":"carrier","keepsCreateRoute":true}"#)
+        for person in [true, false] {
+            #expect(route(direct, personsOwnRun: person) == (key: "cloud-start-chat-k", route: .direct))
+            #expect(route(direct, personsOwnRun: person, relayOnly: true).route == .direct)
+            for sent in [relayed, legacy, unknown] {
+                #expect(route(sent, personsOwnRun: person) == (key: "cloud-start-chat-k", route: .relay))
+            }
+        }
+        // A create that never went out has no route yet, whatever an earlier one recorded.
+        let unsent = try plan(#"{"createKey":"cloud-start-chat-k2","tabKey":"t","createRoute":"direct","keepsCreateRoute":true}"#)
+        #expect(CloudMachineRequest(startChatKey: unsent.createKey, sizedFor: nil, team: nil, plan: unsent).route == nil)
+        #expect(route(unsent, personsOwnRun: false).route == .relay)
+    }
+
+    /// The server answers a person's create once the provider made the machine, or after 25 s with it provisioning:
+    /// the create waits past that, while an approval's calls keep the short wait.
+    @Test func aDirectCreateWaitsPastTheServersOwnWait() {
+        let url = URL(string: "https://api.example.test/v1/ops")!
+        #expect(CloudPersonCreate.createTimeout > 25)
+        #expect(CloudPersonCreate.post(url, body: Data(), bearer: "b", team: "team_a", timeout: CloudPersonCreate.createTimeout).timeoutInterval == CloudPersonCreate.createTimeout)
+        #expect(CloudPersonCreate.post(url, body: Data(), bearer: "b", team: nil).timeoutInterval == CloudPersonCreate.callTimeout)
+        #expect(CloudPersonCreate.session(timeout: CloudPersonCreate.createTimeout).configuration.timeoutIntervalForRequest == CloudPersonCreate.createTimeout)
+        #expect(CloudPersonCreate.session().configuration.timeoutIntervalForRequest == CloudPersonCreate.callTimeout)
+    }
+
     @Test func eachRouteMarksItsOwnStep() {
         #expect(CloudCreateRoute.direct.step == "machine.create.direct")
         #expect(CloudCreateRoute.relay.step == "machine.create.relay")

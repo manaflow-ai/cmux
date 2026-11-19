@@ -73,7 +73,7 @@ export default agentPaneEntry({
     before: variant(
       "Before: the cards' 4% fill over a clear page and the dim tool-row label; the bubble and wallpaper show through and the label sinks (Leo: too little opacity).",
       {
-        background: "linear-gradient(var(--cv-card-fill, var(--cv-card-fill-base)), var(--cv-card-fill, var(--cv-card-fill-base))), var(--agent-page-bg, Canvas)",
+        background: "linear-gradient(var(--cv-card-fill, var(--ds-surface-card)), var(--cv-card-fill, var(--ds-surface-card))), var(--agent-page-bg, Canvas)",
         color: "var(--cv-tool-strong)",
         "backdrop-filter": "none",
         "-webkit-backdrop-filter": "none",

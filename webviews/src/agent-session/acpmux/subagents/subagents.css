@@ -79,8 +79,8 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
-  box-shadow: 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+  background: var(--cv-card-fill, var(--ds-surface-card));
+  box-shadow: 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
   color: var(--cv-text);
 }
 /* A listed subagent: one plain 48px row with its current action under its name. */
@@ -229,7 +229,7 @@ button.cv-subagent > :last-child {
   content: "";
   flex: 1;
   height: 1px;
-  background: var(--cv-card-ring, var(--cv-card-ring-base));
+  background: var(--cv-card-ring, var(--ds-surface-card-line));
 }
 .cv-subagent-of__frame {
   box-sizing: border-box;
@@ -239,7 +239,7 @@ button.cv-subagent > :last-child {
   display: inline-flex;
   align-items: center;
   border-radius: var(--ds-radius-control);
-  box-shadow: 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+  box-shadow: 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
 }
 .cv-subagent-of__pill {
   all: unset;
@@ -525,7 +525,7 @@ button.cv-subagent > :last-child {
   padding: 0;
   overflow: hidden;
   border-radius: var(--acpmux-composer-radius, 11px);
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  background: var(--ds-surface-inset);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
   color: var(--agent-text);
   font-family: var(--cv-font);
@@ -1084,7 +1084,7 @@ button.cv-subagent > :last-child {
   box-sizing: content-box;
   padding: var(--ds-space-1);
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-surface-inset);
 }
 /* A line whose context menu is open (its Stop) stays lit while the pointer is in the menu. */
 /* Resume (its own control in Stop's column) lights itself, not the line around it. */
@@ -1754,7 +1754,7 @@ button.cv-subagent > :last-child {
   cursor: default;
 }
 .acpmux-running-tray__open:hover {
-  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  background: var(--ds-color-hover);
   color: var(--agent-text);
 }
 .acpmux-running-tray__open:focus-visible {
@@ -1954,7 +1954,7 @@ button.cv-subagent > :last-child {
   background: color-mix(in srgb, var(--glass-surface, Canvas) 30%, transparent);
 }
 .acpmux-running-tray[data-tuck-look="pill"] > .acpmux-running-tray__tuck:active::before {
-  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  background: var(--ds-color-pressed);
 }
 /* `band`: the whole box lights along the edge. */
 .acpmux-running-tray[data-tuck-look="band"] > .acpmux-running-tray__tuck::before {

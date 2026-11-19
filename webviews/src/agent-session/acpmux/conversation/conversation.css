@@ -24,14 +24,14 @@
   --cv-fg: var(--agent-text);
   --cv-rule: color-mix(in srgb, var(--cv-fg) 8%, transparent); /* #383934 */
   --cv-bubble: color-mix(in srgb, var(--cv-fg) 5%, transparent); /* #31322d */
-  --cv-code-bg: color-mix(in srgb, var(--cv-fg) 11%, transparent); /* #3e3f39 inline code */
-  --cv-codeblock-bg: color-mix(in srgb, var(--cv-fg) 7.5%, transparent); /* #373833 */
-  --cv-codeblock-ring: color-mix(in srgb, var(--cv-fg) 11.5%, transparent); /* #3f403b */
+  --cv-code-bg: var(--ds-surface-inset); /* inline code: the inset level (design/chat-surfaces.md) */
+  --cv-codeblock-bg: var(--ds-surface-card); /* a code block is a card */
+  --cv-codeblock-ring: var(--ds-surface-card-line);
   --cv-codeblock-text: color-mix(in srgb, var(--cv-fg) 90%, transparent); /* #e5e5df */
   --cv-codeblock-actions: color-mix(in srgb, var(--cv-fg) 78%, transparent); /* #c8c8c3 */
   --cv-strong-rule: color-mix(in srgb, var(--cv-fg) 16%, transparent); /* #484943: quote bar, table head */
   --cv-faint-rule: color-mix(in srgb, var(--cv-fg) 4.5%, transparent); /* #30312b: table rows */
-  --cv-check-fill: color-mix(in srgb, var(--cv-fg) 9%, transparent); /* #3a3b34 */
+  --cv-check-fill: var(--ds-surface-inset); /* #3a3b34 */
   --cv-check-ring: color-mix(in srgb, var(--cv-fg) 23%, transparent); /* #575852 */
   --cv-link: color-mix(in srgb, var(--cv-fg) 79%, transparent); /* #cccabe */
   /* Type and column: system-ui at 14px on 22.75px lines, 13px code (reference
@@ -370,7 +370,7 @@
   border-radius: var(--cv-media-radius);
   outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: -1px;
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  background: var(--ds-surface-inset);
 }
 /* A sent video (SentVideoTile.tsx): its poster at a sent image's height and shape, a glass play glyph
    in its middle and its length on a dark scrim in a corner, as a reply's video thumbnail
@@ -454,7 +454,7 @@
   max-width: 100%;
   aspect-ratio: 1;
   border-radius: var(--cv-media-radius);
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-inset);
 }
 /* An image that cannot be drawn: the same slot, a picture glyph over a short note. */
 .cv-user__image-failed {
@@ -472,7 +472,7 @@
   border-radius: var(--cv-media-radius);
   outline: 1px dashed color-mix(in srgb, var(--agent-text) 24%, transparent);
   outline-offset: -1px;
-  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  background: var(--ds-surface-card);
   color: var(--agent-muted);
   font-size: var(--text-caption);
   line-height: 1.25;
@@ -1063,7 +1063,7 @@
 }
 .cv-received-actions :is([aria-haspopup="menu"][aria-expanded="true"], [aria-haspopup="menu"][data-popup-open]) {
   color: var(--cv-text);
-  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+  background: var(--ds-surface-inset);
 }
 /* A prompt's Retry, in the Messages view only (UserBubble.tsx): in the transcript the last turn's
    Retry is its reply footer's (TurnRows.tsx TurnFooter, .cv-turn-retry). */
@@ -1225,6 +1225,20 @@
   color: var(--cv-text);
   -webkit-font-smoothing: antialiased;
 }
+/* The agent's reply (rows/MessageRow.tsx): a font pack's prose family when it sets one
+   (chatDisplay.ts `--cv-reply-font`, which falls back to --cv-font itself), else the chat's font.
+   The person's prompts, cards and chrome keep --cv-font. model.ts measures reply rows in the same
+   face (`replyMeasureFont`). */
+.cv-md.cv-reply {
+  font-family: var(--cv-reply-font, var(--cv-font));
+  letter-spacing: var(--cv-reply-tracking, var(--cv-tracking, 0px));
+}
+/* A code block's header (its language, its buttons) is chrome, not prose: the chat's font, as in a
+   prompt, never the reply's serif. Without a pack the two are the same font. */
+.cv-md.cv-reply .cv-codeblock__header {
+  font-family: var(--cv-font);
+  letter-spacing: var(--cv-tracking, 0px);
+}
 .cv-md > :first-child {
   margin-top: 0;
 }
@@ -1277,6 +1291,8 @@
   font-size: var(--cv-code-size, 13px);
   line-height: var(--cv-code-line-height, inherit);
   letter-spacing: var(--cv-code-tracking, 0px);
+  font-variant-ligatures: var(--cv-code-ligatures, normal);
+  font-feature-settings: var(--cv-code-features, normal);
   padding: var(--cv-code-padding, 0.75px 5px);
   border-radius: var(--cv-code-radius, 5px);
   background: var(--cv-code-bg);
@@ -1292,7 +1308,7 @@
   background: none;
 }
 .acpmux-started-chip.cv-session-ref > .cv-code {
-  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 9%, transparent);
+  background: var(--ds-surface-inset);
 }
 .acpmux-started-chip.cv-session-ref:hover > .cv-code {
   background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 16%, transparent);
@@ -1633,10 +1649,10 @@
   /* Never wider than its column, so a long line scrolls inside the card rather than past its edge. */
   min-width: 0;
   max-width: 100%;
-  border-radius: 16px;
+  border-radius: var(--grid-cards-radius);
   overflow: hidden;
-  background: var(--cv-card-fill, var(--cv-codeblock-bg));
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-codeblock-ring));
+  background: var(--cv-card-fill, var(--ds-surface-card));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
 }
 .cv-codeblock__header {
   display: flex;
@@ -1683,6 +1699,9 @@
 .cv-codeblock__body {
   display: block;
   margin: 0 1px 13px 13px;
+  /* Inherited into the highlighter's lines: a font pack's code face draws without ligatures. */
+  font-variant-ligatures: var(--cv-code-ligatures, normal);
+  font-feature-settings: var(--cv-code-features, normal);
 }
 /* An unlabeled fence (CodeHeader.tsx `corner`): no header row. Its actions float in the card's
    top-right corner as bare glyphs, no strip behind them (the first line keeps their room, below),
@@ -1886,7 +1905,7 @@
 :root[data-code-actions="strip"]
   :is(.cv-codeblock--corner .cv-codeblock__header, .cv-shell__actions, .cv-tool-output__actions, .cv-table-tools) {
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--cv-fg) 3.5%, transparent);
+  background: var(--ds-surface-card);
 }
 /* Gallery version B (CodeHeader.tsx `muted`): a short quiet row that names the block. */
 .cv-codeblock--muted .cv-codeblock__header {
@@ -2281,9 +2300,9 @@ pre.cv-math-source {
   margin: 0;
   padding-block: var(--grid-half-step);
   padding-inline: var(--ds-space-2) var(--ds-space-1);
-  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring, var(--cv-card-ring-base));
+  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring, var(--ds-surface-card-line));
   border-radius: var(--ds-radius-popup);
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  background: var(--cv-card-fill, var(--ds-surface-card));
   box-shadow: none;
   color: var(--cv-tool-strong);
   font-family: var(--cv-font);
@@ -2382,7 +2401,7 @@ pre.cv-math-source {
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-ask-action:hover {
-  background: color-mix(in srgb, var(--cv-fg) 7%, transparent);
+  background: var(--ds-color-hover);
 }
 .acpmux-ask-action.is-primary {
   background: var(--agent-accent);
@@ -2391,7 +2410,7 @@ pre.cv-math-source {
 /* The wider grant: a hairline rim so it reads as a choice next to the filled Allow, not as a
    disabled one (cg-design-judge, light theme). */
 .acpmux-ask-action.is-secondary {
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring, var(--cv-card-ring-base));
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring, var(--ds-surface-card-line));
 }
 .acpmux-ask-action.is-primary:hover {
   background: color-mix(in srgb, var(--agent-accent) 88%, var(--cv-fg));
@@ -2448,11 +2467,11 @@ pre.cv-math-source {
 
 :root {
   --cv-tool-strong: color-mix(in srgb, var(--cv-fg) 60%, transparent); /* #a5a5a0 settled tool rows */
-  /* A card's own strengths. --cv-card-fill and --cv-card-ring (cmux.agentPane.style/1) have no
-     value here: unset, each card keeps its own (these for tool cards, --cv-codeblock-* for code);
-     set by a look on :root, they paint every card, code included (style-tokens.json). */
-  --cv-card-ring-base: color-mix(in srgb, var(--cv-fg) 10%, transparent);
-  --cv-card-fill-base: color-mix(in srgb, var(--cv-fg) 4%, transparent);
+  /* The card level (design/chat-surfaces.md) under its chat names. A look (cmux.agentPane.style/1,
+     style-tokens.json) sets --cv-card-fill and --cv-card-ring on :root to paint every card, code
+     included; the chat's rules fall back to the level where these are unset (shadow roots). */
+  --cv-card-ring: var(--ds-surface-card-line);
+  --cv-card-fill: var(--ds-surface-card);
 }
 /* appearance.borders none (data-borders on the root, applyAgentTheme): code and tool cards keep
    their fill and lose the ring. */
@@ -3567,8 +3586,8 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   margin: var(--ds-space-1) 0 var(--ds-space-2);
   padding: var(--grid-cards-padding);
   border-radius: var(--grid-cards-radius);
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+  background: var(--cv-card-fill, var(--ds-surface-card));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
   color: var(--cv-text-muted);
 }
 .cv-shell__label,
@@ -3686,7 +3705,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 }
 .cv-shell__command:is(:has(+ .cv-shell__body:not(:empty)), :has(+ .cv-shell__exit)) {
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--cv-card-ring, var(--cv-card-ring-base));
+  border-bottom: 1px solid var(--cv-card-ring, var(--ds-surface-card-line));
 }
 .cv-shell__command + .cv-shell__body {
   margin-top: 8px;
@@ -3731,8 +3750,8 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   max-height: 220px;
   margin: 0;
   object-fit: contain;
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+  background: var(--cv-card-fill, var(--ds-surface-card));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
 }
 
 /* Native audio controls have an intrinsic width; fit them inside a narrow tool row. */
@@ -3838,8 +3857,8 @@ button.cv-video-frames__name:focus-visible {
   overflow: hidden;
   border: 0;
   border-radius: 6px;
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+  background: var(--cv-card-fill, var(--ds-surface-card));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
   font: inherit;
 }
 .cv-video-frames__grid .cv-video-frames__frame,
@@ -3887,8 +3906,8 @@ button.cv-video-frames__frame:focus-visible {
   overflow: auto;
   padding: 8px 12px;
   border-radius: 12px;
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+  background: var(--cv-card-fill, var(--ds-surface-card));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
   color: var(--cv-text-muted);
   font-style: normal;
   font-weight: 400;
@@ -3948,10 +3967,10 @@ button.cv-video-frames__frame:focus-visible {
    command, output tail, diff or capture they already present. */
 :root[data-tool-steps-look="ios-sheet"] .cv-steps {
   margin: 0;
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring, var(--cv-card-ring-base));
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring, var(--ds-surface-card-line));
   border-radius: 8px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--cv-card-fill, var(--cv-card-fill-base)) 72%, transparent);
+  background: color-mix(in srgb, var(--cv-card-fill, var(--ds-surface-card)) 72%, transparent);
 }
 :root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step {
   padding: 0;
@@ -4007,7 +4026,7 @@ button.cv-video-frames__frame:focus-visible {
   --cv-step-inset: 12px;
   --cv-step-text: 0px;
   margin: 2px 0 6px;
-  border: var(--cmux-hairline, .5px) solid var(--cv-card-ring, var(--cv-card-ring-base));
+  border: var(--cmux-hairline, .5px) solid var(--cv-card-ring, var(--ds-surface-card-line));
   border-radius: 12px;
   overflow: hidden;
 }
@@ -4120,7 +4139,7 @@ button.cv-video-frames__frame:focus-visible {
   border-top: 0;
 }
 :root[data-tool-steps-look="zebra"] .cv-step:nth-child(odd) {
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  background: var(--cv-card-fill, var(--ds-surface-card));
 }
 .cv-tool__counts {
   display: inline-flex;
@@ -4248,10 +4267,10 @@ button.cv-video-frames__frame:focus-visible {
   margin: 0 0 var(--ds-space-2) var(--cv-tool-text-inset);
   padding: var(--ds-space-1) var(--ds-space-3);
   border-radius: var(--grid-cards-radius);
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  background: var(--cv-card-fill, var(--ds-surface-card));
   box-shadow:
     inset 2px 0 0 color-mix(in srgb, var(--agent-status-failure) 70%, transparent),
-    inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+    inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
   font-size: var(--text-detail);
   line-height: 18px;
   letter-spacing: var(--text-detail--letter-spacing);
@@ -4547,7 +4566,7 @@ button.cv-video-frames__frame:focus-visible {
    gave received lines one): pointing at it reveals its actions only, and pointing at the sender's
    name lights only the name (its own pill below). Keyboard focus keeps the plate, so focus shows. */
 .cv-received > :is(.cv-disclosure__line, .cv-agentmsg__line):has(:focus-visible):not(:has(.cv-agent-tag.is-open:focus)) {
-  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
+  background: var(--ds-surface-inset);
 }
 .cv-received .cv-disclosure__toggle {
   height: var(--cv-tool-row-height);
@@ -4699,7 +4718,7 @@ button.cv-received__host:is(:hover, :focus-visible, [data-popup-open]) {
   color: var(--cv-text);
 }
 button.cv-received__host:is(:hover, :focus-visible, [data-popup-open]) > .cv-received__host-name {
-  background: color-mix(in srgb, var(--cv-text) 12%, transparent);
+  background: var(--ds-color-hover);
 }
 button.cv-received__host:focus-visible {
   outline: none;
@@ -4833,8 +4852,8 @@ a.cv-sha:focus-visible {
   overflow: auto;
   padding: var(--ds-space-2);
   border-radius: var(--ds-radius-popup);
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+  background: var(--cv-card-fill, var(--ds-surface-card));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
   color: var(--cv-text-muted);
   font-family: var(--cv-mono);
   font-size: var(--text-detail);
@@ -4903,8 +4922,8 @@ a.cv-sha:focus-visible {
 .cv-tool-detail__fields {
   display: grid;
   border-radius: var(--ds-radius-popup);
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+  background: var(--cv-card-fill, var(--ds-surface-card));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
   overflow: hidden;
 }
 .cv-tool-detail__field {
@@ -4914,7 +4933,7 @@ a.cv-sha:focus-visible {
   padding: var(--ds-space-2) var(--ds-space-3);
 }
 .cv-tool-detail__field + .cv-tool-detail__field {
-  border-top: 1px solid var(--cv-card-ring, var(--cv-card-ring-base));
+  border-top: 1px solid var(--cv-card-ring, var(--ds-surface-card-line));
 }
 .cv-tool-detail__key {
   color: var(--cv-text-muted);
@@ -4974,8 +4993,8 @@ a.cv-sha:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   border-radius: 12px;
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+  background: var(--cv-card-fill, var(--ds-surface-card));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
 }
 /* Reserve the corner outside the text scroller, so even unwrapped lines stay clear of the buttons. */
 .cv-tool-output__box:has(> .cv-tool-output__actions) {
@@ -5183,7 +5202,7 @@ a.cv-sha:focus-visible {
   color: var(--cv-text);
 }
 .cv-expand-row:hover > .cv-expand-row__label {
-  background-color: color-mix(in srgb, var(--cv-fg) 8%, transparent);
+  background-color: var(--ds-color-hover);
 }
 .cv-expand-row:focus-visible {
   outline: none;
@@ -5196,7 +5215,7 @@ a.cv-sha:focus-visible {
    `band`, the row's whole width tinted as before; `ink`, the words alone brighten with no tint;
    `underline`, the words underlined. The shipped look, the tint behind the words, sets nothing. */
 :root[data-expand-row-hover="band"] .cv-expand-row:hover {
-  background-color: color-mix(in srgb, var(--cv-fg) 4%, transparent);
+  background-color: var(--ds-color-hover);
 }
 :root[data-expand-row-hover="band"] .cv-expand-row:hover > .cv-expand-row__label,
 :root[data-expand-row-hover="ink"] .cv-expand-row:hover > .cv-expand-row__label,
@@ -5239,11 +5258,11 @@ a.cv-sha:focus-visible {
   margin-top: -24px;
 }
 :root[data-expand-row="hairline"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row {
-  background-color: color-mix(in srgb, var(--cv-fg) 4%, transparent);
-  box-shadow: inset 0 1px 0 var(--cv-card-ring, var(--cv-card-ring-base));
+  background-color: var(--cv-card-fill, var(--ds-surface-card));
+  box-shadow: inset 0 1px 0 var(--cv-card-ring, var(--ds-surface-card-line));
 }
 :root[data-expand-row="hairline"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row:hover {
-  background-color: color-mix(in srgb, var(--cv-fg) 8%, transparent);
+  background-color: var(--ds-color-hover);
 }
 :root[data-expand-row="centred"] .cv-expand-row {
   justify-content: center;
@@ -5288,7 +5307,7 @@ a.cv-sha:focus-visible {
 .cv-recap[data-look="card"] {
   padding: var(--grid-cards-padding);
   border-radius: var(--grid-cards-radius);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
 }
 .cv-recap[data-look="rule"] {
   padding-left: 12px;
@@ -5328,7 +5347,7 @@ a.cv-sha:focus-visible {
 }
 .cv-recap__close:hover {
   color: var(--agent-text);
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  background: var(--ds-color-hover);
 }
 .cv-recap__close:focus-visible {
   outline: 2px solid var(--agent-focus, currentColor);
@@ -5516,7 +5535,7 @@ a.cv-sha:focus-visible {
 }
 :is(.cv-turn-retry, .cv-message-retry):has(> .cv-iconbtn:hover),
 :is(.cv-turn-retry, .cv-message-retry):has(> .cv-iconbtn[data-popup-open]) {
-  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+  background: var(--ds-color-hover);
 }
 :is(.cv-turn-retry, .cv-message-retry) > .cv-iconbtn:hover,
 :is(.cv-turn-retry, .cv-message-retry) > .cv-iconbtn[data-popup-open] {
@@ -5551,7 +5570,7 @@ a.cv-sha:focus-visible {
 .cv-iconbtn:hover,
 .cv-iconbtn[data-popup-open] {
   color: var(--cv-text);
-  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+  background: var(--ds-color-hover);
 }
 .cv-turn-auth-action {
   all: unset;
@@ -5560,7 +5579,7 @@ a.cv-sha:focus-visible {
   /* 8 across, not 12: the error card's actions keep the width they had at 9, so a late action (the
      CodeRouter offer) joins their line instead of wrapping it. */
   padding: var(--ds-space-1) var(--ds-space-2);
-  border: 1px solid color-mix(in srgb, var(--agent-accent) 34%, transparent);
+  border: 1px solid var(--ds-surface-control-line);
   border-radius: var(--ds-radius-control);
   color: var(--agent-accent);
   cursor: default;
@@ -5684,11 +5703,6 @@ a.cv-sha:focus-visible {
   flex-direction: column;
   gap: var(--transient-surface-gap);
 }
-.ui-transient-error {
-  /* Error cards are the inline member of Notice: their recovery-specific layout remains intact,
-     while material, spacing and action roles are shared with transient notices. */
-  --glass-tint: var(--transient-surface-veil);
-}
 .cv-turn-error__cause {
   display: flex;
   align-items: flex-start;
@@ -5811,11 +5825,14 @@ a.cv-sha:focus-visible {
   gap: var(--ds-space-2);
   margin-top: var(--ds-space-1);
 }
+/* The card arm is a transcript card like the edit card above it (design/chat-surfaces.md): the card level
+   and its line, no glass. It was floating glass (the transient veil, a 32 px frost), so in a see-through
+   window it read as a darker, frosted box beside the clear tool and edit cards (Lawrence 2026-11-19). */
 .cv-turn-error--card {
   padding: var(--grid-cards-padding);
-  /* Transcript cards keep the established grid geometry (12px), while their material and actions
-     follow the transient role. */
   border-radius: var(--grid-cards-radius);
+  background: var(--ds-surface-card);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
 }
 .cv-turn-error--rail {
   padding-inline-start: calc(var(--ds-space-3) - 2px);
@@ -6276,8 +6293,8 @@ a.cv-sha:focus-visible {
 .acpmux-shell-block {
   margin: 4px 0 8px;
   border-radius: 6px;
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+  background: var(--cv-card-fill, var(--ds-surface-card));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
   color: var(--cv-text-muted);
   font-style: normal;
   font-weight: 400;
@@ -6437,7 +6454,11 @@ a.cv-sha:focus-visible {
   background: transparent;
 }
 /* A reply's HTML or SVG fence previewed inline (InlinePreview.tsx): the render card's look, and a
-   text action (Code, Preview, Run) in the code card's header row. */
+   text action (Code, Preview, Run) in the code card's header row. The card is the size container of
+   the height an SVG preview holds before its frame reports one (previewDocument.ts svgPreviewHeight). */
+.cv-inline-preview {
+  container-type: inline-size;
+}
 .cv-inline-preview .acpmux-render-card-head .cv-codeblock__actions {
   display: flex;
   align-items: center;
@@ -6496,7 +6517,7 @@ a.cv-sha:focus-visible {
 .cv-diagram {
   margin: 8px 0;
   border-radius: 8px;
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
   overflow: hidden;
 }
 .cv-diagram__bar {
@@ -6507,7 +6528,7 @@ a.cv-sha:focus-visible {
   min-height: calc(var(--cv-font-size) * 28 / 14);
   padding: 0 6px 0 10px;
   font-size: calc(var(--cv-font-size) * 11 / 14);
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  background: var(--cv-card-fill, var(--ds-surface-card));
 }
 .cv-diagram__lang {
   opacity: 0.7;
@@ -6527,7 +6548,7 @@ a.cv-sha:focus-visible {
   background: transparent;
 }
 .cv-diagram__toggle:hover {
-  background: var(--cv-card-ring, var(--cv-card-ring-base));
+  background: var(--cv-card-ring, var(--ds-surface-card-line));
 }
 .cv-diagram__chart {
   min-height: 120px;
@@ -6888,8 +6909,8 @@ a.cv-sha:focus-visible {
   margin: var(--ds-space-2) 0;
   padding: var(--ds-space-2) var(--ds-space-3);
   border-radius: var(--grid-cards-radius);
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+  background: var(--cv-card-fill, var(--ds-surface-card));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
 }
@@ -7243,7 +7264,7 @@ a.cv-sha:focus-visible {
   color: var(--agent-text);
 }
 .cv-agent-pair__resume:hover:not(:disabled) {
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  background: var(--cv-card-fill, var(--ds-surface-card));
 }
 .cv-agent-pair__resume:disabled {
   cursor: default;
@@ -7739,7 +7760,7 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   border-radius: var(--ds-radius-control);
   padding: 4px 8px;
   color: var(--agent-text);
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  background: var(--ds-surface-inset);
 }
 .cv-repo-recovery button:hover { background: color-mix(in srgb, var(--agent-text) 15%, transparent); }
 /* The wait's ETA, beside its reason: tabular so the countdown does not jiggle. */
@@ -7924,8 +7945,8 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   margin: var(--ds-space-1) 0 var(--ds-space-2) var(--cv-tool-text-inset, 0);
   padding: var(--ds-space-2) var(--ds-space-3);
   border-radius: var(--ds-radius-control);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
-  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
+  background: var(--cv-card-fill, var(--ds-surface-card));
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
   color: var(--cv-text);
@@ -7985,7 +8006,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   min-height: 24px;
   padding: 0 var(--ds-space-2);
   border-radius: var(--ds-radius-control);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
   color: var(--cv-text-muted);
 }
 .cv-run-elsewhere__machine input {
