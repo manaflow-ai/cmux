@@ -67,6 +67,14 @@ fn setup(probes: &[Probe]) -> (Fixture, Vec<PathBuf>) {
                 server["scopes"] = json!({ "op:cmux.credential.relay": "Call the cmux Cloud API through the cmux app." });
             }
             write_server_app(&root.0.join("bundled"), probe.dir, server);
+            // Keep the catalog family underscore (the family grammar allows it),
+            // while using an ID that satisfies the package ID grammar.
+            if probe.dir == "bad_fence" {
+                let manifest = root.0.join("bundled").join(probe.dir).join("cmux-app.v2.json");
+                let mut value: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+                value["id"] = json!("cmux/bad-fence");
+                std::fs::write(manifest, value.to_string()).unwrap();
+            }
             out
         })
         .collect();
@@ -142,7 +150,7 @@ fn partial_or_malformed_lifecycle_fences_never_reach_a_provider() {
     }
     let (f, outs) = setup(&[Probe::new("bad_fence", true, lines)]);
     let rx = credential_provider(&f);
-    f.install("cmux/bad_fence");
+    f.install("cmux/bad-fence");
     let answers = frames(&outs[0], 4);
     assert!(
         answers.iter().all(|a| a["type"] == "relay.error" && a["code"] == "validation.invalid")
