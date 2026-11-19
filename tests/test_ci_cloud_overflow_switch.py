@@ -81,9 +81,10 @@ class FakeActions:
             return [{**self.probe, "name": switch.probe_job_name(label)} for label in labels] if self.probe else []
         return self.run_jobs.get(run_id, [])
 
-    def runs(self, status: str, event: str | None = None) -> list[dict]:
+    def runs(self, status: str, event: str | None = None, *, created_before: dt.datetime | None = None) -> list[dict]:
         return [run for run in self.in_flight
-                if run.get("status") == status and (event is None or run.get("event") == event)]
+                if run.get("status") == status and (event is None or run.get("event") == event)
+                and (created_before is None or switch.parse_time(run.get("created_at")) <= created_before)]
 
     def run(self, run_id: int) -> dict:
         return {"id": run_id, "status": self.status.get(run_id, "in_progress")}
@@ -975,7 +976,9 @@ class DeadLabelRescueTests(unittest.TestCase):
     def test_a_dry_run_bad_value_or_no_dead_label_touch_nothing(self) -> None:
         actions = self.stranded()
         self.rescue(actions, DRY_RUN="true")
-        self.rescue(actions, {**self.POOLS, "_dead": {}})
+        # No dead mark and every label a pool can point at still named by one: nothing is stranded.
+        every = {f"p{n}": label for n, label in enumerate(switch.HEALTH_LABELS)}
+        self.rescue(actions, {**self.POOLS, "_dead": {}, **every})
         writer = FakeSwitch({"RUNNER_POOLS": "not json"})
         self.assertEqual(run_main({"GH_TOKEN": "t"}, actions, writer, argv=["--rescue-dead"])[0], 0)
         self.assertEqual(actions.calls, [])
@@ -1063,6 +1066,56 @@ class DeadLabelRescueTests(unittest.TestCase):
         switch.rescue_stuck_runs(FakeActions(None, runs, {20: [self.DEAD_16]}), own_run_id=1, minutes=5,
                                  now=clock.now, sleep=clock.sleep, log=logged.append, dry_run=False)
         self.assertEqual(logged, [])  # the overflow rescue's output is unchanged
+
+    def test_a_label_a_move_left_strands_its_jobs_too(self) -> None:
+        # 2026-11-19: linux spilled to 16 vCPU and came back to 4, linux_16 moved to 8 vCPU; 16 vCPU carries no dead
+        # mark, and cmux#45502's `changes` (run 44476854382) sat queued there from 07:04Z.
+        pools = {"_dead": {}, "linux": "blacksmith-4vcpu-ubuntu-2404", "linux_16": "blacksmith-8vcpu-ubuntu-2404",
+                 "linux_4": "blacksmith-4vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404",
+                 "linux_2": "blacksmith-2vcpu-ubuntu-2404"}
+        self.assertEqual(switch.stranded_labels(pools, minutes=5),
+                         {"blacksmith-16vcpu-ubuntu-2404": switch.MOVED_MINUTES})
+        # A raw runner variable that names it keeps it routed: a re-run would come back to it.
+        self.assertEqual(switch.stranded_labels(pools, {"blacksmith-16vcpu-ubuntu-2404"}), {})
+        # An unset or empty value names no pool: nothing reads as left.
+        self.assertEqual(switch.stranded_labels({}), {})
+        self.assertEqual(switch.stranded_labels({"_dead": {}}), {})
+        # A dead mark keeps the probe's wait; a label a pool names is never stranded.
+        self.assertEqual(switch.stranded_labels(self.POOLS, minutes=5),
+                         {"blacksmith-16vcpu-ubuntu-2404": 5, "blacksmith-4vcpu-ubuntu-2404": 5,
+                          "blacksmith-8vcpu-ubuntu-2404": switch.MOVED_MINUTES})
+        changes = {**self.DEAD_16, "name": "changes", "created_at": ago(360)}
+        fresh = {**self.DEAD_16, "created_at": ago(10)}
+        runs = [{"id": 44476854382, "status": "queued", "event": "pull_request", "name": "cmux-tui spec inventory",
+                 "created_at": ago(360)},
+                {"id": 31, "status": "queued", "event": "pull_request", "name": "CI", "created_at": ago(10)}]
+        actions = FakeActions(None, runs, {44476854382: [changes], 31: [fresh]})
+        summary = self.rescue(actions, pools)
+        self.assertEqual(actions.calls, [("force-cancel", 44476854382), ("rerun", 44476854382)])
+        self.assertIn("blacksmith-16vcpu-ubuntu-2404 (30+ min)", summary)
+        # Named by a raw runner variable: nothing moves.
+        actions = FakeActions(None, runs, {44476854382: [changes], 31: [fresh]})
+        self.rescue(actions, pools, RAW_RUNNER_VARIABLES="LINUX_BUILD_RUNNER=blacksmith-16vcpu-ubuntu-2404\nX=\n")
+        self.assertEqual(actions.calls, [])
+
+    def test_a_run_stranded_for_hours_is_listed_past_the_newest_page(self) -> None:
+        pools = {"_dead": {}, "linux": "blacksmith-4vcpu-ubuntu-2404", "linux_16": "blacksmith-8vcpu-ubuntu-2404"}
+        old = {"id": 900, "status": "queued", "event": "pull_request", "name": "CI", "created_at": ago(360)}
+        actions = FakeActions(None, [old], {900: [{**self.DEAD_16, "created_at": ago(360)}]})
+        newest_only = actions.runs
+        # The newest page holds only newer runs; the old one is listed by the created-before slices alone.
+        actions.runs = lambda status, event=None, *, created_before=None: (  # type: ignore[method-assign]
+            newest_only(status, event, created_before=created_before) if created_before else [])
+        self.rescue(actions, pools)
+        self.assertEqual(actions.calls, [("force-cancel", 900), ("rerun", 900)])
+
+    def test_the_rescue_step_reads_every_raw_runner_variable(self) -> None:
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import runner_pools  # noqa: E402
+        step = WORKFLOW.read_text(encoding="utf-8").split("- name: Re-run runs stranded on a dead label", 1)[1]
+        step = step.split("- name:", 1)[0]
+        listed = set(re.findall(r"^\s+([A-Z0-9_]+)=\$\{\{ vars\.\1 \}\}$", step, re.MULTILINE))
+        self.assertEqual(listed, {*runner_pools.RAW_LABEL_VARS, *runner_pools.MIRRORS})
 
     def test_the_workflow_runs_it_after_the_pools_step(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
