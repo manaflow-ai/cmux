@@ -63,8 +63,9 @@ ARMS = ("fresh-copy", "same-copy", "warm")
 #                   through a read-only mapping (touch_pages): is what is left after a helper's --version the
 #                   framework's pages, which a helper with no --type never touches
 #   prewarm-update-moved  what an updating person's staged copy gets, in StagedUpdatePrewarm's order: the executable to
-#                   main_start, `cmux` and `cmux-tui` --version, each Chromium helper --version, every Frameworks page,
-#                   the executable with --cmux-prewarm-chromium; then renamed into place (Sparkle's install) and launched
+#                   main_start, `cmux` and `cmux-tui` --version, each Chromium helper --version, the executable with
+#                   --cmux-prewarm-chromium, then every Frameworks page (perform reads them after its runs); then
+#                   renamed into place (Sparkle's install) and launched
 EXTRA_ARMS = ("prewarm-main", "prewarm-moved", "prewarm-bins-moved", "prewarm-home", "spctl", "gktool", "gktool-moved")
 # --arms=prewarm: the pre-warms only (the update path's pre-warm and what it could add), beside the base arms.
 PREWARM_ARMS = ("prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-pages-moved", "prewarm-chromium-moved", "prewarm-home", "gktool-moved")
@@ -354,8 +355,6 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
                             out = run_text([str(binary), "--version"], timeout=60)
                             before[f"{helper.stem}_s"] = round(time.monotonic() - started, 3)
                             before[f"{helper.stem}_out"] = out[-160:]
-                if arm in WITH_PAGES:
-                    before["pages"] = touch_pages(app / "Contents" / "Frameworks")
                 if arm in WITH_CHROMIUM:
                     # The update path's last run (StagedUpdatePrewarm.chromiumArgument): Chromium's first real start
                     # in this copy, in a throwaway profile; exit 0 when its hidden page loaded (CEFStagedPrewarm).
@@ -368,6 +367,9 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
                     except (OSError, subprocess.SubprocessError) as error:
                         before["chromium_exit"] = f"error: {error}"
                     before["chromium_s"] = round(time.monotonic() - started, 3)
+                if arm in WITH_PAGES:
+                    # After every run, as StagedUpdatePrewarm.perform reads them: the framework pages no run touched.
+                    before["pages"] = touch_pages(app / "Contents" / "Frameworks")
             elif arm == "prewarm-home":
                 (root / "w").mkdir()
                 started = time.monotonic()

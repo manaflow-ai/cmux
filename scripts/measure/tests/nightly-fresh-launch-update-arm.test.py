@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """scripts/measure/nightly-fresh-launch.py `--arms update`: the arm `prewarm-update-moved` runs what an updating
 person's staged copy gets (CmuxNextUpdater StagedUpdatePrewarm), in its order: the executable to main_start, the bundled
-`cmux` and `cmux-tui` --version, each Chromium helper --version, every Frameworks page, the executable with
---cmux-prewarm-chromium; then the copy is renamed into place and launched. cmuxterm-hq's nightly dogfood reads this
+`cmux` and `cmux-tui` --version, each Chromium helper --version, the executable with --cmux-prewarm-chromium, then
+every Frameworks page; then the copy is renamed into place and launched. cmuxterm-hq's nightly dogfood reads this
 arm's launch into NOW's "NEXT update launch to Home, prewarmed copy" row.
 
 No Mac, no app: the copy is a folder of empty files and every run, read and launch is replaced by a recorder. So this
@@ -93,8 +93,8 @@ class UpdateArm(unittest.TestCase):
             ("version", "Contents/Resources/bin/cmux-tui", "--version"),
             ("version", "Contents/Frameworks/cmux Helper (GPU).app/Contents/MacOS/cmux Helper (GPU)", "--version"),
             ("version", "Contents/Frameworks/cmux Helper.app/Contents/MacOS/cmux Helper", "--version"),
-            ("pages", "Frameworks"),
             ("chromium", "Contents/MacOS/cmux", "--cmux-prewarm-chromium"),
+            ("pages", "Frameworks"),  # StagedUpdatePrewarm.perform reads the pages after its last run
             ("launch", "placed", "measured"),  # renamed out of the staging folder, as Sparkle installs it
         ])
         self.assertEqual(row["arm"], "prewarm-update-moved")
