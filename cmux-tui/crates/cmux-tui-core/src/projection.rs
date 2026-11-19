@@ -431,6 +431,13 @@ mod git_stat {
     /// Makes `at` (and every repository below it) use [`STAT`]; `dir` is the projections'
     /// state folder, `home` the work user's home.
     pub(super) fn keep(dir: &Path, home: &Path, at: &Path) -> std::io::Result<()> {
+        // A git config line holds no newline, and a subsection name cannot escape one.
+        if [at, dir, home].iter().any(|path| path.as_os_str().as_encoded_bytes().contains(&b'\n')) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "a path with a newline cannot be named in a git config",
+            ));
+        }
         let stat = dir.join(STAT);
         if std::fs::read_to_string(&stat).ok().as_deref() != Some(STAT_TEXT) {
             std::fs::write(&stat, STAT_TEXT)?;
@@ -460,12 +467,39 @@ mod git_stat {
     }
 
     /// The `includeIf` for `at`: git adds `**` after a trailing `/`, so it holds below `at` too.
+    /// `at` is a wildmatch pattern there, so its glob characters are escaped to match only
+    /// itself, and the subsection name escapes `"` and `\` (git-config(1), "Syntax"): a folder
+    /// named `a"b` otherwise writes a line git cannot parse, and every git on the machine fails.
     pub(super) fn section(at: &Path, stat: &Path) -> String {
-        format!("[includeIf \"gitdir:{}/\"]\n\tpath = {}\n", at.display(), stat.display())
+        let pattern = escaped(&at.to_string_lossy(), &['*', '?', '[', '\\']);
+        format!(
+            "[includeIf \"{}\"]\n\tpath = {}\n",
+            escaped(&format!("gitdir:{pattern}/"), &['"', '\\']),
+            value(&stat.to_string_lossy())
+        )
     }
 
     pub(super) fn include(mounts: &Path) -> String {
-        format!("[include]\n\tpath = {}\n", mounts.display())
+        format!("[include]\n\tpath = {}\n", value(&mounts.to_string_lossy()))
+    }
+
+    /// `text` with a `\` before each of `special`.
+    fn escaped(text: &str, special: &[char]) -> String {
+        let mut out = String::with_capacity(text.len());
+        for c in text.chars() {
+            if special.contains(&c) {
+                out.push('\\');
+            }
+            out.push(c);
+        }
+        out
+    }
+
+    /// `text` as a git config value: as is when git reads it back the same (so lines written
+    /// before stay the same lines), else in double quotes with `"` and `\` escaped.
+    fn value(text: &str) -> String {
+        let plain = !text.contains(['"', '\\', '#', ';']) && text.trim() == text;
+        if plain { text.to_owned() } else { format!("\"{}\"", escaped(text, &['"', '\\'])) }
     }
 }
 
