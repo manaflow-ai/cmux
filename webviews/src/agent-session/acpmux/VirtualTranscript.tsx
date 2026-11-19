@@ -74,6 +74,7 @@ import {
   scrollOrigin,
   writeAnchorScrollTop,
 } from "./conversation/scrollCoordinates";
+import { writeScrollBy, writeScrollTop } from "./conversation/scrollController";
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type PlacedRows, type TailGlide } from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine, refreshPinned } from "./conversation/pinnedLiveLine";
@@ -1077,7 +1078,7 @@ function settleFollowBottom(node: HTMLElement, latest: number): boolean {
   // Where the write lands: a scroller already clamped there is at its end.
   const lands = Math.min(end, Math.max(0, node.scrollHeight - node.clientHeight));
   const moved = Math.abs(lands - node.scrollTop) > 0.5;
-  if (moved) node.scrollTop = end;
+  if (moved) writeScrollTop(node, end, "follow");
   // Measurements above the view can move the logical end by half a pixel while the physical
   // end stays rounded. Keep that fraction even when the browser already clamped to the end,
   // so releasing follow before the next wheel does not inherit a half-pixel row jump.
@@ -1237,20 +1238,28 @@ const OLDER_RECHECK_MS = 500;
 const OLDER_AHEAD_VIEWPORTS = 6;
 
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view
-/// above the `inset` px at its foot that the bottom stack covers.
-function scrollRangeIn(scroller: HTMLElement, range: Range, inset = 0) {
+/// above the `inset` px at its foot that the bottom stack covers. `by` moves it: the transcript's
+/// ScrollController unless the caller names another scroller's write.
+function scrollRangeIn(
+  scroller: HTMLElement,
+  range: Range,
+  inset = 0,
+  by = (delta: number) => writeScrollBy(scroller, delta, "find"),
+) {
   const box = range.getBoundingClientRect();
   const view = scroller.getBoundingClientRect();
-  if (box.top < view.top || box.bottom > view.bottom - inset)
-    scroller.scrollTop += box.top - view.top - scroller.clientHeight / 3;
+  if (box.top < view.top || box.bottom > view.bottom - inset) by(box.top - view.top - scroller.clientHeight / 3);
 }
 
 /// Scrolls `range` into view in the scrollers between it and `transcript` (a command's capped
 /// output scrolls on its own), innermost first; the transcript itself is left to the caller.
 function scrollRangeInBoxes(transcript: HTMLElement, range: Range) {
   for (let box = range.startContainer.parentElement; box && box !== transcript; box = box.parentElement)
-    if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
-      scrollRangeIn(box, range);
+    if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY)) {
+      const inner = box;
+      // scroll-writer-ok: a capped output inside a row, not the transcript.
+      scrollRangeIn(inner, range, 0, (delta) => (inner.scrollTop += delta));
+    }
 }
 
 /// How long Find keeps a new match in view while its groups open and the rows above it measure:
@@ -4609,7 +4618,7 @@ function TranscriptView({
       const nextTop = Math.max(0, Math.min(maximum, top));
       const physicalTop = physicalScrollTop(node, nextTop);
       const before = node.scrollTop;
-      node.scrollTop = physicalTop;
+      writeScrollTop(node, physicalTop, "reveal");
       const delta = node.scrollTop - before;
       scrollPacer.current?.cancel();
       setScrollAt(node.scrollTop, delta || node.scrollTop - scrollRef.current.top);
@@ -4787,7 +4796,7 @@ function TranscriptView({
     // growth is room now (`heldRoom`), and the offset moves by it in this same frame, so nothing the
     // reader sees moves.
     if (old && node && !following && appliedLift.current) {
-      node.scrollTop -= appliedLift.current;
+      writeScrollBy(node, -appliedLift.current, "lift");
       scrolledTo.current = {
         ...scrolledTo.current,
         top: scrolledTo.current.top - appliedLift.current,
@@ -5270,7 +5279,7 @@ function TranscriptView({
         const top = at < 0 ? latest : Math.min(latest, layout.geometry.topAt(at) + openAt!.offset);
         const before = node.scrollTop;
         clearScrollOrigin(node);
-        if (at < 0) node.scrollTop = top;
+        if (at < 0) writeScrollTop(node, top, "open");
         else writeAnchorScrollTop(node, top);
         // A send made a tail that fit overflow (Leo, 2026-11-04: "from partially empty"): the
         // thread is drawn back by the rise and slides up on the send's glide, the prompt rising out
@@ -5692,7 +5701,7 @@ function TranscriptView({
       return;
     }
     unlift();
-    node.scrollTop = physicalScrollTop(node, Math.max(0, top - node.clientHeight / 3));
+    writeScrollTop(node, physicalScrollTop(node, Math.max(0, top - node.clientHeight / 3)), "find");
     holdRowThird(node, rows[findIndex]!.id);
     findMoved(node);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new target scrolls, not a layout change
@@ -5731,7 +5740,7 @@ function TranscriptView({
     // would pull it back to the latest line.
     const next = Math.max(0, top - node.clientHeight / 3);
     stopJump();
-    node.scrollTop = physicalScrollTop(node, next);
+    writeScrollTop(node, physicalScrollTop(node, next), "reveal");
     holdRowThird(node, rows[revealIndex]!.id);
     scrolledTo.current = { top: node.scrollTop, atLatest: false };
     follow(false);
@@ -5981,7 +5990,7 @@ function TranscriptView({
       follow(true, "send");
     } else {
       const before = node.scrollTop;
-      node.scrollTop = latest;
+      writeScrollTop(node, latest, "jump");
       holdMomentum(node, () => Math.max(0, node.scrollHeight - node.clientHeight));
       const top = node.scrollTop;
       scrolledTo.current = { top, atLatest: true };
@@ -6027,7 +6036,7 @@ function TranscriptView({
     // in between never mount (jumpGlideStart). Set after jumpTarget, so its scroll reads as a glide step.
     const glideFrom = jumpGlideStart(node.scrollTop, target, node.clientHeight);
     if (!reduce && glideFrom !== node.scrollTop) {
-      node.scrollTop = glideFrom;
+      writeScrollTop(node, glideFrom, "glide");
       // Mount the rows at the new offset before this frame paints. Left to the scroll pacer, the
       // frame painted the skip with the rows of the old place, out of view: one blank frame
       // (transcript-cached-rows-browser "jump"). A layout effect's update renders before the paint.
@@ -6111,7 +6120,7 @@ function TranscriptView({
         userScrollIntent(node).isPressed(),
       );
       wheelGlide.current?.stop();
-      node.scrollTop = physicalScrollTop(node, room);
+      writeScrollTop(node, physicalScrollTop(node, room), "older");
     }
     // Room a page showed short (conversation/olderReserve.ts `owed`) is paid back as the reader rises,
     // under each step's height, so the thumb keeps moving up with them instead of stepping down once.
@@ -6305,7 +6314,7 @@ function TranscriptView({
     placing.current = true;
     const glideFrom = jumpGlideStart(node.scrollTop, target(), node.clientHeight);
     if (!reduce && glideFrom !== node.scrollTop) {
-      node.scrollTop = glideFrom;
+      writeScrollTop(node, glideFrom, "glide");
       flushSync(() => setScrollAt(node.scrollTop));
     }
     const move = cssTimeMs(
@@ -6586,12 +6595,12 @@ function TranscriptView({
       // write left) stays as it is and the browser rounds nothing.
       const physical = node.scrollTop;
       const was = layoutScrollTop(node);
-      node.scrollTop = physical - held;
+      writeScrollTop(node, physical - held, "follow");
       retainScrollOrigin(node, top);
       // A write the scroller did not take (a scroll of its own still easing in), or a chase that is
       // not held after all, keeps the chase drawn where it is and the offset where it was.
       if (Math.abs(layoutScrollTop(node) - top) > 1 || !chase.release(held)) {
-        node.scrollTop = physical;
+        writeScrollTop(node, physical, "follow");
         retainScrollOrigin(node, was);
         return;
       }
@@ -6662,7 +6671,7 @@ function TranscriptView({
         stopBottomStackFold();
       }
       const moved = line.getBoundingClientRect().top - before;
-      if (node && Math.abs(moved) >= 0.5) node.scrollTop += moved;
+      if (node && Math.abs(moved) >= 0.5) writeScrollBy(node, moved, "fold");
     };
     // What closes keeps the content as tall as the view's end, so the offset never clamps.
     const keepFoldRoom = () => {
