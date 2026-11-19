@@ -458,7 +458,9 @@ class CliAndWorkflowTests(unittest.TestCase):
         self.assertIn("branches: [main, feat-cmux-next]", text)
         self.assertIn("labeled, unlabeled", text)
         self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", text)
-        self.assertIn("    name: language-boundaries\n", text)
+        # The check's name on every event but a title or body edit, whose skipped run is named apart
+        # (tests/test_ci_pr_runs_cancel_superseded.py, pattern pr-edit-fans-out-ci).
+        self.assertIn("|| 'language-boundaries' }}\n", text)
         self.assertIn("scripts/ci/language_boundaries.py", text)
         self.assertIn(".github/language-boundaries.toml", text)
         self.assertNotIn("github.event.pull_request.head.sha }}\n          fetch-depth", text)

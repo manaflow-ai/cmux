@@ -473,14 +473,6 @@ READS_DESCRIPTION = {
 }
 
 
-# Workflows whose edit skip lands in a pull request of its own, and why. An entry whose workflow
-# already passes the edit rule fails the test, so it is removed when that pull request lands.
-EDIT_SKIP_PENDING = {
-    "language-boundaries.yml": "changing the language-boundaries check itself merges only with Leo's "
-    "leo-approved-port label, so its edit skip is split out (branch lane/pr-edit-fanout-language-boundaries)",
-}
-
-
 def edit_context(workflow: dict, event: str, changes: dict) -> dict[str, Any]:
     """The contexts of an `edited` run of pull request 101 with these `changes`."""
     context = pr_context(workflow, event, 101, 1)
@@ -704,12 +696,7 @@ def main() -> int:
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         workflow = load(path)
         text = path.read_text(encoding="utf-8")
-        edits = edit_problems(workflow, text, path.name)
-        if path.name in EDIT_SKIP_PENDING:
-            if not edits:
-                failures.append(f"EDIT_SKIP_PENDING names {path.name}, which passes the edit rule now: remove it")
-            edits = []
-        for reason in edits + comment_problems(workflow):
+        for reason in edit_problems(workflow, text, path.name) + comment_problems(workflow):
             failures.append(f"{path.relative_to(ROOT)}: {reason}")
         if not any(event in triggers(workflow) for event in PR_EVENTS):
             continue
@@ -734,9 +721,6 @@ def main() -> int:
     for name, why in sorted(READS_DESCRIPTION.items()):
         if not why.strip() or not (WORKFLOWS / name).exists():
             failures.append(f"READS_DESCRIPTION names {name}, which no longer exists or has no reason")
-    for name, why in sorted(EDIT_SKIP_PENDING.items()):
-        if not why.strip() or not (WORKFLOWS / name).exists():
-            failures.append(f"EDIT_SKIP_PENDING names {name}, which no longer exists or has no reason")
     if failures:
         print("superseded pull request runs that keep running:", file=sys.stderr)
         for failure in failures:
