@@ -36,7 +36,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 RESERVED = GCP_NIGHTLY_LINUX
 # The release path: each of these workflows must still route attempt 1 to the reserved label.
 RELEASE_WORKFLOWS = ("cmux-tui-artifacts.yml", "cmux-tui-build-package.yml", "cmux-tui-tree-request.yml",
-                     "nightly-next-tick.yml")
+                     "nightly-next-tick.yml", "cloud-vm-image-roll.yml")
 # What a pull request or a lane push looks like to an expression. workflow_ref is the tree workflow's (the worst
 # case: build package's nightly route also requires it). A pull_request_target run reads the base ref, so the
 # expressions cannot tell it from a feat-cmux-next push: no workflow that names the label, nor the tree workflow
