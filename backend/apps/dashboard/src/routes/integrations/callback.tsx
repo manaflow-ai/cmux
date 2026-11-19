@@ -1,4 +1,4 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router"
+import { createFileRoute, Link } from "@tanstack/react-router"
 import { useEffect, useRef } from "react"
 import { useLoad } from "../../lib/hooks"
 import { integrationAppAttemptHint, integrationCompletionRequest, integrationConfigureLink, integrationReturnLink } from "../../lib/integration-callback"
@@ -11,9 +11,9 @@ import { INTEGRATION_RETURN_TEAM_KEY, integrationReturnPath, integrationReturnTe
  * Where GitHub (Setup URL), Linear and Slack redirect after approval. A connect
  * the cmux app started (#46018) is verified and handed over on the server before
  * anything renders (`handOffIntegration`): the provider's answer goes to the API,
- * and the browser opens the app's link with only the connection id and a
- * single-use handoff value; the app finishes it with its own session and secret,
- * no sign-in here. Any other connect is finished here by the signed-in user's own
+ * and the page opens the app's link (and shows it, for a browser that does not
+ * follow it) with only the connection id and a single-use handoff value; the app
+ * finishes it with its own session and secret, no sign-in here. Any other connect is finished here by the signed-in user's own
  * session; the API refuses a state that belongs to someone else.
  */
 export const Route = createFileRoute("/integrations/callback")({
@@ -23,7 +23,6 @@ export const Route = createFileRoute("/integrations/callback")({
     // The unverified hint only picks this path; handOffIntegration verifies the state before any link is made.
     if (!deps.state || deps.error || !integrationAppAttemptHint(deps.state)) return {}
     const appHandoff = await handOffIntegration({ data: { state: deps.state, ...(deps.code ? { code: deps.code } : {}), ...(deps.installation_id ? { installation_id: deps.installation_id } : {}), ...(deps.setup_action ? { setup_action: deps.setup_action } : {}) } })
-    if ("href" in appHandoff) throw redirect({ href: appHandoff.href, reloadDocument: true })
     return { appHandoff }
   },
   component: Callback
@@ -34,6 +33,14 @@ function Callback() {
   const search = Route.useSearch()
   const { appHandoff } = Route.useLoaderData()
   const redirectScheduled = useRef(false)
+  const appOpened = useRef(false)
+  const appHref = appHandoff && "href" in appHandoff ? appHandoff.href : undefined
+  // The verified hand-off's app link (no provider code in it): opened once; the page keeps it as a link.
+  useEffect(() => {
+    if (!appHref || appOpened.current) return
+    appOpened.current = true
+    window.location.assign(appHref)
+  }, [appHref])
   // A connect the app started is the app's to finish (the loader handed it over); never finish it here too.
   const appAttempt = integrationAppAttemptHint(search.state)
   const result = useLoad<{ ok: boolean; message: string; returnTo?: string; configure?: string; development?: boolean }>(signedIn && search.state && !search.error && !appAttempt ? `complete:${search.state}` : null, async () => {
@@ -82,9 +89,9 @@ function Callback() {
         <h2>Connecting</h2>
         {search.error ? <p className="error">The provider reported: {search.error}</p> : null}
         {appHandoff && "refused" in appHandoff ? <p className="error">{appHandoff.refused}</p> : null}
-        {appHandoff && "href" in appHandoff ? (
+        {appHref ? (
           <p>
-            <a href={appHandoff.href}>Open cmux</a> to finish connecting.
+            <a href={appHref}>Open cmux</a> to finish connecting.
           </p>
         ) : null}
       </>

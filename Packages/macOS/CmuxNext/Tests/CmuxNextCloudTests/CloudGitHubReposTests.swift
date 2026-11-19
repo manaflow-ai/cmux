@@ -214,11 +214,13 @@ struct CloudGitHubReposTests {
         #expect(CloudGitHubCompletion.isLink(try #require(URL(string: "\(link)?state=a.b.c&code=abc")), scheme: "cmux-dev-x"))
     }
 
-    /// The app finishes only a connect it recorded: once, before its state expires, and only with the secret it asked.
-    @MainActor @Test func onlyARecordedAttemptFinishesAndOnlyOnce() throws {
+    /// The app finishes only a connect it recorded: before its state expires, one completion at a time, and a finished
+    /// connection forgets its attempts; one that got no answer keeps them for the link to be opened again.
+    @MainActor @Test func onlyARecordedAttemptFinishesAndAFinishedOneForgetsIt() throws {
         var made = 0
         let attempts = CloudGitHubAttempts(newSecret: { made += 1; return "secret-\(made)" })
         let now = Date(timeIntervalSince1970: 4_000_000_000)
+        let conn = "conn_0123456789abcdefghij"
         let secret = attempts.secret(forKey: "key-1", now: now)
         // A retry of the same key asks with the same secret (its params must not change); another key gets another.
         #expect(attempts.secret(forKey: "key-1", now: now) == secret)
@@ -227,15 +229,26 @@ struct CloudGitHubReposTests {
         // An answer under a key that asked no secret, or whose state names another hash, records nothing.
         attempts.record(page: page, key: "key-unknown", now: now)
         attempts.record(page: page, key: "key-2", now: now)
-        #expect(attempts.take(connection: "conn_0123456789abcdefghij", now: now) == nil)
+        #expect(attempts.begin(connection: conn, now: now) == nil)
         attempts.record(page: page, key: "key-1", now: now)
-        // Unsolicited: another connection. Expired: past the state's exp. Then the real one, once.
-        #expect(attempts.take(connection: "conn_ffffffffffffffffffff", now: now) == nil)
-        #expect(attempts.take(connection: "conn_0123456789abcdefghij", now: Date(timeIntervalSince1970: 4_000_000_601)) == nil)
+        // Unsolicited: another connection. Expired: past the state's exp.
+        #expect(attempts.begin(connection: "conn_ffffffffffffffffffff", now: now) == nil)
+        #expect(attempts.begin(connection: conn, now: Date(timeIntervalSince1970: 4_000_000_601)) == nil)
         attempts.record(page: page, key: "key-1", now: now)
-        let taken = try #require(attempts.take(connection: "conn_0123456789abcdefghij", now: now))
-        #expect(taken.secret == secret)
-        #expect(attempts.take(connection: "conn_0123456789abcdefghij", now: now) == nil)
+        // A replayed connect's newer state is kept beside the first, newest first.
+        let replay = try #require(URL(string: "https://github.com/apps/cmux/installations/new?state=\(Self.state(hash: CloudGitHubAttempts.hash(secret), exp: 4_000_000_700))"))
+        attempts.record(page: replay, key: "key-1", now: now)
+        let first = try #require(attempts.begin(connection: conn, now: now))
+        #expect(first.map(\.expires.timeIntervalSince1970) == [4_000_000_700, 4_000_000_600])
+        #expect(first.allSatisfy { $0.secret == secret })
+        // One completion at a time; no answer keeps both; a refused one goes; a finished connection forgets the rest.
+        #expect(attempts.begin(connection: conn, now: now) == nil)
+        attempts.end(connection: conn, finished: false, spent: [])
+        let again = try #require(attempts.begin(connection: conn, now: now))
+        attempts.end(connection: conn, finished: false, spent: [again[0]])
+        #expect(try #require(attempts.begin(connection: conn, now: now)).count == 1)
+        attempts.end(connection: conn, finished: true, spent: [])
+        #expect(attempts.begin(connection: conn, now: now) == nil)
         // The hash is base64url SHA-256 without padding, the API's attempt_hash form.
         #expect(CloudGitHubAttempts.hash("abc") == "ungWv48Bz-pBQUDeXa4iI7ADYaOWF3qctBD_YfIAFa0")
         #expect(CloudGitHubAttempts.randomSecret().range(of: #"^[A-Za-z0-9_-]{43}$"#, options: .regularExpression) != nil)

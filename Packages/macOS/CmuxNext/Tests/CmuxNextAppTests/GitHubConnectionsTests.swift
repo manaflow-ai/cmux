@@ -78,9 +78,10 @@ import Testing
         await model.perform("githubRefresh")
         await model.perform("githubConnect")
         #expect(asked == [["provider": "github", "return_to": "cmux-dev-x://integration/complete", "attempt_hash": .string(hash)]])
-        let recorded = attempts.take(connection: "conn_0123456789abcdefghij", now: Date())
-        #expect(recorded?.secret == "s".padding(toLength: 43, withPad: "s", startingAt: 0))
-        #expect(attempts.take(connection: "conn_0123456789abcdefghij", now: Date()) == nil)
+        let recorded = attempts.begin(connection: "conn_0123456789abcdefghij", now: Date())
+        #expect(recorded?.map(\.secret) == ["s".padding(toLength: 43, withPad: "s", startingAt: 0)])
+        attempts.end(connection: "conn_0123456789abcdefghij", finished: true, spent: [])
+        #expect(attempts.begin(connection: "conn_0123456789abcdefghij", now: Date()) == nil)
     }
 
     /// An API from before the completion link refuses `return_to`: the connect asks again without it, under a derived key

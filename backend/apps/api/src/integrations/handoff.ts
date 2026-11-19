@@ -151,11 +151,17 @@ export const handleIntegrationHandoff = async (request: Request, env: Env): Prom
   if (st.installation !== undefined && installation !== undefined && installation !== String(st.installation)) return invalid("the redirect names another GitHub installation than this connection attempt")
   if (!env.INTEGRATIONS_KEK) return refuse(400, "integration.not_configured", "integrations are not configured on this deployment")
   const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(st.team))
-  const reply = (await stub.handoff(st.team, { conn: st.conn, user: st.user, provider: st.provider, issued_at: st.issued_at, state_hash: attemptHashOf(state) }, {
-    ...(code ? { code } : {}),
-    ...(installation ? { installation_id: installation } : {}),
-    ...(setup ? { setup_action: setup } : {})
-  })) as HandoffReply
+  let reply: HandoffReply
+  try {
+    reply = (await stub.handoff(st.team, { conn: st.conn, user: st.user, provider: st.provider, issued_at: st.issued_at, state_hash: attemptHashOf(state) }, {
+      ...(code ? { code } : {}),
+      ...(installation ? { installation_id: installation } : {}),
+      ...(setup ? { setup_action: setup } : {})
+    })) as HandoffReply
+  } catch (e) {
+    console.error(JSON.stringify({ msg: "integration handoff failed", error: e instanceof Error ? e.name : "unknown" }))
+    return Response.json({ ok: false, error: { code: "owner.unreachable", message: "cmux could not take this connection right now; open the link again", retryable: true } }, { status: 503, headers: { "cache-control": "no-store" } })
+  }
   if (!reply.ok) return refuse(400, reply.code, reply.message)
   return Response.json({ ok: true, value: { connection: st.conn, return_to: st.return_to, handoff: reply.handoff } }, { headers: { "cache-control": "no-store" } })
 }

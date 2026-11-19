@@ -27,7 +27,7 @@ import os
     }
 
     private var secrets: [String: (secret: String, made: Date)] = [:]
-    private var attempts: [String: Attempt] = [:]
+    private var attempts: [String: [Attempt]] = [:]
     private let newSecret: () -> String
     /// How long a secret waits for its connect's answer; a state lives 15 minutes (api src/integrations/state.ts).
     static let secretLifetime: TimeInterval = 20 * 60
@@ -67,15 +67,41 @@ import os
               let connection = claims["conn"] as? String, CloudGitHubCompletion.isConnectionID(connection),
               claims["anh"] as? String == Self.hash(secret),
               let exp = (claims["exp"] as? NSNumber)?.doubleValue else { return }
-        attempts = attempts.filter { $0.value.expires > now }
-        if attempts.count >= Self.limit, let oldest = attempts.min(by: { $0.value.expires < $1.value.expires })?.key { attempts[oldest] = nil }
-        attempts[connection] = Attempt(state: state, secret: secret, expires: Date(timeIntervalSince1970: exp))
+        prune(now)
+        if attempts.count >= Self.limit, attempts[connection] == nil,
+           let oldest = attempts.min(by: { ($0.value.first?.expires ?? .distantPast) < ($1.value.first?.expires ?? .distantPast) })?.key { attempts[oldest] = nil }
+        let attempt = Attempt(state: state, secret: secret, expires: Date(timeIntervalSince1970: exp))
+        // A replayed connect answers the same connection with a newly signed state: keep each, newest first, since the
+        // person may finish on the page of either.
+        let kept = (attempts[connection] ?? []).filter { $0.state != state }
+        attempts[connection] = Array(([attempt] + kept).prefix(Self.statesPerConnection))
     }
 
-    /// The attempt recorded for `connection`, removed (single use); nil when none was recorded or its state expired.
-    public func take(connection: String, now: Date) -> Attempt? {
-        guard let attempt = attempts.removeValue(forKey: connection), attempt.expires > now else { return nil }
-        return attempt
+    /// The unexpired attempts recorded for `connection`, newest first, reserved until ``end(connection:finished:spent:)``;
+    /// nil when none was recorded (an unsolicited link) or a completion for it is already running.
+    public func begin(connection: String, now: Date) -> [Attempt]? {
+        prune(now)
+        guard !running.contains(connection), let found = attempts[connection], !found.isEmpty else { return nil }
+        running.insert(connection)
+        return found
+    }
+
+    /// Ends the completion ``begin(connection:now:)`` reserved: a finished connection forgets every attempt (single use);
+    /// otherwise only the `spent` ones (the API refused them) go, and the rest stay for the link to be opened again.
+    public func end(connection: String, finished: Bool, spent: [Attempt]) {
+        running.remove(connection)
+        let left = finished ? [] : (attempts[connection] ?? []).filter { !spent.contains($0) }
+        attempts[connection] = left.isEmpty ? nil : left
+    }
+
+    private var running: Set<String> = []
+    static let statesPerConnection = 4
+
+    private func prune(_ now: Date) {
+        attempts = attempts.compactMapValues { list in
+            let live = list.filter { $0.expires > now }
+            return live.isEmpty ? nil : live
+        }
     }
 }
 
@@ -135,16 +161,21 @@ public struct CloudGitHubCompletion: Equatable, Sendable {
         ["state": attempt.state, "handoff": handoff, "attempt": attempt.secret]
     }
 
-    /// Keyed by the state, so a repeated link for the same attempt is the same completion.
-    public static func idempotencyKey(state: String) -> String { "complete:" + String(state.suffix(40)) }
+    /// Keyed by the state and this hand-off, so a repeated link for the same attempt is the same completion, and a
+    /// refused try never blocks a later one with another hand-off.
+    public func idempotencyKey(_ attempt: CloudGitHubAttempts.Attempt) -> String {
+        "complete:" + String(CloudGitHubAttempts.hash(attempt.state + "|" + handoff).prefix(40))
+    }
 }
 
 extension CloudGitHubCompletion {
     nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.github")
 
     /// Handles `url` when it is this build's completion link: true for every such link (none is routed anywhere else),
-    /// false for any other URL. Finishes only a connect this app recorded (``CloudGitHubAttempts``), once, with `auth`'s
-    /// own sign-in, then counts it in ``CloudGitHubChanges``; an unsolicited or repeated link finishes nothing.
+    /// false for any other URL. Finishes only a connect this app recorded (``CloudGitHubAttempts``) with `auth`'s own
+    /// sign-in, then counts it in ``CloudGitHubChanges``; an unsolicited link finishes nothing. A connection that
+    /// finished forgets its attempts; one that got no answer, or arrived before the sign-in was restored, keeps them, so
+    /// the console's "Open cmux" link finishes it later.
     @MainActor public static func handle(_ url: URL, auth: CloudAuth, now: Date = Date()) -> Bool {
         let scheme = auth.configuration.callbackScheme
         guard isLink(url, scheme: scheme) else { return false }
@@ -152,19 +183,29 @@ extension CloudGitHubCompletion {
             logger.notice("github completion: link without a connection hand-off, ignored")
             return true
         }
-        guard let attempt = auth.gitHubAttempts.take(connection: completion.connection, now: now) else {
-            logger.notice("github completion: no connect from this launch for that connection, ignored")
+        let attempts = auth.gitHubAttempts
+        guard let candidates = attempts.begin(connection: completion.connection, now: now) else {
+            logger.notice("github completion: no connect from this launch for that connection, or one already running; ignored")
             return true
         }
-        let base = auth.configuration.ownerAPIBaseURL(), team = team(ofState: attempt.state)
-        // task-owner: fire and forget; one completion per recorded attempt, keyed so a retry is the same completion.
+        let base = auth.configuration.ownerAPIBaseURL()
+        // task-owner: fire and forget; one completion per link, reserved in `attempts` until it ends.
         Task { @MainActor in
             await auth.awaitRestored()
-            guard auth.isSignedIn else { return }
+            guard auth.isSignedIn else { return attempts.end(connection: completion.connection, finished: false, spent: []) }
             let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
-            let answer = await CloudOwnerAPIClient(baseURL: base, accessToken: access, teamID: { team }).gitHubComplete(completion, attempt: attempt)
-            logger.notice("github completion: \(String(describing: answer), privacy: .public)")
-            auth.gitHubChanges.count += 1
+            var spent: [CloudGitHubAttempts.Attempt] = []
+            var finished = false
+            for attempt in candidates {
+                let team = team(ofState: attempt.state)
+                let answer = await CloudOwnerAPIClient(baseURL: base, accessToken: access, teamID: { team }).gitHubComplete(completion, attempt: attempt)
+                logger.notice("github completion: \(String(describing: answer), privacy: .public)")
+                if answer == .connected { finished = true; break }
+                if answer == .noAnswer { break }
+                spent.append(attempt)
+            }
+            attempts.end(connection: completion.connection, finished: finished, spent: spent)
+            if finished { auth.gitHubChanges.count += 1 }
         }
         return true
     }
@@ -181,7 +222,7 @@ extension CloudOwnerAPIClient {
 
     /// `integration.complete` on `/v1/ops` as the person, in ``teamID``'s team: the recorded attempt and the hand-off.
     public func gitHubComplete(_ completion: CloudGitHubCompletion, attempt: CloudGitHubAttempts.Attempt) async -> GitHubCompletion {
-        let body: [String: Any] = ["op": "integration.complete", "params": completion.params(attempt), "origin": "user", "idempotency_key": CloudGitHubCompletion.idempotencyKey(state: attempt.state)]
+        let body: [String: Any] = ["op": "integration.complete", "params": completion.params(attempt), "origin": "user", "idempotency_key": completion.idempotencyKey(attempt)]
         guard let json = try? JSONSerialization.data(withJSONObject: body), let answer = await person("/v1/ops", post: json) else { return .noAnswer }
         return Self.completion(status: answer.status, body: answer.body)
     }
