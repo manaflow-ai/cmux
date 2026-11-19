@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-19 (lane/agent-created-by-1119): Sidebar-Look: Leo, 2026-11-19: "what was everybody doing with the tiny
+  weather space and the example domain space in cmux next on cosmic-gray?" / "acpmux should expose these a lot
+  better". The hover card of a workspace an agent made gains two quiet rows in the metadata ink, after the running
+  work: the creator ("desktop-helper on studio-mac", by the agent icon; a script that named a purpose: "Script", by
+  the automation icon) and its one-line purpose (by the description icon, up to two lines; left out when it only
+  repeats the card's title). They come from the daemon's `extra.created_by` (`session_name`, `host`, `purpose`,
+  `created-by-detail-v1`). A workspace the person made, a bare script record and an unknown kind add nothing; the row
+  itself is unchanged. `WorkspaceHoverCardOrigin.shipped` is `line`; the gallery (`WorkspaceHoverCardGallery`
+  `originCards`) also shows `byline` and `footer`. Regression: `WorkspaceHoverCardOriginTests`.
+
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset

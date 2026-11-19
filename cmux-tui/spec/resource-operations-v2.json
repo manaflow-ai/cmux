@@ -32900,6 +32900,64 @@
           "session": "required"
         },
         "fields": {
+          "created_by": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "person",
+                      "agent",
+                      "script"
+                    ]
+                  },
+                  "description": "Who made the space: the person, an agent session, or a script."
+                },
+                "session": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
+                }
+              },
+              "extra": false
+            },
+            "description": "Who made the space and why (created-by-detail-v1), never a trust claim. Shown as created_by on the space."
+          },
           "name": {
             "required": true,
             "type": {
@@ -37961,6 +38019,64 @@
           "pane": "optional"
         },
         "fields": {
+          "created_by": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "person",
+                      "agent",
+                      "script"
+                    ]
+                  },
+                  "description": "Who made the tab: the person, an agent session, or a script."
+                },
+                "session": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
+                }
+              },
+              "extra": false
+            },
+            "description": "Who made the tab and why (created-by-detail-v1), never a trust claim. Shown as extra.created_by on the tab."
+          },
           "correlation_key": {
             "required": false,
             "type": {
@@ -38072,6 +38188,64 @@
           "pane": "optional"
         },
         "fields": {
+          "created_by": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "person",
+                      "agent",
+                      "script"
+                    ]
+                  },
+                  "description": "Who made the tab: the person, an agent session, or a script."
+                },
+                "session": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
+                }
+              },
+              "extra": false
+            },
+            "description": "Who made the tab and why (created-by-detail-v1), never a trust claim. Shown as extra.created_by on the tab."
+          },
           "correlation_key": {
             "required": false,
             "type": {
@@ -41493,11 +41667,38 @@
                     "min_length": 1
                   },
                   "description": "The agent session that made it."
+                },
+                "session_name": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session's name (acpmux ACPMUX_SESSION_NAME)."
+                },
+                "host": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The host the agent or script runs on."
+                },
+                "purpose": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "One line on what it is for; the CLI defaults it to the agent session's title."
                 }
               },
               "extra": false
             },
-            "description": "Who made the workspace: a place hint, never a trust claim. An agent or script workspace goes below its creator workspace, after the creator's earlier children, in its group; with no live creator workspace, at the end. A person's workspace, or one without created_by, follows placement or the setting. Shown as extra.created_by on the workspace."
+            "description": "Who made the workspace: a place hint, never a trust claim. An agent or script workspace goes below its creator workspace, after the creator's earlier children, in its group; with no live creator workspace, at the end. A person's workspace, or one without created_by, follows placement or the setting. Shown as extra.created_by on the workspace. Its session_name, host and purpose say who made it and why (created-by-detail-v1); workspace list shows them."
           },
           "cwd": {
             "required": false,

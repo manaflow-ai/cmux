@@ -27,6 +27,7 @@ pub(super) fn apply(
         return Ok(result);
     }
     let WireOperation::Typed(operation) = &plan.operation else { return Ok(result) };
+    let result = by_creator(filter, result);
     let Value::Array(rows) = result else { return Ok(result) };
     let Some(scope) = scope_of(*operation) else { return Ok(Value::Array(rows)) };
     let in_folder = match (&filter.cwd, scope) {
@@ -51,8 +52,23 @@ pub(super) fn apply(
 /// terminals, is refused rather than ignored.
 pub(super) fn apply_listed(plan: &RequestPlan, result: Value) -> Result<Value, Value> {
     let WireOperation::Typed(operation) = &plan.operation else { return Ok(result) };
+    let result = by_creator(&plan.filter, result);
     let Some(scope) = scope_of(*operation) else { return Ok(result) };
     listed(&plan.filter, scope, result)
+}
+
+/// The rows `--created-by` keeps: a space carries `created_by`, a workspace and a tab
+/// `extra.created_by`.
+fn by_creator(filter: &ListFilter, result: Value) -> Value {
+    let Some(wanted) = &filter.created_by else { return result };
+    let Value::Array(rows) = result else { return result };
+    Value::Array(
+        rows.into_iter()
+            .filter(|row| {
+                wanted.keeps(row.get("created_by").or_else(|| row["extra"].get("created_by")))
+            })
+            .collect(),
+    )
 }
 
 fn listed(filter: &ListFilter, scope: Scope, result: Value) -> Result<Value, Value> {
@@ -205,7 +221,7 @@ mod tests {
     #[test]
     fn rows_from_the_app_are_filtered_by_name_and_refuse_a_workspace_cwd() {
         let rows = json!([{"id": "ws_api", "name": "api"}, {"id": "ws_web", "name": "web"}]);
-        let by_name = ListFilter { name: Some("api".to_owned()), cwd: None };
+        let by_name = ListFilter { name: Some("api".to_owned()), cwd: None, created_by: None };
         assert_eq!(
             listed(&by_name, Scope::Workspace, rows.clone()).unwrap(),
             json!([{"id": "ws_api", "name": "api"}])

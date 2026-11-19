@@ -256,6 +256,7 @@ extension SidebarMapping {
         row.checklist = workspace.checklist.map(Self.checklistItem)
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab, front: front,
                             notification: row.notificationText)
+        row.detail.origin = Self.origin(workspace.createdBy)
         return row
     }
 

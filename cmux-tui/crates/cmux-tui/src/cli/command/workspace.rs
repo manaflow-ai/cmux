@@ -41,6 +41,7 @@ pub(super) fn workspace_create(
         // request without it (wire/workspace_created_by.rs).
         params.insert("created_by".into(), json!({"kind": "script", "workspace": key}));
     }
+    insert_purpose(&mut params, flags);
     // The daemon refuses these with --empty: there is no terminal to launch.
     if let Some(cwd) = flags.take("cwd") {
         params.insert("cwd".into(), Value::String(cwd));
