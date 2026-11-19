@@ -56,6 +56,8 @@ mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_GOD_SHAPES",
     "ACPMUX_GOD_SCALE",
+    // The chat size sweep's sizes (`chat_size_sweep`).
+    "ACPMUX_CHAT_SIZES",
     "ACPMUX_GOD_DHAT",
     "ACPMUX_GOD_DHAT_TOP",
     // A control artifact for differential runs; the child still uses the hermetic environment.
@@ -70,6 +72,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_CHURN_ARENAS",
 ]);
 
+use acpmux::chat_size_fixture;
 use acpmux::config::{Config, StoreMode};
 use acpmux::god_fixture::{self, Shape};
 use acpmux::hub::Hub;
@@ -212,7 +215,13 @@ fn all_logs_end(gauges: &Value) -> Option<u64> {
 /// Asks `_acpmux/status` until every chat log is read: when it ended, or why it is not known.
 /// No call waits past [`ALL_LOGS`], so the wait ends at most a poll after it.
 fn wait_all_logs(rpc: &mut Rpc) -> Result<u64, Value> {
-    let deadline = Instant::now() + ALL_LOGS;
+    wait_all_logs_within(rpc, ALL_LOGS)
+}
+
+/// [`wait_all_logs`] for at most `limit` (a 4 GB chat's first load may take longer than
+/// [`ALL_LOGS`]).
+fn wait_all_logs_within(rpc: &mut Rpc, limit: Duration) -> Result<u64, Value> {
+    let deadline = Instant::now() + limit;
     let mut last = Value::Null;
     while Instant::now() < deadline {
         match rpc.call_until("_acpmux/status", json!({}), Some(deadline)) {
@@ -226,7 +235,7 @@ fn wait_all_logs(rpc: &mut Rpc) -> Result<u64, Value> {
         rpc.notes.clear();
         std::thread::sleep(ALL_LOGS_POLL);
     }
-    Err(json!({"timeoutMs": ALL_LOGS.as_millis() as u64, "lastError": last}))
+    Err(json!({"timeoutMs": limit.as_millis() as u64, "lastError": last}))
 }
 
 /// One older page of the god chat, as the pane asks when it scrolls up: its time and reply.
@@ -1587,6 +1596,362 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
                 "CHURN-HEAP-{list} {} {} {} {}",
                 row["endBytes"], row["peakBytes"], row["totalBytes"], row["site"]
             );
+        }
+    }
+}
+
+// The chat size sweep (infinite chats, 2026-11-19). Leo: "we need to be able to have infinite
+// chats, infinitely long chats ... on current day hardware". The goal (cmuxterm-hq#14331): a
+// chat's open, scroll, typing and memory at 100 MB, 1 GB and 4 GB stay within 1.2x of a 1 MB
+// chat's. One home per size, one chat in it ([`acpmux::chat_size_fixture`], millions of small
+// records at 1 GB as a real coordinator chat), written here and removed after its size runs, so
+// nothing of it is stored and the runner holds one size at a time.
+
+/// The sizes, as `ACPMUX_CHAT_SIZES` names them (`1M,100M,1G,4G`, binary units).
+const CHAT_SIZES: &str = "1M,100M,1G,4G";
+
+/// How long the first load of a chat's log may take (it parses a log with no kind copies whole).
+const SIZE_ALL_LOGS: Duration = Duration::from_secs(1800);
+
+/// An older page as the pane asks for one on scroll-up (direct.ts `olderPage`: 2,000 records,
+/// 1 MiB, transcript records and the local preset approvals).
+const OLDER_PAGE_LIMIT: u64 = 2000;
+const OLDER_PAGE_BYTES: u64 = 1 << 20;
+
+/// The kinds the pane's attach asks a local acpmux for (attachParams.ts `plainAttach`).
+fn app_attach(id: &str) -> Value {
+    json!({"sessionId": id, "waitLogs": false, "settled": true, "limit": PAGE_LIMIT,
+           "maxBytes": PAGE_BYTES, "eventStream": true, "visible": true,
+           "kinds": ["transcript", "available_commands_update", "usage_update",
+                     "config_option_update", "bookmarks", "secret_request", "secret_decision",
+                     "subsession", "queue_order", "queue_updated", "prompt_refused",
+                     "elevation_request", "elevation_decision", "preset_approval_request",
+                     "preset_approval_decision"]})
+}
+
+fn older_params(id: &str, before: u64) -> Value {
+    json!({"sessionId": id, "beforeSeq": before, "limit": OLDER_PAGE_LIMIT,
+           "maxBytes": OLDER_PAGE_BYTES,
+           "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"]})
+}
+
+/// `4G`, `100M`, `1M`, `512K` or bytes.
+fn parse_size(text: &str) -> u64 {
+    let text = text.trim();
+    let (digits, unit) = match text.char_indices().find(|(_, c)| !c.is_ascii_digit()) {
+        Some((at, _)) => text.split_at(at),
+        None => (text, ""),
+    };
+    let n: u64 = digits.parse().unwrap_or_else(|_| panic!("ACPMUX_CHAT_SIZES: {text}"));
+    n << match unit.to_ascii_uppercase().as_str() {
+        "" | "B" => 0,
+        "K" => 10,
+        "M" => 20,
+        "G" => 30,
+        other => panic!("ACPMUX_CHAT_SIZES: no unit {other}"),
+    }
+}
+
+/// Bytes free for an unprivileged writer on the file system holding `path`.
+fn free_bytes(path: &Path) -> u64 {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: statvfs fills the struct it is given from a NUL-terminated path.
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
+        return u64::MAX;
+    }
+    st.f_bavail as u64 * st.f_frsize as u64
+}
+
+/// `rounds` calls of `method`, the params of each from its round: their times, how many records
+/// the last returned, and the first error.
+fn timed_rounds(
+    rpc: &mut Rpc,
+    method: &str,
+    rounds: u64,
+    params: impl Fn(u64) -> Value,
+) -> (Value, Value, Value) {
+    let (mut times, mut records, mut error) = (vec![], Value::Null, Value::Null);
+    for round in 0..rounds {
+        let asked = Instant::now();
+        let reply = rpc.call(method, params(round));
+        let us = micros(asked);
+        rpc.notes.clear();
+        match reply {
+            Ok(reply) => {
+                times.push(us);
+                records = json!(reply["events"].as_array().map_or(0, Vec::len));
+            }
+            Err(e) if error.is_null() => error = e,
+            Err(_) => {}
+        }
+    }
+    (spread(&times), records, error)
+}
+
+/// A prompt to `id` until its first streamed chunk (the stand-in agent echoes it), then its
+/// turn's end: the time to the chunk.
+fn send_first_token(rpc: &mut Rpc, id: &str, text: &str) -> Result<u64, Value> {
+    let sent = Instant::now();
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    let req = rpc.request("session/prompt", prompt);
+    let first = rpc.wait_note(|v| {
+        (is_response(v, req) && v.get("error").is_some())
+            || (v["method"] == "session/update"
+                && v["params"]["sessionId"] == json!(id)
+                && v["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
+                && v["params"]["update"]["content"]["text"]
+                    .as_str()
+                    .is_some_and(|t| t.contains(text)))
+    });
+    if is_response(&first, req) {
+        return Err(first["error"].clone());
+    }
+    let us = micros(sent);
+    rpc.response(req)?;
+    rpc.notes.clear();
+    Ok(us)
+}
+
+/// One size's run: write the chat, open it on a daemon that never read it (cold), measure every
+/// read once its log is loaded, then restart the daemon with the chat's agent host running and
+/// open it again (the adoption pass).
+fn size_run(label: &str, bytes: u64) -> Value {
+    let scratch_dir = daemon_env::Scratch::new(&format!("size-{label}"));
+    let scratch = scratch_dir.to_path_buf();
+    let home = scratch.join("acpmux");
+    let free = free_bytes(scratch.parent().unwrap_or(&scratch));
+    // The log, its kind copies and the daemon's own files, with room to spare.
+    if free < bytes + bytes / 4 + (1 << 30) {
+        return json!({"size": label, "bytes": bytes, "skipped": "disk",
+                      "freeBytes": free});
+    }
+    let written_at = Instant::now();
+    let w = chat_size_fixture::write_chat(&home, &scratch.join("work"), bytes).unwrap();
+    let write_ms = ms(written_at);
+    write_config(&home, json!({}));
+    let id = w.id.clone();
+    let segments =
+        std::fs::read_dir(home.join("sessions").join(&id).join("events")).map_or(0, |d| d.count());
+
+    // Cold: a daemon that has never read this chat, so no kind copy, restore point or settled
+    // view exists. The open is the pane's attach, as soon as the socket answers.
+    let mut daemon = Daemon::start(&scratch, &home, None);
+    let mut rpc = Rpc::connect(&daemon.socket);
+    rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
+        .unwrap();
+    let asked = Instant::now();
+    let cold = rpc.call("_acpmux/attach", app_attach(&id));
+    let cold_attach_us = micros(asked);
+    let cold_attach_ms = ms(daemon.spawned);
+    let cold_records = cold.as_ref().ok().and_then(|a| a["events"].as_array().map(Vec::len));
+    rpc.notes.clear();
+    let cold_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
+    let (rss_after_load, _) = daemon.rss();
+
+    // Settled: the log is read; what a long chat costs on its own.
+    let rounds = ROUNDS as u64;
+    let (attach_us, attach_records, attach_error) =
+        timed_rounds(&mut rpc, "_acpmux/attach", rounds, |_| app_attach(&id));
+    let last = w.last_seq;
+    let (newest_us, newest_records, newest_error) =
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, |_| older_params(&id, last + 1));
+    // Scroll up at three depths, a page further each round so no round reads the last one's:
+    // just under the newest page, the middle, and near the chat's start.
+    let at = |from: u64, round: u64| from.saturating_sub(round * OLDER_PAGE_LIMIT).max(2);
+    let (recent_us, _, recent_error) = timed_rounds(&mut rpc, "_acpmux/events", rounds, |r| {
+        older_params(&id, at(last.saturating_sub(OLDER_PAGE_LIMIT), r))
+    });
+    let (mid_us, _, mid_error) =
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, |r| older_params(&id, at(last / 2, r)));
+    let deep_from = (last / 20).max(OLDER_PAGE_LIMIT * (rounds + 1));
+    let (deep_us, _, deep_error) = timed_rounds(&mut rpc, "_acpmux/events", rounds, |r| {
+        older_params(&id, at(deep_from.min(last), r))
+    });
+    // The rail's prompt index (direct.ts `readPromptIndex`).
+    let (prompt_index_us, prompt_index_rows, prompt_index_error) =
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, |_| {
+            json!({"sessionId": id, "beforeSeq": last + 1, "promptIndex": true,
+                   "kinds": ["user_message"], "limit": 5000, "maxBytes": 256 << 10})
+        });
+    // A forward read from the middle (a reconnect's catch-up, a rail jump's `loadThrough`).
+    let (forward_us, _, forward_error) = timed_rounds(&mut rpc, "_acpmux/events", rounds, |r| {
+        json!({"sessionId": id, "afterSeq": last / 2 + r * OLDER_PAGE_LIMIT,
+               "limit": OLDER_PAGE_LIMIT, "maxBytes": OLDER_PAGE_BYTES})
+    });
+    let (rss_idle, _) = daemon.rss();
+
+    // Typing: a prompt to its first token; the first starts the agent host.
+    let (mut sends, mut send_error) = (vec![], Value::Null);
+    for round in 0..ROUNDS {
+        match send_first_token(&mut rpc, &id, &format!("size {label} {round}")) {
+            Ok(us) => sends.push(us),
+            Err(e) => {
+                send_error = e;
+                break;
+            }
+        }
+    }
+    let first_send_ms = sends.first().map(|us| us / 1000);
+    let later_sends = sends.get(1..).unwrap_or_default();
+    let (rss, peak_rss) = daemon.rss();
+    let last_before_restart =
+        rpc.call("_acpmux/attach", app_attach(&id)).ok().and_then(|a| a["lastSeq"].as_u64());
+    drop(rpc);
+
+    // Restart with the agent host up: the new daemon adopts it (hub/hosts/journal.rs) and the
+    // pane opens the chat again.
+    let stopped = Instant::now();
+    daemon.stop();
+    let shutdown_ms = ms(stopped);
+    let mut daemon = Daemon::start(&scratch, &home, None);
+    let mut rpc = Rpc::connect(&daemon.socket);
+    rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
+        .unwrap();
+    let restart_attach = rpc.call("_acpmux/attach", app_attach(&id));
+    let restart_attach_ms = ms(daemon.spawned);
+    rpc.notes.clear();
+    let restart_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
+    let adopted = rpc
+        .call(
+            "_acpmux/events",
+            json!({"sessionId": id, "beforeSeq": u64::MAX / 2, "limit": 1, "kinds": ["host_adopted"]}),
+        )
+        .ok()
+        .and_then(|p| oldest_seq(&p))
+        .zip(last_before_restart)
+        .is_some_and(|(seq, before)| seq > before);
+    let restart_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted"));
+    let (restart_rss, restart_peak_rss) = daemon.rss();
+    drop(rpc);
+    daemon.stop();
+    let home_bytes: u64 = home_files(&home).values().sum();
+    json!({
+        "size": label, "bytes": bytes, "logBytes": w.bytes, "records": w.records,
+        "turns": w.turns, "lastSeq": w.last_seq, "segments": segments,
+        "bytesPerRecord": w.bytes / w.records.max(1), "recordsPerTurn": w.records / w.turns.max(1),
+        "largestToolOutput": w.largest_output, "writeMs": write_ms,
+        "coldAttachMs": cold_attach_ms, "coldAttachUs": cold_attach_us,
+        "coldAttachRecords": cold_records, "coldAttachError": cold.as_ref().err(),
+        "coldAllLogsMs": cold_all_logs.as_ref().ok(), "coldAllLogsError": cold_all_logs.as_ref().err(),
+        "rssAfterLoad": rss_after_load,
+        "attachUs": attach_us, "attachRecords": attach_records, "attachError": attach_error,
+        "newestPageUs": newest_us, "newestPageRecords": newest_records, "newestPageError": newest_error,
+        "scrollRecentUs": recent_us, "scrollRecentError": recent_error,
+        "scrollMidUs": mid_us, "scrollMidError": mid_error,
+        "scrollDeepUs": deep_us, "scrollDeepError": deep_error,
+        "promptIndexUs": prompt_index_us, "promptIndexRows": prompt_index_rows,
+        "promptIndexError": prompt_index_error,
+        "forwardPageUs": forward_us, "forwardPageError": forward_error,
+        "rssIdle": rss_idle,
+        "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
+        "sendError": send_error,
+        "rss": rss, "peakRss": peak_rss, "shutdownMs": shutdown_ms,
+        "restartAttachMs": restart_attach_ms, "restartAttachError": restart_attach.as_ref().err(),
+        "restartAllLogsMs": restart_all_logs.as_ref().ok(),
+        "restartAllLogsError": restart_all_logs.as_ref().err(), "restartAdopted": adopted,
+        "restartSendFirstTokenUs": restart_send.as_ref().ok(),
+        "restartSendError": restart_send.as_ref().err(),
+        "restartRss": restart_rss, "restartPeakRss": restart_peak_rss,
+        "homeBytes": home_bytes, "freeBytes": free,
+    })
+}
+
+/// What each size costs against the first (1 MB): the numbers of the goal (open, scroll,
+/// typing, memory), and the startup loads beside them, which are not in the max.
+const SIZE_RATIO_KEYS: [&str; 16] = [
+    "/coldAttachMs",
+    "/attachUs/p50",
+    "/attachUs/p95",
+    "/newestPageUs/p50",
+    "/scrollRecentUs/p50",
+    "/scrollMidUs/p50",
+    "/scrollDeepUs/p50",
+    "/promptIndexUs/p50",
+    "/forwardPageUs/p50",
+    "/sendFirstTokenUs/p50",
+    "/sendFirstTokenUs/p95",
+    "/restartAttachMs",
+    "/restartSendFirstTokenUs",
+    "/rssIdle",
+    "/peakRss",
+    "/restartPeakRss",
+];
+const SIZE_LOAD_KEYS: [&str; 2] = ["/coldAllLogsMs", "/restartAllLogsMs"];
+
+/// Each size's numbers against the first size's, and the largest ratio of [`SIZE_RATIO_KEYS`].
+fn size_ratios(base: &Value, size: &Value) -> (Value, Option<(String, f64)>) {
+    let mut ratios = serde_json::Map::new();
+    let mut max: Option<(String, f64)> = None;
+    for (key, counted) in
+        SIZE_RATIO_KEYS.iter().map(|k| (k, true)).chain(SIZE_LOAD_KEYS.iter().map(|k| (k, false)))
+    {
+        let (Some(b), Some(s)) =
+            (base.pointer(key).and_then(Value::as_f64), size.pointer(key).and_then(Value::as_f64))
+        else {
+            continue;
+        };
+        if b <= 0.0 {
+            continue;
+        }
+        let r = s / b;
+        ratios.insert((*key).to_owned(), json!((r * 100.0).round() / 100.0));
+        if counted && max.as_ref().is_none_or(|(_, m)| r > *m) {
+            max = Some(((*key).to_owned(), r));
+        }
+    }
+    (Value::Object(ratios), max)
+}
+
+/// The sweep: `CHAT-SIZE {...}` per size, `CHAT-SIZE-RATIO {...}` per size against the first,
+/// and `infinite_chat_size_ratio_max <ratio> <key> <size>` (the daemon's part of the goal).
+/// Manual, on Linux CI (release): `ACPMUX_CHAT_SIZES=1M,100M,1G,4G cargo test -p acpmux --release
+/// --test god_daemon chat_size_sweep -- --ignored --nocapture`.
+#[test]
+#[ignore = "manual: writes chats up to 4 GB; run on Linux CI"]
+fn chat_size_sweep() {
+    let sizes = std::env::var("ACPMUX_CHAT_SIZES").unwrap_or_else(|_| CHAT_SIZES.to_owned());
+    let mut results: Vec<Value> = vec![];
+    let mut worst: Option<(String, f64, String)> = None;
+    for label in sizes.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        let result = size_run(label, parse_size(label));
+        println!("CHAT-SIZE {result}");
+        if let Some(base) = results.first().filter(|_| result["skipped"].is_null()) {
+            let (ratios, max) = size_ratios(base, &result);
+            println!(
+                "CHAT-SIZE-RATIO {}",
+                json!({"size": label, "vs": base["size"], "ratios": ratios,
+                     "max": max.as_ref().map(|(k, r)| json!({"key": k, "ratio": r}))})
+            );
+            if let Some((key, r)) = max
+                && worst.as_ref().is_none_or(|(_, w, _)| r > *w)
+            {
+                worst = Some((key, r, label.to_owned()));
+            }
+        }
+        results.push(result);
+    }
+    match &worst {
+        Some((key, r, label)) => println!("infinite_chat_size_ratio_max {r:.2} {key} {label}"),
+        None => println!("infinite_chat_size_ratio_max null"),
+    }
+    // A step that failed reads as no time at all: the run fails, every size printed.
+    for r in &results {
+        for key in [
+            "coldAttachError",
+            "attachError",
+            "newestPageError",
+            "scrollRecentError",
+            "scrollMidError",
+            "scrollDeepError",
+            "promptIndexError",
+            "forwardPageError",
+            "sendError",
+            "restartAttachError",
+            "restartSendError",
+        ] {
+            assert!(r[key].is_null(), "{}: {key} {}", r["size"], r[key]);
         }
     }
 }
