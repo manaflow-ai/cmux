@@ -180,44 +180,64 @@ public final class FeedStore {
 
     public private(set) var items: [FeedItem] {
         didSet {
-            guard items != oldValue else { return }
-            // Events read before (this launch or an earlier one) stay read when the Mac
-            // reports them again.
-            if items.contains(where: { !$0.isRead && readSet.contains($0.id) }) {
-                items = items.map { item in
-                    var item = item
-                    if readSet.contains(item.id) { item.isRead = true }
-                    return item
-                }
+            // Inside `batch`: lookups stay right, the derived work waits for the batch's end.
+            if batchDepth > 0 {
+                itemIndexStale = true
                 return
             }
-            // A done event that left the window stays done when the Mac reports it again.
-            if !evictedDoneSet.isEmpty, items.contains(where: { !$0.isDone && evictedDoneSet.contains($0.id) }) {
-                items = items.map { item in
-                    var item = item
-                    if evictedDoneSet.contains(item.id) { item.isDone = true }
-                    return item
-                }
-                return
-            }
-            reindex()
-            derivedRuns += 1
-            recordReadMarks()
-            refreshDerived()
-            #if DEBUG
-            if FeedStressRig.shared.config.logsChurn { FeedStore.logChange(from: oldValue, to: items) }
-            #endif
-            onItemsChange?(items)
+            itemsChanged(from: oldValue)
         }
     }
 
-    /// Runs `body`'s writes (each one a Feed change of its own here).
+    /// Runs `body`'s writes as one change: the comparison, read marks, derived lists and
+    /// `onItemsChange` run once at its end, not once per upsert, remove or resolve. A ledger
+    /// read on a busy Mac writes many items at once, and each write ran all of them.
     public func batch(_ body: () -> Void) {
+        if batchDepth == 0 { batchStart = items }
+        batchDepth += 1
         body()
+        batchDepth -= 1
+        guard batchDepth == 0, let start = batchStart else { return }
+        batchStart = nil
+        itemsChanged(from: start)
     }
 
+    @ObservationIgnored private var batchDepth = 0
+    @ObservationIgnored private var batchStart: [FeedItem]?
     /// Item changes that ran the derived work (tests: once per batch).
     @ObservationIgnored public private(set) var derivedRuns = 0
+
+    /// What follows a change of `items` (once per write, or once per `batch`).
+    private func itemsChanged(from oldValue: [FeedItem]) {
+        guard items != oldValue else { return }
+        // Events read before (this launch or an earlier one) stay read when the Mac
+        // reports them again.
+        if items.contains(where: { !$0.isRead && readSet.contains($0.id) }) {
+            items = items.map { item in
+                var item = item
+                if readSet.contains(item.id) { item.isRead = true }
+                return item
+            }
+            return
+        }
+        // A done event that left the window stays done when the Mac reports it again.
+        if !evictedDoneSet.isEmpty, items.contains(where: { !$0.isDone && evictedDoneSet.contains($0.id) }) {
+            items = items.map { item in
+                var item = item
+                if evictedDoneSet.contains(item.id) { item.isDone = true }
+                return item
+            }
+            return
+        }
+        reindex()
+        derivedRuns += 1
+        recordReadMarks()
+        refreshDerived()
+        #if DEBUG
+        if FeedStressRig.shared.config.logsChurn { FeedStore.logChange(from: oldValue, to: items) }
+        #endif
+        onItemsChange?(items)
+    }
 
     /// How many events the Feed holds in memory: the newest, plus any open ask
     /// older than them (an ask is never dropped while it waits for an answer).
@@ -449,13 +469,20 @@ public final class FeedStore {
     @ObservationIgnored private var readSet: Set<String> = []
     /// Where each item is in `items`, by id: lookups from the live ledger (one per entry,
     /// per tree update) were linear scans.
-    @ObservationIgnored private var itemIndex: [String: Int] = [:]
+    private var itemIndex: [String: Int] {
+        if itemIndexStale { reindex() }
+        return itemIndexStorage
+    }
+    @ObservationIgnored private var itemIndexStorage: [String: Int] = [:]
+    /// Items were written inside a `batch`: the index is rebuilt at its next read.
+    @ObservationIgnored private var itemIndexStale = false
 
     private func reindex() {
         var index: [String: Int] = [:]
         index.reserveCapacity(items.count)
         for (offset, item) in items.enumerated() where index[item.id] == nil { index[item.id] = offset }
-        itemIndex = index
+        itemIndexStorage = index
+        itemIndexStale = false
     }
 
     private func recordReadMarks() {

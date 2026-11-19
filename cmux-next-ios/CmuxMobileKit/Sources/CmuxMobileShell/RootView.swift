@@ -730,8 +730,11 @@ private struct WorkspaceDataObserver: ViewModifier {
     let shell: ShellModel
 
     func body(content: Content) -> some View {
+        // Keyed on the store's revision and the active space's Macs, never on the workspaces
+        // themselves: comparing every workspace (twice, filtered once more for the active
+        // space) ran on each Mac update while the person scrolled any tab.
         content
-            .onChange(of: shell.store.activeWorkspaces) { _, _ in
+            .onChange(of: ActiveWorkspacesKey(store: shell.store)) { _, _ in
                 shell.continueRestore()
             }
             .onChange(of: shell.store.macData) { _, _ in
@@ -742,13 +745,27 @@ private struct WorkspaceDataObserver: ViewModifier {
             .onChange(of: shell.live?.workspaces.tree?.surfaces ?? [:]) { _, _ in
                 shell.terminalTabs.liveDataChanged()
             }
-            .onChange(of: shell.store.workspaces) { _, _ in
+            .onChange(of: shell.store.workspacesRevision) { _, _ in
                 // A terminal page shown before the tree arrived (a launch
                 // restore) attaches now (design/terminal R1-0).
                 shell.terminalTabs.liveDataChanged()
                 // A tapped notification waits for its Mac's tree (a cold launch), then opens.
                 if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
             }
+    }
+}
+
+/// What the active space's workspaces depend on, in a few integers and ids: the store's
+/// revision (any workspace changed), the active space and its Macs.
+private struct ActiveWorkspacesKey: Equatable {
+    var revision: Int
+    var teamID: String
+    var macIDs: [String]
+
+    @MainActor init(store: AppStore) {
+        revision = store.workspacesRevision
+        teamID = store.activeTeamID
+        macIDs = store.activeTeam?.macs.map(\.id) ?? []
     }
 }
 

@@ -27,6 +27,9 @@ final class MacSession {
 
     /// The last tree this Mac sent.
     var tree: DaemonTree?
+    /// The acpmux sessions' open asks go to the workspace rows at the next display frame
+    /// (`LiveCoordinator.wire`): one mapping of every session per frame, not per watch event.
+    var pendingSyncScheduled = false
     /// The link to this Mac (identity: a newer link replaces it).
     var currentLink: (any MacLink)?
     /// `currentLink` once its `auth` channel opened (at once without pairing keys): what

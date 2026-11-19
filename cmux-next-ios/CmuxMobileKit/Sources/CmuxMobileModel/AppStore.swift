@@ -24,8 +24,14 @@ public final class AppStore {
     }
     @ObservationIgnored private var workspaceStorage: [Workspace]
     /// Moves on every change of `workspaces`: what reads them can key a memo
-    /// on it instead of comparing every workspace (read it with `workspaces`).
-    @ObservationIgnored public private(set) var workspacesRevision = 0
+    /// on it instead of comparing every workspace. Observed, so a view or an
+    /// `onChange` can follow the workspaces by this one integer (comparing every
+    /// workspace on each Mac update ran while the person scrolled).
+    public private(set) var workspacesRevision = 0
+    /// Where each workspace is in `workspaces`, by id, as of `workspaceIndexRevision`
+    /// (`updateWorkspaces` finds a changed row without scanning the list).
+    @ObservationIgnored private var workspaceIndex: [String: Int] = [:]
+    @ObservationIgnored private var workspaceIndexRevision = -1
     /// Row writes by `updateWorkspaces` (tests: O(changed) per publication).
     @ObservationIgnored public private(set) var rowWrites = 0
     /// The active team's workspaces that need attention (the Workspaces tab
@@ -186,16 +192,53 @@ public final class AppStore {
 
     /// Reconciles metadata for existing rows without rebuilding or comparing
     /// every tab on the Mac. Topology changes still use `replaceWorkspaces`.
+    /// O(changed rows): each row is found by id (`workspaceIndex`), and every change of one
+    /// publication lands in one write, one notification and one revision, with the attention
+    /// count moved by the changed rows alone. A busy Mac publishes once a display frame
+    /// (`WorkspaceSync`), and each row written on its own copied, compared and recounted the
+    /// whole list per row.
     public func updateWorkspaces(macID: String, rows: [Workspace]) {
+        guard !rows.isEmpty else { return }
         var rows = rows
         groupEdits.apply(to: &rows, now: now())
+        var changes: [(index: Int, row: Workspace)] = []
         for row in rows {
-            guard !pendingWorkspaceIDs.contains(row.id),
-                  let index = workspaces.firstIndex(where: { $0.macID == macID && $0.id == row.id }),
-                  workspaces[index] != row else { continue }
-            workspaces[index] = row
-            rowWrites += 1
+            guard !pendingWorkspaceIDs.contains(row.id), let index = index(ofWorkspace: row.id, macID: macID),
+                  workspaceStorage[index] != row else { continue }
+            changes.append((index, row))
         }
+        guard !changes.isEmpty else { return }
+        let activeMacIDs = Set(activeTeam?.macs.map(\.id) ?? [])
+        var attention = attentionCount
+        withMutation(keyPath: \.workspaces) {
+            for change in changes {
+                if activeMacIDs.contains(macID) {
+                    attention += (change.row.needsAttention ? 1 : 0) - (workspaceStorage[change.index].needsAttention ? 1 : 0)
+                }
+                workspaceStorage[change.index] = change.row
+            }
+        }
+        rowWrites += changes.count
+        let indexWasCurrent = workspaceIndexRevision == workspacesRevision
+        workspacesRevision &+= 1
+        // Rows changed in place: every row is still where it was.
+        if indexWasCurrent { workspaceIndexRevision = workspacesRevision }
+        if attention != attentionCount { attentionCount = attention }
+    }
+
+    /// The position of workspace `id` of `macID`, from the id map (rebuilt only after the list
+    /// itself changed shape); a repeated id on another Mac falls back to a scan.
+    private func index(ofWorkspace id: String, macID: String) -> Int? {
+        if workspaceIndexRevision != workspacesRevision {
+            var map: [String: Int] = [:]
+            map.reserveCapacity(workspaceStorage.count)
+            for (offset, workspace) in workspaceStorage.enumerated() where map[workspace.id] == nil { map[workspace.id] = offset }
+            workspaceIndex = map
+            workspaceIndexRevision = workspacesRevision
+        }
+        guard let index = workspaceIndex[id] else { return nil }
+        if workspaceStorage[index].macID == macID { return index }
+        return workspaceStorage.firstIndex { $0.macID == macID && $0.id == id }
     }
 
     /// `current` with one Mac's rows replaced by `next` in place: the Mac's

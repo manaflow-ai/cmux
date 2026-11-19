@@ -61,13 +61,16 @@ public final class MacNeedsYouFeed {
 
     func apply(_ requests: [Request], macID: String) {
         var next: Set<String> = []
-        for request in requests {
-            let item = Self.item(request, macID: macID)
-            next.insert(item.id)
-            store.upsert(item, atTop: true)
+        // The Mac's whole set is one Feed change, not one per request.
+        store.batch {
+            for request in requests {
+                let item = Self.item(request, macID: macID)
+                next.insert(item.id)
+                store.upsert(item, atTop: true)
+            }
+            // Answered, cancelled or expired on the Mac: it leaves the Feed (and its push, NeedsYouNotices).
+            for id in shown.subtracting(next) where store.item(id: id) != nil { store.remove(id) }
         }
-        // Answered, cancelled or expired on the Mac: it leaves the Feed (and its push, NeedsYouNotices).
-        for id in shown.subtracting(next) where store.item(id: id) != nil { store.remove(id) }
         shown = next
         store.macRequestsRead.insert(macID)
     }

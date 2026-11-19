@@ -220,14 +220,18 @@ public final class TerminalFeed {
         }
         let changed = changedWorkspaceIDs == nil && tree.notificationMarkers != markers
         markers = tree.notificationMarkers
-        apply(changedWorkspaceIDs: changedWorkspaceIDs)
-        // Back at work or no longer waiting: the asks shown on that terminal were answered there.
-        // An ask that arrives later waits again.
-        for entry in entries {
-            guard let surface = entry.surface, resumed.contains(surface) else { continue }
-            let id = Self.itemID(macID: macID, entry: entry.id)
-            if let item = store.item(id: id), item.waitsInTerminal {
-                store.resolveElsewhere(id, text: "Answered in the terminal")
+        // One Feed change for the whole tree, not one per item it touches.
+        store.batch {
+            apply(changedWorkspaceIDs: changedWorkspaceIDs)
+            // Back at work or no longer waiting: the asks shown on that terminal were answered there.
+            // An ask that arrives later waits again.
+            guard !resumed.isEmpty else { return }
+            for entry in entries {
+                guard let surface = entry.surface, resumed.contains(surface) else { continue }
+                let id = Self.itemID(macID: macID, entry: entry.id)
+                if let item = store.item(id: id), item.waitsInTerminal {
+                    store.resolveElsewhere(id, text: "Answered in the terminal")
+                }
             }
         }
         if !hydrated || changed { Task { await refresh() } }
@@ -268,9 +272,11 @@ public final class TerminalFeed {
             guard let request, let connection = self.connection else { return }
             do {
                 let reply = try await request("list-notifications", ["limit": Self.limit], connection)
+                // Parsed off the main thread: up to `limit` rows of JSON on every notification.
+                let ledger = try await Task.detached(priority: .userInitiated) { try Self.entries(ledger: reply) }.value
                 // A newer connection queued its own read (`dirty`): go round again.
                 guard generation == self.generation else { continue }
-                apply(ledger: try WorkspaceSync.check(reply))
+                apply(entries: ledger)
             } catch let error as DaemonReplyError {
                 // An older Mac without the ledger (`notification-ack-v1`): no terminal events.
                 if generation == self.generation { unsupported = true }
@@ -286,19 +292,35 @@ public final class TerminalFeed {
     /// The Mac cleared its notifications (Clear All Notifications): their
     /// terminal events leave the Feed, then the ledger is read again.
     public func cleared() {
-        for entry in entries {
-            let id = Self.itemID(macID: macID, entry: entry.id)
-            if store.item(id: id) != nil { store.remove(id) }
+        store.batch {
+            for entry in entries {
+                let id = Self.itemID(macID: macID, entry: entry.id)
+                if store.item(id: id) != nil { store.remove(id) }
+            }
         }
         entries = []
         Task { await refresh() }
     }
 
     func apply(ledger reply: [String: Any]) {
+        apply(entries: Self.entries(ledger: reply))
+    }
+
+    /// A `list-notifications` reply's rows, oldest first (any thread).
+    nonisolated static func entries(ledger reply: Data) throws -> [Entry] {
+        entries(ledger: try WorkspaceSync.check(reply))
+    }
+
+    nonisolated static func entries(ledger reply: [String: Any]) -> [Entry] {
         let rows = ((reply["data"] as? [String: Any])?["notifications"] as? [[String: Any]]) ?? []
-        entries = rows.compactMap(Entry.init(json:)).sorted { $0.createdAt < $1.createdAt }
+        return rows.compactMap(Entry.init(json:)).sorted { $0.createdAt < $1.createdAt }
+    }
+
+    /// Maps a ledger read onto the Feed in one Feed change.
+    func apply(entries ledger: [Entry]) {
+        entries = ledger
         if !hydrated { historyIDs = Set(entries.map(\.id)) }
-        apply()
+        store.batch { apply() }
         // An older Mac's texts are for this ledger read's new rows only, never a later row's
         // (a tree change between the event and this read must not drop them).
         if hydrated { unclaimed = [:] }

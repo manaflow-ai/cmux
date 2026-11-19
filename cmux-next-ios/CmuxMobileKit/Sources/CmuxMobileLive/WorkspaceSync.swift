@@ -53,8 +53,16 @@ public final class WorkspaceSync {
     /// coverage starts before the arrangement requests, not before the list.
     @ObservationIgnored private var arrangementSequence: UInt64 = 0
     @ObservationIgnored private var pendingChanged = false
+    /// Live updates waiting for the next display frame (`publish`).
+    private struct PendingPublication {
+        var tree: DaemonTree
+        var changedWorkspaceIDs: Set<String>
+        var agentChanged: Bool
+        var topology: Bool
+    }
+    @ObservationIgnored private var pendingPublication: PendingPublication?
     /// Runs a publication at the next display frame (tests run it by hand).
-    @ObservationIgnored var nextFrame: @MainActor (@escaping @MainActor () -> Void) -> Void = { $0() }
+    @ObservationIgnored var nextFrame: @MainActor (@escaping @MainActor () -> Void) -> Void = NextDisplayFrame.schedule
     /// Live publications made (tests: at most one a frame).
     @ObservationIgnored private(set) var publications = 0
     @ObservationIgnored private var initializing = false
@@ -247,6 +255,7 @@ public final class WorkspaceSync {
             // Setup subscribed before its list. Replay every setup event;
             // reply arrival is not a watermark for the captured snapshot.
             discardBeforeSnapshot()
+            dropPendingPublication()
             tree = next
             lastError = nil
             initializing = false
@@ -296,6 +305,7 @@ public final class WorkspaceSync {
         snapshotSequence = 0
         arrangementSequence = 0
         pendingChanged = false
+        pendingPublication = nil
         initializing = false
         dirty = false
     }
@@ -460,15 +470,48 @@ public final class WorkspaceSync {
         lastPromptAt[surface] = max(lastPromptAt[surface] ?? at, at)
     }
 
+    /// One live event's update, gathered into the next display frame's publication: a busy Mac
+    /// sends hundreds of title and agent events a second, and each one published on its own ran
+    /// the store, the lists and the Feed's derived state once per event, on the main thread,
+    /// while the person scrolled. The screen shows at most one state a frame, so the store gets
+    /// at most one publication a frame, of every row that changed since the last.
     private func publish(_ update: WorkspaceProjection.Update, agentChanged: Bool) {
-        publications += 1
-        tree = update.tree
         lastError = nil
-        if !update.topology, let onRows {
-            onRows(update.tree, update.changedWorkspaceIDs, agentChanged)
-        } else {
-            onTree?(update.tree)
+        if var pending = pendingPublication {
+            pending.tree = update.tree
+            pending.changedWorkspaceIDs.formUnion(update.changedWorkspaceIDs)
+            pending.agentChanged = pending.agentChanged || agentChanged
+            pending.topology = pending.topology || update.topology
+            pendingPublication = pending
+            return
         }
+        pendingPublication = PendingPublication(tree: update.tree, changedWorkspaceIDs: update.changedWorkspaceIDs,
+                                                agentChanged: agentChanged, topology: update.topology)
+        let serial = connectionSerial
+        nextFrame { [weak self] in
+            guard let self, self.connectionSerial == serial else { return }
+            self.flushPublication()
+        }
+    }
+
+    /// Publishes what the frame gathered (`publish`): its newest tree, and the rows changed since
+    /// the last publication, or the whole tree when any of them changed topology.
+    // perf-hot: 1/frame workspace-sync-publish
+    func flushPublication() {
+        guard let pending = pendingPublication else { return }
+        pendingPublication = nil
+        publications += 1
+        tree = pending.tree
+        if !pending.topology, let onRows {
+            onRows(pending.tree, pending.changedWorkspaceIDs, pending.agentChanged)
+        } else {
+            onTree?(pending.tree)
+        }
+    }
+
+    /// A whole tree (a list or a bind) replaces what the frame gathered: it holds every row.
+    private func dropPendingPublication() {
+        pendingPublication = nil
     }
 
     private nonisolated static func decodeSetup(_ replies: [Result<Data, any Error>]) throws -> (identity: String?, agents: AgentStates, listsKnown: Bool) {
@@ -533,6 +576,7 @@ public final class WorkspaceSync {
                         discardBeforeSnapshot()
                         lastError = nil
                         if let next {
+                            dropPendingPublication()
                             tree = next
                             onTree?(next)
                         }
@@ -545,6 +589,7 @@ public final class WorkspaceSync {
                     snapshotSequence = coveredThrough
                     if reloadArrangement { arrangementSequence = arrangementCoveredThrough }
                     discardBeforeSnapshot()
+                    dropPendingPublication()
                     tree = next
                     lastError = nil
                     onTree?(next)
