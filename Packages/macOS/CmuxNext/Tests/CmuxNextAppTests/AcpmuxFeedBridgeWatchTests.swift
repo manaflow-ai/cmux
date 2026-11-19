@@ -19,6 +19,8 @@ struct AcpmuxFeedBridgeWatchTests {
         let params = try #require(watch["params"] as? [String: Any])
         #expect(params["enabled"] as? Bool == true)
         #expect(params["limit"] as? Int == 1)
+        // Its row changes carry ids and kind, all `handle` reads of them, never the ~7 KB row.
+        #expect(params["rows"] as? String == "ids")
     }
 
     // The chats with a prompt pending before the connection are read through

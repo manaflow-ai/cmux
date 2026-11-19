@@ -253,4 +253,23 @@ pub struct WatchParams {
     /// The `listEpoch` that `afterSeq` came with: a cursor of another daemon run is reset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub list_epoch: Option<String>,
+    /// What each `_acpmux/session_changed` of a chat this connection is not attached to carries;
+    /// absent or null is `full`. Every other notice of the watch (`harnesses_changed`,
+    /// `permission_pending`, peer states) is the same in every mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows: Option<WatchRows>,
+}
+
+/// `_acpmux/watch {rows}`: how much of a chat's row its change notices carry, for a watcher
+/// that draws no row (the app's harness and permission readers).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WatchRows {
+    /// The row (`session`), as before.
+    Full,
+    /// No row: `sessionId` (with `qualifiedSessionId` and `peer` for a peer's chat), `kind`,
+    /// `recordKind`, `seq`, `listSeq`, and `session` holding only `sessionId`.
+    Ids,
+    /// No `_acpmux/session_changed` of such a chat at all.
+    None,
 }

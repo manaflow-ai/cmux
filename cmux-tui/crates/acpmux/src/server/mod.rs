@@ -211,6 +211,9 @@ pub struct Conn {
     /// nothing and is hidden (`Conn::leaves_out_row`); changed only under `subs`. The show that
     /// ends it takes the count into one `_acpmux/lagged {watch: true}` (`view.rs`).
     rows_left_out: std::sync::atomic::AtomicU64,
+    /// What this watch's row changes of chats not attached here carry (`_acpmux/watch {rows}`,
+    /// [`WatchRows`]); an attached chat's always carry its whole row.
+    watch_rows: std::sync::atomic::AtomicU8,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -1751,6 +1754,7 @@ async fn serve_connection_from(
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         rows_left_out: std::sync::atomic::AtomicU64::new(0),
+        watch_rows: std::sync::atomic::AtomicU8::new(WatchRows::Full as u8),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -2194,6 +2198,33 @@ fn rows_lag(dropped: u64) -> Message {
     )
 }
 
+// What a watch's `_acpmux/session_changed` of a chat the connection is not attached to carries
+// (`_acpmux/watch {rows}`). The app's own watchers that draw no row (the harness settings'
+// `harnesses_changed` reader, the permission feed bridge) heard every chat's ~7 KB row on every
+// change all the same (Leo's Mac, 2026-11-19: about 284 MB a minute from acpmux to the app near
+// idle, after the hidden panes went quiet). Every other notice of the watch is unchanged.
+use crate::protocol::events::WatchRows;
+
+/// `rows` of a watch: absent or null is `full`.
+fn watch_rows_param(params: &Value) -> Result<WatchRows, RpcError> {
+    match params.get("rows") {
+        None | Some(Value::Null) => Ok(WatchRows::Full),
+        Some(rows) => serde_json::from_value(rows.clone())
+            .map_err(|_| RpcError::invalid_params("rows must be \"full\", \"ids\" or \"none\"")),
+    }
+}
+
+impl Conn {
+    /// What this watch's row changes of chats not attached here carry ([`WatchRows`]).
+    fn watch_rows(&self) -> WatchRows {
+        match self.watch_rows.load(Ordering::SeqCst) {
+            x if x == WatchRows::Ids as u8 => WatchRows::Ids,
+            x if x == WatchRows::None as u8 => WatchRows::None,
+            _ => WatchRows::Full,
+        }
+    }
+}
+
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     conn.controls.event(hub, conn, &ev);
@@ -2208,11 +2239,16 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // notice goes out for it.
     if ev.record.dir == crate::hub::COLD_CHANGED {
         let attached = conn.sub_opts(&ev.session_id).is_some();
+        let rows = conn.watch_rows();
         if (attached
-            || (conn.watch_all.load(Ordering::SeqCst) && !conn.leaves_out_row(&ev.session_id)))
+            || (conn.watch_all.load(Ordering::SeqCst)
+                && rows != WatchRows::None
+                && !conn.leaves_out_row(&ev.session_id)))
             && let Ok(s) = hub.resolve(&ev.session_id)
         {
-            let session = if attached || conn.watch_tools.load(Ordering::SeqCst) {
+            let session = if !attached && rows == WatchRows::Ids {
+                json!({"sessionId": ev.session_id})
+            } else if attached || conn.watch_tools.load(Ordering::SeqCst) {
                 hub.session_summary(&s)
             } else {
                 hub.session_list_summary(&s)
@@ -2354,6 +2390,8 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         }
     }
     if watching {
+        // A row change of a chat not attached here, as this watch asked for it (`WatchRows`).
+        let rows = if attached { WatchRows::Full } else { conn.watch_rows() };
         if let Some(remote) = &ev.remote {
             // A peer's prompt the person must answer, for a unix socket or app
             // watcher that did not attach the session (`hub/person.rs` (c)):
@@ -2374,6 +2412,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             // 25 peers, 2026-10-30), and the row's origin hears it from its own.
             if rec.dir == "peer"
                 && !view::a_link(conn)
+                && rows != WatchRows::None
                 && (attached || !conn.leaves_out_row(&ev.session_id))
             {
                 let sid = remote
@@ -2381,14 +2420,24 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                     .get("sessionId")
                     .cloned()
                     .unwrap_or_else(|| Value::String(ev.session_id.clone()));
+                let session = match rows {
+                    WatchRows::Ids => json!({"sessionId": sid}),
+                    _ if attached || conn.watch_tools.load(Ordering::SeqCst) => {
+                        remote.summary.clone()
+                    }
+                    _ => crate::hub::views::without_summary_tools(remote.summary.clone()),
+                };
                 conn.send(&Message::notification(
                     method::MUX_SESSION_CHANGED,
-                    json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": if attached || conn.watch_tools.load(Ordering::SeqCst) { remote.summary.clone() } else { crate::hub::views::without_summary_tools(remote.summary.clone()) }, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
+                    json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": session, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
                 ));
             }
             return;
         }
         if rec.dir == "mux" && rec.kind == "purged" {
+            if rows == WatchRows::None {
+                return;
+            }
             // `replaced`: the same chat came back under this id (`Session::replaced`).
             let mut params = json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq, "listSeq": ev.list_seq});
             if rec.msg.get("replaced") == Some(&Value::Bool(true)) {
@@ -2403,14 +2452,21 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
-        let row_left_out = !attached && conn.leaves_out_row(&ev.session_id);
+        let row_left_out =
+            rows == WatchRows::None || (!attached && conn.leaves_out_row(&ev.session_id));
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
         let [list_row, full_row] = &*ev.row;
         let row = if full { full_row } else { list_row };
+        let ids;
         let summary = match row.get() {
             _ if row_left_out => None,
+            // No row read or built for a watch that draws none.
+            _ if rows == WatchRows::Ids => {
+                ids = json!({"sessionId": ev.session_id});
+                Some(&ids)
+            }
             Some(summary) => Some(summary),
             None => hub.resolve(&ev.session_id).ok().map(|s| {
                 row.get_or_init(|| {
