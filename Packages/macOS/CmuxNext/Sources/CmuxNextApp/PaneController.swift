@@ -584,7 +584,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             || services.agentTabs.existingView(key) != nil || services.pages.existingView(key) != nil
             || services.newTabSpares.hasNativeAdoption(key)
             // A New Tab tab with no page view that takes an idle one at its show (the page that this pane leaves, or one that no window shows): no page is made.
-            || (daemon.isLocal && services.agentTabs.idlePage(for: services.agentTabs.tabKey(key, machine: daemon.machineID), leaving: currentTabKey) != nil)
+            || (daemon.isLocal && services.agentTabs.idlePage(for: services.agentTabs.tabKey(key, machine: daemon.machineID), leaving: self) != nil)
     }
 
     /// The layout reported this pane on screen, in the keep-alive band, or away.

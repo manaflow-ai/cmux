@@ -113,20 +113,23 @@ extension AgentTabStore {
         release(tabKey, machine: tabStores.entries.first { $0.key.key == tabKey && $0.value === store }?.key.machine)
     }
 
-    /// The page view of an untouched New Tab tab that no window shows (``idlePanes``), or of tab `leaving` (its pane leaves it now): the page view that the New Tab tab which a pane shows next
+    /// The page view of an untouched New Tab tab that no pane shows (``idlePanes``; pane `leaving`, which leaves its tab now, does not count, and that tab's page view is tried first): the page view that the New Tab tab which a pane shows next
     /// gets, so no page is made while such a one waits behind a tab. The view takes the next tab's own page at once (``adoptSpare(_:key:page:)``). `take` takes the view from its tab, which gets one again at its own next show.
-    /// Never the reserved workspace's page (the next Cmd-N's), never a page of another machine's tab. `tab`: nil also when that tab takes no such view at its show (the spare branch of ``view(for:machine:known:)``).
-    func idlePage(for tab: AgentTabKey? = nil, leaving: String? = nil, take: Bool = false) -> AgentPaneView? {
-        guard tab.map({ newTabPages[$0] != nil && sessions[$0] == nil && seeds[$0]?.holdsOnlyFolder ?? true && wakeStates[$0] == nil }) ?? true else { return nil }
-        guard let idle = views.firstMarked(take: take, where: { key, view in
+    /// Never the reserved workspace's page (the next Cmd-N's), never a page of another machine's tab, never the page of a tab that another window of the workspace draws or has selected. `tab`: nil also when that tab takes no such view at its show (``takesWarmPage(_:seed:known:)``).
+    func idlePage(for tab: AgentTabKey? = nil, leaving: PaneController? = nil, take: Bool = false) -> AgentPaneView? {
+        guard tab.map({ takesWarmPage($0, seed: seeds[$0] ?? unsentDrafts.seed(for: $0.key, session: nil)) }) ?? true else { return nil } // the seed that the take finds: the stored one, else the tab's kept draft
+        guard let idle = views.firstMarked(first: leaving?.currentTabKey.map({ resolve($0) }), take: take, where: { key, view in
             view.isUntouchedNewTab && !view.model.neverPooled && sessions[key] == nil && newTabPages[key] != nil && tabStores[key]?.reservedWorkspace?.tabKey != key.key
-                && (leaving.map { key.key == resolve($0) } == true || !aliases.names(key.key, where: idlePanes.draws))
+                && !aliases.names(key.key, where: { idlePanes.draws($0, leaving) })
         }) else { return nil }
         if take { idlePanes.letGo(idle.key.key) }
         return idle.value
     }
 
-    /// A page view that is there already, for a New Tab page that has none: an idle one first (``idlePage(for:leaving:take:)``), else the pool's
+    /// Whether the New Tab tab `tab` takes a page view that is there already at its show (``warmPage(_:leaving:)``): a tab of this Mac with no chat, no seed but a folder, no kept composer. The one rule of the prediction (``idlePage(for:leaving:take:)``) and of the take (``view(for:machine:known:leaving:)``, which has the tab's record: `known`).
+    func takesWarmPage(_ tab: AgentTabKey, seed: AgentPaneSeedSource?, known: (thisMac: Bool, record: AgentSessionRef)? = nil) -> Bool { guard newTabPages[tab] != nil, sessions[tab] == nil, seed?.holdsOnlyFolder ?? true, wakeStates[tab] == nil, !relaunchWake.mayHold(tab.relaunchKeyCandidates), let known = known ?? record(for: tab).map({ (thisMac: hostKind($0.record, listedHere: daemon(for: tab)?.isLocal != false) == .local, record: $0.record) }) else { return false }; return known.thisMac && known.record.session == nil }
+
+    /// A page view that is there already, for a New Tab page that has none: an idle one first (``idlePage(for:leaving:take:)``; `leaving`: the pane that shows the page's tab now), else the pool's
     /// spare (``takeSpare``).
-    func warmPage(_ refill: AgentPaneSpareRefill) -> AgentPaneView? { idlePage(take: true) ?? takeSpare?(refill) }
+    func warmPage(_ refill: AgentPaneSpareRefill, leaving: PaneController? = nil) -> AgentPaneView? { idlePage(leaving: leaving, take: true) ?? takeSpare?(refill) }
 }

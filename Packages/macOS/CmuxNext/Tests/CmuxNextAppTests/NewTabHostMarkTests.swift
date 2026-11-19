@@ -181,15 +181,15 @@ struct NewTabHostMarkTests {
     @Test func aLetterThatTheRouterQueuesForThePageMarksIt() async throws {
         try await Rows.row("cn-host-mark-type-ahead") { services, pane, _, _ in
             let (page, window) = try Self.shownPage(services, pane)
-            let shown = try #require(pane.currentTabKey, "setup: the pane shows no tab")
+            try #require(pane.currentTabKey != nil, "setup: the pane shows no tab")
             let tabs = services.agentTabs, router = services.keyRouter
-            try #require(tabs.idlePage(leaving: shown) === page, "setup: the store has no idle page for a pane that leaves the untouched tab: the row then proves nothing")
+            try #require(tabs.idlePage(leaving: pane) === page, "setup: the store has no idle page for a pane that leaves the untouched tab: the row then proves nothing")
             let queued = router.typesAhead(try Rows.keyDown("a", code: 0, command: false, in: window), in: window)
             defer { router.dropTypeAhead() }
             let focus = services.windowController(showing: pane).map { String(describing: $0.focus.state.resolved) } ?? "no window controller"
             try #require(queued && router.typeAhead.text == "a",
                          "setup: the key router did not queue the letter for the page. The page's field is ready: \(page.inputReadiness.isReady); the focus: \(focus)")
-            let idle = tabs.idlePage(leaving: shown)
+            let idle = tabs.idlePage(leaving: pane)
             print("NewTabHostMarkTests: a letter in the key router's queue for the shown page: \(Self.state(page)); the store has an idle page for a pane that leaves the tab: \(idle != nil)")
             #expect(page.model.hostTouch.marked && page.model.hostTouch.by == "type-ahead", "a letter that the key router queued for the page set no mark of the queue: \(Self.state(page))")
             #expect(idle == nil, "the store gives the page view with a queued letter to the next tab: the letter would be typed into another tab")

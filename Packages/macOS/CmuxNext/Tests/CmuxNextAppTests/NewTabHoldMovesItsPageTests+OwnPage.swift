@@ -9,7 +9,8 @@ import Testing
 /// Row 13. A pane has 12 New Tab tabs that the person did not use, each with a page view of its own, and it shows the
 /// last of them. One New Tab key. Want: the new tab has the page view of the tab that the pane showed at the key (the
 /// pane's own: it is in that pane, at that pane's size), not the page view of one of the 11 tabs behind it, and no
-/// page view is made.
+/// page view is made. The app's record of that open says `idle` and not `spare` (`AgentPaneSpareOpening`): the page
+/// is not the pool's.
 ///
 /// The setup makes the 12 page views by the product's own cold path: while each page view that the pane has counts as
 /// one that is never given away (`AgentPaneModel.neverPooled`, the mark of a page of another machine), a New Tab key
@@ -42,6 +43,8 @@ extension NewTabHoldMovesItsPageTests {
             NewTabPage.open(in: pane, seed: nil)
             let new = try #require(pane.currentTabKey, "setup: the pane shows no tab after the row's New Tab key")
             let took = tabs.existingView(new)
+            // The app's record of this open (`debug.new_tab` gives it to the measure scripts): the open's call wrote it last.
+            let record = services.newTabSpares.openings.last
             await NewTabPageAtItsFrameTests.frame(services)
             _ = views.read(pane, services)
             let at = pages.firstIndex { $0 === took }.map { String($0 + 1) } ?? "none"
@@ -49,8 +52,11 @@ extension NewTabHoldMovesItsPageTests {
                 NewTabHoldMovesItsPageTests: row 13, a New Tab key in a pane with \(behind + 1) untouched New Tab page views: at the \
                 return of the key's call the new tab has a page view: \(took != nil), the one of the tab that the pane showed at the \
                 key: \(took === own), the one of untouched tab \(at) of \(pages.count) in the strip's order; page views made by the \
-                key and its frame: \(views.count - before)
+                key and its frame: \(views.count - before); the app's record of the open says `idle`: \
+                \(record.map { String($0.idle) } ?? "no record"), `spare`: \(record.map { String($0.spare) } ?? "no record")
                 """)
+            #expect(record?.idle == true && record?.spare == false,
+                    "the app's record of an open that took an idle page does not say `idle` and not `spare`: a reader that asks for the pool's page (`spare`) must get no for it")
             #expect(took === own, "the new tab did not take the page view of the tab that its pane showed at the key: it has the one of untouched tab \(at) of \(pages.count)")
             #expect(views.count == before, "\(views.count - before) page view(s) made by a New Tab key in a pane with \(behind + 1) untouched page views")
         }

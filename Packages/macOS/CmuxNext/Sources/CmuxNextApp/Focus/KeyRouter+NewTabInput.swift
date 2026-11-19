@@ -306,6 +306,9 @@ final class NewTabInputCoordinator {
     /// The open put the page's tab on screen: leaving it now ends the hold at once.
     func didShow(in window: NSWindow?) { if let window { held(in: window)?.shown = true } }
 
+    /// The open showed its tab with a page view that was there before the key. When that view had the keyboard at the key, the hold has no owner, so an end with no field ready gives its keys to that view (`NewTabHoldKeyboard.newTabTook`).
+    func tookPage(in pane: PaneController) { if let window = pane.view.window, let entry = held(in: window), case let tabs = pane.services.agentTabs, let view = pane.stripModel.selectedID.flatMap({ tabs.existingView($0.rawValue) }), entry.opened.flatMap({ tabs.existingView($0) }) !== view { entry.keyboard.newTabTook(view) { Self.chromiumAgentPane(under: $0, in: window) } } } // not the view of the tab that the pane showed at the key: the selection did not move then
+
     /// The New Tab page `tab` this hold opened closed before the daemon made it: its held keys go with it.
     func drop(tab: String, in window: NSWindow?) { if let window, let entry = entry(for: window), (entry.pane?.currentTabKey ?? entry.pane?.stripModel.selectedID?.rawValue) == tab { entry.buffer.discard(); release(entry, why: "closed before created") } }
 

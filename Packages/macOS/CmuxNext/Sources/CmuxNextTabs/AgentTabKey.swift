@@ -41,7 +41,7 @@ public struct AgentTabMap<Value>: Sequence {
     /// The keys whose value `marks` took when it was written: a caller that looks for the few values of one kind
     /// (the New Tab pages among every chat's page view) reads these, never every key. The map's two writes (its
     /// subscript and ``removeValue(forKey:)``) are the only places that keep it, so no caller can leave it stale;
-    /// a value that changed its kind after its write leaves at the next ``firstMarked(take:where:)``.
+    /// a value that changed its kind after its write leaves at the next ``firstMarked(first:take:where:)``.
     public private(set) var marked: Set<AgentTabKey> = []
 
     public typealias Element = (key: AgentTabKey, value: Value)
@@ -119,9 +119,12 @@ public struct AgentTabMap<Value>: Sequence {
 
     /// A marked value that `wanted` takes, with its key; nil when there is none. `take` removes it from the map.
     /// A marked key whose value `marks` no longer takes (a New Tab page that became a chat) leaves the marks here,
-    /// so they stay few: that is the one change a call with no `take` makes.
-    public mutating func firstMarked(take: Bool = false, where wanted: (AgentTabKey, Value) -> Bool) -> Element? {
-        for key in marked {
+    /// so they stay few: that is the one change a call with no `take` makes. `first`: the tab id whose marked keys
+    /// the walk tries before each other key. The marks are a set, and the walk of a set has an order that changes
+    /// from run to run: a caller that has one value which it wants before the others (the page view of the tab that
+    /// a pane leaves, before a page view of another pane) names it here.
+    public mutating func firstMarked(first: String? = nil, take: Bool = false, where wanted: (AgentTabKey, Value) -> Bool) -> Element? {
+        for key in marked.filter({ $0.key == first }).map({ $0 }) + marked.filter({ $0.key != first }) {
             guard let value = storage[key], marks?(value) == true else {
                 marked.remove(key)
                 continue

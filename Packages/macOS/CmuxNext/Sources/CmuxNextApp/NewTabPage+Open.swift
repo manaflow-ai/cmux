@@ -76,9 +76,9 @@ extension NewTabPage {
         }
         // A pane of another machine shows the same page, never a prewarmed spare: a spare is connected
         // to this Mac's acpmux, and that pane's chat starts on its machine at the first send (cx-k21v).
-        // No spare either while an idle page waits (the untouched New Tab page that this pane leaves now, or one that no window shows): the new
+        // No spare either while an idle page waits (the untouched New Tab page that this pane leaves now, when no other window of the workspace draws that tab or has it selected, or one that no window shows): the new
         // tab takes that one when the pane shows it (`AgentTabStore.idlePage`), in this turn, so a hold of this key makes no page and uses no spare.
-        let spare = seed == nil && pane.daemon.isLocal && services.agentTabs.idlePage(leaving: pane.currentTabKey) == nil
+        let spare = seed == nil && pane.daemon.isLocal && services.agentTabs.idlePage(leaving: pane) == nil
             ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabSparePool.newTabContentSize(in: pane), still: { [weak strip = pane.view.stripView] in strip?.whenStill($0) }) })
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
@@ -99,11 +99,12 @@ extension NewTabPage {
         // scheduler at the next frame (`PaneController.apply`, the frame rule, decision 2026-11-16).
         let showedSpare = pane.selectedContentIsAlive && services.presentation.showNow(pane)
         if showedSpare {
+            services.keyRouter.newTabInputCoordinator.tookPage(in: pane) // the view that had the keyboard at the key can be the new tab's now: the hold then drops no key
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
         } else {
             BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true) }
         }
-        services.newTabSpares.record(.init(spare: spare != nil || showedSpare, crossWindow: spare?.crossWindow == true,
+        services.newTabSpares.record(.init(spare: spare != nil, idle: spare == nil && showedSpare, crossWindow: spare?.crossWindow == true, // idle: the tab took an idle page at its show (`AgentTabStore.idlePage`), no page of the pool
                                            milliseconds: NewTabSparePool.milliseconds(since: start), refit: spare?.refit == true))
         fillPaletteActions(services)
     }

@@ -4,6 +4,9 @@ public import AppKit
 /// has the keyboard then, but never to this: when nothing took the keyboard since the opening, the person typed those
 /// keys for the new page, and what would get them is the terminal he left. A typed line with Return ran there (a slow
 /// page start in a pane that is not the focused one, a Cmd-N that failed; in the nightly from 2026-10-11).
+///
+/// One case has no such view: the new tab took the page view that had the keyboard at the opening (the page of a New
+/// Tab tab that the person did not use). The person left nothing then, and the hold drops no key (``newTabTook(_:drawn:)``).
 @MainActor
 public final class NewTabHoldKeyboard {
     /// What a responder stands for when its own object can be made again while the hold lives; nil: itself.
@@ -47,6 +50,16 @@ public final class NewTabHoldKeyboard {
         if let editor = responder as? NSTextView, editor.isFieldEditor, let field = editor.delegate { return field }
         if let responder, let stand = standIn(responder) { return stand }
         return responder
+    }
+
+    /// The new tab has the page view `view` now, a view that was there before the opening. When what had the keyboard
+    /// at the opening is in that view, the person left nothing: the keys that he types go where the keyboard was, and
+    /// that is the new tab. The hold has no owner from now on, so an end with no field ready drops no key, and that
+    /// view gets each of them. The owner is in `view` when it is a view of it (a page's web view), or a page window
+    /// that draws it (`drawn`: the view that a window draws, for a page in Chromium, whose keys are in a child window).
+    public func newTabTook(_ view: NSView, drawn: (NSWindow) -> NSView?) {
+        guard let owner else { return }
+        if (owner as? NSView)?.isDescendant(of: view) == true || (owner as? NSWindow).flatMap(drawn) === view { self.owner = nil }
     }
 
     /// Whether a held key that `responder` would get is dropped. It counts the key.
