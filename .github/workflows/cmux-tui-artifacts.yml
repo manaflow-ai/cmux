@@ -1928,6 +1928,7 @@ jobs:
 
       # A projected checkout ends with its job: the next job on this runner gets the plain workspace path.
       - name: Unmount the projected checkout
+        id: projected-unmount
         if: always() && steps.projected.outputs.mode == 'projected'
         continue-on-error: true
         timeout-minutes: 2
@@ -1939,6 +1940,7 @@ jobs:
       # mirror and builds this commit's cmux-projection once per crate change, so the next job mounts. Bounded,
       # and never the job's red. An ephemeral runner never has the file, so it spends nothing here.
       - name: Prepare the next projected checkout
+        id: projected-seed
         if: always() && runner.os == 'Linux' && steps.projected.outputs.mode == 'checkout'
         continue-on-error: true
         timeout-minutes: 16
