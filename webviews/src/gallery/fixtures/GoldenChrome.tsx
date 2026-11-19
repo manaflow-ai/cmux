@@ -159,23 +159,42 @@ function SessionInfo({ placement }: { placement: string }) {
         ))}
       </div>
     );
+  const context: Array<[string, string, number]> = [
+    ["Messages", "61.2k", 6],
+    ["Tools", "14.8k", 2],
+    ["Memory", "8.3k", 1],
+  ];
   return (
     <aside className="gc-session" data-placement={placement}>
-      <div className="gc-session-head">
-        <Icon name="info" />
-        <span>Session Info</span>
-      </div>
-      {facts.map(([key, value]) => (
-        <div key={key} className="gc-session-row">
-          <span>{key}</span>
-          <b>{value}</b>
+      <section className="gc-session-section">
+        <div className="gc-session-head">
+          <span>Context</span>
+          <span className="gc-session-value">38% used</span>
         </div>
-      ))}
-      <div className="gc-session-bar" aria-label="Time breakdown">
-        <i style={{ flex: 5 }} />
-        <i style={{ flex: 3 }} />
-        <i style={{ flex: 2 }} />
-      </div>
+        <div className="gc-session-bar" aria-label="Context breakdown">
+          {context.map(([key, , flex]) => (
+            <i key={key} style={{ flex }} />
+          ))}
+          <i className="gc-session-free" style={{ flex: 16 }} />
+        </div>
+        {context.map(([key, value]) => (
+          <div key={key} className="gc-session-row">
+            <span>
+              <i className="gc-session-swatch" />
+              {key}
+            </span>
+            <b>{value}</b>
+          </div>
+        ))}
+      </section>
+      <section className="gc-session-section">
+        {facts.slice(0, 3).map(([key, value]) => (
+          <div key={key} className="gc-session-row">
+            <span>{key}</span>
+            <b>{value}</b>
+          </div>
+        ))}
+      </section>
     </aside>
   );
 }
