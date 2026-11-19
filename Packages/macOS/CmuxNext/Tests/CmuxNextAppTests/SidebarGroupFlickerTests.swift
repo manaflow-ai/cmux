@@ -320,7 +320,13 @@ import Testing
         for (index, frame) in frames.enumerated() {
             let h = frame.header
             // The rail draws with its header: never brighter or dimmer than the bar (a pass-over fade, a new line's fade).
-            if !(passes && seeThrough), frame.rail.shown, h.shown, abs(frame.rail.alpha - h.alpha) > 0.05 {
+            // An opening group's rail is new: it draws with the members it runs beside, which open under the same clip.
+            let opening = members.compactMap { frame.members[$0] }.filter(\.shown)
+            if opens, frame.rail.shown, let along = opening.map(\.alpha).max() {
+                if abs(frame.rail.alpha - along) > 0.05 {
+                    fail(index, "rail alpha \(frame.rail.alpha), its opening members' \(opening.map(\.alpha)) (rail \(frame.rail), header \(h))")
+                }
+            } else if !(passes && seeThrough), frame.rail.shown, h.shown, abs(frame.rail.alpha - h.alpha) > 0.05 {
                 fail(index, "rail alpha \(frame.rail.alpha), header alpha \(h.alpha) (rail \(frame.rail), header \(h))")
             }
             if folds { continue }
