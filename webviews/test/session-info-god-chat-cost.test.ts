@@ -56,7 +56,9 @@ await requireBrowserLane("session-info-god-chat-cost.test.ts", async () => {
     for (let press = 0; press <= PRESSES; press += 1) {
       const ms = await page.evaluate((target) => window.__press(target), selector);
       if (press > 0) times.push(ms);
-      await page.waitForTimeout(400);
+      // Settled: the fold's transition ran out and two frames painted after it.
+      await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== "running"));
+      await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
     }
     return p50(times);
   }
@@ -74,7 +76,7 @@ await requireBrowserLane("session-info-god-chat-cost.test.ts", async () => {
       const sources = await pressCost(page, HEADS.sources);
       const finished = await pressCost(page, HEADS.finished);
       const tasks = await pressCost(page, HEADS.tasks);
-      return { mode, ...shape, parse: p50(parses), sources, tasks, finished, finishedText };
+      return { ...shape, mode, parse: p50(parses), sources, tasks, finished, finishedText };
     } finally {
       await page.close();
     }
@@ -83,29 +85,34 @@ await requireBrowserLane("session-info-god-chat-cost.test.ts", async () => {
   // GOD_CHAT_BASE=1 measures only the whole list, on a base tree that has no window (the PR's before).
   test.if(process.env.GOD_CHAT_BASE === "1")("before: the whole list on base", async () => {
     const whole = await measure("whole");
-    console.log(`| base whole | ${whole.held} | ${whole.older} | ${whole.parse.toFixed(1)} | ${whole.sources.toFixed(1)} | ${whole.tasks.toFixed(1)} | ${whole.finished.toFixed(1)} | ${whole.finishedText.trim()} |`);
+    console.log(
+      `| base whole | ${whole.held} | ${whole.older} | ${whole.parse.toFixed(1)} | ${whole.sources.toFixed(1)} | ${whole.tasks.toFixed(1)} | ${whole.finished.toFixed(1)} | ${whole.finishedText.trim()} |`,
+    );
   });
 
-  test.if(process.env.GOD_CHAT_BASE !== "1")("a god chat's Session Info toggles in a frame, its count the whole history's", async () => {
-    const whole = await measure("whole");
-    const windowed = await measure("window");
-    const row = (r: typeof whole) =>
-      `| ${r.mode} | ${r.held} | ${r.older} | ${r.parse.toFixed(1)} | ${r.sources.toFixed(1)} | ${r.tasks.toFixed(1)} | ${r.finished.toFixed(1)} | ${r.finishedText.trim()} |`;
-    console.log(
-      [
-        "| registry | rows held | counted, not held | parse reply ms | Sources press-to-paint ms | Background tasks press-to-paint ms | finished fold press-to-paint ms | finished count |",
-        "|---|---|---|---|---|---|---|---|",
-        row(whole),
-        row(windowed),
-      ].join("\n"),
-    );
-    // The same count either way: the window's is the whole history's.
-    expect(windowed.finishedText.trim()).toBe(whole.finishedText.trim());
-    expect(windowed.finishedText).toBe(String(N - 1));
-    expect(windowed.held + windowed.older).toBe(N);
-    expect(windowed.held).toBeLessThan(1_000);
-    // A section toggles within about a frame at this length.
-    expect(windowed.sources).toBeLessThan(50);
-    expect(windowed.finished).toBeLessThan(50);
-  });
+  test.if(process.env.GOD_CHAT_BASE !== "1")(
+    "a god chat's Session Info toggles in a frame, its count the whole history's",
+    async () => {
+      const whole = await measure("whole");
+      const windowed = await measure("window");
+      const row = (r: typeof whole) =>
+        `| ${r.mode} | ${r.held} | ${r.older} | ${r.parse.toFixed(1)} | ${r.sources.toFixed(1)} | ${r.tasks.toFixed(1)} | ${r.finished.toFixed(1)} | ${r.finishedText.trim()} |`;
+      console.log(
+        [
+          "| registry | rows held | counted, not held | parse reply ms | Sources press-to-paint ms | Background tasks press-to-paint ms | finished fold press-to-paint ms | finished count |",
+          "|---|---|---|---|---|---|---|---|",
+          row(whole),
+          row(windowed),
+        ].join("\n"),
+      );
+      // The same count either way: the window's is the whole history's.
+      expect(windowed.finishedText.trim()).toBe(whole.finishedText.trim());
+      expect(windowed.finishedText).toBe(String(N - 1));
+      expect(windowed.held + windowed.older).toBe(N);
+      expect(windowed.held).toBeLessThan(1_000);
+      // A section toggles within about a frame at this length.
+      expect(windowed.sources).toBeLessThan(50);
+      expect(windowed.finished).toBeLessThan(50);
+    },
+  );
 });

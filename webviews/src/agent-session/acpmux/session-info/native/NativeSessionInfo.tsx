@@ -117,6 +117,9 @@ export type NativeSessionInfoProps = {
   statuses: Readonly<Record<string, SessionInfoPullRequestStatus>>;
   processes: readonly SessionInfoProcess[];
   listed: boolean;
+  /// Ended processes counted but not held, and the read of the next page of them (TasksSection).
+  olderProcesses?: number;
+  onLoadOlderProcesses?: () => void;
   transcriptTasks: readonly SummaryBackgroundTask[];
   sessions: readonly StartedSession[];
   workflows: readonly WorkflowSummary[];
@@ -526,6 +529,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           now,
           finishedOpen,
           onFinishedOpen: setFinishedOpen,
+          ...(props.olderProcesses ? { older: props.olderProcesses } : {}),
+          ...(props.onLoadOlderProcesses ? { onLoadOlder: props.onLoadOlderProcesses } : {}),
           phases,
           onPhase,
         },

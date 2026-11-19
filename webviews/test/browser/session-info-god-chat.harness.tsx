@@ -110,7 +110,9 @@ window.__press = async (selector: string) => {
   return performance.now() - start;
 };
 // The reply the page parses on open: every page of the whole list, or the one window reply.
-const reply = JSON.stringify({ processes: kept.map((process) => ({ ...process, sessionId: "god", detail: "x".repeat(700) })) });
+const reply = JSON.stringify({
+  processes: kept.map((process) => ({ ...process, sessionId: "god", detail: "x".repeat(700) })),
+});
 window.__parse = () => {
   const start = performance.now();
   JSON.parse(reply);

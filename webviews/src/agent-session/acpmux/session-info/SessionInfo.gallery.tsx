@@ -555,7 +555,9 @@ const hairlineEdge: Play = async (ctx) => {
 // (sessionInfo.css --acpmux-session-info-divider): none beside the Show more line, none doubled.
 const sectionDividers: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-session-info-slot").length > 2);
-  const slots = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > .acpmux-session-info-slot")];
+  const slots = [
+    ...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > .acpmux-session-info-slot"),
+  ];
   const probe = ctx.document.createElement("div");
   probe.style.color = "var(--acpmux-session-info-divider)";
   slots[0]!.append(probe);
@@ -565,14 +567,18 @@ const sectionDividers: Play = async (ctx) => {
   slots.forEach((slot, at) => {
     const line = ctx.document.defaultView!.getComputedStyle(slot, "::before");
     const between =
-      at > 0 && slot.dataset.slot !== "more" && slots[at - 1]!.dataset.slot !== "more" && slots[at - 1]!.childElementCount > 0;
+      at > 0 &&
+      slot.dataset.slot !== "more" &&
+      slots[at - 1]!.dataset.slot !== "more" &&
+      slots[at - 1]!.childElementCount > 0;
     const draws = line.content !== "none" && Number.parseFloat(line.borderTopWidth) > 0;
     if (between && slot.childElementCount > 0 && !draws) throw new Error(`No divider above ${slot.dataset.slot}`);
     if (!between && draws) throw new Error(`A divider above ${slot.dataset.slot ?? "the first section"}`);
     if (draws) {
       drawn += 1;
       if (line.borderTopColor !== color) throw new Error(`${slot.dataset.slot}'s divider is ${line.borderTopColor}`);
-      if (Number.parseFloat(line.borderTopWidth) > 1) throw new Error(`${slot.dataset.slot}'s divider is not a hairline`);
+      if (Number.parseFloat(line.borderTopWidth) > 1)
+        throw new Error(`${slot.dataset.slot}'s divider is not a hairline`);
     }
   });
   if (drawn === 0) throw new Error("No divider between the sections");
@@ -2022,7 +2028,7 @@ export default componentEntry<Props>({
       play: hairlineEdge,
     },
     "section-dividers": {
-      note: 'Chosen. A faint hairline between sections in the theme\'s separator color, as the reference app\'s session info draws them (Leo, 2026-11-19: "there should be a faint divider between the sections there on session info idk why it doesnt show up there").',
+      note: "Chosen. A faint hairline between sections in the theme's separator color, as the reference app's session info draws them (Leo, 2026-11-19: \"there should be a faint divider between the sections there on session info idk why it doesnt show up there\").",
       props: { ...full },
       play: sectionDividers,
     },

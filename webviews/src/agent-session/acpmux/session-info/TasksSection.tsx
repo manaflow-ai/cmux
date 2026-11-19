@@ -205,15 +205,17 @@ export function TasksSection({
                   render={(entry) =>
                     "older" in entry ? (
                       <OlderRows key="older" load={entry.older} />
-                    ) : "command" in entry
-                      ? row(
-                          entry.command,
-                          entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
-                            ? spanDuration(t, entry.command.endedAt - entry.command.startedAt)
-                            : undefined,
-                          t(COMMAND_STATE[entry.command.state]),
-                        )
-                      : scheduledRow(entry.entry)
+                    ) : "command" in entry ? (
+                      row(
+                        entry.command,
+                        entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
+                          ? spanDuration(t, entry.command.endedAt - entry.command.startedAt)
+                          : undefined,
+                        t(COMMAND_STATE[entry.command.state]),
+                      )
+                    ) : (
+                      scheduledRow(entry.entry)
+                    )
                   }
                 />
               </ul>
@@ -234,6 +236,7 @@ type FinishedRow =
 /// reaches it (WindowedRows), it reads the next page, and again for each page while it stays drawn.
 /// A row's height, empty, so the list does not jump when the page lands under it.
 function OlderRows({ load }: { load: () => void }) {
+  // mount-read: this row mounts only when the list's end is drawn, and reads one older page then.
   useEffect(() => load(), [load]);
   return <li className="acpmux-session-info-task acpmux-session-info-task--older" aria-hidden="true" />;
 }

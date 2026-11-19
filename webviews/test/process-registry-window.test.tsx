@@ -276,3 +276,42 @@ test("older pages walk back to the whole history, one bounded page at a time, th
   expect(new Set(ids).size).toBe(ids.length);
   expect(ids.length).toBe(COUNT);
 });
+
+test("a reopened chat draws its last list on the first frame, then the fresh one replaces it", async () => {
+  const fake = daemon();
+  const window = { calls: callsOf(TRANSCRIPT), endedWithin: WITHIN };
+  const first = await registryOf(fake.source, window);
+  const opened = first.seen.registry!;
+  expect(opened.processes.length).toBeGreaterThan(0);
+  root!.unmount();
+  // The reopen's read is held: what the first frame draws is the remembered list.
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const read = fake.source.listProcesses.bind(fake.source);
+  fake.source.listProcesses = async (...args) => {
+    await gate;
+    return read(...args);
+  };
+  let firstFrame: ProcessRegistry | undefined;
+  const seen: { registry?: ProcessRegistry } = {};
+  function Probe() {
+    seen.registry = useProcessRegistry(fake.source, CHAT, true, window);
+    firstFrame ??= seen.registry;
+    return null;
+  }
+  root = createRoot(host);
+  await act(async () => root!.render(<Probe />));
+  expect(firstFrame!.listed).toBe(true);
+  expect(firstFrame!.processes.map((p) => p.id)).toEqual(opened.processes.map((p) => p.id));
+  expect(chatCount(firstFrame!)).toBe(chatCount(opened));
+  // One shell ended while it was closed; the fresh read shows it, and no remembered row lingers.
+  const ended = fake.all.find((p) => p.state === "running" && p.id.endsWith("/task-7"))!;
+  Object.assign(ended, { state: "exited", endedAt: NOW - 1_000 });
+  release();
+  for (let n = 0; n < 10; n += 1) await act(tick);
+  const fresh = seen.registry!;
+  expect(fresh.processes.find((p) => p.id === ended.id)?.state).toBe("exited");
+  expect(fresh.processes.filter((p) => p.state === "running").length).toBe(
+    fake.all.filter((p) => p.state === "running").length,
+  );
+});

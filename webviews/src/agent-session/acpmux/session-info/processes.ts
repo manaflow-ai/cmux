@@ -167,8 +167,7 @@ export function olderState(
   const page = processesOf(reply, sessionId).filter((process) => !have.has(process.id));
   const endedBefore = typeof reply.endedBefore === "number" ? reply.endedBefore : undefined;
   let omitted = typeof reply.omitted === "number" ? reply.omitted : 0;
-  if (endedBefore !== undefined)
-    for (const process of state.processes) if (leftOut(process, endedBefore)) omitted -= 1;
+  if (endedBefore !== undefined) for (const process of state.processes) if (leftOut(process, endedBefore)) omitted -= 1;
   return {
     sessionId,
     listed: state.listed,
@@ -193,7 +192,33 @@ type RegistryState = ProcessRegistry & {
   partial?: boolean;
   /// acpmux's split (`endedBefore`): every ended process not held ended before it.
   endedBefore?: number;
+  /// The chat's last list on this page, drawn while its fresh one is read (`rememberedRegistry`).
+  cached?: true;
 };
+
+/// How many chats' last lists a source keeps for a reopen.
+const REMEMBERED_CHATS = 16;
+
+/// Each source's chats' last lists, newest last: Session Info reopened on a chat draws its last
+/// list on the first frame and reads the fresh one behind it (stale-while-revalidate), as acpmux's
+/// own window cache answers that read without walking the history (`hub/processes.rs`
+/// `WindowCache`). Leo: "dam this is slow as shit on the sesion info".
+const REMEMBERED = new WeakMap<ProcessSource, Map<string, RegistryState>>();
+
+function rememberedRegistry(source: ProcessSource | undefined, sessionId: string | undefined) {
+  return source && sessionId ? REMEMBERED.get(source)?.get(sessionId) : undefined;
+}
+
+function rememberRegistry(source: ProcessSource, sessionId: string, state: RegistryState) {
+  let chats = REMEMBERED.get(source);
+  if (!chats) REMEMBERED.set(source, (chats = new Map()));
+  chats.delete(sessionId);
+  chats.set(sessionId, { ...state, cached: true });
+  for (const oldest of chats.keys()) {
+    if (chats.size <= REMEMBERED_CHATS) break;
+    chats.delete(oldest);
+  }
+}
 
 /// `record` was one the recent reply left out: it ended before the split (a process ends once, so
 /// a new one ends after it).
@@ -277,7 +302,7 @@ export function useProcessRegistry(
   /// panel's first frame. Only a window, and only from an acpmux that reads one: never the whole list.
   warm = false,
 ): ProcessRegistry {
-  const [state, setState] = useState<RegistryState>(NO_PROCESSES);
+  const [state, setState] = useState<RegistryState>(() => rememberedRegistry(source, sessionId) ?? NO_PROCESSES);
   // A source that could not read a window, for this chat: read whole from then on.
   const [refused, setRefused] = useState<string>();
   const windowed = window !== undefined && source?.listProcessCalls !== undefined && refused !== sessionId;
@@ -304,12 +329,17 @@ export function useProcessRegistry(
     calls.current = windowCalls ?? [];
     if (asked.current.sessionId !== sessionId || !windowed) asked.current = { sessionId, calls: new Set() };
     if (seenRunning.current.sessionId !== sessionId) seenRunning.current = { sessionId, ids: new Set() };
-    // Read once per new list, not per render.
-    if (state.sessionId === sessionId && seenRunning.current.read !== state.processes) {
+    // Read once per new list, not per render; a remembered list is not one this view saw.
+    if (state.sessionId === sessionId && !state.cached && seenRunning.current.read !== state.processes) {
       seenRunning.current.read = state.processes;
       for (const process of state.processes) if (process.state === "running") seenRunning.current.ids.add(process.id);
     }
   }, [windowCalls, sessionId, windowed, state]);
+  // The chat's list as read, kept for the next open (`REMEMBERED`).
+  useEffect(() => {
+    if (source && sessionId && state.sessionId === sessionId && state.listed && !state.cached)
+      rememberRegistry(source, sessionId, state);
+  }, [source, sessionId, state]);
   useEffect(() => {
     if (!source || !sessionId || !on) return;
     let current = true;
@@ -317,7 +347,11 @@ export function useProcessRegistry(
     // Retain only the latest update per process ID while the list is pending.
     const pending = new Map<string, SessionInfoProcess>();
     let awaitingList = true;
-    setState((known) => (known.sessionId === sessionId ? known : { sessionId, processes: [], listed: false }));
+    setState((known) =>
+      known.sessionId === sessionId
+        ? known
+        : (rememberedRegistry(source, sessionId) ?? { sessionId, processes: [], listed: false }),
+    );
     const stop = source.watchProcesses((value) => {
       const process = processOf(value, sessionId);
       if (!process) return;
@@ -388,9 +422,12 @@ export function useProcessRegistry(
         setState((known) => {
           const mine = known.sessionId === sessionId ? known : undefined;
           // After the whole list: only what this view saw run stays beside the window.
-          const held = mine?.partial
-            ? mine.processes
-            : (mine?.processes.filter((process) => seenRunning.current.ids.has(process.id)) ?? []);
+          // A remembered list is replaced whole: its running rows may have ended since.
+          const held = mine?.cached
+            ? []
+            : mine?.partial
+              ? mine.processes
+              : (mine?.processes.filter((process) => seenRunning.current.ids.has(process.id)) ?? []);
           return recentState(sessionId, recent, pending, held, called);
         });
         settle();
@@ -457,7 +494,7 @@ export function useProcessRegistry(
   }, [readOlder, sessionId, before]);
   const pages = readOlder !== undefined && before !== undefined && (state.omitted ?? 0) > 0;
   const registry = useMemo(() => (pages ? { ...state, loadOlder } : state), [pages, state, loadOlder]);
-  if (state.sessionId !== sessionId) return NO_PROCESSES;
+  if (state.sessionId !== sessionId) return rememberedRegistry(source, sessionId) ?? NO_PROCESSES;
   // The whole list read after a window: no count is added.
   return registry;
 }
