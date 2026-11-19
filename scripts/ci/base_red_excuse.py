@@ -8421,10 +8421,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 mine, theirs = unplaced_without_ffi_pin(mine), unplaced_without_ffi_pin(theirs)
             try:
                 # Only by failing tests named: a passing base step can print the head's error line (an expected-failure
-                # check), which a whole base log cannot tell from a failure (#40542's fourth Codex BLOCK, F2).
-                if not mine.tests:
-                    raise Refused(f"'{name}': {BASE_UNPLACED_WHY}, and this head names no failing test, so its error "
-                                  "lines are not compared with a whole base log")
+                # check), which a whole base log cannot tell from a failure (#40542's fourth Codex BLOCK, F2). The tests
+                # are the placed head's own failed steps' (HEAD), never a passing step's line in its whole log (review
+                # F1 on #46811 at 5d7cb257).
+                if not head[1]:
+                    raise Refused(f"'{name}': {BASE_UNPLACED_WHY}, and this head's failed steps name no failing test, "
+                                  "so its error lines are not compared with a whole base log")
                 audit.append(unplaced_verdict(repo, name, base, mine, theirs, base_run, why=BASE_UNPLACED_WHY)
                              + (f"; {aside}" if aside is not None else ""))
                 continue

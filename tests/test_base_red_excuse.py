@@ -10715,8 +10715,24 @@ class UnplacedSignature(unittest.TestCase):
     def test_13746_an_error_line_alone_is_never_matched_in_a_whole_base_log(self):
         # The composite passes on the base and prints NEW_RED: a whole base log would match the head's NEW_RED there
         # (#40542's fourth Codex BLOCK, F2). Only failing tests by name are compared with an unplaced base.
-        with self.assertRaisesRegex(excuse.Refused, "names no failing test.*not this PR's own red"):
+        with self.assertRaisesRegex(excuse.Refused, "failed steps name no failing test.*not this PR's own red"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.unplaced_base(NEW_RED, NEW_RED))
+
+    def test_13746_a_passing_steps_failing_test_line_never_opens_the_whole_log_comparison(self):
+        # Review F1 on #46811 at 5d7cb257: a passing step that prints a unittest `FAIL:` line (an expected failure)
+        # named a test in the head's whole log, so the head's failed step, which names only an error line, was compared
+        # whole and matched that same error printed by the base. Only the placed head's failed steps name its tests.
+        def lines(placed):
+            found = self.lines(NEW_RED, placed=placed)
+            at = found.index(("Composite", 11, NEW_RED))
+            found[at:at + 1] = [("Composite", 11, self.RED_13746), ("Composite", 11, "Ran 4 tests in 0.120s"),
+                                ("Composite", 11, "FAILED (failures=1)")]
+            return found
+        github = FakeGitHub()
+        github.jobs = {1: self.job(), 2: dict(self.job(), id=2, run_id=20, head_sha=BASE_SHA)}
+        github.logs = {1: framed_log(lines(True), SWIFT), 2: framed_log(lines(False), SWIFT)}
+        with self.assertRaisesRegex(excuse.Refused, "failed steps name no failing test.*not this PR's own red"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
 
 class StepNamesAreRequired(unittest.TestCase):
