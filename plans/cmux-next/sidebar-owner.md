@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-19 (lane/look-glyph-settings): Sidebar-Look: Leo, 2026-11-19: "the dots and the way it moves changes a
+  lot". A `cmux.sidebar.rows/1` row's `indicator` may be a particles glyph: `{choreography: <cmux.particles/1
+  document>, trigger}`, or `"glyph"` / `{choreography: "glyph", trigger}` for the look's
+  `agentPane.display.thinking.glyph`. While the row is busy or working, `StatusIndicatorView` hides its loading glyph
+  and plays the document in the same cell (`SidebarRowChoreographyView`, the scene renderer's native player on the
+  motion clock, at the document's own size, held when the indicator would not animate). Rows with no such indicator
+  draw as before; nothing changes without a look or a customize app that asks for it. The player and the look's glyph
+  reader are instance members of `StatusIndicatorAppearance`. Regression: `SidebarRowGlyphTests` (CmuxNextAppTests).
+
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset
