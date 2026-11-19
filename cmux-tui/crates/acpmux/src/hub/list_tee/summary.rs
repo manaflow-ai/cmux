@@ -22,6 +22,8 @@ const EXTRA_KEYS: &[&str] = &[
     "preview",
     "subagentsRunning",
     "subagentNames",
+    "recentSubagents",
+    "subagentsSeen",
     "commandsRunning",
     "pullRequests",
     "usageWarnings",

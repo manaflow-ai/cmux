@@ -39,6 +39,10 @@ use crate::protocol::merge_mux_meta;
 use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
 
+#[path = "subagents_recent.rs"]
+mod recent;
+pub use recent::{RECENT_SUBAGENTS, RecentSubagent};
+
 /// Whether a `session/update` params object is a subagent's (the hub tags it
 /// `_meta.acpmux.subagent`, ``SubagentTree::annotate``). A subagent's text and
 /// thinking reach its own view; a reader of the chat's own words (a reply, a
@@ -85,6 +89,12 @@ pub struct SubagentTree {
     /// conversation names a new root, so every root learned is kept: replayed
     /// history still names the earlier ones.
     root_threads: HashSet<String>,
+    /// The latest subagents, live and finished, each with its state: the summary's
+    /// `recentSubagents`, which the sidebar nests under the chat (`subagents_recent.rs`).
+    recent: std::collections::VecDeque<recent::RecentEntry>,
+    /// Moves once on each live change to `recent`, so the hub tells watchers the list moved
+    /// even when the running count did not (`hub/tap.rs`).
+    recent_revision: u64,
 }
 
 #[derive(Debug, Default)]
@@ -291,6 +301,7 @@ impl SubagentTree {
             self.note_background(&events);
             self.note_running(&events);
         }
+        self.note_recent(&events, live);
         if !events.is_empty() {
             fields.insert("subagents".into(), Value::Array(events));
         }
@@ -338,6 +349,7 @@ impl SubagentTree {
             }
         }
         self.root_threads.extend(log.root_threads);
+        self.adopt_recent(log.recent);
     }
 
     /// Learns `id`'s name from `event` when it names it, or gives `event` the name learned before

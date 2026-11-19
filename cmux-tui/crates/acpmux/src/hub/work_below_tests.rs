@@ -111,6 +111,49 @@ async fn running_subagents_reach_the_summary_and_each_change_is_recorded() {
     hub.shutdown_all().await;
 }
 
+/// The sidebar nests a chat's subagents under its row (Leo 2026-11-19: "the nested sessions"): the
+/// summary lists the latest with their states and counts every one started, and a change of the
+/// list that keeps the running count (a subagent whose turn ended says it completed) is still a
+/// `subagents_running` record, so watchers redraw the row.
+#[tokio::test]
+async fn the_latest_subagents_reach_the_summary_and_a_list_change_is_recorded() {
+    let (hub, session) = chat().await;
+    session.meta.lock().unwrap().agent_session_id = Some("acp-root".to_owned());
+    let tap = hub.session_tap(&session);
+    tap(
+        Direction::In,
+        &update(json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "a",
+            "name": "Review the sidebar"})),
+        None,
+    );
+    let summary = hub.session_summary(&session);
+    assert_eq!(
+        summary["recentSubagents"],
+        json!([{"id": "a", "parent": null, "title": "Review the sidebar", "state": "stopped"}]),
+        "no turn runs, so a foreground subagent runs no more: {summary}"
+    );
+    assert_eq!(summary["subagentsSeen"], json!(1), "{summary}");
+
+    session.subagents.lock().unwrap().end_foreground();
+    tap(
+        Direction::In,
+        &update(json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "a",
+            "state": "completed"})),
+        None,
+    );
+    let summary = hub.session_summary(&session);
+    assert_eq!(summary["recentSubagents"][0]["state"], json!("done"), "{summary}");
+    let counts: Vec<Value> = hub
+        .events(&session.id, 0, 256)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.dir == "mux" && e.kind == super::views::SUBAGENTS_RUNNING)
+        .map(|e| e.msg["count"].clone())
+        .collect();
+    assert_eq!(counts, vec![json!(1), json!(0)], "the end is recorded though the count kept");
+    hub.shutdown_all().await;
+}
+
 /// cmux#32727: a chat whose turn ended while a background command it started still ran (a Claude
 /// background shell fetching and test-merging a branch) showed its running command and no
 /// spinner in the sidebar: the summary read `done`. The status dot stays `working` while the
