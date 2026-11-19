@@ -46,10 +46,14 @@ public final class IPhoneHostService {
         var stackProjectID: String
         /// Per-bundle state (device id, hostd log).
         var stateDirectory: URL
-        /// The name this build's Keychain items are kept under, the paired list's seal and this Mac's
-        /// identity key (``MobileHostPairedStore/sealName(bundleID:storageNamespace:)``): the bundle id,
-        /// and a dev build's Cloud backend namespace with it.
+        /// The name this Mac's identity key is kept under in the Keychain
+        /// (``MobileHostPairedStore/sealName(bundleID:storageNamespace:adHocCode:)`` without the code): the
+        /// bundle id, and a dev build's Cloud backend namespace with it. A re-signed build that may not read
+        /// it keeps its key in the state folder's file instead (``MobileHostMacIdentityStore``).
         var keychainName: String?
+        /// The name the paired list is sealed under: ``keychainName``, and an ad hoc build's own code with
+        /// it, so each ad hoc build reads the seal it made (``MobileHostPairedStore/sealName(bundleID:storageNamespace:adHocCode:)``).
+        var pairingSealName: String?
         var accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
         /// The app's own cmux-tui daemon socket.
         var daemonSocket: @MainActor () async throws -> String

@@ -2,6 +2,7 @@ public import CmuxNextCompat
 public import Foundation
 import CmuxNextWakeups
 import os
+import Security
 
 /// Both phone transports share base's sealed file and serial I/O queue. Selection and
 /// removal revoke memory trust synchronously; queued transactions are covered by quit's flush.
@@ -76,9 +77,41 @@ public final class MobileHostPairedStore: Sendable {
     /// so a seal named for the folder above the state folder was one login-Keychain item for all of them:
     /// the build that made it owned it, and every other build's save got `errSecInvalidOwnerEdit`, so its
     /// paired phones were not kept across a relaunch (2026-11-18, review.sh on a real iPhone).
-    public static func sealName(bundleID: String, storageNamespace: String?) -> String {
-        guard let storageNamespace, !storageNamespace.isEmpty else { return bundleID }
-        return "\(bundleID).\(storageNamespace)"
+    ///
+    /// `adHocCode`: an ad hoc signed build's own code hash (``adHocCodeIdentity()``), nil for a build
+    /// signed by a team. A login item trusts the signature that made it, and every ad hoc build has its
+    /// own, so a new build of the same tag may not read the seal the previous one made (-25293, for
+    /// good: unlike a Keychain locked after an update it never answers). That build then ran with its
+    /// list in memory only, wrote no seal of its own, and every later launch was refused the same way, so
+    /// no phone stayed paired across a relaunch (2026-11-18). Named for its code, each ad hoc build has its
+    /// own seal: its first launch finds none (the code pairs again), and later launches read it.
+    public static func sealName(bundleID: String, storageNamespace: String?, adHocCode: String? = nil) -> String {
+        var name = bundleID
+        if let storageNamespace, !storageNamespace.isEmpty { name += ".\(storageNamespace)" }
+        if let adHocCode, !adHocCode.isEmpty { name += ".adhoc-\(adHocCode)" }
+        return name
+    }
+
+    /// This running build's code hash (the first 8 bytes, hex) when it is ad hoc signed, with no team;
+    /// nil for a team-signed build (NIGHTLY, release), whose login items trust its team and bundle id
+    /// across updates, and when the signature cannot be read.
+    public static func adHocCodeIdentity() -> String? {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let signing = info as? [String: Any] else { return nil }
+        return adHocCodeIdentity(signing: signing)
+    }
+
+    /// ``adHocCodeIdentity()`` from a signature's information (`SecCodeCopySigningInformation`).
+    static func adHocCodeIdentity(signing: [String: Any]) -> String? {
+        let value = { (key: CFString) in signing.first { $0.key == key as String }?.value }
+        if let team = value(kSecCodeInfoTeamIdentifier) as? String, !team.isEmpty { return nil }
+        guard let unique = value(kSecCodeInfoUnique) as? Data, !unique.isEmpty else { return nil }
+        return unique.prefix(8).map { String(format: "%02x", $0) }.joined()
     }
     /// A store whose list is sealed by `seal` (tests), waiting on `clock` for a refused seal.
     public init(seal: any MobileHostPairingSealStore, clock: any Clock<Duration> = ContinuousClock()) {
