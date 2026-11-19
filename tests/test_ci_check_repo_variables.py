@@ -65,7 +65,7 @@ class Values(unittest.TestCase):
                 self.assertIn("MACOS_RUNNER_PR", found[0])
 
     def test_a_github_hosted_label_fails_in_any_runner_variable(self) -> None:
-        # Leo, 2026-11-19: "Like, why the fuck do you keep having the fucking GitHub hosted runners? Fuck GitHub."
+        # Leo, 2026-11-19: "Like, why the f*** do you keep having the f***ing GitHub hosted runners? F*** GitHub."
         for name, label in (("CI_LINUX_HOSTED_RUNNER", "ubuntu-24.04"), ("LINUX_RUNNER", "ubuntu-latest"),
                             ("CI_TRUSTED_RUNNER", "ubuntu-24.04"), ("WINDOWS_RUNNER", "windows-2025")):
             with self.subTest(name=name):

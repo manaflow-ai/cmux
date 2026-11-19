@@ -165,7 +165,7 @@ KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 # The retired outage override. cmux#45710 (2026-11-17) let CI_LINUX_HOSTED_RUNNER put GitHub-hosted Ubuntu first in
 # every x64 Linux pool during a Blacksmith outage. It stayed set: on 2026-11-19 14:00-20:10Z about 2,470 cmux jobs ran on
 # GitHub-hosted runners (the timing feed), median queue about 5.9 h. Leo, 2026-11-19: "Like, why the
-# fuck do you keep having the fucking GitHub hosted runners? Fuck GitHub." No pool leads with a GitHub-hosted label
+# f*** do you keep having the f***ing GitHub hosted runners? F*** GitHub." No pool leads with a GitHub-hosted label
 # any more: the variable is ignored when routing, and `--check` (ci-repo-variables.yml, every 15 minutes) fails while
 # it is set, so a stale one is red within the quarter hour. Outage capacity is an owned rung (GCP lane runners,
 # Freestyle, the Mac Linux VMs) declared as a pool member, never GitHub.
@@ -788,7 +788,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     stale_override = (env.get(HOSTED_OVERRIDE) or "").strip()
     if stale_override:
         print(f"::error title=Runner pools::{HOSTED_OVERRIDE}={stale_override!r} is set, and no pool runs on GitHub-hosted "
-              "runners (Leo, 2026-11-19: \"Fuck GitHub.\"); it is ignored. Delete it: gh variable delete "
+              "runners (Leo, 2026-11-19: \"F*** GitHub.\"); it is ignored. Delete it: gh variable delete "
               f"{HOSTED_OVERRIDE} -R manaflow-ai/cmux")
     problems = spec_problems(pools)
     if problems:

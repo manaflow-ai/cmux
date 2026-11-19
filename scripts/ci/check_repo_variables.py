@@ -43,7 +43,7 @@ from signing_runner_variables import allowed_value  # noqa: E402
 RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
 # A GitHub-hosted image label (ubuntu-24.04, ubuntu-latest, macos-15, windows-2025). No runner variable names one,
 # a recorded overflow failover included. Leo, 2026-11-19, after a 2026-11-17 outage override kept cmux Linux jobs on
-# GitHub-hosted Ubuntu all day: "Like, why the fuck do you keep having the fucking GitHub hosted runners? Fuck GitHub."
+# GitHub-hosted Ubuntu all day: "Like, why the f*** do you keep having the f***ing GitHub hosted runners? F*** GitHub."
 HOSTED_LABEL = re.compile(r"^(?:ubuntu|macos|windows)(?:-[\w.-]+)?$")
 DAEMON_POOL_VARIABLE = "CI_NEXT_DAEMON_POOL"
 SIDE_LANE_VARIABLE = "CI_SIDE_LANE_RUNNER"

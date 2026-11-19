@@ -505,7 +505,7 @@ class NeverHosted(unittest.TestCase):
 
 
 class HostedOverrideRetired(unittest.TestCase):
-    # Leo, 2026-11-19: "Like, why the fuck do you keep having the fucking GitHub hosted runners? Fuck GitHub." The
+    # Leo, 2026-11-19: "Like, why the f*** do you keep having the f***ing GitHub hosted runners? F*** GitHub." The
     # 2026-11-17 outage override (cmux#45710) stayed set and sent cmux jobs to GitHub-hosted Ubuntu all day; the
     # variable now routes nothing, every pass takes a hosted label back to Blacksmith, and --check fails while it is set.
     ON = {"CI_LINUX_HOSTED_RUNNER": "ubuntu-24.04"}
