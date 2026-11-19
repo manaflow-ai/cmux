@@ -23,8 +23,8 @@ pub enum Mode {
 
 impl Mode {
     pub fn parse(text: Option<&str>) -> Mode {
-        match text.map(str::trim) {
-            Some("off" | "0" | "false") => Mode::Off,
+        match text.map(|t| t.trim().to_ascii_lowercase()).as_deref() {
+            Some("off" | "0" | "false" | "no") => Mode::Off,
             Some("mornings") => Mode::Mornings,
             _ => Mode::Auto,
         }
@@ -41,15 +41,20 @@ impl Mode {
     }
 }
 
-/// The latest slot at or before `now` (its key `YYYY-MM-DD HH:MM`), today
-/// only: a slot missed while the Mac slept is taken late that same day, never
-/// the next (the article: skip missed slots by default).
+/// How late a missed slot is still taken (the Mac slept, the host was off).
+pub const LATE_MINUTES: u32 = 120;
+
+/// The latest slot at or before `now` and at most `LATE_MINUTES` before it
+/// (its key `YYYY-MM-DD HH:MM`): a slot missed longer is skipped (the
+/// article: skip missed slots by default), so a late start never wakes the
+/// Chief at night.
 pub fn current_slot(mode: Mode, now: chrono::DateTime<chrono::FixedOffset>) -> Option<String> {
     let minutes = now.hour() * 60 + now.minute();
     mode.slots(now.weekday())
         .iter()
         .rev()
         .find(|(h, m)| h * 60 + m <= minutes)
+        .filter(|(h, m)| minutes - (h * 60 + m) <= LATE_MINUTES)
         .map(|(h, m)| format!("{} {h:02}:{m:02}", now.format("%Y-%m-%d")))
 }
 
@@ -71,9 +76,10 @@ pub fn next_slot(
     None
 }
 
-/// The check-in note for `loops` (path, description).
-pub fn note(loops: &[(String, String)], slot: &str) -> String {
-    let list: Vec<String> = loops.iter().map(|(p, d)| format!("- {p}: {d}")).collect();
+/// The check-in note for `loops` (index lines, `memory_files::index_line`,
+/// which mark a loop another person's turn wrote as data).
+pub fn note(loops: &[String], slot: &str) -> String {
+    let list: Vec<&str> = loops.iter().map(String::as_str).collect();
     format!(
         "[check-in] Your scheduled check-in ({slot}). Open loops:\n{}\nFor each loop: memory_read it if you need its details, then act on what is due or stale (tell its agent, start the work, set a wake for later), and forget the loops that are done. Send your person one short line only when they must know something new or decide something now; never repeat what you already told them. When nothing needs saying, call stop(): nothing is posted.",
         list.join("\n")

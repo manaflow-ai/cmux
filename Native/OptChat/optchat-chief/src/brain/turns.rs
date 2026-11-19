@@ -571,7 +571,8 @@ impl Brain {
         let now = Some(crate::prompt::now_line_here());
         // The memory files' index and standing rules (memory_files.rs): read
         // every turn, so a file saved in the last turn holds in this one.
-        let memory = self.memory_files.as_ref().and_then(|f| f.block());
+        // In another person's turn, only the open loops.
+        let (memory, memory_seen) = self.turn_memory_block();
         // The person's Home workspace as it is now: after the view, never logged.
         let tail: Vec<String> = now
             .iter()
@@ -679,7 +680,14 @@ impl Brain {
                 crate::prompt::delta_from(&input.delta, k.seen_end).map(|text| {
                     let mut blocks = vec![serde_json::json!({"type": "text", "text": text})];
                     blocks.extend(image_blocks.iter().cloned());
-                    let tail = tail.join("\n\n");
+                    // The kept session read this memory block last turn:
+                    // only a changed block goes again.
+                    let tail = tail
+                        .iter()
+                        .filter(|t| !(memory_seen && Some(*t) == memory.as_ref()))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
                     if !tail.is_empty() {
                         blocks.push(serde_json::json!({"type": "text", "text": tail}));
                     }

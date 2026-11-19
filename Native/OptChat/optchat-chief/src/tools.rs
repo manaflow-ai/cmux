@@ -36,26 +36,26 @@ pub enum MemoryFileCall {
 }
 
 impl MemoryFileCall {
-    /// Answers the call from `files`, as the Chief's own turn (`run`).
+    /// Answers the call from `files` in a turn of `trust` (`run` names it):
+    /// a turn another person started reads and writes loops only.
     pub fn answer(
         self,
         files: &crate::memory_files::MemoryFiles,
         run: &str,
+        trust: crate::memory_files::Trust,
     ) -> Result<String, String> {
+        let outside = trust == crate::memory_files::Trust::Outside;
         match self {
+            MemoryFileCall::Read { path } if outside && !path.trim().starts_with("loops/") => {
+                Err("memory_read: a turn another person started may read loops/ files only".into())
+            }
             MemoryFileCall::Read { path } => Ok(files.read(&path)),
             MemoryFileCall::Write {
                 path,
                 description,
                 body,
-            } => files.write(
-                &path,
-                &description,
-                &body,
-                crate::memory_files::Trust::Person,
-                run,
-            ),
-            MemoryFileCall::Forget { path } => files.forget(&path, run),
+            } => files.write(&path, &description, &body, trust, run),
+            MemoryFileCall::Forget { path } => files.forget_as(&path, run, trust),
         }
     }
 }
@@ -95,7 +95,7 @@ impl Memory for OptChat {
 
 /// The Chief tools a turn another person started may call only with
 /// some arguments (`approval::CHIEF_TOOLS`, by their socket names).
-const TURN_GATED: [&str; 15] = [
+const TURN_GATED: [&str; 17] = [
     "send",
     "reply",
     "react",
@@ -107,6 +107,8 @@ const TURN_GATED: [&str; 15] = [
     "control",
     "profile",
     "remember",
+    "recall",
+    "memory_read",
     "memory_write",
     "memory_forget",
     "cloud_workspace",

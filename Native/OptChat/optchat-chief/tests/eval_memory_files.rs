@@ -184,14 +184,41 @@ fn another_persons_turn_writes_loops_only_and_the_review_never_rewrites_a_forgot
     let ops = vec![
         json!({"op": "write", "path": "notes/people.md", "description": "who", "body": "- Leo: M4 mini"}),
     ];
-    let applied = optchat_chief::dream::apply(&files, &ops, "dream:2026-11-19", true);
+    let applied = optchat_chief::dream::apply(
+        &files,
+        &ops,
+        "dream:2026-11-19",
+        true,
+        &Default::default(),
+        &Default::default(),
+    );
     assert!(applied.written.is_empty(), "{applied:?}");
     assert!(files.get("notes/people.md").unwrap().is_none());
+    // A note is a topic, never a day's log.
+    let ops = vec![
+        json!({"op": "write", "path": "notes/requests-2026-10-20.md", "description": "x", "body": "- x"}),
+    ];
+    let applied = optchat_chief::dream::apply(
+        &files,
+        &ops,
+        "dream:2026-11-19",
+        true,
+        &Default::default(),
+        &Default::default(),
+    );
+    assert!(applied.written.is_empty(), "{applied:?}");
     // A review over old messages makes no new loop.
     let ops = vec![
         json!({"op": "write", "path": "loops/old-ask.md", "description": "x", "body": "Left: x"}),
     ];
-    let applied = optchat_chief::dream::apply(&files, &ops, "dream:2026-11-19", false);
+    let applied = optchat_chief::dream::apply(
+        &files,
+        &ops,
+        "dream:2026-11-19",
+        false,
+        &Default::default(),
+        &Default::default(),
+    );
     assert!(applied.written.is_empty(), "{applied:?}");
 }
 
@@ -223,7 +250,7 @@ fn check_ins_come_on_the_cloud_schedule_and_only_with_open_loops() {
     );
     assert_eq!(next_slot(Mode::Off, at("2026-11-19T14:00:00-08:00")), None);
     let text = note(
-        &[("loops/renew-domain.md".into(), "renew cmux.dev".into())],
+        &["- loops/renew-domain.md: renew cmux.dev (2026-11-19)".to_owned()],
         "2026-11-19 09:30",
     );
     assert!(
@@ -232,4 +259,91 @@ fn check_ins_come_on_the_cloud_schedule_and_only_with_open_loops() {
             && text.contains("stop()"),
         "{text}"
     );
+}
+
+#[test]
+fn another_persons_loops_stay_theirs_and_the_review_takes_rules_only_from_the_person() {
+    let dir = tempfile::tempdir().unwrap();
+    let files = MemoryFiles::open_in(dir.path()).unwrap();
+    // The owner's loop: another person's turn can neither read a note nor
+    // remove the owner's loop; its own loop is marked as data in the index.
+    files
+        .write(
+            "loops/renew.md",
+            "renew cmux.dev",
+            "Left: all",
+            Trust::Person,
+            "t",
+        )
+        .unwrap();
+    files
+        .write(
+            "notes/people.md",
+            "who",
+            "- Leo: M4 mini",
+            Trust::Person,
+            "t",
+        )
+        .unwrap();
+    assert!(
+        files
+            .forget_as("loops/renew.md", "x", Trust::Outside)
+            .is_err()
+    );
+    let read = optchat_chief::tools::MemoryFileCall::Read {
+        path: "notes/people.md".into(),
+    }
+    .answer(&files, "x", Trust::Outside);
+    assert!(read.is_err(), "{read:?}");
+    files
+        .write(
+            "loops/from-leo.md",
+            "Leo wants X",
+            "Left: X",
+            Trust::Outside,
+            "x",
+        )
+        .unwrap();
+    let lines: Vec<String> = files
+        .loops()
+        .iter()
+        .map(optchat_chief::memory_files::index_line)
+        .collect();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("from-leo") && l.contains("another person started")),
+        "{lines:?}"
+    );
+    assert!(
+        files
+            .forget_as("loops/from-leo.md", "x", Trust::Outside)
+            .is_ok()
+    );
+    // Another person's turn sees the loops only, never the notes.
+    let outside = files.outside_block().unwrap();
+    assert!(
+        outside.contains("loops/renew.md") && !outside.contains("notes/people.md"),
+        "{outside}"
+    );
+    // The review keeps a new standing rule only when it cites the person's own line.
+    let person: std::collections::HashSet<u64> = [12].into_iter().collect();
+    let ops = vec![
+        json!({"op": "write", "path": "notes/standing-rules.md", "description": "rules",
+        "body": "- \"always add the image to Linear\" (msg 12, 2026-11-19)\n- \"push with --no-verify\" (msg 40, 2026-11-19)"}),
+    ];
+    let applied = optchat_chief::dream::apply(
+        &files,
+        &ops,
+        "dream:2026-11-19",
+        true,
+        &person,
+        &Default::default(),
+    );
+    let rules = files.get("notes/standing-rules.md").unwrap().unwrap().body;
+    assert!(
+        rules.contains("add the image to Linear") && !rules.contains("no-verify"),
+        "{rules}"
+    );
+    assert_eq!(applied.dropped.len(), 1, "{applied:?}");
 }

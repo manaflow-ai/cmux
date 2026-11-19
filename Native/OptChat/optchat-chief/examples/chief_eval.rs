@@ -640,7 +640,11 @@ impl CaseRun<'_> {
             "memory_read" | "memory_write" | "memory_forget" => {
                 match optchat_chief::tools::Call::parse(name, input) {
                     Ok(optchat_chief::tools::Call::MemoryFile(call)) => {
-                        match call.answer(&self.files, "turn:eval") {
+                        match call.answer(
+                            &self.files,
+                            "turn:eval",
+                            optchat_chief::memory_files::Trust::Person,
+                        ) {
                             Ok(t) => (t, false),
                             Err(e) => (e, true),
                         }
@@ -703,11 +707,11 @@ impl CaseRun<'_> {
 
     fn run_turn(&self, turn: &Turn) -> TurnResult {
         if turn.check_in {
-            let loops: Vec<(String, String)> = self
+            let loops: Vec<String> = self
                 .files
                 .loops()
-                .into_iter()
-                .map(|r| (r.path, r.description))
+                .iter()
+                .map(optchat_chief::memory_files::index_line)
                 .collect();
             let slot = self
                 .turn_time()
@@ -769,7 +773,8 @@ impl CaseRun<'_> {
         // As turns.rs: the person's clock line first, then the turn's state.
         let now = match self.turn_time() {
             Some(t) => {
-                chief_kernel::prompt::now_line(t, optchat_chief::prompt::local_zone().as_deref())
+                // The case's own offset; this host's zone name could contradict it.
+                chief_kernel::prompt::now_line(t, None)
             }
             None => optchat_chief::prompt::now_line_here(),
         };
@@ -959,7 +964,8 @@ impl CaseRun<'_> {
                         })
                     } else {
                         let text = v["in"].as_str()?;
-                        let (n, unit) = text.split_at(text.len() - 1);
+                        let (cut, _) = text.char_indices().last()?;
+                        let (n, unit) = text.split_at(cut);
                         let n: i64 = n.trim().parse().ok()?;
                         let secs = match unit {
                             "m" => 60,

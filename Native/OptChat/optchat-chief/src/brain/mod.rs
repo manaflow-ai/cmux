@@ -413,6 +413,11 @@ pub enum Input {
         input: serde_json::Value,
         reply: Sender<Result<(), String>>,
     },
+    /// Whether the running turn is the owner's own (true) or one another
+    /// person's text started (false); read only: no log, audit or count.
+    TurnTrust {
+        reply: Sender<bool>,
+    },
     /// The reaction classifier's answer for decision `id` on Chief message
     /// `seq` (reaction_wake.rs).
     ReactionJudged {
@@ -1091,6 +1096,10 @@ pub struct Brain {
     memory_files: Option<Arc<crate::memory_files::MemoryFiles>>,
     /// The self-paced check-ins (check_in.rs).
     check_ins: crate::check_in::Mode,
+    /// The last check-in slot taken (`YYYY-MM-DD HH:MM`).
+    check_in_last: Option<String>,
+    /// The `<chief-memory>` block the last turn read.
+    last_memory_block: Option<String>,
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
     /// `turns::MAX_CUTS` the next one fails as before, never a loop.
     cuts: u32,
@@ -1262,6 +1271,8 @@ impl Brain {
             previewer: None,
             memory_files: None,
             check_ins: crate::check_in::Mode::Off,
+            check_in_last: None,
+            last_memory_block: None,
             cuts: 0,
             cut_ran: false,
             resume_at: None,
@@ -1853,6 +1864,9 @@ impl Brain {
             }
             Input::TurnGate { tool, input, reply } => {
                 let _ = reply.send(self.turn_gate(&tool, &input));
+            }
+            Input::TurnTrust { reply } => {
+                let _ = reply.send(!self.turn_is_ask());
             }
             Input::Described { image, description } => self.described(&image, description),
             Input::Redescribe { notes, reply } => {

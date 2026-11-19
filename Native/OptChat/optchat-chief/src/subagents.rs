@@ -2365,8 +2365,21 @@ impl Orchestrator for Spawner {
             | crate::tools::MemoryFileCall::Write { path, .. }
             | crate::tools::MemoryFileCall::Forget { path } => path.clone(),
         };
-        let run = format!("turn:{}", chrono::Local::now().format("%Y-%m-%dT%H:%M"));
-        let answer = call.answer(files, &run);
+        // The running turn's trust, asked of the brain without a check of
+        // its own (no refusal is logged or counted).
+        let (reply, owner) = channel();
+        self.to_brain(Input::TurnTrust { reply })?;
+        let trust = match owner.recv_timeout(Duration::from_secs(30)) {
+            Ok(true) => crate::memory_files::Trust::Person,
+            // Another person's turn, or no answer: fail closed.
+            _ => crate::memory_files::Trust::Outside,
+        };
+        let run = format!(
+            "turn:{}:{}",
+            trust.as_str(),
+            chrono::Local::now().format("%Y-%m-%dT%H:%M")
+        );
+        let answer = call.answer(files, &run, trust);
         if kind != "read" {
             (self.log)(&format!(
                 "memory_{kind} {path}: {}",
