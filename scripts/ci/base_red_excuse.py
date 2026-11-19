@@ -3977,7 +3977,10 @@ def jobs_cache() -> Path | None:
 
 def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
     """The jobs of base RUN's newest attempt (jobs?filter=latest), from the disk cache when RUN is completed."""
-    where, key = jobs_cache(), None
+    # A run listed in another repo (a CHECK_OF_RECORD base's) is never kept: RecordRoute learns where each of its jobs
+    # lives only from the job list it reads, so a kept list would send the job's log and annotation reads to the PR's
+    # repo, where they are a 404 (router-review F1 on #46419 at a99a6cd1).
+    where, key = (jobs_cache() if (run.get("repository") or {}).get("full_name") in (None, repo) else None), None
     if (where is not None and run.get("status") == "completed" and isinstance(run.get("run_attempt"), int)
             and re.fullmatch(r"[0-9TZ:.+-]{10,40}", str(run.get("updated_at") or ""))):
         stamp = re.sub(r"[^0-9]", "", run["updated_at"])

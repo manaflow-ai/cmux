@@ -3818,6 +3818,21 @@ class BaseVerifiedInAnotherRepo(unittest.TestCase):
         self.assertEqual(own_main, [])
         self.assertTrue([route for route in self.gh.asked if f"repos/{GLAEDA_FORK}/actions/runs/20/jobs" in route])
 
+    def test_a_second_judge_with_a_jobs_cache_still_reads_the_forks_jobs_in_the_fork(self):
+        # router-review F1 at a99a6cd1: a fork run's job list kept on disk skipped RecordRoute, so the next judge read
+        # its job's log in the PR's repo.
+        for run in self.gh.base_runs:
+            run.update(status="completed", run_attempt=1, updated_at="2026-11-17T12:00:00Z")
+        with tempfile.TemporaryDirectory() as where, \
+                unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: where}):
+            self.judge()
+            self.gh = GlaedaGitHub()
+            for run in self.gh.base_runs:
+                run.update(status="completed", run_attempt=1, updated_at="2026-11-17T12:00:00Z")
+            self.assertIn("excused", "\n".join(self.judge()))
+            self.assertEqual(self.gh.log_repos[2], GLAEDA_FORK)
+            self.assertEqual(os.listdir(where), [])
+
     def test_any_other_repo_is_read_unrouted(self):
         github = object()
         self.assertIs(excuse.check_of_record(REPO, "feat-cmux-next", github), github)
