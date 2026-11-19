@@ -345,6 +345,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.seed_allowlist or args.write_allowlist:
         new = seeded(texts) if args.seed_allowlist else shrunk(texts, rows)
+        # A first seed may run in a tree with no scripts/cmux-next/ yet (a fresh fixture repo).
+        os.makedirs(os.path.dirname(list_path), exist_ok=True)
         with open(list_path, "w", encoding="utf-8") as handle:
             handle.write(render_rows(new))
         print(f"{ALLOWLIST}: {len(rows)} -> {len(new)} rows")

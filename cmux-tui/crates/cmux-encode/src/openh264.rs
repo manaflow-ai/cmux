@@ -473,6 +473,16 @@ impl OpenH264 {
         }
     }
 
+    /// Turns OpenH264's frame skipping on or off on the live instance.
+    fn set_frame_skip(&self, on: bool) {
+        let Some(set) = self.vtbl().SetOption else { return };
+        let mut value = on;
+        // SAFETY: a live encoder; the option's payload is a bool.
+        unsafe {
+            set(self.enc, ENCODER_OPTION_RC_FRAME_SKIP, (&mut value as *mut bool).cast::<c_void>());
+        }
+    }
+
     fn vtbl(&self) -> &ISVCEncoderVtbl {
         // SAFETY: `enc` points at a live encoder whose first field is its vtable pointer.
         unsafe { &**self.enc }
@@ -574,6 +584,23 @@ unsafe fn init(
     Ok(())
 }
 
+/// A new instance's first frame (the share's start keyframe, or the one after a usage move)
+/// codes with frame skipping off, so its bits never enter the skip buffer. OpenH264 v2.6.0
+/// codes a new instance's first IDR at one QP from a bits-per-pixel table (RcCalculateIdrQp),
+/// whatever it costs: a dense 1080p desktop at the 8 Mbit/s start rate came to ~760 KB, 0.77 s
+/// of the rate. The skip buffer holds half a second of the rate (SKIP_RATIO), so it dropped
+/// every frame after that keyframe until the excess drained: 16 frames, ~270 ms in which a new
+/// share's first key presses showed nothing. A smaller keyframe does not fix it: coded at an eighth of the rate, the table's QP reaches 35, the top of screen
+/// usage's range, and screen text shrank only 22 %; a session-wide QP floor capped steady
+/// quality. The keyframe's bits still count against the rate controller's eight-frame budget,
+/// which carries the overshoot, so it repays them by coding every other frame for a while
+/// instead of none, and the rate holds as before (tests/start_keyframe.rs). A keyframe forced
+/// on a running instance (the viewer's recovery after loss) keeps skipping as before: it
+/// comes on a lossy link, where frames skipped after it are bits the link can't carry.
+fn keyframe_codes_with_skip_off(opts: &OpenH264Options, fresh: bool) -> bool {
+    opts.frame_skip && fresh
+}
+
 impl H264Encoder for OpenH264 {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
         out.clear();
@@ -597,13 +624,19 @@ impl H264Encoder for OpenH264 {
             bPsnrU: false,
             bPsnrV: false,
         };
-        // SAFETY: the encoder reads the planes (kept alive by `pic`) and writes into self.info.
-        unsafe {
-            if force_idr {
-                ok(force(self.enc, true), "force idr")?;
-            }
-            ok(encode(self.enc, &src, &mut *self.info), "encode")?;
+        let skip_off = keyframe_codes_with_skip_off(&self.opts, self.motion.fresh);
+        if skip_off {
+            self.set_frame_skip(false);
         }
+        // SAFETY: the encoder reads the planes (kept alive by `pic`) and writes into self.info.
+        let coded = unsafe {
+            if force_idr { ok(force(self.enc, true), "force idr") } else { Ok(()) }
+                .and_then(|()| ok(encode(self.enc, &src, &mut *self.info), "encode"))
+        };
+        if skip_off {
+            self.set_frame_skip(true);
+        }
+        coded?;
         let info = &*self.info;
         if info.eFrameType == videoFrameTypeSkip {
             return Ok(false);
