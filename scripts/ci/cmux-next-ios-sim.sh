@@ -55,8 +55,18 @@
 #             cat     `cat` of a 6 MB source file
 #             vim     vim scrolling that file a line per redraw (Ctrl-E)
 #             top     top refreshing once a second (htop when installed)
+#             agent   an agent CLI's screen drawn the way Claude Code (Ink) draws
+#                     it, with keys typed through the native keyboard path while it
+#                     streams (TerminalFloodBench `-CmuxMobileFloodBenchMode agent`):
+#                     key-to-echo latency, each key's main-thread time, and the
+#                     terminal's per-frame main-thread work (its frame log)
 #           Each recording is replayed at the rate the program wrote it (capped
 #           at 50 Mbit/s), with screenshots during and after the flood.
+#           Optional arguments (each one `--arg`):
+#             only=LIST   the workloads to run (default cat,vim,top,agent)
+#             profile     a 10 s Time Profiler recording of the app during the
+#                         agent workload's stream: bench/agent-profile/summary.md
+#                         (main-thread symbols, self and total) and the trace
 #   all     build, test and bench.
 #   shots   build, plus one screenshot per scene, in dark and in light, from
 #           the app's own DEBUG launch arguments and demo drivers (mock data,
@@ -236,6 +246,23 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
   fi
 fi
 run_kit=1
+
+# bench's optional selection (see MODE above).
+bench_workloads=(cat vim top agent)
+bench_profile=0
+if [[ ( "$mode" == bench || "$mode" == all ) && $# -gt 1 ]]; then
+  for sel in "${@:2}"; do
+    case "$sel" in
+      only=?*)
+        IFS=',' read -r -a bench_workloads <<< "${sel#only=}"
+        for item in "${bench_workloads[@]}"; do
+          [[ "$item" =~ ^(cat|vim|top|agent)$ ]] || { echo "cmux-next-ios-sim.sh: bench only= wants cat, vim, top or agent, got '$item'" >&2; exit 2; }
+        done ;;
+      profile) bench_profile=1 ;;
+      *) echo "cmux-next-ios-sim.sh: bench takes only=LIST and profile, got '$sel'" >&2; exit 2 ;;
+    esac
+  done
+fi
 
 # listperf's cases (label, screen, settings), as verify/listperf/final.sh runs them.
 listperf_table=(
@@ -1180,7 +1207,8 @@ size = os.path.getsize(sys.argv[1]); secs = max(float(sys.argv[3]) - float(sys.a
 print(f"{min(size * 8 / secs / 1e6, 50.0):.3f} {size} {secs:.2f}")
 PY
   }
-  record cat "cat '$corpus/big.txt'"
+  wants() { [[ " ${bench_workloads[*]} " == *" $1 "* ]]; }
+  if wants cat; then record cat "cat '$corpus/big.txt'"; fi
   cat > "$corpus/scroll.vim" <<'VIM'
 set number
 set filetype=c
@@ -1191,23 +1219,52 @@ for i in range(1500)
 endfor
 qa!
 VIM
-  record vim "vim -u NONE -i NONE -N -n -S '$corpus/scroll.vim' '$corpus/big.txt'"
+  if wants vim; then record vim "vim -u NONE -i NONE -N -n -S '$corpus/scroll.vim' '$corpus/big.txt'"; fi
   if command -v htop >/dev/null; then top_cmd="htop -d 10"; top_name="htop"; else top_cmd="top -s 1"; top_name="top (htop not installed)"; fi
   # In the foreground (a background job is stopped by SIGTTOU when it sets the
   # tty mode); the alarm survives exec and ends it after 12 s.
-  record top "perl -e 'alarm 12; exec @ARGV' $top_cmd"
+  if wants top; then record top "perl -e 'alarm 12; exec @ARGV' $top_cmd"; fi
   note ""
   note "## Flood benchmark (Demo build, in-app TerminalFloodBench, fake Mac daemon, real DaemonClient + Ghostty renderer)"
   note ""
   note "| Workload | Bytes | Replay Mbit/s | Main CPU ms/s | App CPU ms/s | Frames/s | Frame p50 / p95 / max ms | Echo p50 / p90 / max ms | Idle echo p50 / p90 ms | Drain ms |"
   note "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
-  for name in cat vim top; do
-    read -r mbps size _secs < "$corpus/$name.rate"
-    simctl launch "$udid" "$bundle_id" -CmuxMobileFloodBench -CmuxMobileFloodBenchFile "$corpus/$name.typescript" \
-      -CmuxMobileFloodBenchMbps "$mbps" -CmuxMobileFloodBenchSeconds 10 >/dev/null
+  for name in "${bench_workloads[@]}"; do
+    data="$(simctl get_app_container "$udid" "$bundle_id" data 2>/dev/null || true)"
+    if [[ -n "$data" ]]; then rm -f "$data/Documents/flood-bench.json" "$data/Documents/frame-log.ndjson"; fi
+    if [[ "$name" == agent ]]; then
+      mbps=0 size=0
+      launched="$(simctl launch "$udid" "$bundle_id" -CmuxMobileFloodBench -CmuxMobileFloodBenchMode agent \
+        -CmuxMobileFrameLog -CmuxMobileFloodBenchSeconds 10)"
+    else
+      read -r mbps size _secs < "$corpus/$name.rate"
+      launched="$(simctl launch "$udid" "$bundle_id" -CmuxMobileFloodBench -CmuxMobileFloodBenchFile "$corpus/$name.typescript" \
+        -CmuxMobileFloodBenchMbps "$mbps" -CmuxMobileFloodBenchSeconds 10)"
+    fi
     data="$(simctl get_app_container "$udid" "$bundle_id" data)"
     result="$data/Documents/flood-bench.json"
-    rm -f "$result"
+    app_pid="${launched##*: }"
+    if [[ "$name" == agent && $bench_profile -eq 1 && "$app_pid" =~ ^[0-9]+$ ]]; then
+      # The stream starts about 5 s after launch (attach, 2 s settle, 3 s idle); record 10 s of it.
+      sleep 6
+      prof="$out/bench/agent-profile"
+      mkdir -p "$prof"
+      perl -e 'alarm shift; exec @ARGV' 900 xcrun xctrace record --instrument 'Time Profiler' --attach "$app_pid" \
+        --time-limit 10s --output "$prof/time.trace" --no-prompt >"$prof/record.txt" 2>&1 ||
+        echo "xctrace Time Profiler --attach exited $?" >>"$prof/record.txt"
+      if [[ -d "$prof/time.trace" ]] &&
+         perl -e 'alarm shift; exec @ARGV' 600 xcrun xctrace export --input "$prof/time.trace" \
+           --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' --output "$prof/time-profile.xml" >>"$prof/record.txt" 2>&1 &&
+         python3 -I scripts/ci/ios_sim_time_profile.py "$prof/time-profile.xml" --markdown "$prof/summary.md" \
+           --json "$prof/summary.json" >"$prof/brief.txt" 2>&1; then
+        note "- agent Time Profiler (10 s of the stream, attached): bench/agent-profile/summary.md"
+        while IFS= read -r line; do note "  - $line"; done < "$prof/brief.txt"
+      else
+        note "- agent Time Profiler: no samples (bench/agent-profile/record.txt): $(tail -n 1 "$prof/record.txt" | cut -c1-200)"
+      fi
+      rm -f "$prof/time-profile.xml"
+      if [[ -d "$prof/time.trace" ]]; then ditto -c -k --keepParent "$prof/time.trace" "$prof/time.trace.zip" 2>/dev/null || true; rm -rf "$prof/time.trace"; fi
+    fi
     # Screens at fixed points of the run (3 s idle, 10 s flood, 6 s after): bounded delays, not a sync.
     sleep 9; simctl io "$udid" screenshot "$out/screens/$name-flood.png" >/dev/null
     deadline=$((SECONDS + 60))
@@ -1216,6 +1273,7 @@ VIM
     simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
     if [[ ! -s "$result" ]]; then note "| $name | $size | $mbps | no result (timed out) | | | | | | |"; continue; fi
     cp "$result" "$out/bench/$name.json"
+    if [[ -f "$data/Documents/frame-log.ndjson" ]]; then cp "$data/Documents/frame-log.ndjson" "$out/bench/$name-frame-log.ndjson"; fi
     python3 - "$out/bench/$name.json" "$name" "$size" "$mbps" >> "$summary" <<'PY'
 import json, sys
 s = json.load(open(sys.argv[1]))["summary"]; f = s["flood"]; i = s.get("idle", {})
@@ -1226,6 +1284,9 @@ PY
   done
   note ""
   note "Workload top ran: $top_name. Recordings: 50 columns x 45 rows; replayed in a loop for 10 s at the rate the program wrote them (capped at 50 Mbit/s)."
+  if [[ -s "$out/bench/agent.json" ]]; then
+    python3 -I scripts/ci/ios_sim_agent_typing.py "$out/bench/agent.json" "$out/bench/agent-frame-log.ndjson" >> "$summary" || true
+  fi
   tail -n +1 "$summary" | tail -8
 fi
 

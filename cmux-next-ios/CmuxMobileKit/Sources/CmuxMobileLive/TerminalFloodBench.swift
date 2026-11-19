@@ -21,6 +21,13 @@ import SwiftUI
 /// - `-CmuxMobileFloodBenchFile /path`: recorded PTY output to replay (looped);
 ///   default: generated 999-column lines like `verify/terminal-input-lane.md`'s flood.
 /// - `-CmuxMobileFloodBenchMode topline`: instead, rewrite the top row 100 times a second.
+/// - `-CmuxMobileFloodBenchMode agent`: instead, an agent CLI's screen the way Claude Code
+///   (Ink) draws it: its live area (spinner, the streaming reply, the input box) erased and
+///   redrawn 30 times a second, a finished paragraph committed above it every 1.5 s, and each
+///   keystroke echoed as a redraw of the live area with the typed text in the box. Keys go
+///   through the native keyboard path (`insertText`, as the software keyboard calls it), 8 a
+///   second, and each key's main-thread time is measured.
+/// - `-CmuxMobileFloodBenchLiveRows 24`: rows of the agent's live area.
 /// - `-CmuxMobileFloodBenchSeconds 10`: flood length.
 ///
 /// Phases: 3 s idle, the flood, 6 s after it. Each second it logs the main
@@ -51,19 +58,29 @@ final class TerminalFloodBench {
     private let daemon: FloodDaemon
     private let probe = TerminalBenchProbe()
     private let sampler = MainThreadSampler()
+    /// The agent CLI workload (`-CmuxMobileFloodBenchMode agent`): native-path keys.
+    private let agent: Bool
+    /// Main-thread milliseconds of each native-path keystroke since the last second's row.
+    private var keyMainMs: [Double] = []
+    private var keyIndex = 0
 
     init() {
         let defaults = UserDefaults.standard
         let mbps = defaults.double(forKey: "CmuxMobileFloodBenchMbps")
         let chunk = defaults.integer(forKey: "CmuxMobileFloodBenchChunk")
         let file = defaults.string(forKey: "CmuxMobileFloodBenchFile")
-        let topline = defaults.string(forKey: "CmuxMobileFloodBenchMode") == "topline"
+        let mode = defaults.string(forKey: "CmuxMobileFloodBenchMode")
+        let topline = mode == "topline"
+        let isAgent = mode == "agent"
+        agent = isAgent
+        let liveRows = defaults.integer(forKey: "CmuxMobileFloodBenchLiveRows")
         let corpus = file.flatMap { FileManager.default.contents(atPath: $0) } ?? FloodDaemon.generatedCorpus()
         daemon = FloodDaemon(
             corpus: corpus,
             bytesPerSecond: (mbps > 0 ? mbps : 10) * 1_000_000 / 8,
             chunk: chunk > 0 ? chunk : 4096,
-            topline: topline
+            topline: topline,
+            agentLiveRows: isAgent ? (liveRows > 0 ? liveRows : 24) : 0
         )
         daemon.probe = probe
         let daemon = daemon
@@ -92,10 +109,18 @@ final class TerminalFloodBench {
         while !model.connectionState.isAttached { try? await clock.sleep(for: .milliseconds(50)) }
         try? await clock.sleep(for: .seconds(2))
         sampler.start()
-        let keys = KeystrokeTimer(probe: probe) { [weak self] in
+        let keys = KeystrokeTimer(probe: probe, every: agent ? .milliseconds(125) : .milliseconds(200)) { [weak self] in
             guard let self else { return }
-            self.model.composerText = "k"
-            self.model.sendWithoutReturn()
+            guard self.agent else {
+                self.model.composerText = "k"
+                self.model.sendWithoutReturn()
+                return
+            }
+            // A person typing a prompt: letters, a space now and then.
+            let letters = Array("the quick brown fox jumps over the lazy dog ")
+            let key = String(letters[self.keyIndex % letters.count])
+            self.keyIndex += 1
+            if let ms = self.model.benchTypeNativeKey(key) { self.keyMainMs.append(ms) }
         }
         keys.start()
         var rows: [[String: Any]] = []
@@ -120,6 +145,9 @@ final class TerminalFloodBench {
                 "echoes": now.echoLatencies.count,
                 "pendingEchoes": now.pendingEchoes,
             ]
+            let keyMs = keyMainMs
+            keyMainMs.removeAll()
+            row["keyMainMs"] = keyMs.map { ($0 * 100).rounded() / 100 }
             if !now.echoLatencies.isEmpty {
                 row["echoP50ms"] = now.echoLatencies.percentile(0.5)
                 row["echoMaxms"] = now.echoLatencies.max() ?? 0
@@ -154,7 +182,7 @@ final class TerminalFloodBench {
         var summary: [String: Any] = [
             "rateMbps": daemon.bytesPerSecond * 8 / 1_000_000,
             "chunk": daemon.chunk,
-            "mode": daemon.topline ? "topline" : "rate",
+            "mode": agent ? "agent" : daemon.topline ? "topline" : "rate",
             "floodSeconds": (clock.now - floodStart).components.seconds,
             "emittedKB": daemon.emittedTotal / 1024,
             "drainAfterStopMs": drainMs ?? -1,
@@ -164,6 +192,7 @@ final class TerminalFloodBench {
             let pings = all("pings", rows)
             let echoes = all("echoLatencies", rows)
             let frames = all("frameIntervals", rows)
+            let keyMs = all("keyMainMs", rows)
             summary[phase] = [
                 "mainCPUmsPerSecondAvg": avg("mainCPUms", rows),
                 "mainCPUmsPerSecondMax": rows.compactMap { $0["mainCPUms"] as? Double }.max() ?? 0,
@@ -172,6 +201,8 @@ final class TerminalFloodBench {
                 "frameIntervalP50ms": frames.percentile(0.5), "frameIntervalP95ms": frames.percentile(0.95),
                 "frameIntervalMaxms": frames.max() ?? 0,
                 "pingP50ms": pings.percentile(0.5), "pingP99ms": pings.percentile(0.99), "pingMaxms": pings.max() ?? 0,
+                "keyCount": keyMs.count, "keyMainP50ms": keyMs.percentile(0.5), "keyMainP95ms": keyMs.percentile(0.95),
+                "keyMainMaxms": keyMs.max() ?? 0,
                 "echoCount": echoes.count, "echoP50ms": echoes.percentile(0.5), "echoP90ms": echoes.percentile(0.9), "echoMaxms": echoes.max() ?? 0,
                 "presentsPerSecondAvg": rows.isEmpty ? 0 : Double(rows.compactMap { $0["presents"] as? Int }.reduce(0, +)) / Double(rows.count),
                 "processedKBPerSecondAvg": rows.isEmpty ? 0 : Double(rows.compactMap { $0["processedKB"] as? Int }.reduce(0, +)) / Double(rows.count),
@@ -209,9 +240,9 @@ extension Array where Element == Double {
 /// Keystrokes on a background timer (like touches, they wait for the main thread).
 private final class KeystrokeTimer: @unchecked Sendable {
     private let timer: DispatchSourceTimer
-    init(probe: TerminalBenchProbe, type: @escaping @MainActor () -> Void) {
+    init(probe: TerminalBenchProbe, every interval: DispatchTimeInterval, type: @escaping @MainActor () -> Void) {
         timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "flood-bench.keys"))
-        timer.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(200))
+        timer.schedule(deadline: .now() + .milliseconds(100), repeating: interval)
         timer.setEventHandler {
             probe.keystroke(at: CACurrentMediaTime())
             DispatchQueue.main.async { MainActor.assumeIsolated { type() } }
@@ -291,10 +322,15 @@ final class FloodDaemon: @unchecked Sendable {
     private var floodStart: CFTimeInterval = 0
     private var floodEmitted = 0
     private var topTick = 0
+    /// Rows of the agent CLI's live area (0: not the agent workload).
+    let agentLiveRows: Int
+    private let agentLock = NSLock()
+    private var agentScreen = AgentScreen()
 
     var emittedTotal: Int { lock.withLock { emitted } }
 
-    init(corpus: Data, bytesPerSecond: Double, chunk: Int, topline: Bool) {
+    init(corpus: Data, bytesPerSecond: Double, chunk: Int, topline: Bool, agentLiveRows: Int = 0) {
+        self.agentLiveRows = agentLiveRows
         self.corpus = corpus.isEmpty ? FloodDaemon.generatedCorpus() : corpus
         self.bytesPerSecond = bytesPerSecond
         self.chunk = chunk
@@ -347,7 +383,15 @@ final class FloodDaemon: @unchecked Sendable {
             channel.push([state, reply()])
         case "send":
             channel.push([reply()])
-            if let bytes = (object["bytes"] as? String).flatMap({ Data(base64Encoded: $0) }) {
+            if agentLiveRows > 0, let bytes = (object["bytes"] as? String).flatMap({ Data(base64Encoded: $0) }) {
+                // An agent CLI echoes a key by redrawing its live area with the key in its box.
+                agentLock.withLock {
+                    agentScreen.type(bytes)
+                    let (echoLine, end) = outputEvent(Data(agentScreen.redraw(rows: agentLiveRows).utf8))
+                    probe?.echo(count: bytes.count, endingAt: end)
+                    main.push([echoLine])
+                }
+            } else if let bytes = (object["bytes"] as? String).flatMap({ Data(base64Encoded: $0) }) {
                 // The echo, behind the output already queued on the attach channel.
                 let (echoLine, end) = outputEvent(bytes)
                 probe?.echo(count: bytes.count, endingAt: end)
@@ -360,7 +404,7 @@ final class FloodDaemon: @unchecked Sendable {
 
     func startFlood() {
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "flood-bench.daemon", qos: .userInitiated))
-        timer.schedule(deadline: .now(), repeating: .milliseconds(topline ? 10 : 2))
+        timer.schedule(deadline: .now(), repeating: .milliseconds(agentLiveRows > 0 ? 33 : topline ? 10 : 2))
         floodStart = CACurrentMediaTime()
         floodEmitted = 0
         timer.setEventHandler { [weak self] in self?.tick() }
@@ -377,6 +421,13 @@ final class FloodDaemon: @unchecked Sendable {
 
     private func tick() {
         guard lock.withLock({ flooding }) else { return }
+        if agentLiveRows > 0 {
+            agentLock.withLock {
+                agentScreen.advance()
+                main.push([output(Data(agentScreen.redraw(rows: agentLiveRows).utf8))])
+            }
+            return
+        }
         if topline {
             // `printf '\e[H...'` 100 times a second: the top row rewritten in place.
             topTick += 1
@@ -399,6 +450,78 @@ final class FloodDaemon: @unchecked Sendable {
             remaining -= chunk
         }
         if !lines.isEmpty { main.push(lines) }
+    }
+}
+
+/// The screen of an agent CLI drawn the way Claude Code's renderer (Ink's log-update) draws
+/// it: each render erases the rows it wrote last time (`ESC [2K` and `ESC [1A` per row) and
+/// writes the live area again: a spinner, the reply streaming in, the input box with what
+/// was typed, a hint row. A finished paragraph is written once above the live area, where
+/// it scrolls up with the rest of the transcript.
+struct AgentScreen {
+    private var typed = ""
+    private var reply: [String] = []
+    private var tick = 0
+    private var paragraph = 0
+    /// Rows the last render wrote (its trailing newline included).
+    private var drawn = 0
+    private static let words = ("Looking at `TerminalSurfaceView.swift`, the keystroke path runs **insertText** on the main "
+        + "thread and hands the bytes to the session. The reply streams while you type, so every frame redraws "
+        + "the live area: the spinner, these lines and the input box below. Next I'll read `pumpOutput` and the "
+        + "present handler to see what else runs per frame, then measure it.").split(separator: " ").map(String.init)
+
+    mutating func type(_ bytes: Data) {
+        for byte in bytes {
+            switch byte {
+            case 0x7F, 0x08: if !typed.isEmpty { typed.removeLast() }
+            case 0x0D, 0x0A: typed = ""
+            case 0x20...0x7E: typed.append(Character(UnicodeScalar(byte)))
+            default: break
+            }
+        }
+    }
+
+    /// One streaming tick: a word or two more of the reply; every 1.5 s the paragraph is done.
+    mutating func advance() {
+        tick += 1
+        let word = Self.words[tick % Self.words.count]
+        if reply.isEmpty || (reply.last?.count ?? 0) + word.count + 1 > 46 {
+            reply.append(word)
+        } else {
+            reply[reply.count - 1] += " " + word
+        }
+    }
+
+    /// The bytes of one render: the erase of the last one, a finished paragraph when due, the live area.
+    mutating func redraw(rows: Int) -> String {
+        var out = ""
+        for row in 0..<drawn {
+            out += "\u{1B}[2K" + (row < drawn - 1 ? "\u{1B}[1A" : "")
+        }
+        if drawn > 0 { out += "\u{1B}[G" }
+        if tick > 0, tick % 45 == 0, !reply.isEmpty {
+            paragraph += 1
+            out += "\u{1B}[1m\u{25CF}\u{1B}[22m " + reply.joined(separator: "\r\n  ").replacingOccurrences(of: "`", with: "") + "\r\n\r\n"
+            reply.removeAll()
+        }
+        let spinner = ["\u{00B7}", "\u{2722}", "\u{2733}", "\u{2736}", "\u{273B}", "\u{273D}"][tick % 6]
+        var lines = ["\u{1B}[38;5;174m\(spinner) Thinking\u{2026}\u{1B}[39m \u{1B}[2m(\(tick / 30)s \u{00B7} \u{2191} \(tick * 13) tokens \u{00B7} esc to interrupt)\u{1B}[22m", ""]
+        let replyRows = max(1, rows - 7)
+        for (index, line) in reply.suffix(replyRows).enumerated() {
+            let styled = line.replacingOccurrences(of: "**", with: "")
+                .split(separator: "`", omittingEmptySubsequences: false).enumerated()
+                .map { $0.offset % 2 == 1 ? "\u{1B}[38;5;153m\($0.element)\u{1B}[39m" : String($0.element) }.joined()
+            lines.append((index == 0 ? "\u{1B}[1m\u{25CF}\u{1B}[22m " : "  ") + styled)
+        }
+        let box = 46
+        let shown = String(typed.suffix(box - 4))
+        lines += ["", "\u{1B}[2m\u{256D}" + String(repeating: "\u{2500}", count: box) + "\u{256E}\u{1B}[22m",
+                  "\u{1B}[2m\u{2502}\u{1B}[22m > " + shown + String(repeating: " ", count: box - 3 - shown.count) + "\u{1B}[2m\u{2502}\u{1B}[22m",
+                  "\u{1B}[2m\u{2570}" + String(repeating: "\u{2500}", count: box) + "\u{256F}\u{1B}[22m",
+                  "  \u{1B}[2m? for shortcuts\u{1B}[22m"]
+        out += lines.joined(separator: "\r\n") + "\r\n"
+        drawn = lines.count + 1
+        return out
     }
 }
 
