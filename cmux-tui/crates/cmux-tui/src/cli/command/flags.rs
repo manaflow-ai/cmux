@@ -121,6 +121,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "new",
     // `terminal <t> close --if-unplaced`: end it only when nothing shows it.
     "if-unplaced",
+    // `workspace list --tree`: each workspace's panes, tabs and creator.
+    "tree",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

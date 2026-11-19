@@ -980,10 +980,18 @@ fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a,
     ) {
         return std::borrow::Cow::Owned(super::command::settings_human_rows(result));
     }
-    let personal = matches!(
+    let workspaces = matches!(
         &plan.operation,
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::WorkspaceList)
-    ) && plan.params.get("order").and_then(Value::as_str) == Some("personal");
+    );
+    if workspaces
+        && plan.filter.tree
+        && let Some(rows) = result.as_array()
+    {
+        return std::borrow::Cow::Owned(list_filter::tree_human_rows(rows));
+    }
+    let personal =
+        workspaces && plan.params.get("order").and_then(Value::as_str) == Some("personal");
     match result.as_array() {
         Some(rows) if personal => std::borrow::Cow::Owned(Value::Array(
             rows.iter()
