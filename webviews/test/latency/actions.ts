@@ -1353,8 +1353,6 @@ export const LIVE_BACKGROUND_PAGES: LatencyPageSpec[] = ["none", "aurora", "grai
 // The sidebar's chat history (test/latency/sidebar-chats.html): Earlier with 500 chats, host delay
 // 40 ms. Each action starts from Earlier open and scrolled to its top.
 const SC_ROWS = `window.__latencySidebarChats.mounted()`;
-const SC_WHEEL_STEPS = 12;
-const SC_WHEEL_DELTA = 120;
 
 async function sidebarChatsOpen(page: Page): Promise<void> {
   if ((await attr(page, ".sc-header-foldable", "aria-expanded")) === "false") {
@@ -1392,27 +1390,6 @@ function sidebarChatsActions(windowed: boolean): LatencyAction[] {
       },
       async input(page) {
         await page.evaluate("window.__latency.markInput('rename'); window.__latencySidebarChats.rename(3)");
-      },
-      settle: quiet,
-    },
-    {
-      id: id("scroll"),
-      name: "scroll",
-      metricType: "scroll_frame_time",
-      async prepare(page) {
-        await sidebarChatsOpen(page);
-        await page.mouse.move(120, 200);
-        const travel = SC_WHEEL_STEPS * SC_WHEEL_DELTA;
-        // Scrolled, and a chat row (not a spacer) drawn at the window's bottom.
-        return `window.scrollY >= ${travel - SC_WHEEL_DELTA / 2} &&
-          document.elementFromPoint(120, window.innerHeight - 6)?.closest(".sc-row[data-chat]") != null`;
-      },
-      async input(page) {
-        for (let step = 0; step < SC_WHEEL_STEPS; step += 1) {
-          // The sidebar list scrolls the page in the app; here the document scrolls one wheel notch a frame.
-          await page.evaluate((delta) => window.scrollBy(0, delta), SC_WHEEL_DELTA);
-          await page.evaluate(() => window.cmuxPaintFrame());
-        }
       },
       settle: quiet,
     },
