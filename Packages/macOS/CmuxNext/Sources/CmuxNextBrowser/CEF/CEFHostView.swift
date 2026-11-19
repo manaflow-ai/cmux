@@ -110,6 +110,14 @@ final class CEFHostView: NSView {
         updateBackground()
     }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        let wasEmpty = bounds.isEmpty
+        super.setFrameSize(newSize)
+        // After super: the fork's tracker resized the page window in the frame notice, so its compositor has the new
+        // size the window's resize fence asks for (fork API 32, ``CEFLayerHosting/pageViewResized()``).
+        if !wasEmpty, newSize.width > 0, newSize.height > 0 { layerHosting.pageViewResized() }
+    }
+
     /// Once the page's own background is known (`pageBackdrop`) the page area takes it, so the gap beside a page that is
     /// still at its last, smaller frame shows the page's color in every motion frame (m20 item 1: a key resize, a drag, a
     /// spring and the window's live resize); at rest the page covers it. Before that it follows the shared pane ground,
