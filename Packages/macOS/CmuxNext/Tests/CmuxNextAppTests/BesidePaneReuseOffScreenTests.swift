@@ -31,6 +31,9 @@ struct BesidePaneReuseOffScreenTests {
         /// Rows on both sides, `split(right, split(down, caller, S), split(down, R, Q))` at equal ratios: R, a plain
         /// terminal, is right of the caller; Q, which holds a browser, only touches the row below the caller.
         case rowsOnBothSides
+        /// The caller is an agent chat in a column docked left (the agent chat's dock), with one pane in the strip
+        /// beside it that holds a browser only.
+        case dockedChatWithABrowserPane
 
         /// The layouts whose first open makes or takes one pane that the second open must take again.
         nonisolated static let reused: [Right] = [.nothing, .splitTerminal, .splitOfAnotherAgent]
@@ -52,6 +55,8 @@ struct BesidePaneReuseOffScreenTests {
         let callerPane: PaneModel
         let terminal: TabModel
         let terminalID: String
+        /// The `caller` of the scene's requests: its terminal, or its chat's agent session.
+        let caller: CmuxNextSettings.JSONValue
         /// The pane split off the caller's before the run, if any.
         let rightPane: PaneModel?
         /// `rowsOnBothSides`: the pane below ``rightPane``, which touches only the row below the caller.
@@ -71,10 +76,10 @@ struct BesidePaneReuseOffScreenTests {
 
         /// `action` as the caller's terminal runs it: `cli` is a person's shell, `mcp` an agent.
         func run(_ action: String, origin: String, args: [String: CmuxNextSettings.JSONValue] = [:], aimedAtOwnTab: Bool = false) async {
-            var params: [String: CmuxNextSettings.JSONValue] = ["action": .string(action), "args": .object(args), "caller": ["terminal_id": .string(terminalID)],
+            var params: [String: CmuxNextSettings.JSONValue] = ["action": .string(action), "args": .object(args), "caller": caller,
                                                "origin": .string(origin), "wait": true]
             if aimedAtOwnTab { params["target"] = .string("tab:" + terminal.id) }
-            let reply = await router.handle(ControlRequest(id: UUID().uuidString, method: "action.run", params: params))
+            let reply = await router.handle(ControlRequest(id: "run", method: "action.run", params: params))
             if case .failure(let error) = reply { Issue.record("\(action) was refused: \(error.code) \(error.message)") }
         }
 
@@ -135,7 +140,32 @@ struct BesidePaneReuseOffScreenTests {
                 known.append(new)
                 return new
             }
-            if right != .nothing { rightPane = try await split(callerPane, .right) }
+            var caller: CmuxNextSettings.JSONValue = ["terminal_id": .string(terminalID)]
+            if right == .dockedChatWithABrowserPane {
+                // The strip's column first (a dock is never a screen's only column), with a browser and nothing else in it.
+                let made = try await connection.newColumn(rightOf: callerPane.handle).surface
+                try await PasswordManagerRouteTests.until({ store.pane(containing: made).map { $0 !== callerPane } ?? false },
+                                                          report: { "the strip's column was not made" })
+                let strip = try #require(store.pane(containing: made))
+                known.append(strip)
+                let page = try await connection.newFrontendBrowserTab(url: "http://127.0.0.1:9/strip", engine: .webkit, in: strip.handle, activate: true)
+                try await connection.closeTab(made)
+                try await PasswordManagerRouteTests.until({ strip.tabs.map(\.surface) == [page.surface] },
+                                                          report: { "the strip's pane does not hold the browser alone: \(strip.tabs.map { "\($0.kind)" })" })
+                rightPane = strip
+                // The caller: an agent chat in the first pane, its column docked left with the agent chat role.
+                let host = AgentSessionRef.host(installID: "cn-beside-reuse")
+                services.agentTabs.localHost = host
+                let chat = try await connection.request(NewConversationTabRequest(
+                    agentSession: AgentSessionRef(host: host, session: "docked-agent", harness: "codex"), pane: callerPane.handle))
+                try await PasswordManagerRouteTests.until({ callerPane.tabs.contains { $0.surface == chat.surface } },
+                                                          report: { "the caller's chat is not in its pane" })
+                try await connection.setColumnDock(of: callerPane.handle, dock: DockSnapshot(edge: .left, mode: .docked, role: .agentChat))
+                try await PasswordManagerRouteTests.until({ store.dockedColumn(holding: callerPane) != nil }, report: { "the caller's column did not dock" })
+                caller = ["agent_session": "docked-agent"]
+            } else if right != .nothing {
+                rightPane = try await split(callerPane, .right)
+            }
             if right == .rowsOnBothSides, let rightPane {
                 _ = try await split(callerPane, .down)
                 let below = try await split(rightPane, .down)
@@ -172,11 +202,12 @@ struct BesidePaneReuseOffScreenTests {
             publisher.start()
             defer { publisher.stop() }
             let scene = Scene(services: services, router: router, workspace: workspace, callerPane: callerPane, terminal: terminal,
-                              terminalID: terminalID, rightPane: rightPane, diagonalPane: diagonalPane)
+                              terminalID: terminalID, caller: caller, rightPane: rightPane, diagonalPane: diagonalPane)
             try await PasswordManagerRouteTests.until({
                 let topology = router.snapshots.current.topology
+                let docked = topology.workspaces.lazy.flatMap(\.panes).first { $0.id == callerPane.id }?.dock != nil
                 return topology.tab(id: terminal.id) != nil && topology.windows.contains { $0.workspaceID == workspace.id } == shown
-                    && known.allSatisfy { scene.published($0) }
+                    && known.allSatisfy { scene.published($0) } && docked == (right == .dockedChatWithABrowserPane)
             }, report: { "the snapshot never showed the caller's workspace \(shown ? "on" : "off") screen" })
             try await body(scene)
         }
@@ -205,6 +236,7 @@ struct BesidePaneReuseOffScreenTests {
                 "caller": ["terminal_id": .string(scene.terminalID)], "origin": "mcp",
             ])).get()
             #expect(identify["beside"]?["placement"] == "existing_column", "\(String(describing: identify["beside"]))")
+            #expect(identify["caller"]?["docked"] == false, "a terminal in a split or in the strip is not docked: \(String(describing: identify["caller"]))")
             let named = identify["beside"]?["panes"]?.arrayValue?.compactMap { $0["id"]?.stringValue } ?? []
             #expect(named.contains(first.id), "the pane the first open made is beside the terminal: \(named), \(scene.described)")
             if right == .nothing { #expect(identify["beside"]?["pane"] == .string(first.id)) }
@@ -306,6 +338,39 @@ struct BesidePaneReuseOffScreenTests {
                 #expect(scene.panes.count == before.count, "no new pane: \(scene.described)")
             }
             if right == .splitOfAnotherAgent { #expect(scene.rightPane?.tabs.map(\.id) == othersTabs, "another agent's pane took a tab: \(scene.described)") }
+        }
+    }
+
+    /// The same invariant for a caller in a dock (review of def63ffc2d1): an agent chat docked left with one
+    /// browser pane in the strip beside it. Its first terminal opens in a split below that pane, as on screen, and
+    /// its second is a tab in the first one's pane. The split below was made only for a caller not in a dock, so a
+    /// docked chat's terminal went into a new strip column, and so did the next one. `system.identify` says the
+    /// caller is docked, which is how the cmux CLI knows not to split it.
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func aDockedChatsSecondTerminalTakesThePaneOfTheFirst() async throws {
+        try await Self.withScene(.dockedChatWithABrowserPane) { scene in
+            let browser = try #require(scene.rightPane)
+            let identify = try await scene.router.handle(ControlRequest(id: "identify", method: "system.identify", params: [
+                "caller": scene.caller, "origin": "mcp",
+            ])).get()
+            #expect(identify["caller"]?["docked"] == true, "\(String(describing: identify["caller"]))")
+            #expect(identify["beside"]?["pane"] == .string(browser.id), "the strip's pane is beside the dock: \(String(describing: identify["beside"]))")
+
+            let before = scene.panes, known = scene.tabIDs
+            await scene.run("newSurface", origin: "mcp")
+            try await PasswordManagerRouteTests.until({ scene.tabs(of: .pty, beyond: known).contains { $0.pane !== scene.callerPane } },
+                                                      report: { "the first terminal did not leave the chat's pane: " + scene.described })
+            let first = try #require(scene.tabs(of: .pty, beyond: known).first).pane
+            #expect(Self.split(of: scene.workspace, between: browser, and: first) == .down, "a split below the browser pane: \(scene.described)")
+            try await PasswordManagerRouteTests.until({ scene.published(first) && scene.published(scene.callerPane) },
+                                                      report: { "the snapshot never listed the first terminal's pane" })
+            await scene.run("newSurface", origin: "mcp")
+            try await PasswordManagerRouteTests.until({
+                let opened = scene.tabs(of: .pty, beyond: known)
+                return opened.count == 2 && opened.allSatisfy { $0.pane === first }
+            }, report: { "the second terminal is not in the pane of the first: " + scene.described })
+            #expect(scene.panes.count == before.count + 1, "one new pane for both terminals: \(scene.described)")
+            #expect(browser.tabs.count == 1, "the browser pane keeps its page alone: \(scene.described)")
         }
     }
 }

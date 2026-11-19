@@ -94,12 +94,13 @@ struct ControlCallerPlacement: Sendable, Equatable {
     /// lowest pane when it has two or more (never another split). A lone pane: its own for a tab with no kind;
     /// nil for a terminal or a browser it does not hold, which opens in a split below it (the app makes the
     /// split, AgentBesidePlacement; Leo 2026-10-31: "you only need the rightmost botom auto split when there's a
-    /// terminal that gets opened when there's already a browser, and vice versa").
+    /// terminal that gets opened when there's already a browser, and vice versa"). Nil also when no pane of the
+    /// column holds a tab: the app decides for an empty pane, as it does on screen.
     func pane(for kind: String?) -> ControlPaneInfo? {
         let filled = column.filter { !$0.tabs.isEmpty }
         if let kind, let same = filled.last(where: { ControlCallerLocation.kinds(of: $0).contains(kind) }) { return same }
         if filled.count > 1 { return filled.last }
-        return kind != nil && filled.count == 1 ? nil : column.first
+        return kind == nil && !filled.isEmpty ? column.first : nil
     }
 
     /// A tab of `pane` a tab-target action can name: its selected tab, else its first.

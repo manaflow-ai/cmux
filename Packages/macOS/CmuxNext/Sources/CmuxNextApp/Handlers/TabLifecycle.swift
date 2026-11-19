@@ -77,12 +77,12 @@ enum TabLifecycle {
         let beside = HomeDockOpens.opensBeside(pane, services: ctx.services) || invocation.besideAgent?.newColumnBeside == true, width = ctx.services.newColumnWidth(nextTo: pane)
         let closed = ctx.services.daemon(for: pane).store.pinnedDock(holding: pane.handle)?.takesTabs == false
         // An agent's terminal beside a pane no window shows, as on screen (AgentBesidePlacement): below the lone pane on its right that holds no terminal, else in a split directly right of its own pane, where its next open finds it (a strip column goes past a pane split beside the agent: each open made one more). A docked pane cannot split: a column beside it.
-        let store = ctx.services.daemon(for: pane).store, agent = invocation.besideAgent?.newColumnBeside == true && store.dockedColumn(holding: pane) == nil
+        let store = ctx.services.daemon(for: pane).store, agent = invocation.besideAgent?.newColumnBeside == true, splits = agent && store.dockedColumn(holding: pane) == nil
         let below = agent ? RightColumnPlacement.paneToSplitBelow(beside: pane, in: store, avoiding: invocation.besideAgentHomes, opening: .terminal, holds: { LinkOpener.holds(tabs: $0.tabs, $1) }) : nil
         ctx.send("new-tab") { connection in
             if closed { _ = try await connection.newColumn(beside: handle, left: false, width: width, options: options); return }
             let created = try await connection.newTab(in: handle, options: options)
-            if agent { _ = try await connection.moveTabToSplit(created.surface, pane: below ?? handle, edge: below == nil ? .right : .bottom, keepFocus: true) } else if beside { _ = try await connection.moveTabToColumn(created.surface, target: .pane(handle), keepFocus: true) }
+            if below != nil || splits { _ = try await connection.moveTabToSplit(created.surface, pane: below ?? handle, edge: below == nil ? .right : .bottom, keepFocus: true) } else if beside { _ = try await connection.moveTabToColumn(created.surface, target: .pane(handle), keepFocus: true) }
         }
     }
 

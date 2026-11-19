@@ -215,10 +215,13 @@ struct ControlCallerLocation: Sendable, Equatable {
         topology.windows.contains { $0.isVisible && !$0.isHidden && $0.workspaceID == workspace.id }
     }
 
+    /// `caller` (`system.identify`, `snapshot.get`). `docked`: the caller's pane is in a docked column (Home's
+    /// chat, an agent chat's dock), which cannot split; false for a pane of the strip or of a split, which the
+    /// cmux CLI splits to the right for its own new pane, where the layout's right-of relation finds it again.
     var callerJSON: JSONValue {
         ["is_caller": true, "agent_session": .optional(caller.agentSession), "terminal_id": .optional(caller.terminalID),
          "workspace": .string(workspace.publicID), "screen": .string(screen.id), "pane": .string(pane.id), "tab": .string(tab.id),
-         "column": pane.column.map { JSONValue($0) } ?? .null]
+         "column": pane.column.map { JSONValue($0) } ?? .null, "docked": .bool(pane.dock != nil)]
     }
 
     /// `members` with `caller`, `beside` and `browser` (the browser nearest
