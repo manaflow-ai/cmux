@@ -84,6 +84,6 @@ for want in "LR-CASE kept expect=last" "LR-REOPENED base 1/1 case=kept" "LR-REOP
   "LR-SURFACE head first=tabs home_page_drawn=0/1 mix=tabs:1" "LR-SURFACE-DIFF base first=home head first=tabs: not like for like"; do
   grep -qxF "$want" <<<"$summary" || { echo "summary lacks '$want':"; echo "$summary"; exit 1; } >&2
 done
-grep -q '^LR-FAIL head run1 landed on workspace=w tab=t2, last front was Home$' <<<"$summary" \
+grep -qxF 'LR-FAIL head run1 landed on workspace=w tab=t2, last front was Home (judged against the priming launch'"'"'s front)' <<<"$summary" \
   || { echo "summary lacks head's LR-FAIL:"; echo "$summary"; exit 1; } >&2
 echo 'launch-ready cases: the summary flags the A/B not like for like'

@@ -158,6 +158,7 @@ def summarize(rows, case="kept", seeded=""):
         if seeded:  # front=: the priming launch's front is the front every measured launch must reopen
             prime = next((r for r in own if r["label"] == "prime"), {})
             anchor = prime.get("front")
+            anchor_drew_home = "home.first_page" in (prime.get("marks") or {})
             if not anchor or "error" in anchor or key(anchor)[0] != ("home" if seeded == "home" else "tab"):
                 print("LR-FAIL", side, "prime", f"front={seeded} not seeded: front " + json.dumps(anchor, sort_keys=True), flush=True)
                 failed.append("prime")
@@ -176,7 +177,9 @@ def summarize(rows, case="kept", seeded=""):
                 else:
                     anchor, not_judged = front, None
                 anchor_drew_home = "home.first_page" in (r.get("marks") or {})
-            elif anchored and anchor is not None and r["label"].startswith(PRERUNS):
+            # A seeded run (front=) judges its preruns against the seeded front the same way: a prerun that moved the
+            # front and a measured launch that moved it back read 1/1 and LR-SAME-FRONT ok before.
+            elif (anchored or seeded) and anchor is not None and r["label"].startswith(PRERUNS):
                 reason = judge_against_anchor(r, expect, anchor, anchor_drew_home)
                 if reason:
                     print("LR-FAIL", side, r["label"], reason, flush=True)
