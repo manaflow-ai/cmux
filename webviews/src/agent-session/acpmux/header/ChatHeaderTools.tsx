@@ -225,7 +225,13 @@ function ChatHeaderToolsView({
   const glassLook = glass ?? (glassSwitch ? experimentArm(glassToolbarLook) : "off");
   const { lit, pullRequest, headerControls, headerMotion } = useHeaderState();
   const style = motion ?? headerMotion;
-  const actions = useQuickActions();
+  // The glass capsule holds every split action (Split Down and New tab too, which the plain row keeps in
+  // "..." by default); the saved list itself is not changed.
+  const savedActions = useQuickActions();
+  const actions =
+    glassLook === "off"
+      ? savedActions
+      : [...GLASS_CAPSULE_ACTIONS].reduce((list, id) => withShown(list, id, true), savedActions);
   const worktree = useWorktree(folder, readStatus, statusKey);
   const worktreeOps = useWorktreeOps(worktree, folder, onApplyWorktree, onRemoveWorktree);
   const pullRequestOps = usePullRequestOps(pullRequest, onMergePullRequest);

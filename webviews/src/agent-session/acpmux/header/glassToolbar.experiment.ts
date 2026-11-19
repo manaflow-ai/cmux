@@ -1,5 +1,6 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
 import { defineExperiment } from "../../../experiments/experiment";
+import type { QuickActionId } from "./quickActions";
 
 /// The switch in Settings > Advanced > Experiments (`experiments.glassToolbarGroups`, off by default)
 /// that turns the glass toolbar on; experiments/switches.ts carries it to the page.
@@ -39,7 +40,12 @@ export type GlassToolbarLook = keyof typeof glassToolbarLook.arms;
 
 /// The quick actions that share the capsule, in its order: the split and tab actions. The rest
 /// (Changes, Files, Preview) stay single round buttons.
-export const GLASS_CAPSULE_ACTIONS: ReadonlySet<string> = new Set(["terminal", "splitDown", "browser", "newTab"]);
+export const GLASS_CAPSULE_ACTIONS: ReadonlySet<QuickActionId> = new Set<QuickActionId>([
+  "terminal",
+  "splitDown",
+  "browser",
+  "newTab",
+]);
 
 /// What the search chip runs and whose keycap it shows: the command palette's chats page, ⌘K in an
 /// agent pane by default (`key.agentPane.searchChats`).
