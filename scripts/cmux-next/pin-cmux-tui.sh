@@ -478,9 +478,12 @@ try:
     runs = json.loads(sys.stdin.read())["workflow_runs"]
 except Exception:
     print("unknown"); sys.exit(0)
-for r in runs:
-    if isinstance(r, dict) and r.get("status") != "completed":
-        print(r.get("id"))
+assert isinstance(runs, list) and all(isinstance(r, dict) for r in runs)
+active = [r for r in runs if r.get("status") != "completed"]
+# Active retries take precedence over older terminal attempts. With none active,
+# inspect the newest run so a completed preflight failure keeps its job and URL.
+for r in active or runs[:1]:
+    print(r.get("id"))
 ' <<<"$runs" 2>/dev/null || echo unknown)"
   [[ "$ids" != unknown ]] || { echo unknown; return 0; }
   [[ -n "$ids" ]] || { echo none; return 0; }
@@ -516,8 +519,10 @@ for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
     url = run.get("html_url") or f"{web}/actions/runs/{run_id}"
     bad = [j for j in jobs if j.get("conclusion") in ("failure", "timed_out", "cancelled")
            and REQUIRED.match(j.get("name", "")) and not DARWIN_PRIMARY.match(j.get("name", ""))]
-    if bad and int(run.get("run_attempt") or 1) >= MAX_ATTEMPTS:
+    if bad and (run.get("status") == "completed" or int(run.get("run_attempt") or 1) >= MAX_ATTEMPTS):
         failed.append(f"{bad[0]['name']}: {url}")
+        continue
+    if run.get("status") == "completed":
         continue
     # Preflight, build and publish jobs hold the tree back; a shadow or upload job may queue.
     waiting = [j for j in jobs if j.get("status") in ("queued", "waiting", "pending") and not j.get("runner_name")
@@ -532,7 +537,7 @@ for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
         stalled.append(f"run pending {age(run.get('created_at')) // 60} min with no job started: {url}")
         continue
     print("building"); sys.exit(0)
-print(("failed " + failed[0]) if failed else ("stalled " + stalled[0]))
+print(("failed " + failed[0]) if failed else ("stalled " + stalled[0]) if stalled else "none")
 PY
   rm -rf "$jobs_dir"
 }

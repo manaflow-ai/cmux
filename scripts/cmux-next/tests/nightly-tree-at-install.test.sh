@@ -214,7 +214,10 @@ check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "failed c
 
 # Let the automatic retry become active between the two idle observations.
 reset_cdn; set_runs "$no_runs"; completed_run "$own" 12 1; jobs_file 12 "$preflight_failed"
-fake_clock_at 60 "printf '%s' '{\"workflow_runs\":[{\"id\":12,\"status\":\"in_progress\",\"run_attempt\":2,\"head_sha\":\"$own\"}]}' > '$runs_dir/runs-$own'"
+cp "$runs_dir/runs-$own" "$TMP/completed-run"
+own_run "$own" 12 2; cp "$runs_dir/runs-$own" "$TMP/active-retry"
+cp "$TMP/completed-run" "$runs_dir/runs-$own"
+fake_clock_at 60 "cp '$TMP/active-retry' '$runs_dir/runs-$own'"
 client "$own" "$app"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "an active retry clears a completed preflight failure during grace (took $took s)"
 
