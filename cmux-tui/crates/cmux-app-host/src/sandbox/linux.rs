@@ -28,6 +28,7 @@ const BPF_LD_W_ABS: u16 = 0x20;
 const BPF_JMP_JEQ_K: u16 = 0x15;
 const BPF_RET_K: u16 = 0x06;
 // BPF_JMP | BPF_JGE | BPF_K.
+#[cfg(target_arch = "x86_64")]
 const BPF_JMP_JGE_K: u16 = 0x35;
 /// x32 syscalls share the x86_64 audit arch with this bit set in the number;
 /// every such number is killed so the denylist cannot be sidestepped.
@@ -47,6 +48,7 @@ const AUDIT_ARCH: u32 = 0xC000_00B7;
 /// Syscalls the host never needs once it runs. Everything the VM does is
 /// memory, time, randomness and reads/writes on fds it already holds.
 fn denied_syscalls() -> Vec<libc::c_long> {
+    #[cfg_attr(not(target_arch = "x86_64"), allow(unused_mut))]
     let mut list = vec![
         libc::SYS_openat,
         libc::SYS_openat2,
