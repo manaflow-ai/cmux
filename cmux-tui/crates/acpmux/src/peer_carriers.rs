@@ -13,7 +13,9 @@
 //!   With it the peer is relay first (`peer_paths.rs`): the cold connect dials the relay and
 //!   the remembered path at once, and the link moves to a direct path after its probes.
 
-use super::{EARLY_TUNNEL_FOR, Peer, RESTART_AFTER, connect_timed_out, ssh_errors, tokens};
+use super::{
+    DIAL_TIMED_OUT, EARLY_TUNNEL_FOR, Peer, RESTART_AFTER, connect_timed_out, ssh_errors, tokens,
+};
 use crate::no_panic::LockExt;
 use crate::peer_link::{Heard, HeardStream};
 use crate::peer_paths::{PROBE_EVERY, Paths, Via};
@@ -21,7 +23,7 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::{SinkExt, StreamExt};
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -440,11 +442,15 @@ impl Peer {
             (paths.dial_order(now), paths.dial_together(now))
         });
         let read = Box::pin(self.direct_tokens(&order)).shared();
+        // Whether a dial ran past its connect deadline: the link's end class (`link_timed_out`).
+        let timed_out = Arc::new(AtomicBool::new(false));
         let dials: Vec<_> = order
             .iter()
             .map(|via| {
                 let read = read.clone();
-                (*via, async move { self.open_via(*via, self.dial_tokens(*via, read).await).await })
+                let dial =
+                    async move { self.open_via(*via, self.dial_tokens(*via, read).await).await };
+                (*via, DIAL_TIMED_OUT.scope(timed_out.clone(), dial))
             })
             .collect();
         let mut stopped = self.stop_changed.subscribe();
@@ -458,6 +464,9 @@ impl Peer {
             Err(failed) => {
                 for (via, _) in &failed {
                     self.path_failed(*via);
+                }
+                if timed_out.load(Ordering::SeqCst) {
+                    self.link_timed_out.store(true, Ordering::SeqCst);
                 }
                 return Err(failures_line(&failed));
             }

@@ -11,9 +11,9 @@
 //! step after a bounded wait, or, once the class's attempts are spent,
 //! [`Decision::Surface`]. No class retries without a bound.
 //!
-//! The shape follows Buck2's remote-execution error classification
-//! (facebook/buck2#1569): sort a remote error into a category first, then let
-//! the category decide whether to retry and what to report.
+//! The shape follows remote-execution error classification in build
+//! systems: sort a remote error into a category first, then let the category
+//! decide whether to retry and what to report.
 
 use std::io;
 use std::time::Duration;
@@ -150,8 +150,28 @@ impl ResumeErrorClass {
     }
 
     /// The class of a socket or file error, by its kind.
-    pub fn from_io_kind(_kind: io::ErrorKind) -> Self {
-        ResumeErrorClass::Unknown
+    pub fn from_io_kind(kind: io::ErrorKind) -> Self {
+        use io::ErrorKind as K;
+        match kind {
+            K::TimedOut => ResumeErrorClass::DeadlineExceeded,
+            K::PermissionDenied => ResumeErrorClass::Auth,
+            K::ConnectionRefused
+            | K::ConnectionReset
+            | K::ConnectionAborted
+            | K::NotConnected
+            | K::BrokenPipe
+            | K::NotFound
+            | K::AddrNotAvailable
+            | K::AddrInUse
+            | K::Interrupted
+            | K::WouldBlock
+            | K::UnexpectedEof
+            | K::HostUnreachable
+            | K::NetworkUnreachable
+            | K::NetworkDown
+            | K::ResourceBusy => ResumeErrorClass::Transient,
+            _ => ResumeErrorClass::Unknown,
+        }
     }
 
     fn index(self) -> usize {
@@ -194,7 +214,14 @@ impl ResumeBudget {
 
     /// The answer to a failure of `class`.
     pub fn on_failure(&mut self, class: ResumeErrorClass) -> Decision {
-        Decision::Surface { class, attempts: self.used[class.index()] }
+        let policy = class.policy();
+        let used = &mut self.used[class.index()];
+        if *used >= policy.attempts {
+            return Decision::Surface { class, attempts: *used };
+        }
+        let attempt = *used;
+        *used += 1;
+        Decision::Act { step: policy.step, after: policy.wait(attempt), attempt: attempt + 1 }
     }
 
     /// A resume succeeded: every class has its whole budget again.

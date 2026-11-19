@@ -1171,3 +1171,24 @@ async fn a_shadow_does_not_end_before_its_pending_cancel_is_written() {
     tokio::task::yield_now().await;
     assert!(peer.shadow_done(&mut run), "once its cancel is written, the shadow may end");
 }
+
+/// A chat whose shadow attaches make no progress is attached again after the same doubling
+/// wait, at most the Transient budget's times in a row: past it the chat leaves the retries,
+/// and this shadow attaches it no more.
+#[test]
+fn chat_reattach_stops_at_the_transient_bound() {
+    use acpmux_list_types::resume::{Decision, ResumeErrorClass};
+    let mut retry = std::collections::HashMap::new();
+    let now = tokio::time::Instant::now();
+    let bound = ResumeErrorClass::Transient.policy().attempts;
+    for tries in 0..bound {
+        let decision = dual::schedule_retry(&mut retry, "s1", now);
+        assert!(matches!(decision, Decision::Act { attempt, .. } if attempt == tries + 1));
+        let (at, _) = retry.get("s1").copied().expect("scheduled");
+        let wait = Duration::from_millis(250).saturating_mul(1 << tries.min(5));
+        assert_eq!(at, now + wait.min(Duration::from_secs(5)), "the wait is unchanged");
+    }
+    let decision = dual::schedule_retry(&mut retry, "s1", now);
+    assert_eq!(decision, Decision::Surface { class: ResumeErrorClass::Transient, attempts: bound });
+    assert!(retry.is_empty(), "the chat waits for the next link");
+}
