@@ -186,7 +186,8 @@ pub(super) fn start(place: Place, recipe: Recipe) -> Value {
         ..Status::default()
     };
     if let Err(why) = allocated {
-        // The ports that other worktrees have are not known: nothing runs.
+        // The ports that other worktrees have are not known, or the block
+        // of this worktree is in no list: nothing runs.
         if let Some(mut log) = open_log(&place.own) {
             let _ = writeln!(log, "Setup did not start: {}", why.text());
         }

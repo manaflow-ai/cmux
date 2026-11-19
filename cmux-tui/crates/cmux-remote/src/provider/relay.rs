@@ -26,11 +26,10 @@ use tokio::sync::{Mutex, mpsc, oneshot, watch};
 use tokio::task::{Id, JoinSet};
 use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::error::UrlError;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message};
-use tokio_tungstenite::{
-    Connector, MaybeTlsStream, WebSocketStream, connect_async_tls_with_config,
-};
+use tokio_tungstenite::{Connector, MaybeTlsStream, WebSocketStream, client_async_tls_with_config};
 use url::Url;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -2312,10 +2311,12 @@ async fn connect_relay_socket_once(
     let config = WebSocketConfig::default()
         .max_message_size(Some(maximum_message_bytes))
         .max_frame_size(Some(maximum_message_bytes));
-    let opened = tokio::time::timeout(
-        RELAY_CONNECT_TIMEOUT,
-        connect_async_tls_with_config(request, Some(config), true, tls.connector()),
-    )
+    let opened = tokio::time::timeout(RELAY_CONNECT_TIMEOUT, async {
+        // The TCP connect is hedged (`hedge`): a relay host's black-holed SYN gets a new socket
+        // in 400 ms instead of this whole budget. TLS and the upgrade run on the winner.
+        let socket = connect_relay_tcp(endpoint).await?;
+        client_async_tls_with_config(request, socket, Some(config), tls.connector()).await
+    })
     .await
     .map_err(|_| {
         RelaySocketConnectError::Provider(ProviderError::Link(LinkError::Transport(format!(
@@ -2332,6 +2333,23 @@ async fn connect_relay_socket_once(
         }
         Err(error) => Err(RelaySocketConnectError::Provider(relay_connect_error(error))),
     }
+}
+
+/// The relay endpoint's TCP stream, hedged over its addresses ([`super::hedge`]), Nagle off.
+async fn connect_relay_tcp(endpoint: &Url) -> Result<TcpStream, WebSocketError> {
+    let host = endpoint.host_str().ok_or(WebSocketError::Url(UrlError::NoHostName))?;
+    let port = endpoint
+        .port_or_known_default()
+        .ok_or(WebSocketError::Url(UrlError::UnsupportedUrlScheme))?;
+    let addresses = super::dial::resolve_dial_target(host, port)
+        .await
+        .map_err(|error| WebSocketError::Io(std::io::Error::other(error.to_string())))?;
+    let socket =
+        super::hedge::connect(&addresses, super::hedge::HedgePolicy::INTERNET, TcpStream::connect)
+            .await
+            .map_err(WebSocketError::Io)?;
+    let _ = socket.set_nodelay(true);
+    Ok(socket)
 }
 
 fn relay_connect_error(error: WebSocketError) -> ProviderError {

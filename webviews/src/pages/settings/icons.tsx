@@ -96,6 +96,12 @@ const paths: Record<string, ReactNode> = {
   sparkles: (
     <path d="M6.4 2.2 7.5 5.5 10.8 6.6 7.5 7.7 6.4 11 5.3 7.7 2 6.6 5.3 5.5 6.4 2.2ZM11.8 9.4l.6 1.7 1.7.6-1.7.6-.6 1.7-.6-1.7-1.7-.6 1.7-.6.6-1.7Z" />
   ),
+  "cursorarrow.click.2": (
+    <>
+      <path d="M6.6 6.6v7.2l1.9-1.8 1.3 2.9 1.4-.6-1.3-2.9h2.6L6.6 6.6Z" />
+      <path d="M6.6 1.6v2M2.6 6.6h2M3.8 3.8l1.4 1.4M9.4 3.8 8 5.2" />
+    </>
+  ),
   // Personalization: a wand with two stars (SF Symbol wand.and.stars).
   "wand.and.stars": (
     <path d="M2.4 13.6 10 6M8.8 4.8l2.4 2.4M5.4 2.2l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4L3.5 4.1l1.4-.5.5-1.4ZM12.4 9.4l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5.5-1.3ZM12 1.8l.35 1 1 .35-1 .35-.35 1-.35-1-1-.35 1-.35.35-1Z" />
@@ -217,6 +223,17 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   "arrow.up.to.line": <path d="M3.4 2.6h9.2M8 13.4V5.4M4.8 8.4 8 5.2l3.2 3.2" />,
+  // Settings > Models: a chip with its pins.
+  cpu: (
+    <>
+      <rect x="4" y="4" width="8" height="8" rx="1.4" />
+      <rect x="6.4" y="6.4" width="3.2" height="3.2" rx=".5" />
+      <path d="M6.4 1.8V4M9.6 1.8V4M6.4 12v2.2M9.6 12v2.2M1.8 6.4H4M1.8 9.6H4M12 6.4h2.2M12 9.6h2.2" />
+    </>
+  ),
+  // The overflow menu of a row (Settings > Models connections).
+  ellipsis: <path d="M3.6 8h.01M8 8h.01M12.4 8h.01" />,
+  plus: <path d="M8 3v10M3 8h10" />,
   "arrow.down.to.more": <path d="M8 2.6v7.6M4.8 7.2 8 10.4l3.2-3.2M4 13.4h.01M8 13.4h.01M12 13.4h.01" />,
 };
 

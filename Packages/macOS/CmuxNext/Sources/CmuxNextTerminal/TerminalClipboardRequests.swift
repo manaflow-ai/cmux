@@ -214,7 +214,7 @@ final class TerminalClipboardRequests {
         }
         let limit = 2_000
         let preview = text.count > limit ? String(text.prefix(limit)) + "…" : text
-        return CmuxDialogSpec(
+        return CmuxDialogSpec(usesTransientMaterial: true,
             title: title, lines: [message], fields: [.preview(preview)],
             buttons: [
                 CmuxDialogButton(id: "deny", title: String(localized: "terminal.clipboard.deny", defaultValue: "Deny", bundle: .module), role: .cancel),

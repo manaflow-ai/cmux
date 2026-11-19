@@ -32,6 +32,7 @@
 //! registries for cached installations. It never enters harness_health's
 //! probe/auto-update path, and preserves failed-source timestamps.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -304,7 +305,30 @@ pub(super) async fn handle(
                 timeout: Duration::from_secs(secs),
                 lookup_env: Box::new(crate::login_env::reference_var),
                 lookup_keychain: Box::new(profiles::keychain_lookup),
+                extra_env: BTreeMap::new(),
             };
+            // `chief: true` (the Chief editor's check): an open-source brain is checked the way
+            // a Chief turn runs it, from the Chief's own brain home with the person's provider
+            // keys blanked, never from the person's own home.
+            let mut opts = opts;
+            if params.get("chief").and_then(Value::as_bool) == Some(true)
+                && let Some(profile) = cfg.harnesses.get(&id)
+            {
+                let family = crate::config::derive_family(&id, profile);
+                match crate::config::chief_builtins::brain_check_env(
+                    &family,
+                    &crate::config::chief_builtins::Context::current(),
+                    text("chiefId"),
+                ) {
+                    Some(Ok(env)) => opts.extra_env = env,
+                    Some(Err(e)) => {
+                        return Ok(
+                            json!({"id": id, "ok": false, "steps": [{"name": "brain home", "status": "fail", "ok": false, "detail": e}]}),
+                        );
+                    }
+                    None => {}
+                }
+            }
             admin::doctor_value(&doctor(&cfg, &id, &opts).await)
         }
         method::MUX_HARNESS_SECRET_SET => {
@@ -397,7 +421,15 @@ pub(super) async fn handle(
 /// marked a start-mode notice (`hub/start_mode.rs`), which only local
 /// connections get (a remote-origin connection's chats get no start mode).
 pub(super) fn watch_note(conn: &super::Conn, note: Value) {
-    if let Some(state) = note.get(crate::peer_states::STATE_NOTE) {
+    if let Some(state) = note.get(super::connections::CONNECTIONS_NOTE) {
+        // Model connections (`server/connections.rs`): this machine's own, never to Web or a peer.
+        if !conn.origin.web_class() {
+            conn.send(&crate::rpc::Message::notification(
+                method::MUX_CONNECTIONS_CHANGED,
+                state.clone(),
+            ));
+        }
+    } else if let Some(state) = note.get(crate::peer_states::STATE_NOTE) {
         conn.send(&crate::rpc::Message::notification(
             method::MUX_PEER_STATE_CHANGED,
             state.clone(),

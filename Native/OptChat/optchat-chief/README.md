@@ -380,6 +380,25 @@ engine bar over the Chief conversation (harness, model and effort pickers,
 the last turn's engine, latency, tool calls, cache hit rate and cost) that
 writes the same file.
 
+### Open-source brains (Hermes, OpenClaw)
+
+`chief engine set --harness hermes` (or `openclaw`) runs the turns on Hermes
+Agent or OpenClaw through acpmux, once the brain is on PATH
+(`brain_home.rs`, chief-cohesion OSS-LOCAL-BRAINS.md "Build"). The Chief keeps
+the conversation, the memory, the schedules and the approvals; the brain runs
+one turn at a time from a home the Chief owns (`optchat/brains/<family>`,
+`HERMES_HOME`/`OPENCLAW_HOME` through acpmux's built-in
+`optchat-chief-<brain>-<home id>` preset), never the person's own, with its
+models through the team gateway (`--brain-base-url`, default the team
+subrouter) and its own cron, memory and logins off. OpenClaw runs only in
+sandbox mode `all` (Docker or Podman needed), with no skills, and gets cmux's
+MCP servers in its own config (its ACP bridge takes none per session); the
+host runs its Gateway on loopback. A brain that cannot run a turn (not
+installed, unavailable, or it failed one in the last 10 minutes) gives way to
+the default harness, with one note in the chat; `chief brains` shows each
+brain's state and last fallback, and `chief brains migrate hermes` turns
+Hermes' own cron jobs into cmux automations, one confirmed line at a time.
+
 ## Monitoring: trace and stats
 
 Every turn (`turn.start`, `turn.end`), every model request in a turn
@@ -470,6 +489,9 @@ optchat-chief memory import [--mux-home DIR] DIR           an old JSONL home or 
 optchat-chief memory search [--mux-home DIR] [--limit N] [--json] WORDS  messages and summaries holding every word (FTS5);
                                                            --json: id, kind, date, snippet and full text per hit
 optchat-chief memory stats [--mux-home DIR]                counts, schema, migration record, backup status
+optchat-chief memory redescribe [--mux-home DIR] failed|ID...   the running host describes again the images these note
+                                                           lines name (failed: every "no description" note), rewrites
+                                                           each note in the change book and rebuilds the summaries above it
 optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...
                                                            long-term memory shared by Codex and Claude Code sessions
 ```

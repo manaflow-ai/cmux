@@ -12,6 +12,7 @@
 // CMUX_BROWSER_TESTS=1 bun test test/running-chrome-scroll-steady.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { PNG } from "pngjs";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane, type PapercutStep } from "./support/papercutChat";
 import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
@@ -311,16 +312,68 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
           const box = (await scroller.boundingBox())!;
           await page.mouse.move(box.x + box.width / 3, box.y + box.height / 3);
           const shots: Record<string, Set<string>> = { tray: new Set(), sessionInfo: new Set() };
+          // The tray's first and each differing capture, for the failure's report: where they differ.
+          let trayFirst: Buffer | undefined;
+          const trayDiffs: string[] = [];
           const hash = (bytes: Buffer) => new Bun.CryptoHasher("sha1").update(bytes).digest("hex");
+          // Outside the tray's rounded top corners the rows scrolling beside the stack stay in sight
+          // (conversation/besideStack.ts), so its capture leaves out a corner radius at each side: what
+          // must hold still is the tray's own paint.
+          const trayClip = await page.evaluate((selector) => {
+            const tray = document.querySelector<HTMLElement>(selector)!;
+            const box = tray.getBoundingClientRect();
+            const radius = Math.max(
+              Number.parseFloat(getComputedStyle(tray).borderTopLeftRadius) || 0,
+              Number.parseFloat(getComputedStyle(tray).borderTopRightRadius) || 0,
+            );
+            return { x: box.x + radius, y: box.y, width: box.width - 2 * radius, height: box.height };
+          }, SURFACES.tray);
           for (let step = 0; step < 24; step++) {
             await page.mouse.wheel(0, step < 12 ? -90 : 90);
             await page.evaluate(() => window.cmuxPaintFrame());
-            for (const [key, selector] of Object.entries(SURFACES))
-              shots[key]!.add(hash(await page.locator(selector).screenshot({ animations: "disabled" })));
+            for (const [key, selector] of Object.entries(SURFACES)) {
+              const shot =
+                key === "tray"
+                  ? await page.screenshot({ clip: trayClip, animations: "disabled" })
+                  : await page.locator(selector).screenshot({ animations: "disabled" });
+              if (key === "tray") {
+                if (!trayFirst) trayFirst = shot;
+                else if (hash(shot) !== hash(trayFirst) && trayDiffs.length < 3) {
+                  const a = PNG.sync.read(trayFirst);
+                  const b = PNG.sync.read(shot);
+                  let [x0, y0, x1, y1] = [Infinity, Infinity, -1, -1];
+                  for (let y = 0; y < Math.min(a.height, b.height); y++)
+                    for (let x = 0; x < Math.min(a.width, b.width); x++) {
+                      const at = (y * a.width + x) * 4;
+                      if (a.data.readUInt32BE(at) !== b.data.readUInt32BE((y * b.width + x) * 4)) {
+                        [x0, y0] = [Math.min(x0, x), Math.min(y0, y)];
+                        [x1, y1] = [Math.max(x1, x), Math.max(y1, y)];
+                      }
+                    }
+                  trayDiffs.push(`step ${step}: differs in x ${x0}-${x1}, y ${y0}-${y1} of ${a.width}x${a.height}`);
+                }
+              }
+              shots[key]!.add(hash(shot));
+            }
           }
           const distinct = Object.fromEntries(Object.entries(shots).map(([key, set]) => [key, set.size]));
           console.log(`${name} ${width}px distinct paints while scrolling: ${JSON.stringify(distinct)}`);
-          expect(distinct).toEqual({ tray: 1, sessionInfo: 1 });
+          if (distinct.tray !== 1) {
+            // Where the tray's paint moved, and what the transcript's mask kept beside the stack.
+            const where = await page.evaluate((selector) => {
+              const scroll = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+              const tray = document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+              const view = scroll.getBoundingClientRect();
+              return {
+                tray: [tray.x - view.x, tray.y - view.y, tray.width, tray.height].map(Math.round).join(","),
+                sizes: scroll.style.getPropertyValue("--acpmux-beside-sizes"),
+                positions: scroll.style.getPropertyValue("--acpmux-beside-positions"),
+                dock: getComputedStyle(scroll).getPropertyValue("--acpmux-dock-space"),
+              };
+            }, SURFACES.tray);
+            console.log(`${name} ${width}px tray paint moved: ${trayDiffs.join("; ")} ${JSON.stringify(where)}`);
+          }
+          expect(distinct, trayDiffs.join("; ")).toEqual({ tray: 1, sessionInfo: 1 });
         } finally {
           await page.close();
         }

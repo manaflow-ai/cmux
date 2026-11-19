@@ -7,7 +7,8 @@ extension DeviceHubService {
                             bundleIdentifier: String?, loginKeychain: LoginKeychain) {
         let account = Account(awaitRestored: { await auth.awaitRestored() },
                               userID: { auth.isSignedIn ? (auth.user?.id ?? "") : nil },
-                              accessToken: { try await auth.tokens().access })
+                              accessToken: { try await auth.tokens().access },
+                              isRestoring: { auth.isRestoring })
         let selection = configuration.runtimeSelection
         let hubBundle = selection?.storageNamespace.map { "\(selection?.bundleId ?? "cmux").cloud.\($0)" } ?? bundleIdentifier
         self.init(pages: pages, account: account, bundleIdentifier: hubBundle,

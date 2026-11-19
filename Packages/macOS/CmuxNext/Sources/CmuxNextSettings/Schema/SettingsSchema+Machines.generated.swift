@@ -2,15 +2,36 @@
 // schemas/settings/source/machines.json. Do not edit; edit the JSON and rerun.
 
 extension ComputerUseSettings {
-    /// `computerUse.enabled`.
-    public nonisolated static let enabledPath = ["computerUse", "enabled"]
-    public nonisolated static let enabledDefault = false
-    /// `computerUse.driver`: Which Computer Use driver the helper runs.
-    public nonisolated static let driverPath = ["computerUse", "driver"]
-    public nonisolated static let driverDefault: ComputerUseDriver = .upstream
+    /// `computerUse.mode`: How much agents may do with the apps on this Mac; the raw values are the engine's (cmux_computer_use::policy::Mode).
+    public nonisolated static let modePath = ["computerUse", "mode"]
+    public nonisolated static let modeDefault: ComputerUseMode = .fullAccess
+    /// `computerUse.deniedApps`: The engine's default deny list, entry for entry (cmux-tui/crates/cmux-computer-use/src/policy.rs, default_denied_apps; ComputerUseSettingsTests compares the two).
+    public nonisolated static let deniedAppsPath = ["computerUse", "deniedApps"]
+    public nonisolated static let deniedAppsDefault: [String] = ["com.apple.keychainaccess", "com.apple.Passwords", "com.1password.*", "com.agilebits.onepassword*", "com.bitwarden.*", "com.dashlane.*", "com.lastpass.*", "com.nordpass.*", "me.proton.pass", "org.keepassxc.keepassxc", "com.markmcguill.strongbox", "in.sinew.enpass*", "com.keepersecurity.*", "1password.exe", "bitwarden.exe", "keepass.exe", "keepassxc.exe", "org.keepassxc.KeePassXC", "1password", "bitwarden", "com.apple.systempreferences", "com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty", "net.kovidgoyal.kitty", "com.github.wez.wezterm", "org.alacritty", "dev.warp.*", "windowsterminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "org.gnome.Terminal", "org.gnome.Ptyxis", "org.kde.konsole", "com.cmuxterm.app", "com.cmuxterm.app.*"]
+    /// `computerUse.allowOwnMachines`.
+    public nonisolated static let allowOwnMachinesPath = ["computerUse", "allowOwnMachines"]
+    public nonisolated static let allowOwnMachinesDefault = true
+    /// `computerUse.pauseOnTakeover`.
+    public nonisolated static let pauseOnTakeoverPath = ["computerUse", "pauseOnTakeover"]
+    public nonisolated static let pauseOnTakeoverDefault = true
+    /// `computerUse.showCursor`.
+    public nonisolated static let showCursorPath = ["computerUse", "showCursor"]
+    public nonisolated static let showCursorDefault = true
+    /// `computerUse.cursorTag`: When an agent cursor shows its tag (the agent's workspace name, or the tag the agent set).
+    public nonisolated static let cursorTagPath = ["computerUse", "cursorTag"]
+    public nonisolated static let cursorTagDefault: ComputerUseCursorTag = .hover
+    /// `computerUse.settle`: What the engine waits for after an action before its screenshot (PolicyConfig settle).
+    public nonisolated static let settlePath = ["computerUse", "settle"]
+    public nonisolated static let settleDefault: ComputerUseSettle = .adaptive
     /// `computerUse.livePreview`.
     public nonisolated static let livePreviewPath = ["computerUse", "livePreview"]
     public nonisolated static let livePreviewDefault = true
+    /// `computerUse.menus`: Whether agents may open pop-up and context menus of background apps (cmux_computer_use::menus::MenuMode).
+    public nonisolated static let menusPath = ["computerUse", "menus"]
+    public nonisolated static let menusDefault: ComputerUseMenus = .open
+    /// `computerUse.allowForeground`.
+    public nonisolated static let allowForegroundPath = ["computerUse", "allowForeground"]
+    public nonisolated static let allowForegroundDefault = false
 }
 
 extension FreeModelSettings {
@@ -35,18 +56,6 @@ extension CloudNewWorkspaceSetting {
     /// `cloud.turnCheckpoints`.
     public nonisolated static let turnCheckpointsPath = ["cloud", "turnCheckpoints"]
     public nonisolated static let turnCheckpointsDefault = false
-}
-
-extension CloudLoginCopyConsentSetting {
-    /// `cloud.useMyClaudeLoginOnMyCloudMachines`.
-    public nonisolated static let configPath = ["cloud", "useMyClaudeLoginOnMyCloudMachines"]
-    public nonisolated static let fallback = false
-}
-
-extension CloudCodexSignInConsentSetting {
-    /// `cloud.useMyCodexLoginOnMyCloudMachines`.
-    public nonisolated static let configPath = ["cloud", "useMyCodexLoginOnMyCloudMachines"]
-    public nonisolated static let fallback = false
 }
 
 extension CloudAgentStartSetting {
@@ -109,40 +118,131 @@ nonisolated enum MachineSettingsSchema {
         let group = SettingsText.keyed("settings.group.computerUse", "Computer Use")
         return [
             SettingDescriptor(
-                ComputerUseSettings.enabledPath,
+                ComputerUseSettings.modePath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.computerUse.enabled", "Computer Use"),
-                help: SettingsText.keyed("settings.computerUse.enabled.help", "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them."),
-                summary: SettingsText.keyed("settings.computerUse.enabled.summary", "Lets agents see and use your apps"),
-                kind: .toggle,
-                default: .bool(ComputerUseSettings.enabledDefault),
-                keywords: ["computer use", "agents", "automation", "screen recording", "accessibility", "helper"]
+                title: SettingsText.keyed("settings.computerUse.mode", "Computer Use"),
+                help: SettingsText.keyed("settings.computerUse.mode.help", "What agents may do with the apps on this Mac. Denied apps are never used, in any mode."),
+                summary: SettingsText.keyed("settings.computerUse.mode.summary", "What agents may do with your apps"),
+                kind: .choice([
+                    SettingChoice(ComputerUseMode.fullAccess.rawValue, SettingsText.keyed("settings.computerUse.mode.fullAccess", "Full Access")),
+                    SettingChoice(ComputerUseMode.approvedApps.rawValue, SettingsText.keyed("settings.computerUse.mode.approvedApps", "Approved Apps")),
+                    SettingChoice(ComputerUseMode.askEveryTime.rawValue, SettingsText.keyed("settings.computerUse.mode.askEveryTime", "Ask Every Time")),
+                    SettingChoice(ComputerUseMode.lookOnly.rawValue, SettingsText.keyed("settings.computerUse.mode.lookOnly", "Look Only")),
+                    SettingChoice(ComputerUseMode.off.rawValue, SettingsText.keyed("settings.computerUse.mode.off", "Off")),
+                ]),
+                default: .string(ComputerUseSettings.modeDefault.rawValue),
+                keywords: ["computer use", "agents", "automation", "apps", "access", "permission", "look only", "approve"]
             ),
             SettingDescriptor(
-                ComputerUseSettings.driverPath,
+                ComputerUseSettings.deniedAppsPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.computerUse.driver", "Computer Use Driver"),
-                help: SettingsText.keyed("settings.computerUse.driver.help", "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately."),
-                summary: SettingsText.keyed("settings.computerUse.driver.summary", "Which helper runs Computer Use"),
+                title: SettingsText.keyed("settings.computerUse.deniedApps", "Denied Apps"),
+                help: SettingsText.keyed("settings.computerUse.deniedApps.help", "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name."),
+                summary: SettingsText.keyed("settings.computerUse.deniedApps.summary", "Apps agents may never use"),
+                kind: .stringList,
+                default: .array(ComputerUseSettings.deniedAppsDefault.map { .string($0) }),
+                keywords: ["computer use", "deny", "block", "apps", "password", "terminal", "exclude"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.allowOwnMachinesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.allowOwnMachines", "Allow My Other Machines"),
+                help: SettingsText.keyed("settings.computerUse.allowOwnMachines.help", "Agents on your other machines, signed in to the same account, may use this Mac's apps."),
+                summary: SettingsText.keyed("settings.computerUse.allowOwnMachines.summary", "Agents on your other machines may use this Mac"),
+                kind: .toggle,
+                default: .bool(ComputerUseSettings.allowOwnMachinesDefault),
+                keywords: ["computer use", "remote", "machines", "devices", "same account"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.pauseOnTakeoverPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.pauseOnTakeover", "Pause When I Use the Mouse or Keyboard"),
+                help: SettingsText.keyed("settings.computerUse.pauseOnTakeover.help", "While you use the mouse or keyboard, agents wait before their next click or key press."),
+                summary: SettingsText.keyed("settings.computerUse.pauseOnTakeover.summary", "Agents wait while you use this Mac"),
+                kind: .toggle,
+                default: .bool(ComputerUseSettings.pauseOnTakeoverDefault),
+                keywords: ["computer use", "pause", "takeover", "mouse", "keyboard", "interrupt"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.showCursorPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.showCursor", "Show Agent Cursor"),
+                help: SettingsText.keyed("settings.computerUse.showCursor.help", "A blue cursor shows wherever an agent clicks or types."),
+                summary: SettingsText.keyed("settings.computerUse.showCursor.summary", "A blue cursor shows where agents act"),
+                kind: .toggle,
+                default: .bool(ComputerUseSettings.showCursorDefault),
+                keywords: ["computer use", "cursor", "pointer", "blue", "overlay"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.cursorTagPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.cursorTag", "Agent Cursor Tag"),
+                help: SettingsText.keyed("settings.computerUse.cursorTag.help", "Each agent cursor can carry a tag: the agent's workspace name, or a tag the agent sets. Show it when your pointer is over the cursor, always, or never."),
+                summary: SettingsText.keyed("settings.computerUse.cursorTag.summary", "When the agent cursor shows its tag"),
                 kind: .choice([
-                    SettingChoice(ComputerUseDriver.legacy.rawValue, SettingsText.keyed("settings.computerUse.driver.legacy", "Legacy")),
-                    SettingChoice(ComputerUseDriver.upstream.rawValue, SettingsText.keyed("settings.computerUse.driver.upstream", "Upstream")),
+                    SettingChoice(ComputerUseCursorTag.hover.rawValue, SettingsText.keyed("settings.computerUse.cursorTag.hover", "When I Point at It")),
+                    SettingChoice(ComputerUseCursorTag.always.rawValue, SettingsText.keyed("settings.computerUse.cursorTag.always", "Always")),
+                    SettingChoice(ComputerUseCursorTag.never.rawValue, SettingsText.keyed("settings.computerUse.cursorTag.never", "Never")),
                 ]),
-                default: .string(ComputerUseSettings.driverDefault.rawValue),
-                keywords: ["computer use", "driver", "cua", "upstream", "legacy", "helper"]
+                default: .string(ComputerUseSettings.cursorTagDefault.rawValue),
+                keywords: ["computer use", "cursor", "tag", "label", "workspace", "name", "hover"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.settlePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.settle", "After Each Action"),
+                help: SettingsText.keyed("settings.computerUse.settle.help", "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing."),
+                summary: SettingsText.keyed("settings.computerUse.settle.summary", "What agents wait for after each action"),
+                kind: .choice([
+                    SettingChoice(ComputerUseSettle.adaptive.rawValue, SettingsText.keyed("settings.computerUse.settle.adaptive", "Wait for the change (adaptive)")),
+                    SettingChoice(ComputerUseSettle.anthropic.rawValue, SettingsText.keyed("settings.computerUse.settle.anthropic", "Fixed 2 s, then screenshot (Anthropic)")),
+                    SettingChoice(ComputerUseSettle.openai.rawValue, SettingsText.keyed("settings.computerUse.settle.openai", "Screenshot at once (OpenAI)")),
+                ]),
+                default: .string(ComputerUseSettings.settleDefault.rawValue),
+                keywords: ["computer use", "settle", "wait", "delay", "screenshot", "action", "anthropic", "openai"]
             ),
             SettingDescriptor(
                 ComputerUseSettings.livePreviewPath,
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.computerUse.livePreview", "Live Preview in Chat"),
-                help: SettingsText.keyed("settings.computerUse.livePreview.help", "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."),
+                help: SettingsText.keyed("settings.computerUse.livePreview.help", "A small live view of the app an agent uses. Click it for Agent Activity."),
                 summary: SettingsText.keyed("settings.computerUse.livePreview.summary", "Shows the app an agent uses in its chat"),
                 kind: .toggle,
                 default: .bool(ComputerUseSettings.livePreviewDefault),
                 keywords: ["computer use", "live preview", "preview", "agent activity", "screenshot", "chat"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.menusPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.menus", "Menus in Background Apps"),
+                help: SettingsText.keyed("settings.computerUse.menus.help", "Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background."),
+                summary: SettingsText.keyed("settings.computerUse.menus.summary", "Agents may open menus in background apps"),
+                kind: .choice([
+                    SettingChoice(ComputerUseMenus.open.rawValue, SettingsText.keyed("settings.computerUse.menus.open", "Open Menus")),
+                    SettingChoice(ComputerUseMenus.refuse.rawValue, SettingsText.keyed("settings.computerUse.menus.refuse", "Never Open Menus")),
+                ]),
+                default: .string(ComputerUseSettings.menusDefault.rawValue),
+                keywords: ["computer use", "menu", "pop-up", "popup", "context menu", "right click", "background"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.allowForegroundPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.allowForeground", "Allow Foreground Input"),
+                help: SettingsText.keyed("settings.computerUse.allowForeground.help", "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input."),
+                summary: SettingsText.keyed("settings.computerUse.allowForeground.summary", "Advanced: agents may take focus and move the pointer"),
+                kind: .toggle,
+                default: .bool(ComputerUseSettings.allowForegroundDefault),
+                keywords: ["computer use", "foreground", "focus", "pointer", "advanced", "background"]
             ),
         ]
     }
@@ -157,7 +257,7 @@ extension MachineSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.freeModel.enabled", "Free AI Model Without Sign-In"),
-                help: SettingsText.keyed("settings.freeModel.enabled.help", "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."),
+                help: SettingsText.keyed("settings.freeModel.enabled.help", "Agents can use the free cmux model while signed out. cmux checks this is a real Mac."),
                 summary: SettingsText.keyed("settings.freeModel.enabled.summary", "Free AI model while signed out"),
                 kind: .toggle,
                 default: .bool(FreeModelSettings.enabledDefault),
@@ -176,7 +276,7 @@ extension MachineSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.machines.sshLinkHosts", "Always Allowed SSH Link Hosts"),
-                help: SettingsText.keyed("settings.machines.sshLinkHosts.help", "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask."),
+                help: SettingsText.keyed("settings.machines.sshLinkHosts.help", "ssh:// links from other apps connect to these hosts without asking."),
                 kind: .stringList,
                 default: .array(SSHLinkHostsSetting.fallback.map { .string($0) }),
                 keywords: ["ssh", "link", "url", "host", "trust", "allow", "always", "machine", "security"],
@@ -195,7 +295,7 @@ extension MachineSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.cloud.newWorkspacesInCloud", "Run New Workspaces in Cloud"),
-                help: SettingsText.keyed("settings.cloud.newWorkspacesInCloud.help", "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine."),
+                help: SettingsText.keyed("settings.cloud.newWorkspacesInCloud.help", "Each new workspace gets its own Cloud machine, and its chats run there."),
                 kind: .toggle,
                 default: .bool(CloudNewWorkspaceSetting.inCloudDefault),
                 keywords: ["cloud", "vm", "remote", "machine", "new workspace", "cmd-n", "agent", "local", "toggle"]
@@ -205,33 +305,13 @@ extension MachineSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.cloud.newWorkspaceFolder", "New Cloud Workspaces Start In"),
-                help: SettingsText.keyed("settings.cloud.newWorkspaceFolder.help", "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder."),
+                help: SettingsText.keyed("settings.cloud.newWorkspaceFolder.help", "Current Folder copies your git working copy to the new machine."),
                 kind: .choice([
                     SettingChoice(CloudWorkspaceFolder.inherit.rawValue, SettingsText.keyed("settings.choice.cloudFolderInherit", "Current Folder")),
                     SettingChoice(CloudWorkspaceFolder.empty.rawValue, SettingsText.keyed("settings.choice.cloudFolderEmpty", "Empty Folder")),
                 ]),
                 default: .string(CloudNewWorkspaceSetting.folderDefault.rawValue),
                 keywords: ["cloud", "vm", "folder", "sync", "copy", "inherit", "empty", "snapshot", "working directory"]
-            ),
-            SettingDescriptor(
-                CloudLoginCopyConsentSetting.configPath,
-                section: .machines,
-                group: group,
-                title: SettingsText.keyed("settings.cloud.useMyClaudeLogin", "Use My Claude Login on My Own Cloud Machines"),
-                help: SettingsText.keyed("settings.cloud.useMyClaudeLogin.help", "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead."),
-                kind: .toggle,
-                default: .bool(CloudLoginCopyConsentSetting.fallback),
-                keywords: ["cloud", "claude", "login", "sign in", "token", "credential", "machine", "consent", "copy"]
-            ),
-            SettingDescriptor(
-                CloudCodexSignInConsentSetting.configPath,
-                section: .machines,
-                group: group,
-                title: SettingsText.keyed("settings.cloud.useMyCodexLogin", "Use My Codex Login on My Own Cloud Machines"),
-                help: SettingsText.keyed("settings.cloud.useMyCodexLogin.help", "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead."),
-                kind: .toggle,
-                default: .bool(CloudCodexSignInConsentSetting.fallback),
-                keywords: ["cloud", "codex", "chatgpt", "login", "sign in", "token", "credential", "machine", "consent"]
             ),
             SettingDescriptor(
                 CloudAgentStartSetting.configPath,
@@ -248,7 +328,7 @@ extension MachineSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.cloud.turnCheckpoints", "Save a Checkpoint Before Each Cloud Chat Turn"),
-                help: SettingsText.keyed("settings.cloud.turnCheckpoints.help", "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved."),
+                help: SettingsText.keyed("settings.cloud.turnCheckpoints.help", "Back to Before This Turn restores the machine in seconds. Keeps the newest few."),
                 kind: .toggle,
                 default: .bool(CloudNewWorkspaceSetting.turnCheckpointsDefault),
                 keywords: ["cloud", "checkpoint", "snapshot", "undo", "rewind", "restore", "turn", "back", "machine"]
@@ -266,7 +346,7 @@ extension MachineSettingsSchema {
                 section: .accounts,
                 group: group,
                 title: SettingsText.keyed("settings.mobile.allowIPhoneConnections", "Allow iPhone Connections"),
-                help: SettingsText.keyed("settings.mobile.allowIPhoneConnections.help", "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."),
+                help: SettingsText.keyed("settings.mobile.allowIPhoneConnections.help", "The cmux app on your iPhone can open this Mac's workspaces, on the same account."),
                 summary: SettingsText.keyed("settings.mobile.allowIPhoneConnections.summary", "Lets your iPhone reach this Mac"),
                 kind: .toggle,
                 default: .bool(MobileSettings.allowIPhoneConnectionsDefault),
@@ -277,7 +357,7 @@ extension MachineSettingsSchema {
                 section: .accounts,
                 group: group,
                 title: SettingsText.keyed("settings.mobile.terminalSizing", "Terminal Size When Shared"),
-                help: SettingsText.keyed("settings.mobile.terminalSizing.help", "Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone."),
+                help: SettingsText.keyed("settings.mobile.terminalSizing.help", "The size of a terminal shown on this Mac and a phone at once."),
                 kind: .choice([
                     SettingChoice(MobileTerminalSizing.smallest.rawValue, SettingsText.keyed("settings.choice.terminalSizing.smallest", "Fit the Smallest Viewer")),
                     SettingChoice(MobileTerminalSizing.mac.rawValue, SettingsText.keyed("settings.choice.terminalSizing.mac", "Prefer This Mac")),
@@ -292,83 +372,11 @@ extension MachineSettingsSchema {
                 section: .accounts,
                 group: group,
                 title: SettingsText.keyed("settings.mobile.terminalSizingOrder", "Terminal Size Priority"),
-                help: SettingsText.keyed("settings.mobile.terminalSizingOrder.help", "The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order."),
+                help: SettingsText.keyed("settings.mobile.terminalSizingOrder.help", "The devices a shared terminal sizes to first, highest first."),
                 kind: .stringList,
                 default: .array(MobileSettings.terminalSizingOrderDefault.map { .string($0) }),
                 keywords: ["iphone", "phone", "terminal", "size", "priority", "order"]
             ).hiddenFromSettingsPage("device ids, set in the cmux app on the iPhone"),
-        ]
-    }
-}
-
-extension MachineSettingsSchema {
-    static var macScreen: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.macScreenKeyboard", "Mac Screen")
-        return [
-            SettingDescriptor(
-                MacScreenSettings.systemShortcutsPath,
-                section: .keyboard,
-                group: group,
-                title: SettingsText.keyed("settings.macScreen.systemShortcuts", "Send System Shortcuts to the Remote Mac"),
-                help: SettingsText.keyed("settings.macScreen.systemShortcuts.help", "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility."),
-                summary: SettingsText.keyed("settings.macScreen.systemShortcuts.summary", "System shortcuts go to the remote Mac"),
-                kind: .toggle,
-                default: .bool(MacScreenSettings.systemShortcutsDefault),
-                keywords: ["mac screen", "remote", "system shortcuts", "command tab", "spotlight", "mission control", "keyboard", "accessibility"]
-            ),
-        ]
-    }
-}
-
-extension MachineSettingsSchema {
-    static var macScreenDebug: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.macScreen", "Mac Screen")
-        return [
-            SettingDescriptor(
-                MacScreenDebugSettings.relayOnlyPath,
-                section: .development,
-                group: group,
-                title: SettingsText.keyed("settings.macScreen.debug.relayOnly", "Relay Only"),
-                help: SettingsText.keyed("settings.macScreen.debug.relayOnly.help", "Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect."),
-                summary: SettingsText.keyed("settings.macScreen.debug.relayOnly.summary", "Mac Screen streams use the relay only"),
-                kind: .toggle,
-                default: .bool(MacScreenDebugSettings.relayOnlyDefault),
-                keywords: ["mac screen", "relay", "turn", "webrtc", "ice", "development", "debug"]
-            ),
-        ]
-    }
-}
-
-extension MachineSettingsSchema {
-    static var remote: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.cmuxRemote", "cmux Remote")
-        return [
-            SettingDescriptor(
-                RemoteSettings.endSharingOnQuitPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.remote.endSharingOnQuit", "End Sharing When cmux Quits"),
-                help: SettingsText.keyed("settings.remote.endSharingOnQuit.help", "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit."),
-                summary: SettingsText.keyed("settings.remote.endSharingOnQuit.summary", "A session ends when cmux quits"),
-                kind: .toggle,
-                default: .bool(RemoteSettings.endSharingOnQuitDefault),
-                keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
-            ),
-            SettingDescriptor(
-                RemoteSettings.ultraPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.remote.ultra", "Ultra Connection Mode"),
-                help: SettingsText.keyed("settings.remote.ultra.help", "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection."),
-                summary: SettingsText.keyed("settings.remote.ultra.summary", "Uses more data to stay fast on lossy networks"),
-                kind: .choice([
-                    SettingChoice(UltraConnectionMode.off.rawValue, SettingsText.keyed("settings.remote.ultra.off", "Off")),
-                    SettingChoice(UltraConnectionMode.auto.rawValue, SettingsText.keyed("settings.remote.ultra.auto", "Auto")),
-                    SettingChoice(UltraConnectionMode.always.rawValue, SettingsText.keyed("settings.remote.ultra.always", "Always")),
-                ]),
-                default: .string(RemoteSettings.ultraDefault.rawValue),
-                keywords: ["ultra", "auto", "lossy", "packet loss", "bandwidth", "data", "wireguard", "cloud", "latency", "fec"]
-            ),
         ]
     }
 }

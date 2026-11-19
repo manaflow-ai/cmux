@@ -92,8 +92,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: cmux-next-ios-kit-${{ github.ref }}
   # A new push to a pull request cancels its previous run; feat-cmux-next pushes never cancel.
+  # A dispatch (main's nightly cron) gets a group of its own: with cancel-in-progress false,
+  # GitHub still cancels a run that is pending in a group when a newer one joins it, so the
+  # nightly, queued behind a running push run, was dropped by the next push (43572826977,
+  # 2026-11-14, by push run 43574629185), and the bench went stale.
+  group: cmux-next-ios-kit-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

@@ -39,6 +39,8 @@ use std::os::fd::AsRawFd;
 const KEY_A: u32 = 0x0007_0004;
 /// The bench's upstream stream id (any id the host does not use for a display).
 const UP_STREAM: u16 = 100;
+/// The most `--marker-log` entries kept (about 28 minutes at 60 fps).
+const MARKER_LOG_MAX: usize = 100_000;
 
 #[cfg(all(test, any(feature = "vp9", feature = "av1")))]
 #[path = "bench_eval_tests.rs"]
@@ -176,6 +178,9 @@ struct Viewer {
     marker_complete_ns: u64,
     /// Times the marker changed (`--input none`: the fps of a ticking marker).
     marker_changes: u64,
+    /// `--marker-log 1` (passive runs): every marker change, as (decoded µs on the protocol
+    /// clock, marker), so a script can time recovery after a stall frame by frame.
+    marker_log: Option<Vec<(u64, u16)>>,
     /// The first datagram's arrival of the newest video frames (frame, ns).
     first_rx: std::collections::VecDeque<(u32, u64)>,
     frames: u64,
@@ -250,6 +255,9 @@ impl Viewer {
             return;
         }
         self.marker_changes += u64::from(self.marker.is_some());
+        if let Some(log) = self.marker_log.as_mut().filter(|log| log.len() < MARKER_LOG_MAX) {
+            log.push((decoded_ns / 1000, v));
+        }
         self.marker = Some(v);
         self.marker_at_ns = decoded_ns;
         self.marker_capture_us = t_capture_us;
@@ -745,6 +753,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         marker_first_rx_ns: 0,
         marker_complete_ns: 0,
         marker_changes: 0,
+        marker_log: (opts.num_or("marker-log", 0u8)? == 1).then(Vec::new),
         first_rx: std::collections::VecDeque::new(),
         frames: 0,
         decoded_frames: 0,
@@ -1058,6 +1067,7 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         "marker_changes": v.marker_changes - marker_changes_start,
         "marker_fps": (v.marker_changes - marker_changes_start) as f64 / secs.max(f64::EPSILON),
         "series": series,
+        "marker_log": v.marker_log.as_ref(),
         "decode_errors": v.decode_errors,
         "present_errors": v.present_errors,
         "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
