@@ -181,8 +181,9 @@ PARTS = [
     # window and its terminal, Home's pages in Chromium; 60 s settle, 60 s window): idle_budget.light.<kind>.<field>,
     # judged against idle-budget.json. Chromium's GPU, renderer and utility processes each get <= 1 wakeup/s there
     # (plans/cmux-next/idle-wakeups.md section 7); before this part their wakeups were in no stored row.
+    # run_seconds: its first run (2026-11-19, cmux21, cold build) took 2060 s, about 1850 s of it the build.
     {"name": "idle-budget", "args": [*MEASURE, "--suite=idle-budget", "--sessions=light"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "idle-budget"},
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "idle-budget", "run_seconds": 2400},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
