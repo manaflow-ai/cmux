@@ -320,6 +320,17 @@ Each target also leaves its raw files under
 `fail`. The row includes the exact source-results SHA-256, host/viewer/link/revision, and motion FPS
 observations. It never invents a comparison number from a one-Mac loopback run.
 
+`gate.json` is the budget gate (`budget_gate.py check results.json`; cmuxterm-hq
+`docs/design/screen-share-under-100ms.md`, "Budget per stage", piece 6). It judges the `rd` target's
+key split, stage by stage, against the page's p50 budgets: Screen (render), Capture (sck + pickup +
+gate), Encode, Send + Network + Reassembly (transport, against the sum of the three budgets), Decode
+and Total (to the decoded frame). Input and Present stay "not measured" until the per-frame stage
+ledger (`cmux.rd-stage-ledger/1`) is in the target; a target that carries a
+`cmux.screen-share-budget/1` record under `budget` (or a `screen-share-vs.py --out` file) is judged
+from that record instead. A stage over budget fails the daily run with an error naming it; a run
+that measured no stage fails too. The workflow's `budget` input (`STAGE=MS ...`) replaces budgets
+for one dispatched run, to prove the gate end to end; the daily run passes none.
+
 ## Linux, kernel netem jitter (no Mac)
 
 `rd-netem-linux.py` builds `cmux-rd` at each `--commit` and runs the Linux host (Xvfb,

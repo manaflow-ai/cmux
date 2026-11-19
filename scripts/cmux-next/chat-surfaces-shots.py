@@ -79,16 +79,9 @@ def shoot(label: str, bundle: str, theme: str, style: str) -> dict:
         row["second_turn_exit"] = failed.returncode  # the agent fails it: the error card
         opened = app.action("agent.openSessionWorkspace", focus=True, session=session)
         row["opened"] = {k: opened.get(k) for k in ("created", "error") if k in opened}
-        # A fresh HOME starts on Home, and the open leaves it in front: show the chat's workspace, and in it the chat.
-        workspace = next((str(item) for item in opened.get("created", []) if str(item).startswith("ws_")), None)
-        if workspace:
-            row["selected"] = app.call("action.run", {"action": "selectWorkspace", "target": f"workspace:{workspace}",
-                                                      "origin": "script", "focus": True}).get("error") or "ok"
-            time.sleep(2)  # proof capture: the workspace shows its tabs
-            tab = bm.chat_tab_of(app, workspace)
-            if tab:
-                row["chat_tab"] = app.call("action.run", {"action": "selectTab", "target": tab, "origin": "script",
-                                                          "focus": True}).get("error") or "ok"
+        # A fresh HOME starts on Home, and the open leaves it in front: show the newest workspace, the chat's
+        # (the sidebar lists Home, App Store, then the workspaces in the order they were made).
+        row["selected"] = app.action("workspace.selectLast", focus=True).get("error") or "ok"
         time.sleep(8)  # proof capture: the chat page loads its transcript and paints it
         path = os.path.join(opts.out, name + ".png")
         snap = app.call("debug.window_snapshot", {"kind": "main", "path": path}, timeout=60)
