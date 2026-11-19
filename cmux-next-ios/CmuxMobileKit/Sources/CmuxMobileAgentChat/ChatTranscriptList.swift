@@ -837,6 +837,11 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     func reload() {
         let reloadStart = ContinuousClock.now
         defer { reloadTime += reloadStart.duration(to: .now) }
+        // The window first: turns past it go to disk before any row is built for them. Spilled
+        // only after this reload, a long chat's open built, weighed and snapshotted every turn
+        // (200 turns: 2,028 rows, 333 ms on the main thread) and then reloaded again for the
+        // 80 it keeps, two long frames before the first one drawn (the list rig's chat-200).
+        spillIfResting()
         // A disclosure opened or closed, or a file was marked viewed: shown rows may change
         // their cell type or their drawing.
         let disclosures = surface.disclosures.revision
