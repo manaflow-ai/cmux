@@ -148,6 +148,10 @@ public final class TabStripView: NSView {
     /// The line that ends the pinned group (Lawrence msg 20243): `TabStripView+PinnedDivider.swift`.
     let pinnedDivider = TabStripView.makePinnedDivider()
     private(set) lazy var edgeFade = TabEdgeFade(strip: self)
+    /// `experiments.tabOverflow`'s chevrons and More / All Tabs pill (`TabOverflowControls`).
+    private(set) lazy var overflowControls = TabOverflowControls(strip: self)
+    /// `experiments.tabOverflow` = moreMenu: the tabs the last layout left out of the row (`relayout`).
+    var overflowPartition = TabOverflowPartition.none
     let newTabButton = NewTabButtonView()
     let newTabMenuButton = PaneTypeMenuButton()
     let hoverCard = TabHoverCardController()
@@ -391,7 +395,9 @@ public final class TabStripView: NSView {
     // Every event is handled here, never by a tab subview.
     public override func hitTest(_ point: NSPoint) -> NSView? {
         let local = superview.map { convert(point, from: $0) } ?? point
-        return bounds.contains(local) ? self : nil
+        guard bounds.contains(local) else { return nil }
+        // `experiments.tabOverflow`'s buttons take their own clicks; the strip handles every other event.
+        return overflowControls.control(at: convert(local, to: contentView)) ?? self
     }
 
     /// VoiceOver on the strip itself reveals the plus (`noteAccessibilityFocus`).
@@ -411,6 +417,7 @@ public final class TabStripView: NSView {
         }
         if !newTabButton.isHidden { children.append(newTabButton) }
         if !newTabMenuButton.isHidden { children.append(newTabMenuButton) }
+        children += overflowControls.visibleControls
         return children
     }
 
@@ -570,6 +577,7 @@ public final class TabStripView: NSView {
         newTabMenuButton.isHidden = !showsTypeChooser || !model.showsNewTabButton
         updateChooserReveal()
         hoverCard.tokensChanged()
+        overflowControls.tokensChanged()
         geometryDidChange()
         let font = Typography.tabTitle
         for cell in cells.values {
@@ -600,7 +608,11 @@ public final class TabStripView: NSView {
         let leading = padding
         windowControlsInset = computeWindowControlsInset()
         appliedTabTop = computeTabTop()
-        let viewport = max(0, bounds.width - leading - padding - windowControlsInset - (model.showsNewTabButton ? newTabLeadingGap + newTabControlsWidth : 0))
+        let row = max(0, bounds.width - leading - padding - windowControlsInset - (model.showsNewTabButton ? newTabLeadingGap + newTabControlsWidth : 0))
+        // `experiments.tabOverflow` = allTabs: tabs that overflow the row leave the All Tabs pill its room at the end.
+        // The arm's tabs have fixed widths, so the last layout's content width says so for this width too.
+        overflowControls.reservesAllTabs = metrics.overflowExperiment == .allTabs && result.contentWidth > row + 0.5
+        let viewport = max(0, row - (overflowControls.reservesAllTabs ? overflowControls.pillWidth : 0))
         tabsClip.frame = CGRect(x: leading + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             // FRAME OWNER S1: the width is the pane's of this frame tick (a window resize, a split, a pane spring), so the tabs

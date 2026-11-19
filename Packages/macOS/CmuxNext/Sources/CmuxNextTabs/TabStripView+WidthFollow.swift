@@ -36,6 +36,12 @@ extension TabStripView {
         guard lastViewportWidth >= 0, drag == nil, groups.drag == nil, pendingDrop == nil, phantomPoint == nil, dropPlaceholderIndex == nil,
               dying.isEmpty
         else { return relayout(animated: false, keepsSelectedInView: narrower, keepsClosing: true) }
+        // `experiments.tabOverflow` = moreMenu: a width outside the partition's stable range moves a tab into or out of
+        // the More menu, which takes a layout; inside it (most frames of a resize) the slots stay.
+        if metrics.overflowExperiment == .moreMenu, !model.showsSelectedFullWidth,
+           !overflowPartition.stable.contains(min(viewportWidth, closingModeWidth ?? .infinity)) {
+            return relayout(animated: false, keepsClosing: true)
+        }
         let resized = TabLayoutEngine.resized(result, availableWidth: viewportWidth, style: model.style, metrics: metrics,
                                               closingModeWidth: closingModeWidth)
         let slotsMoved = resized.slots != result.slots
@@ -106,7 +112,8 @@ extension TabStripView {
             framedCells = FramedCells(basis: basis, trailing: trailing, count: cells.count)
         }
         let buttonWidth = metrics.newTabButtonWidth
-        let buttonX = tabsClip.frame.minX + min(trailing - mapping.offset(isPinned: false), viewportWidth) + newTabLeadingGap
+        let runEnd = tabsClip.frame.minX + min(trailing - mapping.offset(isPinned: false), viewportWidth)
+        let buttonX = runEnd + newTabLeadingGap + overflowControls.trailingWidth
         let buttonHeight = NewTabButtonView.frameHeight(split: newTabButton.splitSegment, side: buttonWidth, tabHeight: basis.tabHeight)
         let buttonFrame = CGRect(x: pixel(buttonX), y: pixel(basis.tabTop + (basis.tabHeight - buttonHeight) / 2), width: buttonWidth, height: buttonHeight)
         let menuFrame = CGRect(x: buttonFrame.maxX, y: buttonFrame.minY, width: newTabControlsWidth - buttonWidth, height: buttonFrame.height)
@@ -116,6 +123,7 @@ extension TabStripView {
         }
         if newTabMenuButton.frame != menuFrame { newTabMenuButton.frame = menuFrame }
         edgeFade.update()
+        overflowControls.update(runEnd: runEnd, tabY: basis.tabTop, tabHeight: basis.tabHeight)
         // What is under a still pointer changed where something moved; a lit strip or a shown card also checks that the
         // pointer is still inside the strip, which a narrower strip may have left.
         if moved || buttonReveal.pointerInStrip || hoveredID != nil || groups.hoveredChip != nil || newTabButton.isHovered

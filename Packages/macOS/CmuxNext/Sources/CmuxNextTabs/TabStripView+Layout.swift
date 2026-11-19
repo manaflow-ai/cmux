@@ -39,14 +39,7 @@ extension TabStripView {
                   keepsClosing: Bool = false) {
         let grows = growsAdded
         rowPasses.layouts &+= 1
-        result = TabLayoutEngine.layout(
-            items: layoutItems(),
-            availableWidth: viewportWidth,
-            style: model.style,
-            metrics: metrics,
-            closingModeWidth: closingModeWidth,
-            fullWidthTab: model.showsSelectedFullWidth ? model.selectedID : nil
-        )
+        layOutRow()
         // A new tab (Cmd-T, +, a script's tab) with `ui.animations.newTab` off is there at once, at its
         // slot and full width, and the tabs make room for it in the same frame. A drag or a torn-out
         // tab's drop keeps every move in flight as it was.
@@ -105,11 +98,31 @@ extension TabStripView {
         applyFrames(move: move, scrollFrom: mappingBefore)
     }
 
+    /// Runs the layout engine on the current items into `result`. `experiments.tabOverflow` = moreMenu (outside Full
+    /// Width Tab mode) leaves the tabs that do not fit out of the row (`overflowPartition`); allTabs asks for a
+    /// layout pass when the tabs start or stop overflowing, which gives or takes the All Tabs pill's room.
+    func layOutRow() {
+        let fullWidthTab = model.showsSelectedFullWidth ? model.selectedID : nil
+        if metrics.overflowExperiment == .moreMenu, fullWidthTab == nil {
+            (result, overflowPartition) = TabLayoutEngine.layoutMoreMenu(
+                items: layoutItems(), availableWidth: viewportWidth, style: model.style, metrics: metrics, closingModeWidth: closingModeWidth,
+                reserve: overflowControls.pillWidth + max(0, newTabLeadingGap), selected: model.selectedID)
+        } else {
+            overflowPartition = .none
+            result = TabLayoutEngine.layout(items: layoutItems(), availableWidth: viewportWidth, style: model.style, metrics: metrics,
+                                            closingModeWidth: closingModeWidth, fullWidthTab: fullWidthTab)
+        }
+        if metrics.overflowExperiment == .allTabs || overflowControls.reservesAllTabs {
+            let row = viewportWidth + (overflowControls.reservesAllTabs ? overflowControls.pillWidth : 0)
+            if (metrics.overflowExperiment == .allTabs && result.contentWidth > row + 0.5) != overflowControls.reservesAllTabs { needsLayout = true }
+        }
+    }
+
     /// ``isCrowded`` from the layout just made. Closing mode's pretend width keeps the tabs as they
     /// were, so a close in progress does not flip it.
     func updateCrowded() {
         let squeezed = model.style != .compact && result.standardWidth > 0 && result.standardWidth < metrics.maxTabWidth - 0.5
-        let crowded = closingModeWidth == nil ? result.isOverflowing || squeezed : isCrowded
+        let crowded = closingModeWidth == nil ? result.isOverflowing || squeezed || !overflowPartition.hidden.isEmpty : isCrowded
         guard crowded != isCrowded else { return }
         isCrowded = crowded
         reveal.hover.restAlpha = TabTunables.restingControlAlpha(crowded: crowded, minimal: DesignSettings.shared.sidebarSections.hidesControlsUntilHover)
@@ -200,6 +213,24 @@ extension TabStripView {
             fixedLeading: scrollMapping.band
         )
         // Already in view (a switch between shown tabs): the strip does not move.
+        scroll(to: target, animated: animated)
+    }
+
+    /// `experiments.tabOverflow` = chevrons: a chevron's click scrolls about a page of whole tabs toward its edge
+    /// (`direction` -1 leading, 1 trailing), on the reveal's spring; a click mid-spring pages on from its target.
+    func scrollPage(by direction: CGFloat) {
+        let band = scrollMapping.band
+        let tab = max(1, metrics.maxTabWidth)
+        let shown = viewportWidth - band - 2 * metrics.scrollFadeWidth
+        let page = max(1, (shown / tab).rounded(.down)) * tab
+        hoverCards.dismiss(.action)
+        scroll(to: TabScrollMath.clamp(scrollOffset + direction * page, contentWidth: result.contentWidth, viewportWidth: viewportWidth),
+               animated: !reduceMotion)
+    }
+
+    /// Scrolls the strip to `target` (clamped by the caller), with the Motion `scroll` spring when `animated` and the
+    /// strip may animate; nothing when it is there already.
+    func scroll(to target: CGFloat, animated: Bool) {
         guard target != scrollOffset else { return }
         let from = scrollMapping
         scrollOffset = target
@@ -374,7 +405,9 @@ extension TabStripView {
         applyGroupFrames(offset: offset, tabY: tabY, tabHeight: tabHeight, pixel: pixel, move: move, scroll: scrollPart(isPinned: false))
         framedCells = FramedCells(basis: cellFrameBasis(mapping: mapping), trailing: trailing, count: cells.count)
         let buttonWidth = metrics.newTabButtonWidth
-        let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth) + newTabLeadingGap
+        let runEnd = tabsClip.frame.minX + min(trailing - offset, viewportWidth)
+        // `experiments.tabOverflow`'s More or All Tabs pill sits between the tabs and the +.
+        let buttonX = runEnd + newTabLeadingGap + overflowControls.trailingWidth
         // Square, centered on the tabs: it keeps its size when the tabs are shorter. The split look's `+ ⌄` is a tab's
         // height, so its hover is a tab's band (Lucas 2026-11-12: "same height and roundness as tabs").
         let buttonHeight = NewTabButtonView.frameHeight(split: newTabButton.splitSegment, side: buttonWidth, tabHeight: tabHeight)
@@ -398,6 +431,7 @@ extension TabStripView {
             }
         }
         edgeFade.update()
+        overflowControls.update(runEnd: runEnd, tabY: tabY, tabHeight: tabHeight)
         // Tabs moved (scroll, reflow, close): what is under a still pointer may differ. Hit testing reads
         // the targets, the frames written above.
         geometryDidChange()

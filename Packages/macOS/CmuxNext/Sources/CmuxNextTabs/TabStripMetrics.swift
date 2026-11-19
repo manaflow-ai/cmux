@@ -14,6 +14,9 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var minActiveTabWidth: CGFloat
     /// `tabs.overflow`: with `.scroll` both minimums are `scrollTabMinWidth`.
     public var overflow: TabOverflow
+    /// Settings > Experimental `experiments.tabOverflow`: off follows ``overflow``; every other arm keeps each unpinned
+    /// tab at ``maxTabWidth`` (``withOverflowExperiment(_:)``) and shows the selected tab's x at rest.
+    public var overflowExperiment: TabOverflowExperiment = .off
     public var pinnedTabWidth: CGFloat
     /// Chrome's strip geometry (design-tokens.json `motion.tabStrip`, at the UI scale): open and
     /// close widths, the minimum widths above, the reorder threshold, closing mode.
@@ -227,6 +230,18 @@ public struct TabStripMetrics: Equatable, Sendable {
         separatorHeight = TabTunables.separatorHeight.value
         separatorOpacity = TabTunables.separatorOpacity.value
         showsPinnedDivider = TabTunables.pinnedDivider.value
+        self = withOverflowExperiment(DesignSettings.shared.tabOverflowExperiment)
+    }
+
+    /// These metrics under `experiments.tabOverflow` = `experiment`: any arm but off keeps every unpinned tab at its
+    /// widest (both minimums are ``maxTabWidth``), so the row never shrinks a tab; off returns them as they are.
+    public func withOverflowExperiment(_ experiment: TabOverflowExperiment) -> TabStripMetrics {
+        var metrics = self
+        metrics.overflowExperiment = experiment
+        guard experiment != .off else { return metrics }
+        metrics.minActiveTabWidth = maxTabWidth
+        metrics.minInactiveTabWidth = maxTabWidth
+        return metrics
     }
 
     /// Token-derived metrics for the current density.
