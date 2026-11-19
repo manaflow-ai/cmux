@@ -896,6 +896,19 @@ enum Command {
         request_id: String,
         opened: bool,
     },
+    FilePreviewOpen {
+        terminal_id: String,
+        path: String,
+        #[serde(default)]
+        line: Option<u64>,
+    },
+    FilePreviewOpenClaim {
+        request_id: String,
+    },
+    FilePreviewOpenResult {
+        request_id: String,
+        opened: bool,
+    },
     PasteImage {
         surface: SurfaceId,
         terminal_id: String,
@@ -2735,6 +2748,23 @@ impl MessageWriter {
     fn send_url_open(&self, request_id: &str, terminal_id: &str, url: &str) -> std::io::Result<()> {
         self.send_control(&json!({
             "event": "url-open", "request_id": request_id, "terminal_id": terminal_id, "url": url,
+        }))
+    }
+
+    fn send_file_preview_open(
+        &self,
+        request_id: &str,
+        terminal_id: &str,
+        path: &str,
+        line: Option<u64>,
+    ) -> std::io::Result<()> {
+        self.send_control(&json!({
+            "event": "file-preview-open",
+            "kind": "file-preview",
+            "request_id": request_id,
+            "terminal_id": terminal_id,
+            "path": path,
+            "line": line,
         }))
     }
 
@@ -10023,8 +10053,28 @@ fn handle_request_with_cancellation(
     cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
     let Request { id, cmd } = request;
-    if let Command::UrlOpen { terminal_id, url } = cmd {
-        return url_open::start(mux, client, id, terminal_id, url, writer);
+    match &cmd {
+        Command::UrlOpen { terminal_id, url } => {
+            return url_open::start(
+                mux,
+                client,
+                id,
+                terminal_id.clone(),
+                url_open::OpenEvent::Url { url },
+                writer,
+            );
+        }
+        Command::FilePreviewOpen { terminal_id, path, line } => {
+            return url_open::start(
+                mux,
+                client,
+                id,
+                terminal_id.clone(),
+                url_open::OpenEvent::FilePreview { path, line: *line },
+                writer,
+            );
+        }
+        _ => {}
     }
     if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
         && !mux.server_lifecycle_ready()
@@ -12210,13 +12260,19 @@ fn handle_command_with_cancellation(
             mux.control_clients.url_opens.subscribe(client, terminal_ids, writer.clone())?;
             Ok(json!({"url_open_ready": true}))
         }
-        Command::UrlOpenClaim { request_id } => {
-            Ok(json!({"claimed": mux.control_clients.url_opens.claim(&request_id)}))
-        }
-        Command::UrlOpenResult { request_id, opened } => {
-            Ok(json!({"accepted": mux.control_clients.url_opens.complete(&request_id, opened)}))
-        }
-        Command::UrlOpen { .. } => {
+        Command::UrlOpenClaim { request_id } => Ok(
+            json!({"claimed": mux.control_clients.url_opens.claim(&request_id, url_open::OpenKind::Url)}),
+        ),
+        Command::UrlOpenResult { request_id, opened } => Ok(
+            json!({"accepted": mux.control_clients.url_opens.complete(&request_id, url_open::OpenKind::Url, opened)}),
+        ),
+        Command::FilePreviewOpenClaim { request_id } => Ok(
+            json!({"claimed": mux.control_clients.url_opens.claim(&request_id, url_open::OpenKind::FilePreview)}),
+        ),
+        Command::FilePreviewOpenResult { request_id, opened } => Ok(
+            json!({"accepted": mux.control_clients.url_opens.complete(&request_id, url_open::OpenKind::FilePreview, opened)}),
+        ),
+        Command::UrlOpen { .. } | Command::FilePreviewOpen { .. } => {
             anyhow::bail!("URL opening requires the asynchronous request path")
         }
         Command::PasteImage {

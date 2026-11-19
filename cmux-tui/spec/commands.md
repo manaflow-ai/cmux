@@ -4174,6 +4174,24 @@ as inode identity; the filesystem must support extended attributes. See
 
 ## Guest browser opening
 
+### file-preview-open
+
+A private, Unix-classified control request with `terminal_id`, absolute `path`,
+and optional positive `line`. It shares the five-second claim broker with guest
+browser opening, then allows up to 45 seconds for a claimed frontend to deliver
+the preview. It never accepts a URL and never creates a
+durable resource. The frontend receives a `file-preview-open` event with
+`kind: "file-preview"`, `request_id`, `terminal_id`, `path`, and `line`.
+
+The matching `file-preview-open-claim` and `file-preview-open-result` commands
+take the request capability and, for the result, `opened`. Their results are
+`{claimed:boolean}` and `{accepted:boolean}`. A missing or ambiguous frontend,
+declined delivery, disconnect, invalid path, or deadline returns
+`{opened:false}` to the guest. Public guests use `cmux open <path>[:line]` for
+existing regular UTF-8-path files; relative paths resolve at the guest process
+cwd without symlink canonicalization. The optional line is accepted for
+compatibility but is not yet applied by the preview.
+
 ### url-open
 
 A private, Unix-classified control request with `terminal_id` and `url` strings.

@@ -134,6 +134,85 @@ final class RemoteTerminalFilePreviewCoordinator {
         return true
     }
 
+    /// Downloads and opens a guest-requested remote path without changing the user's focus.
+    ///
+    /// Unlike ``open(workspace:sourcePanelID:tokens:)``, this operation does not
+    /// require the requesting terminal or workspace to be selected. It still
+    /// verifies that the exact source projection survived the download before it
+    /// creates a preview beside that terminal.
+    func openGuest(
+        workspace: Workspace,
+        sourcePanelID: UUID,
+        path: String,
+        line: Int?
+    ) async -> Bool {
+        guard path.hasPrefix("/"),
+              !path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+              line.map({ $0 >= 1 }) ?? true,
+              let configuration = workspace.remoteTerminalFilePreviewConfiguration(for: sourcePanelID),
+              let panel = workspace.terminalPanel(for: sourcePanelID),
+              !ManagedFileTransferPolicy.isDisabled else { return false }
+        let settings = FileRouteSettingsStore(defaults: defaults)
+        guard settings.supportedFileRouteEnabled || settings.markdownRouteEnabled else { return false }
+
+        let provider = SSHFileExplorerProvider(
+            destination: configuration.destination,
+            port: configuration.port,
+            identityFile: configuration.identityFile,
+            sshOptions: configuration.fileOperationSSHOptions,
+            displayTarget: configuration.displayTarget,
+            homePath: "",
+            isAvailable: true,
+            transport: transport
+        )
+        let loader = RemoteTerminalFilePreviewLoader(
+            provider: provider,
+            cacheDirectory: cacheDirectory,
+            fileManager: FileManager()
+        )
+        let clock = self.clock
+        let timeout = self.timeout
+        let sourceSurface = panel.surface
+        let lifecycleID = sourceSurface.terminalLifecycleId
+        let attemptID = workspace.remoteTerminalAttemptIDsBySurfaceId[sourcePanelID]
+        let tuiAttemptID = workspace.sshTuiConnectionAttemptID
+        let projectionResource = SurfaceCatalog.shared.projectionIncludingPendingRestore(forPanel: sourcePanelID)?.resource
+        do {
+            let localURL = try await withThrowingTaskGroup(of: URL.self) { group in
+                group.addTask { try await loader.load(path: path) }
+                group.addTask {
+                    try await clock.sleep(for: timeout)
+                    throw URLError(.timedOut)
+                }
+                defer { group.cancelAll() }
+                return try await group.next()!
+            }
+            try Task.checkCancellation()
+            guard !ManagedFileTransferPolicy.isDisabled,
+                  !workspace.isRetiredFromOwningTabManager,
+                  workspace.remoteTerminalFilePreviewConfiguration(for: sourcePanelID) == configuration,
+                  workspace.terminalPanel(for: sourcePanelID) === panel,
+                  panel.surface === sourceSurface,
+                  sourceSurface.terminalLifecycleId == lifecycleID,
+                  workspace.remoteTerminalAttemptIDsBySurfaceId[sourcePanelID] == attemptID,
+                  workspace.sshTuiConnectionAttemptID == tuiAttemptID,
+                  SurfaceCatalog.shared.projectionIncludingPendingRestore(forPanel: sourcePanelID)?.resource == projectionResource,
+                  sourceSurface.owningWorkspace() === workspace else { return false }
+            // Current Markdown and file-preview panels have no line-position API.
+            // Keep the validated line in this ingress until those panels expose one.
+            _ = line
+            return CommandClickFileOpenRouter.openInCmux(
+                workspace: workspace,
+                sourcePanelId: sourcePanelID,
+                filePath: localURL.path,
+                defaults: defaults,
+                focus: false
+            )
+        } catch {
+            return false
+        }
+    }
+
     deinit {
         for entry in tasks.values { entry.task.cancel() }
     }

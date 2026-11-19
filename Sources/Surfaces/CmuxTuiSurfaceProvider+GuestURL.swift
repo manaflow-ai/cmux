@@ -26,9 +26,23 @@ extension CmuxTuiSurfaceProvider {
 
     func configureGuestURLOpen(link: CloudMachineLink, socketPath: String) {
         if guestURLService == nil {
-            guestURLService = CloudGuestURLService(machineID: machineID, executable: CloudTuiClientPaths.clientURL()) { [weak self] in
-                self?.guestURLContext(terminalID: $0)
-            }
+            guestURLService = CloudGuestURLService(
+                machineID: machineID,
+                executable: CloudTuiClientPaths.clientURL(),
+                resolve: { [weak self] in self?.guestURLContext(terminalID: $0) },
+                deliverFilePreview: { [weak self] request, context in
+                    guard let self,
+                          let workspaceID = context.sourceWorkspaceId,
+                          let panelID = context.sourcePanelId,
+                          let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceID) else { return false }
+                    return await self.guestFilePreviewCoordinator.openGuest(
+                        workspace: workspace,
+                        sourcePanelID: panelID,
+                        path: request.path,
+                        line: request.line
+                    )
+                }
+            )
         }
         updateGuestURLMembership()
         guestURLService?.update(link: link, socketPath: socketPath, terminals: guestURLTerminalIDs)
