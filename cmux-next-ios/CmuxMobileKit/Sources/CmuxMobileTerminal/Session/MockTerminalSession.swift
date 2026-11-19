@@ -176,8 +176,10 @@ public final class MockTerminalSession: TerminalSession {
     private func write(_ text: String) {
         if macResize != nil, !isAlternateScreen { record(text) }
         let data = Data(text.utf8)
+        #if DEBUG
         // No link in mock mode: the shell's output is what the transport would deliver.
         ReceivedByteCount.shared.add(data.count)
+        #endif
         handler?(.output(data))
     }
 

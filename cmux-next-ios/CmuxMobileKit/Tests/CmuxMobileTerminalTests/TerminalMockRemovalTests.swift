@@ -54,8 +54,9 @@ private final class LiveStub: TerminalSession {
         try await Self.waitUntil(5) { output.contains("❯") }
         try #require(output.contains("❯"), "the demo shell never showed its prompt")
         session.send(Data("echo hello from the demo\r".utf8))
-        try await Self.waitUntil(5) { output.contains("hello from the demo\r\n") }
-        #expect(output.contains("hello from the demo\r\n"))
+        // Twice: the typed line the shell echoes, then echo's own output.
+        try await Self.waitUntil(5) { output.components(separatedBy: "hello from the demo").count > 2 }
+        #expect(output.components(separatedBy: "hello from the demo").count > 2)
         session.send(Data([0x04]))
         try await Self.waitUntil(5) { output.contains("exit is disabled") }
         #expect(output.contains("exit is disabled in this session"))

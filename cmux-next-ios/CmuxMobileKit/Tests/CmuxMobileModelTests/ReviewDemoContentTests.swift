@@ -23,7 +23,7 @@ import Testing
         #expect(store.activeTeamID == AppStore.reviewDemoTeamID)
         let macs = store.teams.flatMap(\.macs)
         #expect(macs.map(\.id) == [AppStore.reviewDemoMacID])
-        #expect(macs.allSatisfy(\.isOnline))
+        #expect(macs.allSatisfy { $0.isOnline })
     }
 
     @Test func everyWorkspaceIsOnTheDemoMacWithTerminalsAndPages() {
@@ -38,7 +38,7 @@ import Testing
         #expect(!pages.isEmpty)
         #expect(pages.allSatisfy { $0.url?.scheme == "https" })
         // An agent chat needs a live Mac: the demo has none.
-        #expect(!tabs.contains(where: \.isAgent))
+        #expect(!tabs.contains { $0.isAgent })
         #expect(Set(tabs.map(\.id)).count == tabs.count)
     }
 

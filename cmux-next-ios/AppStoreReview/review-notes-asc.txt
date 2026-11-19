@@ -28,7 +28,7 @@ Review path (no Mac needed):
 ## REVIEW DEMO STEPS: END
 
 Simulated Mac (this account only): to try terminals and browser tabs without a Mac, the demo account has a simulated Mac named MacBook Pro, run on the iPhone. It is not a real computer, and no other account has it.
-1. Open the Workspaces tab. The MacBook Pro shows online with three workspaces: website, api-server and notes.
+1. Open the Workspaces tab. It lists the MacBook Pro's three workspaces: website, api-server and notes.
 2. Tap website. Its terminal opens and shows recent commands. Type a command such as ls, git status or htop and send it; the terminal answers.
 3. Tap Tabs, then the cmux tab. The page opens in the app.
 

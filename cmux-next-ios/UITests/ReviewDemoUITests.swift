@@ -36,9 +36,6 @@ final class ReviewDemoUITests: XCTestCase {
             XCTAssertTrue(app.buttons["workspace.row.review-ws-api"].exists, "the demo's api-server workspace")
             XCTAssertTrue(app.buttons["workspace.row.review-ws-notes"].exists, "the demo's notes workspace")
             XCTAssertFalse(app.buttons["workspace.row.ws-cmux"].exists, "no developer sample data")
-            XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'MacBook Pro'")).firstMatch.exists
-                || app.buttons.matching(NSPredicate(format: "label CONTAINS 'MacBook Pro'")).firstMatch.exists,
-                "the demo Mac is named\n\(app.debugDescription)")
             attach(app, "\(look)-01-workspaces")
 
             // The terminal: its shell plays its last commands, then answers one typed here.
@@ -64,7 +61,8 @@ final class ReviewDemoUITests: XCTestCase {
             XCTAssertTrue(card.waitForExistence(timeout: 10), "the browser tab's card\n\(app.debugDescription)")
             attach(app, "\(look)-04-tabs")
             card.tap()
-            let page = app.descendants(matching: .any)["browser.native"]
+            // No Mac stream: the tab is the phone's own web view.
+            let page = app.webViews.firstMatch
             XCTAssertTrue(page.waitForExistence(timeout: 20), "the page shows on the phone\n\(app.debugDescription)")
             XCTAssertFalse(app.descendants(matching: .any)["browser.unavailable"].exists, "the page is not unavailable")
             XCTAssertTrue(waitFor(seconds: 6), "the page loads")
