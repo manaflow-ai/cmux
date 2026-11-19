@@ -305,15 +305,17 @@ public final class CloudAuth {
         }
         guard configuration.adoptsNightlySession else {
             let own = ownTokenStore(configuration: configuration)
-            return shared.map { SharedSessionTokenStore(own: own, shared: $0) } ?? own
+            guard let shared else { return own }
+            return SharedSessionTokenStore(own: own, shared: shared)
         }
-        var sources: [ImportingTokenStore.Source] = shared.map { item in
-            [{
-                await consistentSession(refresh: { await item.getStoredRefreshToken() },
-                                        access: { await item.getStoredAccessToken() })
-                    .flatMap { ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) }
-            }]
-        } ?? []
+        var sources: [ImportingTokenStore.Source] = []
+        if let shared {
+            sources.append {
+                let pair = await CloudAuth.consistentSession(refresh: { await shared.getStoredRefreshToken() },
+                                                             access: { await shared.getStoredAccessToken() })
+                return pair.flatMap { ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) }
+            }
+        }
         if let fetch = nightlySession {
             sources.append { await fetch().flatMap { ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) } }
         }
