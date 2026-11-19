@@ -603,7 +603,7 @@ fn dispatch(args: &[String]) -> Result<(), String> {
     }
     let mut said = String::new();
     if let Some(mut stderr) = child.stderr.take() {
-        let _ = std::io::Read::read_to_string(&mut stderr, &mut said);
+        let _ = stderr.read_to_string(&mut said);
     }
     Err(said
         .lines()
