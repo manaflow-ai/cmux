@@ -215,6 +215,8 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# The TUI's list views are held to flat per-frame work in N (cmux-view-rows src/frame_work.rs).
+cmux-view-rows = { path = "../cmux-view-rows", features = ["frame-work"] }
 # Release gates print and compare their rounds through `acpmux_book::gate_rounds`.
 acpmux-book = { path = "../acpmux-book", features = ["gate-rounds"] }
 # Property tests of the stores under random operations, restarts and torn writes (src/stress/).

@@ -953,7 +953,13 @@ impl Transcript {
     }
 
     pub fn pending_permission(&self) -> Option<&Item> {
-        self.items.iter().rev().find(|i| matches!(i, Item::Permission { decided: None, .. }))
+        self.items.iter().rev().find(|i| {
+            // Per-frame work (cmux-view-rows frame_work): with no pending permission this reads
+            // every item, and the TUI's draw asks it each frame (`render::draw`, `live_answering`).
+            #[cfg(test)]
+            cmux_view_rows::frame_work::walked(1);
+            matches!(i, Item::Permission { decided: None, .. })
+        })
     }
 }
 

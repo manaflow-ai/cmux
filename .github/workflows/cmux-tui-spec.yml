@@ -770,6 +770,14 @@ jobs:
           BASE_SHA: ${{ steps.base.outputs.sha }}
         run: python3 "$RUNNER_TEMP/cmux-tui-clippy-changed.py" --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA"
 
+      # Lists draw only their visible rows: no draw fn in a ratatui crate gains a walk or clone
+      # of a whole collection (cmux-tui/crates/cmux-source-scan/src/visible_only.rs). It reads
+      # the tree, so it runs on every change; its ratchet list only shrinks.
+      - name: visible-only draw ratchet
+        if: ${{ !cancelled() }}
+        working-directory: cmux-tui
+        run: cargo run -q --locked -p cmux-source-scan -- visible-only "$GITHUB_WORKSPACE"
+
       # The host's clone/enrollment and root-peer IPC invariants must execute,
       # not only compile. Reuse this job's Rust setup and warm target directory.
       - name: Cloud host identity tests
