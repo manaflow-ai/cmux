@@ -288,7 +288,7 @@ import Testing
             let flag = Flag()
             withObservationTracking {
                 _ = rows.rows(journal)
-                _ = journal.count
+                _ = journal.events.count
             } onChange: { flag.on = true }
             change()
             return flag.on
