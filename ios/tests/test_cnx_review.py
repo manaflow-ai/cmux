@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 import re
+import signal
 from pathlib import Path
 import plistlib
 import subprocess
@@ -35,8 +36,16 @@ BASH = '/bin/bash' if os.path.exists('/bin/bash') else 'bash'
 
 
 def bash(script, env=None, timeout=60):
-    return subprocess.run([BASH, '-c', script], capture_output=True, text=True, timeout=timeout,
-                          env=dict(os.environ, **(env or {})))
+    # Its own process group, so a timeout ends the script and every child it started (a fake recorder too).
+    with subprocess.Popen([BASH, '-c', script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                          env=dict(os.environ, **(env or {})), start_new_session=True) as p:
+        try:
+            out, err = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(p.pid, signal.SIGKILL)
+            p.communicate()
+            raise
+    return subprocess.CompletedProcess(p.args, p.returncode, out, err)
 
 
 def devices_json(*phones):
@@ -617,6 +626,31 @@ fleet_start_sim; fleet_finish_sim; echo "STEP=$SIM_STEP"''', {'CMUX_CI': str(ci)
         self.assertNotIn('--label', args)
         self.assertNotIn('--detach', args)
 
+    def test_a_rerun_after_a_failed_simulator_step_sends_a_new_step(self):
+        # The controller answers a --key with the step it already names, finished or not (hq
+        # controller main.go archivedStep), so a rerun at the same head re-attached to the cancelled
+        # step 10714bf70abba176377ca4de and reported its failure again (2026-11-18).
+        for state, want_new in (('cancelled', True), ('failed', True), ('running', False)):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as temp:
+                ci = Path(temp) / 'cmux-ci'
+                ci.write_text('#!/bin/sh\n'
+                              f'if [ "$1" = status ]; then echo \'{{"id": "0123456789abcdef01234567", "state": "{state}"}}\'; exit 0; fi\n'
+                              f'[ "$1" = run ] && echo "$@" >> "{temp}/args"\n'
+                              'echo "cmux-ci: step 0123456789abcdef01234567 (simulator, key k)" >&2\nexit 1\n')
+                ci.chmod(0o755)
+                r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{temp}" CMUX_CI="{ci}"
+fleet_start_sim; fleet_finish_sim || echo "SIM=$REPORT_SIM"; fleet_start_sim; fleet_finish_sim || true''', {'CMUX_CI': str(ci)})
+                keys = [line.split('--key ')[1].split()[0] for line in (Path(temp) / 'args').read_text().splitlines()]
+                base = f'cnx-ios-handoff-{TAG}-{SHA[:12]}'
+                self.assertEqual(keys[0], base, r.stderr)
+                if want_new:
+                    self.assertEqual(keys[1], base + '-r1')
+                    self.assertIn('(a rerun sends a new step)', r.stdout)
+                else:
+                    # Only this client stopped following; the step runs on, so the rerun re-attaches.
+                    self.assertEqual(keys[1], base)
+                    self.assertNotIn('a rerun sends a new step', r.stdout)
+
     def test_an_unreviewed_step_script_is_named_as_the_blocker(self):
         with tempfile.TemporaryDirectory() as temp:
             ci = Path(temp) / 'cmux-ci'
@@ -659,6 +693,36 @@ fleet_start_sim; fleet_finish_sim || echo "SIM=$REPORT_SIM"''', {'CMUX_CI': str(
         for gone in ('ios-agent-stack.env', 'ios-agent-signin', 'stat -f', 'CMUX_MOBILE_STACK_PASSWORD',
                      'CMUX_MOBILE_STACK_EMAIL', 'env-value'):
             self.assertNotIn(gone, body)
+
+    def test_the_handoff_recording_stops_when_the_check_ends(self):
+        # The step hung after its last leg (2026-11-18, step 10714bf70abba176377ca4de): the recorder
+        # was started through the simctl() wrapper in the background, a subshell that ignores the
+        # SIGINT meant to finish the recording, so `wait` never returned. This runs the handoff
+        # check's own start and stop lines against a recorder that only exits on SIGINT.
+        text = SIM.read_text()
+        start = text.index('  handoff_check() {')
+        body = text[start:text.index('\n  }\n', start)].splitlines()
+        rec = next(i for i, line in enumerate(body) if 'recordVideo' in line)
+        stop = next(line for line in body if 'kill -INT "$rec_pid"' in line)
+        self.assertEqual(body[rec + 1].strip(), 'rec_pid=$!')
+        with tempfile.TemporaryDirectory() as temp:
+            bin_dir = Path(temp) / 'bin'
+            bin_dir.mkdir()
+            (bin_dir / 'xcrun').write_text(
+                '#!/usr/bin/env python3\nimport signal, sys, time\n'
+                f'def done(*_):\n    open("{temp}/stopped", "w").write(" ".join(sys.argv[1:])); sys.exit(0)\n'
+                'signal.signal(signal.SIGINT, done)\nwhile True: time.sleep(0.1)\n')
+            (bin_dir / 'xcrun').chmod(0o755)
+            script = (f'PATH="{bin_dir}:$PATH"; sims=S udid=U out="{temp}" work="{temp}"\n'
+                      'simctl() { xcrun simctl --set "$sims" "$@"; }\n'
+                      f'{body[rec]}\n{body[rec + 1]}\nsleep 1\n{stop}\necho STOPPED')
+            try:
+                r = bash(script, timeout=45)
+            except subprocess.TimeoutExpired:
+                self.fail('the handoff check never stopped its recording (wait hung)')
+            self.assertIn('STOPPED', r.stdout, r.stderr)
+            self.assertTrue((Path(temp) / 'stopped').exists(), 'the recorder never got SIGINT, so recording.mp4 is unfinished')
+            self.assertIn('simctl --set S io U recordVideo', (Path(temp) / 'stopped').read_text())
 
     def test_the_session_reaches_only_the_auto_login_launch(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -838,7 +902,7 @@ class MacInstallTests(unittest.TestCase):
     """The tag's Mac app: reused for the same head, replaced for this tool's earlier head, never
     touched when this tool did not install it."""
 
-    def install(self, record, app_exists=True):
+    def install(self, record, app_exists=True, sealed=False):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             home = root / 'home'
@@ -846,6 +910,10 @@ class MacInstallTests(unittest.TestCase):
             if app_exists:
                 (app / 'Contents').mkdir(parents=True)
                 (app / 'Contents/old').write_text('old')
+                if sealed:
+                    # macOS App Management: nothing inside another app's bundle may be changed or removed,
+                    # while the bundle itself can still be renamed (seen 2026-11-18 replacing the tag's app).
+                    (app / 'Contents').chmod(0o555)
             state = root / 'state' / SHA
             (state / f'mac/cmux DEV {TAG}.app/Contents').mkdir(parents=True)
             (state / f'mac/cmux DEV {TAG}.app/Contents/new').write_text('new')
@@ -858,12 +926,23 @@ safe_unzip() {{ :; }}
 mac_py() {{ case "$1" in socket) echo /tmp/s ;; *) return 0 ;; esac; }}
 mac_quit_installed() {{ echo QUIT_CALLED; }}
 if mac_install; then echo OK; else echo "BLOCKED $REPORT_MAC"; fi
-ls "$MAC_APP/Contents"; cat "{root / 'state/mac-installed'}" 2>/dev/null"""
+ls "$MAC_APP/Contents"; cat "{root / 'state/mac-installed'}" 2>/dev/null
+find "{root}" -type d -exec chmod u+w {{}} + 2>/dev/null"""
             return bash(script).stdout
 
     def test_this_tools_earlier_head_is_quit_and_replaced(self):
         out = self.install('b' * 40 + ' job1\n')
         self.assertIn('QUIT_CALLED', out)
+        self.assertIn('OK', out)
+        self.assertIn('new', out)
+        self.assertNotIn('old', out)
+        self.assertIn(f'{SHA} job2', out)
+
+    def test_an_app_whose_contents_may_not_change_is_still_replaced(self):
+        # The tag's earlier app could not be emptied in place (App Management: "Operation not permitted"),
+        # so `rm -rf` left half of it and `ditto` into it failed silently: an app with no Info.plist,
+        # recorded as installed. The new app goes in beside it and replaces it by renames.
+        out = self.install('b' * 40 + ' job1\n', sealed=True)
         self.assertIn('OK', out)
         self.assertIn('new', out)
         self.assertNotIn('old', out)
