@@ -631,7 +631,7 @@ public final class MacHomeFeed {
     /// A conversation of the list other than the Mac Chief's, over its own
     /// `chief` channel to this Mac (the channel's filter allows only
     /// conversations between the owner and agents, which is every row). It
-    /// stays open (with its outbox) until the link or the Mac changes; a screen
+    /// stays open until the link or the Mac changes; a screen
     /// showing it then asks again (``sessionEpoch``).
     public func session(for route: MacConversationRoute) async throws -> ChiefSession {
         if let session = sessions[route.conversationID] { return session }
@@ -661,7 +661,7 @@ public final class MacHomeFeed {
                 kept.status = nil
                 session = kept
             } else {
-                session = ChiefSession(backend: backend, identity: identity, outbox: ChiefOutbox(file: nil),
+                session = ChiefSession(backend: backend, identity: identity,
                                        transcripts: transcripts, transcriptKey: transcriptKey(route.conversationID))
             }
             session.macID = macID
@@ -686,7 +686,9 @@ public final class MacHomeFeed {
     /// The open session when there is one; nil when nothing can be kept (no account or Mac),
     /// unless `orEmpty`: then an empty one (its title and composer) for a conversation whose
     /// first open failed, so its screen never falls back to a full-screen error.
-    /// Its screen shows it only once it has a message (``ChiefSession/lastMessage``).
+    /// Its screen shows it only once it has a message (``ChiefSession/lastMessage``), with no bar:
+    /// a normal reconnect says nothing, and its loader marks it only past the quiet bound
+    /// (``MacConversationLoader``; Leo, 2026-11-16).
     public func keptSession(for route: MacConversationRoute, orEmpty: Bool = false) -> ChiefSession? {
         if let session = sessions[route.conversationID] ?? keptSessions[route.conversationID] { return session }
         let key = transcripts == nil ? nil : transcriptKey(route.conversationID)
@@ -695,16 +697,13 @@ public final class MacHomeFeed {
         let info = ConversationInfo(id: route.conversationID, title: route.title, kind: .direct,
                                     participants: [identity.me, identity.chief])
         let session = ChiefSession(backend: ChiefOfflineBackend(reason: Self.keptReason, info: info), identity: identity,
-                                   outbox: ChiefOutbox(file: nil), transcripts: key == nil ? nil : transcripts, transcriptKey: key)
-        session.unavailableTitle = Self.keptTitle
-        session.status = Self.keptReason
+                                   transcripts: key == nil ? nil : transcripts, transcriptKey: key)
         session.macID = macID
         keptSessions[route.conversationID] = session
         return session
     }
 
-    /// The bar over a conversation shown from what the phone kept while its channel opens.
-    static var keptTitle: String { String(localized: "Connecting to your Mac…") }
+    /// Why a conversation shown from what the phone kept is not live (its offline backend's reason).
     static var keptReason: String { String(localized: "Showing the last messages. New ones load when it connects.") }
 
     /// Bumped each time the opened conversations close (a new link or another Mac):

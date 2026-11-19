@@ -53,9 +53,9 @@ import Testing
         #expect(renderers.collected == [4, 4])
     }
 
-    @Test func readsUsedSizeAndTheScheme() {
-        #expect(CEFPageRendererGC.usedSize(#"{"usedSize":142032280,"totalSize":181190656}"#) == 142_032_280)
-        #expect(CEFPageRendererGC.usedSize("{}") == nil)
+    @Test func readsUsedSizeAndTheScheme() async {
+        #expect(await CEFPageRendererGC.usedSize(#"{"usedSize":142032280,"totalSize":181190656}"#) == 142_032_280)
+        #expect(await CEFPageRendererGC.usedSize("{}") == nil)
         #expect(CEFPageRendererGC.isCmuxPage(URL(string: "cmux-page://cmux.agent/")))
         #expect(!CEFPageRendererGC.isCmuxPage(URL(string: "https://example.com/")))
         #expect(!CEFPageRendererGC.isCmuxPage(nil))
