@@ -26,6 +26,7 @@ The verdict:
 from __future__ import annotations
 
 import argparse
+import bisect
 import importlib.util
 import posixpath
 import re
@@ -56,16 +57,45 @@ ALWAYS = (
 READ_AT_TEST_TIME = {
     "cmux-tui/crates/acpmux": ("scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/"),
 }
-INCLUDE = re.compile(r'include_(?:str|bytes)!\(\s*"([^"]+)"')
+# include!/include_str!/include_bytes! of a literal path, from the source's directory.
+INCLUDE = re.compile(r'\binclude(?:_str|_bytes)?!\(\s*"([^"]+)"')
+# #[path = "..."] on a module: compiled from that file (cmux#45420 review: cmux-cloud-client's build.rs compiles
+# workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs this way).
+PATH_ATTR = re.compile(r'#\[\s*path\s*=\s*"([^"]+)"\s*\]')
+# include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/x.json")) names a path from the crate directory;
+# include_str!(concat!("../dir/", $name, ".json")) one from the source's directory. The first literal is the path, or,
+# when more pieces follow it (a macro's $name), the directory it opens: its prefix up to the last "/" (cmux#45420
+# review P3-F1: the Windows check skipped a change to cmux-tui/spec/browser-host-operations.json). env!("OUT_DIR") and
+# other non-literal heads name no file of the tree and are not matched.
+INCLUDE_CONCAT = re.compile(r'\binclude(?:_str|_bytes)?!\(\s*concat!\(\s*(env!\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*)?'
+                            r'"([^"]*)"\s*([,)])')
+
+
+def _concat_includes(tree, crate: str, source: str, text: str) -> list[str]:
+    """The paths (files, or the directory a macro-built name opens) TEXT's include_str!(concat!(...)) calls name."""
+    found = []
+    for match in INCLUDE_CONCAT.finditer(text):
+        manifest_dir, literal, after = match.groups()
+        if after == ",":
+            literal = literal[:literal.rfind("/") + 1] if "/" in literal else ""
+        relative = literal.lstrip("/") if manifest_dir else literal
+        if not relative.strip("/."):
+            continue  # the crate or source directory itself: nothing narrower than what is already counted
+        named = _follow(tree, crate if manifest_dir else posixpath.dirname(source), relative.rstrip("/"))
+        if named is not None:
+            found.append(named)
+    return found
 DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
 PASSED = re.compile(r"^test (\S+) \.\.\. ok$")
 FAILED_LINE = re.compile(r"^test (\S+) \.\.\. FAILED$")
 
 
-def _default_optional(manifest: dict) -> set[str]:
-    """The optional dependencies MANIFEST's default features turn on (`dep:x`, `x`, `x/feature`)."""
-    features = manifest.get("features", {})
-    enabled, queue, seen = set(), list(features.get("default", [])), set()
+def _enabled(manifest: dict, features=(), default: bool = True) -> tuple[set[str], dict[str, set[str]]]:
+    """What MANIFEST's default features (when DEFAULT) and FEATURES turn on: the optional dependencies (`dep:x`, `x`,
+    `x/feature`) and, per dependency, the features they ask of it (`x/feature`, `x?/feature`)."""
+    table = manifest.get("features", {})
+    enabled, asked = set(), {}
+    queue, seen = (list(table.get("default", [])) if default else []) + list(features), set()
     while queue:
         item = queue.pop()
         if item in seen:
@@ -74,34 +104,54 @@ def _default_optional(manifest: dict) -> set[str]:
         if item.startswith("dep:"):
             enabled.add(item[4:])
         elif "/" in item:
-            name = item.split("/", 1)[0]
+            name, feature = item.split("/", 1)
             if not name.endswith("?"):
                 enabled.add(name)
-        elif item in features:
-            queue += features[item]
+            asked.setdefault(name.rstrip("?"), set()).add(feature)
+        elif item in table:
+            queue += table[item]
         else:
             enabled.add(item)
-    return enabled
+    return enabled, asked
 
 
-def _path_dependencies(manifest: dict, crate: str, workspace: str, shared: dict) -> list[str]:
-    """The path dependencies a plain `cargo test` of the crate builds: an optional one only when a default feature
-    turns it on (acpmux's `hub-carrier` pulls in cmux-remote only when a build asks for it). Repository paths."""
-    tables = [manifest.get(name, {}) for name in DEPENDENCY_TABLES]
-    tables += [target.get(name, {}) for target in manifest.get("target", {}).values() for name in DEPENDENCY_TABLES]
-    default_optional = _default_optional(manifest)
+def _default_optional(manifest: dict) -> set[str]:
+    """The optional dependencies MANIFEST's default features turn on (`dep:x`, `x`, `x/feature`)."""
+    return _enabled(manifest)[0]
+
+
+def _dependency_edges(manifest: dict, crate: str, workspace: str, shared: dict, features=(),
+                      default: bool = True, dev: bool = True) -> list[tuple[str, frozenset[str], bool]]:
+    """(directory, features asked of it, its default features on) for each path dependency a build of the crate with
+    FEATURES (plus its defaults when DEFAULT) builds: an optional one only when a turned-on feature turns it on
+    (acpmux's `hub-carrier` pulls in cmux-remote only when a build asks for it); dev-dependencies only when DEV (the
+    crate's own tests are built). Repository paths."""
+    kinds = DEPENDENCY_TABLES if dev else tuple(k for k in DEPENDENCY_TABLES if k != "dev-dependencies")
+    tables = [manifest.get(name, {}) for name in kinds]
+    tables += [target.get(name, {}) for target in manifest.get("target", {}).values() for name in kinds]
+    optional_on, asked = _enabled(manifest, features, default)
     found = []
     for table in tables:
         for name, spec in table.items():
             if not isinstance(spec, dict):
                 continue
-            if spec.get("optional") and name not in default_optional:
+            if spec.get("optional") and name not in optional_on:
                 continue
+            inherited = shared.get(name, {}) if spec.get("workspace") else {}
+            inherited = inherited if isinstance(inherited, dict) else {}
+            wanted = frozenset(spec.get("features", [])) | frozenset(inherited.get("features", [])) \
+                | frozenset(asked.get(name, ()))
+            uses_default = spec.get("default-features", inherited.get("default-features", True)) is not False
             if "path" in spec:
-                found.append(posixpath.normpath(posixpath.join(crate, spec["path"])))
-            elif spec.get("workspace") and isinstance(shared.get(name), dict) and "path" in shared[name]:
-                found.append(posixpath.normpath(posixpath.join(workspace, shared[name]["path"])))
+                found.append((posixpath.normpath(posixpath.join(crate, spec["path"])), wanted, uses_default))
+            elif spec.get("workspace") and "path" in inherited:
+                found.append((posixpath.normpath(posixpath.join(workspace, inherited["path"])), wanted, uses_default))
     return found
+
+
+def _path_dependencies(manifest: dict, crate: str, workspace: str, shared: dict) -> list[str]:
+    """The path dependencies a plain `cargo test` of the crate builds (_dependency_edges' directories)."""
+    return [path for path, _features, _default in _dependency_edges(manifest, crate, workspace, shared)]
 
 
 def _outside(path: str) -> bool:
@@ -139,6 +189,28 @@ def _walk(tree, directory: str, relative: str) -> str | None:
     return tree.real(at)
 
 
+# A "../" string literal in a crate's source: an include_str!/include_bytes! path, or a test's CARGO_MANIFEST_DIR
+# join of a fixture outside the crate (scripts/ci/cargo_affected.py's RELATIVE_REF).
+RELATIVE_REF = re.compile(r'"(/?(?:\.\./)+[A-Za-z0-9_.][^"\s{}]*)"')
+
+
+def _root_package_dirs(tree, manifest: dict) -> set[str]:
+    """What the workspace root package (cmux-tui-source-watch) is built from: its targets' directories, never the
+    whole workspace directory (scripts/ci/cargo_affected.py's load_members reads it the same way). It exists so
+    cmux-build-identity's stamp notices new workspace files, and that stamp is the commit, which every change moves
+    anyway: counting all of cmux-tui/ as its input would make every file there an input of every crate that reaches
+    cmux-build-identity (cmux-remote, cmux-tui), and route nothing."""
+    package = manifest.get("package", {})
+    paths = [package.get("build"), manifest.get("lib", {}).get("path")]
+    paths += [target.get("path") for kind in ("bin", "test", "bench", "example") for target in manifest.get(kind, [])]
+    dirs = {posixpath.normpath(posixpath.join(WORKSPACE, posixpath.dirname(p))) for p in paths if isinstance(p, str)}
+    dirs |= {f"{WORKSPACE}/{name}" for name in ("src", "tests", "benches", "examples")
+             if tree.files(f"{WORKSPACE}/{name}", ".rs")}
+    if package.get("build") is None and tree.is_file(f"{WORKSPACE}/build.rs"):
+        dirs.add(f"{WORKSPACE}/build.rs")
+    return {d for d in dirs if d != WORKSPACE}
+
+
 def crate_inputs(repo: Path, crate_dir: str, tree=None) -> tuple[list[str], list[str]]:
     """The directories of CRATE_DIR and of every crate it reaches by path dependency, and the files under none of
     them that their Rust sources include_str!/include_bytes!, all relative to REPO.
@@ -171,6 +243,151 @@ def crate_inputs(repo: Path, crate_dir: str, tree=None) -> tuple[list[str], list
                 if included is not None:
                     files.add(included)
     return dirs, sorted(path for path in files if not any(path.startswith(f"{d}/") for d in dirs))
+
+
+# A dependency's targets that a build of the crates depending on it never compiles.
+UNBUILT_TARGET_DIRS = ("tests", "benches", "examples")
+
+
+class _Index:
+    """One tree's Rust files, directory children and source texts, read once however many crates ask (a router
+    walks a hundred crates for each of several jobs)."""
+
+    def __init__(self, tree):
+        self.rust = tree.files("", ".rs")
+        self.children: dict[str, set[str]] = {}
+        for path in tree.entries():
+            parent, _, _name = path.rpartition("/")
+            self.children.setdefault(parent, set()).add(path)
+        self.texts: dict[str, str] = {}
+        # (crate, source) -> (paths its compile reads, "../" paths it reads at run time): every job and crate that
+        # builds a source asks the same question, so each is scanned once per tree (a route asks about 30 times).
+        self.named: dict[tuple[str, str], tuple[frozenset[str], frozenset[str]]] = {}
+
+    def rust_under(self, directory: str) -> list[str]:
+        prefix = directory.rstrip("/") + "/"
+        at = bisect.bisect_left(self.rust, prefix)
+        found = []
+        while at < len(self.rust) and self.rust[at].startswith(prefix):
+            found.append(self.rust[at])
+            at += 1
+        return found
+
+
+def _index(tree) -> _Index:
+    index = getattr(tree, "_tested_inputs_index", None)
+    if index is None:
+        index = _Index(tree)
+        tree._tested_inputs_index = index
+    return index
+
+
+def _source_names(tree, index: "_Index", crate: str, source: str) -> tuple[frozenset[str], frozenset[str]]:
+    """What SOURCE (of CRATE) names: (the files its compile reads: include!/include_str!/include_bytes!, plain or
+    through concat!, #[path] modules, and a build script's "../" literals; the "../" paths it reads at run time,
+    which count only for the tested crate's own tests). Memoized on INDEX."""
+    key = (crate, source)
+    if key in index.named:
+        return index.named[key]
+    if source not in index.texts:
+        index.texts[source] = tree.text(source, errors="replace")
+    text = index.texts[source]
+    here = posixpath.dirname(source)
+    compiled: set[str] = set()
+    if "include" in text:  # most sources include nothing: skip the regexes, which dominate a route's time
+        for match in INCLUDE.finditer(text):
+            included = _follow(tree, here, match.group(1))
+            if included is not None:
+                compiled.add(included)
+        if "concat!" in text:
+            compiled.update(_concat_includes(tree, crate, source, text))
+    if "#[path" in text or "# [path" in text:
+        for match in PATH_ATTR.finditer(text):
+            named = _follow(tree, here, match.group(1))
+            if named is not None:
+                compiled.add(named)
+    at_run_time: set[str] = set()
+    if "../" in text:
+        for literal in RELATIVE_REF.findall(text):
+            for anchor in (here, crate):
+                named = _follow(tree, anchor, literal.lstrip("/"))
+                # An ancestor of the crate (cmux-tui/, cmux-tui/crates/) is a tree walk, not a fixture: counting it
+                # would make the crate an input of every file beside it (cargo_affected.py skips them too).
+                if named and not crate.startswith(f"{named}/") and tree.resolve(named) is not None:
+                    at_run_time.add(named)
+    # A build script reads its "../" paths when the crate builds (cargo:rerun-if-changed, codegen inputs), so they
+    # count for a compile-only job and for every dependency, not only for the tested crate's run-time fixtures.
+    if source == f"{crate}/build.rs":
+        compiled |= at_run_time
+    index.named[key] = (frozenset(compiled), frozenset(at_run_time))
+    return index.named[key]
+
+
+def tested_crate_inputs(tree, crate_dir: str, features=(), references: bool = True) -> list[str]:
+    """Every path whose change can change a `cargo test -p CRATE` (FEATURES: its `--features`) at TREE's commit, as
+    paths and directories of the repository; scripts/ci/affected_jobs.py routes pull-request jobs by them. What cargo
+    builds, and so what is read, as precisely as the manifests say and never less:
+
+    - CRATE_DIR, all of it, and the files its sources name outside it: include_str!/include_bytes!, and any "../"
+      literal naming an existing path (a test's CARGO_MANIFEST_DIR join of a fixture), unless not REFERENCES (a
+      job that only compiles reads no fixture at run time);
+    - every crate it reaches by path dependency: its normal and build dependencies with the features each edge asks
+      for (`features = [...]`, `x/feature`, `default-features = false`), unified per crate as cargo does, so an
+      optional dependency a feature turns on counts; dev-dependencies only of CRATE_DIR itself (cargo builds no
+      other crate's tests). Of those crates, everything but their own tests/, benches/ and examples/, and the
+      files their include_str!/include_bytes! name;
+    - the workspace root package (cmux-tui-source-watch, a build dependency of cmux-build-identity) as its targets
+      only (_root_package_dirs), never all of cmux-tui/.
+
+    Raises git_tree.Unreadable as crate_inputs does."""
+    shared = tomllib.loads(tree.text(f"{WORKSPACE}/Cargo.toml")).get("workspace", {}).get("dependencies", {})
+    root = tree.real(posixpath.normpath(crate_dir))
+    # crate directory -> (features, default features on): grown until no edge adds one.
+    built: dict[str, tuple[frozenset[str], bool]] = {}
+    manifests: dict[str, dict] = {}
+    queue = [(root, frozenset(features), True)]
+    while queue:
+        crate, wanted, uses_default = queue.pop()
+        if _outside(crate):
+            continue
+        crate = tree.real(crate)  # a symlinked crate directory is its target, as Path.resolve gave
+        if _outside(crate):
+            continue
+        if crate not in manifests:
+            if not tree.is_file(f"{crate}/Cargo.toml"):
+                continue
+            manifests[crate] = tomllib.loads(tree.text(f"{crate}/Cargo.toml"))
+        had, had_default = built.get(crate, (None, False))
+        now = (wanted | (had or frozenset()), uses_default or had_default)
+        if had is not None and now == (had, had_default):
+            continue
+        built[crate] = now
+        queue += _dependency_edges(manifests[crate], crate, WORKSPACE, shared, *now, dev=crate == root)
+    if root not in built:
+        raise git_tree.Unreadable(f"{tree.ref}: {crate_dir} has no Cargo.toml")
+    index = _index(tree)
+    inputs: set[str] = set()
+    scanned: list[tuple[str, str, bool]] = []  # (crate, source, its references count)
+    for crate in built:
+        if crate == WORKSPACE:
+            owned = sorted(_root_package_dirs(tree, manifests[crate]))
+            inputs |= set(owned)
+            scanned += [(crate, source, references and crate == root) for d in owned for source in index.rust_under(d)]
+            continue
+        if crate == root:
+            inputs.add(crate)
+            scanned += [(crate, source, references) for source in index.rust_under(crate)]
+            continue
+        prefix = f"{crate}/"
+        inputs |= {path for path in index.children.get(crate, ()) if path[len(prefix):] not in UNBUILT_TARGET_DIRS}
+        scanned += [(crate, source, False) for source in index.rust_under(crate)
+                    if source[len(prefix):].split("/", 1)[0] not in UNBUILT_TARGET_DIRS]
+    for crate, source, references in scanned:
+        compiled, at_run_time = _source_names(tree, index, crate, source)
+        inputs |= compiled
+        if references:
+            inputs |= at_run_time
+    return sorted(inputs)
 
 
 def touches(repo: Path, crate_dir: str, changed: list[str]) -> list[str]:

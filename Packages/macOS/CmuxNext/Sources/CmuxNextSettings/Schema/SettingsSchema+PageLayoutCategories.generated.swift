@@ -201,7 +201,10 @@ extension SettingsPageLayout {
     /// The services agents use for the person (Linear, Slack, GitHub...), who has each one, and its sign-in (user 2026-11-18 via Chief: an MCP Servers page with list, sign in and remove).
     private static let mcpServersCategory = CategorySpec(
         id: "mcpServers", title: SettingsText.keyed("settings.category.mcpServers", "MCP Servers"), symbol: "server.rack",
-        groups: [],
+        groups: [
+            // Whether new agent chats get the saved servers (agents.mcpServers.enabled).
+            GroupSpec(group: "settings.group.mcpServers"),
+        ],
         lead: [.mcpServers]
     )
 

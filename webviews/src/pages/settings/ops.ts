@@ -550,11 +550,21 @@ export type GitHubConnectionState = {
   busy: boolean;
   connect: string;
   disconnect: string;
+  /** Reconfigure's title (absent from an older host, which has no Reconfigure). */
+  reconfigure?: string;
   confirm: string;
   cancel: string;
   refresh: string;
   canConnect: boolean;
-  connections: Array<{ id: string; account: string; status: string; permissions: string[]; canDisconnect: boolean }>;
+  connections: Array<{
+    id: string;
+    account: string;
+    status: string;
+    permissions: string[];
+    canDisconnect: boolean;
+    /** An active connection: Reconfigure opens its installation's page on GitHub (repositories, account access). */
+    canReconfigure?: boolean;
+  }>;
   /** The Sign In button's title while nobody is signed in to cmux; null (or absent from an older host) otherwise. */
   signIn?: string | null;
 };
