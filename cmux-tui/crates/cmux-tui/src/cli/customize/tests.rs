@@ -389,7 +389,7 @@ fn recipes_are_profiles_to_use_and_open_shows_their_guide() {
         execute(&customize, Request::Recipes { open: true }, "cli", 1_000, &opener).ok().unwrap();
     let json = answer.json();
     let recipes = json["recipes"].as_array().unwrap();
-    assert_eq!(recipes.len(), 10);
+    assert_eq!(recipes.len(), cmux_customize_recipes::RECIPES.len());
     let guide = json["guide"].as_str().unwrap().to_owned();
     assert_eq!(json["opened"], true);
     assert_eq!(*opener.calls.borrow(), vec![vec!["open".to_owned(), guide.clone()]]);
@@ -416,6 +416,56 @@ fn recipes_are_profiles_to_use_and_open_shows_their_guide() {
     execute(&customize, Request::Discard, "cli", 3_000, &super::ask::NoChat).ok().unwrap();
     let back = fs::read_to_string(dir.path().join("config/cmux-next.json")).unwrap();
     assert_eq!(back, "{}\n");
+}
+
+/// `use NAME` takes a recipe by its name when no saved profile has it, so a rice is one command
+/// (`cmux customize use sakura`); a saved profile of the same name is the person's and wins.
+#[test]
+fn use_takes_a_recipe_by_name_and_a_saved_profile_wins() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("config")).unwrap();
+    fs::write(dir.path().join("config/cmux-next.json"), "{}\n").unwrap();
+    let customize = Customize::open(Roots::under(dir.path()));
+    let use_it = |source: &str, now: u64| {
+        execute(
+            &customize,
+            Request::Use { source: source.to_owned(), watch: false },
+            "cli",
+            now,
+            &super::ask::NoChat,
+        )
+        .ok()
+        .unwrap()
+    };
+    assert_eq!(use_it("sakura", 1_000).json()["profile"], "sakura");
+    let theme = fs::read_to_string(dir.path().join("config/themes/sakura.json")).unwrap();
+    assert!(theme.contains("van-gogh-almond-blossom"), "{theme}");
+    assert!(dir.path().join("config/agent-pane/theme.css").exists());
+    let settings = fs::read_to_string(dir.path().join("config/cmux-next.json")).unwrap();
+    assert!(settings.contains("\"sakura\""), "{settings}");
+    execute(&customize, Request::Discard, "cli", 2_000, &super::ask::NoChat).ok().unwrap();
+    assert!(!dir.path().join("config/themes/sakura.json").exists());
+
+    // The person's own profile named like a recipe is the one `use` takes.
+    customize.ensure_baseline(3_000).unwrap();
+    fs::write(
+        dir.path().join("config/cmux-next.json"),
+        "{ \"sidebar\": { \"cards\": { \"tips\": false } } }\n",
+    )
+    .unwrap();
+    customize.save_profile("sakura", "mine", 4_000).unwrap();
+    fs::write(dir.path().join("config/cmux-next.json"), "{}\n").unwrap();
+    assert_eq!(use_it("sakura", 5_000).json()["profile"], "sakura");
+    assert!(!dir.path().join("config/themes/sakura.json").exists(), "the recipe was used");
+
+    let missing = execute(
+        &customize,
+        Request::Use { source: "not-a-recipe".to_owned(), watch: false },
+        "cli",
+        6_000,
+        &super::ask::NoChat,
+    );
+    assert!(missing.is_err());
 }
 
 #[test]

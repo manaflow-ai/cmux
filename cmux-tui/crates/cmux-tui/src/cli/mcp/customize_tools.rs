@@ -208,7 +208,7 @@ const TOOLS: &[CustomizeTool] = &[
     CustomizeTool {
         name: "customize_recipes",
         verb: "recipes",
-        description: "Ten ready-made customizations (a compact sidebar, a different font, a PR widget, a tiling look, pane keys, vertical tabs, larger text, calm, glass, a clock): each one's name, title, wish, what it changes and the `path` of its profile file. To try one, call customize_use with that path: it previews as a draft the person applies or discards. To tailor one, use its `ask` with customize_ask. It writes the recipe files and their guide into cmux's state folder.",
+        description: "Ready-made customizations (a compact sidebar, a different font, a PR widget, a tiling look, pane keys, app look-alikes, and rices: whole themed looks such as Sakura, Two-Tone and Great Wave): each one's name, title, wish, what it changes and the `path` of its profile file. To try one, call customize_use with that path or its name: it previews as a draft the person applies or discards. To tailor one, use its `ask` with customize_ask. It writes the recipe files and their guide into cmux's state folder.",
         argument: None,
         note: None,
         minutes: false,

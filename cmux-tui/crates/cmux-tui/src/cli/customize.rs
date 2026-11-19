@@ -38,7 +38,7 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize generations                  Every generation, newest first (`ls`)
   cmux customize show N                       What generation N changed
   cmux customize save NAME [NOTE]             Save what is live as a profile: one file to keep or share
-  cmux customize use NAME|FILE                Preview a profile, then apply or discard it
+  cmux customize use NAME|FILE                Preview a profile or a recipe, then apply or discard it
   cmux customize try [NAME|FILE] [--minutes N] Try it on: applied now, back by itself in N minutes (10)
   cmux customize keep                         Keep what you are trying on
   cmux customize revert                       Stop trying it on: put back what was there before
@@ -51,7 +51,7 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
                                               (cmux-web-layer-fork.yml): it runs that fork's code in your cmux
                                               (`library off NAME` puts back what was under any of them)
   cmux customize profiles                     The saved profiles
-  cmux customize recipes [--open]             Ten ready-made changes to try with `use` (--open: the guide, in cmux)
+  cmux customize recipes [--open]             Ready-made changes and rices to try with `use` (--open: the guide, in cmux)
   cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
 
 If a layer broke cmux (no app needed, with cmux quit too):
@@ -593,7 +593,7 @@ pub(super) fn execute(
             }
             Some(code) => pr::use_code(customize, code, origin, now_ms)?,
             None => {
-                let profile = customize.load_profile(&source)?;
+                let profile = use_profile(customize, &source)?;
                 let begun = customize.preview_profile(&profile, origin, now_ms)?;
                 Answer::Using { name: profile.name, begun, status: customize.status()? }
             }
@@ -615,6 +615,22 @@ pub(super) fn execute(
         Request::Paths => Answer::Paths(customize.roots().clone()),
         Request::Schema { section, format } => Answer::Schema(Schema::current(), section, format),
     })
+}
+
+/// The profile `use` previews: a saved profile or a file, else a recipe by its
+/// name (`cmux customize use sakura`), so a recipe needs no `recipes` run and no
+/// path first. A saved profile of the same name wins: it is the person's own.
+fn use_profile(
+    customize: &Customize,
+    source: &str,
+) -> Result<cmux_customize::profile::Profile, Error> {
+    match customize.load_profile(source) {
+        Ok(profile) => Ok(profile),
+        Err(error) => match cmux_customize_recipes::find(source) {
+            Some(recipe) => recipe.profile().map_err(Error::Profile),
+            None => Err(error),
+        },
+    }
 }
 
 /// Writes the recipes (cmux-customize-recipes) where `use` reads them, and
