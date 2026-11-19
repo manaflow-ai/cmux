@@ -553,17 +553,20 @@ async fn the_relay_ends_when_the_daemon_stops_and_a_refusal_only_pauses_it() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), calls);
 
-    // A refused heartbeat (a bad credential) is tried again only every `refused_retry`, and the
-    // inbox, which waits for the hub to name this daemon, never polls; the relay keeps running.
+    // A refused heartbeat (a bad credential) is tried again, never sooner than the heartbeat
+    // floor (2.5 s, above the test's `refused_retry`), and the inbox, which waits for the hub to
+    // name this daemon, never polls; the relay keeps running.
     let refused = hub();
     let fake = Arc::new(FakeHub { refusing: true, ..FakeHub::default() });
     let relay = MeshRelay::start(&refused, fake.clone(), Arc::new(RefuseControl), quick());
-    tokio::time::sleep(Duration::from_millis(1000)).await;
+    fake.until_within(Duration::from_secs(10), "a second refused heartbeat", |s| {
+        s.heartbeats.len() >= 2
+    })
+    .await;
     assert!(!relay.is_finished(), "a refused heartbeat ended the relay");
-    let (inbox_calls, beats) = fake.with(|s| (s.inbox_calls, s.heartbeats.len()));
+    let (inbox_calls, gap) = fake.with(|s| (s.inbox_calls, s.beat_at[1] - s.beat_at[0]));
     assert_eq!(inbox_calls, 0);
-    // 300 ms apart: about 4 in a second, never a busy loop.
-    assert!((2..=6).contains(&beats), "{beats} refused heartbeats in a second");
+    assert!(gap >= Duration::from_millis(2400), "refused heartbeats {gap:?} apart");
     relay.stop().await;
 
     // The hub takes heartbeats but refuses the inbox: the heartbeat lists no session, so the
