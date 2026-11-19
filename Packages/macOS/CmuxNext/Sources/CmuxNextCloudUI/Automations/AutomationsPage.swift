@@ -188,6 +188,19 @@ public final class AutomationsPage {
         }
     }
 
+    /// `cmux automation show-page --name NAME`: selects the automation with that id or name (any
+    /// case) and opens the log of its newest run that has one. False when no automation matches.
+    @discardableResult
+    public func show(named name: String, now: Date = .now) async -> Bool {
+        await reload(now: now)
+        let wanted = name.trimmingCharacters(in: .whitespaces)
+        guard let row = rows.first(where: { $0.id == wanted })
+            ?? rows.first(where: { $0.name.caseInsensitiveCompare(wanted) == .orderedSame }) else { return false }
+        selection = row.id
+        if let run = row.runs.first(where: { $0.logPath != nil }), shownLog?.run != run.id { await toggleLog(run) }
+        return true
+    }
+
     /// The last 40 lines of a log, so a long one never floods the page.
     static func tail(_ text: String, lines: Int = 40) -> String {
         let all = text.split(separator: "\n", omittingEmptySubsequences: false)

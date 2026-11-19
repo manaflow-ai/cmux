@@ -69,7 +69,7 @@ enum TopPages {
         }
         services.pages.register(WebPageTab(.automations, symbol: "clock.badge.checkmark", icon: .automation, title: SidebarBuiltIn.automations.title,
                                            view: { [weak services] _ in let scope = services?.windows.active?.themeScope ?? .app; return automations.makeView(tokens: { [weak scope] in scope?.tokens ?? ThemeScope.app.tokens }) }))
-        _ = services.registry.bindEffect("automations.show", effect: { [weak services] _ in _ = services.map { TopPages.show(.page(.automations), services: $0) }; return .done })
+        _ = services.registry.bindEffect("automations.show", effect: { [weak services] i in _ = services.map { TopPages.show(.page(.automations), services: $0) }; automations.show(named: i.arguments["name"]?.stringValue); return .done })
     }
 
     /// The bookmarks profile of a Bookmarks top page: the browser profile

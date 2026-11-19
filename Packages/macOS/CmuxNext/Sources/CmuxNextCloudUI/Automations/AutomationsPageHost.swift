@@ -73,6 +73,12 @@ public final class AutomationsPageHost {
     /// again on each theme change (``AutomationsHostingView``).
     ///
     /// - Parameter tokens: The hosting window's current theme tokens (its `ThemeScope`).
+    /// `automations.show` with a `name`: selects that automation and opens its newest log.
+    public func show(named name: String?) {
+        guard let name, !name.isEmpty else { return }
+        Task { [model] in await model.show(named: name) }
+    }
+
     public func makeView(tokens: @escaping @MainActor () -> ThemeTokens) -> NSView {
         AutomationsHostingView(model: model, tokens: tokens, actions: AutomationsPageView.Actions(signIn: signIn, openChat: openChat))
     }
