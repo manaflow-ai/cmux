@@ -43,7 +43,8 @@ from mac import Mac, pb, refuse_other_rigs  # noqa: E402
 from journey import Journey, Fail, Blocked, check, BUNDLE  # noqa: E402
 
 DEVICE = "iPhone 17 Pro"
-RUNTIME = "com.apple.CoreSimulator.SimRuntime.iOS-26-5"
+# The fleet step's chosen runtime when it set one, else the newest installed iOS runtime.
+RUNTIME = os.environ.get("CMUX_CI_IOS_SIM_RUNTIME", "")
 
 # Prompts that keep a Codex agent busy for a while and make it write files,
 # run commands and stream text, the way a person's agents do.
@@ -499,6 +500,14 @@ def sampler(rec, sim, mac, load, stop):
                                     **load.counts()})
 
 
+def newest_ios_runtime():
+    runtimes = json.loads(subprocess.run(["xcrun", "simctl", "list", "runtimes", "-j"], capture_output=True, text=True).stdout)["runtimes"]
+    ios = [r for r in runtimes if r.get("platform") == "iOS" and r.get("isAvailable")]
+    if not ios:
+        raise SystemExit("error: no available iOS simulator runtime on this host")
+    return max(ios, key=lambda r: [int(x) for x in r["version"].split(".")])["identifier"]
+
+
 def ensure_sim(name, log):
     lst = json.loads(subprocess.run(["xcrun", "simctl", "list", "devices", "-j"], capture_output=True, text=True).stdout)
     for devs in lst["devices"].values():
@@ -510,8 +519,12 @@ def ensure_sim(name, log):
             continue
         break
     else:
-        udid = subprocess.run(["xcrun", "simctl", "create", name, DEVICE, RUNTIME], capture_output=True, text=True).stdout.strip()
-        log(f"created simulator {name} {udid}")
+        runtime = RUNTIME or newest_ios_runtime()
+        r = subprocess.run(["xcrun", "simctl", "create", name, DEVICE, runtime], capture_output=True, text=True)
+        udid = r.stdout.strip()
+        if r.returncode != 0 or not udid:
+            raise SystemExit(f"error: simctl create {name} ({DEVICE}, {runtime}) failed: {r.stderr.strip()}")
+        log(f"created simulator {name} {udid} ({runtime})")
     subprocess.run(["xcrun", "simctl", "boot", udid], capture_output=True)
     subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], capture_output=True, timeout=600)
     return udid

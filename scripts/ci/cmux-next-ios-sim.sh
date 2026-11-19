@@ -196,7 +196,7 @@ if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == stress=* ]]; then
   set -- stress
   mode=stress
 fi
-case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff|stress) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy or handoff, got '$mode'" >&2; exit 2 ;; esac
+case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff|stress) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy, handoff or stress, got '$mode'" >&2; exit 2 ;; esac
 if [[ "$mode" == release-build && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
 fi
@@ -1573,7 +1573,7 @@ http_headers = { "X-Subrouter-Agent" = "codex", "X-Subrouter-Retry-Policy" = "au
 TOML
   stress_args=()
   IFS=, read -r -a kvs <<<"$stress_opts"
-  for kv in "${kvs[@]}"; do
+  for kv in ${kvs[@]+"${kvs[@]}"}; do
     case "${kv%%:*}" in
       cycles) stress_args+=(--cycles "${kv#*:}") ;; start) stress_args+=(--start-agents "${kv#*:}") ;;
       add) stress_args+=(--add-per-cycle "${kv#*:}") ;; max) stress_args+=(--max-agents "${kv#*:}") ;;
@@ -1582,9 +1582,10 @@ TOML
     esac
   done
   set +e
-  PATH="$node_bin:$PATH" python3 -I cmux-next-ios/verify/stress/stress.py --mac-app "$mac_app" --ios-app "$app" \
+  # The loop's own simulator (default device set, like verify/e2e's rig) on the runtime chosen above.
+  CMUX_CI_IOS_SIM_RUNTIME="$runtime" PATH="$node_bin:$PATH" python3 -I cmux-next-ios/verify/stress/stress.py --mac-app "$mac_app" --ios-app "$app" \
     --codex "$work/npm/bin/codex" --node-bin "$node_bin" --codex-home "$CODEX_HOME" \
-    --sim-name "cmux-stress-${CMUX_CI_STEP_KEY:-local}" --out "$out/stress" "${stress_args[@]}"
+    --sim-name "cmux-stress-${CMUX_CI_STEP_KEY:-local}" --out "$out/stress" ${stress_args[@]+"${stress_args[@]}"}
   stress_status=$?
   set -e
   python3 -I cmux-next-ios/verify/stress/render_report.py --out "$out/stress/report.html" "$out/stress" >/dev/null 2>&1 || true
