@@ -134,7 +134,9 @@ fn kind_schema(row: &Row) -> Value {
             // `system:<absolute path>` (a macOS wallpaper), `file:<absolute path>`
             // or `folder:<absolute path>` (not `/` alone).
             let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
-            return json!({ "anyOf": [choice(choices), path] });
+            // `live:<id>` or `live:<extension>/<id>` (a live wallpaper).
+            let live = json!({ "type": "string", "pattern": super::backdrop::LIVE_PATTERN });
+            return json!({ "anyOf": [choice(choices), path, live] });
         }
         Validation::Domain(DomainKind::BackdropPicture) => return picture(),
         Validation::Domain(DomainKind::BackdropSchedule) => {

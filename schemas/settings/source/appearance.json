@@ -1094,6 +1094,53 @@
             "space",
             "background"
           ]
+        },
+        {
+          "key": "appearance.liveWallpaperFrameRate",
+          "title": {
+            "key": "settings.appearance.liveWallpaperFrameRate",
+            "text": "Live Wallpaper Frame Rate"
+          },
+          "help": {
+            "key": "settings.appearance.liveWallpaperFrameRate.help",
+            "text": "The most frames per second a live wallpaper draws. A wallpaper may ask for fewer; it stops drawing when the window is hidden, idle or on Low Power Mode."
+          },
+          "kind": "choice",
+          "swift_owner": "LiveWallpaperFrameRateSetting",
+          "choices": [
+            {
+              "value": "15",
+              "title": {
+                "key": "settings.choice.liveWallpaperFrameRate.15",
+                "text": "15 fps"
+              }
+            },
+            {
+              "value": "30",
+              "title": {
+                "key": "settings.choice.liveWallpaperFrameRate.30",
+                "text": "30 fps"
+              }
+            },
+            {
+              "value": "60",
+              "title": {
+                "key": "settings.choice.liveWallpaperFrameRate.60",
+                "text": "60 fps"
+              }
+            }
+          ],
+          "default": "30",
+          "keywords": [
+            "live wallpaper",
+            "wallpaper",
+            "frame rate",
+            "fps",
+            "animation",
+            "motion",
+            "background",
+            "battery"
+          ]
         }
       ]
     },

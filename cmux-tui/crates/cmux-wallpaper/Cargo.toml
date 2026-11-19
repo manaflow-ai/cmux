@@ -1,0 +1,29 @@
+[package]
+name = "cmux-wallpaper"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux NEXT live wallpapers: the manifest, the WGSL program's sandbox and its translation to Metal and GLSL ES, the Frame uniform, the pointer smoothing and the draw scheduler (plans/cmux-next/live-wallpapers.md). Pure: no I/O."
+
+[lints]
+workspace = true
+
+[features]
+# The program check and translation (src/program.rs, naga) at run time: author
+# tooling and tests only. Off by default, and no shipped binary (the app through
+# cmux-app-ffi, the daemon and CLI through cmux-app-manifest) turns it on: naga
+# is about 1.8 MB of machine code. First-party programs are translated by
+# build.rs, so shipped binaries carry their Metal source, not the compiler.
+default = []
+compile = ["dep:naga"]
+
+[dependencies]
+# The gallery's naga-cli is 30.0.2 (design/live-wallpapers-gallery/build.mjs): keep them on one version.
+naga = { version = "30.0.2", default-features = false, features = ["wgsl-in", "msl-out", "glsl-out"], optional = true }
+serde_json.workspace = true
+
+[build-dependencies]
+# build.rs checks and translates every first-party program (src/program.rs, the same code).
+naga = { version = "30.0.2", default-features = false, features = ["wgsl-in", "msl-out", "glsl-out"] }
