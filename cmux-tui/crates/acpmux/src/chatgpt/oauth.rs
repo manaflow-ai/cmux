@@ -507,7 +507,15 @@ fn save(
         .map(|(id, _)| id.clone())
         .or_else(|| {
             // A reauth of the same person whose client id changed keeps its connection.
-            reauth.filter(|id| records.iter().any(|(rid, r)| rid == id && r.sub == claims.sub))
+            reauth
+                .clone()
+                .filter(|id| records.iter().any(|(rid, r)| rid == id && r.sub == claims.sub))
+        })
+        .or_else(|| {
+            // A reauth of a ChatGPT route this home holds no sign-in for takes that route (`begin`).
+            reauth.filter(|id| {
+                !records.iter().any(|(rid, _)| rid == id) && super::is_chatgpt_route(dir, id)
+            })
         })
         .unwrap_or_else(|| {
             let taken = |id: &str| {
