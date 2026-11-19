@@ -32634,6 +32634,120 @@
             "state": "translated",
             "value": "ダイアログが開いているため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل أثناء فتح مربع حوار. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka ponovno pokretanje dok je dijalog otvoren. „Ponovo pokreni za ažuriranje” ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med at genstarte, mens en dialogboks er åben. „Genstart for at opdatere” installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, während ein Dialog geöffnet ist. „Zum Aktualisieren neu starten“ installiert es sofort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras hay un diálogo abierto. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer pendant qu’une boîte de dialogue est ouverte. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio mentre una finestra di dialogo è aperta. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការធ្វើបច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ខណៈពេលប្រអប់សន្ទនាកំពុងបើក។ «ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대화상자가 열려 있는 동안 업데이트는 다시 시작을 기다립니다. '다시 시작하여 업데이트'을(를) 누르면 지금 설치합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med å starte på nytt mens en dialogboks er åpen. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, gdy okno dialogowe jest otwarte. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização espera para reiniciar enquanto uma caixa de diálogo está aberta. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока открыто диалоговое окно. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การอัปเดตรอรีสตาร์ทขณะที่กล่องโต้ตอบเปิดอยู่ “รีสตาร์ทเพื่ออัปเดต” จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, bir iletişim kutusu açıkken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає на перезапуск, поки відкрите діалогове вікно. «Перезапустити для оновлення» установить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại trong khi một hộp thoại đang mở. “Khởi động lại để cập nhật” sẽ cài đặt ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在对话框打开时，更新会等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在對話框開啟時，更新會等待重新啟動。「重新啟動以更新」會立即安裝。"
+          }
         }
       }
     },
@@ -32650,6 +32764,120 @@
           "stringUnit": {
             "state": "translated",
             "value": "シートが開いているため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل أثناء فتح ورقة. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka ponovno pokretanje dok je list otvoren. „Ponovo pokreni za ažuriranje” ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med at genstarte, mens et ark er åbent. „Genstart for at opdatere” installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, während ein Sheet geöffnet ist. „Zum Aktualisieren neu starten“ installiert es sofort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras hay una hoja abierta. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer pendant qu’une feuille est ouverte. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio mentre un foglio è aperto. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការធ្វើបច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ខណៈពេលសន្លឹកកំពុងបើក។ «ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시트가 열려 있는 동안 업데이트는 다시 시작을 기다립니다. '다시 시작하여 업데이트'을(를) 누르면 지금 설치합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med å starte på nytt mens et ark er åpent. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, gdy arkusz jest otwarty. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização espera para reiniciar enquanto uma folha está aberta. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока открыт лист. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การอัปเดตรอรีสตาร์ทขณะที่ชีตเปิดอยู่ “รีสตาร์ทเพื่ออัปเดต” จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, bir sayfa açıkken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає на перезапуск, поки відкритий аркуш. «Перезапустити для оновлення» установить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại trong khi một trang tính đang mở. “Khởi động lại để cập nhật” sẽ cài đặt ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在表单打开时，更新会等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在表單開啟時，更新會等待重新啟動。「重新啟動以更新」會立即安裝。"
           }
         }
       }
@@ -32668,6 +32896,120 @@
             "state": "translated",
             "value": "メニューが開いているため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل أثناء فتح قائمة. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka ponovno pokretanje dok je meni otvoren. „Ponovo pokreni za ažuriranje” ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med at genstarte, mens en menu er åben. „Genstart for at opdatere” installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, während ein Menü geöffnet ist. „Zum Aktualisieren neu starten“ installiert es sofort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras hay un menú abierto. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer pendant qu’un menu est ouvert. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio mentre un menu è aperto. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការធ្វើបច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ខណៈពេលម៉ឺនុយកំពុងបើក។ «ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메뉴가 열려 있는 동안 업데이트는 다시 시작을 기다립니다. '다시 시작하여 업데이트'을(를) 누르면 지금 설치합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med å starte på nytt mens en meny er åpen. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, gdy menu jest otwarte. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização espera para reiniciar enquanto um menu está aberto. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока открыто меню. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การอัปเดตรอรีสตาร์ทขณะที่เมนูเปิดอยู่ “รีสตาร์ทเพื่ออัปเดต” จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, bir menü açıkken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає на перезапуск, поки відкрите меню. «Перезапустити для оновлення» установить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại trong khi một menu đang mở. “Khởi động lại để cập nhật” sẽ cài đặt ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在菜单打开时，更新会等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在選單開啟時，更新會等待重新啟動。「重新啟動以更新」會立即安裝。"
+          }
         }
       }
     },
@@ -32684,6 +33026,120 @@
           "stringUnit": {
             "state": "translated",
             "value": "文字を入力中のため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل أثناء كتابتك للنص. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka ponovno pokretanje dok pišete tekst. „Ponovo pokreni za ažuriranje” ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med at genstarte, mens du skriver tekst. „Genstart for at opdatere” installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, während du Text eingibst. „Zum Aktualisieren neu starten“ installiert es sofort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras escribes texto. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer pendant que vous saisissez du texte. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio mentre scrivi del testo. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការធ្វើបច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ខណៈពេលអ្នកកំពុងសរសេរអត្ថបទ។ «ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "텍스트를 입력하는 동안 업데이트는 다시 시작을 기다립니다. '다시 시작하여 업데이트'을(를) 누르면 지금 설치합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med å starte på nytt mens du skriver tekst. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, podczas pisania tekstu. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização espera para reiniciar enquanto você digita um texto. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока вы набираете текст. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การอัปเดตรอรีสตาร์ทขณะที่คุณพิมพ์ข้อความ “รีสตาร์ทเพื่ออัปเดต” จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, siz metin yazarken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає на перезапуск, поки ви набираєте текст. «Перезапустити для оновлення» установить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại trong khi bạn đang soạn văn bản. “Khởi động lại để cập nhật” sẽ cài đặt ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在你输入文字时，更新会等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在你輸入文字時，更新會等待重新啟動。「重新啟動以更新」會立即安裝。"
           }
         }
       }

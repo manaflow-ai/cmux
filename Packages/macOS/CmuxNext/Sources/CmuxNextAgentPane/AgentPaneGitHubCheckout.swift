@@ -157,12 +157,18 @@ public import Foundation
         guard folder.hasPrefix("/"), !folder.contains("\0"), await Self.isFolder(folder),
               let remotes = await git(["-C", folder, "config", "--get-regexp", "^remote\\..*\\.url$"], nil, [:], Self.readTimeout),
               remotes.status == 0,
-              remotes.stdout.split(separator: "\n").contains(where: { line in
-                  line.split(separator: " ", maxSplits: 1).last.map { Self.gitHubRepository(ofRemote: String($0)) == repo.lowercased() } ?? false
-              }),
+              await Self.lists(remotes.stdout, repo: repo),
               let top = await git(["-C", folder, "rev-parse", "--show-toplevel"], nil, [:], Self.readTimeout), top.status == 0 else { return nil }
         let path = top.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         return path.hasPrefix("/") ? path : nil
+    }
+
+    /// Whether `git config --get-regexp` output (one `remote.NAME.url URL` per line) names `repo` on github.com. Read
+    /// off the main actor: a checkout may have any number of remotes.
+    @concurrent nonisolated static func lists(_ remotes: String, repo: String) async -> Bool {
+        remotes.split(separator: "\n").contains { line in
+            line.split(separator: " ", maxSplits: 1).last.map { gitHubRepository(ofRemote: String($0)) == repo.lowercased() } ?? false
+        }
     }
 
     /// `owner/name`, lowercased, of a github.com remote URL (`https://github.com/o/n(.git)`, `git@github.com:o/n(.git)`,
