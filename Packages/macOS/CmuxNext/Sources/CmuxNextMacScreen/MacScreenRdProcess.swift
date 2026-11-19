@@ -11,7 +11,7 @@ extension MacScreenRdMessage {
     /// The fields this line holds, by wire name (`key`, `candidate`, `candidates_done`, ...), for
     /// the log: which stage a session reached, never a key or an address. `unknown` for a line
     /// with none (a newer cmux's).
-    var kinds: String {
+    nonisolated var kinds: String {
         let fields: [(Bool, String)] = [
             (displays != nil, "displays"), (current != nil, "current"), (key != nil, "key"),
             (candidate != nil, "candidate"), (candidatesDone == true, "candidates_done"),
