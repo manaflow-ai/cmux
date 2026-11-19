@@ -49,8 +49,15 @@ public struct CEFStagedPrewarm: Sendable {
         self.closeTimeout = closeTimeout
     }
 
-    /// The switches beyond the app's own: no background fetches into a profile that is thrown away.
-    nonisolated static let extraSwitches = ["disable-background-networking", "disable-component-update"]
+    /// The switches beyond the app's own: no background fetches into a profile that is thrown away, and no code-sign
+    /// clone. Chromium's clone (`MacAppCodeSignClone`, on in the app, CEFSwitches.swift) hard-links the bundle's
+    /// executable into the temporary directory at startup; the new link count and ctime make XProtect scan that file
+    /// again before its next exec reaches `main`. Here that file is the staged copy's executable, so the update's first
+    /// launch paid the scan the pre-warm ran to pay first (pre-main 734 to 878 ms in Leo's NIGHTLY, every update
+    /// marked `prewarmed`). The clone protects a running browser's helpers from a bundle replaced under them; this
+    /// browser ends with the app that started it, before the install moves the copy.
+    nonisolated static let extraSwitches = ["disable-background-networking", "disable-component-update",
+                                            "disable-features=MacAppCodeSignClone"]
 
     /// The pre-warm's root cache: one folder per bundle in the temporary directory, reused by each pre-warm (one at a
     /// time: each ends with the app that started it), never the person's Chromium profile or the running app's cache.

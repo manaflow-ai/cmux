@@ -26,6 +26,10 @@ import Testing
         #expect(switches.contains("use-mock-keychain"), "a release bundle read the real Chromium Safe Storage key")
         #expect(switches.contains("disable-background-networking"))
         #expect(switches.contains("disable-component-update"))
+        #expect(switches.contains("disable-features=MacAppCodeSignClone"),
+                "the clone hard-links the staged executable: the update's first launch pays XProtect's rescan again")
+        #expect(!CEFSwitches.current(forkAPIVersion: 7, bundleIdentifier: "com.cmuxterm.app.next", environment: [:]).arguments
+            .contains("disable-features=MacAppCodeSignClone"), "the app's own clone stays on")
         #expect(!switches.contains { $0.hasPrefix("load-extension=") })
         #expect(!switches.contains { $0.hasPrefix("profile-directory=") })
         let app = CEFSwitches.current(forkAPIVersion: 7, bundleIdentifier: "com.cmuxterm.app.next", environment: [:]).arguments
