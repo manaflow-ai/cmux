@@ -358,10 +358,10 @@ impl Client {
             }
             let result = self.complete(pending, &query, places).await;
             let page = match &result {
-                Ok(_) => "Signed in to cmux with ChatGPT. You can close this tab.".to_owned(),
-                Err(f) => format!("ChatGPT sign-in did not finish ({}). Return to cmux.", f.code),
+                Ok(_) => Page::signed_in(),
+                Err(f) => Page::failed(&f.code),
             };
-            let _ = respond(&mut stream, "200 OK", &page).await;
+            let _ = respond_page(&mut stream, "200 OK", &page).await;
             return result;
         }
     }
@@ -583,14 +583,132 @@ async fn read_target(stream: &mut tokio::net::TcpStream) -> Option<String> {
     }
 }
 
+/// A page of the loopback listener: the cmux mark and a centered card, in light and dark.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Page {
+    pub ok: bool,
+    pub title: String,
+    pub detail: String,
+    /// The failure code, shown small under the detail.
+    pub code: Option<String>,
+}
+
+impl Page {
+    pub(crate) fn signed_in() -> Self {
+        Self {
+            ok: true,
+            title: "Signed in to cmux".into(),
+            detail: "ChatGPT is connected. You can close this tab and return to cmux.".into(),
+            code: None,
+        }
+    }
+
+    pub(crate) fn failed(code: &str) -> Self {
+        let detail = match code {
+            "access_denied" => "The sign-in was cancelled. Return to cmux to try again.",
+            "no_chatgpt_account" => {
+                "This OpenAI account has no ChatGPT plan. Return to cmux and sign in with a ChatGPT account."
+            }
+            _ => "ChatGPT sign-in did not finish. Return to cmux and try again.",
+        };
+        Self {
+            ok: false,
+            title: "Sign-in didn\u{2019}t finish".into(),
+            detail: detail.into(),
+            code: Some(code.to_owned()),
+        }
+    }
+
+    /// A short notice (a stray or bad request) in the same frame.
+    pub(crate) fn notice(text: &str) -> Self {
+        Self { ok: false, title: text.into(), detail: String::new(), code: None }
+    }
+
+    pub(crate) fn html(&self) -> String {
+        let state = if self.ok { "ok" } else { "err" };
+        let badge = if self.ok {
+            r#"<path d="M5 10.5l3.2 3.2L15 7" />"#
+        } else {
+            r#"<path d="M10 5.5v5.5" /><path d="M10 14.2v.3" />"#
+        };
+        let detail = if self.detail.is_empty() {
+            String::new()
+        } else {
+            format!("<p>{}</p>", escape(&self.detail))
+        };
+        let code =
+            self.code.as_deref().map(|c| format!("<code>{}</code>", escape(c))).unwrap_or_default();
+        format!(
+            "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\">\
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
+<meta name=\"color-scheme\" content=\"light dark\"><title>{title} \u{b7} cmux</title>\
+<style>{PAGE_CSS}</style><body><main class=\"card {state}\">\
+<div class=\"mark\">{MARK_SVG}<span class=\"badge\" aria-hidden=\"true\">\
+<svg viewBox=\"0 0 20 20\">{badge}</svg></span></div>\
+<h1>{title}</h1>{detail}{code}</main>\
+<footer>cmux</footer></body></html>",
+            title = escape(&self.title),
+        )
+    }
+}
+
+const MARK_SVG: &str = r##"<svg class="logo" viewBox="0 0 256 256" role="img" aria-label="cmux"><defs><linearGradient id="cmux-chevron" x1="91" y1="128" x2="179" y2="128" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#12c7f5"/><stop offset="0.52" stop-color="#2d8cff"/><stop offset="1" stop-color="#6c5cff"/></linearGradient></defs><path d="M91 65 L179 128 L91 191 L91 151 L139 128 L91 105 Z" fill="url(#cmux-chevron)"/></svg>"##;
+
+const PAGE_CSS: &str = "\
+:root{--bg:#f4f4f6;--card:#fff;--fg:#17171a;--muted:#6b6b73;--line:rgba(0,0,0,.08);\
+--tile:#0f0f12;--ok:#1f9d55;--err:#d93f3f;--chip:rgba(0,0,0,.05)}\
+@media (prefers-color-scheme:dark){:root{--bg:#0b0b0d;--card:#151518;--fg:#f2f2f4;\
+--muted:#9a9aa3;--line:rgba(255,255,255,.08);--tile:#000;--ok:#34c26f;--err:#ff6b6b;\
+--chip:rgba(255,255,255,.06)}}\
+*{box-sizing:border-box}html,body{height:100%}\
+body{margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;\
+gap:20px;padding:24px;background:var(--bg);color:var(--fg);\
+font:15px/1.5 -apple-system,BlinkMacSystemFont,\"SF Pro Text\",system-ui,sans-serif;\
+-webkit-font-smoothing:antialiased}\
+.card{width:100%;max-width:400px;padding:36px 32px 32px;text-align:center;background:var(--card);\
+border:1px solid var(--line);border-radius:16px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 32px rgba(0,0,0,.08)}\
+.mark{position:relative;width:64px;height:64px;margin:0 auto 20px;border-radius:15px;\
+background:var(--tile);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}\
+.logo{width:64px;height:64px;display:block}\
+.badge{position:absolute;right:-6px;bottom:-6px;width:24px;height:24px;border-radius:50%;\
+display:flex;align-items:center;justify-content:center;border:3px solid var(--card)}\
+.ok .badge{background:var(--ok)}.err .badge{background:var(--err)}\
+.badge svg{width:14px;height:14px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}\
+h1{margin:0 0 8px;text-wrap:balance;font-size:19px;font-weight:600;letter-spacing:-.01em}\
+p{margin:0;color:var(--muted);text-wrap:balance}\
+code{display:inline-block;margin-top:16px;padding:3px 8px;border-radius:6px;background:var(--chip);\
+color:var(--muted);font:12px ui-monospace,SFMono-Regular,Menlo,monospace}\
+footer{color:var(--muted);font-size:12px;letter-spacing:.02em;opacity:.7}";
+
+fn escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 async fn respond(
     stream: &mut tokio::net::TcpStream,
     status: &str,
     text: &str,
 ) -> std::io::Result<()> {
-    let body = format!(
-        "<!doctype html><meta charset=\"utf-8\"><title>cmux</title><p style=\"font-family:system-ui;margin:3em\">{text}</p>"
-    );
+    respond_page(stream, status, &Page::notice(text)).await
+}
+
+async fn respond_page(
+    stream: &mut tokio::net::TcpStream,
+    status: &str,
+    page: &Page,
+) -> std::io::Result<()> {
+    let body = page.html();
     let head = format!(
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
         body.len()

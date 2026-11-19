@@ -248,7 +248,14 @@ async fn sign_in_again(
     let callback = format!("{}?{}", params["redirect_uri"], form_encode(&pairs));
     let page = reqwest::get(&callback).await.expect("callback");
     assert_eq!(page.status(), 200);
+    let html = page.text().await.expect("page");
+    // The loopback listener answers the cmux page (mark, card), not plain text.
+    assert!(html.contains("cmux-chevron") && html.contains("class=\"card "), "{html}");
     let status = s.service.wait(&begun.attempt, Duration::from_secs(10)).await.expect("wait");
+    if let Ok(dir) = std::env::var("CHATGPT_CALLBACK_PAGE_DUMP") {
+        let kind = if html.contains("class=\"card ok\"") { "live-ok" } else { "live-err" };
+        std::fs::write(format!("{dir}/{kind}.html"), &html).unwrap();
+    }
     (status, params)
 }
 
@@ -635,5 +642,32 @@ async fn signing_in_again_on_a_route_with_no_sign_in_here_takes_that_route() {
     for id in ["other", "nope"] {
         let failure = s.service.begin(s.places.clone(), Some(id.into()), |_| {}).await.err();
         assert_eq!(failure.map(|f| f.code), Some("not_found".into()), "{id}");
+    }
+}
+
+#[test]
+fn callback_pages_carry_the_cmux_frame_in_light_and_dark() {
+    use super::oauth::Page;
+    let ok = Page::signed_in().html();
+    assert!(ok.contains("Signed in to cmux"));
+    assert!(ok.contains("class=\"card ok\""));
+    assert!(ok.contains("cmux-chevron"));
+    assert!(ok.contains("prefers-color-scheme:dark"));
+    let err = Page::failed("access_denied").html();
+    assert!(err.contains("class=\"card err\""));
+    assert!(err.contains("<code>access_denied</code>"));
+    assert!(err.contains("cancelled"));
+    // A code never injects markup.
+    let odd = Page::failed("<script>").html();
+    assert!(!odd.contains("<script>"));
+    assert!(odd.contains("&lt;script&gt;"));
+    if let Ok(dir) = std::env::var("CHATGPT_CALLBACK_PAGE_DUMP") {
+        std::fs::write(format!("{dir}/success.html"), ok).unwrap();
+        std::fs::write(format!("{dir}/error.html"), err).unwrap();
+        std::fs::write(
+            format!("{dir}/error-generic.html"),
+            Page::failed("token_exchange_failed").html(),
+        )
+        .unwrap();
     }
 }
