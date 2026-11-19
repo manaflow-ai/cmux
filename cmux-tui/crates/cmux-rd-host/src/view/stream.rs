@@ -313,6 +313,10 @@ pub fn run(
                         Ok(Control::Refused { reason } | Control::Ended { reason }) => {
                             break 'run format!("the host ended the stream: {reason}");
                         }
+                        // Several viewers at the host: who controls it now.
+                        Ok(Control::Floor { control, holder }) => {
+                            eprintln!("{}", floor_status(control, holder.as_deref()));
+                        }
                         Ok(Control::Stats { .. }) => {
                             host_stats = serde_json::from_slice::<serde_json::Value>(&record).ok();
                         }
@@ -419,6 +423,15 @@ pub fn run(
         std::fs::write(path, format!("{report}\n"))?;
     }
     Ok(Ended { reason: ended, connected })
+}
+
+/// The status line for a `floor` message: the words the Mac card shows.
+fn floor_status(control: bool, holder: Option<&str>) -> String {
+    match (control, holder) {
+        (true, _) => "You have control".into(),
+        (false, Some(name)) => format!("View only: {} has control", cmux_hub_host::printable(name)),
+        (false, None) => "View only".into(),
+    }
 }
 
 fn header(kind: DatagramKind) -> DatagramHeader {
@@ -587,6 +600,14 @@ pub fn pct(xs: &mut [f64]) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_floor_says_who_has_control() {
+        assert_eq!(floor_status(false, Some("Ann's Mac")), "View only: Ann's Mac has control");
+        assert_eq!(floor_status(true, None), "You have control");
+        assert_eq!(floor_status(false, None), "View only");
+        assert!(!floor_status(false, Some("A\u{1b}[2J")).contains('\u{1b}'));
+    }
 
     fn picture(w: usize, h: usize, fill: u8) -> I420 {
         let mut p = I420::new(w, h);

@@ -30,10 +30,14 @@ public nonisolated struct RemoteViewStatus: Sendable, Hashable {
     /// What the connect waits on, in the transport's words (a Cloud desktop dial's step and how long is
     /// left); nil when the transport gives none. The connecting card shows it as its detail.
     public var connectingReason: String?
+    /// Who controls the host when several viewers watch it (its `floor` message); nil while the
+    /// host keeps no floor (one viewer at a time).
+    public var floor: RemoteFloor?
 
     public init(
         path: RemotePath = .direct, rttMs: Int? = nil, lossPercent: Double = 0, state: RemoteSessionState,
-        upstream: RemoteUpstreamStatus = RemoteUpstreamStatus(), endReason: String? = nil, connectingReason: String? = nil
+        upstream: RemoteUpstreamStatus = RemoteUpstreamStatus(), endReason: String? = nil, connectingReason: String? = nil,
+        floor: RemoteFloor? = nil
     ) {
         self.path = path
         self.rttMs = rttMs
@@ -42,5 +46,6 @@ public nonisolated struct RemoteViewStatus: Sendable, Hashable {
         self.upstream = upstream
         self.endReason = endReason
         self.connectingReason = connectingReason
+        self.floor = floor
     }
 }

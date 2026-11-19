@@ -6,6 +6,7 @@
 //! revocation.
 
 use crate::b64;
+use crate::floor::{FloorState, Seat};
 use crate::hub::Hub;
 use crate::net::Message;
 use crate::rd_doc::{self, RdDocument};
@@ -18,7 +19,7 @@ use std::process::ChildStdin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// A `session.ticket` push for the host role.
 #[derive(Debug, Clone)]
@@ -97,6 +98,53 @@ pub struct ServeCommand {
     /// The prefix of the helper's own status lines this side passes on, e.g.
     /// `cmux-rd linux-host` (`cmux-rd linux-host: session <id>: <message>`).
     pub status_prefix: String,
+    /// The host's directory for its control floor (`floor.rs`): with several viewers at once,
+    /// one holds control and the others get frames only. None serves this session's scope as
+    /// it is (a host that serves one viewer at a time).
+    pub floor: Option<PathBuf>,
+}
+
+/// How often a session reads the floor again: a waiting viewer takes control this soon after
+/// the controller leaves or hands it over.
+const FLOOR_EVERY: Duration = Duration::from_millis(500);
+
+/// A session's seat at the floor, and what its helper was last told.
+struct FloorLink {
+    seat: Seat,
+    told: Option<FloorState>,
+    read_at: Instant,
+    /// Read again at once (the viewer just asked or handed over).
+    urgent: bool,
+}
+
+impl FloorLink {
+    /// The seat of `ticket`'s viewer; it asks for control when the session may control.
+    fn new(dir: &std::path::Path, ticket: &Ticket, view_only: bool) -> Self {
+        let seat = Seat::new(dir, &ticket.peer_name, !view_only);
+        Self { seat, told: None, read_at: Instant::now(), urgent: false }
+    }
+
+    /// The floor now; Some when it changed since the helper was last told.
+    fn changed(&mut self) -> Option<FloorState> {
+        let now = self.seat.poll();
+        self.read_at = Instant::now();
+        self.urgent = false;
+        if self.told.as_ref() == Some(&now) {
+            return None;
+        }
+        self.told = Some(now.clone());
+        Some(now)
+    }
+
+    /// The viewer asks for control (`true`) or hands it over (`false`).
+    fn viewer_asks(&mut self, control: bool, view_only: bool) {
+        match (control, view_only) {
+            (true, false) => self.seat.ask(),
+            (false, _) => self.seat.hand_over(),
+            // A view session never takes control, whatever its viewer asks.
+            (true, true) => {}
+        }
+    }
 }
 
 /// How a session ended: the reason, whether the viewer had connected, and the reason to give
@@ -190,6 +238,7 @@ pub fn serve(
         }
     };
     let mut serve: Option<Serve> = None;
+    let mut floor: Option<FloorLink> = None;
     let mut answer: Option<RdDocument> = None;
     let (mut answered, mut connected, mut signaling) = (false, false, true);
     let ended = loop {
@@ -258,6 +307,13 @@ pub fn serve(
                                 crate::printable(message)
                             );
                         }
+                        // The viewer asks for control or hands it over (its `floor` message).
+                        if let (Some(f), Some(asks)) =
+                            (floor.as_mut(), line["floor_request"].as_bool())
+                        {
+                            f.viewer_asks(asks, view_only);
+                            f.urgent = true;
+                        }
                         if let Some(reason) = line["ended"].as_str() {
                             finished = Some(reason.to_owned());
                             break;
@@ -273,6 +329,15 @@ pub fn serve(
             if let Some(reason) = finished {
                 let tell_hub = if connected { None } else { Some("failed") };
                 break Ended { reason, connected, tell_hub };
+            }
+        }
+        // The floor: control passes to a waiting viewer when the controller leaves or hands it
+        // over; the helper drops the input of a session that does not hold it.
+        if let (Some(s), Some(f)) = (serve.as_mut(), floor.as_mut()) {
+            if f.urgent || f.read_at.elapsed() >= FLOOR_EVERY {
+                if let Some(state) = f.changed() {
+                    s.send(&json!({ "floor": state.to_json() }));
+                }
             }
         }
         // The viewer's signals. A connected session outlives lost signaling, not the hub's close.
@@ -349,7 +414,15 @@ pub fn serve(
                         }
                     }
                 };
-                started.send(&setup_line(ticket, &offer, view_only));
+                let mut setup = setup_line(ticket, &offer, view_only);
+                if let Some(dir) = command.floor.as_deref() {
+                    let mut link = FloorLink::new(dir, ticket, view_only);
+                    if let Some(state) = link.changed() {
+                        setup["floor"] = state.to_json();
+                    }
+                    floor = Some(link);
+                }
+                started.send(&setup);
                 for candidate in &offer.candidates {
                     started.send(&json!({ "candidate": candidate }));
                 }
@@ -493,6 +566,7 @@ mod tests {
                 disclaim,
                 log_prefix: "share-host".into(),
                 status_prefix: "share-host".into(),
+                floor: None,
             };
             let mut serve = Serve::start(&command).unwrap();
             serve.send(&json!({ "session": "s1" }));
@@ -503,5 +577,49 @@ mod tests {
             // It ended at its end of input, well before the 3 s kill.
             assert!(started.elapsed() < Duration::from_secs(3));
         }
+    }
+
+    fn ticket_for(viewer: &str) -> Ticket {
+        let mut ticket = Ticket::from_push(&push("host", "s1", "KEY")).unwrap();
+        ticket.peer_name = viewer.into();
+        ticket
+    }
+
+    #[test]
+    fn two_control_viewers_one_holds_control_and_it_passes_when_they_leave() {
+        let dir = std::env::temp_dir().join(format!("cmux-session-floor-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut ann = FloorLink::new(&dir, &ticket_for("Ann's Mac"), false);
+        let mut bob = FloorLink::new(&dir, &ticket_for("Bob's Mac"), false);
+        // The first viewer's helper is told it has control; the second's that Ann has it.
+        assert_eq!(ann.changed(), Some(FloorState::Control));
+        let ann_has_it = FloorState::ViewOnly { holder: Some("Ann's Mac".into()) };
+        assert_eq!(bob.changed(), Some(ann_has_it.clone()));
+        assert_eq!(setup_floor(&ann_has_it), json!({"control": false, "holder": "Ann's Mac"}));
+        // Nothing new is sent while nothing changes.
+        assert_eq!(ann.changed(), None);
+        assert_eq!(bob.changed(), None);
+        // A view viewer's ask never takes control.
+        let mut dee = FloorLink::new(&dir, &ticket_for("Dee's iPad"), true);
+        dee.viewer_asks(true, true);
+        assert_eq!(dee.changed(), Some(ann_has_it));
+        // Ann hands over: Bob, who waits, gets it; Ann does not take it back.
+        ann.viewer_asks(false, false);
+        assert_eq!(ann.changed(), Some(FloorState::ViewOnly { holder: None }));
+        assert_eq!(bob.changed(), Some(FloorState::Control));
+        assert_eq!(ann.changed(), Some(FloorState::ViewOnly { holder: Some("Bob's Mac".into()) }));
+        // Ann asks again and waits; Bob leaves (his session ends) and she has it.
+        ann.viewer_asks(true, false);
+        assert_eq!(ann.changed(), None);
+        drop(bob);
+        assert_eq!(ann.changed(), Some(FloorState::Control));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn setup_floor(state: &FloorState) -> Value {
+        let mut line = setup_line(&ticket_for("x"), &RdDocument::default(), false);
+        line["floor"] = state.to_json();
+        line["floor"].clone()
     }
 }

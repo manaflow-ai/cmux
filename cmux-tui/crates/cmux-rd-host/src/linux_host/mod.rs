@@ -814,24 +814,34 @@ struct Served {
     stop: Arc<AtomicBool>,
 }
 
-/// The session this host serves now (one at a time; a newer ticket replaces it).
-type Current = Arc<Mutex<Option<Served>>>;
+/// The sessions this host serves now, oldest first: several viewers at once, one of them in
+/// control at a time (the floor, `cmux_hub_host::floor`); past [`MAX_VIEWERS`] a new ticket
+/// replaces the oldest.
+type Current = Arc<Mutex<Vec<Served>>>;
+
+/// The most viewers this desktop serves at once (each runs its own capture and encoder).
+const MAX_VIEWERS: usize = 4;
 
 /// How often the running host reads its consent file again.
 const CONSENT_EVERY: Duration = Duration::from_secs(1);
 
-/// Stops the session being served, if any; its id.
-fn stop_current(current: &Current) -> Option<String> {
-    let served = current.lock().unwrap_or_else(|e| e.into_inner()).take()?;
-    served.stop.store(true, Ordering::SeqCst);
-    Some(served.id)
+/// Stops every session being served; their ids.
+fn stop_current(current: &Current) -> Vec<String> {
+    let served = std::mem::take(&mut *current.lock().unwrap_or_else(|e| e.into_inner()));
+    served
+        .into_iter()
+        .map(|s| {
+            s.stop.store(true, Ordering::SeqCst);
+            s.id
+        })
+        .collect()
 }
 
-/// Holds one hub link with `hold`; when it ends, for any reason, the session it served stops.
+/// Holds one hub link with `hold`; when it ends, for any reason, the sessions it served stop.
 /// The hub does not replay a revocation, an end or sharing turned off that it pushed while
 /// the link was down, so a session must not outlive the link that would hear them (fail
-/// closed). The result of `hold` and the id of the session stopped.
-fn hold_link(current: &Current, hold: impl FnOnce() -> Res<()>) -> (Res<()>, Option<String>) {
+/// closed). The result of `hold` and the ids of the sessions stopped.
+fn hold_link(current: &Current, hold: impl FnOnce() -> Res<()>) -> (Res<()>, Vec<String>) {
     let result = hold();
     (result, stop_current(current))
 }
@@ -848,25 +858,28 @@ fn admit(dir: &std::path::Path, scope: &str, applies_input: bool) -> Option<bool
     }
 }
 
-/// Stops the session being served when `consent` (read again from disk; an error when it
-/// cannot be read) no longer allows its scope; its id.
+/// Stops each session being served whose scope `consent` (read again from disk; an error when
+/// it cannot be read) no longer allows; their ids.
 fn withdraw_unconsented(
     current: &Current,
     consent: Res<LocalConsent>,
     applies_input: bool,
-) -> Option<String> {
+) -> Vec<String> {
     let mut guard = current.lock().unwrap_or_else(|e| e.into_inner());
-    let allowed = match (&consent, guard.as_ref()) {
-        (_, None) => return None,
-        (Ok(consent), Some(served)) => consent.serve(&served.scope, applies_input).is_some(),
-        (Err(_), Some(_)) => false,
+    let allowed = |served: &Served| match &consent {
+        Ok(consent) => consent.serve(&served.scope, applies_input).is_some(),
+        Err(_) => false,
     };
-    if allowed {
-        return None;
-    }
-    let served = guard.take()?;
-    served.stop.store(true, Ordering::SeqCst);
-    Some(served.id)
+    let (kept, withdrawn): (Vec<Served>, Vec<Served>) =
+        std::mem::take(&mut *guard).into_iter().partition(allowed);
+    *guard = kept;
+    withdrawn
+        .into_iter()
+        .map(|s| {
+            s.stop.store(true, Ordering::SeqCst);
+            s.id
+        })
+        .collect()
 }
 
 fn run(args: &Args) -> Res<()> {
@@ -899,12 +912,14 @@ fn run(args: &Args) -> Res<()> {
         disclaim: false,
         log_prefix: "linux-host".into(),
         status_prefix: "cmux-rd linux-host".into(),
+        // Several viewers at once: one holds control, the rest get frames only.
+        floor: Some(dir.clone()),
     };
     if account.anchored_until != 0 && account.anchored_until <= now_ms() {
         return Err(Fatal::needs("This desktop's 30-day sign-in ended", Fatal::SHARE_ON).into());
     }
     let hub = Arc::new(hub);
-    let current: Current = Arc::new(Mutex::new(None));
+    let current: Current = Arc::new(Mutex::new(Vec::new()));
     if let Some(display) = setup::virtual_display() {
         stop_idle_display(display, current.clone());
     }
@@ -926,7 +941,7 @@ fn run(args: &Args) -> Res<()> {
         if let Some(why) = serving_as.changed(&dir) {
             return Err(retired(&why));
         }
-        if let Some(id) = stopped {
+        for id in stopped {
             eprintln!("linux-host: the hub link dropped; the session it served stopped");
             end_later(&hub, &id, "peer_offline");
         }
@@ -986,7 +1001,7 @@ fn stop_idle_display(display: u32, current: Current) {
                 last_busy = Instant::now();
                 continue;
             }
-            let sharing = current.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+            let sharing = !current.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
             let busy = sharing || setup::display_in_use(display);
             if display_idle(busy, &mut last_busy, Instant::now()) {
                 match setup::stop_virtual_display() {
@@ -1029,7 +1044,7 @@ fn hold_socket(
         if last_consent.elapsed() >= CONSENT_EVERY {
             // `enable --view-only` while this runs: a control session stops now.
             let consent = LocalConsent::load(dir);
-            if let Some(id) = withdraw_unconsented(current, consent, applies_input) {
+            for id in withdraw_unconsented(current, consent, applies_input) {
                 eprintln!(
                     "linux-host: this desktop's consent no longer allows the session; stopped"
                 );
@@ -1146,14 +1161,33 @@ fn handle_push(
             let Some(id) = push["sessionId"].as_str() else { return };
             let _ = pending.remove(id, now_ms());
             let guard = current.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(served) = guard.as_ref() {
-                if served.id == id {
-                    served.stop.store(true, Ordering::SeqCst);
-                }
+            for served in guard.iter().filter(|s| s.id == id) {
+                served.stop.store(true, Ordering::SeqCst);
             }
         }
         _ => {}
     }
+}
+
+/// Adds `new` to the sessions served: a reattach of the same session replaces its own, and
+/// past [`MAX_VIEWERS`] the oldest is stopped. The ids of the other sessions stopped (the hub
+/// is told they were replaced).
+fn seat_viewer(served: &mut Vec<Served>, new: Served) -> Vec<String> {
+    let mut replaced = Vec::new();
+    served.retain(|old| {
+        let same = old.id == new.id;
+        if same {
+            old.stop.store(true, Ordering::SeqCst);
+        }
+        !same
+    });
+    while served.len() >= MAX_VIEWERS {
+        let oldest = served.remove(0);
+        oldest.stop.store(true, Ordering::SeqCst);
+        replaced.push(oldest.id);
+    }
+    served.push(new);
+    replaced
 }
 
 fn start_session(
@@ -1166,18 +1200,14 @@ fn start_session(
     let stop = Arc::new(AtomicBool::new(false));
     {
         let mut guard = current.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(old) = guard.take() {
-            // One viewer at a time, the newest. A reattach of the same session replaces its own.
-            old.stop.store(true, Ordering::SeqCst);
-            if old.id != ticket.session_id {
-                end_later(hub, &old.id, "replaced");
-            }
-        }
-        *guard = Some(Served {
+        let new = Served {
             id: ticket.session_id.clone(),
             scope: ticket.scope.clone(),
             stop: stop.clone(),
-        });
+        };
+        for id in seat_viewer(&mut guard, new) {
+            end_later(hub, &id, "replaced");
+        }
     }
     let (hub, args, current) = (hub.clone(), serve_args.clone(), current.clone());
     let spawned = std::thread::Builder::new().name("linux-host-session".into()).spawn(move || {
@@ -1200,10 +1230,7 @@ fn start_session(
             }
         }
         let mut guard = current.lock().unwrap_or_else(|e| e.into_inner());
-        let ours = |s: &Served| s.id == ticket.session_id && Arc::ptr_eq(&s.stop, &stop);
-        if guard.as_ref().is_some_and(ours) {
-            *guard = None;
-        }
+        guard.retain(|s| !(s.id == ticket.session_id && Arc::ptr_eq(&s.stop, &stop)));
     });
     if let Err(e) = spawned {
         eprintln!("linux-host: session not started: {e}");
@@ -1455,11 +1482,11 @@ mod tests {
     fn serving(scope: &str) -> (Current, Arc<AtomicBool>) {
         let stop = Arc::new(AtomicBool::new(false));
         let served = Served { id: "s1".into(), scope: scope.into(), stop: stop.clone() };
-        (Arc::new(Mutex::new(Some(served))), stop)
+        (Arc::new(Mutex::new(vec![served])), stop)
     }
 
     fn is_empty(current: &Current) -> bool {
-        current.lock().unwrap().is_none()
+        current.lock().unwrap().is_empty()
     }
 
     #[test]
@@ -1472,18 +1499,18 @@ mod tests {
             Err("socket closed (1006 connection closed)".into())
         });
         assert!(result.is_err());
-        assert_eq!(stopped.as_deref(), Some("s1"));
+        assert_eq!(stopped, ["s1"]);
         assert!(stop.load(Ordering::SeqCst));
         assert!(is_empty(&current));
         // A link the hub closed cleanly too.
         let (current, stop) = serving("view");
         let (result, stopped) = hold_link(&current, || Ok(()));
         assert!(result.is_ok());
-        assert_eq!(stopped.as_deref(), Some("s1"));
+        assert_eq!(stopped, ["s1"]);
         assert!(stop.load(Ordering::SeqCst));
         // Nothing served, nothing stopped.
-        let current: Current = Arc::new(Mutex::new(None));
-        assert_eq!(hold_link(&current, || Ok(())).1, None);
+        let current: Current = Arc::new(Mutex::new(Vec::new()));
+        assert_eq!(hold_link(&current, || Ok(())).1, Vec::<String>::new());
     }
 
     fn consent_dir(tag: &str) -> std::path::PathBuf {
@@ -1534,23 +1561,66 @@ mod tests {
         let both = LocalConsent { view: true, full: true };
         let view_only = LocalConsent { view: true, full: false };
         let (current, stop) = serving("full");
-        assert_eq!(withdraw_unconsented(&current, Ok(both), true), None);
+        assert_eq!(withdraw_unconsented(&current, Ok(both), true), Vec::<String>::new());
         assert!(!stop.load(Ordering::SeqCst));
-        assert_eq!(withdraw_unconsented(&current, Ok(view_only), true).as_deref(), Some("s1"));
+        assert_eq!(withdraw_unconsented(&current, Ok(view_only), true), ["s1"]);
         assert!(stop.load(Ordering::SeqCst));
         assert!(is_empty(&current));
         // A view session goes on under view-only consent.
         let (current, stop) = serving("view");
-        assert_eq!(withdraw_unconsented(&current, Ok(view_only), true), None);
+        assert_eq!(withdraw_unconsented(&current, Ok(view_only), true), Vec::<String>::new());
         assert!(!stop.load(Ordering::SeqCst));
         // An unreadable consent file stops it.
         assert_eq!(
-            withdraw_unconsented(&current, Err("consent.json: bad mode".into()), true).as_deref(),
-            Some("s1")
+            withdraw_unconsented(&current, Err("consent.json: bad mode".into()), true),
+            ["s1"]
         );
         assert!(stop.load(Ordering::SeqCst));
-        let current: Current = Arc::new(Mutex::new(None));
-        assert_eq!(withdraw_unconsented(&current, Ok(view_only), true), None);
+        let current: Current = Arc::new(Mutex::new(Vec::new()));
+        assert_eq!(withdraw_unconsented(&current, Ok(view_only), true), Vec::<String>::new());
+    }
+
+    fn served(id: &str, scope: &str) -> (Served, Arc<AtomicBool>) {
+        let stop = Arc::new(AtomicBool::new(false));
+        (Served { id: id.into(), scope: scope.into(), stop: stop.clone() }, stop)
+    }
+
+    #[test]
+    fn several_viewers_are_served_at_once_up_to_the_cap() {
+        let mut list = Vec::new();
+        let (a, a_stop) = served("a", "full");
+        let (b, b_stop) = served("b", "full");
+        assert!(seat_viewer(&mut list, a).is_empty());
+        // A second viewer no longer replaces the first: both are served (one controls).
+        assert!(seat_viewer(&mut list, b).is_empty());
+        assert_eq!(list.len(), 2);
+        assert!(!a_stop.load(Ordering::SeqCst) && !b_stop.load(Ordering::SeqCst));
+        // A reattach of `a` replaces only its own, and the hub is not told.
+        let (a2, _) = served("a", "full");
+        assert!(seat_viewer(&mut list, a2).is_empty());
+        assert!(a_stop.load(Ordering::SeqCst));
+        assert_eq!(list.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["b", "a"]);
+        // Past the cap the oldest is replaced.
+        for id in ["c", "d"] {
+            assert!(seat_viewer(&mut list, served(id, "view").0).is_empty());
+        }
+        assert_eq!(seat_viewer(&mut list, served("e", "view").0), ["b"]);
+        assert!(b_stop.load(Ordering::SeqCst));
+        assert_eq!(list.len(), MAX_VIEWERS);
+    }
+
+    #[test]
+    fn withdrawn_consent_stops_only_the_sessions_it_no_longer_allows() {
+        let (full, full_stop) = served("f", "full");
+        let (view, view_stop) = served("v", "view");
+        let current: Current = Arc::new(Mutex::new(vec![full, view]));
+        let view_only = LocalConsent { view: true, full: false };
+        assert_eq!(withdraw_unconsented(&current, Ok(view_only), true), ["f"]);
+        assert!(full_stop.load(Ordering::SeqCst) && !view_stop.load(Ordering::SeqCst));
+        assert_eq!(current.lock().unwrap().len(), 1);
+        // A dropped link stops every one left.
+        assert_eq!(hold_link(&current, || Ok(())).1, ["v"]);
+        assert!(view_stop.load(Ordering::SeqCst));
     }
 
     #[test]
@@ -1569,13 +1639,13 @@ mod tests {
         let dir = consent_dir("deleted");
         LocalConsent { view: true, full: false }.save(&dir).unwrap();
         let (current, stop) = serving("view");
-        assert_eq!(withdraw_unconsented(&current, LocalConsent::load(&dir), true), None);
+        assert_eq!(
+            withdraw_unconsented(&current, LocalConsent::load(&dir), true),
+            Vec::<String>::new()
+        );
         std::fs::remove_file(dir.join("consent.json")).unwrap();
         assert_eq!(admit(&dir, "view", true), None);
-        assert_eq!(
-            withdraw_unconsented(&current, LocalConsent::load(&dir), true).as_deref(),
-            Some("s1")
-        );
+        assert_eq!(withdraw_unconsented(&current, LocalConsent::load(&dir), true), ["s1"]);
         assert!(stop.load(Ordering::SeqCst));
         std::fs::remove_dir_all(&dir).unwrap();
     }

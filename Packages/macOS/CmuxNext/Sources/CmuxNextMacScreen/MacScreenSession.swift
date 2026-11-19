@@ -38,6 +38,9 @@ public final class MacScreenSession {
 
     public private(set) var phase: Phase = .ended
     public private(set) var stats = LiveStats()
+    /// Who controls the other computer when several viewers watch it: nil while its host keeps
+    /// no floor (one viewer at a time).
+    public private(set) var floor: RemoteFloor?
     /// The streamed display's size in pixels (zero until the first frame).
     public private(set) var frameSize: CGSize = .zero
     /// `Direct`, `Tailnet` or `Relayed`, from the link's measured path.
@@ -57,6 +60,11 @@ public final class MacScreenSession {
     public var relayErrors: [ICECandidateError] { [] }
     /// A transport exists while the session runs.
     public var stream: AnyObject? { transport }
+
+    /// Asks the host for control, or hands it over to a viewer that waits for it.
+    public func setControl(_ wanted: Bool) {
+        transport?.setControl(wanted)
+    }
 
     /// The stage a connect whose deadline passed was in (the failed card names it); nil otherwise.
     public private(set) var timedOutStage: MacScreenConnectStage?
@@ -146,6 +154,7 @@ public final class MacScreenSession {
         tasks.removeAll()
         transport?.stop()
         transport = nil
+        floor = nil
         process?.stop()
         process = nil
         if let socketDirectory {
@@ -318,6 +327,7 @@ public final class MacScreenSession {
             for await status in statuses {
                 // A stopped transport's end belongs to the session it served, not to a newer one.
                 guard let self, self.transport === transport, !Task.isCancelled else { return }
+                if floor != status.floor { floor = status.floor }
                 switch status.state {
                 case .streaming:
                     if !askedKeyframe {

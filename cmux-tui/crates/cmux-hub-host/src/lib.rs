@@ -6,6 +6,9 @@
 //! where the files live, the service manager) stay with each host.
 
 pub mod b64;
+// One controller at a time among a desktop's viewers: a lock in the host's directory (floor.rs).
+#[cfg(unix)]
+pub mod floor;
 // The running linux-host process: holds its pid file locked, verified gone after a stop
 // (host_process.rs).
 #[cfg(unix)]

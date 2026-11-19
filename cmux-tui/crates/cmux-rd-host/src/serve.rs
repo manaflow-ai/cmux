@@ -74,6 +74,11 @@ struct Setup {
     /// Linux: `x11` or `portal` (else `--capture`, else the session type decides).
     #[serde(default)]
     capture: Option<String>,
+    /// The host's floor when several viewers watch (`cmux_hub_host::floor`): whether this
+    /// session holds control now, and who does when it does not. Absent: no floor, the
+    /// scope alone decides.
+    #[serde(default)]
+    floor: Option<FloorLine>,
 }
 
 #[derive(Deserialize)]
@@ -82,6 +87,9 @@ struct Later {
     candidate: Option<String>,
     #[serde(default)]
     stop: bool,
+    /// The floor changed: control passed to or from this session.
+    #[serde(default)]
+    floor: Option<FloorLine>,
 }
 
 /// Prints one line for the app (`AppLine`, the type the app's line reader reads back).
@@ -183,11 +191,76 @@ impl AppLines {
     }
 }
 
+/// One floor state from the host (`{"control": .., "holder": ..}`, `cmux_hub_host::floor`).
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+struct FloorLine {
+    control: bool,
+    #[serde(default)]
+    holder: Option<String>,
+}
+
+/// Whether this session's input is applied, with several viewers at the host's floor: only
+/// while the session may control (its scope and the viewer's start) and its seat holds
+/// control. Every change after the start becomes a mode for the session table, which drops
+/// the input of a session in view mode, and a `floor` message that tells the viewer.
+#[derive(Default)]
+struct FloorGate {
+    /// The floor now; None when the host keeps none (one viewer at a time).
+    state: Option<FloorLine>,
+    /// The session's scope allows control and the viewer started in control.
+    may_control: bool,
+    started: bool,
+    /// The stream started: the viewer hears about the floor from now on.
+    streaming: bool,
+    /// A mode the session table has not taken yet.
+    pending: Option<Mode>,
+    /// What the viewer was last told.
+    told: Option<FloorLine>,
+}
+
+impl FloorGate {
+    fn effective(&self) -> bool {
+        self.may_control && self.state.as_ref().is_none_or(|s| s.control)
+    }
+
+    /// The session starts; whether it starts in control. A viewer that starts view only but
+    /// whose seat took control gives it back, so a waiting viewer gets it.
+    fn start(&mut self, wants_control: bool) -> bool {
+        self.may_control = wants_control;
+        self.started = true;
+        if !wants_control && self.state.as_ref().is_some_and(|s| s.control) {
+            say(AppLine { floor_request: Some(false), ..AppLine::default() });
+        }
+        self.effective()
+    }
+
+    /// The host says the floor changed.
+    fn set(&mut self, line: FloorLine) {
+        let before = self.effective();
+        self.state = Some(line);
+        let after = self.effective();
+        if self.started && before != after {
+            self.pending = Some(if after { Mode::Control } else { Mode::View });
+        }
+    }
+
+    /// The `floor` message to send the viewer, when the stream runs and it changed.
+    fn message(&mut self) -> Option<Control> {
+        let state = self.state.as_ref().filter(|_| self.streaming)?;
+        if self.told.as_ref() == Some(state) {
+            return None;
+        }
+        self.told = Some(state.clone());
+        Some(Control::Floor { control: state.control, holder: state.holder.clone() })
+    }
+}
+
 /// The link carrier plus the app's input: candidates that arrive during the
 /// session reach the endpoint, `stop` ends it, path changes go to the app.
 struct ServeCarrier {
     link: LinkCarrier,
     app: AppLines,
+    floor: FloorGate,
 }
 
 impl ServeCarrier {
@@ -196,11 +269,23 @@ impl ServeCarrier {
             if later.stop {
                 return Err("stopped by the host".into());
             }
+            if let Some(line) = later.floor {
+                self.floor.set(line);
+                self.tell_floor().map_err(|e| format!("control write failed: {e}"))?;
+            }
             if let Some(c) = later.candidate.as_deref().and_then(Candidate::from_wire) {
                 self.link.net.add_remote_candidate(c);
             }
         }
         Ok(())
+    }
+
+    /// Tells the viewer who controls, when that changed.
+    fn tell_floor(&mut self) -> io::Result<()> {
+        match self.floor.message() {
+            Some(message) => self.link.send_control(&message),
+            None => Ok(()),
+        }
     }
 
     fn report_paths(&mut self) {
@@ -228,6 +313,14 @@ impl Carrier for ServeCarrier {
     fn receive(&mut self, out: &mut Vec<Incoming>) -> Result<(), String> {
         self.pump_app()?;
         let result = self.link.receive(out);
+        // The viewer asks for control or hands it over: the session's floor decides.
+        out.retain(|item| match item {
+            Incoming::Control(Control::Floor { control, .. }) => {
+                say(AppLine { floor_request: Some(*control), ..AppLine::default() });
+                false
+            }
+            _ => true,
+        });
         self.report_paths();
         result
     }
@@ -242,6 +335,10 @@ impl Carrier for ServeCarrier {
 
     fn send_control(&mut self, control: &Control) -> io::Result<()> {
         self.link.send_control(control)
+    }
+
+    fn take_mode(&mut self) -> Option<Mode> {
+        self.floor.pending.take()
     }
 }
 
@@ -353,6 +450,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     let mut carrier = ServeCarrier {
         link: LinkCarrier { net, paths: Vec::new(), rtt_us: None },
         app: AppLines { buf: Vec::new() },
+        floor: FloorGate { state: setup.floor.clone(), ..FloorGate::default() },
     };
     let reason = match serve_session(opts, &setup, &display, capture, view_only, &mut carrier) {
         Ok(reason) => reason,
@@ -459,7 +557,11 @@ fn serve_session(
         consent: ConsentRule::AskOthers,
         unattended_allowed: true,
     });
-    let mode = if mode == "control" && !view_only { Mode::Control } else { Mode::View };
+    let mode = if carrier.floor.start(mode == "control" && !view_only) {
+        Mode::Control
+    } else {
+        Mode::View
+    };
     let now_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(0);
     let session = match table.start(StartRequest {
         key: &key,
@@ -523,6 +625,9 @@ fn serve_session(
         caps: negotiated.caps.clone(),
     })?;
     carrier.send_control(&Control::Started { session })?;
+    // Who controls, once the stream started; and from now on each change.
+    carrier.floor.streaming = true;
+    carrier.tell_floor()?;
     let reason = media.run(carrier, &mut table, session, &principal);
     media.release_input();
     media.close_upstreams();
@@ -611,5 +716,119 @@ mod tests {
         assert_eq!(default_start_kbps(Some("turn_relay"), Some("lan"), Some(1_000), 50_000), 8_000);
         assert_eq!(default_start_kbps(Some("direct_lan"), None, None, 20_000), 20_000);
         assert_eq!(default_start_kbps(None, None, None, 4_000), 4_000);
+    }
+
+    fn floor(control: bool, holder: Option<&str>) -> FloorLine {
+        FloorLine { control, holder: holder.map(str::to_owned) }
+    }
+
+    /// A session of `user` started in `mode`, in a table that owns it as `serve` does.
+    fn started(
+        user: &str,
+        mode: Mode,
+    ) -> (SessionTable, cmux_rd_core::session::SessionId, Principal) {
+        let principal = Principal {
+            user: user.into(),
+            install: user.into(),
+            class: PrincipalClass::User,
+            interactive: true,
+        };
+        let mut table = SessionTable::new(HostPolicy {
+            enabled: true,
+            owner_user: user.into(),
+            grants: Vec::new(),
+            consent: ConsentRule::AskOthers,
+            unattended_allowed: true,
+        });
+        let id = table
+            .start(StartRequest {
+                key: "display:0",
+                caller: Some(&principal),
+                for_client: None,
+                mode,
+                console_user: None,
+                now_ms: 0,
+            })
+            .unwrap();
+        (table, id, principal)
+    }
+
+    /// What the session loop does with a mode the gate hands it (`MediaSession::run`).
+    fn apply(
+        gate: &mut FloorGate,
+        table: &mut SessionTable,
+        id: cmux_rd_core::session::SessionId,
+        p: &Principal,
+    ) {
+        if let Some(mode) = gate.pending.take() {
+            table.set_mode(id, Some(p), mode, None, 1).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_second_viewers_input_is_dropped_until_control_passes_to_it() {
+        // Ann's seat took control; Bob's sees Ann holds it. Both asked for control.
+        let mut ann = FloorGate { state: Some(floor(true, None)), ..FloorGate::default() };
+        let mut bob =
+            FloorGate { state: Some(floor(false, Some("Ann's Mac"))), ..FloorGate::default() };
+        let ann_mode = if ann.start(true) { Mode::Control } else { Mode::View };
+        let bob_mode = if bob.start(true) { Mode::Control } else { Mode::View };
+        let (mut ann_table, ann_id, ann_p) = started("ann", ann_mode);
+        let (mut bob_table, bob_id, bob_p) = started("bob", bob_mode);
+        assert!(ann_table.may_inject_input(ann_id, &ann_p));
+        // Bob gets frames, and none of his input reaches the desktop.
+        assert!(bob_table.may_send_media(bob_id, &bob_p));
+        assert!(!bob_table.may_inject_input(bob_id, &bob_p));
+        // Bob is told who has control once his stream runs, and only once.
+        bob.streaming = true;
+        let told = bob.message().expect("told");
+        assert!(
+            matches!(&told, Control::Floor { control: false, holder: Some(h) } if h == "Ann's Mac")
+        );
+        assert!(bob.message().is_none());
+        // Ann leaves: Bob's seat takes control and his input is applied from now on.
+        bob.set(floor(true, None));
+        apply(&mut bob, &mut bob_table, bob_id, &bob_p);
+        assert!(bob_table.may_inject_input(bob_id, &bob_p));
+        assert!(matches!(bob.message(), Some(Control::Floor { control: true, holder: None })));
+        // Ann (still connected) hears Bob took it; her input stops at once.
+        ann.set(floor(false, Some("Bob's Mac")));
+        apply(&mut ann, &mut ann_table, ann_id, &ann_p);
+        assert!(!ann_table.may_inject_input(ann_id, &ann_p));
+    }
+
+    #[test]
+    fn a_view_session_never_controls_whatever_its_seat_says() {
+        let mut gate = FloorGate { state: Some(floor(true, None)), ..FloorGate::default() };
+        assert!(!gate.start(false));
+        gate.set(floor(false, Some("Ann")));
+        gate.set(floor(true, None));
+        assert_eq!(gate.pending, None);
+    }
+
+    #[test]
+    fn without_a_floor_the_scope_alone_decides() {
+        let mut gate = FloorGate::default();
+        assert!(gate.start(true));
+        gate.streaming = true;
+        assert!(gate.message().is_none());
+        assert_eq!(gate.pending, None);
+    }
+
+    #[test]
+    fn the_host_and_the_viewer_speak_the_floor() {
+        let setup: Setup = serde_json::from_str(
+            r#"{"session":"s","peer_key":"","viewer":{"user":"u","install":"i"},"scope":"control","floor":{"control":false,"holder":"Ann"}}"#,
+        )
+        .unwrap();
+        assert_eq!(setup.floor, Some(floor(false, Some("Ann"))));
+        let later: Later = serde_json::from_str(r#"{"floor":{"control":true}}"#).unwrap();
+        assert_eq!(later.floor, Some(floor(true, None)));
+        // A setup line from a host with no floor reads as before.
+        let setup: Setup = serde_json::from_str(
+            r#"{"session":"s","peer_key":"","viewer":{"user":"u","install":"i"},"scope":"view"}"#,
+        )
+        .unwrap();
+        assert_eq!(setup.floor, None);
     }
 }

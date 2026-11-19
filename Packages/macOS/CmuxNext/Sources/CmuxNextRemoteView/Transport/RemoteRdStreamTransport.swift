@@ -58,6 +58,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var splitter = RemoteRdStreamSplitter()
         /// Created from the welcome's caps; ends with the session.
         var upstream: RemoteUpstreamConsent?
+        /// Who controls the host, from its last `floor` message (several viewers at once).
+        var floor: RemoteFloor?
         /// Why the path closed (the carrier's reason, or rejected bytes); nil until it did.
         var endReason: String?
         /// The carrier's latest progress text while the path opens; cleared once it is ready.
@@ -184,6 +186,12 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         }
     }
 
+    /// Asks the host for control (it waits while another viewer holds it) or hands it over
+    /// to a viewer that waits. The host decides; its `floor` answer reaches the status.
+    public func setControl(_ wanted: Bool) {
+        queue.async { [self] in sendControl(.floor(RemoteFloor(control: wanted))) }
+    }
+
     public func requestKeyframe() {
         requestKeyframe(stream: 0)
     }
@@ -283,6 +291,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
                     _ = state.withLock { $0.services?.yield(body) }
                 }
                 if case let .stats(stats) = control { logHostStats(stats) }
+                if case let .floor(floor) = control {
+                    engine.floor = floor
+                    publishStatus()
+                }
                 if case let .cursorShape(message) = control, let shape = message.cursorShape {
                     state.withLock { state in
                         if let cursor = state.cursorFeed.receive(shape: shape) { state.cursors?.yield(cursor) }
@@ -376,7 +388,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         }
         let endReason = engine.handshake.isEnded ? engine.endReason : nil
         let status = RemoteViewStatus(path: .direct, state: engine.handshake.sessionState, upstream: upstream, endReason: endReason,
-                                      connectingReason: engine.connectingReason)
+                                      connectingReason: engine.connectingReason, floor: engine.floor)
         state.withLock { state in
             guard state.status != status else { return }
             state.status = status

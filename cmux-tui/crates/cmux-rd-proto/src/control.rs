@@ -140,6 +140,16 @@ pub enum Control {
         hot_y: u32,
         rgba: String,
     },
+    /// Who controls the desktop when several viewers watch it: one at a time holds control
+    /// and every other one gets frames only, its input dropped at the host. Host to viewer:
+    /// `control` when this viewer holds it, else `holder` names the viewer that does (None
+    /// when nobody does). Viewer to host: `control` asks for it (it waits while another holds
+    /// it), `false` hands it over to a waiting viewer; `holder` is not read.
+    Floor {
+        control: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        holder: Option<String>,
+    },
     Stats {
         kbps: u32,
         frames: u64,

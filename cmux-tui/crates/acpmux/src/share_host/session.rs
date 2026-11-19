@@ -42,7 +42,10 @@ pub(crate) fn run() -> anyhow::Result<()> {
         let _ = records::write(&records::dir(&home), &record);
     }
     let command = match helper::resolve(&home) {
-        Ok(resolved) => serve_command(resolved.executable),
+        // Every share of this Mac holds its seat at one floor: one viewer controls at a time.
+        Ok(resolved) => {
+            ServeCommand { floor: Some(super::dir(&home)), ..serve_command(resolved.executable) }
+        }
         Err(why) => {
             eprintln!("{LOG}: session {}: no helper: {why}", ticket.session_id);
             if let Err(e) = hub.end(&ticket.session_id, "failed") {
@@ -66,6 +69,7 @@ pub(crate) fn serve_command(program: std::path::PathBuf) -> ServeCommand {
         disclaim: true,
         log_prefix: LOG.into(),
         status_prefix: LOG.into(),
+        floor: None,
     }
 }
 

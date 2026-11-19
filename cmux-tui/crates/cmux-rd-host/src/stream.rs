@@ -369,6 +369,15 @@ impl MediaSession {
             if let Err(reason) = carrier.receive(&mut incoming) {
                 return reason;
             }
+            // Control passed to or from this viewer (the floor): applied before this read's
+            // input, so a viewer that lost control has none of it injected.
+            if let Some(mode) = carrier.take_mode() {
+                if let Err(deny) =
+                    table.set_mode(session, Some(viewer), mode, None, now_ns() / 1_000_000)
+                {
+                    eprintln!("mode {mode:?} not set: {deny:?}");
+                }
+            }
             self.engine.update_frames_in_flight_from_rtt(carrier.path_rtt_us());
             for item in incoming.drain(..) {
                 match item {

@@ -101,3 +101,16 @@ fn a_cursor_shape_carries_its_pixels_and_its_id() {
     assert_eq!(pixels, [0, 0, 0, 255, 255, 255, 255, 255]);
     assert_eq!(pixels.len(), (width * height * 4) as usize);
 }
+
+#[test]
+fn floor_matches_its_vectors_byte_for_byte() {
+    for (name, control, holder) in
+        [("floor_view_only", false, Some("Ann's Mac")), ("floor_control", true, None)]
+    {
+        let v = vectors().into_iter().find(|v| v["name"] == name).expect(name);
+        let parsed: Control = serde_json::from_value(v["json"].clone()).expect(name);
+        let Control::Floor { control: c, holder: h } = &parsed else { panic!("{name}: not floor") };
+        assert_eq!((*c, h.as_deref()), (control, holder), "{name}");
+        assert_eq!(serde_json::to_value(&parsed).expect("encode"), v["json"], "{name}");
+    }
+}
