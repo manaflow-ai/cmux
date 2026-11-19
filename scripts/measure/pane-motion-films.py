@@ -162,7 +162,9 @@ none of these calls.
 the zoom and the turned zoom, each at `fast` and at `normal`), `pages` (8 films: a split with its close, and a zoom,
 on a pane that shows a Home tab (H), a Markdown file (D), Settings (S), and on the Chief's tab in the app's own Home
 workspace (C): the script opens each page by the app's action and makes no film when the pane does not show it; for
-C it makes no workspace, and it closes again what a film left in the Home workspace), `all`. Exit 0 = each film asked for is
+C it makes no workspace, and it closes again what a film left in the Home workspace), `close` (3 films: a split with
+its close in a row of 2 terminals (`T-C`, a film of `cap` too), of 2 browser pages (`B-C`) and of 2 chats (`A-C`), each
+at `fast`: the close goes to the new pane of the split only), `all`. Exit 0 = each film asked for is
 made; 2 = some are made and some are not; 1 = the preflight failed, or no film is made; 3 = not run (no app, an id
 that is not known). Only `made` counts: a film that is `not_made` is not made, and a film with the word `made, the
 new window not checked in the movie` is not counted.
@@ -357,8 +359,16 @@ CAP = [spec["id"] for spec in FILMS if spec.get("speed")]
 FILMS += [made for kind, name in PAGE_SETUPS.items() for made in (
     film(f"{kind}-C", f"A split, then a close, on {name}", kind, SPLIT_CLOSE, speed="fast", springs=("split", "paneClose"), layout=(2, 2)),
     film(f"{kind}-Z", f"Zoom in and out on {name}", kind, ZOOM, speed="fast", springs=("zoom", "unzoom"), layout=(2, 2)))]
-GROUPS = {"kinds": lambda i: i[0] in "TBA" and "-" in i and i not in CAP, "mixed": lambda i: i.startswith("M-"), "plist": lambda i: i[0] == "P",
-          "extra": lambda i: i[0] == "X", "cap": lambda i: i in CAP, "pages": lambda i: i[0] in PAGE_SETUPS and "-" in i, "all": lambda i: True}
+# The films of the group `close`: `T-C` (a film of the group `cap` too) and the same act on the 2 other pane kinds, after
+# CAP (the 2 new ones are no films of the group `cap` and none of the group `kinds`). The new pane of the split is the
+# pane that the close takes, whatever its page is: the read between the 2 keys says its tab kinds, and a close that would
+# take a pane of the set-up is not sent.
+FILMS += [film(f"{kind}-C", f"A split, then a close, in a row of {KINDS[kind]}, speed fast", kind, SPLIT_CLOSE, speed="fast",
+               springs=("split", "paneClose"), layout=(2, 2)) for kind in "BA"]
+CLOSE = ["T-C", "B-C", "A-C"]
+GROUPS = {"kinds": lambda i: i[0] in "TBA" and "-" in i and i not in CAP and i not in CLOSE, "mixed": lambda i: i.startswith("M-"),
+          "plist": lambda i: i[0] == "P", "extra": lambda i: i[0] == "X", "cap": lambda i: i in CAP,
+          "pages": lambda i: i[0] in PAGE_SETUPS and "-" in i, "close": lambda i: i in CLOSE, "all": lambda i: True}
 
 
 def key_steps(chord, presses=1, gap_ms=250, repeats=0, delay_ms=0, every_ms=0):
@@ -1498,7 +1508,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--app", help="a bench `cmux DEV <tag>.app` to launch (not running)")
     parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or "/tmp/pane-motion-films")
-    parser.add_argument("--films", default="kinds", help="film ids with commas, or kinds, mixed, plist, extra, cap, all, list")
+    parser.add_argument("--films", default="kinds", help="film ids with commas, or kinds, mixed, plist, extra, cap, pages, close, all, list")
     parser.add_argument("--workspaces", type=int, default=24, help="the size of the session (0: no maker call)")
     parser.add_argument("--live-shells", type=int, default=4, help="terminals of the session that keep a shell")
     parser.add_argument("--page-url", default="http://127.0.0.1:9/", help="the address of each page tab of the session")
