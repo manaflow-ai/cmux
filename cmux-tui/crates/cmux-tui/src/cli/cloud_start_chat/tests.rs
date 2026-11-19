@@ -23,6 +23,8 @@ mod clone_wait;
 mod drill_start;
 #[path = "folder_tests.rs"]
 mod folder;
+#[path = "fresh_tests.rs"]
+mod fresh;
 #[path = "send_wait_tests.rs"]
 mod send_wait;
 
@@ -63,6 +65,8 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             prompt: Some("hi there".into()),
             agent: "claude".into(),
             model: None,
+            effort: None,
+            mode: None,
             cwd: None,
             from_folder: None,
             environment: None,
@@ -255,9 +259,23 @@ struct Fake {
     until: Option<Instant>,
     /// Each copy estimate asked: how many steps had run then, and the folder.
     estimated: Vec<(usize, String)>,
+    /// The progress lines the run said ([`Runner::say`]).
+    said: Vec<String>,
 }
 
 impl Fake {
+    /// How long the next step (`args`, at `ran`'s length) takes: a few seconds, or what `slow` says for it, or
+    /// `costs` for its verb.
+    fn cost(&self, args: &[String]) -> Duration {
+        let index = self.ran.len();
+        let verb = args.get(1).map(String::as_str);
+        let cost = self.slow.iter().find(|(at, _)| *at == index).map(|(_, cost)| *cost);
+        let cost = cost.or_else(|| {
+            self.costs.iter().find(|(name, _)| Some(*name) == verb).map(|(_, cost)| *cost)
+        });
+        cost.unwrap_or(Duration::from_secs(5))
+    }
+
     fn new(answers: Vec<Ran>) -> Self {
         Self {
             answers: answers.into(),
@@ -271,22 +289,34 @@ impl Fake {
             called: Vec::new(),
             until: None,
             estimated: Vec::new(),
+            said: Vec::new(),
         }
     }
 }
 
 impl Runner for Fake {
     fn cmux(&mut self, args: &[String]) -> Ran {
-        let index = self.ran.len();
+        self.clock += self.cost(args);
         self.ran.push(args.to_vec());
-        // Each step takes a few seconds of the wait, or what `slow` says for it, or `costs` for its verb.
-        let verb = args.get(1).map(String::as_str);
-        let cost = self.slow.iter().find(|(at, _)| *at == index).map(|(_, cost)| *cost);
-        let cost = cost.or_else(|| {
-            self.costs.iter().find(|(name, _)| Some(*name) == verb).map(|(_, cost)| *cost)
-        });
-        self.clock += cost.unwrap_or(Duration::from_secs(5));
         self.answers.pop_front().expect("an answer for every step")
+    }
+    /// A step that would run past `until` is killed there, as `internal::bounded::output_by` kills it: its answer
+    /// is used up and never seen.
+    fn cmux_by(&mut self, args: &[String], until: Instant) -> Ran {
+        if self.clock + self.cost(args) <= until {
+            return self.cmux(args);
+        }
+        self.ran.push(args.to_vec());
+        self.answers.pop_front().expect("an answer for every step");
+        self.clock = self.clock.max(until);
+        Ran {
+            code: internal::bounded::PAST_DEADLINE,
+            stdout: String::new(),
+            stderr: internal::bounded::past_deadline().to_string(),
+        }
+    }
+    fn say(&mut self, line: &str) {
+        self.said.push(line.to_owned());
     }
     fn pause(&mut self, duration: Duration) {
         self.paused += duration;
@@ -2522,6 +2552,8 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         prompt: Some("And 2+3?".into()),
         agent: String::new(),
         model: None,
+        effort: None,
+        mode: None,
         cwd: None,
         from_folder: None,
         environment: None,
@@ -2560,6 +2592,8 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         prompt: Some(prompt),
         agent: String::new(),
         model: None,
+        effort: None,
+        mode: None,
         cwd: None,
         from_folder: None,
         environment: None,
@@ -3380,4 +3414,91 @@ fn an_unread_list_names_the_apps_last_cloud_error() {
             assert!(only_lists(&fake), "{path}: nothing started or made: {:?}", fake.ran);
         }
     }
+}
+
+/// cmux#46701: the composer's Cloud start picks the harness, model, effort and mode, and a folder
+/// or No folder; `cloud start-chat` (and `cmux chat --on cloud`) takes each of them.
+#[test]
+fn effort_mode_and_no_folder_are_parsed_checked_and_asked_again() {
+    let asked = request(&[
+        "--agent",
+        "codex",
+        "--model",
+        "gpt-x",
+        "--effort",
+        "high",
+        "--mode",
+        "plan",
+        "--no-folder",
+        "-p",
+        "go",
+    ]);
+    assert_eq!(asked.agent, "codex");
+    assert_eq!(asked.effort.as_deref(), Some("high"));
+    assert_eq!(asked.mode.as_deref(), Some("plan"));
+    assert_eq!((asked.cwd.as_deref(), asked.from_folder.as_deref()), (None, None));
+    let again = again_command(&asked, &Machine::Target("vm-1".into()));
+    assert!(again.contains("--effort high") && again.contains("--mode plan"), "{again}");
+    assert_eq!(request(&["-p", "go"]).effort, None);
+    let long = "e".repeat(65);
+    for bad in ["", "-x", "a b", "$(id)", "a'b", long.as_str()] {
+        assert!(parse(&strings(&["--effort", bad, "-p", "go"]), || Ok(String::new())).is_err());
+        assert!(parse(&strings(&["--mode", bad, "-p", "go"]), || Ok(String::new())).is_err());
+    }
+    let refused =
+        parse(&strings(&["--no-folder", "--cwd", "/w", "-p", "go"]), || Ok(String::new()));
+    assert_eq!(refused.unwrap_err().0, NO_FOLDER_WITH_FOLDER);
+    assert!(TAKES_VALUE.contains(&"--effort") && TAKES_VALUE.contains(&"--mode"));
+    assert!(!TAKES_VALUE.contains(&"--no-folder"));
+}
+
+#[test]
+fn the_settings_script_sets_mode_then_effort_quoted() {
+    assert_eq!(settings_script(&request(&["-p", "go"]), "sess-1"), None);
+    let script =
+        settings_script(&request(&["--effort", "xhigh", "--mode", "plan", "-p", "go"]), "s 1")
+            .unwrap();
+    assert!(script.starts_with(GUEST_PRELUDE));
+    let mode = script.find("acp session set 's 1' mode=plan").expect(&script);
+    let effort = script.find("acp session set 's 1' effort=xhigh").expect(&script);
+    assert!(mode < effort, "{script}");
+    assert!(script.contains("&&"), "the first refusal stops it: {script}");
+}
+
+/// A Cloud start with an effort: the session is set before the prompt is sent, in its own exec,
+/// and the answer names the effort and the fresh folder.
+#[test]
+fn a_cloud_start_sets_effort_and_mode_before_the_first_prompt() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@set\nok\nok\n@@exit 0\n"),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let asked = request(&["--effort", "low", "--mode", "plan", "--no-folder", "-p", "1+1?"]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!((answer["effort"].as_str(), answer["mode"].as_str()), (Some("low"), Some("plan")));
+    assert_eq!(answer["folder"], "fresh");
+    assert_eq!(answer["sent"], true);
+    assert_eq!(&fake.ran[2][..4], &strings(&["cloud", "exec", "--target", "machine:vm-1"]));
+    assert!(fake.ran[2][5].contains("acp session set sess-1 effort=low"), "{:?}", fake.ran[2]);
+    assert!(!fake.ran[2][5].contains("acp send"), "set before, never with, the send");
+    assert!(fake.ran[3][5].contains("acp send --no-wait sess-1 -"));
+}
+
+/// A refused effort: the chat started, nothing is sent, and the answer says how to go on.
+#[test]
+fn a_refused_effort_sends_nothing_and_names_the_chat() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@set\nError: unknown value turbo for effort\n@@exit 1\n"),
+    ]);
+    let asked = request(&["--effort", "turbo", "-p", "1+1?"]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!((error["code"].as_str(), exit), (Some("chat.settings_refused"), 1));
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("unknown value turbo") && message.contains("sess-1"), "{message}");
+    assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
+    assert_eq!(fake.ran.len(), 3, "no send after the refusal: {:?}", fake.ran);
 }
