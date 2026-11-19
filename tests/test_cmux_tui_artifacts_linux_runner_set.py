@@ -214,7 +214,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         )
         for workflow, name, runs_on in routes:
             for case, values, owned in cases:
-                if workflow == "cmux-tui-tree-request.yml" and case == "lane push":
+                if workflow == "cmux-tui-tree-request.yml" and case in ("lane push", "feat-cmux-next push"):
                     continue  # it runs only as a feat-cmux-next dispatch
                 text = runs_on.replace("github.run_attempt", values["attempt"])
                 text = text.replace("github.event_name", values["event"])
