@@ -492,7 +492,9 @@ extension CloudHandlers {
                CloudMachineSecrets.hasRepoValues(for: declared, repo: claimed, index: stored) {
                 throw ActionFailure(message: CloudStrings.secretRepoNeeded(claimed))
             }
-            let (items, missing) = CloudMachineSecrets.plan(declared: declared, repo: repo, index: stored)
+            // The Claude setup token goes to every Cloud machine of the person's, declared or not.
+            let wanted = CloudMachineSecrets.withAlwaysDelivered(declared, index: stored)
+            let (items, missing) = CloudMachineSecrets.plan(declared: wanted, repo: repo, index: stored)
             let ledger = CloudMachineSecrets.Ledger(file: ledgerFile)
             var answer: [String: ActionResultValue] = ["machine_id": .string(machineID), "declared": .array(declared.map(ActionResultValue.string)),
                                                        "missing": .array(missing.map(ActionResultValue.string))]
