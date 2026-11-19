@@ -24,7 +24,9 @@
 //! it read the prompt and wrote the reply into the reply's text.
 //!
 //! `cargo bench -p acpmux --bench turn_overhead -- [--turns 100] [--warmup 5] [--summary FILE]
-//! [--json FILE] [--daemon PATH] [--no-render]`. `--summary` appends the Markdown table (CI's
+//! [--json FILE] [--daemon PATH] [--no-render] [--think MS]`. `--think` pauses after each turn, as a
+//! person reading the reply would: a cost that shows only in back-to-back turns (queued prompts)
+//! is then gone. `--summary` appends the Markdown table (CI's
 //! `$GITHUB_STEP_SUMMARY`); `--json` writes the rows cmux-bench reads
 //! (`scripts/bench/benches/agent_turn.py`); `--daemon` runs another acpmux build (a base, for a
 //! before and after from this same harness).
@@ -82,12 +84,21 @@ struct Args {
     json: Option<PathBuf>,
     daemon: Option<PathBuf>,
     render: bool,
+    /// A pause after each turn, as a person reading the reply before the next prompt.
+    think: Duration,
 }
 
 impl Args {
     fn parse() -> Self {
-        let mut args =
-            Self { turns: 100, warmup: 5, summary: None, json: None, daemon: None, render: true };
+        let mut args = Self {
+            turns: 100,
+            warmup: 5,
+            summary: None,
+            json: None,
+            daemon: None,
+            render: true,
+            think: Duration::ZERO,
+        };
         let mut it = std::env::args().skip(1);
         while let Some(arg) = it.next() {
             let mut value = || it.next().unwrap_or_else(|| panic!("{arg} needs a value"));
@@ -98,6 +109,7 @@ impl Args {
                 "--json" => args.json = Some(value().into()),
                 "--daemon" => args.daemon = Some(value().into()),
                 "--no-render" => args.render = false,
+                "--think" => args.think = Duration::from_millis(value().parse().unwrap()),
                 // `cargo bench` passes `--bench`.
                 "--bench" => {}
                 other => panic!("unknown argument {other}"),
@@ -387,6 +399,9 @@ async fn bench(args: &Args) -> Vec<Turn> {
         let turn = one_turn(&mut rpc, pane.as_mut(), &chat, round).await;
         if round >= args.warmup {
             samples.push(turn);
+        }
+        if !args.think.is_zero() {
+            tokio::time::sleep(args.think).await;
         }
     }
     drop(pane);
