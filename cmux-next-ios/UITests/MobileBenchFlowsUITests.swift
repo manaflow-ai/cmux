@@ -2,7 +2,7 @@ import XCTest
 
 /// The cmux side of the mobile animation and latency benchmark (scripts/mobile-bench/flows.json):
 /// Leo, 2026-11-19: "looking at the mobile apps and their various, you know, animations, their
-/// flows ... for like ChatGPT or Claude ... the actual like measurement to measurement speeds,
+/// flows ... for like [another chat app] or Claude ... the actual like measurement to measurement speeds,
 /// the benchmarks". The same flows are recorded for the other apps; this suite drives ours on a
 /// simulator with mock sign-in and the DEBUG demo data, while `cmux-next-ios-sim.sh test
 /// ui=MobileBenchFlowsUITests video` records the screen.
