@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 629,
+  "count": 623,
   "sections": [
     {
       "id": "general",
@@ -302,19 +302,6 @@
           "group": "Chats"
         },
         {
-          "key": "agents.cmuxMcp",
-          "title": "cmux Tools for Agents in cmux",
-          "help": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings.",
-          "kind": "choice",
-          "default": "ask",
-          "group": "cmux Tools",
-          "values": [
-            "ask",
-            "on",
-            "off"
-          ]
-        },
-        {
           "key": "agents.defaultPermissionMode",
           "title": "Permission Mode for New Chats",
           "help": "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
@@ -358,6 +345,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Guidance and Skills"
+        },
+        {
+          "key": "agents.mcpServers.enabled",
+          "title": "Saved Servers in Agent Chats",
+          "help": "New chats can use the servers listed above.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chats"
         },
         {
           "key": "agents.modelRouter.model",
@@ -656,140 +651,29 @@
           "group": "Chats"
         },
         {
-          "key": "computerUse.allowForeground",
-          "title": "Allow Foreground Input",
-          "help": "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Computer Use"
-        },
-        {
-          "key": "computerUse.allowOwnMachines",
-          "title": "Allow My Other Machines",
-          "help": "Agents on your other machines, signed in to the same account, may use this Mac's apps.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Computer Use"
-        },
-        {
-          "key": "computerUse.cursorTag",
-          "title": "Agent Cursor Tag",
-          "help": "Each agent cursor can carry a tag: the agent's workspace name, or a tag the agent sets. Show it when your pointer is over the cursor, always, or never.",
+          "key": "computerUse.driver",
+          "title": "Computer Use Driver",
+          "help": "Upstream is the new helper; macOS asks for its permissions again.",
           "kind": "choice",
-          "default": "hover",
+          "default": "upstream",
           "group": "Computer Use",
           "values": [
-            "hover",
-            "always",
-            "never"
+            "legacy",
+            "upstream"
           ]
         },
         {
-          "key": "computerUse.deniedApps",
-          "title": "Denied Apps",
-          "help": "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name.",
-          "kind": "string_list",
-          "default": [
-            "com.apple.keychainaccess",
-            "com.apple.Passwords",
-            "com.1password.*",
-            "com.agilebits.onepassword*",
-            "com.bitwarden.*",
-            "com.dashlane.*",
-            "com.lastpass.*",
-            "com.nordpass.*",
-            "me.proton.pass",
-            "org.keepassxc.keepassxc",
-            "com.markmcguill.strongbox",
-            "in.sinew.enpass*",
-            "com.keepersecurity.*",
-            "1password.exe",
-            "bitwarden.exe",
-            "keepass.exe",
-            "keepassxc.exe",
-            "org.keepassxc.KeePassXC",
-            "1password",
-            "bitwarden",
-            "com.apple.systempreferences",
-            "com.apple.Terminal",
-            "com.googlecode.iterm2",
-            "com.mitchellh.ghostty",
-            "net.kovidgoyal.kitty",
-            "com.github.wez.wezterm",
-            "org.alacritty",
-            "dev.warp.*",
-            "windowsterminal.exe",
-            "cmd.exe",
-            "powershell.exe",
-            "pwsh.exe",
-            "org.gnome.Terminal",
-            "org.gnome.Ptyxis",
-            "org.kde.konsole",
-            "com.cmuxterm.app",
-            "com.cmuxterm.app.*"
-          ],
+          "key": "computerUse.enabled",
+          "title": "Computer Use",
+          "help": "Agents can see and use your apps. macOS asks for Accessibility and Screen Recording.",
+          "kind": "toggle",
+          "default": false,
           "group": "Computer Use"
         },
         {
           "key": "computerUse.livePreview",
           "title": "Live Preview in Chat",
           "help": "A small live view of the app an agent uses. Click it for Agent Activity.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Computer Use"
-        },
-        {
-          "key": "computerUse.menus",
-          "title": "Menus in Background Apps",
-          "help": "Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background.",
-          "kind": "choice",
-          "default": "open",
-          "group": "Computer Use",
-          "values": [
-            "open",
-            "refuse"
-          ]
-        },
-        {
-          "key": "computerUse.mode",
-          "title": "Computer Use",
-          "help": "What agents may do with the apps on this Mac. Denied apps are never used, in any mode.",
-          "kind": "choice",
-          "default": "fullAccess",
-          "group": "Computer Use",
-          "values": [
-            "fullAccess",
-            "approvedApps",
-            "askEveryTime",
-            "lookOnly",
-            "off"
-          ]
-        },
-        {
-          "key": "computerUse.pauseOnTakeover",
-          "title": "Pause When I Use the Mouse or Keyboard",
-          "help": "While you use the mouse or keyboard, agents wait before their next click or key press.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Computer Use"
-        },
-        {
-          "key": "computerUse.settle",
-          "title": "After Each Action",
-          "help": "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing.",
-          "kind": "choice",
-          "default": "adaptive",
-          "group": "Computer Use",
-          "values": [
-            "adaptive",
-            "anthropic",
-            "openai"
-          ]
-        },
-        {
-          "key": "computerUse.showCursor",
-          "title": "Show Agent Cursor",
-          "help": "A blue cursor shows wherever an agent clicks or types.",
           "kind": "toggle",
           "default": true,
           "group": "Computer Use"
@@ -6111,7 +5995,7 @@
           "title": "Show Chief When Opening Workspaces",
           "help": "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Chief Dock"
         },
         {
@@ -6820,6 +6704,14 @@
       "id": "advanced",
       "title": "Advanced",
       "rows": [
+        {
+          "key": "customize.fromTheApp",
+          "title": "Customize From the Window",
+          "help": "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
         {
           "key": "developerTools.appPages",
           "title": "Developer Tools for cmux Pages",
