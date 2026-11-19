@@ -335,6 +335,10 @@ public final class SidebarModel {
     /// A workspace's pin state and the Pin/Unpin Workspace action, from the
     /// App (layout tiles or the daemon flag): an expanded row's hover pin.
     @ObservationIgnored public var workspacePin: (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)?
+    /// A press on a chat's subagent under its row (`SidebarSubagentsView`): shows chat tab `TabID` of the workspace and
+    /// opens the subagent's pane beside it, as the chat's own subagent cards do; nil (the stacked line, "N more") shows
+    /// the chat only. Nil while the App offers none (the standalone mock).
+    @ObservationIgnored public var openSubagent: ((WorkspaceID, TabID, SidebarSubagent?) -> Void)?
     /// The sections another space shows (R99: the page beside the current
     /// one during a horizontal swipe). Read when a swipe reaches that page.
     @ObservationIgnored public var spaceSections: ((ProfileKey) -> [SidebarSection])?
@@ -839,6 +843,7 @@ public final class SidebarModel {
         o.grouping = settledGrouping()
         if settlesFinished { o.settled = settledChats() }
         o.automatic = automaticSessions()
+        o.subagentLook = SidebarTunables.subagentLook.value
         return o
     }
 

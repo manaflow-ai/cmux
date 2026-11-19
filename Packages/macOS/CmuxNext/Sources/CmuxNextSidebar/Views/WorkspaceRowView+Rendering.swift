@@ -95,7 +95,12 @@ extension WorkspaceRowView {
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
             let painted = colorFill() ?? fill // `workspaceColors.indicatorStyle` (#25653): fill or rail
-            paintFill(painted)
+            // With subagent lines under it the fill takes the name's part only (`headFill`).
+            let headOnly = subagentsHeight > 0
+            paintFill(headOnly ? nil : painted)
+            headFill.isHidden = !headOnly || painted == nil
+            headFill.backgroundColor = headOnly ? painted?.cgColor : nil
+            subagentsView.tint()
             // The one border: the focus ring of the group this row stands for, as its header draws it.
             layer?.borderColor = Palette.focusRing.cgColor
             layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
@@ -113,7 +118,8 @@ extension WorkspaceRowView {
         layoutNeedsYouGlow()
         // The name lines and the trailing cluster center in the head; the
         // status block, when shown, fills the rest below it.
-        let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
+        // The chat's subagent lines, when shown, hang under the status block.
+        let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight - subagentsHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Entering a row should reveal its controls immediately. Keep the
@@ -338,6 +344,7 @@ extension WorkspaceRowView {
         giveWayToControls(shownControls, fades: fades)
         if showsNeedsYouGlow { hideMarksForNeedsYouGlow() } else { marksHiddenForGlow = false } // the mark pass showed them
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
+        layoutSubagents(textX: textX, head: b.maxY + statusHeight, full: full)
         if titleArrivalPending && !titleArrivalScheduled {
             titleArrivalScheduled = true
             CATransaction.setCompletionBlock { [weak self] in self?.startTitleArrival() }

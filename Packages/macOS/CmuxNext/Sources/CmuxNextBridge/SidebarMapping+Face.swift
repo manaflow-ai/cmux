@@ -266,6 +266,7 @@ extension SidebarMapping {
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab, front: front,
                             notification: row.notificationText)
         row.detail.origin = Self.origin(workspace.createdBy)
+        row.subagents = Self.subagents(tabs)
         return row
     }
 

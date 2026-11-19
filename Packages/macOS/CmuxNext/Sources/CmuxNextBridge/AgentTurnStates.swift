@@ -77,6 +77,10 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     public var subagentsRunning = 0
     public var subagentNames: [String] = []
     public var commandsRunning = 0
+    /// The chat's latest subagents, oldest first (at most 8, acpmux `recentSubagents`), and how many it started in
+    /// all (`subagentsSeen`): the sidebar lists them under the chat's row. Empty and 0 from an older acpmux.
+    public var subagents: [Subagent] = []
+    public var subagentsSeen = 0
     /// The chat carries acpmux's `archived` tag (one not past its `expires_at`): a hidden page of it
     /// gives back its memory at once (HiddenChatPages).
     public var archived = false
@@ -107,6 +111,31 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         self.archived = archived
         self.summary = summary
         self.nextAction = nextAction
+    }
+
+    /// One of the chat's latest subagents (acpmux `recentSubagents[]`).
+    public struct Subagent: Hashable, Sendable {
+        public var id: String
+        /// The subagent that started it; nil for one the chat started.
+        public var parent: String?
+        /// Its name, else its task, as acpmux masked and cut it.
+        public var title: String?
+        /// `running`, `done`, `failed` or `stopped`.
+        public var state: String
+
+        public init(id: String, parent: String? = nil, title: String? = nil, state: String) {
+            (self.id, self.parent, self.title, self.state) = (id, parent, title, state)
+        }
+    }
+
+    /// A summary's `recentSubagents`: each entry with an id and a state; others are skipped.
+    static func subagents(_ value: Any?) -> [Subagent] {
+        (value as? [Any] ?? []).compactMap { item in
+            guard let item = item as? [String: Any], let id = item["id"] as? String, !id.isEmpty,
+                  let state = item["state"] as? String, !state.isEmpty else { return nil }
+            let text = { (key: String) in (item[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+            return Subagent(id: id, parent: text("parent"), title: text("title"), state: state)
+        }
     }
 
     /// Whether a summary's `tags` hold an `archived` tag in force: a value (`"1"`, `"true"`), or a tag
@@ -153,7 +182,10 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
                                      commandsRunning: count(summary["commandsRunning"]),
                                      archived: archived(summary),
                                      summary: text(rolling?["text"]), nextAction: text(rolling?["next"]))
-        return detail == AgentChatDetail() ? nil : detail
+        var listed = detail
+        listed.subagents = subagents(summary["recentSubagents"])
+        listed.subagentsSeen = count(summary["subagentsSeen"])
+        return listed == AgentChatDetail() ? nil : listed
     }
 
     /// Whether acpmux read any of the chat's usage (`usageStats`).
