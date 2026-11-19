@@ -2170,13 +2170,13 @@
    },
    "zoom": {
     "value": {
-     "response": 0.2,
+     "response": 0.095,
      "dampingFraction": 1
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
     "use": "A pane zooming to fill its screen and back (Cmd-Shift-Enter): its content takes the full size once, the spring rect reveals it, and it covers the other panes, which do not fade (Leo 2026-10-13, Lawrence 2026-10-18)",
-    "note": "Response 0.30 until 2026-10-20 (visible end 354 ms); 0.2 ends visibly at 235 ms, under the 240 ms ceiling (Leo 2026-10-20 motion scale)."
+    "note": "Response 0.30 until 2026-10-20 (visible end 354 ms); 0.2 ends visibly at 235 ms, under the 240 ms ceiling (Leo 2026-10-20 motion scale). Then response 0.095: the zoom key is pressed again and again, and 0.095 ends visibly at 112 ms (168 ms at the speed normal)."
    },
    "exit": {
     "value": {

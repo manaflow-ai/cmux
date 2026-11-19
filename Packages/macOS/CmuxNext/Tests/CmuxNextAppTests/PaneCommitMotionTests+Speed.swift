@@ -14,9 +14,9 @@ import Testing
 extension PaneCommitMotionTests {
     /// The acts of the row, each with the response of its spring at the `normal` speed in seconds. The rule of the
     /// design's policy (`MotionPolicy.spring`): 1.5 times the response at `fast`, and at most 0.25 s. At `fast` a
-    /// split has 0.085 s, a close 0.064 s, a zoom 0.2 s and an unzoom 0.15 s.
+    /// split has 0.085 s, a close 0.064 s, a zoom 0.095 s and an unzoom 0.08 s.
     nonisolated static let normalScenes = ["split, held", "close", "zoom", "unzoom"]
-    nonisolated static let normalResponses = ["split, held": 0.1275, "close": 0.096, "zoom": 0.25, "unzoom": 0.225]
+    nonisolated static let normalResponses = ["split, held": 0.1275, "close": 0.096, "zoom": 0.1425, "unzoom": 0.12]
 
     /// A split, a close, a zoom and an unzoom of 6 panes over a window's picture, at the `normal` speed, with a
     /// padding of 2 pt around each pane's content and a header of 28 pt in it. Each move of a pane is a spring with
