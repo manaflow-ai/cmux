@@ -112,9 +112,11 @@ function renderCountProbe() {
       if (props?.children !== old?.children) changed.push("children");
       reasons.push(changed.length ? `props:${changed.slice(0, 4).join(",")}` : "same props");
     }
-    const hooks = (fiber as Fiber & { memoizedState?: unknown }).memoizedState as
-      | { memoizedState: unknown; next: unknown; queue?: unknown }
-      | null;
+    const hooks = (fiber as Fiber & { memoizedState?: unknown }).memoizedState as {
+      memoizedState: unknown;
+      next: unknown;
+      queue?: unknown;
+    } | null;
     let oldHook = before.memoizedState as typeof hooks;
     if (fiber.tag !== ClassComponent && hooks !== oldHook) {
       const changed: string[] = [];
@@ -222,12 +224,14 @@ export async function renderCountProbeAttached(page: Page): Promise<boolean> {
 }
 
 export async function renderCountsReset(page: Page): Promise<void> {
-  await page.evaluate(() => (window as unknown as { __cmuxRenderCounts: { reset(): void } }).__cmuxRenderCounts.reset());
+  await page.evaluate(() =>
+    (window as unknown as { __cmuxRenderCounts: { reset(): void } }).__cmuxRenderCounts.reset(),
+  );
 }
 
 export async function renderCountsTake(page: Page): Promise<RenderCounts> {
-  return page.evaluate(
-    () => (window as unknown as { __cmuxRenderCounts: { take(): RenderCounts } }).__cmuxRenderCounts.take(),
+  return page.evaluate(() =>
+    (window as unknown as { __cmuxRenderCounts: { take(): RenderCounts } }).__cmuxRenderCounts.take(),
   );
 }
 
