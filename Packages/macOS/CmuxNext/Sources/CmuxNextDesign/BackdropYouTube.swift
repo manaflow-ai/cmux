@@ -23,9 +23,12 @@ public nonisolated struct BackdropYouTube: Hashable, Sendable {
     /// The player's height in pixels (``qualities``).
     public let quality: Int
 
-    /// Whether the app offers YouTube wallpapers: the one switch. The Settings page reads it as
-    /// `youtube_wallpapers` in its host lists, and false hides its Add YouTube tile.
-    public static let isOffered = true
+    /// Whether the app offers YouTube wallpapers: the one switch, off until Leo decides how the
+    /// embed may sit under panes, tint and blur. Off, no ``BackdropYouTubeView`` is made, no web
+    /// view loads, no poster or title is fetched, the catalog lists none, a `youtube:` id draws no
+    /// picture, and the Settings page's host lists say `youtube_wallpapers: false` (no Add tile).
+    /// Tests turn it on through ``BackdropImageStore/offersYouTube`` and the catalog's `youtube:`.
+    public static let isOffered = false
     /// The prefix of a persisted id.
     public static let idPrefix = "youtube:"
     /// The player heights a wallpaper may ask for.

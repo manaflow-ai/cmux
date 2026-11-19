@@ -1,8 +1,11 @@
 import AppKit
+import CmuxNextDesignTokens
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
+import WebKit
 
 /// YouTube wallpapers (Leo: "yeah add youtube backgrounds too"): the canonical id, the poster and
 /// player size, and the players: one plays app-wide, in the frontmost window that could play it,
@@ -189,5 +192,34 @@ import Testing
         #expect(made.players[0].closed && players.failed(video))
         players.report(view, video: video, window: 1, eligible: true, seen: true)
         #expect(made.players.count == 1, "a refused video is loaded again")
+    }
+
+    // MARK: Off (BackdropYouTube.isOffered)
+
+    static func descendants(_ view: NSView) -> [NSView] { view.subviews + view.subviews.flatMap(descendants) }
+
+    @Test func offAYouTubeIDMakesNoWebViewAndDrawsNoPicture() async throws {
+        #expect(!BackdropYouTube.isOffered, "YouTube wallpapers ship off until Leo decides")
+        _ = NSApplication.shared
+        let video = try #require(BackdropYouTube(id: "youtube:dQw4w9WgXcQ"))
+        let frame = NSRect(x: 0, y: 0, width: 320, height: 200)
+        let images = BackdropImageStore(maxPixelSize: 256)
+        #expect(!images.offersYouTube)
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let backdrop = WindowMaterialView(frame: frame, images: images)
+        window.contentView = backdrop
+        window.orderFrontRegardless()
+        backdrop.apply(WindowBackdrop(ThemeTokens.derive(from: .ghosttyDefault), selection: .youtube(video)), tint: .black)
+        await backdrop.artLoad?.value
+        #expect(backdrop.youtubeView == nil && !backdrop.showsYouTube)
+        #expect(!Self.descendants(backdrop).contains { $0 is WKWebView }, "a web view was made while YouTube is off")
+        #expect(backdrop.artView.isHidden, "a picture was drawn for a YouTube id while YouTube is off")
+        #expect(await images.image(.youtube(video)) == nil && images.youtube.loadedCount == 0)
+        #expect(await images.thumbnailURL(of: .youtube(video)) == nil)
+        // On (tests only): the one view is made.
+        let on = WindowMaterialView(frame: frame, images: BackdropImageStore(maxPixelSize: 256, offersYouTube: true))
+        #expect(on.youtubeView?.superview === on)
     }
 }

@@ -37,6 +37,9 @@ public final class BackdropImageStore {
     /// Wakes the video wallpapers of every window this store serves when idle time can change
     /// whether they play (`appearance.videoWallpaperIdlePause`).
     public let idle = BackdropIdle()
+    /// Whether this store's windows show YouTube wallpapers (``BackdropYouTube/isOffered``; tests
+    /// turn it on). Off, a `youtube:` id loads no picture and its windows make no YouTube view.
+    public let offersYouTube: Bool
     /// The YouTube players of every window this store serves, one playing at a time (``BackdropYouTubeView``).
     public let youtube = BackdropYouTubePlayers()
     /// YouTube wallpapers' posters and titles, fetched once (the video stream never is).
@@ -49,7 +52,7 @@ public final class BackdropImageStore {
     /// The file of `selection`'s thumbnail; a YouTube video's is its poster, fetched once into
     /// Caches first, and nil until it is.
     public func thumbnailURL(of selection: BackdropSelection) async -> URL? {
-        if let video = selection.youtube { return await youtubeDownloads.poster(for: video) }
+        if let video = selection.youtube { return offersYouTube ? await youtubeDownloads.poster(for: video) : nil }
         return selection.thumbnailURL
     }
 
@@ -98,8 +101,10 @@ public final class BackdropImageStore {
     ///   - downloads: Where art that does not ship in the app comes from.
     ///   - desktop: The desktop picture the Desktop Wallpaper art and the tint follow; by default
     ///     one that keeps no color between launches and stays inert until started.
+    ///   - offersYouTube: Whether `youtube:` ids show (``BackdropYouTube/isOffered``).
     public init(maxPixelSize: Int? = nil, snapshots: URL? = nil, downloads: BackdropArtDownloads = .shared,
-                desktop: DesktopWallpaperWatch? = nil) {
+                desktop: DesktopWallpaperWatch? = nil, offersYouTube: Bool = BackdropYouTube.isOffered) {
+        self.offersYouTube = offersYouTube
         self.maxPixelSize = max(maxPixelSize ?? Self.screenPixelSize(), 64)
         self.snapshots = snapshots
         self.downloads = downloads
@@ -178,6 +183,8 @@ public final class BackdropImageStore {
             if let image = images[key] { return image }
         }
         if case .youtube(let video) = selection {
+            // Off (BackdropYouTube.isOffered): no picture, nothing fetched.
+            guard offersYouTube else { return nil }
             // The poster is fetched once into Caches; the video is listed in the picker with its title.
             let downloads = youtubeDownloads
             // task-owner: one library write and oEmbed read per shown video, ended by itself (never cancelled)

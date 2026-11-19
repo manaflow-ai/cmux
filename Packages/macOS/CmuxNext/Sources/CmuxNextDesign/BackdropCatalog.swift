@@ -41,14 +41,17 @@ public nonisolated struct BackdropCatalog: Sendable, Equatable {
     ///   - assets: The macOS wallpapers downloaded in full.
     ///   - userImages: The person's own images and videos (``BackdropUserImages``), if any.
     ///   - aerials: Where idleassetsd keeps downloaded aerials (``AppleWallpapers``).
+    ///   - offersYouTube: Whether the used YouTube videos are listed (``BackdropYouTube/isOffered``).
     public init(systemDirectory: URL, fileManager: FileManager, assets: AppleWallpaperAssets = AppleWallpaperAssets(),
-                userImages: BackdropUserImages? = nil, aerials: URL = AppleWallpapers.system.aerials) {
+                userImages: BackdropUserImages? = nil, aerials: URL = AppleWallpapers.system.aerials,
+                youtube offersYouTube: Bool = BackdropYouTube.isOffered) {
         let wallpapers = AppleWallpapers(desktopPictures: systemDirectory, aerials: aerials)
         let apple = wallpapers.pictures(assets: assets, fileManager: fileManager)
         appleWallpapers = Dictionary(apple.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
         let yours = userImages?.list(fileManager: fileManager) ?? []
         // The YouTube videos the person has used, listed in the backgrounds folder (YouTube.json).
-        let youtube = userImages.map { BackdropYouTubeLibrary(folder: $0.folder).items() } ?? []
+        // None while YouTube wallpapers are off (BackdropYouTube.isOffered).
+        let youtube = offersYouTube ? userImages.map { BackdropYouTubeLibrary(folder: $0.folder).items() } ?? [] : []
         youtubeTitles = Dictionary(youtube.compactMap { item in item.title.map { (item.video.videoID, $0) } },
                                    uniquingKeysWith: { first, _ in first })
         aerialNames = wallpapers.aerialNames()

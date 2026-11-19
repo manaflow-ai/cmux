@@ -115,6 +115,7 @@ public final class BackdropImagesPageProvider: PageProvider {
     /// the Rust side turns a pasted link into one) is listed under Moving wallpapers and set as the
     /// background; `{id}`. The person chose it, so the write is theirs.
     private func useYouTube(_ params: JSONValue) async throws -> JSONValue {
+        guard BackdropYouTube.isOffered else { throw PageError(code: "cmux.page.unavailable", message: "YouTube wallpapers are off") }
         guard let id = params["id"]?.stringValue, let video = BackdropYouTube(id: id) else {
             throw PageError.invalidParams("id is not a YouTube wallpaper id")
         }

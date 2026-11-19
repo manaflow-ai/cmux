@@ -46,7 +46,8 @@ import Testing
         try library.add(second)
         #expect(library.list() == [second, first], "newest first")
         let catalog = BackdropCatalog(systemDirectory: folder.appendingPathComponent("none"), fileManager: .default,
-                                      userImages: BackdropUserImages(folder: folder), aerials: folder.appendingPathComponent("none"))
+                                      userImages: BackdropUserImages(folder: folder), aerials: folder.appendingPathComponent("none"),
+                                      youtube: true)
         #expect(catalog.choices.contains(.youtube(first)) && catalog.choices.contains(.youtube(second)))
         guard case .array(let rows) = catalog.pageRows else { Issue.record("rows are not an array"); return }
         let row = try #require(rows.first { $0["id"]?.stringValue == first.id })

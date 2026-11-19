@@ -54,7 +54,7 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
         }
         guard request.prefix == Self.prefix, request.path.count == 1,
               let id = request.path[0].removingPercentEncoding, let selection = BackdropSelection(id: id),
-              selection.youtube != nil || allowed.contains(id) || refreshedAllowed(id) || userImages?.contains(selection) == true else { return nil }
+              (selection.youtube != nil && BackdropImageStore.shared.offersYouTube) || allowed.contains(id) || refreshedAllowed(id) || userImages?.contains(selection) == true else { return nil }
         if case .live(let slug) = selection, let wallpaper = LiveWallpaper.named(slug) {
             let data = await BackdropImageStore.shared.livePrograms.stillPNG(wallpaper, width: 240, height: 135, tokens: ThemeScope.app.tokens)
             return data.map { PageResource(data: $0, mimeType: "image/png") }
