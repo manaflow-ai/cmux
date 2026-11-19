@@ -299,6 +299,9 @@ export class HarnessSwitch {
     string,
     { mode?: string; options: Record<string, string>; tickets: Map<string, Promise<string | undefined>> }
   >();
+  /// The permission mode last picked or run on each harness in this pane: a switch away and back
+  /// (Codex, Claude Code, Codex) starts the new chat on it again, as its model comes back.
+  private modes = new Map<string, string>();
   private hintTarget?: string;
   private cancelHint?: () => void;
   private lastHint?: { harness: string; at: number };
@@ -418,6 +421,13 @@ export class HarnessSwitch {
     }
     const done = deferred<string | undefined>();
     const model = options.model ?? (previous?.harness === harness ? previous.config.model : undefined);
+    // The harness being left keeps its mode for a switch back: a pending start's pick, else the mode
+    // the shown chat of that harness runs on.
+    const leftHarness = previous ? previous.harness : shownSession?.harness;
+    const leftMode =
+      previous?.config.mode ?? (shownSession?.harness === leftHarness ? shownSession?.modeId : undefined);
+    if (leftHarness && leftMode) this.modes.set(leftHarness, leftMode);
+    const back = previous?.harness === harness ? undefined : this.modes.get(harness);
     const intent: Intent = {
       id: ++this.generation,
       harness,
@@ -426,11 +436,13 @@ export class HarnessSwitch {
       phase: "starting",
       queued: previous?.queued ?? [],
       // A model or mode picked for one harness does not carry to another; to another folder it does.
+      // Back on a harness, its own last mode comes back with it.
       config: {
         ...(previous?.harness === harness ? previous.config : { options: {} }),
         // A model row of this harness picked it, or the caller passed the one last picked on it
         // (`lastOfferedModel`): the new chat starts on that model.
         ...(model ? { model } : {}),
+        ...(back ? { mode: back } : {}),
       },
       tickets: previous?.harness === harness ? previous.tickets : new Map(),
       done,
@@ -446,26 +458,31 @@ export class HarnessSwitch {
         options: previous.config.options,
         tickets: previous.tickets,
       });
+    // Back to an agent this page left before its start opened: what it kept for a way back.
+    const kept = previous && previous.harness !== harness ? this.kept.get(keptKey(harness, cwd)) : undefined;
+    // The mode it comes back to takes its gesture ticket now, in the pick's own handler, unless the
+    // person's own pick of that mode on the left start already took one.
+    const keptModeTicket = kept?.mode === back ? kept?.tickets.get("mode") : undefined;
+    if (back)
+      intent.tickets.set(
+        "mode",
+        keptModeTicket ?? this.takeTicket({ method: "session/set_mode", params: { modeId: back } }),
+      );
     if (previous) this.retire(previous, false);
     this.modelPick = undefined;
     this.configPick = undefined;
     this.settling = undefined;
     this.intent = intent;
-    // Back to an agent this page left before its start opened: its own mode and option picks come
-    // back with the tickets the person's own picks took, as a pick on the same agent keeps them. This
-    // pick's gesture is not spent on them: the host grants one ticket per gesture, and the start
-    // itself may need it (its folder check). A ticket lives 60 s, and a later pick of the same kind
-    // on another agent takes its slot; such a pick goes out with none, as any expired held pick does.
-    // Options passed with this pick go after them, with tickets of their own, so they win.
-    const back = previous && previous.harness !== harness ? this.kept.get(keptKey(harness, cwd)) : undefined;
-    if (back) {
+    // Its option picks come back with the tickets the person's own picks took, as a pick on the same
+    // agent keeps them (the mode comes back above, per agent). This pick's gesture is not spent on
+    // them: the host grants one ticket per gesture, and the start itself may need it (its folder
+    // check). A ticket lives 60 s, and a later pick of the same kind on another agent takes its slot;
+    // such a pick goes out with none, as any expired held pick does. Options passed with this pick go
+    // after them, with tickets of their own, so they win.
+    if (kept) {
       this.kept.delete(keptKey(harness, cwd));
-      intent.config = {
-        ...intent.config,
-        ...(back.mode ? { mode: back.mode } : {}),
-        options: { ...back.options, ...intent.config.options },
-      };
-      for (const [key, ticket] of back.tickets) intent.tickets.set(key, ticket);
+      intent.config = { ...intent.config, options: { ...kept.options, ...intent.config.options } };
+      for (const [key, ticket] of kept.tickets) if (key !== "mode") intent.tickets.set(key, ticket);
     }
     // Each held option takes its gesture ticket now, in the pick's own handler.
     for (const [configId, value] of held) this.holdConfig(intent, configId, value);

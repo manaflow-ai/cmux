@@ -397,13 +397,14 @@ test("a start left for another agent before it opened gets its mode and options 
   // Each comes back with the ticket the person's own pick took: the way back spends no gesture of its
   // own on them (the host grants one ticket per gesture, and the start may need it).
   expect(tickets).toEqual([]);
-  // In another folder, or after a cancel, the harness starts with its own defaults again.
+  // In another folder, or after a cancel, the option picks stay behind (the mode is the agent's own,
+  // in any folder: the pane's last mode on it).
   void harnessSwitch.switchTo("claude", "/work", { deferred: true });
   void harnessSwitch.switchTo("codex", "/elsewhere", { deferred: true });
-  expect(harnessSwitch.view().intent?.config.mode).toBeUndefined();
+  expect(harnessSwitch.view().intent?.config.options).toEqual({});
   harnessSwitch.cancel();
   void harnessSwitch.switchTo("codex", "/work", { deferred: true });
-  expect(harnessSwitch.view().intent?.config).toEqual({ options: {} });
+  expect(harnessSwitch.view().intent?.config.options).toEqual({});
 });
 
 test("a mode brought back from a left start goes out with the ticket the person's own pick took", async () => {
@@ -436,4 +437,35 @@ test("a mode brought back from a left start goes out with the ticket the person'
   expect(await back).toBe("codex-2");
   await sent;
   expect(calls).toEqual(["mode agent-full-access gesture-1", "send add retry"]);
+});
+
+test("a mode picked on a harness comes back when the pane switches away and back to it", async () => {
+  // agent-pane-picks-hold (real acpmux): Full access on Codex, Claude Code, back to Codex read "Mode".
+  const calls: string[] = [];
+  let shown: ReturnType<SwitchPort["shown"]>;
+  let next = 0;
+  const harnessOf = new Map<string, string>();
+  const port: SwitchPort = {
+    ...trustRefusingPort(),
+    shown: () => shown,
+    create: async (harness) => {
+      const id = `s${++next}`;
+      harnessOf.set(id, harness);
+      return id;
+    },
+    open: async (sessionId) => {
+      shown = { sessionId, harness: harnessOf.get(sessionId), modeId: "agent", empty: true, configOptions: [] };
+      return sessionId;
+    },
+    setMode: async (mode) => void calls.push(`mode ${mode}`),
+  };
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(port);
+  void harnessSwitch.switchTo("codex", "/work");
+  harnessSwitch.pickMode("agent-full-access");
+  void harnessSwitch.switchTo("claude", "/work");
+  const back = harnessSwitch.switchTo("codex", "/work");
+  expect(await back).toBeDefined();
+  expect(shown?.harness).toBe("codex");
+  expect(calls).toEqual(["mode agent-full-access"]);
 });
