@@ -15,11 +15,14 @@ rects); a window's bounds are [x, y, w, h] in global points, as CGWindowList rep
 
 Not an own window: the app's pid, the marker's pid, and the system's furniture that is on screen in every round (the
 window server's cursor and menu bar, the Dock, the recorder's cursor overlay, whose owner name is "Cua Driver"). The
-notification banner is another process's window (NotificationCenter), so it counts.
+notification banner is another process's window (NotificationCenter), so it counts; Notification Center's transparent
+host spanning the whole app window (HOST_OWNERS) does not.
 
 Only a window above the app's window can cover it. The window list is front to back, so a window after the app's
-window in a sample (Finder's desktop, WindowManager's Stage Manager strip, any app behind) is behind it and covers
-nothing, however its bounds overlap. A sample without the app's window keeps every window: nothing says what is behind.
+window in a sample (Finder's desktop, WindowManager's Stage Manager strip, a dialog the app is in front of, any app
+behind) is behind it and covers nothing, however its bounds overlap. On a CI mini (macOS 27, 2026-11-18) every round of
+a run was left out over those, a stale accessibility prompt behind the app among them. A sample without the app's
+window keeps every window: nothing says what is behind.
 """
 from __future__ import annotations
 
@@ -33,6 +36,9 @@ import threading
 import time
 
 IGNORED_OWNERS = ("Window Server", "Dock", "SystemUIServer", "Cua Driver", "CuaDriver", "cua-driver")
+# Owners whose window spanning the whole app window is a transparent host that is on screen in every round (macOS 27's
+# Notification Center keeps one over the display at layer 21); their small windows (a banner) still count.
+HOST_OWNERS = ("Notification Center",)
 MAX_EXCLUDED_SHARE = 0.2  # a run that lost more than this share of its rounds to foreign windows measured nothing
 MIN_ALPHA = 0.05  # an invisible window covers nothing
 MIN_POINTS = 2.0  # a hairline (a shadow, an edge) covers nothing
@@ -81,9 +87,18 @@ def above_app(windows, own_pids, window):
     return windows
 
 
+def is_host(win, window, hosts=HOST_OWNERS):
+    """Whether `win` is a system host window spanning the whole app window [x, y, w, h] (see HOST_OWNERS)."""
+    if str(win.get("owner") or "") not in hosts:
+        return False
+    x, y, w, h = win.get("bounds") or (0, 0, 0, 0)
+    return x <= window[0] and y <= window[1] and x + w >= window[0] + window[2] and y + h >= window[1] + window[3]
+
+
 def covering(windows, own_pids, window):
-    """The foreign windows of one sample (front to back) that are above the app's window."""
-    return [win for win in above_app(windows, own_pids, window) if is_foreign(win, own_pids)]
+    """The foreign windows of one sample (front to back) that are above the app's window, less system hosts."""
+    return [win for win in above_app(windows, own_pids, window)
+            if is_foreign(win, own_pids) and not is_host(win, window)]
 
 
 def foreign_over(windows, own_pids, rects, window, scale):

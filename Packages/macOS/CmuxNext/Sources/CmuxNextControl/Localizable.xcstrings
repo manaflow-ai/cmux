@@ -1841,127 +1841,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown method %1$@. A cmux CLI that is older than this app (or from another cmux app) sends methods this app does not have; this app's CLI is %2$@"
+            "value": "Unknown method %1$@: this cmux CLI is older than this app. Use %2$@"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "طريقة غير معروفة %1$@. ترسل واجهة cmux CLI الأقدم من هذا التطبيق (أو التابعة لتطبيق cmux آخر) طرقًا لا يملكها هذا التطبيق؛ CLI الخاص بهذا التطبيق هو %2$@"
+            "state": "translated",
+            "value": "طريقة غير معروفة %1$@: واجهة cmux CLI هذه أقدم من هذا التطبيق. استخدم %2$@"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nepoznata metoda %1$@. cmux CLI stariji od ove aplikacije (ili iz druge cmux aplikacije) šalje metode koje ova aplikacija nema; CLI ove aplikacije je %2$@"
+            "state": "translated",
+            "value": "Nepoznata metoda %1$@: ovaj cmux CLI je stariji od ove aplikacije. Koristite %2$@"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ukendt metode %1$@. En cmux-CLI, der er ældre end denne app (eller fra en anden cmux-app), sender metoder, som denne app ikke har; denne apps CLI er %2$@"
+            "state": "translated",
+            "value": "Ukendt metode %1$@: denne cmux CLI er ældre end denne app. Brug %2$@"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Unbekannte Methode %1$@. Eine cmux-CLI, die älter als diese App ist (oder zu einer anderen cmux-App gehört), sendet Methoden, die diese App nicht hat; die CLI dieser App ist %2$@"
+            "state": "translated",
+            "value": "Unbekannte Methode %1$@: Diese cmux-CLI ist älter als diese App. Verwenden Sie %2$@"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Método desconocido %1$@. Una CLI de cmux más antigua que esta app (o de otra app de cmux) envía métodos que esta app no tiene; la CLI de esta app es %2$@"
+            "state": "translated",
+            "value": "Método desconocido %1$@: esta CLI de cmux es más antigua que esta app. Usa %2$@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Méthode inconnue %1$@. Une CLI cmux plus ancienne que cette app (ou d'une autre app cmux) envoie des méthodes que cette app n'a pas ; la CLI de cette app est %2$@"
+            "state": "translated",
+            "value": "Méthode inconnue %1$@ : cette CLI cmux est plus ancienne que cette app. Utilisez %2$@"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Metodo sconosciuto %1$@. Una CLI di cmux più vecchia di questa app (o di un'altra app cmux) invia metodi che questa app non ha; la CLI di questa app è %2$@"
+            "state": "translated",
+            "value": "Metodo sconosciuto %1$@: questa CLI di cmux è più vecchia di questa app. Usa %2$@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不明なメソッド %1$@。このアプリより古い cmux CLI（または別の cmux アプリの CLI）は、このアプリにないメソッドを送信します。このアプリの CLI は %2$@ です"
+            "value": "不明なメソッド %1$@：この cmux CLI はこのアプリより古いです。%2$@ を使ってください"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "វិធីសាស្ត្រមិនស្គាល់ %1$@។ cmux CLI ដែលចាស់ជាងកម្មវិធីនេះ (ឬមកពីកម្មវិធី cmux ផ្សេង) ផ្ញើវិធីសាស្ត្រដែលកម្មវិធីនេះមិនមាន; CLI របស់កម្មវិធីនេះគឺ %2$@"
+            "state": "translated",
+            "value": "វិធីសាស្ត្រមិនស្គាល់ %1$@៖ cmux CLI នេះចាស់ជាងកម្មវិធីនេះ។ ប្រើ %2$@"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "알 수 없는 메서드 %1$@. 이 앱보다 오래된 cmux CLI(또는 다른 cmux 앱의 CLI)는 이 앱에 없는 메서드를 보냅니다. 이 앱의 CLI는 %2$@입니다"
+            "state": "translated",
+            "value": "알 수 없는 메서드 %1$@: 이 cmux CLI는 이 앱보다 오래되었습니다. %2$@을(를) 사용하세요"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ukjent metode %1$@. En cmux-CLI som er eldre enn denne appen (eller fra en annen cmux-app), sender metoder denne appen ikke har; denne appens CLI er %2$@"
+            "state": "translated",
+            "value": "Ukjent metode %1$@: denne cmux-CLI-en er eldre enn denne appen. Bruk %2$@"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nieznana metoda %1$@. cmux CLI starszy niż ta aplikacja (lub z innej aplikacji cmux) wysyła metody, których ta aplikacja nie ma; CLI tej aplikacji to %2$@"
+            "state": "translated",
+            "value": "Nieznana metoda %1$@: to CLI cmux jest starsze niż ta aplikacja. Użyj %2$@"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Método desconhecido %1$@. Uma CLI do cmux mais antiga que este app (ou de outro app cmux) envia métodos que este app não tem; a CLI deste app é %2$@"
+            "state": "translated",
+            "value": "Método desconhecido %1$@: esta CLI do cmux é mais antiga que este app. Use %2$@"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Неизвестный метод %1$@. cmux CLI старше этого приложения (или из другого приложения cmux) отправляет методы, которых нет в этом приложении; CLI этого приложения: %2$@"
+            "state": "translated",
+            "value": "Неизвестный метод %1$@: этот cmux CLI старше этого приложения. Используйте %2$@"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่รู้จักเมธอด %1$@ cmux CLI ที่เก่ากว่าแอปนี้ (หรือมาจากแอป cmux อื่น) จะส่งเมธอดที่แอปนี้ไม่มี CLI ของแอปนี้คือ %2$@"
+            "state": "translated",
+            "value": "ไม่รู้จักเมธอด %1$@: cmux CLI นี้เก่ากว่าแอปนี้ ใช้ %2$@"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bilinmeyen yöntem %1$@. Bu uygulamadan daha eski (veya başka bir cmux uygulamasına ait) bir cmux CLI, bu uygulamada olmayan yöntemler gönderir; bu uygulamanın CLI'ı %2$@"
+            "state": "translated",
+            "value": "Bilinmeyen yöntem %1$@: bu cmux CLI bu uygulamadan eski. %2$@ kullanın"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Невідомий метод %1$@. cmux CLI, старіший за цей застосунок (або з іншого застосунку cmux), надсилає методи, яких цей застосунок не має; CLI цього застосунку: %2$@"
+            "state": "translated",
+            "value": "Невідомий метод %1$@: цей cmux CLI старіший за цю програму. Використайте %2$@"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Phương thức không xác định %1$@. cmux CLI cũ hơn ứng dụng này (hoặc từ một ứng dụng cmux khác) gửi các phương thức mà ứng dụng này không có; CLI của ứng dụng này là %2$@"
+            "state": "translated",
+            "value": "Phương thức không xác định %1$@: cmux CLI này cũ hơn ứng dụng này. Dùng %2$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "未知方法 %1$@。比此应用旧的 cmux CLI（或其他 cmux 应用的 CLI）会发送此应用没有的方法；此应用的 CLI 是 %2$@"
+            "state": "translated",
+            "value": "未知方法 %1$@：此 cmux CLI 比此应用旧。请使用 %2$@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "未知的方法 %1$@。比此 App 舊的 cmux CLI（或其他 cmux App 的 CLI）會傳送此 App 沒有的方法；此 App 的 CLI 是 %2$@"
+            "state": "translated",
+            "value": "未知方法 %1$@：此 cmux CLI 比此 App 舊。請使用 %2$@"
           }
         }
       }
@@ -8651,130 +8651,130 @@
     "control.error.settingUserOnly": {
       "extractionState": "manual",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only you can change %1$@: use Settings, or `cmux settings set %1$@ <value> --confirm`"
+          }
+        },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يمكن تغيير %1$@ إلا بواسطتك: استخدم الإعدادات، أو `cmux settings set %1$@ <value> --confirm` ثم وافق عليه في cmux"
+            "state": "translated",
+            "value": "يمكنك وحدك تغيير %1$@: استخدم الإعدادات، أو `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ možete promijeniti samo vi: koristite Postavke ili `cmux settings set %1$@ <value> --confirm` i odobrite to u cmuxu"
+            "state": "translated",
+            "value": "Samo vi možete promijeniti %1$@: koristite Postavke ili `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ kan kun ændres af dig: brug Indstillinger, eller `cmux settings set %1$@ <value> --confirm` og godkend det i cmux"
+            "state": "translated",
+            "value": "Kun du kan ændre %1$@: brug Indstillinger eller `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ kannst nur du ändern: Nutze die Einstellungen oder `cmux settings set %1$@ <value> --confirm` und bestätige es in cmux"
-          }
-        },
-        "en": {
-          "stringUnit": {
             "state": "translated",
-            "value": "%1$@ can be changed only by you: use Settings, or `cmux settings set %1$@ <value> --confirm` and approve it in cmux"
+            "value": "Nur Sie können %1$@ ändern: in den Einstellungen oder mit `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Solo tú puedes cambiar %1$@: usa Ajustes, o `cmux settings set %1$@ <value> --confirm` y apruébalo en cmux"
+            "state": "translated",
+            "value": "Solo tú puedes cambiar %1$@: usa Ajustes o `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Vous seul pouvez modifier %1$@ : utilisez les Réglages, ou `cmux settings set %1$@ <value> --confirm` puis approuvez dans cmux"
+            "state": "translated",
+            "value": "Vous seul pouvez modifier %1$@ : utilisez Réglages ou `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Solo tu puoi modificare %1$@: usa Impostazioni, oppure `cmux settings set %1$@ <value> --confirm` e approva in cmux"
+            "state": "translated",
+            "value": "Solo tu puoi modificare %1$@: usa Impostazioni o `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ はあなただけが変更できます。設定を使うか、`cmux settings set %1$@ <value> --confirm` を実行して cmux で承認してください"
+            "value": "%1$@ を変更できるのはあなただけです：設定、または `cmux settings set %1$@ <value> --confirm` を使ってください"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "មានតែអ្នកទេដែលអាចប្ដូរ %1$@៖ ប្រើការកំណត់ ឬ `cmux settings set %1$@ <value> --confirm` ហើយអនុម័តវានៅក្នុង cmux"
+            "state": "translated",
+            "value": "មានតែអ្នកទេដែលអាចប្ដូរ %1$@៖ ប្រើការកំណត់ ឬ `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@은(는) 사용자만 변경할 수 있습니다. 설정을 사용하거나 `cmux settings set %1$@ <value> --confirm`을 실행한 뒤 cmux에서 승인하세요"
+            "state": "translated",
+            "value": "%1$@은(는) 본인만 변경할 수 있습니다: 설정 또는 `cmux settings set %1$@ <value> --confirm`을 사용하세요"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ kan bare endres av deg: bruk Innstillinger, eller `cmux settings set %1$@ <value> --confirm` og godkjenn det i cmux"
+            "state": "translated",
+            "value": "Bare du kan endre %1$@: bruk Innstillinger eller `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ możesz zmienić tylko Ty: użyj Ustawień albo `cmux settings set %1$@ <value> --confirm` i zatwierdź w cmux"
+            "state": "translated",
+            "value": "Tylko Ty możesz zmienić %1$@: użyj Ustawień lub `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Só você pode alterar %1$@: use os Ajustes, ou `cmux settings set %1$@ <value> --confirm` e aprove no cmux"
+            "state": "translated",
+            "value": "Só você pode alterar %1$@: use Ajustes ou `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ можете изменить только вы: используйте Настройки или `cmux settings set %1$@ <value> --confirm` и подтвердите это в cmux"
+            "state": "translated",
+            "value": "Изменить %1$@ можете только вы: в Настройках или командой `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "มีเพียงคุณเท่านั้นที่เปลี่ยน %1$@ ได้: ใช้การตั้งค่า หรือ `cmux settings set %1$@ <value> --confirm` แล้วอนุมัติใน cmux"
+            "state": "translated",
+            "value": "มีเพียงคุณที่เปลี่ยน %1$@ ได้: ใช้การตั้งค่า หรือ `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ yalnızca sizin tarafınızdan değiştirilebilir: Ayarlar'ı kullanın veya `cmux settings set %1$@ <value> --confirm` çalıştırıp cmux'ta onaylayın"
+            "state": "translated",
+            "value": "%1$@ değerini yalnızca siz değiştirebilirsiniz: Ayarlar'ı veya `cmux settings set %1$@ <value> --confirm` komutunu kullanın"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ можете змінити лише ви: скористайтеся Налаштуваннями або `cmux settings set %1$@ <value> --confirm` і підтвердьте це в cmux"
+            "state": "translated",
+            "value": "Змінити %1$@ можете лише ви: у Налаштуваннях або командою `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chỉ bạn mới có thể thay đổi %1$@: dùng Cài đặt, hoặc `cmux settings set %1$@ <value> --confirm` rồi chấp thuận trong cmux"
+            "state": "translated",
+            "value": "Chỉ bạn mới đổi được %1$@: dùng Cài đặt hoặc `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ 只能由你更改：使用“设置”，或运行 `cmux settings set %1$@ <value> --confirm` 并在 cmux 中批准"
+            "state": "translated",
+            "value": "只有你能更改 %1$@：使用设置，或 `cmux settings set %1$@ <value> --confirm`"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ 只能由你變更：使用「設定」，或執行 `cmux settings set %1$@ <value> --confirm` 並在 cmux 中核准"
+            "state": "translated",
+            "value": "只有你能變更 %1$@：使用設定，或 `cmux settings set %1$@ <value> --confirm`"
           }
         }
       }
@@ -8782,130 +8782,130 @@
     "control.error.settingUserOnlyDeclined": {
       "extractionState": "manual",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ was not changed"
+          }
+        },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لم يتم تغيير %1$@: تم رفض التأكيد"
+            "state": "translated",
+            "value": "لم يتم تغيير %1$@"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ nije promijenjeno: potvrda je odbijena"
+            "state": "translated",
+            "value": "%1$@ nije promijenjeno"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ blev ikke ændret: bekræftelsen blev afvist"
+            "state": "translated",
+            "value": "%1$@ blev ikke ændret"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ wurde nicht geändert: Die Bestätigung wurde abgelehnt"
-          }
-        },
-        "en": {
-          "stringUnit": {
             "state": "translated",
-            "value": "%1$@ was not changed: the confirmation was declined"
+            "value": "%1$@ wurde nicht geändert"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ no se cambió: se rechazó la confirmación"
+            "state": "translated",
+            "value": "%1$@ no se cambió"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ n'a pas été modifié : la confirmation a été refusée"
+            "state": "translated",
+            "value": "%1$@ n’a pas été modifié"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ non è stato modificato: la conferma è stata rifiutata"
+            "state": "translated",
+            "value": "%1$@ non è stato modificato"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ は変更されませんでした。確認が拒否されました"
+            "value": "%1$@ は変更されませんでした"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ មិនត្រូវបានប្ដូរទេ៖ ការបញ្ជាក់ត្រូវបានបដិសេធ"
+            "state": "translated",
+            "value": "%1$@ មិនត្រូវបានប្ដូរទេ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@이(가) 변경되지 않았습니다. 확인이 거부되었습니다"
+            "state": "translated",
+            "value": "%1$@이(가) 변경되지 않았습니다"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ ble ikke endret: bekreftelsen ble avslått"
+            "state": "translated",
+            "value": "%1$@ ble ikke endret"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie zmieniono %1$@: potwierdzenie zostało odrzucone"
+            "state": "translated",
+            "value": "Nie zmieniono %1$@"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ não foi alterado: a confirmação foi recusada"
+            "state": "translated",
+            "value": "%1$@ não foi alterado"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ не изменено: подтверждение отклонено"
+            "state": "translated",
+            "value": "%1$@ не изменено"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่ได้เปลี่ยน %1$@: การยืนยันถูกปฏิเสธ"
+            "state": "translated",
+            "value": "ไม่ได้เปลี่ยน %1$@"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ değiştirilmedi: onay reddedildi"
+            "state": "translated",
+            "value": "%1$@ değiştirilmedi"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ не змінено: підтвердження відхилено"
+            "state": "translated",
+            "value": "%1$@ не змінено"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ chưa được thay đổi: xác nhận đã bị từ chối"
+            "state": "translated",
+            "value": "%1$@ không được thay đổi"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ 未更改：确认被拒绝"
+            "state": "translated",
+            "value": "%1$@ 未更改"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ 未變更：確認被拒絕"
+            "state": "translated",
+            "value": "%1$@ 未變更"
           }
         }
       }
@@ -9309,127 +9309,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ cannot open a transparent browser tab: cmux-next browser tabs are always opaque (omit transparent_background)"
+            "value": "%@ cannot open a transparent browser tab; omit transparent_background"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يستطيع %@ فتح علامة تبويب متصفح شفافة: علامات تبويب المتصفح في cmux-next معتمة دائمًا (احذف transparent_background)"
+            "state": "translated",
+            "value": "لا يمكن لـ %@ فتح علامة تبويب متصفح شفافة؛ احذف transparent_background"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ ne može otvoriti providnu karticu preglednika: kartice preglednika u cmux-next su uvijek neprovidne (izostavite transparent_background)"
+            "state": "translated",
+            "value": "%@ ne može otvoriti prozirnu karticu preglednika; izostavite transparent_background"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ kan ikke åbne en gennemsigtig browserfane: browserfaner i cmux-next er altid uigennemsigtige (udelad transparent_background)"
+            "state": "translated",
+            "value": "%@ kan ikke åbne en gennemsigtig browserfane; udelad transparent_background"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ kann keinen transparenten Browser-Tab öffnen: Browser-Tabs in cmux-next sind immer deckend (transparent_background weglassen)"
+            "state": "translated",
+            "value": "%@ kann keinen transparenten Browser-Tab öffnen; transparent_background weglassen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ no puede abrir una pestaña de navegador transparente: las pestañas de navegador de cmux-next siempre son opacas (omite transparent_background)"
+            "state": "translated",
+            "value": "%@ no puede abrir una pestaña de navegador transparente; omite transparent_background"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ ne peut pas ouvrir d'onglet de navigateur transparent : les onglets de navigateur de cmux-next sont toujours opaques (omettez transparent_background)"
+            "state": "translated",
+            "value": "%@ ne peut pas ouvrir un onglet de navigateur transparent ; omettez transparent_background"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ non può aprire una scheda browser trasparente: le schede browser di cmux-next sono sempre opache (ometti transparent_background)"
+            "state": "translated",
+            "value": "%@ non può aprire una scheda del browser trasparente; ometti transparent_background"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ は透明なブラウザタブを開けません。cmux-next のブラウザタブは常に不透明です（transparent_background を省いてください）"
+            "state": "translated",
+            "value": "%@ は透明なブラウザタブを開けません。transparent_background を省いてください"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ មិនអាចបើកផ្ទាំងកម្មវិធីរុករកថ្លាបានទេ៖ ផ្ទាំងកម្មវិធីរុករក cmux-next តែងតែស្រអាប់ (លុប transparent_background ចេញ)"
+            "state": "translated",
+            "value": "%@ មិនអាចបើកផ្ទាំងកម្មវិធីរុករកថ្លាបានទេ; លុប transparent_background ចេញ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@는 투명한 브라우저 탭을 열 수 없습니다. cmux-next 브라우저 탭은 항상 불투명합니다(transparent_background를 빼세요)"
+            "state": "translated",
+            "value": "%@은(는) 투명한 브라우저 탭을 열 수 없습니다. transparent_background를 빼세요"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ kan ikke åpne en gjennomsiktig nettleserfane: nettleserfaner i cmux-next er alltid ugjennomsiktige (utelat transparent_background)"
+            "state": "translated",
+            "value": "%@ kan ikke åpne en gjennomsiktig nettleserfane; utelat transparent_background"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ nie może otworzyć przezroczystej karty przeglądarki: karty przeglądarki w cmux-next są zawsze nieprzezroczyste (pomiń transparent_background)"
+            "state": "translated",
+            "value": "%@ nie może otworzyć przezroczystej karty przeglądarki; pomiń transparent_background"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ não pode abrir uma aba de navegador transparente: as abas de navegador do cmux-next são sempre opacas (omita transparent_background)"
+            "state": "translated",
+            "value": "%@ não pode abrir uma aba de navegador transparente; omita transparent_background"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ не может открыть прозрачную вкладку браузера: вкладки браузера cmux-next всегда непрозрачны (уберите transparent_background)"
+            "state": "translated",
+            "value": "%@ не может открыть прозрачную вкладку браузера; уберите transparent_background"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ เปิดแท็บเบราว์เซอร์แบบโปร่งใสไม่ได้: แท็บเบราว์เซอร์ของ cmux-next ทึบเสมอ (ละ transparent_background ออก)"
+            "state": "translated",
+            "value": "%@ เปิดแท็บเบราว์เซอร์แบบโปร่งใสไม่ได้ ให้ละ transparent_background"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ saydam bir tarayıcı sekmesi açamaz: cmux-next tarayıcı sekmeleri her zaman opaktır (transparent_background'u çıkarın)"
+            "state": "translated",
+            "value": "%@ şeffaf bir tarayıcı sekmesi açamaz; transparent_background'u çıkarın"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ не може відкрити прозору вкладку браузера: вкладки браузера cmux-next завжди непрозорі (приберіть transparent_background)"
+            "state": "translated",
+            "value": "%@ не може відкрити прозору вкладку браузера; приберіть transparent_background"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ không thể mở tab trình duyệt trong suốt: tab trình duyệt của cmux-next luôn đục (bỏ transparent_background)"
+            "state": "translated",
+            "value": "%@ không thể mở tab trình duyệt trong suốt; bỏ transparent_background"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 无法打开透明的浏览器标签页：cmux-next 的浏览器标签页始终不透明（请省略 transparent_background）"
+            "state": "translated",
+            "value": "%@ 无法打开透明的浏览器标签页；请省略 transparent_background"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 無法開啟透明的瀏覽器分頁：cmux-next 的瀏覽器分頁一律不透明（請省略 transparent_background）"
+            "state": "translated",
+            "value": "%@ 無法開啟透明的瀏覽器分頁；請省略 transparent_background"
           }
         }
       }
