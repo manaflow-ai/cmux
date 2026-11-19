@@ -260,6 +260,27 @@ class RowsTests(unittest.TestCase):
         self.assertEqual(cron.target_of("launch.warm.first_window_frame_committed", rows["launch.warm.first_window_frame_committed"], 16.67), 1000)
         self.assertEqual(cron.part_for_row("launch.warm.sidebar_rows_shown"), "launch")
 
+    def test_dock_launch_over_one_bounce_is_flagged(self):
+        """CMUX-631: a Dock launch whose applicationDidFinishLaunching starts after 250 ms (more than one bounce) is a
+        row over its target, so the cron lists it; under 250 ms it passes."""
+        part = cron.PART_BY_NAME["launch-dock"]
+        self.assertIn("--activation", part["args"])
+        self.assertEqual(part["args"][part["args"].index("--activation") + 1], "active")
+        slow = {"split-spring": {"warm": [{"did_finish_launching_start": v, "first_window_frame_committed": v + 300}
+                                          for v in (1290, 1306, 1330)]}}
+        rows = cron.rows_of_part(part, slow, budgets_mod, {"rows": {}})
+        name = "launch.dock.warm.did_finish_launching_start"
+        self.assertEqual(cron.target_of(name, rows[name], 16.67), 250)
+        self.assertTrue(cron.over_target(name, rows[name], 16.67))
+        self.assertEqual(cron.part_for_row(name), "launch-dock")
+        regs = cron.find_regressions({name: rows[name]}, {}, 16.67, 16.67, budgets_mod)
+        self.assertEqual([r["name"] for r in regs], [name], "over one bounce with no reference is still listed")
+        fast = {"split-spring": {"warm": [{"did_finish_launching_start": v, "first_window_frame_committed": v + 100}
+                                          for v in (118, 123, 131)]}}
+        rows = cron.rows_of_part(part, fast, budgets_mod, {"rows": {}})
+        self.assertFalse(cron.over_target(name, rows[name], 16.67))
+        self.assertNotIn("launch.warm.did_finish_launching_start", rows, "the Dock part's rows never mix with the direct exec's")
+
     def test_stress_pane_summary_rows(self):
         report = {"summary": [{"action": "close", "layout": "stress", "frames_p50_ms": 16.6, "frames_p95_ms": 33.3}],
                   "runs": [{"refresh_ms": 16.67}]}
