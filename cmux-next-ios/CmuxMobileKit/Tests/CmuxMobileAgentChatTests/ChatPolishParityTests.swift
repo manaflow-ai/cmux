@@ -308,6 +308,116 @@ import UIKit
         #expect(AgentReplayRecording.clock(75.9) == "1:15")
     }
 
+    /// The Mac's replay fixture (webviews replay/replayFixture.ts): one turn that reads a file,
+    /// runs the tests (they fail), edits the file and runs them again, with a long pause.
+    private func replayFixture() -> AgentReplayRecording {
+        let old = "if (attempt >= attempts) throw error;"
+        let new = "if (attempt + 1 >= attempts) throw error;"
+        let say = { (text: String) in AgentSessionEvent.update(.agentMessageChunk(text: text, messageId: nil)) }
+        let output = { (text: String) in [ACPToolCall.Content.content(.text(text))] }
+        let steps: [(after: TimeInterval, event: AgentSessionEvent)] = [
+            (0, .userMessage(text: "The retry test in api/client.test.ts is flaky.", promptId: "p", turnId: "t", attachments: [], at: Date())),
+            (0.9, .update(.agentThoughtChunk(text: "Read the retry helper first."))),
+            (1.2, .update(.toolCall(ACPToolCall(id: "read-1", title: "Read api/client.ts", kind: .read,
+                                                locations: [.init(path: "api/client.ts")])))),
+            (0.4, .update(.toolCallUpdate(ACPToolCallUpdate(toolCallId: "read-1", status: .completed, content: output(old))))),
+            (1.5, .update(.toolCall(ACPToolCall(id: "run-1", title: "bun test api/client.test.ts", kind: .execute,
+                                                rawInput: .object(["command": .string("bun test api/client.test.ts")]))))),
+            (3.2, .update(.toolCallUpdate(ACPToolCallUpdate(toolCallId: "run-1", status: .failed, content: output("1 fail, 11 pass"))))),
+            (1.8, say("The loop allows one attempt too many.")),
+            (2.4, .update(.toolCall(ACPToolCall(id: "edit-1", title: "Edit api/client.ts", kind: .edit,
+                                                content: [.diff(path: "api/client.ts", oldText: old, newText: new)],
+                                                locations: [.init(path: "api/client.ts", line: 6)])))),
+            (0.3, .update(.toolCallUpdate(ACPToolCallUpdate(toolCallId: "edit-1", status: .completed)))),
+            // A rate-limit wait; replay keeps two seconds of it.
+            (45, .update(.toolCall(ACPToolCall(id: "run-2", title: "bun test api/client.test.ts", kind: .execute,
+                                               rawInput: .object(["command": .string("bun test api/client.test.ts")]))))),
+            (2.9, .update(.toolCallUpdate(ACPToolCallUpdate(toolCallId: "run-2", status: .completed, content: output("12 pass"))))),
+            (1.1, say("Fixed: withRetry now makes exactly `attempts` calls.")),
+        ]
+        var at = Date(timeIntervalSince1970: 1_760_113_200)
+        return AgentReplayRecording.build(steps.map { step in
+            at = at.addingTimeInterval(step.after)
+            var isToolCall = false
+            if case .update(.toolCall(_)) = step.event { isToolCall = true }
+            return (at: at, events: [step.event], isToolCall: isToolCall)
+        }, truncated: false)
+    }
+
+    private func toolUpdate(_ fields: ACPToolCallUpdate) -> AgentSessionEvent { .update(.toolCallUpdate(fields)) }
+
+    @Test func replayTouchesAreTheFixturesReadTestRunsAndEditAtEachCallsStart() {
+        let recording = replayFixture()
+        let rows = recording.touches.map { "\($0.kind) \($0.verb) \($0.text) \($0.failed)" }
+        #expect(rows == [
+            "file read api/client.ts false",
+            "command run bun test api/client.test.ts true",
+            "file edit api/client.ts false",
+            "command run bun test api/client.test.ts false",
+        ])
+        // Each touch sits on its call's first step, so the list grows as the calls start.
+        for touch in recording.touches {
+            #expect(recording.played(at: touch.time) > touch.step)
+            #expect(recording.steps[touch.step].isToolCall)
+        }
+        #expect(recording.touchesThrough(played: 0) == 0)
+        #expect(recording.touchesThrough(played: recording.touches[1].step + 1) == 2)
+        #expect(recording.touchesThrough(played: Int.max) == 4)
+    }
+
+    @Test func replayListsACommandOrPathThatArrivesLaterAtTheCallsStart() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let events: [AgentSessionEvent] = [
+            .update(.toolCall(ACPToolCall(id: "a", title: "", kind: .execute, status: .pending))),
+            toolUpdate(ACPToolCallUpdate(toolCallId: "a", rawInput: .object(["command": .array([.string("git"), .string("status")])]))),
+            // A status-only update's `{}` input keeps the call's command.
+            toolUpdate(ACPToolCallUpdate(toolCallId: "a", status: .completed, rawInput: .object([:]))),
+            .update(.toolCall(ACPToolCall(id: "b", title: "Write", kind: .edit))),
+            toolUpdate(ACPToolCallUpdate(toolCallId: "b", rawInput: .object(["file_path": .string("/repo/src/a.ts"), "content": .string("x")]))),
+            .update(.toolCall(ACPToolCall(id: "c", title: "Grep foo", kind: .search))),
+        ]
+        let recording = AgentReplayRecording.build(events.enumerated().map { index, event in
+            (start.addingTimeInterval(Double(index) * 0.5), [event], false)
+        }, truncated: false)
+        #expect(recording.touches.map { "\($0.step) \($0.text)" } == ["0 git status", "3 /repo/src/a.ts"])
+    }
+
+    @Test func replayFilesListOnceEachEditedOnceAnyCallChangedThem() {
+        let files = AgentReplayRecording.touchedFiles(replayFixture().touches)
+        #expect(files.map(\.path) == ["api/client.ts"])
+        #expect(files.map(\.edited) == [true])
+        #expect(files.first?.last.verb == .edit)
+    }
+
+    @Test func replayPathInsideTheChatsFolderReadsFromThere() {
+        #expect(AgentReplayRecording.shownPath("/repo/src/a.ts", cwd: "/repo/") == "src/a.ts")
+        #expect(AgentReplayRecording.shownPath("/repository/a.ts", cwd: "/repo") == "/repository/a.ts")
+        #expect(AgentReplayRecording.shownPath("/etc/hosts") == "/etc/hosts")
+    }
+
+    @Test func replayReadsEachHarnesssCommandAndFileShapesAsTheMacDoes() {
+        #expect(AgentReplayTouch.shellCommand(.object(["command": .array([.string("/bin/zsh"), .string("-lc"), .string("cd x && bun test")])])) == "cd x && bun test")
+        #expect(AgentReplayTouch.shellCommand(.object(["command": .array([.string("echo"), .string("a b"), .string("it's")])])) == "echo 'a b' 'it'\\''s'")
+        let patch = "*** Begin Patch\n*** Update File: src/a.ts\n*** Move to: src/b.ts\n*** Add File: src/c.ts\n*** End Patch"
+        #expect(AgentReplayTouch.editedPaths(rawInput: .object(["command": .array([.string("apply_patch"), .string(patch)])]), locations: [], title: "")
+            == ["src/a.ts", "src/c.ts", "src/b.ts"])
+        #expect(AgentReplayTouch.editedPaths(rawInput: .object(["changes": .object(["/r/x.swift": .null])]), locations: [], title: "") == ["/r/x.swift"])
+        #expect(AgentReplayTouch.editedPaths(rawInput: nil, locations: [], title: "Read `notes.md`") == ["notes.md"])
+        #expect(AgentReplayTouch.editedPaths(rawInput: nil, locations: [], title: "Grep foo").isEmpty)
+    }
+
+    @Test func replayStartsAtTenTimesOneOfTheSpeeds() {
+        #expect(AgentReplayRecording.speeds == [0.5, 1, 2, 4, 10, 16])
+        #expect(AgentReplayRecording.speeds.contains(AgentReplayRecording.defaultSpeed))
+        #expect(AgentReplayRecording.defaultSpeed == 10)
+        let player = ChatReplayPlayer()
+        #expect(player.speed == 10)
+        player.cycleSpeed()
+        #expect(player.speed == 16)
+        player.cycleSpeed()
+        #expect(player.speed == 0.5)
+    }
+
     @Test func replayPlaysIntoItsOwnReadOnlyStore() {
         let source = ReplaySource(summary: Source().summary)
         let store = AgentChatStore(source: source)
