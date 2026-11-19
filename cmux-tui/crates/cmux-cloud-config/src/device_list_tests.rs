@@ -93,3 +93,51 @@ fn a_renamed_or_blank_own_record_still_marks_this_macs_builds_by_its_registered_
     };
     assert_eq!(listing(&mine, &devices).this_device, ["nightly", "dev"]);
 }
+
+fn on(machine: &str, device: Device) -> Device {
+    Device { machine_group: Some(machine.into()), ..device }
+}
+
+#[test]
+fn one_machine_is_one_row_whatever_its_records_are_named() {
+    // studio-mac: the acpmux daemon's record is named by the kernel host name, the
+    // app's by the Computer Name, and a stale app identity predates the hub's machine group.
+    let devices = [
+        on(
+            "g1",
+            Device { online: true, mac_screen_shared: true, ..device("daemon", "studio-mac") },
+        ),
+        on("g1", device("app", "Studio Mac (2)")),
+        device("stale", "studio-mac"),
+        on("g2", device("me", "Laptop")),
+    ];
+    let listing = listing(&this("me"), &devices);
+    assert_eq!(listing.this_device, ["me"]);
+    assert_eq!(
+        listing.others,
+        [Machine { id: "daemon".into(), ids: vec!["daemon".into(), "app".into(), "stale".into()] }]
+    );
+}
+
+#[test]
+fn this_machines_records_are_this_device_by_its_machine() {
+    let devices = [
+        on("g1", device("me", "Studio Mac")),
+        on("g1", device("daemon", "studio-mac-host")),
+        on("g2", device("air", "Laptop")),
+    ];
+    let listing = listing(&this("me"), &devices);
+    assert_eq!(listing.this_device, ["me", "daemon"]);
+    assert_eq!(listing.others, [Machine { id: "air".into(), ids: vec!["air".into()] }]);
+}
+
+#[test]
+fn two_machines_with_one_name_stay_two_once_both_name_their_machine() {
+    let devices = [
+        on("g1", device("a", "Studio")),
+        on("g2", device("b", "Studio")),
+        Device { platform: Some("ios".into()), ..on("g1", device("phone", "Studio")) },
+    ];
+    let ids: Vec<_> = listing(&this("me"), &devices).others.into_iter().map(|m| m.id).collect();
+    assert_eq!(ids, ["a", "b", "phone"]);
+}

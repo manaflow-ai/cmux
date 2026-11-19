@@ -161,7 +161,10 @@ extension CmuxRemoteActionEnvironment {
     /// confirms here; only then does this device sign the approval the target Mac admits
     /// (`acpmux::share_approval`). Nothing turns on here: the target makes its own hub call.
     static func confirmShareOther(_ device: String, hub: DeviceHub, window: NSWindow?) throws -> ControlReply {
-        guard let target = hub.otherDevices.first(where: { $0.id == device || $0.name.caseInsensitiveCompare(device) == .orderedSame }) else {
+        // The names `cmux device list` prints resolve as `macScreen.open --device` does ("mac-mini" for "Mac Mini").
+        let others = hub.otherDevices
+        guard let id = try? MacScreenActions.deviceID(named: device, among: others),
+              let target = others.first(where: { $0.id == id }) else {
             throw ControlError.invalidParams(CmuxRemoteStrings.notYourDevice(device))
         }
         let (title, body) = CmuxRemoteStrings.confirmShareOther(device: target.name)

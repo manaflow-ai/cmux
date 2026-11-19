@@ -74,23 +74,30 @@ describe("join turns Mac Screen sharing on", () => {
   it("an explicit off made before the join default ever applied also wins", async () => {
     const person = await signIn();
     const mini = await machineDevice(person, await joinedMachine(person.sub));
-    expect((await registerAs(mini)).macScreenShared).toBe(false);
+    expect((await registerAs(mini)).macScreenShared).toBe(true);
     await mini.call("PUT", `/v1/devices/${mini.id}/mac-screen`, { shared: false });
     expect((await registerAs(mini, true)).macScreenShared).toBe(false);
   });
 
-  it("a Mac only signed in through the app never gets it, even when it asks", async () => {
+  it("an own Mac shares with the account's devices until its switch is set, joined or only signed in", async () => {
+    // Leo, 2026-11-18: "the whole allow blah blah is so annoying". Every device of a User DO is
+    // the person's own, so an unset switch shares; an explicit off is the person's Stop.
     const person = await signIn();
     const mac = await Device.create(person, "Studio", "macos");
-    expect((await registerAs(mac, true)).macScreenShared).toBe(false);
+    expect((await registerAs(mac, true)).macScreenShared).toBe(true);
+    expect((await registerAs(mac)).macScreenShared).toBe(true);
+    const off = await mac.call("PUT", `/v1/devices/${mac.id}/mac-screen`, { shared: false });
+    expect(off.json.device.macScreenShared).toBe(false);
     expect((await registerAs(mac)).macScreenShared).toBe(false);
+    const phone = await Device.create(person, "Phone", "ios");
+    expect((await registerAs(phone)).macScreenShared).toBe(false);
   });
 
-  it("a joined machine that does not ask, or a phone, stays off", async () => {
+  it("a joined machine that does not ask still shares as an own machine; a bad shareByJoin is refused", async () => {
     const person = await signIn();
     const mini = await machineDevice(person, await joinedMachine(person.sub));
-    expect((await registerAs(mini, false)).macScreenShared).toBe(false);
-    expect((await registerAs(mini)).macScreenShared).toBe(false);
+    expect((await registerAs(mini, false)).macScreenShared).toBe(true);
+    expect((await registerAs(mini)).macScreenShared).toBe(true);
     const res = await mini.call("POST", "/v1/devices", { id: mini.id, name: "x", platform: "macos", signingKey: mini.signingKey, agreementKey: mini.agreementKey, shareByJoin: "yes" });
     expect([res.status, res.json.error.code]).toEqual([400, "bad_request"]);
   });

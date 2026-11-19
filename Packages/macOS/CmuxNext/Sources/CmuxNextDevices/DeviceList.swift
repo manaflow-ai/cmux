@@ -24,14 +24,14 @@ public struct DeviceList: Sendable, Equatable {
         struct This: Encodable { var id: String, name: String, platform: String }
         struct Record: Encodable {
             var id: String, name: String, platform: String?, online: Bool, macScreenShared: Bool
-            var lastSeenAt: Double?, createdAt: Double?
+            var lastSeenAt: Double?, createdAt: Double?, machineGroup: String?
         }
         struct Request: Encodable { var this: This, devices: [Record] }
         struct Reply: Decodable { var thisDevice: [String], others: [Machine] }
         let request = Request(this: This(id: thisID, name: thisName, platform: platform.rawValue), devices: devices.map {
             Record(id: $0.id, name: $0.name, platform: $0.platform?.rawValue, online: $0.online,
                    macScreenShared: $0.macScreenShared, lastSeenAt: $0.lastSeenAt?.timeIntervalSince1970,
-                   createdAt: $0.createdAt?.timeIntervalSince1970)
+                   createdAt: $0.createdAt?.timeIntervalSince1970, machineGroup: $0.machineGroup)
         })
         if let data = try? JSONEncoder().encode(request), let answer = AppRules.call("cloud_identity_device_list", data),
            let reply = try? JSONDecoder().decode(Reply.self, from: answer) {

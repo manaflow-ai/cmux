@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex } from "./crypto";
+import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex, sha256Hex } from "./crypto";
 import { DEVICE_ID, REPLAY_WINDOW_MS, checkDeviceSignature, readDeviceHeaders } from "./deviceAuth";
 import { relayEntitlement } from "./billing";
 import { HOST_RELAY_HEADER, ORIGIN_HEADER, SCOPE_HEADER, SESSION_DEVICE_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
@@ -52,6 +52,10 @@ interface DeviceRow {
   mac_screen_chosen: number;
   /** The device's own screen sharing status (`cmux.screen-share.status/1`), JSON; null until reported. */
   screen_share: string | null;
+  /** Whose device it is: `user` is this account's own (every device of a User DO today). */
+  owner_kind: string;
+  /** A one-way name of `machine` (`machineGroup`), listed so clients show one row per machine. */
+  machine_group: string | null;
 }
 
 interface SessionRow {
@@ -183,10 +187,40 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["audit", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
   ["audit", "owner_id", "TEXT NOT NULL DEFAULT ''"],
   ["devices", "machine", "TEXT"],
+  ["devices", "machine_group", "TEXT"],
 ];
 
 /** A registration's `machine`: the lowercase hex SHA-256 the app derives from the Mac's hardware id. */
 const MACHINE = /^[0-9a-f]{64}$/;
+
+/**
+ * How long a device of the same machine must have been offline and unheard before a new
+ * registration from that machine removes it as stale. The app's other builds, an identity a
+ * renewal replaced and the acpmux daemon's device before the app shared it are all one machine;
+ * the person sees one row for it (Leo, 2026-11-18: "i should be able to see into any connected
+ * mac or linux machine"). A device online now, or heard within this bound (registered and about to
+ * open its socket), is another build running right now and stays.
+ */
+export const STALE_SIBLING_MS = 10 * 60 * 1000;
+
+/** `machineGroup`: what the list says about a device's machine, never the `machine` itself (a device
+ * that learned it could claim that machine's permissions). */
+export async function machineGroupOf(machine: string): Promise<string> {
+  return (await sha256Hex(`cmux.device-hub.machine-group\n${machine}`)).slice(0, 32);
+}
+
+/**
+ * Whether a host shares its screen with this account's devices. A switch the person set
+ * (`mac_screen_chosen`) always wins: Stop Sharing, `share off`, or an explicit off. Unset, a Mac or
+ * Linux desktop of the account's own (`owner_kind` user) shares with the person's other devices, so
+ * viewing your own machine asks for no Allow and no Share This Mac (Leo, 2026-11-18: "the whole
+ * allow blah blah is so annoying"). A device of any other owner keeps sharing off until it is set.
+ */
+export function sharesScreen(d: Pick<DeviceRow, "platform" | "mac_screen_shared" | "mac_screen_chosen" | "owner_kind">): boolean {
+  if (d.mac_screen_chosen === 1) return d.mac_screen_shared === 1;
+  if (d.mac_screen_shared === 1) return true;
+  return (d.owner_kind ?? "user") === "user" && HOST_PLATFORMS.includes(d.platform);
+}
 const OWNED_TABLES = ["devices", "permissions", "sessions", "audit"];
 
 /** What a User DO socket carries across hibernation. */
@@ -212,8 +246,11 @@ function publicDevice(d: DeviceRow, online: boolean) {
     agreementKey: d.agreement_key,
     createdAt: d.created_at,
     lastSeenAt: d.last_seen_at,
-    macScreenShared: d.mac_screen_shared === 1,
+    macScreenShared: sharesScreen(d),
     screenShare: screenShareOf(d),
+    // The same value for every device of one machine (the app's builds, the acpmux daemon's):
+    // clients list them as one. Null for a device that named no machine.
+    machineGroup: d.machine_group ?? null,
     online,
   };
 }
@@ -523,6 +560,7 @@ export class UserDO extends DurableObject<Env> {
       throw badRequest("machine must be 64 lowercase hex digits");
     }
     const machine = (body.machine as string | undefined) ?? null;
+    const machineGroup = machine ? await machineGroupOf(machine) : null;
     await checkDeviceSignature(signingKey, request.method, url, raw, h);
     const existing = this.device(h.id);
     if (existing?.removed_at != null) throw new ApiError(403, "device_removed", "this device was removed; register a new device id");
@@ -531,17 +569,18 @@ export class UserDO extends DurableObject<Env> {
     if (existing) {
       // The first machine a device named stays: a later registration cannot move it to another Mac.
       this.sql.exec(
-        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ?, machine = COALESCE(machine, ?) WHERE id = ?",
+        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ?, machine = COALESCE(machine, ?), machine_group = CASE WHEN machine IS NULL THEN ? ELSE machine_group END WHERE id = ?",
         name,
         body.platform,
         agreementKey,
         now,
         machine,
+        machineGroup,
         h.id,
       );
     } else {
       this.sql.exec(
-        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id, machine) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?, ?)",
+        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id, machine, machine_group) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?, ?, ?)",
         h.id,
         name,
         body.platform,
@@ -551,10 +590,12 @@ export class UserDO extends DurableObject<Env> {
         now,
         this.ownerId,
         machine,
+        machineGroup,
       );
       this.audit("device_added", { deviceId: h.id, detail: `${h.id} ${name}` });
     }
     this.joinDefault(h.id, scope, body.shareByJoin === true);
+    await this.retireStaleSiblings(h.id, now);
     this.broadcast({ type: "devices.changed" });
     return json({ device: publicDevice(this.device(h.id)!, this.online(h.id)) });
   }
@@ -573,6 +614,54 @@ export class UserDO extends DurableObject<Env> {
     if (!d || !HOST_PLATFORMS.includes(d.platform) || d.mac_screen_chosen === 1 || d.mac_screen_shared === 1) return;
     this.sql.exec("UPDATE devices SET mac_screen_shared = 1 WHERE id = ?", id);
     this.audit("shared", { hostId: id, detail: "joined" });
+  }
+
+  /**
+   * One machine, one device: the other devices of `id`'s machine (same `machine`, same platform)
+   * that are offline and unheard for STALE_SIBLING_MS are removed, as stale identities of it (an
+   * earlier build, a renewed identity, the app's own device from before the acpmux daemon shared
+   * its device). Each one's permissions move to `id` first, newest answer winning, so a None or a
+   * View Only the person gave that machine stays with it and no removal raises anyone's access.
+   */
+  private async retireStaleSiblings(id: string, now: number) {
+    const me = this.device(id);
+    if (!me?.machine) return;
+    const siblings = this.sql
+      .exec(
+        "SELECT * FROM devices WHERE machine = ? AND platform = ? AND id != ? AND removed_at IS NULL AND last_seen_at + ? <= ?",
+        me.machine,
+        me.platform,
+        id,
+        STALE_SIBLING_MS,
+        now,
+      )
+      .toArray() as unknown as DeviceRow[];
+    for (const stale of siblings) {
+      if (this.online(stale.id)) continue;
+      this.carryPermissions(stale.id, id);
+      // A switch the person set on the stale identity is about this machine too.
+      if (stale.mac_screen_chosen === 1 && me.mac_screen_chosen !== 1) {
+        this.sql.exec("UPDATE devices SET mac_screen_chosen = 1, mac_screen_shared = ? WHERE id = ?", stale.mac_screen_shared, id);
+      }
+      await this.retire(stale, "superseded");
+    }
+  }
+
+  /** Copies every permission naming `from` to `to` (as host or viewer); the newest answer per pair wins. */
+  private carryPermissions(from: string, to: string) {
+    const upsert = "ON CONFLICT(host_id, viewer_id) DO UPDATE SET scope = excluded.scope, updated_at = excluded.updated_at WHERE excluded.updated_at > permissions.updated_at";
+    this.sql.exec(
+      `INSERT INTO permissions(host_id, viewer_id, scope, updated_at, owner_kind, owner_id) SELECT ?, viewer_id, scope, updated_at, owner_kind, owner_id FROM permissions WHERE host_id = ? AND viewer_id != ? ${upsert}`,
+      to,
+      from,
+      to,
+    );
+    this.sql.exec(
+      `INSERT INTO permissions(host_id, viewer_id, scope, updated_at, owner_kind, owner_id) SELECT host_id, ?, scope, updated_at, owner_kind, owner_id FROM permissions WHERE viewer_id = ? AND host_id != ? ${upsert}`,
+      to,
+      from,
+      to,
+    );
   }
 
   private async dispatch(request: Request, url: URL, raw: Uint8Array, me: DeviceRow, c: CallContext): Promise<Response> {
@@ -595,6 +684,7 @@ export class UserDO extends DurableObject<Env> {
     if (a === "user" && b === "ws" && n === 2 && m === "GET") return await this.openSocket(request, me);
     if (a === "devices") {
       if (n === 1 && m === "GET") {
+        await this.backfillMachineGroups();
         const rows = this.sql.exec("SELECT * FROM devices WHERE removed_at IS NULL ORDER BY created_at").toArray() as unknown as DeviceRow[];
         return json({ devices: rows.map((r) => publicDevice(r, this.online(r.id))) });
       }
@@ -796,8 +886,22 @@ export class UserDO extends DurableObject<Env> {
     return json({ device: publicDevice(this.device(id)!, this.online(id)) });
   }
 
+  /** `machineGroup` for devices that named a machine before the list carried it. */
+  private async backfillMachineGroups() {
+    const rows = this.sql.exec("SELECT id, machine FROM devices WHERE machine IS NOT NULL AND machine_group IS NULL").toArray();
+    for (const r of rows) {
+      this.sql.exec("UPDATE devices SET machine_group = ? WHERE id = ?", await machineGroupOf(r.machine as string), r.id as string);
+    }
+  }
+
   private async removeDevice(id: string): Promise<Response> {
-    const target = this.liveDevice(id);
+    await this.retire(this.liveDevice(id), null);
+    return json({});
+  }
+
+  /** Removes `target` (the person's Remove, or `superseded` by a newer device of its machine). */
+  private async retire(target: DeviceRow, why: string | null) {
+    const id = target.id;
     this.sql.exec("UPDATE devices SET removed_at = ?, mac_screen_shared = 0 WHERE id = ?", Date.now(), id);
     this.sql.exec("DELETE FROM anchors WHERE device_id = ?", id);
     // No permission outlives its device, as host or as viewer; the hosts that listed it hear so.
@@ -805,11 +909,10 @@ export class UserDO extends DurableObject<Env> {
     this.sql.exec("DELETE FROM permissions WHERE host_id = ? OR viewer_id = ?", id, id);
     const open = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?)", id, id).toArray() as unknown as SessionRow[];
     for (const s of open) await this.endSession(s, `device_removed:${s.viewer_id === id ? "viewer" : "host"}`, "revoked", true);
-    this.audit("device_removed", { deviceId: id, detail: `${id} ${target.name}` });
+    this.audit("device_removed", { deviceId: id, detail: why ? `${id} ${target.name} (${why})` : `${id} ${target.name}` });
     this.closeSockets(id, 4001, "device removed");
     this.broadcast({ type: "devices.changed" });
     for (const hostId of hosts) this.broadcast({ type: "permissions.changed", hostId });
-    return json({});
   }
 
   /** Ends this device's sessions now (reason signed_out) and closes its socket; the device stays registered. */
@@ -849,12 +952,13 @@ export class UserDO extends DurableObject<Env> {
     }
     if (typeof body.shared !== "boolean") throw badRequest("shared must be a boolean");
     // Set on purpose: from now on a join default never changes it (joinDefault).
-    if (me.mac_screen_chosen !== 1) this.sql.exec("UPDATE devices SET mac_screen_chosen = 1 WHERE id = ?", id);
-    const was = me.mac_screen_shared === 1;
-    if (was !== body.shared) {
-      this.sql.exec("UPDATE devices SET mac_screen_shared = ? WHERE id = ?", body.shared ? 1 : 0, id);
+    // What viewers saw before (an unset switch shares with the account's devices: sharesScreen).
+    const was = sharesScreen(me);
+    // The person's choice is recorded (and audited) whenever it sets or changes the switch.
+    if (me.mac_screen_chosen !== 1 || (me.mac_screen_shared === 1) !== body.shared) {
+      this.sql.exec("UPDATE devices SET mac_screen_chosen = 1, mac_screen_shared = ? WHERE id = ?", body.shared ? 1 : 0, id);
       this.audit(body.shared ? "shared" : "unshared", { hostId: id });
-      if (!body.shared) {
+      if (was && !body.shared) {
         // Nothing left to serve: the device no longer renews a host session until the app anchors it again.
         this.sql.exec("DELETE FROM anchors WHERE device_id = ?", id);
         const open = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' AND host_id = ?", id).toArray() as unknown as SessionRow[];
@@ -943,7 +1047,7 @@ export class UserDO extends DurableObject<Env> {
     if (scope !== "view" && scope !== "full") throw badRequest("scope must be view or full");
     if (hostId === me.id) throw badRequest("a device cannot view itself");
     const host = this.liveDevice(hostId);
-    if (host.mac_screen_shared !== 1) throw new ApiError(403, "not_shared", "the host does not share its screen");
+    if (!sharesScreen(host)) throw new ApiError(403, "not_shared", "the host does not share its screen");
     const perm = this.permission(hostId, me.id);
     if (perm === "none") throw new ApiError(403, "permission_none", "the host does not allow this device");
     // A scope above the saved permission (View Only asking for Full Control) is a
@@ -1063,7 +1167,7 @@ export class UserDO extends DurableObject<Env> {
     const s = this.session(id);
     if (!s || s.viewer_id !== me.id || (s.state !== "approved" && s.state !== "live")) throw new ApiError(409, "session_not_active", "session is not active");
     const host = this.liveDevice(s.host_id);
-    if (host.mac_screen_shared !== 1) throw new ApiError(403, "not_shared", "the host does not share its screen");
+    if (!sharesScreen(host)) throw new ApiError(403, "not_shared", "the host does not share its screen");
     if (!this.online(host.id)) throw new ApiError(409, "host_offline", "the host is not connected");
     if (rank(this.permission(host.id, me.id)) < rank(s.scope)) throw new ApiError(403, "permission_none", "the host no longer allows this device");
     const entitled = (await this.entitlement(c)) === "paid";

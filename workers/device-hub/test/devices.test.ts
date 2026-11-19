@@ -6,7 +6,7 @@ describe("device registration and signed requests", () => {
     const account = await signIn();
     const d = await Device.create(account, "Studio", "macos");
     const reg = await d.register();
-    expect(reg.json.device).toMatchObject({ id: d.id, name: "Studio", platform: "macos", signingKey: d.signingKey, agreementKey: d.agreementKey, macScreenShared: false, online: false });
+    expect(reg.json.device).toMatchObject({ id: d.id, name: "Studio", platform: "macos", signingKey: d.signingKey, agreementKey: d.agreementKey, macScreenShared: true, online: false });
     const me = await d.call("GET", "/v1/me");
     expect(me.status).toBe(200);
     expect(me.json).toMatchObject({ userId: account.userId, plan: "free", device: { id: d.id } });

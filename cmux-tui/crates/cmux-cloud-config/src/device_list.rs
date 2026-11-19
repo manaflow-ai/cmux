@@ -15,9 +15,13 @@
 //! this device (its other builds) and are not listed as remotes. Every other group lists once, as
 //! the record a connect should reach: online, then sharing, then the newest seen.
 //!
-//! What it cannot tell: two physical devices with the same Computer Name on one account read as
-//! one. macOS keeps Computer Names unique on a network, and the hub has no machine id to tell
-//! them apart (a hub-side machine id is the follow-up that removes the name rule).
+//! The hub's machine id comes first (Leo, 2026-11-18: one Mac listed as its app's and its acpmux
+//! daemon's devices, whose names differ, "Studio Mac" and "studio-mac"): a record with a
+//! `machineGroup` (every registrant on one machine names the same `machine`, and the hub lists a
+//! one-way name of it) is one device with every record of the same group and platform, whatever
+//! their names. A record without one (a build from before the hub listed it) joins the group of a
+//! record whose name folds the same, else the name rule above. Two physical devices with the same
+//! Computer Name stay apart once both name their machine.
 
 use std::collections::HashMap;
 
@@ -43,6 +47,9 @@ pub struct Device {
     /// Epoch seconds.
     #[serde(default)]
     pub created_at: Option<f64>,
+    /// The hub's one-way name of the machine the record runs on; None when it named none.
+    #[serde(default)]
+    pub machine_group: Option<String>,
 }
 
 /// This device: its id, and its name and platform for before the hub lists its record.
@@ -88,6 +95,13 @@ pub fn key(id: &str, name: &str, platform: Option<&str>) -> String {
     }
 }
 
+/// The key of a record that names its machine: the platform and the hub's machine group.
+fn machine_key(device: &Device) -> Option<String> {
+    let group = device.machine_group.as_deref().filter(|g| !g.is_empty())?;
+    let platform = device.platform.as_deref().filter(|p| !p.is_empty()).unwrap_or("macos");
+    Some(format!("{platform}\u{0}machine\u{0}{group}"))
+}
+
 /// Whether `a` is the better record of one device to show and connect to.
 fn better(a: &Device, b: &Device) -> bool {
     let rank = |d: &Device| (d.online, d.mac_screen_shared);
@@ -100,16 +114,35 @@ fn better(a: &Device, b: &Device) -> bool {
 
 /// The hub's records as physical devices: this device's records, and one entry per other device.
 pub fn listing(this: &This, devices: &[Device]) -> Listing {
-    // This device's keys: its listed record's (a name pinned in Settings) and the name it registers
-    // with (the Computer Name now, after a rename or while its record is blank or not listed yet).
+    // A name that folds the same as a record naming its machine stands for that machine.
+    let mut by_name: HashMap<String, String> = HashMap::new();
+    for device in devices {
+        if let Some(machine) = machine_key(device) {
+            by_name
+                .entry(key(&device.id, &device.name, device.platform.as_deref()))
+                .or_insert(machine);
+        }
+    }
+    let resolve = |name_key: String| by_name.get(&name_key).cloned().unwrap_or(name_key);
+    let record_key = |device: &Device| {
+        machine_key(device)
+            .unwrap_or_else(|| resolve(key(&device.id, &device.name, device.platform.as_deref())))
+    };
+    // This device's keys: its listed record's machine, its name (a name pinned in Settings) and the
+    // name it registers with (the Computer Name now, after a rename or while its record is blank or
+    // not listed yet).
     let own = devices.iter().find(|d| d.id == this.id);
     let platform = own.and_then(|d| d.platform.as_deref()).or(this.platform.as_deref());
     let this_keys: Vec<String> = own
-        .map(|d| d.name.as_str())
+        .and_then(machine_key)
         .into_iter()
-        .chain(this.name.as_deref())
-        .filter(|name| name.chars().any(char::is_alphanumeric))
-        .map(|name| key(&this.id, name, platform))
+        .chain(
+            own.map(|d| d.name.as_str())
+                .into_iter()
+                .chain(this.name.as_deref())
+                .filter(|name| name.chars().any(char::is_alphanumeric))
+                .map(|name| resolve(key(&this.id, name, platform))),
+        )
         .collect();
     let mut this_device = vec![this.id.clone()];
     let mut order: Vec<String> = Vec::new();
@@ -118,7 +151,7 @@ pub fn listing(this: &This, devices: &[Device]) -> Listing {
         if device.id == this.id {
             continue;
         }
-        let k = key(&device.id, &device.name, device.platform.as_deref());
+        let k = record_key(device);
         if this_keys.contains(&k) {
             this_device.push(device.id.clone());
             continue;

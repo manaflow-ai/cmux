@@ -24,7 +24,8 @@ describe("a Linux desktop as a screen host", () => {
   it("registers as linux and lists as linux to the account's Mac", async () => {
     const { linux, mac, reg } = await linuxHost();
     expect(reg.status, JSON.stringify(reg.json)).toBe(200);
-    expect(reg.json.device).toMatchObject({ id: linux.id, platform: "linux", macScreenShared: false });
+    // An own host shares with the account's devices until its switch is set.
+    expect(reg.json.device).toMatchObject({ id: linux.id, platform: "linux", macScreenShared: true });
     await linux.share(true);
     const listed = (await mac.call("GET", "/v1/devices")).json.devices.find((d: any) => d.id === linux.id);
     expect(listed).toMatchObject({ platform: "linux", macScreenShared: true });
