@@ -7,7 +7,8 @@
 //! were a copy per chat: on Leo's Mac (2026-11-16) 418 chats' commands were 22.7 MB of JSON and
 //! only 85 distinct (4 MB), 535 chats' tool rows 3.5 MB and 112 distinct, each held as a
 //! `serde_json::Value` tree in a daemon of 952 MB. Shared, they cost what the distinct ones do,
-//! however many chats there are.
+//! however many chats there are. The text of a chat's context parts ([`SharedText`]) shares the
+//! same way.
 
 use super::ToolRow;
 use crate::no_panic::LockExt;
@@ -180,6 +181,86 @@ impl<'de> Deserialize<'de> for SharedValue {
     }
 }
 
+/// Context text: one copy for every chat whose context part says the same words.
+static TEXTS: LazyLock<Mutex<Interner<String>>> = LazyLock::new(Mutex::default);
+
+/// The text of a chat's context part (`context_inventory::ContextPart::text`): cmux's chat
+/// guidance and skill index, a folder's instructions, a preset. The guidance alone was 5.3 MB of
+/// acpmux's heap at 1,000 chats (infinite items, 2026-11-19), the same words in every chat. Shared
+/// here, they cost what the distinct texts do. Immutable: a change makes a new text.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SharedText(Arc<String>);
+
+impl SharedText {
+    /// Whether both are the one copy.
+    #[cfg(test)]
+    pub(crate) fn shares(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl From<String> for SharedText {
+    fn from(text: String) -> Self {
+        let hash = hash_of(&text);
+        Self(TEXTS.lock_or_recover().intern(text, hash))
+    }
+}
+
+impl From<&str> for SharedText {
+    fn from(text: &str) -> Self {
+        text.to_owned().into()
+    }
+}
+
+impl Deref for SharedText {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl AsRef<str> for SharedText {
+    fn as_ref(&self) -> &str {
+        self
+    }
+}
+
+impl std::fmt::Debug for SharedText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.0.as_str(), f)
+    }
+}
+
+impl std::fmt::Display for SharedText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self)
+    }
+}
+
+impl PartialEq<str> for SharedText {
+    fn eq(&self, other: &str) -> bool {
+        self.0.as_str() == other
+    }
+}
+
+impl PartialEq<&str> for SharedText {
+    fn eq(&self, other: &&str) -> bool {
+        self.0.as_str() == *other
+    }
+}
+
+impl Serialize for SharedText {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for SharedText {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(Self::from)
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,5 +327,19 @@ mod tests {
         assert!(weak.upgrade().is_none());
         pool.intern(Value::Null, u64::MAX);
         assert_eq!(pool.0.len(), 1);
+    }
+
+    #[test]
+    fn equal_texts_share_one_copy_and_round_trip_as_plain_strings() {
+        let words = "cmux chat guidance ".repeat(64);
+        let read: SharedText = serde_json::from_value(json!(words.clone())).unwrap();
+        let built = SharedText::from(words.clone());
+        assert!(read.shares(&built), "a text read back shares the one built here");
+        assert_eq!(&*read, words.as_str());
+        assert_eq!(serde_json::to_value(&read).unwrap(), json!(words));
+        let other = SharedText::from("other words");
+        assert!(!other.shares(&built));
+        assert_eq!(other, "other words");
+        assert_eq!(format!("{other}"), "other words");
     }
 }

@@ -31,7 +31,7 @@ pub struct ContextPart {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
+    pub text: Option<crate::store::SharedText>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -305,7 +305,7 @@ pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
             measurement: "estimated".into(),
             source_bytes: Some(text.len() as u64),
             channel: Some("system-prompt-file".into()),
-            text: Some(text),
+            text: Some(text.into()),
         });
     }
     parts
@@ -322,7 +322,7 @@ fn preset_part(text: String) -> ContextPart {
         measurement: "estimated".into(),
         source_bytes: Some(text.len() as u64),
         channel: Some("system-prompt-file".into()),
-        text: Some(text),
+        text: Some(text.into()),
     }
 }
 
@@ -596,7 +596,7 @@ pub fn guidance_part_on(text: String, channel: &str) -> ContextPart {
         measurement: "estimated".into(),
         source_bytes: Some(text.len() as u64),
         channel: Some(channel.into()),
-        text: Some(text),
+        text: Some(text.into()),
     }
 }
 
@@ -635,7 +635,7 @@ fn snapshot_on(cfg: &Config, cwd: &Path, channel: &str) -> Vec<ContextPart> {
         measurement: "estimated".into(),
         source_bytes: Some(text.len() as u64),
         channel: Some(channel.into()),
-        text: Some(text.to_owned()),
+        text: Some(text.into()),
     }]
 }
 

@@ -597,7 +597,7 @@ pub fn moved(parts: Vec<ContextPart>, family: &str, cwd: &Path, from: &Path) -> 
         Some(part) => {
             let text = format!("{note}\n\n{}", part.text.as_deref().unwrap_or_default());
             part.tokens = estimated_tokens(&text);
-            part.text = Some(text);
+            part.text = Some(text.into());
         }
         None => parts.push(ContextPart {
             id: format!("{SOURCE}-moved"),
@@ -609,7 +609,7 @@ pub fn moved(parts: Vec<ContextPart>, family: &str, cwd: &Path, from: &Path) -> 
             measurement: "estimated".into(),
             source_bytes: None,
             channel: Some("user-context".into()),
-            text: Some(note),
+            text: Some(note.into()),
         }),
     }
     parts
@@ -652,7 +652,7 @@ pub fn part(family: &str, cwd: &Path) -> Option<ContextPart> {
         measurement: "estimated".into(),
         source_bytes: Some(bytes),
         channel: Some("user-context".into()),
-        text: Some(text),
+        text: Some(text.into()),
     })
 }
 
