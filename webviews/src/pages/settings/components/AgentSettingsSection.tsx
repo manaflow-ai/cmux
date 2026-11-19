@@ -284,7 +284,7 @@ function AgentPanel({
           </div>
         </div>
       ))}
-      {state && state.profiles.length > 0 && (
+      {(state?.profiles?.length ?? 0) > 0 && (
         <div className="row" data-agent-profiles="">
           <div className="row-main">
             <div className="row-label">
@@ -293,7 +293,7 @@ function AgentPanel({
           </div>
         </div>
       )}
-      {state?.profiles.map((profile) => (
+      {state?.profiles?.map((profile) => (
         <div className="row" key={profile.name} data-agent-profile={profile.name}>
           <div className="row-main">
             <div className="row-label">

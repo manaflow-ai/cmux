@@ -233,7 +233,7 @@ const refusal = (message: string) => ({ code: "agent_config.invalid", message })
 
 /** The file a scope writes (`profile:NAME` writes that profile's file). */
 function fileFor(state: AgentConfigState, scope: string): string | null {
-  if (scope.startsWith("profile:")) return state.profiles.find((p) => `profile:${p.name}` === scope)?.path ?? null;
+  if (scope.startsWith("profile:")) return state.profiles?.find((p) => `profile:${p.name}` === scope)?.path ?? null;
   return state.files.find((file) => file.scope === scope)?.path ?? null;
 }
 

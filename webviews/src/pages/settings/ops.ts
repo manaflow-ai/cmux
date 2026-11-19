@@ -1433,7 +1433,8 @@ export type AgentConfigState = {
   files: AgentConfigFile[];
   entries: AgentConfigEntry[];
   curated: AgentConfigCurated[];
-  profiles: { name: string; path: string; keys: number }[];
+  /** Codex's NAME.config.toml files; an older cmux leaves it out for Claude Code. */
+  profiles?: { name: string; path: string; keys: number }[];
   notes: string[];
   keysOnDisk: number;
   keysShown: number;

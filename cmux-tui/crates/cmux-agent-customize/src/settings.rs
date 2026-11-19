@@ -348,9 +348,10 @@ pub fn report(ctx: &Context, agent: Agent) -> Value {
         "notes": notes,
         "keysOnDisk": keys_on_disk,
         "keysShown": keys_shown,
+        // Every agent answers with a list, empty for Claude Code, so a reader never meets a gap.
+        "profiles": profiles,
     });
     if agent == Agent::Codex {
-        answer["profiles"] = json!(profiles);
         answer["activeProfile"] = Value::Null;
     }
     answer

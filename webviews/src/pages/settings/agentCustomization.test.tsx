@@ -72,6 +72,21 @@ test("with the lab on it lists each agent's curated settings and where each come
   page.unmount();
 });
 
+test("a Claude Code answer with no profiles list renders its settings, not an error", async () => {
+  const page = await renderCard(<AgentCustomizationCard />, {
+    ...on,
+    setup: (provider) => {
+      // An older cmux sent `profiles` only for Codex.
+      delete provider.agentConfig.claude.profiles;
+    },
+  });
+  expect(page.container.textContent).not.toContain("Something went wrong");
+  expect(setting(page.container, "claude", "model")).not.toBeNull();
+  expect(agent(page.container, "claude").querySelector("[data-agent-profiles]")).toBeNull();
+  expect(agent(page.container, "codex").querySelector('[data-agent-profile="fast"]')).not.toBeNull();
+  page.unmount();
+});
+
 test("a pick sends exactly one set and the row shows the new value and scope", async () => {
   const page = await renderCard(<AgentCustomizationCard />, on);
   const row = setting(page.container, "codex", "model_reasoning_effort");

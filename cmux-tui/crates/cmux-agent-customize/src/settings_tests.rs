@@ -75,6 +75,7 @@ fn claude_report_shows_every_key_with_its_scope_and_masks_env() {
     // Every leaf on disk is shown: 8 user leaves and 2 project leaves.
     assert_eq!(report["keysOnDisk"], 10);
     assert_eq!(report["keysShown"], 10);
+    assert_eq!(report["profiles"], json!([]));
     let mode = curated_row(&report, "permissions.defaultMode");
     assert_eq!(mode["value"], "plan");
     assert_eq!(mode["scope"], "user");
