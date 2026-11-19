@@ -49,8 +49,10 @@ pub fn note_activity() {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {
         let trimmer = TRIMMER.get_or_init(start);
-        trimmer.activity.fetch_add(1, Ordering::Relaxed);
-        if !trimmer.armed.load(Ordering::Relaxed) && !trimmer.armed.swap(true, Ordering::AcqRel) {
+        // SeqCst with the worker's `disarm`: a note that still sees `armed` set is seen by the
+        // worker's count read after it clears `armed`.
+        trimmer.activity.fetch_add(1, Ordering::SeqCst);
+        if !trimmer.armed.load(Ordering::SeqCst) && !trimmer.armed.swap(true, Ordering::SeqCst) {
             // Under the lock, so the worker is either before its check of `armed` (and sees it)
             // or already waiting (and wakes).
             drop(trimmer.lock.lock().unwrap_or_else(PoisonError::into_inner));
@@ -83,22 +85,35 @@ fn run(trimmer: &Trimmer, quiet: Duration, trim: impl Fn()) {
             guard = trimmer.wake.wait(guard).unwrap_or_else(PoisonError::into_inner);
         }
         drop(guard);
-        quiet_period(trimmer, quiet);
-        // Disarmed before the trim: activity during it arms the next one.
-        trimmer.armed.store(false, Ordering::Release);
-        trim();
+        let seen = quiet_period(trimmer, quiet);
+        if disarm(trimmer, seen) {
+            trim();
+        }
     }
 }
 
-/// Returns once `quiet` passed with no activity.
+/// Clears `armed` before the trim, so activity during it arms the next one. Activity after the
+/// quiet period's last read saw `armed` still set and woke no one: then `armed` stays set and the
+/// worker waits out another quiet period instead of trimming before that work frees.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
-fn quiet_period(trimmer: &Trimmer, quiet: Duration) {
-    let mut seen = trimmer.activity.load(Ordering::Relaxed);
+fn disarm(trimmer: &Trimmer, seen: u64) -> bool {
+    trimmer.armed.store(false, Ordering::SeqCst);
+    if trimmer.activity.load(Ordering::SeqCst) == seen {
+        return true;
+    }
+    trimmer.armed.store(true, Ordering::SeqCst);
+    false
+}
+
+/// Returns the activity count once `quiet` passed with no activity.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn quiet_period(trimmer: &Trimmer, quiet: Duration) -> u64 {
+    let mut seen = trimmer.activity.load(Ordering::SeqCst);
     loop {
         std::thread::sleep(quiet);
-        let now = trimmer.activity.load(Ordering::Relaxed);
+        let now = trimmer.activity.load(Ordering::SeqCst);
         if now == seen {
-            return;
+            return seen;
         }
         seen = now;
     }
@@ -133,8 +148,8 @@ mod tests {
     }
 
     fn note(trimmer: &Trimmer) {
-        trimmer.activity.fetch_add(1, Ordering::Relaxed);
-        if !trimmer.armed.swap(true, Ordering::AcqRel) {
+        trimmer.activity.fetch_add(1, Ordering::SeqCst);
+        if !trimmer.armed.swap(true, Ordering::SeqCst) {
             drop(trimmer.lock.lock().unwrap());
             trimmer.wake.notify_one();
         }
@@ -195,6 +210,22 @@ mod tests {
         }
         assert_eq!(trims.load(Ordering::SeqCst), 0);
         assert!(reaches(&trims, 1, Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn activity_between_the_last_quiet_read_and_the_disarm_keeps_it_armed() {
+        let t = trimmer();
+        note(t);
+        // The quiet period's last read.
+        let seen = t.activity.load(Ordering::SeqCst);
+        // A request lands now: it sees `armed` still set and wakes no one.
+        note(t);
+        assert!(!disarm(t, seen), "no trim before that request's work frees");
+        assert!(t.armed.load(Ordering::SeqCst), "the next quiet period trims it");
+        // Quiet since: the next disarm trims.
+        let seen = t.activity.load(Ordering::SeqCst);
+        assert!(disarm(t, seen));
+        assert!(!t.armed.load(Ordering::SeqCst));
     }
 
     #[test]

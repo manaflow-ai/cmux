@@ -131,6 +131,11 @@ fn handle_frame(
         }
         if let Ok(envelope) = &request {
             crate::diagnostics::request_log::decoded_operation(envelope.operation.wire_name());
+            // A v2 change (`workspace.close`) can free a lot; reads are no activity, so a client
+            // polling one never wakes the quiet trim (malloc_quiet_trim.rs).
+            if envelope.operation.is_mutation() {
+                cmux_tui_platform::malloc_quiet_trim::note_activity();
+            }
         }
         // Debug timing marks of a resource create, from the arrival of its
         // line to its reply (`CMUX_TUI_DEBUG_SPANS`; cx-b4sjc).

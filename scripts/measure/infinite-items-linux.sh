@@ -73,6 +73,11 @@ if [[ "$before" == own-exe ]]; then
   rm -rf "$own_dir"
 elif [[ "$before" == ref:* ]]; then
   ref="${before#ref:}"
+  # The base's cmux-tui/ replaces this checkout's below and HEAD's comes back after: uncommitted work there would be lost.
+  if [ -n "$(git status --porcelain -- cmux-tui)" ]; then
+    echo "infinite-items-linux.sh: before=ref: needs a clean cmux-tui/ (commit or set aside its changes first)" >&2
+    exit 2
+  fi
   ab="$(mktemp -d)"
   # Each arm's three binaries side by side in a folder of its own: the daemon runs its hosts from the
   # cmux-tui-host beside it. The base's cmux-tui/ is put in place of this head's in this same checkout (a worktree
