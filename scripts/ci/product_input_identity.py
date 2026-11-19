@@ -201,7 +201,7 @@ def reaches_product(path: str) -> bool:
         return False
     if path == "README.md" or (path.startswith("README.") and path.endswith(".md")):
         return False
-    if path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-cua/"):
+    if path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-computer-use/"):
         return False
     return True
 
