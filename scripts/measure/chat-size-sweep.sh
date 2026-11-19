@@ -20,8 +20,11 @@ df -h "${TMPDIR:-/tmp}" "$root" 2>/dev/null || true
 nproc 2>/dev/null || true
 sim_bin=""
 if [ -f "$root/cmux-tui/crates/coord-sim/Cargo.toml" ] && [ "${CHAT_SIZE_SOURCE:-}" != "fixture" ]; then
-  (cd "$root/cmux-tui/crates/coord-sim" && cargo build --release -q)
-  sim_bin="$root/cmux-tui/crates/coord-sim/target/release/coord-sim"
+  # Its own target folder: a runner's CARGO_TARGET_DIR would put the binary elsewhere.
+  sim_target="$root/cmux-tui/crates/coord-sim/target"
+  (cd "$root/cmux-tui/crates/coord-sim" && cargo build --release -q --target-dir "$sim_target")
+  sim_bin="$sim_target/release/coord-sim"
+  [ -x "$sim_bin" ] || { echo "chat-size-sweep: coord-sim did not build at $sim_bin" >&2; exit 1; }
 fi
 cd "$root/cmux-tui"
 ACPMUX_CHAT_SIZES="$sizes" ACPMUX_CHAT_SIM_BIN="$sim_bin" \
