@@ -60,6 +60,9 @@ const SCROLLBACK_LINES: u32 = 10_000;
 const BURST_LINES: u32 = 200_000;
 const PHONE_HISTORY_CHUNK: u32 = 2_000;
 const WAIT: Duration = Duration::from_secs(120);
+/// What the shells print as their prompt: no trailing space, which a
+/// screen read trims.
+const PROMPT: &str = "READY>";
 
 fn b64() -> &'static base64::engine::GeneralPurpose {
     &base64::engine::general_purpose::STANDARD
@@ -138,12 +141,12 @@ impl Daemon {
         }
     }
 
-    /// A new workspace running an interactive `sh` at a `$ ` prompt.
+    /// A new workspace running an interactive `sh` at a `READY>` prompt.
     fn shell(&self, name: &str) -> u64 {
         let created = self.request(json!({
             "id": 1, "cmd": "run", "new_workspace": true, "name": name,
             "cols": COLS, "rows": ROWS,
-            "argv": ["/bin/sh", "-c", "PS1='$ '; export PS1; exec /bin/sh -i"],
+            "argv": ["/bin/sh", "-c", "PS1='READY> '; export PS1; exec /bin/sh -i"],
         }));
         created["surface"]
             .as_u64()
@@ -352,7 +355,7 @@ fn open_pty(cols: u16, rows: u16) -> (fs::File, std::os::fd::OwnedFd) {
 /// TUI's write syscalls and the bytes it printed.
 fn measure_tui(daemon: &Daemon, count: u64, keys: usize, run: &mut Run) {
     let tui = Tui::start(daemon);
-    if tui.printed(0, b"$ ", Duration::from_secs(60)).is_none() {
+    if tui.printed(0, PROMPT.as_bytes(), Duration::from_secs(60)).is_none() {
         let stderr = fs::read_to_string(daemon.dir.join("tui-stderr.txt")).unwrap_or_default();
         eprintln!("LATENCY terminals={count} tui: no prompt on the TUI's screen; stderr: {stderr}");
         return;
@@ -745,7 +748,7 @@ fn measure_count(count: u64, rtts: &[u64], keys: usize, run: &mut Run) {
         while !daemon.request(json!({"id": 1, "cmd": "read-screen", "surface": surface}))["text"]
             .as_str()
             .unwrap_or_default()
-            .contains("$ ")
+            .contains(PROMPT)
         {
             assert!(Instant::now() < deadline, "terminal {surface} shows no prompt");
             std::thread::sleep(Duration::from_millis(20));
