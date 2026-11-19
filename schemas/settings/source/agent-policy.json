@@ -138,7 +138,9 @@
     {
       "agent": "settable",
       "keys": [
-        "tabs.overflow"
+        "tabs.overflow",
+        "experiments.tabBarStyle",
+        "experiments.tabOverflow"
       ]
     },
     {

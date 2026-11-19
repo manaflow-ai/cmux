@@ -548,7 +548,8 @@
           "symbol": "flask",
           "groups": [
             {"group": "settings.group.labs", "keys": ["appearance.experimentalControls"]},
-            {"group": "settings.group.appearanceTuning"}
+            {"group": "settings.group.appearanceTuning"},
+            {"title": {"key": "settings.group.tabBarExperiments", "text": "Tab Bar"}, "keys": ["experiments.tabBarStyle", "experiments.tabOverflow"], "note": "Taste builds 3 and 14 (2026-11-19): the tab strip look and overflow experiments, off by default."}
           ]
         },
         {

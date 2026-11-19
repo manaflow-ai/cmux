@@ -655,6 +655,138 @@
           ]
         },
         {
+          "key": "experiments.tabBarStyle",
+          "note": "Taste build 3 (desktop coordinator's list, 2026-11-19), Settings > Experimental, off by default: Off is the shipped strip. Glass: the tabs in one glass capsule, the selected tab a lighter inner pill, the + its own round glass button. Fused: the selected tab joins the content sheet below, the others flat on the bar. Underline: plain labels on a hairline, the selected one bold over a 2 pt rule.",
+          "title": {
+            "key": "settings.experiments.tabBarStyle",
+            "text": "Tab Bar Style"
+          },
+          "help": {
+            "key": "settings.experiments.tabBarStyle.help",
+            "text": "Try another look for the tab bar. Off keeps the standard one."
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "TabStripExperimentsSetting",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "TabBarStyleExperiment",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "glass",
+              "title": {
+                "key": "settings.choice.tabBarStyleGlass",
+                "text": "Glass Capsule"
+              }
+            },
+            {
+              "value": "fused",
+              "title": {
+                "key": "settings.choice.tabBarStyleFused",
+                "text": "Fused Sheet"
+              }
+            },
+            {
+              "value": "underline",
+              "title": {
+                "key": "settings.choice.tabBarStyleUnderline",
+                "text": "Underline"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "experiment",
+            "experimental",
+            "tab",
+            "tabs",
+            "tab bar",
+            "style",
+            "glass",
+            "capsule",
+            "pill",
+            "underline",
+            "fused"
+          ]
+        },
+        {
+          "key": "experiments.tabOverflow",
+          "note": "Taste build 14 (desktop coordinator's list, 2026-11-19), Settings > Experimental, off by default: Off is tabs.overflow's. The others keep fixed tab widths, show the close x on the hovered and the selected tab, and scroll the selected tab into view. Chevrons: scroll under edge fades, a chevron at each hidden edge. More Menu: the tabs that do not fit go into a More menu at the end. All Tabs: the clipped edge fades under a pinned All Tabs pill listing every tab.",
+          "title": {
+            "key": "settings.experiments.tabOverflow",
+            "text": "Tab Overflow Style"
+          },
+          "help": {
+            "key": "settings.experiments.tabOverflow.help",
+            "text": "Try another way to show more tabs than fit. Off keeps Tab Overflow's."
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "TabStripExperimentsSetting",
+            "prefixed": true
+          },
+          "swift_enum": {
+            "name": "TabOverflowExperiment",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "chevrons",
+              "title": {
+                "key": "settings.choice.tabOverflowChevrons",
+                "text": "Scroll Chevrons"
+              }
+            },
+            {
+              "value": "moreMenu",
+              "title": {
+                "key": "settings.choice.tabOverflowMoreMenu",
+                "text": "More Menu"
+              }
+            },
+            {
+              "value": "allTabs",
+              "title": {
+                "key": "settings.choice.tabOverflowAllTabs",
+                "text": "All Tabs Pill"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "experiment",
+            "experimental",
+            "tab",
+            "tabs",
+            "overflow",
+            "scroll",
+            "chevron",
+            "more",
+            "menu",
+            "all tabs",
+            "many"
+          ]
+        },
+        {
           "key": "appearance.metrics.tabMaxWidth",
           "note": "Unset is the density's value; the placeholder is the compact density's.",
           "title": {

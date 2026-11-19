@@ -180,6 +180,36 @@ nonisolated enum TabSettingsSchema {
                 keywords: ["tab", "tabs", "overflow", "scroll", "scrolling", "shrink", "crowded", "width", "many"]
             ),
             SettingDescriptor(
+                TabStripExperimentsSetting.tabBarStylePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.tabBarStyle", "Tab Bar Style"),
+                help: SettingsText.keyed("settings.experiments.tabBarStyle.help", "Try another look for the tab bar. Off keeps the standard one."),
+                kind: .choice([
+                    SettingChoice(TabBarStyleExperiment.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(TabBarStyleExperiment.glass.rawValue, SettingsText.keyed("settings.choice.tabBarStyleGlass", "Glass Capsule")),
+                    SettingChoice(TabBarStyleExperiment.fused.rawValue, SettingsText.keyed("settings.choice.tabBarStyleFused", "Fused Sheet")),
+                    SettingChoice(TabBarStyleExperiment.underline.rawValue, SettingsText.keyed("settings.choice.tabBarStyleUnderline", "Underline")),
+                ]),
+                default: .string(TabStripExperimentsSetting.tabBarStyleDefault.rawValue),
+                keywords: ["experiment", "experimental", "tab", "tabs", "tab bar", "style", "glass", "capsule", "pill", "underline", "fused"]
+            ),
+            SettingDescriptor(
+                TabStripExperimentsSetting.tabOverflowPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.tabOverflow", "Tab Overflow Style"),
+                help: SettingsText.keyed("settings.experiments.tabOverflow.help", "Try another way to show more tabs than fit. Off keeps Tab Overflow's."),
+                kind: .choice([
+                    SettingChoice(TabOverflowExperiment.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(TabOverflowExperiment.chevrons.rawValue, SettingsText.keyed("settings.choice.tabOverflowChevrons", "Scroll Chevrons")),
+                    SettingChoice(TabOverflowExperiment.moreMenu.rawValue, SettingsText.keyed("settings.choice.tabOverflowMoreMenu", "More Menu")),
+                    SettingChoice(TabOverflowExperiment.allTabs.rawValue, SettingsText.keyed("settings.choice.tabOverflowAllTabs", "All Tabs Pill")),
+                ]),
+                default: .string(TabStripExperimentsSetting.tabOverflowDefault.rawValue),
+                keywords: ["experiment", "experimental", "tab", "tabs", "overflow", "scroll", "chevron", "more", "menu", "all tabs", "many"]
+            ),
+            SettingDescriptor(
                 LayoutMetricSetting.tabMaxWidthPath,
                 section: .general,
                 group: group,
