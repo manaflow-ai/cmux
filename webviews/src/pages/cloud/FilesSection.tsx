@@ -247,6 +247,7 @@ function FileRows({
   const rowKey = useCallback((at: number) => pathOf(entries[at]!), [entries, pathOf]);
   // The first measured row sizes every row not yet mounted.
   const rowHeight = useRef(0);
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns a mutable instance, so the React Compiler skips this component, as in ui/VirtualList.
   const virtualizer = useVirtualizer({
     count: entries.length,
     getScrollElement: findViewport,
