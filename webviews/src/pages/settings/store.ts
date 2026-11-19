@@ -86,6 +86,9 @@ import {
   type ModelsRun,
   type ModelsState,
   type LooksRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
+  type RowNoteData,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -121,6 +124,8 @@ export type SettingsState = {
   revision: number;
   rows: ReadonlyMap<string, ListRow>;
   diagnostics: ReadonlyMap<string, string[]>;
+  /** Row notes by schema row: where a value comes from, and why it does not draw (#44894). */
+  notes: ReadonlyMap<string, RowNoteData[]>;
   /** Every problem of the last load, in file order (Advanced lists them). */
   problems: ReadonlyArray<{ path: string; message: string }>;
   managed: ReadonlyMap<string, ManagedInfo>;
@@ -192,6 +197,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     revision: scope?.revision ?? 0,
     rows,
     diagnostics: scope?.diagnostics ?? new Map(),
+    notes: scope?.notes ?? new Map(),
     problems: scope?.problems ?? [],
     managed: scope?.managed ?? new Map(),
     errors: ui.errors,
@@ -764,6 +770,13 @@ export class SettingsStore {
   /** Settings > Agents > Agent integrations; null when the host has none. */
   async integrationsState(): Promise<IntegrationsState | null> {
     const reply = await this.request("cmux.settings.integrations.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Agents > Agents on This Mac: one gesture (a refresh reads), and the card as it is
+   * after it; null when the host has none. */
+  async runAgentTools(run: AgentToolsCardRun): Promise<AgentToolsCardState | null> {
+    const reply = await this.request("cmux.settings.agentTools.run", run);
     return reply.ok ? reply.value : null;
   }
 
