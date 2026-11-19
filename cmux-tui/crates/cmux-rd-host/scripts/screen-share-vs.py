@@ -1164,9 +1164,197 @@ class Remote:
             raise RuntimeError(f"{self.name}: put {remote_path}: {p.stderr.decode()[-300:]}")
 
 
+# The remote half of SpoolRemote.popen: runs CMD in its own process group with stdin fed from
+# DIR/in as it grows (until DIR/in.closed), stdout and stderr to DIR/out and DIR/err, and its exit
+# status to DIR/rc. DIR/kill ends the group.
+SPOOL_RUNNER = r'''
+import os, signal, subprocess, sys, time
+d, cmd = sys.argv[1], sys.argv[2]
+out, err = open(d + "/out", "wb"), open(d + "/err", "wb")
+p = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE, stdout=out, stderr=err,
+                     start_new_session=True)
+open(d + "/pid", "w").write(str(p.pid))
+f, fed = open(d + "/in", "rb"), True
+while p.poll() is None:
+    if os.path.exists(d + "/kill"):
+        os.killpg(p.pid, signal.SIGTERM)
+        try:
+            p.wait(3)
+        except subprocess.TimeoutExpired:
+            os.killpg(p.pid, signal.SIGKILL)
+        break
+    chunk = f.read()
+    if chunk and fed:
+        try:
+            p.stdin.write(chunk)
+            p.stdin.flush()
+        except BrokenPipeError:
+            fed = False
+    elif fed and os.path.exists(d + "/in.closed"):
+        if not f.read():
+            p.stdin.close()
+            fed = False
+    time.sleep(0.02)
+open(d + "/rc.tmp", "w").write(str(p.wait()))
+os.rename(d + "/rc.tmp", d + "/rc")
+'''
+
+
+class SpoolRemote(Remote):
+    """A Remote for `reach` routes with no stdin (a lane VM's broker relay): a file's bytes
+    travel as base64 in the command, and a long-running process reads its stdin from a file on
+    the Mac that each write appends to, while a thread here polls its stdout file. Only the
+    control lines pay the relay's round trip (about 3 s); every timed sample runs on the Macs."""
+
+    CHUNK = 15_000  # the broker relay takes commands of at most 16384 bytes
+
+    def __init__(self, name):
+        super().__init__(name, "reach")
+        self.runner = None
+        self.lock = threading.Lock()
+
+    def argv(self, cmd):
+        return ["reach", "--timeout", "480", self.name, cmd]
+
+    def run(self, cmd, timeout=120, stdin=None):
+        if stdin is not None:
+            raise RuntimeError("spool: run with stdin is not supported")
+        # The relay itself fails now and then (its lease read times out, the call is dropped):
+        # retried, since the command never ran ("nothing was run") or is idempotent here.
+        for attempt in range(4):
+            try:
+                return super().run(cmd, timeout=timeout)
+            except (RuntimeError, subprocess.TimeoutExpired) as e:
+                transient = isinstance(e, subprocess.TimeoutExpired) or "nothing was run" in str(e)
+                if not transient or attempt == 3:
+                    raise
+                time.sleep(2 * (attempt + 1))
+
+    def put(self, local, remote_path, mode="0755"):
+        import base64
+        import gzip
+        with open(local, "rb") as f:
+            data = base64.b64encode(gzip.compress(f.read())).decode()
+        tmp = shlex.quote(remote_path + ".b64")
+        self.run(f"mkdir -p {shlex.quote(os.path.dirname(remote_path))} && : > {tmp}")
+        for i in range(0, len(data), self.CHUNK):
+            self.run(f"printf %s {data[i:i + self.CHUNK]} >> {tmp}", timeout=300)
+        q = shlex.quote(remote_path)
+        self.run(f"base64 -D -i {tmp} | gunzip > {q}.tmp && rm {tmp} && chmod {mode} {q}.tmp "
+                 f"&& mv {q}.tmp {q}", timeout=300)
+
+    def popen(self, cmd):
+        with self.lock:
+            if not self.runner:
+                path = f"/tmp/ssvs-spool-{os.getpid()}-runner.py"
+                import tempfile
+                with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
+                    f.write(SPOOL_RUNNER)
+                try:
+                    self.put(f.name, path, "0644")
+                finally:
+                    os.unlink(f.name)
+                self.runner = path
+        d = f"/tmp/ssvs-spool-{os.urandom(6).hex()}"
+        # A new session: the relay ends the command's whole process group when the call returns.
+        start = ("import subprocess, sys; subprocess.Popen(['/usr/bin/python3'] + sys.argv[1:], "
+                 "start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, "
+                 "stderr=subprocess.DEVNULL)")
+        self.run(f"mkdir -m 700 {d} && : > {d}/in && /usr/bin/python3 -c {shlex.quote(start)} "
+                 f"{self.runner} {d} {shlex.quote(cmd)}")
+        return SpoolProc(self, d)
+
+
+class SpoolProc:
+    """The Popen-like handle SpoolRemote.popen returns: .lines, .stdin, .stderr, poll, wait,
+    terminate, kill."""
+
+    lag_s = 30  # readline's extra wait: a stdout poll is one relay round trip (about 3 s, more under load)
+
+    def __init__(self, remote, d):
+        self.remote, self.d = remote, d
+        self.lines = queue.Queue()
+        self.returncode = None
+        self.done = threading.Event()
+        self.stdin = self._Stdin(self)
+        self.stderr = self._Stderr(self)
+        threading.Thread(target=self._pump, daemon=True).start()
+
+    class _Stdin:
+        def __init__(self, proc):
+            self.proc, self.buf = proc, ""
+
+        def write(self, s):
+            self.buf += s.decode() if isinstance(s, bytes) else s
+
+        def flush(self):
+            import base64
+            if not self.buf:
+                return
+            data, self.buf = base64.b64encode(self.buf.encode()).decode(), ""
+            self.proc.remote.run(f"printf %s {data} | base64 -D >> {self.proc.d}/in")
+
+        def close(self):
+            self.flush()
+            self.proc.remote.run(f": > {self.proc.d}/in.closed")
+
+    class _Stderr:
+        def __init__(self, proc):
+            self.proc = proc
+
+        def read(self):
+            try:
+                return self.proc.remote.run(f"cat {self.proc.d}/err")
+            except Exception as e:  # noqa: BLE001
+                return repr(e)
+
+    def _pump(self):
+        off, part = 0, b""
+        mark = "@@SPOOL-RC "
+        while True:
+            try:
+                out = self.remote.run(f"tail -c +{off + 1} {self.d}/out 2>/dev/null; "
+                                      f"printf '\\n{mark}%s' \"$(cat {self.d}/rc 2>/dev/null)\"")
+            except Exception:  # noqa: BLE001 - a lost poll is retried
+                time.sleep(1)
+                continue
+            body, _, rc = out.rpartition("\n" + mark)
+            chunk = body.encode()
+            off += len(chunk)
+            part += chunk
+            *whole, part = part.split(b"\n")
+            for line in whole:
+                self.lines.put(line.decode(errors="replace") + "\n")
+            if rc.strip():
+                if part:
+                    self.lines.put(part.decode(errors="replace"))
+                self.returncode = int(rc.strip())
+                self.lines.put(None)
+                self.done.set()
+                return
+            time.sleep(0.3)
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        if not self.done.wait(timeout):
+            raise subprocess.TimeoutExpired(self.d, timeout)
+        return self.returncode
+
+    def terminate(self):
+        try:
+            self.remote.run(f": > {self.d}/kill")
+        except Exception:  # noqa: BLE001
+            pass
+
+    kill = terminate
+
+
 def readline(proc, deadline):
-    """The next stdout line of a Remote.popen process, or None at EOF or the deadline."""
-    left = deadline - time.time()
+    """The next stdout line of a Remote.popen process, or None at EOF or the deadline. A spool
+    process's lines arrive by polling through the relay, so its deadline gets the relay's lag."""
+    left = deadline - time.time() + getattr(proc, "lag_s", 0)
     if left <= 0:
         return None
     try:
@@ -1180,8 +1368,9 @@ class Orchestrator:
         self.a = args
         self.ff_rows = []
         self.motion_rows = []  # cmux fps trials: received Mbps and loss under motion
-        self.host = Remote(args.host, args.via)
-        self.viewer = Remote(args.viewer, args.via)
+        make = (lambda name: SpoolRemote(name)) if args.via == "spool" else (lambda name: Remote(name, args.via))
+        self.host = make(args.host)
+        self.viewer = make(args.viewer)
         self.root = args.root
         self.py = args.python
         self.me = f"{self.root}/screen-share-vs.py"
@@ -1237,7 +1426,8 @@ class Orchestrator:
             r.put(here, self.me)
         if self.a.bin:
             self.viewer.put(self.a.bin, f"{self.root}/bin/cmux-rd")
-            self.host.put(self.a.bin, f"{self.root}/bin/cmux-rd")
+        if self.a.bin or self.a.host_bin:
+            self.host.put(self.a.host_bin or self.a.bin, f"{self.root}/bin/cmux-rd")
         if self.a.marker_src:
             self.host.put(self.a.marker_src, f"{self.root}/bin/marker-main.swift", "0644")
             self.host.run(f"cd {self.root}/bin && swiftc -O -o cmux-rd-marker marker-main.swift",
@@ -1295,7 +1485,7 @@ class Orchestrator:
         session = "vs-" + os.urandom(8).hex()
         bench = (f"{self.root}/bin/cmux-rd bench --link 1 --marker-origin {origin[0]},{origin[1]} ")
         if mode == "key":
-            bench += f"--input key --samples {self.a.samples}"
+            bench += f"--input {getattr(self.a, 'cmux_input', 'key')} --samples {self.a.samples}"
         else:
             bench += f"--input none --duration-s {self.a.fps_seconds}"
             if getattr(self.a, "marker_log", False):
@@ -1790,10 +1980,13 @@ def main():
     r.add_argument("--link", default="wired", help="a label for the table")
     r.add_argument("--link-bind", help="bind the shared Mac's link socket to this address (its "
                    "Wi-Fi address when Ethernet shares the subnet), so both directions use it")
-    r.add_argument("--via", choices=["reach", "ssh"], default="reach")
+    r.add_argument("--via", choices=["reach", "ssh", "spool"], default="reach",
+                   help="spool: reach with no stdin (a lane VM's broker relay; SpoolRemote)")
     r.add_argument("--root", default="cmux-rd-test", help="relative to the remote home")
     r.add_argument("--python", default="/usr/bin/python3")
     r.add_argument("--bin", help="local cmux-rd (macOS arm64, features bench,link) to install")
+    r.add_argument("--host-bin", help="install this on the shared Mac instead of --bin (for example a "
+                   "script that execs a shipped app's `cmux rd`, so its serve is what is measured)")
     r.add_argument("--marker-src", help="local mac-marker/main.swift to build on the shared Mac")
     r.add_argument("--cua-vnc", help="local cua-vnc/bin/cua-vnc to install on the viewing Mac")
     r.add_argument("--rig-launch", choices=["cmux-next"], help="start the rig in cmux NEXT")
@@ -1826,6 +2019,9 @@ def main():
                    "tools-only=1: cmux-rd, cmux-rd-marker, screen-eval-ocr")
     r.add_argument("--apple-input", choices=["key", "click"], default="key",
                    help="the Apple leg's timed input (key: after one focus click on the pad)")
+    r.add_argument("--cmux-input", choices=["key", "click", "scroll"], default="key",
+                   help="the cmux leg's timed input: each kind goes through the host's injector and "
+                   "bumps the marker (keyDown, mouseDown, scrollWheel)")
     r.add_argument("--presented-pid", type=int, help="a visible viewer pane's process on the "
                    "viewing Mac: Total then ends at the presented frame (cmux-rd observe)")
     r.add_argument("--presented-window", type=int, help="that pane's CGWindow id")
