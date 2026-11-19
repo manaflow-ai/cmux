@@ -280,6 +280,8 @@ BUNDLE_INPUTS = (
     "schemas/design-scale/design-scale.json",
     # The theme slots the slot registry imports (src/slots/registry.ts).
     "schemas/theme/slots.json",
+    # The layout-motion contract the motion judge imports (src/layout/motionContract.ts).
+    "schemas/layout-motion/contract.json",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
