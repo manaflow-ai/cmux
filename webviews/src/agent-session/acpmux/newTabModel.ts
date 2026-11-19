@@ -259,3 +259,21 @@ export function ageLabel(updatedAt: number | undefined, now = Date.now(), t: Tra
     t,
   );
 }
+
+const AGE_MINUTE = 60_000;
+const AGE_DATE_AFTER_MINUTES = 7 * 24 * 60;
+
+/// The first shared wall-clock minute where `ageLabel(updatedAt, …)` says something else (clock.ts
+/// useLabelClock): a minute that keeps its "3h" wakes no label. Past a week the date never changes.
+export function nextAgeLabel(updatedAt: number, now: number): number {
+  if (!Number.isFinite(updatedAt) || !updatedAt) return Infinity;
+  const elapsed = Math.max(0, now - updatedAt);
+  if (Math.floor(elapsed / AGE_MINUTE) >= AGE_DATE_AFTER_MINUTES) return Infinity;
+  // ageLabel's rounded minutes, hours and days; `round(x / size) >= n` once x reaches (n - 0.5) * size.
+  const minutes = Math.round(elapsed / AGE_MINUTE);
+  const hours = Math.round(minutes / 60);
+  const nextMinutes =
+    minutes < 60 ? minutes + 1 : hours < 24 ? 60 * hours + 30 : 60 * (24 * Math.round(hours / 24) + 12) - 30;
+  const change = Math.min((nextMinutes - 0.5) * AGE_MINUTE, AGE_DATE_AFTER_MINUTES * AGE_MINUTE);
+  return Math.max(now + AGE_MINUTE, Math.ceil((updatedAt + change) / AGE_MINUTE) * AGE_MINUTE);
+}
