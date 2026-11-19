@@ -21,10 +21,11 @@ and in each cell every transition of --transitions, each sent through the real i
   bottom_open   Cmd-Shift-D on the bottom-left pane: a pane grows up from the window's bottom edge
   bottom_close  Cmd-W on it: the pane above grows back down (Leo's 2026-11-08 recording: a page above a terminal)
   divider_drag  the first divider dragged 120 pt left (and back, untimed); cells with one pane have none
-  side_open     Option-Cmd-B: the right sidebar opens         side_close    Option-Cmd-B again
-                (Toggle Right Sidebar, a window panel at its remembered section; it needs no chat or tab. Which way
-                the toggle went is read from the trace's pane widths: a press that went the other way is dropped and
-                the key pressed once more, and a press that moved nothing fails the round)
+  side_open     Cmd-B: the sidebar opens                      side_close    Cmd-B again
+                (Toggle Sidebar, the window's sidebar beside the panes; it needs no chat or tab. NEXT has no right
+                sidebar any more, so Option-Cmd-B moved no pane in any cell. Which way the toggle went is read from
+                the trace's pane widths: a press that went the other way is dropped and the key pressed once more,
+                and a press that moved nothing fails the round)
 
 Per transition, from two recordings of the same gesture (split_scale_metrics.py has the definitions):
 
@@ -82,7 +83,7 @@ STATIC_CONTENTS = ("empty", "browser", "chat")
 CMD_D = {"key": "d", "modifiers": ["command"]}
 CMD_SHIFT_D = {"key": "d", "modifiers": ["command", "shift"]}
 CMD_W = {"key": "w", "modifiers": ["command"]}
-OPT_CMD_B = {"key": "b", "modifiers": ["option", "command"]}
+CMD_B = {"key": "b", "modifiers": ["command"]}
 # The scrollback terminal: --scrollback numbered lines, then about 2,000 lines a second until the cell ends.
 SCROLL_COMMAND = ("seq -f 'scrollback %g lorem ipsum dolor sit amet consectetur adipiscing elit' 1 {n}; "
                   "while :; do seq -f \"stream %g $RANDOM $RANDOM $RANDOM output\" 1 20; sleep 0.01; done\r")
@@ -412,25 +413,25 @@ def record(run, gesture, label, content="focused", static=True):
 
 
 def side_toggle(run, label, want, static):
-    """Option-Cmd-B recorded as the side pane's `want` ("opened" or "closed"). The key toggles, and the app keeps the
-    right sidebar's visibility across launches (RightSidebarModel, UserDefaults), so a sidebar left open by an earlier
-    run or a key that missed would swap open and close for every later cell: the trace says which way the panes went
-    (ssm.side_way), and a press that went the other way restored `want`'s starting state, so it is pressed again and
-    that press is the record. A press that moved no pane is the round's error."""
+    """Cmd-B recorded as the sidebar's `want` ("opened" or "closed"). The key toggles, and the app keeps the
+    sidebar's visibility across launches, so a sidebar left hidden by an earlier run or a key that missed would swap
+    open and close for every later cell: the trace says which way the panes went (ssm.side_way), and a press that went
+    the other way restored `want`'s starting state, so it is pressed again and that press is the record. A press that
+    moved no pane is the round's error."""
     for attempt in range(2):
-        row = record(run, OPT_CMD_B, label if not attempt else f"{label}-again", content="none", static=static)
+        row = record(run, CMD_B, label if not attempt else f"{label}-again", content="none", static=static)
         way = ssm.side_way(row)
         if way == want:
             if ssm.side_returned(row):
-                problem = f"Option-Cmd-B {way} the right sidebar and the panes went back to their width"
+                problem = f"Cmd-B {way} the sidebar and the panes went back to their width"
                 row["error"] = f"{row['error']}; {problem}" if row.get("error") else problem
             return row
         if way is None:
-            problem = "Option-Cmd-B moved no pane (the right sidebar neither opened nor closed)"
+            problem = "Cmd-B moved no pane (the sidebar neither opened nor closed)"
             row["error"] = f"{row['error']}; {problem}" if row.get("error") else problem
             return row
         time.sleep(opts.settle)  # test script: the wrong-way toggle's motion ends before the press that is timed
-    row["error"] = f"Option-Cmd-B {way} the right sidebar twice in a row, not {want}"
+    row["error"] = f"Cmd-B {way} the sidebar twice in a row, not {want}"
     return row
 
 

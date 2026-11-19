@@ -216,7 +216,7 @@ def _width_change(start, sample):
 
 def pane_width_change(samples):
     """The panes' summed frame width at the trace's last tick minus at its first, over the panes in both (points):
-    negative when the panes narrowed (a right sidebar opened beside them), positive when they widened (it closed),
+    negative when the panes narrowed (a sidebar opened beside them), positive when they widened (it closed),
     None without a pane in both. The side pane's toggle is one key for both ways, so this says which way it went."""
     return _width_change(_pane_widths(samples[0]), samples[-1]) if samples else None
 
