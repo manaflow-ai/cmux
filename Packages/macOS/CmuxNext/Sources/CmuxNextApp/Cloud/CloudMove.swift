@@ -381,32 +381,36 @@ struct CloudMove {
         }
         let firstID = first.machineID
         let result: (winner: String?, candidates: [String], error: String?) = await withTaskGroup(of: Attempt.self) { group in
-            group.addTask(operation: { @MainActor () -> Attempt in
-                do {
-                    _ = try await connectedOnce(first, invocation)
-                    try Task.checkCancellation()
-                    return Attempt(candidateID: firstID, connectedID: firstID, error: nil)
-                } catch {
-                    return Attempt(candidateID: firstID, connectedID: nil, error: (error as? Failure)?.message)
-                }
-            })
-            group.addTask(operation: { @MainActor () -> Attempt in
-                do {
-                    try await Task.sleep(for: hedge.after)
-                    try Task.checkCancellation()
-                    let second = try await hedge.create()
-                    let id = second.machineID
+            group.addTask {
+                await Task { @MainActor in
                     do {
-                        _ = try await connectedOnce(second, invocation)
+                        _ = try await connectedOnce(first, invocation)
                         try Task.checkCancellation()
-                        return Attempt(candidateID: id, connectedID: id, error: nil)
+                        return Attempt(candidateID: firstID, connectedID: firstID, error: nil)
                     } catch {
-                        return Attempt(candidateID: id, connectedID: nil, error: (error as? Failure)?.message)
+                        return Attempt(candidateID: firstID, connectedID: nil, error: (error as? Failure)?.message)
                     }
-                } catch {
-                    return Attempt(candidateID: "", connectedID: nil, error: (error as? Failure)?.message)
-                }
-            })
+                }.value
+            }
+            group.addTask {
+                await Task { @MainActor in
+                    do {
+                        try await Task.sleep(for: hedge.after)
+                        try Task.checkCancellation()
+                        let second = try await hedge.create()
+                        let id = second.machineID
+                        do {
+                            _ = try await connectedOnce(second, invocation)
+                            try Task.checkCancellation()
+                            return Attempt(candidateID: id, connectedID: id, error: nil)
+                        } catch {
+                            return Attempt(candidateID: id, connectedID: nil, error: (error as? Failure)?.message)
+                        }
+                    } catch {
+                        return Attempt(candidateID: "", connectedID: nil, error: (error as? Failure)?.message)
+                    }
+                }.value
+            }
             var candidates: [String] = []
             var lastError: String?
             while let attempt = await group.next() {
