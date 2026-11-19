@@ -110,8 +110,8 @@ fn a_tab_retry_keeps_its_target_pane_on_the_pinned_machine() {
 }
 
 /// Codex review F1 on #40957: a start that can't go on deletes the machine made for it only when
-/// it is still that start's alone. A second chat from the same workspace that planned onto the
-/// machine first keeps it; one that plans after the strand never finds it.
+/// it is still that start's alone. Another explicitly pinned chat keeps the machine;
+/// a fresh send never inherits it merely by belonging to the same workspace.
 #[test]
 fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
     let scratch = scratch();
@@ -132,8 +132,17 @@ fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
         super::strand(&path, &first, ACCOUNT, "vm-new"),
         json!({"ok": true, "delete": false})
     );
-    assert_eq!(plan(&path, &on(&key()))["machine"], "vm-new", "the workspace keeps its machine");
-    // The second fails for good too, after the third planned onto it: still shared.
+    assert_eq!(
+        plan(&path, &on(&second))["machine"],
+        "vm-new",
+        "the pinned retry keeps its machine"
+    );
+    assert_eq!(
+        plan(&path, &on(&key()))["machine"],
+        Value::Null,
+        "a fresh send gets its own machine"
+    );
+    // The second fails for good too, after the third was explicitly pinned: still shared.
     let third = key();
     assert_eq!(pin(&path, &third, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
     assert_eq!(plan(&path, &on(&third))["machine"], "vm-new");
