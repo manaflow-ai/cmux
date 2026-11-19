@@ -1691,28 +1691,68 @@ fn timed_rounds(
     (spread(&times), records, error)
 }
 
+/// How long a prompt may take to its first token, and to its turn's end, before the sweep counts
+/// it failed (and reads on) instead of waiting [`STEP`].
+const SEND_WAIT: Duration = Duration::from_secs(120);
+
 /// A prompt to `id` until its first streamed chunk (the stand-in agent echoes it), then its
-/// turn's end: the time to the chunk.
+/// turn's end: the time to the chunk. Past [`SEND_WAIT`] an error that names the notices read
+/// meanwhile (a prompt queued behind a turn the log left open shows as `queued`).
 fn send_first_token(rpc: &mut Rpc, id: &str, text: &str) -> Result<u64, Value> {
     let sent = Instant::now();
     let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
     let req = rpc.request("session/prompt", prompt);
-    let first = rpc.wait_note(|v| {
-        (is_response(v, req) && v.get("error").is_some())
-            || (v["method"] == "session/update"
-                && v["params"]["sessionId"] == json!(id)
-                && v["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
-                && v["params"]["update"]["content"]["text"]
-                    .as_str()
-                    .is_some_and(|t| t.contains(text)))
-    });
+    let seen = rpc.notes.len();
+    let first = rpc.wait_note_until(
+        |v| {
+            (is_response(v, req) && v.get("error").is_some())
+                || (v["method"] == "session/update"
+                    && v["params"]["sessionId"] == json!(id)
+                    && v["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
+                    && v["params"]["update"]["content"]["text"]
+                        .as_str()
+                        .is_some_and(|t| t.contains(text)))
+        },
+        Some(sent + SEND_WAIT),
+    );
+    rpc.writer.set_read_timeout(Some(STEP)).unwrap();
+    let read_meanwhile = |rpc: &Rpc| {
+        let mut kinds: BTreeMap<String, u64> = BTreeMap::new();
+        for v in rpc.notes.iter().skip(seen) {
+            let kind = v["params"]["update"]["sessionUpdate"]
+                .as_str()
+                .or_else(|| v["params"]["kind"].as_str())
+                .or_else(|| v["method"].as_str())
+                .unwrap_or("response");
+            *kinds.entry(kind.to_owned()).or_default() += 1;
+        }
+        json!(kinds)
+    };
+    let first = match first {
+        Ok(first) => first,
+        Err(e) => {
+            let error = json!({"waitedMs": ms(sent), "io": e.to_string(), "stage": "first token",
+                               "readMeanwhile": read_meanwhile(rpc)});
+            rpc.notes.clear();
+            return Err(error);
+        }
+    };
     if is_response(&first, req) {
         return Err(first["error"].clone());
     }
     let us = micros(sent);
-    rpc.response(req)?;
+    let end = rpc.wait_note_until(|v| is_response(v, req), Some(sent + SEND_WAIT));
+    rpc.writer.set_read_timeout(Some(STEP)).unwrap();
+    let error = match end {
+        Ok(v) => v.get("error").cloned(),
+        Err(e) => Some(json!({"waitedMs": ms(sent), "io": e.to_string(), "stage": "turn end",
+                              "readMeanwhile": read_meanwhile(rpc)})),
+    };
     rpc.notes.clear();
-    Ok(us)
+    match error {
+        Some(e) => Err(e),
+        None => Ok(us),
+    }
 }
 
 /// The chat of `bytes` in a home under `scratch`: coord-sim's (`ACPMUX_CHAT_SIM_BIN`, the
