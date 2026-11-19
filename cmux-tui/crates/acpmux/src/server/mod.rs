@@ -2141,13 +2141,16 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if (attached || conn.watch_all.load(Ordering::SeqCst))
             && let Ok(s) = hub.resolve(&ev.session_id)
         {
-            let session = if attached || conn.watch_tools.load(Ordering::SeqCst) {
-                hub.session_summary(&s)
-            } else {
-                hub.session_list_summary(&s)
-            };
+            // Built once and shared by every watcher, as a record's row is (`HubEvent::row`).
+            // Each built its own before, and a field read at that moment (`starting`, a held
+            // spawn lock) could differ between two watchers told the same change.
+            let full = attached || conn.watch_tools.load(Ordering::SeqCst);
+            let slot = usize::from(full);
+            ev.row[slot].get_or_init(|| {
+                if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) }
+            });
             conn.send(&conn.row_patches.notice(
-                row_patch::Row::Owned(Arc::new(session)),
+                row_patch::Row::Shared(ev.row.clone(), slot),
                 json!({"sessionId": ev.session_id, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq}),
             ));
         }

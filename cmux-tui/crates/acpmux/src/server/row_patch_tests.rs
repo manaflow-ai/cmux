@@ -228,14 +228,21 @@ async fn rows_built_from_patches_equal_the_whole_rows() {
     let mut patches = 0;
     // The rows of the chats just made, told when a watch read the list, reached only the watchers
     // already on: both start after a change of a marker chat, past every one of them.
+    // A watch's own list read tells those rows to the watchers already on, and the watcher that
+    // asked drops them before its reply: the two streams differ until a marker both hear.
     hub.list_cursor();
-    command_update(&hub, &sessions[3], 0);
-    while plain.rows(1).await[0].1["params"]["sessionId"] != "rp-0003" {}
-    loop {
-        let (_, msg) = patched.rows(1).await.remove(0);
-        held.take(&msg);
-        if msg["params"]["sessionId"] == "rp-0003" {
-            break;
+    for round in 0..2 {
+        command_update(&hub, &sessions[3], round);
+        let marker = |msg: &Value| {
+            msg["params"]["sessionId"] == "rp-0003" && msg["params"]["kind"] == "process_update"
+        };
+        while !marker(&plain.rows(1).await[0].1) {}
+        loop {
+            let (_, msg) = patched.rows(1).await.remove(0);
+            held.take(&msg);
+            if marker(&msg) {
+                break;
+            }
         }
     }
     let (a, b) = (&sessions[0], &sessions[1]);

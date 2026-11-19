@@ -353,6 +353,7 @@ export interface AcpmuxNotifications {
   "_acpmux/event": SessionEvent;
   "_acpmux/message": MessageEvent;
   "_acpmux/session_changed": SessionChanged;
+  "_acpmux/session_patch": unknown;
   "_acpmux/permission_pending": PermissionPending;
   "_acpmux/presence": PresenceNote;
   "_acpmux/peer_state_changed": PeerStateChanged;
@@ -722,6 +723,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/event", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/message", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/session_changed", kind: "notification", acp: false, typed: true },
+  { name: "_acpmux/session_patch", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/permission_pending", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/presence", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/peer_state_changed", kind: "notification", acp: false, typed: true },

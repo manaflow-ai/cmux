@@ -2351,6 +2351,12 @@ export interface WatchParams {
   limit?: (number | null);
   /** The `listEpoch` that `afterSeq` came with: a cursor of another daemon run is reset. */
   listEpoch?: (string | null);
+  /**
+   * Row changes as only their changed fields (`_acpmux/session_patch`) against the last row
+   * this connection sent of the chat; a row goes whole (`session_changed`) on first sight and
+   * after every watch or lag (capability `session-row-patch-v1`, `server/row_patch.rs`).
+   */
+  rowPatch?: (boolean | null);
   /** Include tool inventories explicitly; default census rows omit them. */
   withTools?: (boolean | null);
 }
