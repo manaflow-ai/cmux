@@ -11,6 +11,7 @@ mod migration;
 mod plan;
 mod snapshot;
 pub(crate) mod start_retry;
+mod start_trace;
 
 pub use declared::{backend_ops, declared_errors};
 pub use machine_projection::{Projection, WatchEvent};
@@ -100,7 +101,14 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.port.forward", Kind::Mutation),
     ("cloud.port.close", Kind::Mutation),
     ("cloud.browser.open", Kind::Mutation),
+    // Cloud start traces (DEV and NIGHTLY only, `Server::run`).
+    ("cloud.start_trace.get", Kind::Read),
+    ("cloud.start_trace.list", Kind::Read),
 ];
+
+/// Developer-only ops: answered on DEV and NIGHTLY builds, refused with
+/// `cmux.cloud.unsupported` on release before any wire call.
+const DEVELOPER_OPS: &[&str] = &["cloud.start_trace.get", "cloud.start_trace.list"];
 
 /// Other names for ops: the `resume` verb and the old relay names
 /// (`backend/catalog/cloud-relay-operations.json`). The catalog fragment has
@@ -244,6 +252,9 @@ pub struct Server<C> {
     /// Changes whenever the host reports a different sign-in identity.
     auth_epoch: u64,
     auth_identity: Option<(bool, Option<String>)>,
+    /// The app build this server ships in: developer-only ops answer only
+    /// on DEV and NIGHTLY ([`DEVELOPER_OPS`]).
+    channel: crate::app_env::BuildChannel,
 }
 
 impl<C> Server<C> {
@@ -256,6 +267,12 @@ impl<C> Server<C> {
 
     pub fn attach_mut(&mut self) -> &mut crate::link::Attach {
         &mut self.attach
+    }
+
+    /// The build channel developer-only ops check (read from the app
+    /// bundle at start; tests set it).
+    pub fn set_build_channel(&mut self, channel: crate::app_env::BuildChannel) {
+        self.channel = channel;
     }
 }
 
@@ -291,6 +308,7 @@ impl<C: ControlPlane> Server<C> {
             incarnation,
             auth_epoch: 0,
             auth_identity: None,
+            channel: crate::app_env::BuildChannel::of_this_process(),
         }
     }
 
@@ -507,6 +525,12 @@ impl<C: ControlPlane> Server<C> {
         key: Option<&str>,
     ) -> Result<Value, CloudError> {
         let origin = request.origin;
+        if DEVELOPER_OPS.contains(&name) && !self.channel.serves_developer_ops() {
+            return Err(CloudError::new(
+                codes::UNSUPPORTED,
+                format!("{name} answers only in cmux DEV and NIGHTLY builds"),
+            ));
+        }
         if crate::link::ops::serves(name) {
             let token = request.open_token.as_ref();
             return crate::link::ops::run(self, name, args, origin, key, token);
@@ -528,6 +552,7 @@ impl<C: ControlPlane> Server<C> {
             "environment" => environment::run(&mut ctx, name, args),
             "plan" | "billing" | "retention" => plan::run(&mut ctx, name, args),
             "migration" => migration::run(&mut ctx, name, args),
+            "start_trace" => start_trace::run(&mut ctx, name, args),
             _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
         }
     }

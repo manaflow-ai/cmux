@@ -4,6 +4,112 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes participants.add declares.
+    ParticipantsAddError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Banned = "banned",
+        DuplicateParticipant = "duplicate_participant",
+        Forbidden = "forbidden",
+        HomeRateLimited = "home.rate_limited",
+        HomeUserNotReady = "home.user_not_ready",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParticipant = "invalid_participant",
+        InvalidRole = "invalid_role",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        NotReachable = "not_reachable",
+        OwnerUnreachable = "owner.unreachable",
+        ReadOnly = "read_only",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Leave (yourself), or remove someone below you (an admin or the owner; a chief's owner for that chief). ban: true (admins and the owner) keeps them out of adds and invites until participants.unban. A removed person's sockets close at once. Removing the last human archives the conversation.
+    ParticipantsRemoveOp {
+        name: "participants.remove",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "destructive",
+        principals: [Session, Install],
+        params: ParticipantsRemoveParams,
+        result: HomeConversationCommit,
+        error: ParticipantsRemoveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantsRemoveParams {
+    pub conversation: ConversationId,
+    pub participant: ParticipantId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ban: Option<bool>,
+}
+
+wire_errors! {
+    /// The error codes participants.remove declares.
+    ParticipantsRemoveError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownParticipant = "unknown_participant",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Set a group member's role: admin (the owner only), member or read_only. You change only people below you; an admin never changes another admin. A read_only member reads, moves its read cursor and leaves, and never writes.
+    ParticipantsSetRoleOp {
+        name: "participants.set_role",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ParticipantsSetRoleParams,
+        result: HomeConversationCommit,
+        error: ParticipantsSetRoleError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantsSetRoleParams {
+    pub conversation: ConversationId,
+    pub participant: ParticipantId,
+    pub role: HomeGrantableRole,
+}
+
+wire_errors! {
+    /// The error codes participants.set_role declares.
+    ParticipantsSetRoleError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParticipant = "invalid_participant",
+        InvalidRole = "invalid_role",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        ReadOnly = "read_only",
+        UnknownConversation = "unknown_conversation",
+        UnknownParticipant = "unknown_participant",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Lift a ban (admins and the owner), so the person may be added or invited again.
     ParticipantsUnbanOp {
@@ -793,106 +899,4 @@ pub struct TeamAgentKeyRemoveParams {
 pub struct TeamAgentKeyRemoveResult {
     pub agent: TeamAgentKeyAgent,
     pub removed: bool,
-}
-
-wire_errors! {
-    /// The error codes team.agent_key.remove declares.
-    TeamAgentKeyRemoveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Add or replace the team's shared key for an agent (owners and admins, in a person's session). Cloud machines of the team use it instead of members' own keys. The key is never returned.
-    TeamAgentKeySetOp {
-        name: "team.agent_key.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: TeamAgentKeySetParams,
-        result: TeamAgentKeyState,
-        error: TeamAgentKeySetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAgentKeySetParams {
-    pub agent: TeamAgentKeyAgent,
-    pub kind: TeamAgentKeyKind,
-    pub secret: String,
-}
-
-wire_errors! {
-    /// The error codes team.agent_key.set declares.
-    TeamAgentKeySetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        TeamAgentKeyNotConfigured = "team_agent_key.not_configured",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Whether the team has a shared key for each agent (members). Never returns a key.
-    TeamAgentKeyStatusOp {
-        name: "team.agent_key.status",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session],
-        params: TeamAgentKeyStatusParams,
-        result: TeamAgentKeyStatusResult,
-        error: TeamAgentKeyStatusError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAgentKeyStatusParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team: Option<TeamId>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAgentKeyStatusResult {
-    pub team: TeamId,
-    pub can_manage: bool,
-    pub agents: Vec<TeamAgentKeyState>,
-}
-
-wire_errors! {
-    /// The error codes team.agent_key.status declares.
-    TeamAgentKeyStatusError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend, and the team's usage this period against its included amount.
-    TeamAiLimitGetOp {
-        name: "team.ai_limit.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamAiLimitGetParams,
-        result: TeamAiLimitGetResult,
-        error: TeamAiLimitGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitGetParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
 }

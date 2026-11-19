@@ -388,6 +388,19 @@ export type CloudSnapshot = {
   readonly revision: Revision
 }
 
+export type CloudStartHop = "click" | "api" | "placement" | "provider_create" | "restore" | "boot" | "network" | "agent_auth" | "first_token"
+
+export type CloudStartSpan = {
+  readonly hop: CloudStartHop
+  readonly start_ms: number
+  readonly end_ms: number
+  readonly source: "app" | "cli" | "platform" | "machine"
+  readonly attrs: Readonly<Record<string, string | number>>
+}
+
+/** A Cloud start trace (the create's trace, else its idempotency key). */
+export type CloudStartTraceId = string
+
 export type CloudVmNetwork = {
   readonly tenant: NativeTenantId
   readonly mesh: NativeMeshId
@@ -2246,6 +2259,44 @@ export interface CloudOps {
     }
     readonly result: {
       readonly machine: CloudMachine
+    }
+  }
+  /** One Cloud start trace: its spans sorted by start, the machine it made and its path (spare, create or resume). Kept 48 h. */
+  readonly "cloud.start_trace.get": {
+    readonly params: {
+      readonly trace: CloudStartTraceId
+    }
+    readonly result: {
+      readonly trace: CloudStartTraceId
+      readonly machine: string | null
+      readonly started_at: number
+      readonly total_ms: number
+      readonly path: string | null
+      readonly spans: ReadonlyArray<CloudStartSpan>
+    }
+  }
+  /** The team's Cloud start traces since since_ms (default the last 24 h), newest first, at most limit (default and most 200), with each hop's p50 and p95 over them. */
+  readonly "cloud.start_trace.list": {
+    readonly params: {
+      readonly since_ms?: number
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly window_ms: number
+      readonly since_ms: number
+      readonly traces: ReadonlyArray<{
+        readonly trace: CloudStartTraceId
+        readonly machine: string | null
+        readonly started_at: number
+        readonly total_ms: number
+        readonly path: string | null
+        readonly hops_seen: ReadonlyArray<CloudStartHop>
+      }>
+      readonly hops: Readonly<Record<string, {
+        readonly n: number
+        readonly p50_ms: number | null
+        readonly p95_ms: number | null
+      }>>
     }
   }
   /** Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine). */
@@ -4475,6 +4526,8 @@ export const cloudOpMeta = {
   "cloud.snapshot.delete": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.snapshot.list": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.snapshot.restore": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.start_trace.get": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.start_trace.list": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.vm.attention.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.event.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.network_policy": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },

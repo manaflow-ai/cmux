@@ -74,6 +74,73 @@ impl AppEnv {
     }
 }
 
+/// The build of the app that ships this server, by its bundle id
+/// (`com.cmuxterm.app.debug[.<tag>]` DEV, `com.cmuxterm.app.nightly[.…]`
+/// NIGHTLY, any other id release). Developer-only ops (the Cloud start
+/// traces) answer only on DEV and NIGHTLY.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildChannel {
+    /// A DEV bundle, or a server outside any `.app` (a developer's own run).
+    Dev,
+    Nightly,
+    /// A release (or RC) bundle, and a bundle whose id could not be read.
+    Release,
+}
+
+impl BuildChannel {
+    /// The channel of a bundle id.
+    pub fn of_bundle_id(bundle_id: &str) -> Self {
+        let under = |base: &str| {
+            bundle_id
+                .strip_prefix(base)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+        };
+        if under("com.cmuxterm.app.debug") {
+            Self::Dev
+        } else if under("com.cmuxterm.app.nightly") {
+            Self::Nightly
+        } else {
+            Self::Release
+        }
+    }
+
+    /// The channel of the app around this process's executable
+    /// (`<App>.app/Contents/Resources/bin/cmux-cloud`), read from that app's
+    /// `Contents/Info.plist`. Outside any `.app`: [`Self::Dev`]. A bundle
+    /// whose id cannot be read is [`Self::Release`] (fail closed).
+    pub fn of_this_process() -> Self {
+        std::env::current_exe().map_or(Self::Release, |exe| Self::of_executable(&exe))
+    }
+
+    /// [`Self::of_this_process`] for the executable at `exe`.
+    pub fn of_executable(exe: &Path) -> Self {
+        let Some(bundle) =
+            exe.ancestors().find(|dir| dir.extension().is_some_and(|ext| ext == "app"))
+        else {
+            return Self::Dev;
+        };
+        std::fs::read(bundle.join("Contents").join("Info.plist"))
+            .ok()
+            .and_then(|bytes| xml_bundle_id(&String::from_utf8_lossy(&bytes)))
+            .map_or(Self::Release, |id| Self::of_bundle_id(&id))
+    }
+
+    /// Whether developer-only ops answer here.
+    pub fn serves_developer_ops(self) -> bool {
+        matches!(self, Self::Dev | Self::Nightly)
+    }
+}
+
+/// `CFBundleIdentifier` of an XML property list (the form the app's
+/// Info.plist ships in); `None` for any other form.
+fn xml_bundle_id(plist: &str) -> Option<String> {
+    let after_key = plist.split_once("<key>CFBundleIdentifier</key>")?.1;
+    let value = after_key.trim_start().strip_prefix("<string>")?;
+    let (id, _) = value.split_once("</string>")?;
+    let id = id.trim();
+    (!id.is_empty()).then(|| id.to_owned())
+}
+
 /// An absolute path with no `"`, `$` or control characters.
 fn usable_path(path: &Path) -> bool {
     let text = path.to_string_lossy();

@@ -5,6 +5,111 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes invite.accept_verified declares.
+    InviteAcceptVerifiedError {
+        AcceptLocked = "accept_locked",
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InviteExpired = "invite_expired",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownInvite = "unknown_invite",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Approve (default) or decline a join that waits for approval (pending_approval).
+    InviteApproveJoinOp {
+        name: "invite.approve_join",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: InviteApproveJoinParams,
+        result: HomeConversationCommit,
+        error: InviteApproveJoinError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteApproveJoinParams {
+    pub conversation: ConversationId,
+    pub invite_id: InviteId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approve: Option<bool>,
+}
+
+wire_errors! {
+    /// The error codes invite.approve_join declares.
+    InviteApproveJoinError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InviteNotPending = "invite_not_pending",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownInvite = "unknown_invite",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Invite an email or phone to the conversation. The Worker normalizes the address, checks limits and suppression, and the invite is sent by email or iMessage/SMS after the commit.
+    InviteCreateOp {
+        name: "invite.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "send-external",
+        principals: [Session, Install],
+        params: InviteCreateParams,
+        result: HomeConversationCommit,
+        error: InviteCreateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteCreateParamsAddressVariant1 {
+    pub email: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteCreateParamsAddressVariant2 {
+    pub phone: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum InviteCreateParamsAddress {
+    Variant1(InviteCreateParamsAddressVariant1),
+    Variant2(InviteCreateParamsAddressVariant2),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteCreateParams {
+    pub conversation: ConversationId,
+    pub address: InviteCreateParamsAddress,
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy_variant: Option<String>,
+}
+
+wire_errors! {
     /// The error codes invite.create declares.
     InviteCreateError {
         Archived = "archived",
@@ -797,110 +902,4 @@ pub struct ParticipantsAddParams {
     pub participant: HomeParticipantInput,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<HomeGrantableRole>,
-}
-
-wire_errors! {
-    /// The error codes participants.add declares.
-    ParticipantsAddError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Banned = "banned",
-        DuplicateParticipant = "duplicate_participant",
-        Forbidden = "forbidden",
-        HomeRateLimited = "home.rate_limited",
-        HomeUserNotReady = "home.user_not_ready",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParticipant = "invalid_participant",
-        InvalidRole = "invalid_role",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        NotReachable = "not_reachable",
-        OwnerUnreachable = "owner.unreachable",
-        ReadOnly = "read_only",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Leave (yourself), or remove someone below you (an admin or the owner; a chief's owner for that chief). ban: true (admins and the owner) keeps them out of adds and invites until participants.unban. A removed person's sockets close at once. Removing the last human archives the conversation.
-    ParticipantsRemoveOp {
-        name: "participants.remove",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "destructive",
-        principals: [Session, Install],
-        params: ParticipantsRemoveParams,
-        result: HomeConversationCommit,
-        error: ParticipantsRemoveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantsRemoveParams {
-    pub conversation: ConversationId,
-    pub participant: ParticipantId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ban: Option<bool>,
-}
-
-wire_errors! {
-    /// The error codes participants.remove declares.
-    ParticipantsRemoveError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        UnknownParticipant = "unknown_participant",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Set a group member's role: admin (the owner only), member or read_only. You change only people below you; an admin never changes another admin. A read_only member reads, moves its read cursor and leaves, and never writes.
-    ParticipantsSetRoleOp {
-        name: "participants.set_role",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: ParticipantsSetRoleParams,
-        result: HomeConversationCommit,
-        error: ParticipantsSetRoleError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantsSetRoleParams {
-    pub conversation: ConversationId,
-    pub participant: ParticipantId,
-    pub role: HomeGrantableRole,
-}
-
-wire_errors! {
-    /// The error codes participants.set_role declares.
-    ParticipantsSetRoleError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParticipant = "invalid_participant",
-        InvalidRole = "invalid_role",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        ReadOnly = "read_only",
-        UnknownConversation = "unknown_conversation",
-        UnknownParticipant = "unknown_participant",
-        ValidationInvalid = "validation.invalid",
-    }
 }

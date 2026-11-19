@@ -194,6 +194,9 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
     ("cloud.shell.open", MUTATION, &["cloud.machine.not_found", "cloud.machine.paused"]),
     ("cloud.migration.status", READ, &[]),
     ("cloud.migration.start", MUTATION, &["cloud.migration.unavailable"]),
+    // Cloud start traces (cmux-platform start-traces).
+    ("cloud.start_trace.get", READ, &["cloud.start_trace.not_found"]),
+    ("cloud.start_trace.list", READ, &[]),
     // A VM calls these about itself; this server never does (listed so the
     // table is the whole CloudDO catalog).
     ("cloud.vm.self.get", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),

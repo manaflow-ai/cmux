@@ -80,7 +80,9 @@
       "cloud.snapshot.create",
       "cloud.snapshot.delete",
       "cloud.snapshot.list",
-      "cloud.snapshot.restore"
+      "cloud.snapshot.restore",
+      "cloud.start_trace.get",
+      "cloud.start_trace.list"
     ]
   },
   "scopes": {
