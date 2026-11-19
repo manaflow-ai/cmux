@@ -32,6 +32,12 @@ nonisolated public struct UpdateRelaunchMoment: Equatable, Sendable {
             case .unknown: "the agents' state is unknown"
             }
         }
+
+        /// Update When Idle's answer (cmux-window-rules `update_idle`'s hold reason; nil installs): a reason this
+        /// build does not know, `off` included, holds as unknown.
+        public static func idleHold(_ reason: String?) -> Self? {
+            reason.map { Self(rawValue: $0).flatMap { [.notIdle, .agentWorking, .unsentDraft].contains($0) ? $0 : nil } ?? .unknown }
+        }
     }
 
     /// One window as the moment reads it.
