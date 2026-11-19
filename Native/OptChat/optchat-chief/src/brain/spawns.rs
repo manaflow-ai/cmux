@@ -1406,6 +1406,7 @@ impl Brain {
         let reported_at = self.now();
         let run_ms = if let Some(sub) = self.state.sub_mut(id) {
             sub.reported_ms = reported_at;
+            sub.last_report = report.chars().take(300).collect();
             sub.fleet_wait = fleet_wait;
             sub.status = SubStatus::Done;
             sub.reopened = false;
@@ -3507,7 +3508,8 @@ impl Brain {
             if since > 0 {
                 row.push_str(&format!(" {}", minutes(now.saturating_sub(since))));
             }
-            if let Some(report) = s.report.as_deref().filter(|_| s.reported_ms > 0) {
+            let report = s.last_report.as_str();
+            if s.reported_ms > 0 && !report.is_empty() {
                 let told = if s.told_ms >= s.reported_ms {
                     "told"
                 } else {

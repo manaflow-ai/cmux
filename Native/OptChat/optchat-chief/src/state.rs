@@ -581,6 +581,10 @@ pub struct SubRecord {
     /// (`bg-…` from `bg_start`, until their notice).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub background: Vec<String>,
+    /// Its last report's first words, kept after the report is logged, for
+    /// `<open-items>`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub last_report: String,
     /// When its last report came (ms since the epoch), for `<open-items>`.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub reported_ms: u64,

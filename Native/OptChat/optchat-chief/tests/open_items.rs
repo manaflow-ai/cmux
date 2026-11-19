@@ -159,7 +159,7 @@ fn each_turn_lists_open_subagents_with_state_last_report_and_whether_it_was_told
         "the at-work rule stays: {turn}"
     );
     assert!(
-        turn.contains("- a1 · Run the red and green fleet steps"),
+        turn.contains("- a1 · Run the red and green fleet"),
         "a row with its title: {turn}"
     );
     assert!(turn.contains("waiting"), "its state: {turn}");
@@ -200,7 +200,7 @@ fn a_finished_subagent_no_post_told_is_listed_as_not_told() {
     h.settle();
     let turn = turn_with(&h, "anything else?");
     assert!(
-        turn.contains("Finished, not told yet: a1 (Run the red and green fleet steps"),
+        turn.contains("Finished, not told yet: a1 (Run the red and green fleet"),
         "{turn}"
     );
 }
