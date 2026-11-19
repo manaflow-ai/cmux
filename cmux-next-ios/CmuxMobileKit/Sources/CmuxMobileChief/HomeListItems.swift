@@ -29,6 +29,10 @@ enum HomeItem: Identifiable, Equatable, Sendable {
     /// No Conversations, or No Results for a search.
     case empty(searching: Bool)
 
+    /// The items that head the list (the grid and the status card): a Chief that posts lands under
+    /// them, at the top of the rows (``PagedList/pagedHeader(_:)``).
+    static let headerIDs: Set<String> = ["home:tiles", "home:creating", "home:offCard", "home:cloudStatus", "home:changeError"]
+
     var id: String {
         switch self {
         case .tiles: "home:tiles"

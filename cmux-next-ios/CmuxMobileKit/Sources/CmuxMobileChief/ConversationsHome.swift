@@ -263,10 +263,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         return extras
     }
 
-    /// The items that head the list (the grid and the status card): a Chief that posts lands under
-    /// them, at the top of the rows (``PagedList/pagedHeader(_:)``).
-    private static let headerIDs: Set<String> = ["home:tiles", "home:creating", "home:offCard", "home:cloudStatus", "home:changeError"]
-
     public var body: some View {
         let list = list
         let searching = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -286,7 +282,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             // while these are open it closes them instead (SidebarContainer finds the slid row,
             // RowSwipeActions). A full swipe runs none, as before.
             .pagedSwipeActions(allowsFullSwipe: false) { item in swipeActions(item) }
-            .pagedHeader(Self.headerIDs)
+            .pagedHeader(HomeItem.headerIDs)
             // A search typed or cleared, or hidden rows shown again, brings rows above the top that
             // are not new: no slide, no count on the pill.
             .pagedCountsArrivals(!own)
