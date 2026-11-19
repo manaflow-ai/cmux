@@ -256,8 +256,8 @@ final class PaneCommitMotion {
         keepUnder(leaving)
         showSheet(under: changes, on: screen)
         for change in changes {
-            guard let layer = change.host.layer else { continue }
-            move(layer, act.spring, origin: change.origin, size: change.size)
+            guard change.host.layer != nil else { continue }
+            move(change, act.spring)
             showGround(beside: change)
             moveRing(of: change, act.spring)
             moveClip(of: change, act.spring)
