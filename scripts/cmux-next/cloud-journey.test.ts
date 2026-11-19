@@ -13,7 +13,7 @@ import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyPr
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
-import { http as journeyHttp, socketDropped } from "./cloud-journey";
+import { deployAgeS, http as journeyHttp, namedCall, socketDropped } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
@@ -2960,5 +2960,47 @@ describe("the stub step's credential rule (cmux#40159)", () => {
   test("with a login on the machine, every request must carry it", () => {
     expect(judgeStubCredentials([turn(want), title], want, false).error).toBe("a model request did not carry the login the journey passed");
     expect(judgeStubCredentials([turn(want), { ...title, cred_sha256: want }], want, false)).toEqual({ detail: "2 model requests, each with the forwarded login (SHA-256 match)" });
+  });
+});
+
+describe("a failed step names its call, the call's time and the deploy's age", () => {
+  const reset = () => Object.assign(new Error("The socket connection was closed unexpectedly."), { code: "ECONNRESET" });
+
+  test("deployAgeS reads JOURNEY_DEPLOY_FINISHED_AT as ISO or epoch seconds, else null", () => {
+    const now = Date.parse("2026-11-19T12:00:30Z");
+    expect(deployAgeS({ JOURNEY_DEPLOY_FINISHED_AT: "2026-11-19T12:00:00Z" }, now)).toBe(30);
+    expect(deployAgeS({ JOURNEY_DEPLOY_FINISHED_AT: String(Date.parse("2026-11-19T11:59:00Z") / 1000) }, now)).toBe(90);
+    expect(deployAgeS({}, now)).toBeNull();
+    expect(deployAgeS({ JOURNEY_DEPLOY_FINISHED_AT: "soon" }, now)).toBeNull();
+  });
+
+  test("the step's row says which call failed, after how long, and how old the deploy was", async () => {
+    const journey = new Journey(resolveBackend("staging"), null, {});
+    const at = Date.now() - 12_000;
+    const step = journey.step("daemon restart keeps the session", async () => {
+      await namedCall("exec", async () => "ok");
+      await namedCall("acp ls", async () => { throw reset(); });
+      return { value: null, detail: "unreached" };
+    }, { JOURNEY_DEPLOY_FINISHED_AT: new Date(at).toISOString() });
+    await expect(step).rejects.toThrow(/closed unexpectedly/);
+    const row = journey.steps.at(-1)!;
+    expect(row.status).toBe("fail");
+    expect(row.call?.name).toBe("acp ls");
+    expect(row.call?.ms).toBeGreaterThanOrEqual(0);
+    expect(row.call?.deploy_age_s).toBeGreaterThanOrEqual(12);
+    expect(row.detail).toMatch(/\[call acp ls, failed \d+ ms in, \d+ s after the deploy\]/);
+  });
+
+  test("the innermost call is named, and a step with no named call or no deploy time says so", async () => {
+    const journey = new Journey(resolveBackend("staging"), null, {});
+    await expect(journey.step("turn", async () => {
+      await namedCall("reply", () => namedCall("exec", async () => { throw reset(); }));
+      return { value: null, detail: "" };
+    }, {})).rejects.toThrow();
+    expect(journey.steps.at(-1)!.call).toMatchObject({ name: "exec", deploy_age_s: null });
+    expect(journey.steps.at(-1)!.detail).toMatch(/\[call exec, failed \d+ ms in, deploy time unknown\]/);
+    await expect(journey.step("plain", async () => { throw new Error("no call"); }, {})).rejects.toThrow();
+    expect(journey.steps.at(-1)!.call).toBeUndefined();
+    expect(journey.steps.at(-1)!.detail).toBe("no call");
   });
 });

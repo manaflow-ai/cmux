@@ -174,7 +174,7 @@ export function readEnvFile(text: string): Record<string, string> {
 
 export type Status = "pass" | "fail" | "skip";
 export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number };
-export type Step = { step: string; status: Status; ms: number; detail: string; fields?: FirstTextFields };
+export type Step = { step: string; status: Status; ms: number; detail: string; fields?: FirstTextFields; call?: StepCall };
 
 /** One runner monotonic clock, from the create call. Reused machines have no create measurement. */
 export class FirstTextTiming {
@@ -262,7 +262,7 @@ export class Journey {
   preclaimBurst: PreclaimBurstFacts | null = null;
   preclaimFailures: PreclaimFailureRecord[] = [];
   constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>, private readonly publicSafe = false) {}
-  async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>): Promise<T> {
+  async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>, env: Record<string, string | undefined> = process.env): Promise<T> {
     const t0 = Date.now();
     // Notes the API client adds while this step runs (a retried answer), so a retry stays visible in the step's detail.
     const notes: string[] = [];
@@ -272,7 +272,9 @@ export class Journey {
       this.record({ step: name, status: "pass", ms: Date.now() - t0, detail: withNotes(detail) });
       return value;
     } catch (error) {
-      this.record({ step: name, status: "fail", ms: Date.now() - t0, detail: withNotes(String((error as Error)?.message ?? error)).slice(0, 1000) });
+      const call = stepCall(error, env);
+      const said = withNotes(String((error as Error)?.message ?? error)).slice(0, 1000 - (call ? 80 : 0));
+      this.record({ step: name, status: "fail", ms: Date.now() - t0, detail: call ? `${said}${callSuffix(call)}` : said, ...(call ? { call } : {}) });
       throw error;
     }
   }
@@ -389,6 +391,42 @@ const OWNER_RETRY_MS = 1000;
 const OWNER_RETRY_NOTE = "retried once after owner.unreachable";
 /** The running Journey step's notes; the API client adds a note here when it retries. */
 const stepNotes = new AsyncLocalStorage<string[]>();
+
+/**
+ * A step that fails names the call it was in (exec, acp ls, send, reply), how long that call ran, and how long after
+ * the last deploy finished. A reset that lands only in the first seconds after a deploy reads as the Worker's rollover,
+ * not the guest (production "daemon restart keeps the session", 2026-11-18 18:07 and 18:09Z, kept only "ECONNRESET").
+ */
+export type StepCall = { name: string; ms: number; deploy_age_s: number | null };
+const CALL = Symbol("journey call");
+
+/** Runs `fn` as the call `name`: its failure carries the name and the call's time. The innermost call wins. */
+export async function namedCall<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  const t0 = Date.now();
+  try {
+    return await fn();
+  } catch (error) {
+    if (error && typeof error === "object" && !(CALL in error)) Object.assign(error, { [CALL]: { name, ms: Date.now() - t0 } });
+    throw error;
+  }
+}
+
+/** Seconds since JOURNEY_DEPLOY_FINISHED_AT (ISO 8601 or epoch seconds, set by the deploy's CI), or null without it. */
+export function deployAgeS(env: Record<string, string | undefined> = process.env, now = Date.now()): number | null {
+  const raw = env.JOURNEY_DEPLOY_FINISHED_AT?.trim();
+  if (!raw) return null;
+  const at = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) * 1000 : Date.parse(raw);
+  return Number.isFinite(at) ? Math.round((now - at) / 1000) : null;
+}
+
+/** The call a failed step was in, with the deploy's age read now; undefined when no named call failed. */
+function stepCall(error: unknown, env: Record<string, string | undefined>): StepCall | undefined {
+  const call = error && typeof error === "object" ? (error as any)[CALL] : undefined;
+  return call ? { ...call, deploy_age_s: deployAgeS(env) } : undefined;
+}
+
+const callSuffix = (c: StepCall) =>
+  ` [call ${c.name}, failed ${c.ms} ms in, ${c.deploy_age_s === null ? "deploy time unknown" : `${c.deploy_age_s} s after the deploy`}]`;
 
 export class Api {
   bearer = "";
@@ -4330,7 +4368,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     const session = `journey-${tag}`;
     // One turn's reply: the session's last message once `acp wait` says the turn ended, or the turn's own error.
-    const awaitReply = async (): Promise<string> => {
+    const awaitReply = (): Promise<string> => namedCall("reply", async () => {
       const t0 = Date.now();
       let last = "";
       while (Date.now() - t0 < chatBudget) {
@@ -4344,11 +4382,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
       }
       throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);
-    };
-    const send = async (text: string) => {
+    });
+    const send = (text: string) => namedCall("send", async () => {
       const r = await exec(`${GUEST}printf '%s' ${shq(text)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`, 60_000);
       if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
-    };
+    });
     // The model requests the stub logged for real turns (streamed, not a title or topic side request).
     const stubTurns = async (): Promise<any[]> => {
       const r = await exec(`cat ${shq(stubLog)} 2>/dev/null`);
@@ -4363,7 +4401,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // reply is read only once `acp history` lists a turn with that prompt (the turn started; history keeps a prompt's
     // first 120 characters). `acp wait --match` cannot see it: it leaves the person's own prompts out.
     let turns = 0;
-    const turnStarted = async (marker: string) => {
+    // Part of the send: the prompt reached the session.
+    const turnStarted = (marker: string) => namedCall("send", async () => {
       const t0 = Date.now();
       while (Date.now() - t0 < chatBudget) {
         const r = await exec(`${GUEST}"$c" acp --json history ${shq(session)} --limit 5 2>&1`, 45_000);
@@ -4373,7 +4412,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         await sleep(2_000);
       }
       throw new Error(`the turn's prompt did not reach the session within ${chatBudget / 1000} s`);
-    };
+    });
     const laterTurn = async (text: string): Promise<{ value: null; detail: string }> => {
       const before = modelStub ? (await stubTurns()).length : 0;
       const marker = `[journey turn ${tag}-${++turns}]`;
@@ -4581,12 +4620,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         // (Restart=always) brings it back. The session must still be listed and take a turn, with no new `acp ensure`.
         await J.step("daemon restart keeps the session", async () => {
           const pidOf = async () => {
-            const r = await exec(`${GUEST}"$c" acp --json daemon status 2>&1`);
+            const r = await namedCall("exec", () => exec(`${GUEST}"$c" acp --json daemon status 2>&1`));
             try { return JSON.parse(r.stdout.slice(r.stdout.indexOf("{"))).pid as number | undefined; } catch { return undefined; }
           };
           const old = await pidOf();
           if (!old) throw new Error("acp daemon status names no pid");
-          const k = await exec(`kill -KILL ${old} 2>&1; echo "@@kill $?"`);
+          const k = await namedCall("exec", () => exec(`kill -KILL ${old} 2>&1; echo "@@kill $?"`));
           if (!/@@kill 0/.test(k.stdout)) throw new Error(`kill ${old}: ${k.stdout.slice(-200)}`);
           const t0 = Date.now();
           let now: number | undefined;
@@ -4597,7 +4636,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           }
           if (!now || now === old) throw new Error(`no new daemon within 60 s of killing pid ${old}`);
           const back = Math.round((Date.now() - t0) / 100) / 10;
-          const ls = await exec(`${GUEST}"$c" acp ls --json 2>&1`);
+          const ls = await namedCall("acp ls", () => exec(`${GUEST}"$c" acp ls --json 2>&1`));
           if (!ls.stdout.includes(session)) throw new Error(`the new daemon (pid ${now}) does not list ${session}: ${ls.stdout.slice(-200)}`);
           const turn = await laterTurn("Are you still there? Answer in one short sentence.");
           return { value: null, detail: `daemon ${old} killed, ${now} serves after ${back} s; ${turn.detail}` };
