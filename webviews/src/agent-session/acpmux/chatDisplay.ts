@@ -35,6 +35,15 @@ import {
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
+import {
+  DEFAULT_RESOLVED_TRANSCRIPT_LOOK,
+  gapScaleOf,
+  resolveTranscriptLook,
+  transcriptLookAttributes,
+  transcriptLookDisplayFallbacks,
+  transcriptLookVariables,
+  type ResolvedTranscriptLook,
+} from "./conversation/transcriptLook";
 
 /// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
 export type ThreadMinimapArm = keyof typeof threadMinimapLayout.arms;
@@ -90,6 +99,9 @@ export interface ChatDisplay {
   /// The saved Session Info chip setting (EnvironmentPlacement), kept for configuration
   /// compatibility; it draws nothing.
   environmentPlacement: EnvironmentPlacement;
+  /// The transcript's look (conversation/transcriptLook.ts: `agentPane.display.transcriptLook` and
+  /// its token overrides). Part of the measured look: its bubble padding, share and gaps move rows.
+  transcriptLook: ResolvedTranscriptLook;
 }
 
 /// Settings > Agent Chat > Session Info (Swift AgentPaneDisplaySettingsSchema has the same row).
@@ -212,6 +224,7 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   railSide: "left",
   minimal: false,
   environmentPlacement: "left",
+  transcriptLook: DEFAULT_RESOLVED_TRANSCRIPT_LOOK,
 };
 
 /// The body font stacks, as the Markdown viewer's presets (pages/markdown/settings.ts).
@@ -255,24 +268,37 @@ export function resolveThreadMinimapArm(raw: unknown): ThreadMinimapArm | null {
 /// The host's map (or anything else: the defaults).
 export function resolveChatDisplay(raw: unknown): ChatDisplay {
   const values = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Values;
+  // The look's width, font and sizes stand in for the defaults; the person's own key still wins
+  // (an explicit `markdown` font too: it follows the viewer).
+  const transcriptLook = resolveTranscriptLook(values);
+  const lookFallback = transcriptLookDisplayFallbacks(transcriptLook);
   const own = values[CHAT_DISPLAY.font.key];
   const font = isPreset(own)
     ? own
-    : isPreset(values[MARKDOWN_FOLLOWED.font])
-      ? (values[MARKDOWN_FOLLOWED.font] as ChatFontPreset)
-      : "system";
+    : own !== "markdown" && lookFallback.font
+      ? lookFallback.font
+      : isPreset(values[MARKDOWN_FOLLOWED.font])
+        ? (values[MARKDOWN_FOLLOWED.font] as ChatFontPreset)
+        : "system";
   const codeFamily = family(values[CHAT_DISPLAY.codeFamily.key]) ?? family(values[MARKDOWN_FOLLOWED.codeFamily]);
   return {
     harnessPlacement: harnessPlacement(values[HARNESS_PLACEMENT_KEY]),
     managedHarnessPlacement: harnessPlacement(values[`${HARNESS_PLACEMENT_KEY}.managed`]),
-    width: number(values[CHAT_DISPLAY.width.key], CHAT_DISPLAY.width) ?? DEFAULT_CHAT_DISPLAY.width,
+    width:
+      number(values[CHAT_DISPLAY.width.key], CHAT_DISPLAY.width) ?? lookFallback.width ?? DEFAULT_CHAT_DISPLAY.width,
     fullWidth: values[CHAT_DISPLAY.fullWidth.key] === true,
     font,
     uiFont: isChatUiFont(values[CHAT_UI_FONT_KEY]) ? values[CHAT_UI_FONT_KEY] : DEFAULT_CHAT_UI_FONT,
     uiFamily: family(values[UI_FAMILY_KEY]),
     proseFamily: family(values[PROSE_FAMILY_KEY]),
-    fontSize: number(values[CHAT_DISPLAY.fontSize.key], CHAT_DISPLAY.fontSize) ?? DEFAULT_CHAT_DISPLAY.fontSize,
-    lineHeight: number(values[CHAT_DISPLAY.lineHeight.key], CHAT_DISPLAY.lineHeight) ?? DEFAULT_CHAT_DISPLAY.lineHeight,
+    fontSize:
+      number(values[CHAT_DISPLAY.fontSize.key], CHAT_DISPLAY.fontSize) ??
+      lookFallback.fontSize ??
+      DEFAULT_CHAT_DISPLAY.fontSize,
+    lineHeight:
+      number(values[CHAT_DISPLAY.lineHeight.key], CHAT_DISPLAY.lineHeight) ??
+      lookFallback.lineHeight ??
+      DEFAULT_CHAT_DISPLAY.lineHeight,
     codeFamily,
     codeScale:
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
@@ -284,6 +310,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
     environmentPlacement: isEnvironmentPlacement(values[ENVIRONMENT_PLACEMENT_KEY])
       ? values[ENVIRONMENT_PLACEMENT_KEY]
       : DEFAULT_CHAT_DISPLAY.environmentPlacement,
+    transcriptLook,
   };
 }
 
@@ -382,6 +409,8 @@ export function chatDisplayVariables(
       : isDefault("width")
         ? null
         : `clamp(calc(${Math.min(720, display.width)}px / var(--cmux-ui-scale, 1)), 100%, calc(${display.width}px / var(--cmux-ui-scale, 1)))`,
+    // The transcript look's primitives (conversation/transcriptLook.ts); every one null for cmux.
+    ...transcriptLookVariables(display.transcriptLook),
   };
 }
 
@@ -410,6 +439,13 @@ export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void 
   for (const [name, value] of Object.entries(chatDisplayVariables(display))) {
     if (value === null) root.style.removeProperty(name);
     else root.style.setProperty(name, value);
+  }
+  // The look's choices the stylesheet draws by selector (data-transcript-*); none for cmux. A
+  // style-only root (a test's shim) has no attributes to set.
+  if (typeof root.setAttribute !== "function") return;
+  for (const [name, value] of Object.entries(transcriptLookAttributes(display.transcriptLook))) {
+    if (value === null) root.removeAttribute(name);
+    else root.setAttribute(name, value);
   }
 }
 
@@ -539,6 +575,9 @@ export const chatDisplay = (): ChatDisplay => current;
 export const currentChatMetrics = (): ChatMetrics => chatMetrics(current);
 /// The chat's text scale it draws at now (`drawnFontSize`, `--cmux-chat-text-scale`); the bubble's padding follows it too.
 export const chatDensityTextScale = (): number => densityTextScale;
+/// The factor on every gap between the transcript's rows now: the look's density times its row
+/// spacing (conversation/transcriptLook.ts gapScaleOf), 1 at cmux. model.ts places them with it.
+export const transcriptGapScale = (): number => gapScaleOf(current.transcriptLook);
 
 /// The host changed the density or Text Size (its scale script ends with `cmux-ui-scale-change`): the chat draws its text at the
 /// new size, and a new look (the same values) makes the transcript measure every row again, as a new font does.
