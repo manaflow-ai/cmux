@@ -7,7 +7,7 @@ cmux-tui-artifacts.yml; tests/test_ci_owned_first_not_census_frozen.py there). T
 one-shot runner census: on 2026-11-19 run 44464326281's "cmux_next_ daemon tests" was put on
 blacksmith-16vcpu-ubuntu-2404 because no GCP member was idle at the instant tree-preflight looked, and it sat queued
 there from 05:23Z while the GCP runners freed up, holding the tree publish the nightly and Leo's tip build waited for
-(Leo: "why would it move OFF of gcp and into blacksmith if it was already linux 16!?").
+(Leo: a job already headed for an owned 16 vCPU GCP runner class must not move off GCP onto Blacksmith).
 
 GitHub never moves a queued job, so the bound needs someone to act: this sweep. For each unfinished attempt-1
 nightly-path run of cmux-tui-artifacts.yml with a job queued on an owned label for SPILL_MINUTES or more, it cancels

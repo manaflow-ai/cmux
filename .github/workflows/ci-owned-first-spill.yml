@@ -8,8 +8,8 @@ name: CI owned-first spill
 # the default branch, so this file lives on main and checks out main's script.
 #
 # 2026-11-19: run 44464326281's daemon tests were frozen onto blacksmith-16vcpu-ubuntu-2404 by one census reading
-# and queued there from 05:23Z while the GCP runners freed up (Leo: "why would it move OFF of gcp and into blacksmith
-# if it was already linux 16!?").
+# and queued there from 05:23Z while the GCP runners freed up (Leo: a job already headed for an owned 16 vCPU GCP
+# runner class must not move off GCP onto Blacksmith).
 #
 # Keyless: the cmux-bot App token (GITHUB_TOKEN with actions: write without it), never a person's login. A manual
 # dispatch defaults to a dry run. vars.CI_OWNED_FIRST_SPILL_MINUTES overrides the 20-minute bound when set.
