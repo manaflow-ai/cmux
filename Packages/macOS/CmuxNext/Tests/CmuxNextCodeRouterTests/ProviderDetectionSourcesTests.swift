@@ -130,8 +130,10 @@ struct ProviderDetectionSourcesTests {
         #expect(detection.sources == [.keychain(ProviderDetector.codexKeychainService)])
     }
 
-    @Test(arguments: ["short", "contains\nnewline"])
+    @Test(arguments: ["", "short", "contains\nnewline"])
     func malformedAPIKeyIsUnknownBeforeTheFirstPrompt(key: String) {
+        // An empty environment value is still a configured source: it must be
+        // reported as malformed, rather than disappearing as "missing".
         let detection = Self.detector(env: ["OPENAI_API_KEY": key]).detectLocal(.openAI)
         #expect(detection.status == .unknown)
         #expect(detection.sources == [.environment("OPENAI_API_KEY")])
@@ -177,12 +179,6 @@ struct ProviderDetectionSourcesTests {
         let resolver = CredentialResolver(environment: detector.environment, keys: NoSavedKeys())
         let connects = (try? resolver.credential(for: c.provider, pasted: nil)) != nil
         #expect(connects == c.accepted)
-    }
-
-    @Test func emptyAPIKeyUsesMissingStateBecauseConnectIgnoresIt() {
-        let detection = Self.detector(env: ["OPENAI_API_KEY": ""]).detectLocal(.openAI)
-        #expect(detection.status == .missing)
-        #expect(detection.sources.isEmpty)
     }
 
     @Test(arguments: [
