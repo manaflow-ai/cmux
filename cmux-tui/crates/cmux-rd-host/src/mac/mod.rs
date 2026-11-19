@@ -74,7 +74,7 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         .into());
     }
     let cursor_metadata = cursor_metadata && cursor::available();
-    let capture = match cfg.window {
+    let capture = match window::session_window(cfg.window, &cfg.display)? {
         // One window, captured alone; a close or resize ends the session (`drain`).
         Some(id) => Capture::start_window(id, cfg.max_fps, cfg.max_width, !cursor_metadata)?,
         None => {

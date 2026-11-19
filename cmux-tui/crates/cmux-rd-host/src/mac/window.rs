@@ -319,6 +319,16 @@ pub fn responds(object: Id, selector: &std::ffi::CStr) -> bool {
     }
 }
 
+/// The window a session shares: the setup's `window` (serve, `--window ID`), else
+/// `--display window:ID` (the screen stream eval's rd-window target), else none (a display).
+pub fn session_window(window: Option<u32>, display: &str) -> crate::Res<Option<u32>> {
+    Ok(match (window, display.strip_prefix("window:")) {
+        (Some(id), _) => Some(id),
+        (None, Some(id)) => Some(crate::host::parse_window_id(id)?),
+        (None, None) => None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,6 +359,16 @@ mod tests {
         assert!(!offered(&Candidate { pid: 99, ..cand() }, &own));
         assert!(!offered(&Candidate { bundle: Some("com.cmuxterm.app".into()), ..cand() }, &own));
         assert!(offered(&Candidate { bundle: None, ..cand() }, &own));
+    }
+
+    #[test]
+    fn the_shared_window_comes_from_the_setup_or_the_display_name() {
+        assert_eq!(session_window(Some(7), "main").unwrap(), Some(7));
+        assert_eq!(session_window(None, "window:4242").unwrap(), Some(4242));
+        assert_eq!(session_window(None, "window:0x10").unwrap(), Some(16));
+        assert_eq!(session_window(None, "main").unwrap(), None);
+        assert_eq!(session_window(None, "1").unwrap(), None);
+        assert!(session_window(None, "window:front").is_err());
     }
 
     #[test]
