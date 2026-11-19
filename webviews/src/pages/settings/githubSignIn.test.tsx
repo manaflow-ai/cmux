@@ -51,3 +51,57 @@ test("signed out, the GitHub card offers Sign In instead of Connect GitHub", asy
   expect(again.querySelector('[data-github-action="connect"]')).not.toBeNull();
   signedIn.unmount();
 });
+
+// #46018: a connected GitHub in Settings can be disconnected and reconfigured (its installation's page
+// on GitHub: which repositories, and the account or org access) from the connection's own row.
+test("a connected GitHub row offers Reconfigure and Disconnect", async () => {
+  const connected: GitHubConnectionState = {
+    ...github,
+    detail: "Connected",
+    signIn: null,
+    reconfigure: "Reconfigure",
+    connections: [
+      {
+        id: "conn_1",
+        account: "acme",
+        status: "Connected",
+        permissions: [],
+        canDisconnect: true,
+        canReconfigure: true,
+      },
+    ],
+  };
+  const page = await renderPage({
+    path: "/settings/accounts",
+    setup: (provider) => {
+      provider.accounts = { ...provider.accounts, github: connected };
+    },
+  });
+  const row = page.container.querySelector<HTMLElement>('[data-github-connection="conn_1"]')!;
+  const reconfigure = row.querySelector<HTMLButtonElement>('[data-github-action="reconfigure"]');
+  expect(reconfigure?.textContent).toBe("Reconfigure");
+  expect(row.querySelector('[data-github-action="disconnect"]')?.textContent).toBe("Disconnect");
+  await act(async () => reconfigure!.click());
+  await settle();
+  expect(page.provider.accountRuns.at(-1)).toMatchObject({
+    action: "githubReconfigure",
+    account: "conn_1",
+  });
+  page.unmount();
+
+  // A pending connection (or an older host without the title) has no Reconfigure.
+  const pending = await renderPage({
+    path: "/settings/accounts",
+    setup: (provider) => {
+      provider.accounts = {
+        ...provider.accounts,
+        github: {
+          ...connected,
+          connections: [{ ...connected.connections[0]!, canReconfigure: false }],
+        },
+      };
+    },
+  });
+  expect(pending.container.querySelector('[data-github-action="reconfigure"]')).toBeNull();
+  pending.unmount();
+});
