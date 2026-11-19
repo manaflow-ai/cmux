@@ -112,7 +112,19 @@ impl Surface {
             // Only the request is sent under the runtime lock; the wait is not.
             let barrier =
                 match &*pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
-                    PtyRuntime::Hosted(host) => host.begin_viewer_size_barrier(deadline),
+                    PtyRuntime::Hosted(host) => {
+                        // A repeat attach can reassert the same lease while the
+                        // mirror is already at that grid. Sending another
+                        // barrier in that case only adds a host round trip; the
+                        // replay is already built at the size it will show.
+                        let target = host.viewer_size();
+                        let geometry =
+                            *pty.geometry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        if target.is_some_and(|target| (geometry.cols, geometry.rows) == target) {
+                            return true;
+                        }
+                        host.begin_viewer_size_barrier(deadline)
+                    }
                     _ => return true,
                 };
             if let Some(acknowledged) = barrier {
