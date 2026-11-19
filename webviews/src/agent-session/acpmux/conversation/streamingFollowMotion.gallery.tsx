@@ -38,6 +38,7 @@ function StreamingFollowMotionGallery({ variant }: { variant: MotionVariant }) {
       { working: streaming },
     );
   }, [count, streaming]);
+  // gallery-capture: runs only from the start button, which each arm's play clicks and then waits for the stream to finish.
   const start = () => {
     if (timer.current !== undefined) window.clearInterval(timer.current);
     setDone(false);

@@ -662,127 +662,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "If you quit anyway, the terminals that did not end keep running."
+            "value": "Quit Anyway leaves them running."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إذا أنهيت على أي حال، فستظل الطرفيات التي لم تنتهِ قيد التشغيل."
+            "state": "translated",
+            "value": "يُبقي «إنهاء على أي حال» عليها قيد التشغيل."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ako ipak izađete, terminali koji nisu završeni nastavljaju raditi."
+            "state": "translated",
+            "value": "„Ipak izađi“ ih ostavlja da rade."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hvis du afslutter alligevel, fortsætter de terminaler, der ikke blev afsluttet, med at køre."
+            "state": "translated",
+            "value": "Afslut alligevel lader dem køre videre."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Wenn Sie trotzdem beenden, laufen die nicht beendeten Terminals weiter."
+            "state": "translated",
+            "value": "„Trotzdem beenden“ lässt sie weiterlaufen."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Si sales de todos modos, los terminales que no finalizaron siguen en ejecución."
+            "state": "translated",
+            "value": "Salir de todos modos los deja en ejecución."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Si vous quittez quand même, les terminaux non terminés continuent de s’exécuter."
+            "state": "translated",
+            "value": "Quitter quand même les laisse s’exécuter."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Se esci comunque, i terminali non terminati continuano a funzionare."
+            "state": "translated",
+            "value": "Esci comunque li lascia in esecuzione."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "このまま終了すると、終了できなかったターミナルは実行し続けます。"
+            "state": "translated",
+            "value": "「このまま終了」では実行したままになります。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បើអ្នកចាកចេញទោះយ៉ាងណា ទែមីណាល់ដែលមិនបានបញ្ចប់នឹងបន្តដំណើរការ។"
+            "state": "translated",
+            "value": "ចាកចេញទោះយ៉ាងណា នឹងទុកវាឱ្យបន្តដំណើរការ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "그래도 종료하면 끝나지 않은 터미널은 계속 실행됩니다."
+            "state": "translated",
+            "value": "그래도 종료하면 계속 실행된 채로 남습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hvis du avslutter likevel, fortsetter terminalene som ikke ble avsluttet å kjøre."
+            "state": "translated",
+            "value": "Avslutt likevel lar dem fortsette å kjøre."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Jeśli mimo to zakończysz, niezakończone terminale będą nadal działać."
+            "state": "translated",
+            "value": "Zakończ mimo to pozostawi je uruchomione."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Se você sair mesmo assim, os terminais que não foram encerrados continuam em execução."
+            "state": "translated",
+            "value": "Sair mesmo assim os deixa em execução."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Если всё равно выйти, незавершённые терминалы продолжат работу."
+            "state": "translated",
+            "value": "«Всё равно выйти» оставит их работать."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "หากออกต่อไป เทอร์มินัลที่ไม่ได้จบจะยังคงทำงานอยู่"
+            "state": "translated",
+            "value": "ออกต่อไปจะปล่อยให้ทำงานต่อ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Yine de çıkarsanız sonlandırılamayan terminaller çalışmaya devam eder."
+            "state": "translated",
+            "value": "Yine de Çık onları çalışır durumda bırakır."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Якщо все одно вийти, незавершені термінали продовжать працювати."
+            "state": "translated",
+            "value": "«Усе одно вийти» залишить їх працювати."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nếu vẫn thoát, các terminal chưa kết thúc sẽ tiếp tục chạy."
+            "state": "translated",
+            "value": "Vẫn thoát sẽ để chúng tiếp tục chạy."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "如果仍然退出，未结束的终端会继续运行。"
+            "state": "translated",
+            "value": "“仍然退出”会让它们继续运行。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "如果仍然結束，未結束的終端機會繼續執行。"
+            "state": "translated",
+            "value": "「仍然結束」會讓它們繼續執行。"
           }
         }
       }
@@ -1186,127 +1186,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agents are still shutting down. Retry waits for them to finish."
+            "value": "Agents are still shutting down."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يزال الوكلاء قيد الإيقاف. تنتظر إعادة المحاولة حتى ينتهوا."
+            "state": "translated",
+            "value": "لا تزال الوكلاء قيد الإيقاف."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agenti se još gase. Ponovni pokušaj čeka da završe."
+            "state": "translated",
+            "value": "Agenti se još gase."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agenterne lukker stadig ned. Prøv igen venter, til de er færdige."
+            "state": "translated",
+            "value": "Agenterne lukker stadig ned."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agenten werden noch beendet. Erneut versuchen wartet, bis sie fertig sind."
+            "state": "translated",
+            "value": "Die Agenten werden noch beendet."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Los agentes aún se están cerrando. Reintentar espera a que terminen."
+            "state": "translated",
+            "value": "Los agentes aún se están cerrando."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Les agents sont encore en cours d’arrêt. Réessayer attend qu’ils aient terminé."
+            "state": "translated",
+            "value": "Les agents sont encore en cours d’arrêt."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gli agenti si stanno ancora chiudendo. Riprova attende che finiscano."
+            "state": "translated",
+            "value": "Gli agenti si stanno ancora chiudendo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントはまだ終了処理中です。再試行すると完了するまで待ちます。"
+            "value": "エージェントはまだ終了処理中です。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ភ្នាក់ងារនៅតែកំពុងបិទ។ ការព្យាយាមម្តងទៀតនឹងរង់ចាំឱ្យពួកវាបញ្ចប់។"
+            "state": "translated",
+            "value": "ភ្នាក់ងារនៅតែកំពុងបិទ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트가 아직 종료 중입니다. 다시 시도하면 종료가 끝날 때까지 기다립니다."
+            "state": "translated",
+            "value": "에이전트가 아직 종료 중입니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agentene avslutter fortsatt. Prøv igjen venter til de er ferdige."
+            "state": "translated",
+            "value": "Agentene avslutter fortsatt."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agenci wciąż się zamykają. Ponów czeka, aż skończą."
+            "state": "translated",
+            "value": "Agenci nadal się zamykają."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Os agentes ainda estão sendo encerrados. Tentar de novo espera até que terminem."
+            "state": "translated",
+            "value": "Os agentes ainda estão sendo encerrados."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Агенты ещё завершают работу. Повтор дождётся, пока они закончат."
+            "state": "translated",
+            "value": "Агенты всё ещё завершают работу."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เอเจนต์ยังปิดตัวไม่เสร็จ ลองอีกครั้งจะรอจนกว่าจะเสร็จ"
+            "state": "translated",
+            "value": "เอเจนต์ยังปิดตัวไม่เสร็จ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajanlar hâlâ kapanıyor. Yeniden Dene, bitmelerini bekler."
+            "state": "translated",
+            "value": "Ajanlar hâlâ kapanıyor."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Агенти ще завершують роботу. Повтор зачекає, доки вони закінчать."
+            "state": "translated",
+            "value": "Агенти ще завершують роботу."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Các tác tử vẫn đang tắt. Thử lại sẽ đợi đến khi chúng xong."
+            "state": "translated",
+            "value": "Các tác tử vẫn đang tắt."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "代理仍在关闭。重试会等待它们完成。"
+            "state": "translated",
+            "value": "代理仍在关闭。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "代理仍在關閉。重試會等待它們完成。"
+            "state": "translated",
+            "value": "代理程式仍在關閉。"
           }
         }
       }
@@ -2103,127 +2103,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not quitting: unsaved changes in %@ could not be saved. Save or close them in the app, then quit again."
+            "value": "Not quitting: %@ could not be saved. Save or close it, then quit again."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لن يتم الإنهاء: تعذّر حفظ التغييرات غير المحفوظة في %@. احفظها أو أغلقها في التطبيق، ثم أنهِ مرة أخرى."
+            "state": "translated",
+            "value": "لم يتم الإنهاء: تعذّر حفظ %@. احفظه أو أغلقه، ثم أنهِ مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zatvaranje otkazano: nesačuvane promjene u %@ nisu sačuvane. Sačuvajte ih ili zatvorite u aplikaciji, pa ponovo zatvorite."
+            "state": "translated",
+            "value": "Nije izađeno: %@ nije moguće sačuvati. Sačuvajte ga ili zatvorite, pa ponovo izađite."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Afslutter ikke: ugemte ændringer i %@ kunne ikke gemmes. Gem eller luk dem i appen, og afslut derefter igen."
+            "state": "translated",
+            "value": "Afslutter ikke: %@ kunne ikke gemmes. Gem eller luk det, og afslut igen."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nicht beendet: Nicht gesicherte Änderungen in %@ konnten nicht gesichert werden. Sichere oder schließe sie in der App und beende dann erneut."
+            "state": "translated",
+            "value": "Nicht beendet: %@ konnte nicht gesichert werden. Sichern oder schließen Sie es und beenden Sie dann erneut."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No se sale: los cambios sin guardar en %@ no se pudieron guardar. Guárdalos o ciérralos en la app y vuelve a salir."
+            "state": "translated",
+            "value": "No se sale: no se pudo guardar %@. Guárdalo o ciérralo y vuelve a salir."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pas de fermeture : les modifications non enregistrées de %@ n’ont pas pu être enregistrées. Enregistrez-les ou fermez-les dans l’app, puis quittez à nouveau."
+            "state": "translated",
+            "value": "Pas de fermeture : %@ n’a pas pu être enregistré. Enregistrez-le ou fermez-le, puis quittez à nouveau."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Uscita annullata: le modifiche non salvate in %@ non sono state salvate. Salvale o chiudile nell’app, poi esci di nuovo."
+            "state": "translated",
+            "value": "Uscita annullata: impossibile salvare %@. Salvalo o chiudilo, poi esci di nuovo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "終了しません: %@ の未保存の変更を保存できませんでした。アプリで保存するか閉じてから、もう一度終了してください。"
+            "value": "終了しません：%@ を保存できませんでした。保存するか閉じてから、もう一度終了してください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនចាកចេញ៖ មិនអាចរក្សាទុកការផ្លាស់ប្ដូរក្នុង %@ បានទេ។ រក្សាទុក ឬបិទវានៅក្នុងកម្មវិធី រួចចាកចេញម្ដងទៀត។"
+            "state": "translated",
+            "value": "មិនចាកចេញ៖ មិនអាចរក្សាទុក %@ បានទេ។ រក្សាទុក ឬបិទវា រួចចាកចេញម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "종료하지 않음: %@의 저장되지 않은 변경 사항을 저장할 수 없습니다. 앱에서 저장하거나 닫은 후 다시 종료하세요."
+            "state": "translated",
+            "value": "종료하지 않음: %@을(를) 저장할 수 없습니다. 저장하거나 닫은 후 다시 종료하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Avslutter ikke: ulagrede endringer i %@ kunne ikke lagres. Lagre eller lukk dem i appen, og avslutt så på nytt."
+            "state": "translated",
+            "value": "Avslutter ikke: %@ kunne ikke lagres. Lagre eller lukk det, og avslutt på nytt."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie zakończono: nie można zapisać niezapisanych zmian w %@. Zapisz je lub zamknij w aplikacji, a potem zakończ ponownie."
+            "state": "translated",
+            "value": "Nie zakończono: nie można zapisać %@. Zapisz lub zamknij, a potem zakończ ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Não encerrado: não foi possível salvar as alterações em %@. Salve-as ou feche-as no app e encerre novamente."
+            "state": "translated",
+            "value": "Não saiu: não foi possível salvar %@. Salve ou feche e saia novamente."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Выход отменён: не удалось сохранить несохранённые изменения в %@. Сохраните или закройте их в приложении и выйдите снова."
+            "state": "translated",
+            "value": "Выход отменён: не удалось сохранить %@. Сохраните или закройте его и выйдите снова."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่ออก: ไม่สามารถบันทึกการเปลี่ยนแปลงใน %@ ได้ บันทึกหรือปิดในแอป แล้วออกอีกครั้ง"
+            "state": "translated",
+            "value": "ไม่ออก: บันทึก %@ ไม่ได้ บันทึกหรือปิดก่อน แล้วออกอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Çıkılmıyor: %@ içindeki kaydedilmemiş değişiklikler kaydedilemedi. Uygulamada kaydedin veya kapatın, sonra yeniden çıkın."
+            "state": "translated",
+            "value": "Çıkılmadı: %@ kaydedilemedi. Kaydedin veya kapatın, sonra yeniden çıkın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Вихід скасовано: не вдалося зберегти незбережені зміни в %@. Збережіть або закрийте їх у застосунку, а тоді вийдіть знову."
+            "state": "translated",
+            "value": "Вихід скасовано: не вдалося зберегти %@. Збережіть або закрийте його й вийдіть знову."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Không thoát: không thể lưu thay đổi chưa lưu trong %@. Hãy lưu hoặc đóng chúng trong ứng dụng, rồi thoát lại."
+            "state": "translated",
+            "value": "Không thoát: không thể lưu %@. Hãy lưu hoặc đóng nó rồi thoát lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "未退出：无法保存 %@ 中未保存的更改。请在应用中保存或关闭它们，然后再次退出。"
+            "state": "translated",
+            "value": "未退出：无法保存 %@。请保存或关闭它，然后再次退出。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "未結束：無法儲存 %@ 中未儲存的變更。請在 App 中儲存或關閉，然後再次結束。"
+            "state": "translated",
+            "value": "未結束：無法儲存 %@。請儲存或關閉它，然後再次結束。"
           }
         }
       }
@@ -2365,127 +2365,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recovered unsaved changes in %@. The file changed on disk since; review before saving."
+            "value": "Recovered unsaved changes in %@. The file changed on disk since."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "تم استرداد التغييرات غير المحفوظة في %@. تغيّر الملف على القرص منذ ذلك الحين؛ راجعه قبل الحفظ."
+            "state": "translated",
+            "value": "تم استرداد التغييرات غير المحفوظة في %@. تغيّر الملف على القرص منذ ذلك الحين."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Vraćene nesačuvane promjene u %@. Datoteka se od tada promijenila na disku; pregledajte prije spremanja."
+            "state": "translated",
+            "value": "Vraćene su nesačuvane izmjene u %@. Datoteka se u međuvremenu promijenila na disku."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gendannede ugemte ændringer i %@. Filen er ændret på disken siden; gennemse før du gemmer."
+            "state": "translated",
+            "value": "Gendannede ikke-gemte ændringer i %@. Filen er ændret på disken siden."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nicht gesicherte Änderungen in %@ wiederhergestellt. Die Datei hat sich seitdem auf dem Datenträger geändert; vor dem Sichern prüfen."
+            "state": "translated",
+            "value": "Ungesicherte Änderungen in %@ wiederhergestellt. Die Datei hat sich seitdem auf der Festplatte geändert."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Se recuperaron cambios sin guardar en %@. El archivo cambió en el disco desde entonces; revísalo antes de guardar."
+            "state": "translated",
+            "value": "Se recuperaron los cambios sin guardar de %@. El archivo cambió en el disco desde entonces."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Modifications non enregistrées récupérées dans %@. Le fichier a changé sur le disque depuis ; vérifiez avant d’enregistrer."
+            "state": "translated",
+            "value": "Modifications non enregistrées de %@ récupérées. Le fichier a changé sur le disque depuis."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Modifiche non salvate recuperate in %@. Da allora il file è cambiato sul disco; controlla prima di salvare."
+            "state": "translated",
+            "value": "Modifiche non salvate di %@ recuperate. Il file è cambiato sul disco nel frattempo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ の未保存の変更を復元しました。その後ファイルがディスク上で変更されています。保存する前に確認してください。"
+            "value": "%@ の未保存の変更を復元しました。その後ファイルはディスク上で変更されています。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បានស្ដារការផ្លាស់ប្ដូរមិនទាន់រក្សាទុកក្នុង %@។ ឯកសារបានផ្លាស់ប្ដូរលើថាសតាំងពីពេលនោះ សូមពិនិត្យមុនរក្សាទុក។"
+            "state": "translated",
+            "value": "បានស្ដារការផ្លាស់ប្ដូរមិនទាន់រក្សាទុកក្នុង %@។ ឯកសារបានផ្លាស់ប្ដូរនៅលើថាសតាំងពីពេលនោះ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@의 저장되지 않은 변경 사항을 복구했습니다. 그 뒤 파일이 디스크에서 변경되었으니 저장하기 전에 확인하세요."
+            "state": "translated",
+            "value": "%@의 저장하지 않은 변경 사항을 복구했습니다. 그 사이 디스크의 파일이 변경되었습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gjenopprettet ulagrede endringer i %@. Filen er endret på disken siden; se gjennom før du lagrer."
+            "state": "translated",
+            "value": "Gjenopprettet ulagrede endringer i %@. Filen er endret på disken siden."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Odzyskano niezapisane zmiany w %@. Plik zmienił się od tego czasu na dysku; sprawdź przed zapisaniem."
+            "state": "translated",
+            "value": "Odzyskano niezapisane zmiany w %@. Plik na dysku zmienił się od tego czasu."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Alterações não salvas recuperadas em %@. O arquivo mudou no disco desde então; revise antes de salvar."
+            "state": "translated",
+            "value": "Alterações não salvas de %@ recuperadas. O arquivo mudou no disco desde então."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Восстановлены несохранённые изменения в %@. С тех пор файл изменился на диске; проверьте перед сохранением."
+            "state": "translated",
+            "value": "Восстановлены несохранённые изменения в %@. С тех пор файл на диске изменился."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "กู้คืนการเปลี่ยนแปลงที่ยังไม่บันทึกใน %@ ไฟล์เปลี่ยนแปลงบนดิสก์ตั้งแต่นั้น โปรดตรวจสอบก่อนบันทึก"
+            "state": "translated",
+            "value": "กู้คืนการเปลี่ยนแปลงที่ยังไม่บันทึกใน %@ แล้ว ไฟล์บนดิสก์เปลี่ยนไปตั้งแต่นั้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ içindeki kaydedilmemiş değişiklikler kurtarıldı. Dosya o zamandan beri diskte değişti; kaydetmeden önce gözden geçirin."
+            "state": "translated",
+            "value": "%@ içindeki kaydedilmemiş değişiklikler kurtarıldı. Dosya o zamandan beri diskte değişti."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Відновлено незбережені зміни в %@. Відтоді файл змінився на диску; перегляньте перед збереженням."
+            "state": "translated",
+            "value": "Відновлено незбережені зміни в %@. Відтоді файл на диску змінився."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Đã khôi phục thay đổi chưa lưu trong %@. Tệp đã thay đổi trên đĩa kể từ đó; hãy xem lại trước khi lưu."
+            "state": "translated",
+            "value": "Đã khôi phục thay đổi chưa lưu trong %@. Tệp trên ổ đĩa đã thay đổi kể từ đó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "已恢复 %@ 中未保存的更改。此后文件已在磁盘上更改，保存前请检查。"
+            "state": "translated",
+            "value": "已恢复 %@ 中未保存的更改。此后磁盘上的文件已更改。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "已復原 %@ 中未儲存的變更。此後檔案已在磁碟上變更，儲存前請檢查。"
+            "state": "translated",
+            "value": "已復原 %@ 中未儲存的變更。此後磁碟上的檔案已變更。"
           }
         }
       }
