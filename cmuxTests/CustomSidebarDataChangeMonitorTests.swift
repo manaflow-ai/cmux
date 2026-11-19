@@ -83,7 +83,7 @@ import Testing
         #expect(replayed)
     }
 
-    @Test func releasedMonitorTearsDownEverySubscription() throws {
+    @Test func releasedMonitorTearsDownEverySubscription() async throws {
         let manager = TabManager()
         let monitor = manager.customSidebarDataChangeMonitor
         monitor.retain()
@@ -94,9 +94,17 @@ import Testing
         monitor.release()
         #expect(!monitor.cancellables.isEmpty, "one holder remains")
 
+        let tasks = monitor.workspaceTasks + monitor.globalTasks
+
         monitor.release()
 
         #expect(!monitor.isObserving)
+        // Emptying the collections alone wouldn't stop the tasks; each one
+        // must have been cancelled, and must then finish.
+        #expect(tasks.allSatisfy(\.isCancelled))
+        for task in tasks {
+            await task.value
+        }
         #expect(monitor.cancellables.isEmpty)
         #expect(monitor.workspaceCancellables.isEmpty)
         #expect(monitor.workspaceTasks.isEmpty)
