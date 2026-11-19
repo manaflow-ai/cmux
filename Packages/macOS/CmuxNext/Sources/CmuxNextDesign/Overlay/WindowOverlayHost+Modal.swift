@@ -42,7 +42,10 @@ extension WindowOverlayHost {
         for (index, view) in keyViews.enumerated() { view.nextKeyView = keyViews[(index + 1) % keyViews.count] }
         let first = keyViews.first ?? handle.content
         // In-window (in-tree pages): the window stays key and its first responder moves into the overlay.
-        if usesWindowBackend { return makeOverlayFirstResponder(first) }
+        if usesWindowBackend {
+            makeOverlayFirstResponder(first)
+            return
+        }
         panel.acceptsKey = true
         // Tab and Shift-Tab cycle through this overlay's controls only.
         panel.autorecalculatesKeyViewLoop = false

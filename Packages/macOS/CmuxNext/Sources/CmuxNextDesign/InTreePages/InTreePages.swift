@@ -44,9 +44,9 @@ public final class InTreePages {
     public static var all: [TunableDescriptor] { [tunable.descriptor] }
 
     /// The environment variable that decides the switch before the Debug Settings file (`1` or `0`).
-    public static let environmentKey = "CMUX_IN_TREE_PAGES"
+    public nonisolated static let environmentKey = "CMUX_IN_TREE_PAGES"
     /// A dev build whose tag starts with this has the switch on unless its Debug Settings file turns it off.
-    public static let defaultOnTagPrefix = "in-tree-pages"
+    public nonisolated static let defaultOnTagPrefix = "in-tree-pages"
 
     /// The latched switch; nil until ``latch(fileOverride:tag:environment:)`` (or the first read) ran.
     private var latched: Bool?
