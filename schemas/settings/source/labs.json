@@ -152,29 +152,6 @@
             "theme",
             "labs"
           ]
-        },
-        {
-          "key": "experiments.toastsV2",
-          "note": "Toasts v2 (taste-toasts-v2): a spinner toast becomes its result in place, and closing a tab or workspace or archiving a chat shows an Undo toast. The app pushes the value into CmuxToastCenter.shared.v2. Off by default.",
-          "title": {
-            "key": "settings.experiments.toastsV2",
-            "text": "Toasts v2"
-          },
-          "help": {
-            "key": "settings.experiments.toastsV2.help",
-            "text": "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "labs",
-            "experiments",
-            "experimental",
-            "toasts",
-            "toast",
-            "undo",
-            "spinner"
-          ]
         }
       ]
     }

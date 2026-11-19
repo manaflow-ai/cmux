@@ -12,6 +12,7 @@ import { createNoticeQueue, NoticeStack, TOAST_MS } from "./NoticeStack";
 import { toastsV2 } from "./toastsV2.experiment";
 import { validateExperiments } from "../experiments/experiment";
 import { experimentById } from "../experiments/registry";
+import { setExperimentSwitches } from "../experiments/switches";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -234,4 +235,19 @@ test("the default arm draws exactly today's card", () => {
   expect(card.hasAttribute("data-look")).toBe(false);
   expect(card.querySelector("[data-ink]")).toBeNull();
   expect(card.querySelector('[data-notice-action="undo"]')?.getAttribute("data-variant")).toBe("ghost");
+});
+
+test("Settings > Advanced > Experiments > Toasts v2 turns on the recommended arm, and off restores today's look", () => {
+  const queue = createNoticeQueue();
+  queue.show({
+    id: "closed",
+    message: "Closed “Build logs”",
+    actions: [{ id: "undo", label: "Undo", onSelect: () => {} }],
+  });
+  const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="list" />);
+  expect(doc.getElementById("closed")?.getAttribute("data-look")).toBeNull();
+  act(() => setExperimentSwitches({ toastsV2: true }));
+  expect(doc.getElementById("closed")?.getAttribute("data-look")).toBe("mark");
+  act(() => setExperimentSwitches({}));
+  expect(doc.getElementById("closed")?.getAttribute("data-look")).toBeNull();
 });

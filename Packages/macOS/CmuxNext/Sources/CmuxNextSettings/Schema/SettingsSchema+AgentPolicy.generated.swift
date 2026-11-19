@@ -137,7 +137,7 @@ extension SettingsSchema {
         "notifications.attention.moveToTop", "notifications.attention.moveToTopOnAgentFinish",
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
-        "labs.previewFeatures",
+        "labs.previewFeatures", "experiments.toastsV2",
         // Experiments are taste prototypes of how a surface looks (looks only), each off by default.
         "experiments.glassToolbarGroups",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).

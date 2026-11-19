@@ -23,7 +23,7 @@ public nonisolated enum CmuxToastStyle: String, Sendable, CaseIterable, Hashable
     case accentTinted
     /// An opaque surface, no glass, popping in.
     case solid
-    /// Toasts v2 (Settings > Experimental, `experiments.toastsV2`): one quiet glass line, a mark in the
+    /// Toasts v2 (Settings > Advanced > Experiments, `experiments.toastsV2`): one quiet glass line, a mark in the
     /// tone's color (a spinner while working), the action as a small ink-filled button. A working toast
     /// turns into its result in place.
     case v2

@@ -371,11 +371,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 services?.feed.configureGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)
             }
         }
-        // Settings > Experimental > Toasts v2 (`experiments.toastsV2`) follows into the one toast center.
+        // Settings > Advanced > Experiments > Toasts v2 (`experiments.toastsV2`) follows into the one toast center.
         Task { [weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            for await on in ObservationStream({ settings.snapshot.toastsV2 }) { CmuxToastCenter.shared.v2 = on }
+            for await on in ObservationStream({ settings.snapshot.experimentSwitches["toastsV2"] == true }) { CmuxToastCenter.shared.v2 = on }
         }
         // macOS posts no notification when an MDM profile changes; activation is the event-driven backstop next to the
         // managed-file watchers. A full-screen window an update relaunch kept back enters once the user is in cmux (`enterRestoredFullScreens`).

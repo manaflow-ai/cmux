@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextTestSupport
 import Testing
 
-/// Toasts v2 (Settings > Experimental, `experiments.toastsV2`; the coordinator's taste build list, 2026-11-19:
+/// Toasts v2 (Settings > Advanced > Experiments, `experiments.toastsV2`; the coordinator's taste build list, 2026-11-19:
 /// "One toast starts as a spinner ('Running tests…') and turns into success or error in place without
 /// stacking"): a working toast leads with a spinner, its result takes its slot, and the switch draws every
 /// toast in the v2 look (a mark for the tone, Undo as an ink-filled button). Off, nothing changes.

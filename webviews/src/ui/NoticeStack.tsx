@@ -33,6 +33,7 @@ import {
 } from "./anchors";
 import { NoticeDeck, type DeckAlign, type DeckDrag, type DragFeel, type Flights } from "./NoticeDeck";
 import { experimentArm } from "../experiments/experiment";
+import { useExperimentSwitch } from "../experiments/switches";
 import { toastsV2, type ToastLook } from "./toastsV2.experiment";
 
 /** The native toast's default (CmuxToast `duration`). */
@@ -267,7 +268,10 @@ export function NoticeStack({
   look?: ToastLook;
 }) {
   const [experimentLook] = useState(() => experimentArm(toastsV2));
-  const look = lookOverride ?? experimentLook;
+  // Settings > Advanced > Experiments > Toasts v2 (`experiments.toastsV2`) turns on the recommended arm;
+  // a gallery or debug arm other than `off` still wins.
+  const switchedOn = useExperimentSwitch("toastsV2");
+  const look = lookOverride ?? (experimentLook === "off" && switchedOn ? "mark" : experimentLook);
   const entries = useSyncExternalStore(queue.subscribe, queue.snapshot, queue.snapshot);
   const visible = usePageVisible();
   const [hovered, setHovered] = useState(false);

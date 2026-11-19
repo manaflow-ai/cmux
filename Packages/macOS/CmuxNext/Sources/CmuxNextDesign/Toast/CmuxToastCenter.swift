@@ -54,7 +54,7 @@ public final class CmuxToastCenter {
     /// The style every toast draws in now, unless it names its own (``CmuxToast/style``): toasts v2
     /// (``v2``) while it is on, else the pick.
     public var style: CmuxToastStyle { v2 ? .v2 : styles.style }
-    /// Settings > Experimental > Toasts v2 (`experiments.toastsV2`, off by default): every toast draws in
+    /// Settings > Advanced > Experiments > Toasts v2 (`experiments.toastsV2`, off by default): every toast draws in
     /// ``CmuxToastStyle/v2``, and closing a tab or workspace or archiving a chat offers Undo. The app sets it
     /// from the setting; turning it on or off redraws the toasts showing.
     public var v2 = false {

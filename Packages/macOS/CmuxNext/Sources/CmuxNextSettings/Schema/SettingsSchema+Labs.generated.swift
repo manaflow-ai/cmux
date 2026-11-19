@@ -20,9 +20,6 @@ extension CmuxConfigSnapshot {
     /// `customize.fromTheApp`: Opt-in Customize surfaces in the window: holding Option over a big part shows the Customize Inspector (its settings, theme colors, Change This… and Reset), and the right-click menus of those parts end with Customize…. Off by default; off hides both, and nothing else changes. Leo 2026-11-15 (ask-9634dbcdac): opt-in UI needs a way back, which is turning this off.
     public nonisolated static let customizeFromTheAppPath = ["customize", "fromTheApp"]
     public nonisolated static let customizeFromTheAppDefault = false
-    /// `experiments.toastsV2`: Toasts v2 (taste-toasts-v2): a spinner toast becomes its result in place, and closing a tab or workspace or archiving a chat shows an Undo toast. The app pushes the value into CmuxToastCenter.shared.v2. Off by default.
-    public nonisolated static let toastsV2Path = ["experiments", "toastsV2"]
-    public nonisolated static let toastsV2Default = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -90,16 +87,6 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.customizeFromTheAppDefault),
                 keywords: ["customize", "inspector", "option", "hover", "right-click", "theme", "labs"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.toastsV2Path,
-                section: .advanced,
-                group: group,
-                title: SettingsText.keyed("settings.experiments.toastsV2", "Toasts v2"),
-                help: SettingsText.keyed("settings.experiments.toastsV2.help", "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.toastsV2Default),
-                keywords: ["labs", "experiments", "experimental", "toasts", "toast", "undo", "spinner"]
             ),
         ]
     }
