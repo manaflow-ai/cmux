@@ -12,8 +12,29 @@ public enum ActionTargetReasons {
     /// Sets the target-aware reason of a bound action.
     public static func set(_ id: ActionID, in registry: ActionRegistry, _ reason: @escaping @MainActor (ActionInvocation) -> String?) {
         guard var action = registry.action(for: id) else { return }
-        action.targetUnavailableReason = reason
+        action.targetUnavailableReason = question(reason, in: registry)
         registry.register(action)
+    }
+
+    /// `rule` as a question. Every rule an action answers a question with (is its row left out for
+    /// this target, why it cannot run here, its title, its check mark, its chosen value) is kept
+    /// this way at its one write (here, `ActionTargetVisibility`, `ActionTargetTitles`): a lookup
+    /// in it that refuses (a tab the tree no longer has) tells nobody, since nobody ran an action.
+    /// Only a run refuses (``refuses(_:_:in:)``).
+    static func question<Input, Answer>(_ rule: @escaping @MainActor (Input) -> Answer,
+                                        in registry: ActionRegistry) -> @MainActor (Input) -> Answer {
+        { [weak registry] input in
+            guard let registry else { return rule(input) }
+            return registry.withoutRefusals { rule(input) }
+        }
+    }
+
+    /// ``question(_:in:)`` for a rule about the focused object (a palette row's rules).
+    static func focusQuestion<Answer>(_ rule: @escaping @MainActor () -> Answer, in registry: ActionRegistry) -> @MainActor () -> Answer {
+        { [weak registry] in
+            guard let registry else { return rule() }
+            return registry.withoutRefusals { rule() }
+        }
     }
 
     /// The general reason, else the reason for `invocation`'s target.

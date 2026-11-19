@@ -11,7 +11,7 @@ public enum ActionTargetTitles {
     /// Sets the context menu title of a bound action for each target.
     public static func set(_ id: ActionID, in registry: ActionRegistry, _ title: @escaping @MainActor (ActionInvocation) -> String?) {
         guard var action = registry.action(for: id) else { return }
-        action.targetTitle = title
+        action.targetTitle = ActionTargetReasons.question(title, in: registry)
         registry.register(action)
     }
 
@@ -19,7 +19,7 @@ public enum ActionTargetTitles {
     /// row shows a checkmark while it is.
     public static func setState(_ id: ActionID, in registry: ActionRegistry, _ state: @escaping @MainActor (ActionInvocation) -> Bool?) {
         guard var action = registry.action(for: id) else { return }
-        action.targetState = state
+        action.targetState = ActionTargetReasons.question(state, in: registry)
         registry.register(action)
     }
 
@@ -28,7 +28,7 @@ public enum ActionTargetTitles {
     /// the palette builds its rows).
     public static func setPaletteState(_ id: ActionID, in registry: ActionRegistry, _ state: @escaping @MainActor () -> Bool) {
         guard var action = registry.action(for: id) else { return }
-        action.paletteState = state
+        action.paletteState = ActionTargetReasons.focusQuestion(state, in: registry)
         registry.register(action)
     }
 
@@ -37,7 +37,7 @@ public enum ActionTargetTitles {
     /// A preset or choice (Density: Compact) uses ``setPaletteState(_:in:_:)`` and closes the palette.
     public static func setPaletteSettingState(_ id: ActionID, in registry: ActionRegistry, _ state: @escaping @MainActor () -> Bool) {
         guard var action = registry.action(for: id) else { return }
-        action.paletteState = state
+        action.paletteState = ActionTargetReasons.focusQuestion(state, in: registry)
         action.paletteStateIsSetting = true
         registry.register(action)
     }
@@ -46,14 +46,14 @@ public enum ActionTargetTitles {
     /// refuse with that reason). `reason` must not refuse (no HUD while the palette builds its rows).
     public static func setPaletteReason(_ id: ActionID, in registry: ActionRegistry, _ reason: @escaping @MainActor () -> String?) {
         guard var action = registry.action(for: id) else { return }
-        action.paletteUnavailableReason = reason
+        action.paletteUnavailableReason = ActionTargetReasons.focusQuestion(reason, in: registry)
         registry.register(action)
     }
 
     /// Sets the current value of a bound action's choices argument for each target.
     public static func setChoiceState(_ id: ActionID, in registry: ActionRegistry, _ state: @escaping @MainActor (ActionTargetRef?) -> String?) {
         guard var action = registry.action(for: id) else { return }
-        action.choiceState = state
+        action.choiceState = ActionTargetReasons.question(state, in: registry)
         registry.register(action)
     }
 
@@ -61,7 +61,7 @@ public enum ActionTargetTitles {
     /// nil keeps the catalog title. The CLI and MCP keep the catalog title and id.
     public static func setPaletteTitle(_ id: ActionID, in registry: ActionRegistry, _ title: @escaping @MainActor () -> String?) {
         guard var action = registry.action(for: id) else { return }
-        action.paletteTitle = title
+        action.paletteTitle = ActionTargetReasons.focusQuestion(title, in: registry)
         registry.register(action)
     }
 

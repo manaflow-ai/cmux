@@ -79,17 +79,12 @@ extension ActionRegistry {
 
     /// Runs `body`, a lookup behind a reason or visibility rule (a menu row's state, a palette
     /// row's enabled check), with every refusal in it dropped: no notice shows and no caller
-    /// receives it. The handler run that follows reports its own refusal.
+    /// receives it. The handler run that follows reports its own refusal. A lookup inside a
+    /// person's run is not that run: a refusal in it holds nothing (``refusalDeferrals``).
     public func withoutRefusals<T>(_ body: () -> T) -> T {
-        let observer = refusalObserver, capturing = isCapturingRefusal, reporting = isReportingRefusal
-        refusalObserver = nil
-        isCapturingRefusal = false
-        isReportingRefusal = false
-        defer {
-            refusalObserver = observer
-            isCapturingRefusal = capturing
-            isReportingRefusal = reporting
-        }
+        let heard = (refusalObserver, isCapturingRefusal, isReportingRefusal, personRun)
+        (refusalObserver, isCapturingRefusal, isReportingRefusal, personRun) = (nil, false, false, nil)
+        defer { (refusalObserver, isCapturingRefusal, isReportingRefusal, personRun) = heard }
         return body()
     }
 

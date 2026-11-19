@@ -10,7 +10,7 @@ public enum ActionTargetVisibility {
     /// returns true for that target.
     public static func hide(_ id: ActionID, in registry: ActionRegistry, when hidden: @escaping @MainActor (ActionInvocation) -> Bool) {
         guard var action = registry.action(for: id) else { return }
-        action.targetHidden = hidden
+        action.targetHidden = ActionTargetReasons.question(hidden, in: registry)
         registry.register(action)
     }
 
