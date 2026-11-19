@@ -15,6 +15,8 @@ use std::collections::{HashMap, VecDeque};
 
 use cmux_rd_proto::Arrival;
 
+use crate::probe::ProbeView;
+
 /// The network path class reported by the link (transport.md section 4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathKind {
@@ -117,6 +119,19 @@ pub fn outage_threshold_us(rtt_us: Option<u64>) -> u64 {
 const OUTAGE_FREEZE_MAX_US: u64 = 1_000_000;
 /// One response window never cuts the target below this share of where it began.
 const CUT_FLOOR: f64 = 0.5;
+/// D4: a probe train's arrival rate under this share of its send rate is a bottleneck
+/// under the probe rate (the arrival rate is the path's capacity).
+const PROBE_LIMITED_SHARE: f64 = 0.9;
+/// D4: the target a probe train proves is this share of the rate the path carried.
+const PROBE_BACKOFF: f64 = 0.85;
+/// D4: a train counts once this share of it has been reported.
+const PROBE_MIN_REPORTED: f64 = 0.8;
+/// D4: a train not reported within this long is given up (lost, or a viewer that does
+/// not report probes), so the next one may go.
+const PROBE_TRAIN_TIMEOUT_US: u64 = 1_000_000;
+/// A train's send and arrival spans are at least this (a train that left in one burst
+/// says nothing finer).
+const PROBE_MIN_SPAN_US: i64 = 500;
 
 /// One send group: packets sent within [`GROUP_SPAN_US`].
 #[derive(Debug, Clone, Copy)]
@@ -358,6 +373,46 @@ impl OutageWatch {
     }
 }
 
+/// D4: one probe train in flight, and what has been reported of it.
+#[derive(Debug)]
+struct ProbeTrainState {
+    seqs: Vec<u16>,
+    started_us: u64,
+    reported: usize,
+    bytes: u64,
+    /// (first, last) host send time of the reported datagrams.
+    send: Option<(u64, u64)>,
+    /// (first, last) unwrapped viewer arrival time of the reported datagrams.
+    arrival: Option<(i64, i64)>,
+}
+
+impl ProbeTrainState {
+    fn add(&mut self, sent_us: u64, arrival_us: i64, bytes: u32) {
+        self.reported += 1;
+        self.bytes += u64::from(bytes);
+        self.send =
+            Some(self.send.map_or((sent_us, sent_us), |(a, b)| (a.min(sent_us), b.max(sent_us))));
+        self.arrival = Some(
+            self.arrival
+                .map_or((arrival_us, arrival_us), |(a, b)| (a.min(arrival_us), b.max(arrival_us))),
+        );
+    }
+
+    /// (send rate, arrival rate) over the reported datagrams, once enough are in.
+    fn rates(&self) -> Option<(f64, f64)> {
+        if self.reported < 2 || (self.reported as f64) < PROBE_MIN_REPORTED * self.seqs.len() as f64
+        {
+            return None;
+        }
+        let ((s0, s1), (a0, a1)) = (self.send?, self.arrival?);
+        // n datagrams span n - 1 gaps.
+        let bits = self.bytes as f64 * 8.0 * (self.reported - 1) as f64 / self.reported as f64;
+        let send_span = i64::try_from(s1 - s0).unwrap_or(i64::MAX).max(PROBE_MIN_SPAN_US);
+        let arrival_span = (a1 - a0).max(PROBE_MIN_SPAN_US);
+        Some((bits * 1e6 / send_span as f64, bits * 1e6 / arrival_span as f64))
+    }
+}
+
 fn slope(points: &VecDeque<(f64, f64)>) -> Option<f64> {
     let n = points.len() as f64;
     let (sx, sy) = points.iter().fold((0.0, 0.0), |(a, b), &(x, y)| (a + x, b + y));
@@ -401,6 +456,8 @@ pub struct CongestionController {
     last_increase_us: Option<u64>,
     last_decrease_us: Option<u64>,
     usage: Usage,
+    /// D4: the probe train in flight.
+    train: Option<ProbeTrainState>,
 }
 
 impl CongestionController {
@@ -423,6 +480,7 @@ impl CongestionController {
             last_increase_us: None,
             last_decrease_us: None,
             usage: Usage::Normal,
+            train: None,
         };
         cc.clamp();
         cc
@@ -511,6 +569,7 @@ impl CongestionController {
         self.capacity_bps = None;
         self.last_decrease_us = None;
         self.usage = Usage::Normal;
+        self.train = None;
         self.clamp();
     }
 
@@ -583,11 +642,11 @@ impl CongestionController {
         let before_bps = self.target_bps;
         let (screened, loss) = self.screen_outage(arrivals, loss, now_us);
         let arrivals = &screened[..];
-        let mut samples: Vec<(u64, i64, u32)> = arrivals
+        let mut samples: Vec<(u64, i64, u32, u16)> = arrivals
             .iter()
             .filter_map(|a| {
                 let sent = self.sent.remove(&a.transport_seq)?;
-                Some((sent.at_us, i64::from(a.arrival_us), sent.bytes))
+                Some((sent.at_us, i64::from(a.arrival_us), sent.bytes, a.transport_seq))
             })
             .collect();
         samples.sort_unstable_by_key(|s| s.0);
@@ -601,8 +660,11 @@ impl CongestionController {
             self.lan_start(rtt_us);
         }
         let mut evidence = false;
-        for (sent_us, raw_arrival, bytes) in samples {
+        for (sent_us, raw_arrival, bytes, seq) in samples {
             let arrival = self.unwrap_arrival(raw_arrival as u32);
+            if let Some(train) = self.train.as_mut().filter(|t| t.seqs.contains(&seq)) {
+                train.add(sent_us, arrival, bytes);
+            }
             if bytes > 0 {
                 self.acked.push_back((arrival, bytes));
                 self.acked_bytes += u64::from(bytes);
@@ -633,6 +695,7 @@ impl CongestionController {
                 Usage::Normal => self.increase(now_us),
             }
         }
+        self.settle_probe(now_us);
         if loss > 0.10 {
             let before = self.target_bps as f64;
             let mut target = before * (1.0 - 0.5 * loss.min(1.0));
@@ -717,12 +780,16 @@ impl CongestionController {
     }
 
     fn clamp(&mut self) {
+        self.target_bps = self.target_bps.clamp(self.config.min_bps, self.max_bps());
+    }
+
+    fn max_bps(&self) -> u64 {
         let max = if self.path == PathKind::DoRelay {
             self.config.max_bps.min(self.config.relay_max_bps)
         } else {
             self.config.max_bps
         };
-        self.target_bps = self.target_bps.clamp(self.config.min_bps, max.max(self.config.min_bps));
+        max.max(self.config.min_bps)
     }
 }
 
@@ -798,6 +865,8 @@ impl CongestionController {
             self.sent_window.clear();
             self.sent_window_bytes = 0;
             self.usage = Usage::Normal;
+            // A train across the outage measures the hold, not the path.
+            self.train = None;
         }
         let cutoff = self.outage.burst_sent_before_us;
         let mut kept = Vec::with_capacity(arrivals.len());
@@ -843,6 +912,94 @@ impl CongestionController {
         let floor = (anchor as f64 * CUT_FLOOR) as u64;
         if self.target_bps < floor {
             self.target_bps = floor;
+            self.clamp();
+        }
+    }
+}
+
+/// D4: probe trains while the screen is quiet ([`crate::probe`]). The target grows
+/// from what a train proved the path carries, never from the quiet stream alone.
+impl CongestionController {
+    /// What the probe scheduler needs now. A train may go while the link is up, no
+    /// overuse or cut is in force, and no train still waits for its report (one
+    /// unreported for [`PROBE_TRAIN_TIMEOUT_US`] is given up).
+    pub fn probe_view(&mut self, now_us: u64) -> ProbeView {
+        if self
+            .train
+            .as_ref()
+            .is_some_and(|t| now_us.saturating_sub(t.started_us) > PROBE_TRAIN_TIMEOUT_US)
+        {
+            self.train = None;
+        }
+        ProbeView {
+            target_bps: self.target_bps,
+            max_bps: self.max_bps(),
+            sent_bps: self.sent_bps(now_us).unwrap_or(0.0),
+            may_probe: !self.frozen()
+                && self.usage != Usage::Overuse
+                && !self.cutting(now_us)
+                && self.train.is_none(),
+        }
+    }
+
+    /// A probe datagram of `bytes` was queued now. It is timed like any datagram (it
+    /// counts against the rate, D10) and its arrival is evidence for the train; the
+    /// probes recorded before the train's report are one train.
+    pub fn on_probe_sent(&mut self, transport_seq: u16, now_us: u64, bytes: usize) {
+        self.on_sent_bytes(transport_seq, now_us, bytes);
+        let train = self.train.get_or_insert_with(|| ProbeTrainState {
+            seqs: Vec::new(),
+            started_us: now_us,
+            reported: 0,
+            bytes: 0,
+            send: None,
+            arrival: None,
+        });
+        train.seqs.push(transport_seq);
+    }
+
+    /// Whether a probe train waits for its report.
+    pub fn probing(&self) -> bool {
+        self.train.is_some()
+    }
+
+    /// A cut happened within the last response window.
+    fn cutting(&self, now_us: u64) -> bool {
+        self.last_decrease_us.is_some_and(|t| now_us.saturating_sub(t) < self.outage.window_us())
+    }
+
+    /// Acts on the train once it is reported in full, or as far as it will be.
+    fn settle_probe(&mut self, now_us: u64) {
+        let Some(train) = self.train.as_ref() else { return };
+        let complete = train.reported >= train.seqs.len();
+        let late = now_us.saturating_sub(train.started_us) > PROBE_TRAIN_TIMEOUT_US / 2;
+        if !complete && !late {
+            return;
+        }
+        let rates = train.rates();
+        self.train = None;
+        let Some((send_bps, arrival_bps)) = rates else { return };
+        // A cut in force (or this feedback's overuse) wins over a probe.
+        if self.frozen() || self.usage == Usage::Overuse || self.cutting(now_us) {
+            return;
+        }
+        let target = self.target_bps as f64;
+        let carried = arrival_bps.min(send_bps);
+        if arrival_bps < PROBE_LIMITED_SHARE * send_bps {
+            // A bottleneck under the probe rate: the arrival rate is the capacity. One
+            // under the target is not acted on here (the delay trend cuts when a queue
+            // grows).
+            if arrival_bps >= target {
+                self.capacity_bps = Some(arrival_bps);
+            }
+        } else if self.capacity_bps.is_some_and(|c| carried > 1.25 * c) {
+            // Well over the last measured capacity without a bottleneck: it moved.
+            self.capacity_bps = None;
+        }
+        let next = PROBE_BACKOFF * carried;
+        if next > target {
+            self.target_bps = next as u64;
+            self.last_increase_us = Some(now_us);
             self.clamp();
         }
     }

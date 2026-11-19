@@ -269,6 +269,12 @@ impl Session {
                 self.track(header.stream, before, after);
                 pushed.map_err(SessionError::from)
             }
+            // D4 probe padding: its stream's receiver reports the arrival; a probe for a
+            // stream not open here is dropped (it carries nothing).
+            DatagramKind::Probe => match self.streams.get_mut(&header.stream) {
+                Some(r) => r.push_datagram(datagram, now_us).map_err(SessionError::from),
+                None => Ok(()),
+            },
             DatagramKind::ClockPong if self.clock.is_some() => {
                 let (_, payload) =
                     DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;

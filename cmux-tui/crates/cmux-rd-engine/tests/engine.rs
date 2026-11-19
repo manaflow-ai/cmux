@@ -777,3 +777,61 @@ fn no_recovery_keyframe_while_the_path_is_away() {
     let req = out.encode.expect("the recovery ask is answered once the path is back");
     assert!(req.force_idr);
 }
+
+/// D4: with `probe`, a quiet engine sends a train of `Probe` datagrams (each its own
+/// transport sequence, the link's size) one interval after it is first asked; the
+/// viewer's feedback reporting them at the rate they left proves that rate, and the
+/// target grows from it. Without `probe` nothing is ever sent.
+#[test]
+fn a_probe_train_on_a_quiet_screen_grows_the_target_only_with_probe_on() {
+    let mut off = engine();
+    assert_eq!(off.probe_train(0), None);
+    assert_eq!(off.probe_train(5_000_000), None);
+    assert_eq!(off.next_probe_us(), None);
+
+    let mut e = MediaEngine::new(
+        EngineConfig {
+            width: 640,
+            height: 480,
+            max_fps: 60,
+            probe: true,
+            ..EngineConfig::default()
+        },
+        0,
+    );
+    let start = e.target_bps();
+    assert_eq!(e.probe_train(0), None, "the first train waits one interval");
+    assert_eq!(e.next_probe_us(), Some(1_000_000));
+    let train = e.probe_train(1_000_000).expect("a train on a quiet screen");
+    assert_eq!(train.rate_bps, 2 * start);
+    assert!(train.datagrams.len() >= 8);
+    let mut seqs = Vec::new();
+    for d in &train.datagrams {
+        assert_eq!(d.len(), cmux_rd_proto::MAX_DATAGRAM_VPC);
+        let (h, _) = DatagramHeader::decode(d).expect("header");
+        assert_eq!(h.kind, DatagramKind::Probe);
+        seqs.push(h.transport_seq);
+    }
+    assert!(seqs.windows(2).all(|w| w[1] == w[0].wrapping_add(1)), "{seqs:?}");
+    assert_eq!(e.probe_train(1_010_000), None, "one train at a time");
+    // Paced at the train's rate, and the path carries it at that rate.
+    let gap_us = (train.datagrams[0].len() as u64 * 8 * 1_000_000).div_ceil(train.rate_bps);
+    let arrivals: Vec<cmux_rd_proto::Arrival> = train
+        .datagrams
+        .iter()
+        .zip(&seqs)
+        .enumerate()
+        .map(|(i, (d, &seq))| {
+            let left = 1_000_000 + i as u64 * gap_us;
+            e.datagram_sent(d, left);
+            cmux_rd_proto::Arrival { transport_seq: seq, arrival_us: (left + 10_000) as u32 }
+        })
+        .collect();
+    e.on_datagram(&feedback(&Feedback { arrivals, ..Feedback::default() }), true, 1_060_000);
+    assert!(
+        e.target_bps() >= start * 3 / 2,
+        "a {} bit/s train carried in full left the target at {}",
+        train.rate_bps,
+        e.target_bps()
+    );
+}

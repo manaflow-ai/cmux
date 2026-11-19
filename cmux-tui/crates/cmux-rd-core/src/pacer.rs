@@ -13,6 +13,10 @@
 //! back is lost the way a keyframe burst is (design D6, cmuxterm-hq
 //! docs/design/screen-share-under-100ms.md).
 //!
+//! Bandwidth probes (D4, [`crate::probe`]) go last: behind every repair and frame,
+//! queued or pushed later, at their own rate while nothing else is queued. They are
+//! never a candidate for an outage drop and never count as frame datagrams.
+//!
 //! Why a large frame raises the rate rather than taking longer than half a frame
 //! interval: pacing a keyframe at only 2.5 times a target that loss has cut held
 //! recovery keyframes and their repairs past the viewer's deadline. On the
@@ -37,6 +41,11 @@ pub struct Pacer {
     queued_bytes: usize,
     /// How many datagrams at the queue's head are repairs (they go first).
     repairs_queued: usize,
+    /// How many datagrams at the queue's tail are probes (they go last).
+    probes_queued: usize,
+    probe_bytes_queued: usize,
+    /// The probes' own rate, used while only probes are queued.
+    probe_rate_bytes_per_us: f64,
     /// Frame datagrams (not repairs) `due` returned since the last
     /// [`Pacer::take_frame_datagrams_sent`].
     frame_datagrams_sent: usize,
@@ -63,11 +72,41 @@ impl Pacer {
     ) {
         self.frame_interval_us = frame_interval_us;
         self.wake(now_us);
+        // Ahead of queued probes: a probe never delays a frame.
+        let mut at = self.queue.len() - self.probes_queued;
         for d in datagrams {
             self.queued_bytes += d.len();
-            self.queue.push_back(d);
+            self.queue.insert(at, d);
+            at += 1;
         }
         self.set_rate(target_bps);
+    }
+
+    /// Queues a probe train (D4) behind everything queued, paced at `rate_bps` while
+    /// nothing else is queued; frames and repairs pushed later still go ahead of it.
+    pub fn push_probe(&mut self, datagrams: Vec<Vec<u8>>, rate_bps: u64, now_us: u64) {
+        if datagrams.is_empty() {
+            return;
+        }
+        self.wake(now_us);
+        for d in datagrams {
+            self.queued_bytes += d.len();
+            self.probe_bytes_queued += d.len();
+            self.probes_queued += 1;
+            self.queue.push_back(d);
+        }
+        self.probe_rate_bytes_per_us = rate_bps as f64 / 8.0 / 1e6;
+        if self.queue.len() == self.probes_queued {
+            self.rate_bytes_per_us = self.probe_rate_bytes_per_us;
+            if self.budget_bytes <= 0.0 {
+                self.budget_bytes = self.burst_bytes();
+            }
+        }
+    }
+
+    /// Queued probe datagrams (D4).
+    pub fn probes_queued(&self) -> usize {
+        self.probes_queued
     }
 
     /// Queues repairs (resent datagrams of frames already sent: NACK answers,
@@ -100,7 +139,7 @@ impl Pacer {
         let interval_us = if self.frame_interval_us == 0 { 16_667 } else { self.frame_interval_us };
         let window_us = (interval_us as f64 * SPREAD_SHARE).max(1_000.0);
         let floor = target_bps as f64 * PACING_FACTOR / 8.0 / 1e6;
-        let fit = self.queued_bytes as f64 / window_us;
+        let fit = (self.queued_bytes - self.probe_bytes_queued) as f64 / window_us;
         self.rate_bytes_per_us = floor.max(fit);
         if self.budget_bytes <= 0.0 {
             self.budget_bytes = self.burst_bytes();
@@ -124,15 +163,23 @@ impl Pacer {
         self.budget_bytes = (self.budget_bytes + elapsed * self.rate_bytes_per_us)
             .min(self.burst_bytes().max(self.budget_bytes));
         while self.budget_bytes > 0.0 {
+            let only_probes = self.queue.len() == self.probes_queued;
             let Some(d) = self.queue.pop_front() else { break };
             self.budget_bytes -= d.len() as f64;
             self.queued_bytes -= d.len();
             if self.repairs_queued > 0 {
                 self.repairs_queued -= 1;
+            } else if only_probes {
+                self.probes_queued -= 1;
+                self.probe_bytes_queued -= d.len();
             } else {
                 self.frame_datagrams_sent += 1;
             }
             out.push(d);
+            if !only_probes && self.probes_queued > 0 && self.queue.len() == self.probes_queued {
+                // What is left is a probe train: at its own rate from here.
+                self.rate_bytes_per_us = self.probe_rate_bytes_per_us;
+            }
         }
         if self.queue.is_empty() {
             self.budget_bytes = 0.0;
@@ -171,15 +218,18 @@ impl Pacer {
         self.queue.clear();
         self.queued_bytes = 0;
         self.repairs_queued = 0;
+        self.probes_queued = 0;
+        self.probe_bytes_queued = 0;
         self.budget_bytes = 0.0;
     }
 
     /// The queued frame datagrams, in send order (to decide what an outage end drops,
     /// D12). Repairs are left out: they resend frames that already left, and a
     /// tail-loss probe of a one-datagram frame would otherwise read as that whole
-    /// frame unstarted.
+    /// frame unstarted. Probes (D4) are left out too: they carry no frame.
     pub fn queued(&self) -> impl Iterator<Item = &[u8]> {
-        self.queue.iter().skip(self.repairs_queued).map(Vec::as_slice)
+        let frames = self.queue.len() - self.repairs_queued - self.probes_queued;
+        self.queue.iter().skip(self.repairs_queued).take(frames).map(Vec::as_slice)
     }
 
     /// Takes the queued frame datagrams `stale` picks, in order, so the caller can
@@ -189,8 +239,9 @@ impl Pacer {
     pub fn take_where(&mut self, mut stale: impl FnMut(&[u8]) -> bool) -> Vec<Vec<u8>> {
         let mut taken = Vec::new();
         let mut kept = VecDeque::with_capacity(self.queue.len());
+        let frames_end = self.queue.len() - self.probes_queued;
         for (i, d) in self.queue.drain(..).enumerate() {
-            if i >= self.repairs_queued && stale(&d) {
+            if i >= self.repairs_queued && i < frames_end && stale(&d) {
                 self.queued_bytes -= d.len();
                 taken.push(d);
             } else {
@@ -361,6 +412,33 @@ mod tests {
         assert_eq!(p.queued_bytes(), (10 - first) * 1152);
         let rest: Vec<u8> = p.queued().map(|d| d[0]).collect();
         assert_eq!(rest, (first as u8..10).collect::<Vec<_>>());
+    }
+
+    /// D4: a probe train goes behind every frame and repair, even ones pushed after it,
+    /// is never an outage-drop candidate and never counts as a frame datagram.
+    #[test]
+    fn probes_go_behind_frames_and_repairs_pushed_after_them() {
+        let mut p = Pacer::new();
+        p.push_probe(vec![vec![0xcc; 1152]; 20], 16_000_000, 0);
+        let first = p.due(0);
+        assert!(first.len() < 20, "the train is paced");
+        assert_eq!(p.take_frame_datagrams_sent(), 0);
+        p.push_frame(frame(3), 8_000_000, 16_667, 1_000);
+        p.push_repair(vec![vec![0xaa; 1152]], 8_000_000, 1_000);
+        assert_eq!(p.queued().count(), 3, "only the frame is a drop candidate");
+        assert!(p.take_where(|d| d[0] == 0xcc).is_empty(), "probes are never taken");
+        let sent = drain(&mut p, 1_000);
+        assert_eq!(sent.len(), 20 - first.len() + 4);
+        assert_eq!(sent[0].1[0], 0xaa, "the repair first");
+        assert_eq!((sent[1].1[0], sent[2].1[0], sent[3].1[0]), (0, 1, 2), "then the frame");
+        assert!(sent[4..].iter().all(|(_, d)| d[0] == 0xcc), "then the probes");
+        assert_eq!(p.take_frame_datagrams_sent(), 3);
+        assert_eq!(p.probes_queued(), 0);
+        assert_eq!(p.queued_bytes(), 0);
+        // 20 datagrams at 16 Mbit/s: about 11.5 ms less the first burst, not one burst.
+        p.push_probe(vec![vec![0xcc; 1152]; 20], 16_000_000, 100_000);
+        let span = drain(&mut p, 100_000).last().unwrap().0 - 100_000;
+        assert!((8_000..=12_500).contains(&span), "probe span {span}");
     }
 
     #[test]

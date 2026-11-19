@@ -444,6 +444,10 @@ fn serve_session(
     if crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
+    // D4 bandwidth probes (`--probe 1`), only to a viewer that reports them.
+    if opts.flag_or("probe", false) {
+        host_caps.push(cmux_rd_core::service::caps::PROBE);
+    }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
@@ -502,6 +506,8 @@ fn serve_session(
         // On by default: the frame that shows an input's effect goes out at once instead of
         // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
         input_frame_now: opts.flag_or("input-frame-now", true),
+        // D4 bandwidth probes on a quiet screen, off by default: `--probe 1`.
+        probe: opts.flag_or("probe", false),
         // Enough frames in flight to cover the path's round trip, at least two: the next
         // frame encodes while the last one waits for its acknowledgement.
         frames_in_flight: carrier

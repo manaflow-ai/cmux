@@ -446,7 +446,8 @@ fn start_session(net: &Net, config: &Config) -> Res<()> {
         max_datagram: MAX_DATAGRAM_VPC,
         token: None,
         service: SERVICE_DESKTOP.into(),
-        caps: vec![H264_BASELINE.into()],
+        // D4: this viewer reports bandwidth probes' arrivals (see `on_datagram`).
+        caps: vec![H264_BASELINE.into(), cmux_rd_core::service::caps::PROBE.into()],
     };
     net.send_control(serde_json::to_vec(&hello)?);
     let start = Control::Start {
@@ -499,6 +500,11 @@ fn on_datagram(
                     Err(_) => stats.decode_errors += 1,
                 }
             }
+        }
+        // D4 bandwidth probe padding: reported in feedback, never reassembled.
+        DatagramKind::Probe => {
+            arrivals
+                .push(Arrival { transport_seq: h.transport_seq, arrival_us: (now / 1000) as u32 });
         }
         DatagramKind::InputAck if payload.len() >= 4 => {
             sender.ack(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]));

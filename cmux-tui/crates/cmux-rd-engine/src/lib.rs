@@ -18,6 +18,7 @@ use cmux_rd_core::cc::{CcConfig, CongestionController, OutageEnd, PathKind};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::InputApplier;
 use cmux_rd_core::packetize::{PacketizeError, Packetizer, parity_for};
+use cmux_rd_core::probe::{ProbeConfig, ProbeScheduler};
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_proto::{
     Arrival, ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, FRAME_PREFIX_LEN,
@@ -77,6 +78,11 @@ pub struct EngineConfig {
     /// (`cmux_rd_core::flow::INPUT_FRAME_WINDOW_US`), so the input's effect goes out as soon
     /// as the capture delivers it instead of on the next interval.
     pub input_frame_now: bool,
+    /// D4: while the screen is quiet, send short trains of `Probe` padding so the
+    /// controller learns the path's capacity before motion starts
+    /// ([`MediaEngine::probe_train`]). Only for a viewer that reports probe arrivals
+    /// (cap `probe`). Off by default.
+    pub probe: bool,
 }
 
 impl Default for EngineConfig {
@@ -94,8 +100,18 @@ impl Default for EngineConfig {
             stream: 0,
             frames_in_flight: 1,
             input_frame_now: false,
+            probe: false,
         }
     }
+}
+
+/// D4: one probe train to queue behind everything in the host's pacer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeOut {
+    /// `Probe` datagrams of the link's size, each with its own transport sequence.
+    pub datagrams: Vec<Vec<u8>>,
+    /// The rate to pace them at.
+    pub rate_bps: u64,
 }
 
 /// Capture and encode this frame now.
@@ -375,6 +391,8 @@ pub struct MediaEngine {
     /// Recent cumulative frame-ack round trips: (observation time, round trip).
     ack_rtts: VecDeque<(u64, u64)>,
     upstreams: BTreeMap<u16, Upstream>,
+    /// D4: the probe scheduler, with `EngineConfig::probe`.
+    prober: Option<ProbeScheduler>,
 }
 
 impl MediaEngine {
@@ -399,8 +417,46 @@ impl MediaEngine {
             clock: None,
             ack_rtts: VecDeque::new(),
             upstreams: BTreeMap::new(),
+            prober: cfg
+                .probe
+                .then(|| ProbeScheduler::new(ProbeConfig::default(), cfg.max_datagram)),
             cfg,
         }
+    }
+
+    /// D4: a probe train to send now, if one is due: the screen is quiet and the
+    /// controller may act. The host queues it behind everything in its pacer at
+    /// `rate_bps` (never ahead of a frame), and reports each departure with
+    /// [`Self::datagram_sent`]. Always `None` without `EngineConfig::probe`.
+    pub fn probe_train(&mut self, now_us: u64) -> Option<ProbeOut> {
+        let prober = self.prober.as_mut()?;
+        let train = prober.poll(now_us, self.cc.probe_view(now_us))?;
+        let count = u16::try_from(train.datagrams).unwrap_or(u16::MAX);
+        let first = self.packetizer.reserve_transport_seq(count);
+        let size = self.cfg.max_datagram.max(HEADER_LEN);
+        let datagrams = (0..count)
+            .map(|i| {
+                let seq = first.wrapping_add(i);
+                let mut d = Vec::with_capacity(size);
+                DatagramHeader {
+                    flags: 0,
+                    kind: DatagramKind::Probe,
+                    stream: self.cfg.stream,
+                    frame: 0,
+                    index: 0,
+                    count: 0,
+                    fec_count: 0,
+                    transport_seq: seq,
+                }
+                .encode_into(&mut d);
+                d.resize(size, 0);
+                // Not in the loss meter: a probe the path drops is not a frame's loss,
+                // and its delay and throughput already reach the controller.
+                self.cc.on_probe_sent(seq, now_us, d.len());
+                d
+            })
+            .collect();
+        Some(ProbeOut { datagrams, rate_bps: train.rate_bps })
     }
 
     /// Adds a display stream (a popup surface) of `width` x `height`. Its
@@ -443,7 +499,7 @@ impl MediaEngine {
     /// here, so pacing is not read as path delay. Other datagrams need no call.
     pub fn datagram_sent(&mut self, datagram: &[u8], now_us: u64) {
         if let Ok((header, _)) = DatagramHeader::decode(datagram)
-            && matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
+            && matches!(header.kind, DatagramKind::Video | DatagramKind::Fec | DatagramKind::Probe)
         {
             self.cc.on_departed(header.transport_seq, now_us);
         }
@@ -581,6 +637,13 @@ impl MediaEngine {
                     .map(|t| t.saturating_add(TAIL_PROBE_US))
             }))
             .min()
+    }
+
+    /// D4: when [`Self::probe_train`] may next have a train (`None` without
+    /// `EngineConfig::probe`, or before its first call). The host waits for it only
+    /// while its pacer is empty, the one time it asks.
+    pub fn next_probe_us(&self) -> Option<u64> {
+        self.prober.as_ref().and_then(ProbeScheduler::next_deadline_us)
     }
 
     /// The source encoded `req` (`None` or an empty access unit: nothing to
