@@ -4,7 +4,9 @@ name: rust workspaces
 # cmux-tui's own (which cmux-tui-spec.yml lints). .github/rust-workspaces.toml lists
 # them all; .github/scripts/rust-workspaces.py checks that list against the tree,
 # plans the workspaces a change reaches (its files, or a package it uses by path) and
-# runs each one. The plan is the path filter, so this workflow has none.
+# runs each one. The plan is the path filter; the only workflow filter is the
+# docs-only block, which puts back every file an include_str! compiles in
+# (tests/test_ci_docs_only_prs.py).
 
 on:
   pull_request:

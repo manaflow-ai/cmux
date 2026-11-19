@@ -46,7 +46,8 @@ on:
       - "cmux-tui/vendor/terminput-crossterm/README.md"
       - "mux/packages/brain/conformance/README.md"
     # docs-only paths: END
-  # Both web-validation and ci-status are required. CI owns the production build,
+  # Neither web-validation nor ci-status is a required check (repository rules,
+  # 2026-11-19: main requires the CLA checks and backend migrations). CI owns the production build,
   # tests, and database checks on PRs/merge groups, where its Linux preflight gates
   # the Mac workers. This workflow runs the full standalone suite on main/manual.
   merge_group:
