@@ -28,6 +28,12 @@ export const ConnectionStatus = Schema.Literals(["pending", "active", "needs_rea
  */
 export const PENDING_CONNECTION_TTL_MS = 30 * 60_000
 
+/**
+ * An organization owner's approval of a member's GitHub App install request (`setup_action=request`) is waited
+ * for this long (30 days); the team's request record then leaves owner state. GitHub's own requests do not expire.
+ */
+export const GITHUB_INSTALL_REQUEST_TTL_MS = 30 * 24 * 3600_000
+
 /** Expired connections leave the owner's state this long after they expired (the projection keeps the row). */
 export const EXPIRED_CONNECTION_RETENTION_MS = 24 * 3600_000
 
@@ -393,8 +399,27 @@ export const PolicyApplyManagedParams = Schema.Struct({
 export const ConnectionGithubSyncParams = Schema.Struct({
   connection: ConnectionId,
   scopes_granted: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(100)))),
-  repos_removed: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(201))))
+  repos_removed: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(201)))),
+  /** `installation_repositories.added`: repositories the linking GitHub user is proven to reach; they join the recorded list. */
+  repos_added: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(201))))
 })
+/** A GitHub user proven by an OAuth code exchange (`GET /user`): the numeric id is the identity, the login is for display. */
+export const GithubUserRef = Schema.Struct({ id: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)), login: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(39)) })
+/**
+ * `setup_action=request`: an organization member's install went to the organization's owners. The pending connect
+ * ends (its page is done) and the team keeps a request record, `request` being the connection id an approval
+ * links, with the requester's GitHub user when the callback's code proved it (`github_user`), else null.
+ */
+export const ConnectionGithubRequestedParams = Schema.Struct({ connection: ConnectionId, request: ConnectionId, github_user: Schema.NullOr(GithubUserRef) })
+/** An owner approved the request (`installation.created` naming its requester): the request becomes an active connection. */
+export const ConnectionGithubApprovedParams = Schema.Struct({
+  request: ConnectionId,
+  account: Schema.Struct({ key: Schema.String, name: DisplayName, url: Schema.optionalKey(Schema.String) }),
+  scopes_granted: Schema.Array(Schema.String),
+  resources: Schema.Struct({ repos: Schema.NullOr(Schema.Array(Schema.String)) })
+})
+/** An owner approved, but the request cannot link without the person (`reason`); status says to connect GitHub again. */
+export const ConnectionGithubRequestSeenParams = Schema.Struct({ request: ConnectionId, account: DisplayName, reason: Schema.String.check(Schema.isMaxLength(300)) })
 export const ConnectionStatusParams = Schema.Struct({
   connection: ConnectionId,
   status: Schema.Literals(["active", "needs_reauth", "error"]),
@@ -454,6 +479,10 @@ export const connectionInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("connection.activate", ConnectionActivateParams, "Internal: the provider approved; the credential is stored."),
   internal("connection.status", ConnectionStatusParams, "Internal: a refresh, call or provider event changed the connection's health."),
   internal("connection.github.sync", ConnectionGithubSyncParams, "Internal: a GitHub App webhook changed the installation's permissions or repositories; the status stays."),
+  internal("connection.github.requested", ConnectionGithubRequestedParams, "Internal: GitHub sent a member's install to the organization's owners; the pending connect ends and the request is recorded."),
+  internal("connection.github.approved", ConnectionGithubApprovedParams, "Internal: an organization owner approved the recorded request; it becomes an active connection."),
+  internal("connection.github.request_seen", ConnectionGithubRequestSeenParams, "Internal: an owner approved the recorded request but it cannot link without the person; status says to connect again."),
+  internal("connection.github.request_expire", Schema.Struct({ request: ConnectionId, at: Schema.Int }), "Internal: a request outlived GITHUB_INSTALL_REQUEST_TTL_MS."),
   internal(
     "connection.expire",
     // `at` is the alarm's wake instant (the owner's own clock reading; only the owner submits this op).

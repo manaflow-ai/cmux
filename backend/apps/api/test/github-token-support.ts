@@ -26,7 +26,10 @@ export const fakeGitHub = () => {
     "https://api.github.com/user/installations": () => ok({ installations: [{ id: 99, account: { login: "acme", type: "Organization" }, permissions: { contents: "write", pull_requests: "write", issues: "write", workflows: "write", metadata: "read" } }] }),
     "https://api.github.com/app/installations/99/access_tokens": (_req, body) =>
       ok({ token: `ghs_secret_${++n}`, expires_at: new Date(Date.now() + 3600_000).toISOString(), permissions: { ...(JSON.parse(body || "{}") as { permissions?: object }).permissions, metadata: "read" } }, 201),
-    "https://api.github.com/installation/token": () => new Response(null, { status: 204 })
+    "https://api.github.com/installation/token": () => new Response(null, { status: 204 }),
+    // The user who links (`GET /user` with their token) is GitHub user 7, `linker`; `GET /user/7` reads the login from the id.
+    "https://api.github.com/user": (req) =>
+      req.url === "https://api.github.com/user" || req.url === "https://api.github.com/user/7" ? ok({ id: 7, login: "linker" }) : new Response("not found", { status: 404 })
   }
   const http = async (req: Request) => {
     const body = await req.clone().text()
