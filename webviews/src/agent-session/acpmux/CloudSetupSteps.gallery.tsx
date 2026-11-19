@@ -62,6 +62,10 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
       note: "The browser is out: the same card waits with Sign in at rest, so the person keeps their place.",
       props: at("rail", signingIn),
     },
+    "rail-sign-in-no-handler": {
+      note: "A signed-out card waiting for its sign-in handler stays calm and never falls back to a failed startup checklist.",
+      props: { start: signedOut, setupStepsLook: "rail", onRunHere: handlers.onRunHere, onDismiss: handlers.onDismiss },
+    },
     "rail-plan": {
       note: "Signed in, no plan: sign in is checked, the plan is current, and the pricing card reads as a step, not an alert.",
       height: 380,
