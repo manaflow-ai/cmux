@@ -7679,79 +7679,76 @@ class WsCheckPerTest(unittest.TestCase):
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
 
 
-class WsCheckFleetRun(unittest.TestCase):
-    """leo-workspace#5376 at b2b09e79 (2026-11-18): the lane-gh broker moved its stalled ws-check to the build fleet
-    (cmuxterm-hq parts/43-calls-ci-fleet.py), cancelling run 44354923051, so the status linked a run whose job reads
-    completed/cancelled with no log, and every such red read "no result to read". On the broker host the job's kept
-    log (STATE/ci/ID.fleet-log) is the job's log now, for a record that names this head and run (ws_check_fleet_log)."""
-    STEP = ".github/workflows/tools-tests.yml test: lane VM hygiene"
-    JID = "9f86e40016d24dde9c66c70f3e48e23f"
-
-    def hygiene(self):
-        return ["=" * 70, "FAIL: test_sync (__main__.ControllerSweep.test_sync)", "-" * 70,
-                "Traceback (most recent call last):", "AssertionError: False is not true",
-                "-" * 70, "Ran 70 tests in 3.2s", "", "FAILED (failures=1)"]
+class WsCheckFleetRoute(unittest.TestCase):
+    """2026-11-18: merge_hold refused teamleaderleo/leo-workspace#5992 twice, "'ws-check' has no result: job 'checks'
+    in run 44407040407 is completed/cancelled: no result to read". The broker had cancelled that run and the build
+    fleet ran it; the verdict is in the fleet log the broker keeps beside the run's record (fleet_kept_log)."""
+    RED = WsCheckPerTest.DEPLOY
 
     def setUp(self):
         self.gh = WsCheckGitHub()
-        self.gh.verdict(HEAD, 1, {self.STEP: self.hygiene()})
-        self.gh.verdict(self.gh.TIP, 2, {self.STEP: self.hygiene()})
-        # The head's run was cancelled by the broker before any runner took it: its job has no log on GitHub.
-        self.fleet_log = self.gh.logs.pop(11)
-        self.gh.jobs[1][1]["conclusion"] = "cancelled"
-        state = tempfile.TemporaryDirectory()
-        self.addCleanup(state.cleanup)
-        self.state = Path(state.name)
-        (self.state / "ci").mkdir()
-        env = unittest.mock.patch.dict(os.environ, {excuse.WS_CHECK_BROKER_STATE_ENV: str(self.state)})
+        red = {self.RED: WsCheckPerTest.ws_deploy(None, "test_a")}
+        self.gh.verdict(HEAD, 1, red)
+        self.gh.verdict(self.gh.TIP, 2, red)
+        # HEAD's run 1 as the broker leaves it: its one check job cancelled, its log only on the fleet.
+        log = self.gh.logs.pop(11)
+        self.fleet_lines = [line.split(" ", 1)[1] for line in log.splitlines()]
+        for job in self.gh.jobs[1]:
+            job["conclusion"] = "cancelled"
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        self.folder = Path(folder)
+        env = unittest.mock.patch.dict(os.environ, {excuse.FLEET_RECORDS_ENV: folder})
         env.start()
         self.addCleanup(env.stop)
 
-    def keep(self, log=None, **over):
-        record = {"id": self.JID, "repo": self.gh.REPO, "dispatch": self.gh.HOST, "head": HEAD, "run_id": 1,
-                  "conclusion": "failure", "fleet": {"from_run": 1, "state": "done", "steps": [{"where": "linux-pool"}]},
-                  "receipt": {"run_id": "1", "ran_on": "build-fleet", "fleet_where": "linux-pool"}}
-        record.update(over)
-        (self.state / "ci" / f"{self.JID}.json").write_text(json.dumps(record))
-        (self.state / "ci" / f"{self.JID}.fleet-log").write_text(self.fleet_log if log is None else log)
+    def keep(self, *, run=1, receipt_run=1, conclusion="failure", state="done", ran_on="build-fleet", head=HEAD):
+        record = {"id": "j1", "repo": self.gh.REPO, "dispatch": self.gh.HOST, "head": head, "run_id": run,
+                  "conclusion": conclusion,
+                  "fleet": {"from_run": run, "state": state, "steps": [{"where": "linux-pool", "job_id": "f1"}]}}
+        (self.folder / "j1.json").write_text(json.dumps(record))
+        receipt = {"source_sha": HEAD, "run_id": str(receipt_run), "ran_on": ran_on, "exit_code": 1}
+        (self.folder / "j1.fleet-log").write_text(
+            "\n".join(self.fleet_lines + ["FAST_CHECKS_RECEIPT=" + json.dumps(receipt)]) + "\n")
 
     def judge(self):
         return excuse.judge(self.gh.REPO, "main", HEAD, [], self.gh)
 
-    def test_a_fleet_run_red_on_main_too_is_excused_from_the_kept_log(self):
-        self.keep()
-        audit = self.judge()
-        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
-        kind, verdict = excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)
-        self.assertEqual((kind, list(verdict["steps"])), ("fail", [self.STEP]))
-
-    def test_a_fleet_run_red_main_passes_is_the_heads_own(self):
-        self.keep()
-        self.gh.verdict(self.gh.TIP, 2, {}, state="success")
-        with self.assertRaises(excuse.Refused) as caught:
+    def test_a_fleet_run_with_no_kept_log_has_no_result(self):
+        with self.assertRaisesRegex(excuse.Refused, r"'ws-check' has no result on .*completed/cancelled: no result "
+                                                    r"to read \(and this host keeps no build-fleet log"):
             self.judge()
-        self.assertIn(f"'ws-check' is green on main {self.gh.TIP[:12]}, red on {HEAD[:12]}", str(caught.exception))
 
-    def test_with_no_kept_log_it_is_still_no_result(self):
-        kind, verdict = excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)
-        self.assertEqual(kind, "none")
-        self.assertIn("cancelled: no result to read (and this host's lane-gh broker keeps no fleet log of it)",
-                      verdict["why"])
+    def test_a_fleet_runs_kept_log_is_read_and_its_base_red_excused(self):
+        self.keep()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
 
-    def test_a_record_for_another_run_head_repo_or_an_unfinished_job_is_never_read(self):
-        for wrong in ({"run_id": 3}, {"head": "b" * 40}, {"repo": "manaflow-ai/cmux"}, {"dispatch": "manaflow-ai/cmux"},
-                      {"conclusion": None}, {"fleet": {"from_run": 1, "state": "running"}},
-                      {"receipt": {"run_id": "1", "ran_on": "github"}}):
-            with self.subTest(wrong=wrong):
-                self.keep(**wrong)
-                self.assertEqual(excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)[0], "none")
+    def test_a_fleet_runs_own_red_is_still_refused(self):
+        self.fleet_lines = [line.replace("test_a", "test_b") for line in self.fleet_lines]
+        self.keep()
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_b"):
+            self.judge()
 
-    def test_a_kept_log_is_held_to_the_same_rules(self):
-        # Its WS_CHECK_RESULT must name this head (or a snapshot whose receipt names the linked run): a log of
-        # another tree is refused, never read as this head's.
-        self.keep(log=self.fleet_log.replace(f'"head": "{HEAD}"', f'"head": "{"b" * 40}"'))
-        with self.assertRaisesRegex(excuse.Refused, "is from another checkout"):
-            excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)
+    def test_a_kept_log_not_held_to_this_run_and_verdict_is_not_read(self):
+        for kwargs in ({"run": 7}, {"conclusion": "success"}, {"state": "running"}, {"head": "b" * 40}):
+            with self.subTest(**kwargs):
+                self.keep(**kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "has no result on"):
+                    self.judge()
+        for kwargs in ({"receipt_run": 7}, {"ran_on": "actions"}):
+            with self.subTest(**kwargs):
+                self.keep(**kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "has no FAST_CHECKS_RECEIPT naming that run"):
+                    self.judge()
+
+
+class WsCheckFleetRecordsFolders(unittest.TestCase):
+    """cmux#46667: with no BASE_RED_FLEET_RECORDS the primary broker's records are read, then the standby broker's."""
+
+    def test_the_standby_brokers_records_follow_the_primarys(self):
+        self.assertEqual(excuse.fleet_records_dirs({"HOME": "/h"}),
+                         [Path("/h/.local/state/lane-gh-broker/ci"), Path("/h/.local/state/lane-gh-broker-standby/ci")])
+        self.assertEqual(excuse.fleet_records_dirs({"HOME": "/h", excuse.FLEET_RECORDS_ENV: "/x"}), [Path("/x")])
 
 
 class WsCheckFailureText(unittest.TestCase):
@@ -15400,14 +15397,14 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             # The Billing lane (cmux#42867): billing web, DB and iOS package tests.
             "billing.yml",
             "backend.yml", "ci.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloud-vm-image-lock.yml",
-            "cloudflare-relay.yml", "device-hub.yml", "cmux-cloud-cli.yml", "cmux-next-crash-class.yml", "cmux-next-cua-helper-identity.yml",
+            "cloudflare-relay.yml", "device-hub.yml", "cmux-cloud-cli.yml", "cmux-next-crash-class.yml",
             "cmux-next-media.yml", "cmux-next-hot-verify.yml", "cmux-next-motion-golden.yml", "cmux-next-remote-daemon.yml",
             "cmux-next-shell-integration.yml", "cmux-next-shim-cpp.yml", "cmux-tui-sdks.yml", "cmux-tui-spec.yml",
             "cmux-tui-windows-check.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vm.yml", "cmux-vnc.yml",
             "coderouter-ci.yml", "fleet-test-compile.yml", "fleet-rd-host-macos.yml", "gallery-advisory.yml",
             "gallery-health.yml",
             "indexnow-tests.yml", "ios-e2e.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
-            "nightly-next-canary.yml", "nightly-next-cua-signed-host.yml", "nightly-next-launch-smoke.yml",
+            "nightly-next-canary.yml", "nightly-next-launch-smoke.yml",
             "r2-upload-tests.yml", "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
             "swift-acpmux-protocol.yml", "swift-linux-packages.yml",
             "terminal-hang-diagnostics.yml", "test-ios.yml", "vendored-agent-cursor.yml", "web-complexity.yml",
@@ -15422,7 +15419,9 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
             "thunderdome-label.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
             "cmux-next-pr-closed-cancel.yml", "language-boundaries.yml", "required-checks-drift.yml",
-            "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml"),
+            "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml",
+            # Dispatch-only secrets seal; on a pull request that edits it every job is skipped.
+            "cmux-vm-secrets-seal.yml"),
         "guard checks of their own whose reds are judged as any job's: no guard test declares its reads yet": (
             "ci-artifact-transport.yml", "classic-api-guard.yml", "cmux-next-batch.yml", "cmux-next-car-guards.yml",
             "cmux-next-fast-gates.yml", "fleet-artifact-cdn.yml", "pr-checks.yml",
