@@ -135,4 +135,35 @@ extension PaneCommitMotionTests {
         #expect(!Self.inFlight(alone.screen), "the motion goes on after the change of the screen's size")
         #expect(layer.backgroundColor == nil, "after the change of the screen's size the pane keeps the colour \(String(describing: Self.rgba(layer.backgroundColor))) on its layer")
     }
+
+    /// What is under a floating pane at rest is its card. With a card of one opaque colour (a look with no
+    /// see-through background and no tint) the floating pane's ground is that colour. With a see-through look, and
+    /// with a tint, the card is no plain colour: the pane has no ground. No act of a tiled pane moves a floating
+    /// pane, so this row reads the motion's own answer (`PaneCommitMotion.ground(under:on:sheet:)`).
+    @Test func aFloatingPanesGroundIsItsCardsColourWhenTheCardIsOnePlainColour() throws {
+        let floating = LayoutFloatingPane(pane: "f", frame: CGRect(x: 0.3, y: 0.2, width: 0.4, height: 0.5))
+        let screens = [LayoutScreen(id: "s", name: "s", layout: .splits(Self.tree(2)), floating: [floating])]
+        let harness = Commit.Harness(screens, focused: "p", holds: false)
+        defer { harness.window.closeAfterTest() }
+        Commit.rest(harness)
+        let screen = try #require(harness.screen)
+        let host = try #require(harness.root.context.hosts["f"], "SETUP: the floating pane has no host")
+        let card = try #require(screen.floatState.cards["f"], "SETUP: the floating pane has no card")
+        let sheet = Self.sheet(of: screen)
+        var look = FloatingPaneLook()
+        look.backgroundOpacity = 0.5
+        card.show(look: look, corners: card.corners)
+        let seeThrough = PaneCommitMotion.ground(under: host, on: screen, sheet: sheet)
+        #expect(seeThrough == nil, "under a card with a see-through look the floating pane's ground is \(String(describing: Self.rgba(seeThrough)))")
+        look.backgroundOpacity = 1
+        look.tintStrength = 0.3
+        card.show(look: look, corners: card.corners)
+        let tinted = PaneCommitMotion.ground(under: host, on: screen, sheet: sheet)
+        #expect(tinted == nil, "under a card with a tint the floating pane's ground is \(String(describing: Self.rgba(tinted)))")
+        look.tintStrength = 0
+        card.show(look: look, corners: card.corners)
+        let plain = PaneCommitMotion.ground(under: host, on: screen, sheet: sheet)
+        #expect((plain?.alpha ?? 0) >= 1 && Self.rgba(plain) == Self.rgba(card.solidGround),
+                "under a card of one opaque colour the floating pane's ground is \(String(describing: Self.rgba(plain))); the card shows \(String(describing: Self.rgba(card.solidGround)))")
+    }
 }

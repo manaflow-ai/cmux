@@ -56,6 +56,12 @@ final class FloatingPaneCardView: NSView {
     /// The card in this view and in its superview: the view less the band outside the card.
     var cardBounds: CGRect { outsets.card(in: bounds) }
     var cardFrame: CGRect { outsets.card(in: frame) }
+    /// The one opaque colour that the card shows under its pane. Nil: the look is see-through or has a tint, so the
+    /// card shows more than one colour there.
+    var solidGround: CGColor? {
+        guard !look.isSeeThrough, look.tintStrength <= 0, let color = ground.fillColor, color.alpha >= 1 else { return nil }
+        return color
+    }
 
     init(pane: PaneID) {
         self.pane = pane

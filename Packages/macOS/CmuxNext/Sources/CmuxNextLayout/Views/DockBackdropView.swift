@@ -78,6 +78,9 @@ final class DockBackdropView: NSView {
         applyColors()
     }
 
+    /// The opaque colour that this backdrop shows under the column's panes.
+    var ground: CGColor? { fill.backgroundColor }
+
     private func applyColors() {
         performWithTheme {
             // Opaque: the user's docks background laid over it (R55).
