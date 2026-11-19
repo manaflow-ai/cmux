@@ -113,7 +113,7 @@ struct CloudGitHubConnectLatencyTests {
 
     static let page = URL(string: "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b")!
 
-    static let scenarios = [
+    nonisolated static let scenarios = [
         Scenario(name: "production-api-refuses-return-link", refusesReturnLink: true),
         Scenario(name: "api-takes-return-link"),
         Scenario(name: "stale-pending-from-cancelled-install", stalePending: true),
