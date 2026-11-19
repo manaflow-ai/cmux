@@ -42,7 +42,7 @@ class ObserverTests(unittest.TestCase):
             def measure(*_):
                 if measure_fails:
                     raise RuntimeError('sampler failed')
-                return {'total': {'mw': 1}}
+                return {'total': {'mw': 1, 'cpu_pct': 2, 'wakeups_per_s': 3, 'footprint_mb': 4}}
             bp.measure = measure
             child = types.SimpleNamespace(returncode=None, terminated=False, killed=False)
             def wait(timeout):
@@ -104,6 +104,25 @@ class ObserverTests(unittest.TestCase):
         report, _, error = self.observe(descendants=True)
         self.assertIsNone(error)
         self.assertEqual(set(report['members_before']), {'42', '43', '44'})
+
+    def test_ledger_import_preserves_units_and_rejects_invalid_window(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'bench'))
+        from benches.published_idle import BENCH
+        from benchlib.bench import BenchError
+        report, _, _ = self.observe()
+        rows = []
+        ctx = types.SimpleNamespace(host={}, build={}, notes=[], row=lambda *args, **kw: rows.append((args, kw)))
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'fixture.json'
+            path.write_text(json.dumps(report))
+            BENCH.ingest(ctx, path)
+            self.assertEqual([row[0] for row in rows], [('cpu_energy', 1, 'mW'), ('cpu', 2, '%'),
+                                                       ('wakeups', 3, 'per_s'), ('footprint', 4, 'MB')])
+            report['valid'] = False
+            path.write_text(json.dumps(report))
+            with self.assertRaises(BenchError):
+                BENCH.ingest(ctx, path)
+            self.assertEqual(len(rows), 4)
 
 
 if __name__ == '__main__':
