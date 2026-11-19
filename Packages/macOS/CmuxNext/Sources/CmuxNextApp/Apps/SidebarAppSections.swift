@@ -7,17 +7,21 @@ import CmuxNextSidebar
 /// `AppSectionProvider`. Per window, because a view has one superview; every
 /// mount streams from the app supervisor, which runs one host per app. All
 /// chats is not a sidebar section (Lawrence 2026-10-10): it lives on the New
-/// Tab page (cx-n0i9).
+/// Tab page (cx-n0i9). It also draws the window's widget area (`AppWidgetSection`).
 @MainActor
 final class SidebarAppSections: SidebarAppSectionProvider {
+    /// The widget area's section id (never in the layout document).
+    static let widgetSectionID = LayoutSectionID("sec_widgets")
     private let provider: AppSectionProvider
+    var widgets: AppWidgetSection? { provider.widgets }
     /// The built-in Team section (``CloudTeamFeature/contribution``), drawn here, not by an app.
     private let team: (() -> CloudTeamHostingView?)?
     private var teamView: CloudTeamHostingView?
 
-    init(apps: AppsService, team: (() -> CloudTeamHostingView?)? = nil) {
-        provider = AppSectionProvider(client: apps.client) { [weak apps] in apps?.presence.isPresented($0) == true }
+    init(client: AppsClient, isPresented: @escaping (String) -> Bool, team: (() -> CloudTeamHostingView?)? = nil) {
+        provider = AppSectionProvider(client: client, isPresented: isPresented)
         self.team = team
+        provider.showWidgets(place: "sidebar")
     }
 
     /// A section left the window's layout: its app mount ends on the supervisor.
@@ -26,7 +30,7 @@ final class SidebarAppSections: SidebarAppSectionProvider {
         provider.release(contribution)
     }
 
-    /// Unmounts every app section of this window on the supervisor.
+    /// Unmounts every app section and widget of this window on the supervisor.
     func releaseAll() {
         teamView = nil
         provider.releaseAll()
@@ -35,6 +39,11 @@ final class SidebarAppSections: SidebarAppSectionProvider {
     var onContentChange: (() -> Void)? {
         get { provider.onContentChange }
         set { provider.onContentChange = newValue }
+    }
+
+    var providedSections: [LayoutSection] {
+        guard let widgets, widgets.isShown else { return [] }
+        return [LayoutSection(id: Self.widgetSectionID, title: widgets.title, region: .bottom, content: .app, contribution: AppWidgetSection.contribution)]
     }
 
     func title(for contribution: String) -> String? {
