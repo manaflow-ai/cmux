@@ -52,6 +52,11 @@ struct NewTabKeyAgentsEnvironmentTests {
     /// One New Tab key, so the pane has a page; then `keys` New Tab keys, each with a hidden page in the pane before
     /// it, and a frame after each; then one pass of the plan over the hidden pages. The count of the asks is 0 for a
     /// few keys and for more keys alike.
+    ///
+    /// The row needs a hidden page for each key. The tab of a New Tab key takes the page view of the untouched New
+    /// Tab tab that its pane leaves (`AgentTabStore.idlePage`), and then the pane has one page view for all its keys.
+    /// So the row counts each New Tab page as used before each key (`NewTabOpenFramesTests.useEachNewTabPage`), as
+    /// after a click in the page: each key's tab then gets a page view of its own at its frame.
     @Test(arguments: [3, 8])
     func newTabKeysAndThePlanOverTheirHiddenPagesAskNoAgentsEnvironment(keys: Int) async throws {
         try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-keys-ask-no-environment-\(keys)") { services, _, pane, _ in
@@ -75,6 +80,7 @@ struct NewTabKeyAgentsEnvironmentTests {
             await NewTabPageAtItsFrameTests.frame(services)
             var asksInTheKeysTurns = 0
             for _ in 0..<keys {
+                NewTabOpenFramesTests.useEachNewTabPage(services)
                 let asks = Self.environmentAsks { NewTabPage.open(in: pane, seed: nil) }
                 let made = try #require(asks, "the count of a key's asks is not whole")
                 asksInTheKeysTurns += made

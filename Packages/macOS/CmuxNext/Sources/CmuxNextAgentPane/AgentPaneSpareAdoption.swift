@@ -62,7 +62,7 @@ extension AgentPaneModel {
     /// Why this page refused to become an existing chat (``adoptSpareSession(_:)``), for the open's trace.
     public var spareRefusal: String {
         sessionId != nil ? "has a session" : newTab == nil ? "no new tab page" : !hasHandshake ? "no handshake"
-            : userTouched ? "touched by \(touchedBy ?? "?")" : remoteChat ? "remote chat" : neverPooled ? "never pooled" : "?"
+            : userTouched ? "touched by \(touchedBy ?? hostTouch.by ?? "?")" : remoteChat ? "remote chat" : neverPooled ? "never pooled" : "?"
     }
 }
 

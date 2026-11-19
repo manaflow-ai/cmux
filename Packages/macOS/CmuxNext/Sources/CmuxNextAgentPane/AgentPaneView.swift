@@ -503,6 +503,7 @@ public final class AgentPaneView: NSView {
         // as the mic's click does (`dictation.handoff`). macOS Dictation writes where the keyboard
         // is, so the pane's page takes it first, in whichever engine shows it (the page keeps its
         // prompt focused).
+        model.hostTouch.mark("dictation") // its text goes to this page: the host says so before the page does
         if model.composer.dictationSource == .macos { focusChat() }
         // A session of cmux's own that still runs ends first, as the mic's click ends it, whatever
         // the source is now.
