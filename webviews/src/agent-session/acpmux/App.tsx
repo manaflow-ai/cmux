@@ -839,7 +839,14 @@ import { experimentArm } from "../../experiments/experiment";
 import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { holdWebSwap, pageEditHold, pageReleaseHold } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
-import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
+import {
+  SandboxTab,
+  newTabRunModeRows,
+  sandboxAgent,
+  sandboxPageRefusal,
+  sandboxRetryable,
+  type RunMode,
+} from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
 import { CloudChatHint } from "./CloudChatHint";
@@ -5012,6 +5019,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // whose reserve names the chat its Send replaces (the host reserves for a tab with a chat only for that one).
   cloudComposeEligible.current = cloudPicked && cloudOfferable ? { replaces: cloudReserveReplaces } : false;
   const cloudPickedNotOffered = cloudPicked && !cloudOffered;
+  /// The New Tab page's Run as rows (sandboxRun.ts newTabRunModeRows): Cloud stays this chat's pick once an
+  /// agent pick opened its empty session, as in the chat composer (cmux#45774).
+  const newTabRunMode = newTabRunModeRows(sandboxModeRows, {
+    sandbox: sandboxOffered,
+    cloud: cloudOffered,
+    sandboxPicked: sandboxPickedNotOffered,
+    cloudPicked: cloudPickedNotOffered,
+  });
   const [startCloud] = useState(() =>
     grantedCloudStart(
       pickedChatCloudCall(reservedCloudCall(callNative, cloudReservation), (ms) => harnessSwitch.pickSession(ms)),
@@ -13706,9 +13721,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   takeDraft={takeNewTabDraft}
                   {...(cloudPickPending ? { cloudPick: takeCloudPick } : {})}
                   {...(cloudHintShown ? { cloudHint: { onClose: cloudHint.close } } : {})}
-                  {...(sandboxOffered || sandboxPickedNotOffered || cloudPickedNotOffered
+                  {...(newTabRunMode
                     ? {
-                        runMode: sandboxModeRows,
+                        runMode: newTabRunMode,
                         // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
                         // the prompt and attachments put back in its composer.
                         ...(!cloudStart && cloudWaitsForCheck && !sandbox.unread
