@@ -26,7 +26,13 @@ public final class AgentPaneLaunchImages {
     /// The most saved pages one launch reads (one per pane on screen at the last quit).
     nonisolated static let maximumFiles = 64
 
-    let directory: URL?
+    nonisolated let directory: URL?
+    /// Whether the last quit saved any page: a directory listing, for a lane thread (``CEFLaunchPrefetch``: a page on
+    /// screen at the quit is a Chromium page by default, so its framework is read before the first window).
+    public nonisolated var savedPagesExist: @Sendable () -> Bool {
+        let directory = directory
+        return { directory.map { !((try? FileManager.checked.contentsOfDirectory(atPath: $0.path)) ?? []).isEmpty } ?? false }
+    }
     /// Reads the saved pages.
     private let reader: LaunchFileReader
     /// Drops the read's pages after ``prefetch(on:keep:mark:)``'s `keep`.

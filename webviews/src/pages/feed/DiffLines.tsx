@@ -134,6 +134,7 @@ export function DiffLines({ lines, tone }: { lines: readonly string[]; tone: (li
 
   // The first measured line sizes every line not yet mounted: they are all one height.
   const lineHeight = useRef(0);
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns a mutable instance, so the React Compiler skips this component, as in ui/VirtualList.
   const virtualizer = useVirtualizer({
     count: lines.length,
     getScrollElement: findViewport,

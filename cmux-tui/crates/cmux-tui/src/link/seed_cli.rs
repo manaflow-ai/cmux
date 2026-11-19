@@ -874,7 +874,7 @@ fn run_seed(
             .map_err(|error| SeedError::new("seed.bad_request", error.to_string()))?;
         start.set("folder", json!(remote));
         start.set("bundle", json!(target));
-        let head_first = head_first.filter(|_| asks_head_first(&planned.params));
+        let head_first = head_first.filter(|subpath| asks_head_first(planned, subpath));
         if let Some(subpath) = head_first {
             start.set("head_first", json!(true));
             if !subpath.is_empty() {
@@ -889,12 +889,28 @@ fn run_seed(
     result
 }
 
-/// Whether a seed of `params` may open at its head: the machine's own rule
-/// (a whole seed, not a delta, without this Mac's sparse patterns), and no
-/// LFS: the machine pulls LFS files after it marks the head, so an LFS-managed
-/// `CLAUDE.md` or skill would still be a pointer when the chat starts.
-fn asks_head_first(params: &plan::SeedParams) -> bool {
-    params.since.is_none() && params.sparse.is_none() && !params.lfs
+/// Whether a seed of `planned` may open at its head for a chat at `subpath`: the machine's own
+/// rule (a whole seed, not a delta, without this Mac's sparse patterns), and no LFS that can
+/// reach the head: the machine pulls LFS files after it marks the head, so an LFS-managed
+/// `CLAUDE.md` or skill would still be a pointer when the chat starts. A `.gitattributes`
+/// names only paths below its own folder, so one elsewhere ([`lfs_reaches_head`]) leaves the
+/// head alone (a big repository with LFS in one far folder still opens at its head).
+fn asks_head_first(planned: &Planned, subpath: &str) -> bool {
+    let params = &planned.params;
+    let lfs_clear = !params.lfs
+        || (!planned.lfs_attributes.is_empty()
+            && !planned.lfs_attributes.iter().any(|file| lfs_reaches_head(file, subpath)));
+    params.since.is_none() && params.sparse.is_none() && lfs_clear
+}
+
+/// Whether the `.gitattributes` at `file` (from the top) can name a file of the head a
+/// head-first seed checks out for a chat at `subpath`: the root's files, each folder on the
+/// subpath with its own files, and those folders' harness folders whole. It names only paths
+/// below its own folder, so it can exactly when it is itself a file of that head
+/// ([`cmux_git::harness_head::in_head`]): its folder is on the subpath (the root included) or
+/// inside one of those harness folders.
+fn lfs_reaches_head(file: &str, subpath: &str) -> bool {
+    cmux_git::harness_head::in_head(file, subpath)
 }
 
 /// How a seed job ended for this push.
@@ -1233,6 +1249,7 @@ mod tests {
             bases: vec![sha],
             bundle_bytes: 10,
             unchanged: false,
+            lfs_attributes: Vec::new(),
         }
     }
 
@@ -1281,11 +1298,45 @@ mod tests {
 
     #[test]
     fn only_a_whole_seed_without_sparse_patterns_asks_for_its_head() {
-        let whole = planned().params;
-        assert!(asks_head_first(&whole));
-        assert!(!asks_head_first(&SeedParams { since: Some("w".into()), ..whole.clone() }));
-        assert!(!asks_head_first(&SeedParams { sparse: Some("/a\n".into()), ..whole.clone() }));
-        assert!(!asks_head_first(&SeedParams { lfs: true, ..whole }), "LFS lands after the head");
+        let whole = planned();
+        let with = |params: SeedParams| Planned { params, ..planned() };
+        assert!(asks_head_first(&whole, "web/app"));
+        let delta = with(SeedParams { since: Some("w".into()), ..whole.params.clone() });
+        assert!(!asks_head_first(&delta, "web/app"));
+        let sparse = with(SeedParams { sparse: Some("/a\n".into()), ..whole.params.clone() });
+        assert!(!asks_head_first(&sparse, "web/app"));
+        // LFS whose files are not known (an older plan) lands after the head: no head first.
+        let lfs = with(SeedParams { lfs: true, ..whole.params });
+        assert!(!asks_head_first(&lfs, "web/app"), "LFS lands after the head");
+    }
+
+    #[test]
+    fn only_lfs_that_can_reach_the_head_keeps_a_seed_from_its_head() {
+        let lfs_in = |files: &[&str]| Planned {
+            params: SeedParams { lfs: true, ..planned().params },
+            lfs_attributes: files.iter().map(|file| (*file).to_owned()).collect(),
+            ..planned()
+        };
+        // An LFS folder off the chat's path (`extensions/models`) leaves the head alone.
+        assert!(asks_head_first(&lfs_in(&["extensions/models/.gitattributes"]), ""));
+        assert!(asks_head_first(&lfs_in(&["extensions/models/.gitattributes"]), "src/app"));
+        assert!(asks_head_first(&lfs_in(&["src/app/assets/.gitattributes"]), "src/app"));
+        // The root's, one on the chat's path, or one in a head folder's harness folders can name
+        // a head file.
+        for (file, subpath) in [
+            (".gitattributes", ""),
+            (".gitattributes", "src/app"),
+            ("src/.gitattributes", "src/app"),
+            ("src/app/.gitattributes", "src/app"),
+            (".claude/skills/.gitattributes", ""),
+            ("src/.github/.gitattributes", "src/app"),
+        ] {
+            let planned = lfs_in(&["extensions/models/.gitattributes", file]);
+            assert!(!asks_head_first(&planned, subpath), "{file} at {subpath:?}");
+        }
+        // A folder below the chat's that is not a harness folder is not in its head.
+        assert!(asks_head_first(&lfs_in(&["src/.gitattributes"]), ""));
+        assert!(asks_head_first(&lfs_in(&["src/app/x/.gitattributes"]), "src/app"));
     }
 
     #[test]
