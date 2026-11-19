@@ -22,8 +22,13 @@ extension WindowOverlayHost {
         guard mouseMonitor == nil else { return }
         mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged,
                                                                    .otherMouseDragged, .mouseEntered, .mouseExited,
-                                                                   .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+                                                                   .leftMouseDown, .rightMouseDown, .otherMouseDown,
+                                                                   .leftMouseUp, .rightMouseUp, .otherMouseUp, .scrollWheel]) { [weak self] event in
             guard let self else { return event }
+            // A press or a scroll on an overlay that the window server gave to a window under the panel (a page
+            // window, the window itself) goes to the panel; nothing under the overlay gets it.
+            if self.takeEventFromBelow(event) { return nil }
+            if [.leftMouseUp, .rightMouseUp, .otherMouseUp, .scrollWheel].contains(event.type) { return event }
             if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) {
                 self.clickDidLand(in: event.window, at: event.window === self.panel ? event.locationInWindow : .zero)
             } else {
@@ -43,6 +48,64 @@ extension WindowOverlayHost {
             if accepts { NSCursor.arrow.set() }
         }
         hoverAgentCursorTag(at: point)
+    }
+
+    /// Takes a press, its drags and release, or a scroll that reached a window under the panel (the panel's window
+    /// or one of its child windows: a page, a divider catcher) at a point where an overlay takes the mouse, and gives
+    /// it to the panel. Returns true when it took the event: the window it reached must not handle it.
+    ///
+    /// The panel takes the mouse only after a move the app sees switched it on (``routeMouse(at:)``). With the window
+    /// in the background (it gets no moves) or a pointer that did not move since the overlay came, the window server
+    /// gives a press or a scroll on the overlay to the window under it: a right-click on a toast opened the terminal
+    /// pane's menu or the divider's, and a scroll on it scrolled the terminal (cmux-lawrence-2, 2026-11-16). The host's
+    /// mouse monitor asks this for every window of the app; the window asks it in `sendEvent` too, for the events a
+    /// divider catcher forwards (those pass no monitor).
+    ///
+    /// - Parameter event: A mouse or scroll event on its way to a window that is not the panel.
+    /// - Returns: True when the panel got the event instead.
+    public func takeEventFromBelow(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel,
+             .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            break
+        default:
+            return false
+        }
+        guard !isAppHost, let window, let source = event.window, source !== panel, source === window || source.parent === window,
+              panel.parent === window, panel.isVisible else { return false }
+        let screen = source.convertPoint(toScreen: event.locationInWindow)
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel:
+            guard acceptsMouse(at: panel.convertPoint(fromScreen: screen)) else {
+                // A press elsewhere: a taken press whose release never came (a menu loop took it) is over.
+                if event.type != .scrollWheel { takenButton = nil }
+                return false
+            }
+            panel.ignoresMouseEvents = false
+            if event.type != .scrollWheel { takenButton = Self.button(of: event) }
+        default:
+            guard let takenButton, Self.button(of: event) == takenButton else { return false }
+            if [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type) { self.takenButton = nil }
+        }
+        deliver(event, to: panel, screen: screen)
+        return true
+    }
+
+    /// ``takeEventFromBelow(_:)`` for the overlay host of `window`, asked by the window's `sendEvent` for every event:
+    /// any event that is not a press, a drag, a release or a scroll returns false before the host is looked up.
+    ///
+    /// - Parameters:
+    ///   - event: The event `window` is about to handle.
+    ///   - window: The window with the overlays.
+    /// - Returns: True when the overlay panel got the event instead: `window` must not handle it.
+    public static func takeEventFromBelow(_ event: NSEvent, in window: NSWindow) -> Bool {
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .leftMouseDragged, .rightMouseDragged,
+             .otherMouseDragged, .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            return existingHost(for: window)?.takeEventFromBelow(event) ?? false
+        default:
+            return false
+        }
     }
 
     /// Whether an overlay of `window` takes the mouse at `windowPoint` (a toast, a dialog, an agent's cursor tag).
@@ -155,22 +218,31 @@ extension WindowOverlayHost {
     /// panel's event and local monitors do not see the forwarded copy.
     func forward(_ event: NSEvent) {
         guard let target = forwardTarget else { return }
-        let screen = panel.convertPoint(toScreen: event.locationInWindow)
+        deliver(event, to: target, screen: panel.convertPoint(toScreen: event.locationInWindow))
+    }
+
+    /// Sends `event` to `target` at `screen` (a screen point), as the window server would have.
+    func deliver(_ event: NSEvent, to target: NSWindow, screen: NSPoint) {
         // A copy of the real event keeps its drag deltas (pointer lock, page
         // drags use them); only the window and location change.
         if let copy = event.cgEvent?.copy() {
             copy.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(target.windowNumber))
             copy.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(target.windowNumber))
             if let forwarded = NSEvent(cgEvent: copy) {
-                return target.sendEvent(Self.relocated(forwarded, to: target, screen: screen) ?? forwarded)
+                let addressed = Self.relocated(forwarded, to: target, screen: screen)
+                // A scroll the copy did not address to `target` goes nowhere rather than to the wrong window.
+                if addressed == nil, forwarded.type == .scrollWheel { return }
+                return target.sendEvent(addressed ?? forwarded)
             }
         }
         if let forwarded = Self.relocated(event, to: target, screen: screen) { target.sendEvent(forwarded) }
     }
 
-    /// `event` addressed to `target` at the screen point (deltas are lost: a fallback only).
+    /// `event` addressed to `target` at the screen point (deltas are lost: a fallback only). Nil for a scroll, which
+    /// has no such constructor: its copy above is the only way, and with no copy the scroll goes nowhere.
     static func relocated(_ event: NSEvent, to target: NSWindow, screen: NSPoint) -> NSEvent? {
         guard event.window !== target else { return event }
+        guard event.type != .scrollWheel else { return nil }
         return NSEvent.mouseEvent(with: event.type, location: target.convertPoint(fromScreen: screen),
                                   modifierFlags: event.modifierFlags, timestamp: event.timestamp,
                                   windowNumber: target.windowNumber, context: nil, eventNumber: event.eventNumber,

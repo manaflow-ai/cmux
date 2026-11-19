@@ -1708,6 +1708,27 @@ let package = Package(
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_push_that_adds_an_eager_list_is_refused(self):
+        # Leo 2026-11-18: "we draw the visible area, right? ... we need to be able to guard against that."
+        self.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/EagerList.swift",
+                   "func refresh(table: NSTableView) {\n    table.reloadData()\n}\n")
+        self.commit("adds an unconditional reloadData")
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the eager list must not reach origin")
+        self.assertIn("visible-only-reload-data", output)
+        self.assertIn("EagerList.swift", output)
+
+    def test_the_visible_only_guard_rules_hold(self):
+        # Each visible-only-* ast-grep rule, its escapes and scope, and the per-file ratchet.
+        result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-visible-only.test.sh")],
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_the_app_id_special_cases_guard_rules_hold(self):
         # Zero first-party privilege (docs/app-store-platonic-ideal.md 5): the guard's own rule tests.
         result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-app-id-special-cases.test.sh")],
@@ -2171,6 +2192,29 @@ pub fn twice(value: u32) -> u32 {
         self.assertNotIn("CmuxNextApp.swift", output)
         self.assertNotIn("did not run cleanly", output)
 
+    def test_a_main_based_push_touching_a_shared_package_is_judged_without_the_cmux_next_package(self):
+        # main has no Packages/macOS/CmuxNext at all. A main push touching Packages/Shared/ (2026-11-17, a CmuxHomeCore
+        # test) ran "Main-thread concurrency", whose check-concurrency.sh opened the missing Package.swift, died with
+        # FileNotFoundError in package_targets, and the hook refused the push without a verdict.
+        self.main_branch()
+        self.git("rm", "-r", "--quiet", PKG)
+        self.commit("main: no CmuxNext package")
+        self.assertEqual(self.push_ref("HEAD:main", "--no-verify").returncode, 0)
+        self.git("fetch", "--quiet", "origin")
+        self.git("reset", "--quiet", "--hard", "origin/main")
+        self.write("Packages/Shared/CmuxHomeCore/Tests/CmuxHomeCoreTests/FixtureTests.swift",
+                   "import Testing\n\n@Test func fixture() {\n    #expect(1 + 1 == 2)\n}\n")
+        self.commit("main-based: a shared package test")
+
+        result = self.push_ref("topic")
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("cut from origin/main", output, "control: the push is judged as main-based")
+        self.assertNotIn("FileNotFoundError", output)
+        self.assertNotIn("did not run cleanly", output)
+        self.assertEqual(self.remote_head_of("topic"), self.git("rev-parse", "HEAD").stdout.strip())
+
     def test_a_feat_based_push_that_adds_a_lock_unwrap_is_refused(self):
         self.write(self.CRATE_FILE, self.RUST_CLEAN)
         self.commit("base: a clean crate file")
@@ -2239,6 +2283,55 @@ mod tests {
         self.git("fetch", "--quiet", "origin")
         installed = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True)
         self.assertEqual(installed.returncode, 0, installed.stderr)
+
+    # Packages/iOS: of the scanners only the visible-only one (and the fixture host names) judge it, so the fixture
+    # repo needs none of the macOS package scanners' data.
+    EAGER = "Packages/iOS/CmuxFixture/Sources/CmuxFixture/EagerTable.swift"
+
+    def install_with_eager_reloads(self, sites):
+        """A base with SITES reloadData() calls in EAGER and their visible-only row, and the hook installed from it."""
+        calls = "".join(f"    table{i}.reloadData()\n" for i in range(sites))
+        self.write(self.EAGER, "func refresh() {\n" + calls + "}\n")
+        self.set_eager_row(sites)
+        self.commit(f"base: {sites} reloadData calls")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        installed = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+    def set_eager_row(self, count):
+        path = self.repo / "scripts/cmux-next/visible-only-baseline.tsv"
+        lines = [line for line in path.read_text().splitlines() if not line.startswith(self.EAGER + "\t")]
+        if count:
+            lines.append(f"{self.EAGER}\tvisible-only-reload-data\t{count}")
+        path.write_text("\n".join(lines) + "\n")
+
+    def test_a_push_that_fixes_an_eager_list_must_lower_its_visible_only_row(self):
+        self.install_with_eager_reloads(2)
+        self.write(self.EAGER, "func refresh() {\n    table0.reloadData()\n}\n")
+        self.commit("diffs one table, keeps its row")
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("lower the baseline", output)
+        self.assertEqual(self.remote_head(), before)
+
+        self.set_eager_row(1)
+        self.commit("lowers the visible-only row")
+        self.assertEqual(self.push().returncode, 0)
+
+    def test_an_edit_to_a_baselined_eager_list_line_passes(self):
+        # Counts, not lines: rewording a listed reloadData() line is not a new hit.
+        self.install_with_eager_reloads(1)
+        self.write(self.EAGER, "func refresh() {\n    self.renamedTable.reloadData()\n}\n")
+        self.commit("renames the table")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_a_push_that_lowers_a_ratchet_row_with_its_fix_passes(self):
         self.install_with_scan_sites(2)
@@ -2324,7 +2417,24 @@ mod tests {
         self.assertEqual(set(gate.RATCHET_BASELINES), {
             "process-scan-baseline.tsv", "state-roots-baseline.tsv", "raw-spawn-baseline.tsv",
             "raw-flock-baseline.tsv", "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv",
-            "swift-type-scale-baseline.tsv", "focus-routes-baseline.tsv"})
+            "swift-type-scale-baseline.tsv", "focus-routes-baseline.tsv", "visible-only-baseline.tsv"})
+
+    def test_a_line_baseline_takes_only_the_lines_the_push_removed(self):
+        spec = importlib.util.spec_from_file_location("prepush_gate_line_baselines", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        name = "concentric-containers-baseline.txt"
+        self.write(f"scripts/cmux-next/{name}", "# only shrinks\nA.swift: kept\nC.swift: added\n")
+        self.commit("pushed concentric baseline: one line fixed and removed, one added")
+        installed = self.root / "installed"
+        installed.mkdir()
+        (installed / name).write_text("# only shrinks\nA.swift: kept\nB.swift: fixed\n")
+
+        taken = gate.lower_ratchet_baselines(self.repo, "HEAD", installed)
+
+        self.assertEqual((installed / name).read_text(), "# only shrinks\nA.swift: kept\n")
+        self.assertEqual(taken, [f"{name}: B.swift: fixed (line removed)"])
+        self.assertEqual(gate.LINE_BASELINES, (name,))
 
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))
@@ -3352,4 +3462,8 @@ class AdvisoryGuardrailsDiagnosticsTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    # `--shard I/N`: the checks job runs this file as four pool commands (tests/unittest_shard.py).
+    _shard_spec = importlib.util.spec_from_file_location("unittest_shard", Path(__file__).resolve().parent / "unittest_shard.py")
+    unittest_shard = importlib.util.module_from_spec(_shard_spec)
+    _shard_spec.loader.exec_module(unittest_shard)
+    unittest_shard.main()

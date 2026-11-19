@@ -1,10 +1,12 @@
 public import AppKit
+import CmuxNextPages
 import CmuxNextWakeups
 
-/// A new pane whose first content is a page that has not painted keeps its tab strip invisible
-/// with it: the tab and its page show in one frame, never the tab first. Settings from Home's
-/// dock (2026-11-16) showed its tab in a new column about 150-190 ms before its page drew.
-/// A page that never reports its first frame shows its tab after ``limit``.
+/// A new pane whose first content is a page that has not painted keeps its tab strip and the page
+/// invisible: the tab and its page show in one frame, never one first. Settings from Home's dock
+/// (2026-11-16) showed its tab in a new column about 150-190 ms before its page drew; with the tab
+/// held, the reclaimed page's stale render showed alone. A new pane has no outgoing view for
+/// PanePaintHold to keep. A page that never reports its first frame shows after ``limit``.
 @MainActor
 public final class PaneStripHold {
     /// The longest a tab waits for its page.
@@ -24,7 +26,7 @@ public final class PaneStripHold {
 
     /// The pane shows `view`: a hold for another view ends. When `first` (the pane's first
     /// content) and `view` waits for its first frame, `strip` stays invisible until it painted or
-    /// ``limit`` passed. A strip already invisible (the launch reveal holds it) is left to its holder.
+    /// ``limit`` passed; `view` with it. A strip already invisible (the launch reveal holds it) is left to its holder.
     public func follow(_ view: NSView?, strip: NSView, first: Bool) {
         if page !== view { end() }
         guard first, !holding, let view, let gated = view as? PaneFirstPaintGated, gated.awaitsFirstPaint,
@@ -34,6 +36,8 @@ public final class PaneStripHold {
         self.strip = strip
         page = view
         strip.alphaValue = 0
+        view.alphaValue = 0
+        PageWebView.syncChromiumVisibility(in: view)
         gated.whenFirstPainted { [weak self] in self?.end(token) }
         deadline.schedule(after: Self.limit) { @MainActor [weak self] in self?.end(token) }
     }
@@ -41,12 +45,15 @@ public final class PaneStripHold {
     /// Ends the hold (only hold `token`, when given): the strip shows, in the page's frame.
     public func end(_ token: UInt64? = nil) {
         guard let strip, token == nil || self.token == token else { return }
+        let page = page
         self.strip = nil
-        page = nil
+        self.page = nil
         deadline.cancel()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         strip.alphaValue = 1
+        page?.alphaValue = 1
         CATransaction.commit()
+        if let page { PageWebView.syncChromiumVisibility(in: page) }
     }
 }
