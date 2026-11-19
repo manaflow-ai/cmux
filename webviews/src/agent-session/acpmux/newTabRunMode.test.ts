@@ -22,3 +22,10 @@ test("a pick that can't run now keeps its rows so the send is refused, never sen
   expect(newTabRunModeRows(rows, { ...none, cloudPicked: true })?.sandbox).toBe(false);
   expect(newTabRunModeRows(rows, none)).toBeUndefined();
 });
+
+test("a Sandboxed pick left over once a session opened reads as This Mac, never a hidden sandbox send", () => {
+  const sandboxed: RunModeRows = { mode: "sandboxed", onMode: () => {} };
+  const shown = newTabRunModeRows(sandboxed, { ...none, cloud: true });
+  expect(shown?.mode).toBe("persistent");
+  expect(shown?.sandbox).toBe(false);
+});
