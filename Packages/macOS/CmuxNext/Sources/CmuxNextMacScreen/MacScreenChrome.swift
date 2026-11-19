@@ -143,7 +143,8 @@ extension MacScreenPaneModel {
     var failedDetail: String {
         Self.failedDetail(relayErrors: session?.relayErrors ?? [], relayOnly: relayOnly, hubTab: hub != nil, name: name,
                           hubOnline: (hub?.hubConnected ?? true) && !(hub?.failedWhileOffline ?? false),
-                          cause: failureCause, linkConnected: session?.linkConnected ?? false)
+                          cause: failureCause, linkConnected: session?.linkConnected ?? false,
+                          timedOut: session?.timedOutStage)
     }
 
     /// The session's cause, else the host's reason the hub carried (`failed: <reason>`).
@@ -153,11 +154,13 @@ extension MacScreenPaneModel {
 
     static func failedDetail(relayErrors errors: [ICECandidateError], relayOnly: Bool, hubTab: Bool, name: String,
                              hubOnline: Bool = true, cause: MacScreenSession.FailureCause? = nil,
-                             linkConnected: Bool = false) -> String {
+                             linkConnected: Bool = false, timedOut: MacScreenConnectStage? = nil) -> String {
         if hubTab, !hubOnline {
             return L.t("macScreen.card.ownLinkLost", "This Mac lost its connection to the device hub. Check your network; cmux reconnects on its own.")
         }
         if case let .host(reason)? = cause { return hostFailedText(reason, name: name) }
+        // A connect that ran out of time says the stage it stopped at (no answer, no link, no picture).
+        if let detail = timedOut?.timeoutDetail(name: name) { return detail }
         if errors.contains(where: \.refusedCredentials) {
             return L.t("macScreen.card.relayRefused", "The relay refused the credentials. Check its secret in Settings › Devices.")
         }

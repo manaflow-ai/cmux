@@ -289,24 +289,26 @@ fn load_locked() -> Res<(std::path::PathBuf, Hub, Account, serving::Lock)> {
         let hub = Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?;
         return Ok((dir, hub, account, lock));
     };
+    if let Some(joined) = machine::Joined::load(&dir)? {
+        // Only the current join's host serves (serving.rs); a record from before joins were
+        // marked may sign in again, so the device and account are read after it.
+        let credential = serving::current_join(&dir, &account.hub, &joined)?;
+        let account = Account::load(&dir)?.ok_or(NOT_ENABLED)?;
+        let device = Device::load(&dir)?.ok_or(NOT_ENABLED)?;
+        let hub = Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?;
+        return Ok((dir, hub, account, lock));
+    }
     let device = Device::load(&dir)?.ok_or(NOT_ENABLED)?;
-    let hub = match machine::Joined::load(&dir)? {
-        // Only the current join's host serves (serving.rs).
-        Some(joined) => {
-            let credential = serving::current_join(&dir, &joined)?;
-            Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?
-        }
-        // A person's sign-in is always anchored; an unanchored one with no join record is a join
-        // whose sign-in did not finish, and serves nobody.
-        None if account.anchored_until == 0 => {
-            return Err(Fatal::needs(
-                "This desktop's sign-in is incomplete: it has no join and no anchor",
-                Fatal::ENABLE,
-            )
-            .into());
-        }
-        None => Hub::new(&account.hub, device, Some(account.user_id.clone()))?,
-    };
+    // A person's sign-in is always anchored; an unanchored one with no join record is a join
+    // whose sign-in did not finish, and serves nobody.
+    if account.anchored_until == 0 {
+        return Err(Fatal::needs(
+            "This desktop's sign-in is incomplete: it has no join and no anchor",
+            Fatal::ENABLE,
+        )
+        .into());
+    }
+    let hub = Hub::new(&account.hub, device, Some(account.user_id.clone()))?;
     Ok((dir, hub, account, lock))
 }
 
