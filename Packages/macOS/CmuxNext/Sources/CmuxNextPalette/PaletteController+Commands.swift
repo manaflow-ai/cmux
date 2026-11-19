@@ -62,6 +62,8 @@ extension PaletteController {
 public final class PaletteCommandListing {
     private let pass: RegistryPaletteProvider.ItemsPass
     private var allRead = false
+    /// Catalog actions whose state this listing read so far: what the listing costs, as a count.
+    public var actionsRead: Int { pass.readCount }
 
     init(_ pass: RegistryPaletteProvider.ItemsPass) {
         self.pass = pass

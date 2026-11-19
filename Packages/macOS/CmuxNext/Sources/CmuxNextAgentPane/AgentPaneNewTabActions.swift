@@ -38,6 +38,19 @@ public final class AgentPaneNewTabActions {
     public private(set) var last: Listed?
     private var encoding = 0
 
+    /// What the lister did since it was made, as counts: the tests and the benches hold a page's cost by them.
+    /// Three integers, each added to once for a listing at most.
+    public struct Counts: Sendable, Equatable {
+        /// Listings started: the first task of a read ran.
+        public var started = 0
+        /// Lists read to their end and then not handed over, because a request came before the hand-over.
+        public var dropped = 0
+        /// Catalog actions whose state was read, over every listing read to its end (added when the read ends).
+        public var actionsRead = 0
+    }
+
+    public private(set) var counts = Counts()
+
     /// - Parameters:
     ///   - work: The app's main-thread scheduler; the reads are one background ``FrameBatchQueue`` on it.
     ///   - measure: Runs each task (the app times it for its benches).
@@ -74,6 +87,7 @@ public final class AgentPaneNewTabActions {
         waiters.removeAll { !$0.wanted() }
         guard !waiters.isEmpty else { return }
         measure { running = listing() }
+        counts.started += 1
         queue.enqueue { [weak self] in self?.step() }
     }
 
@@ -83,12 +97,13 @@ public final class AgentPaneNewTabActions {
         measure { entries = reading.step(until: .now + Self.slice) }
         guard let entries else { return queue.enqueue { [weak self] in self?.step() } }
         running = nil
+        counts.actionsRead += reading.actionsRead
         let actions = entries.map(AgentPaneOmnibar.Action.init(paletteEntry:))
         encoding &+= 1
         let generation = encoding
         if let last, last.actions == actions {
             return queue.enqueue { [weak self] in
-                guard let self, generation == self.encoding else { return }
+                guard let self, self.isNewest(generation) else { return }
                 hand(last)
             }
         }
@@ -97,15 +112,22 @@ public final class AgentPaneNewTabActions {
         // task-owner: one hand-over per list; a newer list or request (generation) drops it.
         Task { @MainActor [weak self] in
             let encoded = await json.value
-            guard let self, generation == self.encoding else { return }
+            guard let self, self.isNewest(generation) else { return }
             let listed = Listed(actions: actions, json: encoded)
             last = listed
             // The pages take it as background work too (P5): each one's event is a JSON encode and a script call.
             queue.enqueue { [weak self] in
-                guard let self, generation == self.encoding else { return }
+                guard let self, self.isNewest(generation) else { return }
                 hand(listed)
             }
         }
+    }
+
+    /// Whether the list of `generation` is still the one to hand over; a list that is not is counted as dropped.
+    private func isNewest(_ generation: Int) -> Bool {
+        if generation == encoding { return true }
+        counts.dropped += 1
+        return false
     }
 
     private func hand(_ listed: Listed) {
