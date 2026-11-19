@@ -109,11 +109,19 @@ public final class PageVisibleSliceTracker {
                   measure: { [weak view] in view.map(Self.visiblePart(of:)) }, revision: revision, zoom: zoom)
     }
 
-    /// `view`'s part in sight, from its top (a view that is not flipped is turned over), and its height.
+    /// `view`'s part in sight, from its top (a view that is not flipped is turned over), and its height: the enclosing
+    /// scroll view's visible document rect in `view`, clipped to its bounds (its own `visibleRect` only outside a scroll
+    /// view; a view in no window or an unflushed clip reports its whole bounds there).
     public static func visiblePart(of view: NSView) -> (visible: CGRect, height: CGFloat) {
         let height = view.bounds.height
         guard !view.isHiddenOrHasHiddenAncestor else { return (.zero, height) }
-        var visible = view.visibleRect
+        var visible: CGRect
+        if let clip = view.enclosingScrollView?.contentView {
+            let shown = view.convert(clip.bounds, from: clip).intersection(view.bounds)
+            visible = shown.isNull || shown.height <= 0 ? .zero : shown
+        } else {
+            visible = view.visibleRect
+        }
         if !view.isFlipped, !visible.isEmpty { visible.origin.y = view.bounds.maxY - visible.maxY }
         return (visible, height)
     }
