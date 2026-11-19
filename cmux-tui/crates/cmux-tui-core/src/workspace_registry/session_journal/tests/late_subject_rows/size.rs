@@ -10,7 +10,9 @@
 //!    bytes and the frames that the commits put in the WAL, all and those in
 //!    the subject table and its index; the time of the commits that end a
 //!    period and of the others; and how long a second thread waits for the
-//!    registry's connection while these commits run.
+//!    registry's connection while these commits run. And the frames by b-tree
+//!    and kind of page ([`tree_lines`]), for the commits that end a period
+//!    and for the others.
 //! 2. The write row by row: 1,000 journal rows with the stop's write after
 //!    each row, which is what the write at record time wrote in the subject
 //!    table and its index. Its bytes and frames.
@@ -39,7 +41,7 @@
 //! test removes a folder of that name at its start (what a killed run left)
 //! and at its end.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -320,6 +322,116 @@ fn subject_line(database: &Path, part: &str, pages: &[u32], rows: u64) {
     ));
 }
 
+/// The b-tree and the kind of each page of the file now, by `dbstat`.
+struct PageTrees {
+    /// For a page's number, an index in `names`.
+    of_page: BTreeMap<u32, usize>,
+    /// Each b-tree's name with a kind of page (`internal`, `leaf`,
+    /// `overflow`) that the file has for it.
+    names: Vec<(String, String)>,
+    /// The bytes of a page.
+    page_bytes: u64,
+    /// The time of the read.
+    took: Duration,
+}
+
+fn page_trees(database: &Path) -> PageTrees {
+    let started = Instant::now();
+    let connection = open_registry_database_read_only(database).unwrap();
+    let page_bytes: i64 = connection.query_row("PRAGMA page_size", [], |row| row.get(0)).unwrap();
+    let page_bytes = u64::try_from(page_bytes).unwrap();
+    let mut statement = connection.prepare("SELECT name, pageno, pagetype FROM dbstat").unwrap();
+    let found = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, Option<String>>(2)?))
+        })
+        .unwrap();
+    let mut of_page: BTreeMap<u32, usize> = BTreeMap::new();
+    let mut names: Vec<(String, String)> = Vec::new();
+    for row in found {
+        let (name, page, kind) = row.unwrap();
+        let key = (name, kind.unwrap_or_else(|| "unknown".to_string()));
+        let at = match names.iter().position(|known| *known == key) {
+            Some(at) => at,
+            None => {
+                names.push(key);
+                names.len() - 1
+            }
+        };
+        of_page.insert(u32::try_from(page).unwrap(), at);
+    }
+    PageTrees { of_page, names, page_bytes, took: started.elapsed() }
+}
+
+/// The lines of the frames of `commits` commits of a part by b-tree: one
+/// line for each b-tree and kind of page that has a frame, the one with the
+/// most frames first. A page that no b-tree has now is in one of 2 more
+/// lines: a page of the pointer map (the store has `auto_vacuum`; with no
+/// reserved bytes in a page, each `page bytes / 5 + 1` pages from page 2 on
+/// is one), or another page (a free page). Each `a journal row` is of the
+/// part's `rows` journal rows, so the lines of a part's 2 groups of commits
+/// sum to the part's frames a journal row.
+fn tree_lines(trees: &PageTrees, part: &str, pages: &[u32], rows: u64, commits: usize) {
+    let mut counts: BTreeMap<usize, (usize, BTreeSet<u32>)> = BTreeMap::new();
+    let map_step = trees.page_bytes / 5 + 1;
+    let (mut map, mut map_pages) = (0_usize, BTreeSet::<u32>::new());
+    let (mut none, mut none_pages) = (0_usize, BTreeSet::<u32>::new());
+    for page in pages {
+        match trees.of_page.get(page) {
+            Some(at) => {
+                let entry = counts.entry(*at).or_default();
+                entry.0 += 1;
+                entry.1.insert(*page);
+            }
+            None if *page >= 2 && u64::from(*page - 2) % map_step == 0 => {
+                map += 1;
+                map_pages.insert(*page);
+            }
+            None => {
+                none += 1;
+                none_pages.insert(*page);
+            }
+        }
+    }
+    let mut sorted: Vec<(usize, usize, usize)> =
+        counts.iter().map(|(at, (frames, distinct))| (*frames, *at, distinct.len())).collect();
+    sorted.sort_by(|left, right| right.0.cmp(&left.0).then(left.1.cmp(&right.1)));
+    let commits = u64::try_from(commits).unwrap();
+    line(&format!(
+        "{part}, BY B-TREE: {} frames of {commits} commits = {} a journal row = {} a commit",
+        pages.len(),
+        a_row(pages.len(), rows),
+        a_row(pages.len(), commits)
+    ));
+    for (frames, at, distinct) in sorted {
+        let (name, kind) = &trees.names[at];
+        line(&format!(
+            "{part}, BY B-TREE: `{name}`, {kind} pages: {frames} frames = {} a journal row = {} \
+             a commit, on {distinct} pages",
+            a_row(frames, rows),
+            a_row(frames, commits)
+        ));
+    }
+    if map > 0 {
+        line(&format!(
+            "{part}, BY B-TREE: pages of the pointer map: {map} frames = {} a journal row = {} a \
+             commit, on {} pages",
+            a_row(map, rows),
+            a_row(map, commits),
+            map_pages.len()
+        ));
+    }
+    if none > 0 {
+        line(&format!(
+            "{part}, BY B-TREE: other pages that no b-tree has now: {none} frames = {} a journal \
+             row = {} a commit, on {} pages",
+            a_row(none, rows),
+            a_row(none, commits),
+            none_pages.len()
+        ));
+    }
+}
+
 /// Asks for a flush of the commits made so far, as the journal writer does
 /// after a batch that no request waits for.
 fn ask_for_a_flush(store: &Store) {
@@ -427,6 +539,7 @@ fn the_costs_of_a_period_in_a_fixture_store_of_1_000_000_journal_rows() {
     let before = counts(&store);
     let asks = Asks::start(store.registry());
     let (mut late_pages, mut ends, mut others) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut end_pages, mut other_pages) = (Vec::<u32>::new(), Vec::<u32>::new());
     let mut late_rows = 0;
     let mut slow: Option<String> = None;
     while late_rows < LATE_ROWS && slow.is_none() {
@@ -435,12 +548,15 @@ fn the_costs_of_a_period_in_a_fixture_store_of_1_000_000_journal_rows() {
         let sequences = store.registry().append_journal_records_for_test(&record);
         let took = started.elapsed();
         ask_for_a_flush(&store);
+        let new = wal.pages();
         if sequences[0] % PERIOD == 0 {
             ends.push(took);
+            end_pages.extend(new.iter().copied());
         } else {
             others.push(took);
+            other_pages.extend(new.iter().copied());
         }
-        late_pages.extend(wal.pages());
+        late_pages.extend(new);
         late_rows += 1;
         slow = limits.passed();
     }
@@ -460,6 +576,17 @@ fn the_costs_of_a_period_in_a_fixture_store_of_1_000_000_journal_rows() {
         times_of(&mut waits)
     ));
     subject_line(&database, "THE LATE WRITE", &late_pages, late_rows);
+    let trees = page_trees(&database);
+    line(&format!(
+        "THE LATE WRITE, BY B-TREE: the read of each page's b-tree by `dbstat` took {:.1} s; the \
+         file has {} pages in b-trees, in {} groups of a b-tree and a kind of page",
+        trees.took.as_secs_f64(),
+        trees.of_page.len(),
+        trees.names.len()
+    ));
+    let end_part = "THE LATE WRITE, THE COMMITS THAT END A PERIOD";
+    tree_lines(&trees, end_part, &end_pages, late_rows, ends.len());
+    tree_lines(&trees, "THE LATE WRITE, THE OTHER COMMITS", &other_pages, late_rows, others.len());
     if let Some(why) = &slow {
         return ended_by_a_limit("the late write", &why);
     }
