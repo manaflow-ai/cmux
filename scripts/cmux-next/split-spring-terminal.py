@@ -319,6 +319,34 @@ if "--suite=every-action" in sys.argv:
 if "--suite=typing-frame" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "typing-frame-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=typing-frame"])
+# `--suite=wallpaper-cost`: what a picture, live wallpaper, local video or YouTube wallpaper costs (CPU of the app and its
+# helpers, WindowServer, GPU utilization, footprint, network), visible and held: scripts/measure/wallpaper-cost.py, the
+# driver of scripts/measure/wallpaper-cost.sh, on the app this step built. --json is its rows.json; its other options
+# pass through (--measure=30 --ids=orbits --videos=1080p30,4k60 --youtube=ID --youtube-qualities=default,720 ...).
+if "--suite=wallpaper-cost" in sys.argv:
+    driver = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "measure", "wallpaper-cost.py")
+    passed, given, skip = [], {}, False
+    for index, arg in enumerate(sys.argv[1:], 1):
+        if skip:
+            skip = False
+            continue
+        name = arg.split("=", 1)[0]
+        if name in ("--tag", "--app", "--out", "--json"):
+            if "=" in arg:
+                given[name] = arg.split("=", 1)[1]
+            elif index + 1 < len(sys.argv):
+                given[name], skip = sys.argv[index + 1], True
+            continue
+        if arg != "--suite=wallpaper-cost":
+            passed.append(arg)
+    out = given.get("--out") or tempfile.mkdtemp(prefix="wallpaper-cost-")
+    command = [sys.executable, driver, "--app", given["--app"], "--out", given.get("--json") or os.path.join(out, "rows.json"),
+               "--work", os.path.join(out, "wallpaper-cost-work")]
+    if os.environ.get("CI_SHARED_CACHE_DIR"):
+        command += ["--clips", os.path.join(os.environ["CI_SHARED_CACHE_DIR"], "wallpaper-cost-clips")]
+    # A fleet step has no LaunchServices session: the driver launches the app as its child.
+    os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
+    os.execv(sys.executable, command + passed)
 # `--suite=terminal-resize`: Ghostty live resize, idle cursor and STRESS drag (PL-ghostty),
 # scripts/cmux-next/bench-terminal-resize.py; --json is its terminal-resize.json too.
 if "--suite=terminal-resize" in sys.argv:
