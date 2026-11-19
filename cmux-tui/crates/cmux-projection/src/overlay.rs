@@ -1020,6 +1020,31 @@ impl Overlay {
         self.getattr(ino)
     }
 
+    /// [`Self::setattr`] through `file`, the upper file a handle of `ino` holds open for writing.
+    pub fn setattr_open(
+        &self,
+        ino: u64,
+        file: &fs::File,
+        size: Option<u64>,
+        mode: Option<u32>,
+        mtime_ns: Option<i64>,
+    ) -> Result<Attr, i32> {
+        if let Some(size) = size {
+            file.set_len(size).map_err(|error| io_errno(&error))?;
+        }
+        if let Some(mode) = mode {
+            file.set_permissions(fs::Permissions::from_mode(mode & 0o7777))
+                .map_err(|error| io_errno(&error))?;
+        }
+        if let Some(mtime_ns) = mtime_ns {
+            let at = UNIX_EPOCH + Duration::from_nanos(u64::try_from(mtime_ns).unwrap_or(0));
+            file.set_modified(at).map_err(|error| io_errno(&error))?;
+        }
+        let path = self.path_of(ino)?;
+        let meta = file.metadata().map_err(|error| io_errno(&error))?;
+        Ok(self.attr(&path, &Node::Upper(meta)))
+    }
+
     /// Nothing to do: upper files are plain files on the machine's disk.
     pub fn fsync(&self, _ino: u64) -> Result<(), i32> {
         Ok(())

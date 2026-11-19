@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::sync::Arc;
 
 use super::*;
@@ -237,8 +238,19 @@ fn creates_writes_and_deletes_keep_the_overlay_right() {
                 std::fs::OpenOptions::new().write(true).create_new(true).open(&path).unwrap();
             handle.write_all(b"head ").unwrap();
             handle.write_all(format!("{folder}-{file}").as_bytes()).unwrap();
+            // As tar does: the time through the handle (`futimens`), then a mode by path.
+            handle.set_modified(UNIX_EPOCH + Duration::from_secs(1_600_000_000)).unwrap();
         }
     }
+    let upper_meta = std::fs::metadata(overlay.upper_dir().join("new/d2/f3")).unwrap();
+    assert_eq!(upper_meta.modified().unwrap(), UNIX_EPOCH + Duration::from_secs(1_600_000_000));
+    assert_eq!(
+        std::fs::metadata(root.join("new/d2/f3")).unwrap().modified().unwrap(),
+        upper_meta.modified().unwrap()
+    );
+    std::fs::set_permissions(root.join("new/d2/f3"), std::fs::Permissions::from_mode(0o600))
+        .unwrap();
+    assert_eq!(std::fs::metadata(root.join("new/d2/f3")).unwrap().mode() & 0o777, 0o600);
     std::fs::write(root.join("a/three.txt"), b"three").unwrap();
     assert_eq!(std::fs::read(root.join("new/d2/f19")).unwrap(), b"head 2-19");
     assert_eq!(

@@ -256,7 +256,7 @@ impl Filesystem for Fs {
         _atime: Option<TimeOrNow>,
         mtime: Option<TimeOrNow>,
         _ctime: Option<SystemTime>,
-        _fh: Option<u64>,
+        fh: Option<u64>,
         _crtime: Option<SystemTime>,
         _chgtime: Option<SystemTime>,
         _bkuptime: Option<SystemTime>,
@@ -264,9 +264,20 @@ impl Filesystem for Fs {
         reply: ReplyAttr,
     ) {
         let mtime = mtime.map(ns_of);
-        self.run(move |overlay| match overlay.setattr(ino, size, mode, mtime) {
-            Ok(attr) => reply.attr(&ttl(&attr), &file_attr(&attr)),
-            Err(errno) => reply.error(errno),
+        // A change through an open handle (`futimens`, `ftruncate`, `fchmod`: tar sets each file's
+        // time that way) goes to the file that handle writes, without a lookup or an open.
+        let held = fh.and_then(|fh| {
+            self.writers.lock().unwrap_or_else(PoisonError::into_inner).get(&fh).cloned()
+        });
+        self.run(move |overlay| {
+            let result = match held {
+                Some(file) => overlay.setattr_open(ino, &file, size, mode, mtime),
+                None => overlay.setattr(ino, size, mode, mtime),
+            };
+            match result {
+                Ok(attr) => reply.attr(&ttl(&attr), &file_attr(&attr)),
+                Err(errno) => reply.error(errno),
+            }
         });
     }
 
@@ -412,7 +423,10 @@ impl Filesystem for Fs {
     }
 
     fn flush(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _owner: u64, reply: ReplyEmpty) {
-        reply.ok();
+        // Nothing is buffered here (every write is on the disk when it is answered) and there are
+        // no locks to drop: ENOSYS tells the kernel to stop sending a flush on every close, one
+        // round trip less per file a tool writes. The close itself succeeds.
+        reply.error(libc::ENOSYS);
     }
 
     fn release(
