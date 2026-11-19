@@ -202,7 +202,7 @@ const LISTEN_POLL = [
   "grep -qi ':0539 00000000000000000000000000000000:0000 0A' /proc/net/tcp6",
 ].join("; ");
 
-const IDENTITY_PROBE = [
+export const IDENTITY_PROBE = [
   `echo instance=$(${DEVBOX_INSTANCE_ID_COMMAND})`,
   "echo bound=$(cat /etc/cmux/daemon-instance-id 2>/dev/null)",
   "for i in $(seq 1 150); do [ -n \"$(find /etc/ssh -name ssh_host_ed25519_key.pub -newer /etc/cmux/daemon-instance-id 2>/dev/null)\" ] && break; sleep 0.2; done",
@@ -216,7 +216,7 @@ const IDENTITY_PROBE = [
   "echo urandom=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \\n')",
 ].join("; ");
 
-function kv(stdout: string): Record<string, string> {
+export function kv(stdout: string): Record<string, string> {
   return Object.fromEntries(stdout.trim().split("\n").filter((l) => l.includes("=")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
 }
 
