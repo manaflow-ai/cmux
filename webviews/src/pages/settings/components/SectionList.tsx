@@ -97,6 +97,8 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
         activeOptions={{ exact: true }}
         activeProps={{}}
         className="section-link"
+        // WebKit exposes the DOM id as the link's AX identifier: an agent driving the app finds it.
+        id={`settings-section-${category.id}`}
         draggable={false}
         data-section-link={category.id}
         aria-current={category.id === current ? "page" : undefined}

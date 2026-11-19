@@ -99,6 +99,11 @@ export const SettingRow = memo(function SettingRow({
   );
 });
 
+/** A setting row's DOM id, `setting-<key>` (the AX identifier WebKit reports for the row). */
+export function settingRowId(settingKey: string): string {
+  return `setting-${settingKey}`;
+}
+
 /**
  * A setting row's frame, shared by SettingRow and the Theme page's own rows: the row Up/Down and
  * `?focus=` reach (`data-row-key`, focusable), and the settings file's diagnostic about the key
@@ -127,6 +132,9 @@ export function RowFrame({
   return (
     <div
       className="row"
+      // The key's first row only (the one given its state), so the id stays unique on the page.
+      // WebKit exposes it as the row's AX identifier: an agent driving the app finds the row by key.
+      id={state ? settingRowId(settingKey) : undefined}
       data-row-key={settingKey}
       data-kind={kind}
       data-managed={state?.managed ? "" : undefined}
