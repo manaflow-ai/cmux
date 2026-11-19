@@ -90,6 +90,7 @@ async fn busy_with_goal(steering: bool, goal: bool) -> Busy {
             .unwrap();
         let summary = b.hub.session_summary(&b.hub.resolve(&b.id).unwrap());
         assert_eq!(summary["goal"]["objective"], "Ship the fix", "{summary}");
+        assert!(matches!(summary["goal"]["status"].as_str(), Some("active" | "running")));
     }
     b.run_gated().await;
     b
@@ -123,10 +124,20 @@ async fn an_active_goal_accepts_the_persons_steered_and_queued_sends() {
         }
         let summary = b.hub.session_summary(&b.hub.resolve(&b.id).unwrap());
         assert_eq!(summary["goal"]["objective"], "Ship the fix", "{summary}");
+        assert!(matches!(summary["goal"]["status"].as_str(), Some("active" | "running")));
         b.open_gate();
         if !(steering && steer) {
             b.agent_said("follow my correction").await;
         }
+        let finished = b
+            .person
+            .request(
+                method::MUX_WAIT,
+                json!({"sessions": [b.id], "until": ["ready"], "timeoutMs": 30000}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(finished["timedOut"], false, "{finished}");
     }
 }
 

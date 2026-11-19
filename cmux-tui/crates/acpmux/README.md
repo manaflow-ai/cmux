@@ -1461,7 +1461,8 @@ so an agent messages another lane or session with a tool call instead of piping 
   the `promptId` and delivery id once the delivery settles (steered in, queued, or a new turn),
   or after 5 s with the message on its way; it never waits for the reply. `steer` defaults to true.
   It also takes `class`, `pr`, `thread` and `supersede` (as the CLI's flags), `file` in place of
-  `text` (a UTF-8 file of the caller's own, at most 256 KiB; a relative path is from the
+  `text` (a UTF-8 file of the caller's own; small files go inline and larger files are attached;
+  a relative path is from the
   folder the agent runs in), `tag` in place of `to` (every live session carrying it, not the sender),
   `notice: {sender?, host?, severity, title, links?}` sends it as a tool's notice (as `acpmux
   send --notice`; `text` is its optional body, the sender defaults to this session's name),
