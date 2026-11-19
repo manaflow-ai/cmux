@@ -38,11 +38,19 @@ export function readLayoutBoxes(
       if (rect.width === 0 && rect.height === 0) continue;
       const style = getComputedStyle(element);
       if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) continue;
+      // What is drawn, not the layout box: an `inset()` clip (a card opening) trims its edges.
+      const clip = /^inset\(([^)]*?)(?:\s+round\b[^)]*)?\)$/.exec(style.clipPath.trim());
+      const [top = 0, right = top, bottom = top, left = right] = clip
+        ? clip[1]
+            .trim()
+            .split(/\s+/)
+            .map((value) => Number.parseFloat(value) || 0)
+        : [];
       found = {
-        x: Math.round(rect.x * 10) / 10,
-        y: Math.round(rect.y * 10) / 10,
-        width: Math.round(rect.width * 10) / 10,
-        height: Math.round(rect.height * 10) / 10,
+        x: Math.round((rect.x + left) * 10) / 10,
+        y: Math.round((rect.y + top) * 10) / 10,
+        width: Math.round((rect.width - left - right) * 10) / 10,
+        height: Math.round((rect.height - top - bottom) * 10) / 10,
       };
       break;
     }
@@ -99,40 +107,70 @@ export function expectNoLayoutShift(frames: readonly LayoutFrame[], parts: reado
 }
 
 export type LayoutTeleport = {
+  /// The part, and the measure of it that teleported (`box.top`, `box.width`, a test's own name).
   part: string;
-  /// How far the part's top travelled from the first frame that drew it to the last, in CSS px.
+  /// How far the measure went from the first frame that drew the part to the last, in CSS px.
   travel: number;
-  /// The largest single-frame step of its top, the frame that drew it, and that step's share of `travel`.
+  /// The largest single-frame step of the measure, the frame that drew it, and that step's share of `travel`.
   step: number;
   frame: number;
   at: number;
   share: number;
 };
 
-/// A part whose top went somewhere else mostly in one frame: a teleport rather than a glide. Unlike
-/// `findLayoutShifts`, this follows a part across frames where the element drawing it changes (name
-/// both surfaces' selectors under one key), and it allows motion: a glide spreads its travel over
-/// many frames, so no single step carries more than `maxStepShare` of it. Undefined when the part
-/// travelled no more than `tolerancePx` or moved smoothly.
+/// What `findTeleport` follows: an edge or size of the part's box, or any number a test reads from a
+/// frame (one part's offset inside another), undefined on frames that do not draw it.
+export type TeleportMeasure =
+  | "top"
+  | "left"
+  | "width"
+  | "height"
+  | "bottom"
+  | ((frame: LayoutFrame) => number | undefined);
+
+const boxMeasure: Record<"top" | "left" | "width" | "height" | "bottom", (box: LayoutBox) => number> = {
+  top: (box) => box.y,
+  left: (box) => box.x,
+  width: (box) => box.width,
+  height: (box) => box.height,
+  bottom: (box) => box.y + box.height,
+};
+
+export type TeleportOptions = { measure?: TeleportMeasure; tolerancePx?: number; maxStepShare?: number };
+
+/// A part that went somewhere else (or took another size) mostly in one frame: a teleport rather than
+/// a glide. Unlike `findLayoutShifts`, this follows a part across frames where the element drawing it
+/// changes (name both surfaces' selectors under one key), and it allows motion: a glide spreads its
+/// travel over many frames, so no single step carries more than `maxStepShare` of it. `measure` picks
+/// what is followed, the top by default. Undefined when it travelled no more than `tolerancePx` or
+/// moved smoothly.
 export function findTeleport(
   frames: readonly LayoutFrame[],
   part: string,
-  { tolerancePx = 1, maxStepShare = 0.75 }: { tolerancePx?: number; maxStepShare?: number } = {},
+  { measure = "top", tolerancePx = 1, maxStepShare = 0.75 }: TeleportOptions = {},
 ): LayoutTeleport | undefined {
+  const read =
+    typeof measure === "function"
+      ? measure
+      : (frame: LayoutFrame) => {
+          const box = frame.boxes[part];
+          return box ? boxMeasure[measure](box) : undefined;
+        };
+  const label = typeof measure === "function" ? part : `${part}.${measure}`;
   const drawn = frames.flatMap((frame, index) => {
-    const box = frame.boxes[part];
-    return box ? [{ index, at: frame.at, top: box.y }] : [];
+    const value = read(frame);
+    return value === undefined ? [] : [{ index, at: frame.at, value }];
   });
   if (drawn.length < 2) return undefined;
-  const travel = Math.abs(drawn.at(-1)!.top - drawn[0].top);
+  const travel = Math.abs(drawn.at(-1)!.value - drawn[0].value);
   if (travel <= tolerancePx) return undefined;
   let worst = { step: 0, frame: 0, at: 0 };
   for (let index = 1; index < drawn.length; index++) {
-    const step = Math.abs(drawn[index].top - drawn[index - 1].top);
+    const step = Math.abs(drawn[index].value - drawn[index - 1].value);
     if (step > worst.step) worst = { step, frame: drawn[index].index, at: drawn[index].at };
   }
   const share = worst.step / travel;
-  return share > maxStepShare ? { part, travel, ...worst, share } : undefined;
+  return share > maxStepShare ? { part: label, travel, ...worst, share } : undefined;
 }
 
 export function describeTeleport(teleport: LayoutTeleport | undefined): string[] {
@@ -143,11 +181,54 @@ export function describeTeleport(teleport: LayoutTeleport | undefined): string[]
   ];
 }
 
-/// Fails, naming the frame, when `part` jumped to its new place instead of moving there.
-export function expectNoTeleport(
+export type HandoverJump = { part: string; frame: number; from: number; to: number; px: number };
+
+/// Steps at one frame, `index` (a surface handing a part to another): for each `[part, measure]`, the
+/// change from the last earlier frame that drew it to this one. A handover draws the part where the
+/// old surface left it, so any step past `tolerancePx` is a jump the eye sees.
+export function findJumpsAt(
   frames: readonly LayoutFrame[],
-  part: string,
-  options?: { tolerancePx?: number; maxStepShare?: number },
+  index: number,
+  checks: readonly (readonly [string, TeleportMeasure])[],
+  tolerancePx = 2,
+): HandoverJump[] {
+  const jumps: HandoverJump[] = [];
+  for (const [part, measure] of checks) {
+    const read =
+      typeof measure === "function"
+        ? measure
+        : (frame: LayoutFrame) => {
+            const box = frame.boxes[part];
+            return box ? boxMeasure[measure](box) : undefined;
+          };
+    const label = typeof measure === "function" ? part : `${part}.${measure}`;
+    const to = frames[index] && read(frames[index]);
+    let earlier = index - 1;
+    while (earlier >= 0 && read(frames[earlier]) === undefined) earlier--;
+    const from = earlier >= 0 ? read(frames[earlier]) : undefined;
+    if (to === undefined || from === undefined) continue;
+    if (Math.abs(to - from) > tolerancePx) jumps.push({ part: label, frame: index, from, to, px: Math.abs(to - from) });
+  }
+  return jumps;
+}
+
+export function describeJumps(jumps: readonly HandoverJump[]): string[] {
+  return jumps.map(
+    (jump) => `${jump.part} jumped ${jump.px.toFixed(1)} px at frame ${jump.frame}: ${jump.from} -> ${jump.to}`,
+  );
+}
+
+/// Fails, naming each, when a handover frame moves or resizes any checked part past `tolerancePx`.
+export function expectNoJumpAt(
+  frames: readonly LayoutFrame[],
+  index: number,
+  checks: readonly (readonly [string, TeleportMeasure])[],
+  tolerancePx = 2,
 ): void {
+  expect(describeJumps(findJumpsAt(frames, index, checks, tolerancePx))).toEqual([]);
+}
+
+/// Fails, naming the frame, when `part` (its `measure`) jumped to its new value instead of moving there.
+export function expectNoTeleport(frames: readonly LayoutFrame[], part: string, options?: TeleportOptions): void {
   expect(describeTeleport(findTeleport(frames, part, options))).toEqual([]);
 }

@@ -158,7 +158,7 @@ public struct ConductorImport {
 
     private static func showPreview(_ plan: ConductorImportPlan) async -> Bool {
         let window = NSApp.keyWindow ?? NSApp.mainWindow
-        let spec = CmuxDialogSpec(
+        let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: ConductorImportStrings.previewTitle,
             lines: previewLines(plan),
             buttons: [.cancel(), CmuxDialogButton(id: importButton, title: ConductorImportStrings.previewButton, role: .default)],

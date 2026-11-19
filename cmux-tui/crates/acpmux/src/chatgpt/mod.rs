@@ -1,16 +1,18 @@
-//! Sign in with ChatGPT (`chatgpt-plan` connections; cmux-tui/docs/model-connections.md), from
-//! OpenAI's documented open-source token-sharing protocol (no DevKit code: its license is
-//! noncommercial).
+//! Sign in with ChatGPT (`chatgpt-plan` connections; cmux-tui/docs/model-connections.md): the
+//! same ChatGPT sign-in Codex itself runs (`codex login`, cmux#45774), so a Cloud chat's Codex
+//! runs on the person's ChatGPT plan through the ChatGPT Codex backend, as it does on their Mac.
+//! (OpenAI's separate token-sharing protocol, `chatgpt.tokens.use.direct` on api.openai.com,
+//! refuses most accounts with `subscription_sharing_user_not_eligible`; cmux no longer uses it.)
 //!
-//! `begin` registers this installation (`client_id=dynamic_agent_client` the first time, the
-//! issued `oaiapp_...` id afterwards), starts a `127.0.0.1:<ephemeral>/auth/callback` listener
-//! and answers the authorize URL, which the app opens in the person's browser. The callback
-//! checks `state`, records an issued client id before the code exchange, exchanges the code with
-//! PKCE (S256), validates the ID token (JWKS from the OpenID configuration; `iss`, `aud`, `exp`,
-//! `nonce`), requires the `chatgpt.tokens.use.direct` scope, and stores the account
-//! (`store.rs`) with a `chatgpt-plan` route. `token` hands the gateway an access token,
-//! refreshing it under 5 minutes left, one refresh per account at a time. `remove` revokes the
-//! refresh token. No token reaches a log line or an error message.
+//! `begin` starts a `127.0.0.1:1455/auth/callback` listener (the redirect Codex's OAuth client is
+//! registered with; 1457 when another program holds 1455, and a `/cancel` from `codex login` ends it) and answers the authorize URL, which the app opens in the person's browser.
+//! The callback checks `state`, exchanges the code with PKCE (S256), validates the ID token (JWKS
+//! from the OpenID configuration; `iss`, `aud`, `exp`), requires the ChatGPT account the tokens
+//! act for, and stores the account (`store.rs`) with a `chatgpt-plan` route. The daemon owns this
+//! login: it is never the Mac's `~/.codex`, so refreshing it (Codex rotates refresh tokens) never
+//! signs the person out of Codex. `token` hands out an access token, refreshing it under 5 minutes
+//! left, one refresh per account at a time. `remove` revokes the refresh token. No token reaches
+//! a log line or an error message.
 //!
 //! Every OAuth URL comes from [`Endpoints`], so tests run the whole flow against a local server.
 
@@ -27,17 +29,24 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
 
+use crate::routes::{self, RouteKind};
+
 pub use oauth::Endpoints;
 
-/// The client id of a first registration; never stored.
-pub const DYNAMIC_CLIENT_ID: &str = "dynamic_agent_client";
-/// The scope a ChatGPT plan's tokens must carry to be used directly.
-pub const PLAN_SCOPE: &str = "chatgpt.tokens.use.direct";
-/// The scopes asked for.
+/// Codex's OAuth client (the one `codex login` signs in with).
+pub const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+/// The loopback port Codex's client is registered to redirect to.
+pub const CALLBACK_PORT: u16 = 1455;
+/// Codex's registered fallback port, used when [`CALLBACK_PORT`] is held by another program.
+pub const CALLBACK_FALLBACK_PORT: u16 = 1457;
+/// The scopes asked for: Codex's own.
 pub const SCOPES: &str =
-    "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
-/// The resource every token is for, and a `chatgpt-plan` route's base URL.
-pub const RESOURCE: &str = "https://api.openai.com/v1";
+    "openid profile email offline_access api.connectors.read api.connectors.invoke";
+/// The scopes a refresh asks for (Codex's refresh request).
+pub const REFRESH_SCOPES: &str = "openid profile email";
+/// Where a `chatgpt-plan` connection's Codex sends its turns: the ChatGPT Codex backend, a
+/// `chatgpt-plan` route's base URL.
+pub const CODEX_BACKEND: &str = "https://chatgpt.com/backend-api/codex";
 /// How long an access token must still be good for `token` to hand it out unrefreshed.
 pub const REFRESH_MARGIN_SECS: i64 = 300;
 /// How long a token `_acpmux/connections/credential` hands a Cloud machine must still be good for.
@@ -53,7 +62,7 @@ fn sign_in_scope() -> &'static cmux_scope::Scope {
     SCOPE.get_or_init(|| cmux_scope::Scope::new("chatgpt sign-in"))
 }
 
-/// A sign-in or token failure: a stable `code` (`access_denied`, `no_plan_scope`, ...) the app
+/// A sign-in or token failure: a stable `code` (`access_denied`, `no_chatgpt_account`, ...) the app
 /// shows, and a message with no token in it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Failure {
@@ -138,6 +147,11 @@ fn io(code: &str) -> impl Fn(std::io::Error) -> Failure + '_ {
     move |e| Failure::new(code, e.to_string())
 }
 
+/// Whether route `id` in `dir` is a Sign in with ChatGPT connection.
+pub(crate) fn is_chatgpt_route(dir: Option<&Path>, id: &str) -> bool {
+    routes::find(dir, id).is_ok_and(|r| r.file.kind == RouteKind::ChatgptPlan)
+}
+
 impl Service {
     pub fn new(endpoints: Endpoints) -> Self {
         Self {
@@ -160,23 +174,50 @@ impl Service {
         reauth: Option<String>,
         on_finish: impl FnOnce(&Status) + Send + 'static,
     ) -> Result<Begun, Failure> {
-        let home = places.home.clone();
-        let host = tokio::task::spawn_blocking(move || store::host(&home))
-            .await
-            .map_err(|e| Failure::new("internal", e.to_string()))?
-            .map_err(io("storage"))?;
+        // A route with no sign-in in this home (the route folder is every cmux's on the Mac, the
+        // record is this acpmux's; another build or the retired token-sharing client wrote it) reads
+        // signed out, and signing in again there signs in on that route (cmux#45774).
         let prior = match &reauth {
-            Some(id) => {
-                Some(store::read(&places.home, id).map_err(io("storage"))?.ok_or_else(|| {
-                    Failure::new("not_found", format!("no ChatGPT sign-in {id:?}"))
-                })?)
-            }
+            Some(id) => match store::read(&places.home, id).map_err(io("storage"))? {
+                Some(record) => Some(record),
+                None if is_chatgpt_route(places.routes.as_deref(), id) => None,
+                None => {
+                    return Err(Failure::new("not_found", format!("no ChatGPT sign-in {id:?}")));
+                }
+            },
             None => None,
         };
-        let listener =
-            tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.map_err(io("listener"))?;
+        // Codex's client redirects only to its registered loopback port: a newer sign-in ends any
+        // pending one first, and a port another program (`codex login`) holds is said, not waited on.
+        let pending_ids: Vec<String> = self
+            .attempts
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .filter(|(_, a)| *a.status.borrow() == Status::Pending)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in pending_ids {
+            let _ = self.cancel(&id).await;
+        }
+        let primary = self.oauth.endpoints.callback_port;
+        let listener = match tokio::net::TcpListener::bind(("127.0.0.1", primary)).await {
+            Ok(listener) => listener,
+            // Port 0 (tests) never fails to bind; a real one falls back to Codex's second port.
+            Err(_) if primary != 0 => {
+                tokio::net::TcpListener::bind(("127.0.0.1", CALLBACK_FALLBACK_PORT)).await.map_err(
+                    |e| {
+                        Failure::new(
+                            "port_busy",
+                            format!("another program holds both ChatGPT callback ports: {e}"),
+                        )
+                    },
+                )?
+            }
+            Err(e) => return Err(Failure::new("port_busy", e.to_string())),
+        };
         let port = listener.local_addr().map_err(io("listener"))?.port();
-        let pending = oauth::Pending::new(host, port, reauth, prior.as_ref())?;
+        let pending = oauth::Pending::new(port, reauth, prior.as_ref())?;
         let url = self.oauth.authorize_url(&pending)?;
         let attempt = oauth::random_token(18)?;
         self.prune();
@@ -302,7 +343,7 @@ impl Service {
     }
 
     /// Signs account `id` out: revokes its refresh token (best effort: a revocation that fails
-    /// still clears the tokens here) and deletes its record. The host id and client id stay.
+    /// still clears the tokens here) and deletes its record.
     /// True when the revocation succeeded.
     pub async fn remove(&self, home: &Path, id: &str) -> Result<bool, Failure> {
         let lock = self.lock_for(id);

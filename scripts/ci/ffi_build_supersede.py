@@ -27,6 +27,9 @@ import urllib.error
 import urllib.request
 from typing import Any, Callable, Iterable, Mapping
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import deadline_http  # noqa: E402
+
 WORKFLOW_FILE = "app-ffi-release.yml"
 BUILD_JOB_NAME = "build xcframework"
 # Job states before a runner takes the job: queued for a runner, or pending in the concurrency group.
@@ -82,8 +85,9 @@ def github_request(token: str, api: str) -> Request:
         req = urllib.request.Request(api.rstrip("/") + path, method=method, headers={
             "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28"})
-        with urllib.request.urlopen(req, timeout=30) as response:
-            body = response.read()
+        # deadline_http bounds the whole call (tests/test_ci_no_bare_urlopen.py); an HTTP error status still
+        # raises urllib's HTTPError, as urlopen did.
+        _status, body, _headers = deadline_http.request(req, 30, raise_errors=True)
         return json.loads(body) if body.strip() else {}
     return request
 
