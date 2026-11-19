@@ -108,7 +108,7 @@ import Testing
     /// A Ghostty theme by name: cmux's own, else Ghostty's bundled ones.
     static func ghosttyTheme(_ name: String) throws -> ThemeFileColors {
         let own = "Resources/cmux-themes/\(name)"
-        let text = (try? read(own)) ?? (try read("Resources/ghostty/themes/\(name)"))
+        let text = try (try? read(own)) ?? read("Resources/ghostty/themes/\(name)")
         return try #require(ThemeFileColors(name: name, themeFile: text))
     }
 
