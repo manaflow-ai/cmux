@@ -2062,6 +2062,17 @@
       "title" : "Theme File",
       "type" : "string"
     },
+    "appearance.themeFileExceptions" : {
+      "default" : [
+
+      ],
+      "description" : "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Changed Over Theme File",
+      "type" : "array"
+    },
     "appearance.titleAreaContrast" : {
       "default" : 1,
       "description" : "How much darker the title bar, tab bar and sidebar are. 1 is the default.",
@@ -3617,6 +3628,12 @@
       "default" : false,
       "description" : "Lets cmux read Messages conversations on this Mac. Sending needs your click.",
       "title" : "Connect iMessage",
+      "type" : "boolean"
+    },
+    "labs.agentCustomization" : {
+      "default" : false,
+      "description" : "Shows and edits Claude Code's and Codex's own settings in Settings > Agents.",
+      "title" : "Claude Code and Codex Customization",
       "type" : "boolean"
     },
     "labs.liveCode" : {

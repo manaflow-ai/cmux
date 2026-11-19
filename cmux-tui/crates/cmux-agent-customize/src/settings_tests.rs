@@ -39,7 +39,6 @@ fn curated_row<'a>(report: &'a Value, key: &str) -> &'a Value {
 }
 
 const USER_SETTINGS: &str = r#"{
-  // a comment Claude Code tolerates
   "theme": "dark",
   "model": "opus",
   "env": {"ANTHROPIC_API_KEY": "sk-secret-1", "DEBUG": "1"},
@@ -134,7 +133,7 @@ fn claude_project_and_local_scopes_write_the_project_root() {
         apply(&f.ctx, Agent::Claude, "hooks", Some("x"), None).unwrap_err().code,
         "agent_config.unknown_key"
     );
-    let no_cwd = Context { cwd: None, ..f.ctx.clone() };
+    let no_cwd = Context { cwd: None, ..f.ctx };
     assert_eq!(
         apply(&no_cwd, Agent::Claude, "model", Some("opus"), Some("project")).unwrap_err().code,
         "agent_config.scope"
@@ -261,4 +260,22 @@ fn codex_project_scope_needs_trust_and_legacy_profiles_are_reported() {
         fs::read_to_string(f.project.join(".codex/config.toml")).unwrap(),
         "model = \"p2\"\n"
     );
+}
+
+#[test]
+fn claude_flags_a_settings_file_with_comments_as_ignored() {
+    // Claude Code 2.1.322 ignores a settings.json that is not strict JSON.
+    let f = fixture();
+    let path = f.ctx.homes.claude_settings();
+    let text = "{\n  // mine\n  \"model\": \"opus\",\n}\n";
+    fs::write(&path, text).unwrap();
+    let report = report(&f.ctx, Agent::Claude);
+    let model = entry(&report, "model");
+    assert!(model["inactive"].as_str().unwrap().contains("ignores this file"));
+    assert_eq!(curated_row(&report, "model")["value"], Value::Null);
+    assert_eq!(
+        apply(&f.ctx, Agent::Claude, "model", Some("haiku"), None).unwrap_err().code,
+        "agent_config.parse"
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), text);
 }

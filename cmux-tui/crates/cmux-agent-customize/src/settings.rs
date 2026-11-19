@@ -442,8 +442,20 @@ fn json_layer(scope: &str, label: &str, path: &Path, writable: bool) -> Layer {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => layer.error = Some(format!("cannot read the file ({error})")),
     }
+    // Claude Code 2.1.322 reads settings.json as strict JSON and ignores the whole file when it has
+    // a comment or a trailing comma, so such a file's keys are shown but do not apply.
+    if layer.error.is_none()
+        && let Ok(text) = fs::read_to_string(path)
+        && !text.trim().is_empty()
+        && serde_json::from_str::<Value>(&text).is_err()
+    {
+        layer.inactive = Some(IGNORED_JSONC.to_owned());
+    }
     layer
 }
+
+const IGNORED_JSONC: &str =
+    "Claude Code ignores this file: it has a comment or a trailing comma (strict JSON only)";
 
 fn json_leaves(value: &Value, parts: &mut Vec<String>, out: &mut Vec<Leaf>) {
     if let Value::Object(map) = value
@@ -602,7 +614,7 @@ fn toml_leaves(table: &dyn toml_edit::TableLike, parts: &mut Vec<String>, out: &
                 out.push(leaf(parts, count(items.len()), None))
             }
             toml_edit::Item::Value(toml_edit::Value::InlineTable(inner)) if !inner.is_empty() => {
-                toml_leaves(inner, parts, out)
+                toml_leaves(inner, parts, out);
             }
             toml_edit::Item::Value(value) => {
                 let (display, text) = match value {
@@ -878,8 +890,14 @@ fn write_json(path: &Path, key: &str, value: Option<&str>) -> Result<(), Setting
         return Ok(());
     }
     let source = if source.trim().is_empty() { "{}\n".to_owned() } else { source };
-    match cmux_config::jsonc::parse(&source) {
+    match serde_json::from_str::<Value>(&source) {
         Ok(Value::Object(_)) => {}
+        _ if matches!(cmux_config::jsonc::parse(&source), Ok(Value::Object(_))) => {
+            return Err(SettingsError::new(
+                "agent_config.parse",
+                format!("{}: {IGNORED_JSONC}; remove it in the file first", path.display()),
+            ));
+        }
         _ => {
             return Err(SettingsError::new(
                 "agent_config.parse",
