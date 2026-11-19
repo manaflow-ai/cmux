@@ -114,6 +114,9 @@ SCRIPT_MADE_KEYCHAINS = {
 LINUX_PEM_SIGNERS = {
     ("cmux-next-dev-daily.yml", "sign"): "scripts/ci/rcodesign-sign-bundle-dev.sh",
     ("cmux-next-dev-daily.yml", "tip-dmg"): "scripts/ci/rcodesign-notarize-dmg-dev.sh",
+    # The per-commit cmux NIGHTLY: the identity script signs with rcodesign-sign-bundle-dev.sh.
+    ("cmux-next-dev-daily.yml", "nightly-commit-sign"): "scripts/ci/nightly-commit-identity.sh",
+    ("cmux-next-dev-daily.yml", "nightly-commit-publish"): "scripts/ci/rcodesign-notarize-dmg-dev.sh",
     # The one-off proof that the nightly's Mac signing and Linux rcodesign agree.
     ("rcodesign-parity-proof.yml", "sign-rcodesign"): "scripts/ci/rcodesign-sign-bundle-dev.sh",
     ("rcodesign-parity-proof.yml", "notarize-dmg"): "scripts/ci/rcodesign-notarize-dmg-dev.sh",

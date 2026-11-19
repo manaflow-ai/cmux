@@ -1780,7 +1780,7 @@ jobs:
   # run, which would make the dispatcher hand the source over again. Three API calls; no secrets, no checkout.
   drop-signed-handoff:
     name: Delete the signed app handoff once its readers are done
-    needs: [sign, supersede, runner, verify, publish, tip-dmg-build, rcodesign, tip-dmg, tip, tip-deltas]
+    needs: [sign, supersede, runner, verify, publish, tip-dmg-build, rcodesign, tip-dmg, tip, tip-deltas, nightly-commit-sign, nightly-commit-dmg-build, nightly-commit-publish]
     if: ${{ always() && needs.sign.outputs.signed == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -1812,3 +1812,413 @@ jobs:
             gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
             echo "deleted cmux-next-dev-daily-signed ($id, $(( size / 1000000 )) MB)" | tee -a "$GITHUB_STEP_SUMMARY"
           done < artifacts.txt
+
+  # Per-commit cmux NIGHTLY builds (Leo, 2026-11-19: "if i wait for the nightly then i might as well
+  # just update to the thing" / "i thought we had ways to preempt nightlies that's the point"). From the
+  # same unsigned Release app of the same source run as sign: re-identified as cmux NIGHTLY
+  # (com.cmuxterm.app.nightly) and signed with the NIGHTLY Developer ID profile here, checked with
+  # Apple's codesign and made a DMG on a Mac (nightly-commit-dmg-build), signed, notarized and stapled
+  # on Linux and published write-once under nightly-next/commits/<sha40>/ (nightly-commit-publish),
+  # where `cmux app try` reads build.json and updates.switch_build installs the DMG. No feed, appcast,
+  # release, rolling DMG or notes index changes: the nightly feed never names these builds.
+  # Off unless vars.NIGHTLY_COMMIT_BUILDS is 1. Advisory (continue-on-error), as tip is: a red here never
+  # makes the dispatcher hand this source run over again. No concurrency group (the sign job's comment):
+  # latest wins by skipping, never by cancelling.
+  nightly-commit-sign:
+    name: Sign a per-commit cmux NIGHTLY
+    continue-on-error: true
+    needs: [sign, rcodesign]
+    if: ${{ !cancelled() && vars.NIGHTLY_COMMIT_BUILDS == '1' && inputs.pr_head_sha == '' && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.rcodesign.result == 'success' }}
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      # Set only once the signed app uploaded: the later jobs run on it alone.
+      build: ${{ steps.ready.outputs.build }}
+      version: ${{ steps.decide.outputs.version }}
+    env:
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      SOURCE_SHA: ${{ needs.sign.outputs.source_sha }}
+      DEV_APP_NAME: cmux NEXT DEV
+      DEV_BUNDLE_ID: com.cmuxterm.app.debug.next
+      APP_ARCHIVE_NAME: cmux-NIGHTLY-commit.zip
+      # nightly.yml (feat-cmux-next): NIGHTLY_NEXT_FEED_BASE/appcast-arm64.xml and
+      # NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY, the feed and key every nightly-next build carries, so a tried
+      # build updates to the next real nightly.
+      NIGHTLY_FEED_URL: https://files-next.cmux.com/nightly-next/appcast-arm64.xml
+      NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY: IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM=
+      NIGHTLY_COMMIT_R2_PREFIX: nightly-next/commits
+    steps:
+      - name: Checkout trusted signing scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      # Fail closed, by name: the release environment may lack the nightly-next secrets (they live in
+      # release-next), and a build signed without them could never be installed or published.
+      - name: Require the NIGHTLY profile, the nightly-next Sparkle key and its bucket
+        env:
+          APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 }}
+          SPARKLE_NEXT_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
+          NIGHTLY_NEXT_R2_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          NIGHTLY_NEXT_R2_ACCOUNT_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 SPARKLE_NEXT_PRIVATE_KEY \
+                      NIGHTLY_NEXT_R2_ACCESS_KEY_ID NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY NIGHTLY_NEXT_R2_ACCOUNT_ID; do
+            [[ -n "${!name:-}" ]] || missing+=("$name")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::the release environment lacks ${missing[*]} (nightly.yml keeps them in release-next); an admin adds them to release, or vars.NIGHTLY_COMMIT_BUILDS goes back to 0"
+            exit 1
+          fi
+          public_key="$(python3 scripts/ci/dev_app_linux.py sparkle-public-key SPARKLE_NEXT_PRIVATE_KEY)"
+          [[ "$public_key" == "$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY" ]] \
+            || { echo "::error::SPARKLE_NEXT_PRIVATE_KEY does not derive the nightly-next key $NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY" >&2; exit 1; }
+
+      # Latest wins without cancelling anything: skip (green, with a notice) when this workflow was
+      # already handed a newer feat-cmux-next source run, or when this commit already has a build.json
+      # (write-once; R2 itself, not the CDN). The build number is the source run id and this
+      # publisher's attempt, nightly.yml's ${GITHUB_RUN_ID}$(printf '%02d' attempt) scheme, so it sorts
+      # by time with the real nightlies and Sparkle moves a tried app on to the next one.
+      - name: Decide the build
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          R2_BUCKET: cmux-nightly-next
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ && "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "the sign job named no source" >&2; exit 1; }
+          gh api "repos/$GH_REPO/actions/workflows/cmux-next-dev-daily.yml/runs?event=workflow_dispatch&branch=main&per_page=100" > handoffs.json
+          newest="$(python3 scripts/ci/nightly_commit_build.py newest-handoff handoffs.json)"
+          if (( newest > SOURCE_RUN_ID )); then
+            echo "::notice::source run $newest, newer than $SOURCE_RUN_ID, is already handed to this workflow; no per-commit NIGHTLY for $SOURCE_SHA"
+            exit 0
+          fi
+          index="$(python3 scripts/ci/r2_cas.py get --key "$NIGHTLY_COMMIT_R2_PREFIX/$SOURCE_SHA/build.json" --out existing.json)"
+          if [[ "$index" != absent ]]; then
+            echo "::notice::$SOURCE_SHA already has a per-commit NIGHTLY ($(cat existing.json)); skipping"
+            exit 0
+          fi
+          echo "build=${SOURCE_RUN_ID}$(printf '%02d' "$GITHUB_RUN_ATTEMPT")" >> "$GITHUB_OUTPUT"
+
+      - name: Download the exact Release app artifact
+        id: source-artifact
+        if: steps.decide.outputs.build != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/nightly-commit/source"
+          gh run download "$SOURCE_RUN_ID" --repo "$GH_REPO" --name "cmux-next-dev-daily-unsigned-${SOURCE_SHA}" --dir "$RUNNER_TEMP/nightly-commit/source"
+          archive="$(find "$RUNNER_TEMP/nightly-commit/source" -type f -name '*.zip' -print -quit)"
+          test -f "$archive" || { echo "::error::source run $SOURCE_RUN_ID artifact has no app archive" >&2; exit 1; }
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      # Two data files of the source commit, read and never run: the nightly icon set (the nightly
+      # compiles with AppIcon-Nightly, the DEV compile with AppIcon) and cmux-tui/Cargo.toml, whose
+      # [workspace.package] version is nightly_version.py next-base's marketing version.
+      - name: Checkout the source commit's icon set and version
+        if: steps.source-artifact.outputs.archive != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.sign.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: .source-data
+          sparse-checkout: |
+            Assets.xcassets/AppIcon-Nightly.appiconset/
+            cmux-tui/Cargo.toml
+          sparse-checkout-cone-mode: false
+
+      - name: Download the signer
+        if: steps.source-artifact.outputs.archive != ''
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.rcodesign.outputs.artifact }}
+          path: ${{ runner.temp }}/rcodesign
+
+      - name: Install the signer
+        if: steps.source-artifact.outputs.archive != ''
+        env:
+          SIGNER_SHA256: ${{ needs.rcodesign.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          signer="$RUNNER_TEMP/rcodesign/rcodesign"
+          [[ "$SIGNER_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "the rcodesign job gave no digest" >&2; exit 1; }
+          echo "$SIGNER_SHA256  $signer" | sha256sum -c -
+          chmod 755 "$signer"
+          echo "RCODESIGN=$signer" >> "$GITHUB_ENV"
+
+      # The app comes from a feat-cmux-next build. None of its code runs in this job.
+      - name: Re-identify and sign as cmux NIGHTLY
+        if: steps.source-artifact.outputs.archive != ''
+        env:
+          SOURCE_ARCHIVE: ${{ steps.source-artifact.outputs.archive }}
+          BUILD: ${{ steps.decide.outputs.build }}
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 }}
+          FEED_URL: ${{ env.NIGHTLY_FEED_URL }}
+          SPARKLE_PUBLIC_KEY: ${{ env.NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          [[ -n "$APPLE_SIGNING_IDENTITY" ]] || { echo "Missing APPLE_SIGNING_IDENTITY" >&2; exit 1; }
+          root="$RUNNER_TEMP/nightly-commit/unpacked"
+          python3 scripts/ci/dev_app_linux.py unzip "$SOURCE_ARCHIVE" "$root"
+          dev_app="$(find "$root" -maxdepth 2 -type d -name "$DEV_APP_NAME.app" -print -quit)"
+          test -d "$dev_app"
+          python3 scripts/ci/dev_app_linux.py identity "$dev_app/Contents/Info.plist" "$DEV_BUNDLE_ID" "$DEV_APP_NAME" "$SOURCE_SHA"
+          version="$(python3 scripts/ci/nightly_commit_build.py marketing-version .source-data/cmux-tui/Cargo.toml "$BUILD")"
+          export NIGHTLY_ICONSET="$PWD/.source-data/Assets.xcassets/AppIcon-Nightly.appiconset"
+          profile="$RUNNER_TEMP/nightly-commit/nightly.provisionprofile"
+          (umask 077 && printf '%s' "$APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64" | base64 -d > "$profile")
+          unset APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64
+          NIGHTLY_PROFILE_PATH="$profile" ./scripts/ci/nightly-commit-identity.sh "$dev_app" "$BUILD" "$version" "$RUNNER_TEMP/nightly-commit/out"
+          rm -f "$profile"
+          mkdir -p nightly-commit-handoff
+          python3 scripts/ci/dev_app_linux.py zip "$RUNNER_TEMP/nightly-commit/out/cmux NIGHTLY.app" "nightly-commit-handoff/$APP_ARCHIVE_NAME"
+          (cd nightly-commit-handoff && sha256sum "$APP_ARCHIVE_NAME" > "$APP_ARCHIVE_NAME.sha256")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+        id: identity
+
+      - name: Upload the signed cmux NIGHTLY
+        if: steps.identity.outputs.version != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-commit-signed-${{ github.run_attempt }}
+          path: nightly-commit-handoff/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Mark the signed app uploaded
+        id: ready
+        if: steps.identity.outputs.version != ''
+        env:
+          BUILD: ${{ steps.decide.outputs.build }}
+        run: echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+
+  nightly-commit-dmg-build:
+    name: Check the per-commit cmux NIGHTLY and build its DMG
+    continue-on-error: true
+    needs: [nightly-commit-sign, runner]
+    if: ${{ !cancelled() && needs.nightly-commit-sign.outputs.build != '' }}
+    # No environment and no secrets: codesign reads the signature, hdiutil makes the DMG, and nothing
+    # in the bundle runs. Blacksmith macOS (a fresh VM), as tip-deltas: the owned pick is verify's and
+    # tip-dmg-build's.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      unsigned: ${{ steps.upload.outputs.unsigned }}
+      dmg_sha256: ${{ steps.dmg.outputs.sha256 }}
+    env:
+      APP_NAME: cmux NIGHTLY
+      APP_ARCHIVE_NAME: cmux-NIGHTLY-commit.zip
+      BUILD: ${{ needs.nightly-commit-sign.outputs.build }}
+    steps:
+      - name: Checkout trusted verification scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download the signed cmux NIGHTLY
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-commit-signed-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/nightly-commit/handoff
+
+      # nightly-next-legacy-identity.sh's closing checks, with Apple's tools.
+      - name: Verify the signature, App ID, keychain group and channel metadata
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/nightly-commit"
+          (cd "$work/handoff" && shasum -a 256 -c "$APP_ARCHIVE_NAME.sha256")
+          mkdir -p "$work/signed"
+          /usr/bin/ditto -x -k "$work/handoff/$APP_ARCHIVE_NAME" "$work/signed"
+          app="$work/signed/$APP_NAME.app"
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")" == "$BUILD" ]] \
+            || { echo "the app is not build $BUILD" >&2; exit 1; }
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -d --entitlements :- "$app" 2>/dev/null > "$work/entitlements.plist"
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.application-identifier' "$work/entitlements.plist")" == 7WLXT3NR37.com.cmuxterm.app.nightly ]] \
+            || { echo "signed app has the wrong application-identifier" >&2; exit 1; }
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :keychain-access-groups:0' "$work/entitlements.plist")" == 7WLXT3NR37.com.cmuxterm.app.nightly ]] \
+            || { echo "signed app has the wrong keychain access group" >&2; exit 1; }
+          ./scripts/verify-app-bundle-channel-metadata.sh "$app" nightly
+
+      - name: Build the DMG
+        id: dmg
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/nightly-commit"
+          mkdir -p "$work/dmg-root" "$work/unsigned"
+          /usr/bin/ditto "$work/signed/$APP_NAME.app" "$work/dmg-root/$APP_NAME.app"
+          ln -s /Applications "$work/dmg-root/Applications"
+          hdiutil create -quiet -volname "$APP_NAME" -srcfolder "$work/dmg-root" -format ULMO -ov "$work/unsigned/cmux-nightly-commit.dmg"
+          cp "$work/handoff/$APP_ARCHIVE_NAME.sha256" "$work/unsigned/built-from.sha256"
+          echo "sha256=$(shasum -a 256 "$work/unsigned/cmux-nightly-commit.dmg" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the unsigned DMG
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-commit-unsigned-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/nightly-commit/unsigned/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Mark the unsigned DMG uploaded
+        id: upload
+        run: echo "unsigned=cmux-nightly-commit-unsigned-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+  nightly-commit-publish:
+    name: Notarize and publish the per-commit cmux NIGHTLY
+    continue-on-error: true
+    needs: [sign, nightly-commit-sign, nightly-commit-dmg-build, rcodesign]
+    if: ${{ !cancelled() && needs.nightly-commit-sign.outputs.build != '' && needs.nightly-commit-dmg-build.outputs.unsigned != '' && needs.rcodesign.result == 'success' }}
+    environment: release
+    # Linux, as tip-dmg: rcodesign signs, notarizes and staples the DMG, and the sidecars are Ed25519
+    # signatures in Python, so no signing secret reaches a Mac.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      SOURCE_SHA: ${{ needs.sign.outputs.source_sha }}
+      BUILD: ${{ needs.nightly-commit-sign.outputs.build }}
+      APP_ARCHIVE_NAME: cmux-NIGHTLY-commit.zip
+      UNSIGNED_SHA256: ${{ needs.nightly-commit-dmg-build.outputs.dmg_sha256 }}
+      SIGNER_SHA256: ${{ needs.rcodesign.outputs.sha256 }}
+      NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY: IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM=
+      NIGHTLY_COMMIT_R2_PREFIX: nightly-next/commits
+      NIGHTLY_COMMIT_BASE_URL: https://files-next.cmux.com/nightly-next/commits
+    steps:
+      - name: Checkout trusted signing and publishing scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download the signed cmux NIGHTLY
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-commit-signed-${{ github.run_attempt }}
+          path: nightly-commit-handoff
+
+      - name: Download the unsigned DMG
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.nightly-commit-dmg-build.outputs.unsigned }}
+          path: nightly-commit-unsigned
+
+      - name: Require the DMG nightly-commit-dmg-build made
+        run: |
+          set -euo pipefail
+          [[ "$BUILD" =~ ^[0-9]+$ && "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "no build or source" >&2; exit 1; }
+          (cd nightly-commit-handoff && sha256sum -c "$APP_ARCHIVE_NAME.sha256")
+          cmp -s nightly-commit-unsigned/built-from.sha256 "nightly-commit-handoff/$APP_ARCHIVE_NAME.sha256" \
+            || { echo "the unsigned DMG was built from another archive" >&2; exit 1; }
+          [[ "$UNSIGNED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "nightly-commit-dmg-build gave no DMG digest" >&2; exit 1; }
+          echo "$UNSIGNED_SHA256  nightly-commit-unsigned/cmux-nightly-commit.dmg" | sha256sum -c -
+
+      - name: Download the signer
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.rcodesign.outputs.artifact }}
+          path: ${{ runner.temp }}/rcodesign
+
+      - name: Install the signer
+        run: |
+          set -euo pipefail
+          signer="$RUNNER_TEMP/rcodesign/rcodesign"
+          [[ "$SIGNER_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "the rcodesign job gave no digest" >&2; exit 1; }
+          echo "$SIGNER_SHA256  $signer" | sha256sum -c -
+          chmod 755 "$signer"
+          echo "RCODESIGN=$signer" >> "$GITHUB_ENV"
+
+      - name: Sign, notarize and staple the DMG
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          ./scripts/ci/rcodesign-notarize-dmg-dev.sh nightly-commit-unsigned/cmux-nightly-commit.dmg
+          mkdir -p "nightly-commit-out/$SOURCE_SHA"
+          mv nightly-commit-unsigned/cmux-nightly-commit.dmg "nightly-commit-out/$SOURCE_SHA/cmux-nightly-commit-macos-arm64-$BUILD.dmg"
+
+      # build.json and both sidecars with the nightly-next Sparkle key (the key every nightly-next
+      # app trusts), checked as `cmux app try` will read them before anything uploads.
+      - name: Write and sign build.json
+        env:
+          SPARKLE_NEXT_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          dir="nightly-commit-out/$SOURCE_SHA"
+          dmg="cmux-nightly-commit-macos-arm64-$BUILD.dmg"
+          python3 scripts/ci/nightly_commit_build.py sign SPARKLE_NEXT_PRIVATE_KEY "$dir/$dmg" "$dir/$dmg.signature.json" \
+            --public-key "$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY"
+          python3 scripts/ci/nightly_commit_build.py index --commit "$SOURCE_SHA" --build "$BUILD" --dmg "$dir/$dmg" \
+            --source-run "$SOURCE_RUN_ID" --out "$dir/build.json"
+          python3 scripts/ci/nightly_commit_build.py sign SPARKLE_NEXT_PRIVATE_KEY "$dir/build.json" "$dir/build.json.signature.json" \
+            --public-key "$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY"
+          python3 scripts/ci/nightly_commit_build.py check "$dir" --public-key "$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY" --commit "$SOURCE_SHA"
+
+      # Write-once, build.json last: a reader that finds build.json finds the DMG and its signature.
+      # A commit that got a build.json meanwhile keeps it (If-None-Match refuses other bytes).
+      - name: Publish under nightly-next/commits/<sha>
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          R2_BUCKET: cmux-nightly-next
+        run: |
+          set -euo pipefail
+          dir="nightly-commit-out/$SOURCE_SHA"
+          dmg="cmux-nightly-commit-macos-arm64-$BUILD.dmg"
+          index="$(python3 scripts/ci/r2_cas.py get --key "$NIGHTLY_COMMIT_R2_PREFIX/$SOURCE_SHA/build.json" --out existing.json)"
+          if [[ "$index" != absent ]]; then
+            echo "::notice::$SOURCE_SHA got a per-commit NIGHTLY meanwhile ($(cat existing.json)); not publishing build $BUILD"
+            exit 0
+          fi
+          upload() {
+            python3 scripts/ci/upload-r2-object.py --file "$dir/$1" --endpoint-url "$R2_ENDPOINT" --bucket "$R2_BUCKET" \
+              --key "$NIGHTLY_COMMIT_R2_PREFIX/$SOURCE_SHA/$1" --content-type "$2" \
+              --cache-control "public, max-age=31536000, immutable" --write-once
+          }
+          upload "$dmg" application/x-apple-diskimage
+          upload "$dmg.signature.json" application/json
+          upload build.json.signature.json application/json
+          upload build.json application/json
+          {
+            echo "### Per-commit cmux NIGHTLY $BUILD"
+            echo "feat-cmux-next $SOURCE_SHA: $NIGHTLY_COMMIT_BASE_URL/$SOURCE_SHA/build.json"
+          } >> "$GITHUB_STEP_SUMMARY"
