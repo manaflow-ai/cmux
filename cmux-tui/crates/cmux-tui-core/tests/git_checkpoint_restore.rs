@@ -283,6 +283,24 @@ fn checkpoint_restore_refuses_a_moved_head_unless_allowed() {
 }
 
 #[test]
+fn checkpoint_restore_refuses_a_checkout_of_another_branch_at_the_same_commit() {
+    let mut daemon = Daemon::new("ckpt-restore-branch");
+    let repo = daemon.repo.clone();
+    let before = daemon.checkpoint();
+    git(&repo, &["checkout", "--quiet", "-b", "other"]);
+    write(&repo, "a.txt", "agent\n");
+
+    let refused = daemon.request(
+        "git.checkpoint.restore",
+        Some(&unique("branch")),
+        json!({"checkpoint_id": before}),
+    );
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["error"]["details"]["reason"], "base_changed", "{refused}");
+    assert_eq!(read(&repo, "a.txt").as_deref(), Some("agent\n"), "a refusal writes nothing");
+}
+
+#[test]
 fn checkpoint_restore_of_an_unknown_checkpoint_is_not_found() {
     let mut daemon = Daemon::new("ckpt-restore-missing");
     daemon.checkpoint();

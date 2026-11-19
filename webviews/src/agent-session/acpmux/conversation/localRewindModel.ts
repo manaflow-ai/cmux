@@ -234,6 +234,18 @@ export type RewindUndo = {
   files: number;
 };
 
+/// A rewind that failed with its files still reset (the conversation could not go back, and putting
+/// the files back failed too): the Undo that still puts them back, from the error's `undo`.
+export function undoAfterFailedRewind(error: unknown, original: string): RewindUndo | undefined {
+  const data = (error as { data?: unknown } | null)?.data as
+    | { filesRolledBack?: unknown; filesRestored?: unknown; undo?: { safetyCheckpointId?: unknown } }
+    | undefined;
+  const safety = data?.undo?.safetyCheckpointId;
+  if (data?.filesRolledBack !== false || typeof safety !== "string" || !safety) return undefined;
+  const files = typeof data.filesRestored === "number" ? data.filesRestored : 0;
+  return { original, conversation: false, safetyCheckpointId: safety, files };
+}
+
 /// The steps a rewind's Undo takes: files back first (they are the chat's, wherever it shows), then
 /// the original chat in the pane.
 export async function undoRewind(

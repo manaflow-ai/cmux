@@ -1185,7 +1185,9 @@ impl Hub {
         // Under the turn lock: this turn ends a person's Stop's hold only if it began under it.
         session.turn_hold.store(session.stop_hold.load(Ordering::SeqCst), Ordering::SeqCst);
         // Back to before this turn (`turn_rewind.rs`, a setting, off by default): the folder's
-        // checkpoint, before the prompt reaches the agent. Off: nothing waits.
+        // checkpoint, before the prompt reaches the agent. Off: nothing waits. A rewind resetting
+        // this folder now finishes first, so the checkpoint and the agent see the folder after it.
+        self.wait_for_rewind(session).await;
         self.take_turn_checkpoint(session, &turn_id).await;
         let turn_seq = self
             .append(
@@ -2067,7 +2069,11 @@ impl Hub {
                 "turn_end",
                 json!({"stopReason": stop, "turnId": turn_id, "turnSeq": 0}),
             );
-            let msg = json!({"status": "cancelled", "stopReason": stop, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn, "trigger": trigger});
+            let mut msg = json!({"status": "cancelled", "stopReason": stop, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn, "trigger": trigger});
+            // The checkpoint taken before its prompt, as a turn that ran names it (`turn_rewind.rs`).
+            if let Some(o) = msg.as_object_mut() {
+                o.extend(self.turn_checkpoint_fields(session, turn_id));
+            }
             self.record_last_turn(session, &msg);
             self.append(session, "mux", "turn_result", msg);
             self.reset_stream(session);
@@ -2098,6 +2104,7 @@ impl Hub {
         let mut msg = json!({"status": "failed", "error": e.message, "errorText": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn, "trigger": trigger});
         if let Some(o) = msg.as_object_mut() {
             o.extend(typed);
+            o.extend(self.turn_checkpoint_fields(session, turn_id));
         }
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);

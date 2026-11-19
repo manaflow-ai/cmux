@@ -444,6 +444,7 @@ import {
 } from "./conversation/editPrompt";
 import {
   applyRewind,
+  undoAfterFailedRewind,
   localRewindKey,
   localRewindMap,
   localRewindPrompts,
@@ -4329,6 +4330,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 rewind: (at, parts) => client.rewind(at, parts, false, original),
                 open: (sessionId) => callNative("chat.select", { sessionId }),
                 restorePrompt: (text) => composerHandle.current?.restore(text, []),
+              }).catch((error: unknown) => {
+                // Its files stayed reset: the Undo line still offers to put them back.
+                const left = undoAfterFailedRewind(error, original);
+                if (left) setLocalRewindUndo(left);
+                throw error;
               });
               setLocalRewindUndo(undo);
             },

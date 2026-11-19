@@ -175,16 +175,28 @@ pub(super) fn restore(
             reason: "restore".to_string(),
         };
         let (mut live, observed) = super::capture(store, &git, &target, &arguments, OPERATION)?;
-        let base_changed = live.record.base.head != stored.record.base.head;
+        // A checkout of another branch at the same commit moved the base too.
+        let (now, then) = (&live.record.base, &stored.record.base);
+        let base_changed =
+            now.head != then.head || now.branch != then.branch || now.detached != then.detached;
         if base_changed && !allow_base_change && !dry_run {
+            let at = |base: &super::record::Base| {
+                let head = base.head.as_deref().unwrap_or("unborn");
+                match (&base.branch, base.detached) {
+                    (Some(branch), false) => format!("{head} on {branch}"),
+                    _ => format!("{head} (detached)"),
+                }
+            };
             let message = format!(
                 "HEAD is {} but the checkpoint was taken at {}; restore with allow_base_change to keep HEAD and restore only the files",
-                live.record.base.head.as_deref().unwrap_or("unborn"),
-                stored.record.base.head.as_deref().unwrap_or("unborn"),
+                at(now),
+                at(then),
             );
             let extra = json!({
-                "head": live.record.base.head,
-                "checkpoint_head": stored.record.base.head,
+                "head": now.head,
+                "checkpoint_head": then.head,
+                "branch": now.branch,
+                "checkpoint_branch": then.branch,
             });
             return Err(refused(OPERATION, "base_changed", message, extra));
         }

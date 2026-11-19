@@ -19,14 +19,67 @@
 //!   a sibling of the rewound one, so Undo of the conversation is opening it again.
 //!
 //! Undo (`_acpmux/rewind_undo`): a restore of the safety checkpoint.
+//!
+//! A reset of the files reserves the repository first ([`RewindGate`]), then checks that no chat
+//! works there, and holds it until the files and the fork are done. A turn starting in that
+//! repository meanwhile waits for it before its checkpoint and its prompt
+//! ([`Hub::wait_for_rewind`]), so no agent writes into a folder while it is reset.
 
 use super::{Hub, Session};
 use crate::rpc::RpcError;
 use crate::store::SessionStatus;
 use serde_json::{Map, Value, json};
-use std::path::Path;
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
+
+/// The repository roots a rewind or its Undo is resetting. Reserving one and a turn's start
+/// checking it take the same lock; a turn marks itself (`Session::turn_claimed`) before it checks,
+/// and a rewind looks for such turns after it reserves, so one of the two always sees the other.
+#[derive(Default)]
+pub(crate) struct RewindGate {
+    busy: StdMutex<HashSet<PathBuf>>,
+    freed: tokio::sync::Notify,
+}
+
+/// One repository as a rewind holds it; dropping it frees the repository.
+pub(crate) struct Reserved<'a> {
+    gate: &'a RewindGate,
+    root: PathBuf,
+}
+
+impl Drop for Reserved<'_> {
+    fn drop(&mut self) {
+        self.gate.busy.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.root);
+        self.gate.freed.notify_waiters();
+    }
+}
+
+/// Whether two repository roots hold any of the same files (the same, or one inside the other).
+fn overlap(a: &Path, b: &Path) -> bool {
+    a == b || a.starts_with(b) || b.starts_with(a)
+}
+
+impl RewindGate {
+    fn reserve(&self, root: &Path) -> Result<Reserved<'_>, RpcError> {
+        let mut busy = self.busy.lock().unwrap_or_else(|e| e.into_inner());
+        if busy.iter().any(|held| overlap(held, root)) {
+            return Err(refused("shared", "another rewind is resetting this folder")
+                .with_data(json!({"reason": "shared"})));
+        }
+        busy.insert(root.to_path_buf());
+        Ok(Reserved { gate: self, root: root.to_path_buf() })
+    }
+
+    fn holds(&self, root: &Path) -> bool {
+        self.busy.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|held| overlap(held, root))
+    }
+
+    fn idle(&self) -> bool {
+        self.busy.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
+    }
+}
 
 /// The setting that turns the checkpoints on (schemas/settings/source, off by default).
 pub const SETTING: &str = "agents.turnCheckpoints";
@@ -51,6 +104,20 @@ pub(crate) fn on() -> bool {
 /// A refusal the page and the CLI read by its `data.reason`.
 pub(crate) fn refused(reason: &str, message: impl Into<String>) -> RpcError {
     RpcError::invalid_params(message).with_data(json!({"reason": reason}))
+}
+
+/// `e` with `fields` added to its data (an object; data that was not one moves under `data`).
+fn with_fields(mut e: RpcError, fields: Value) -> RpcError {
+    let mut data = match e.data.take() {
+        Some(Value::Object(data)) => data,
+        Some(other) => Map::from_iter([("data".to_owned(), other)]),
+        None => Map::new(),
+    };
+    if let Value::Object(fields) = fields {
+        data.extend(fields);
+    }
+    e.data = Some(Value::Object(data));
+    e
 }
 
 /// The `cmux` CLI that reaches this machine's session host (`CMUX_BIN`, else `cmux` on PATH), as
@@ -275,22 +342,55 @@ impl Hub {
         found.ok_or_else(|| refused("unknown_prompt", "no prompt of this chat matches"))
     }
 
-    /// Chats on this machine working in repository `root` now (a turn running or waiting on
-    /// the person), the chat itself and its sub-sessions included: a reset of the files would be
-    /// overwritten by, or overwrite, their work.
+    /// Chats on this machine working in repository `root` now (a turn running, starting or
+    /// waiting on the person), the chat itself and its sub-sessions included: a reset of the files
+    /// would be overwritten by, or overwrite, their work.
     fn chats_sharing(&self, root: &Path) -> Vec<Value> {
         self.session_handles()
             .into_iter()
             .filter(|other| {
-                matches!(other.status(), SessionStatus::Running | SessionStatus::Waiting)
+                other.turn_claimed()
+                    || other.turn().is_some()
+                    || matches!(other.status(), SessionStatus::Running | SessionStatus::Waiting)
             })
             .filter_map(|other| {
                 let meta = other.meta();
                 let theirs = crate::git_state::repo_root(&meta.cwd)?;
-                (theirs == root || theirs.starts_with(root) || root.starts_with(&theirs))
-                    .then(|| json!({"sessionId": other.id, "title": meta.name}))
+                overlap(&theirs, root).then(|| json!({"sessionId": other.id, "title": meta.name}))
             })
             .collect()
+    }
+
+    /// A turn of `session` about to start: it waits while a rewind resets its repository
+    /// ([`RewindGate`]). Its claim on the turn is already marked, so a rewind reserving after this
+    /// check sees it and is refused. Nothing to wait for (every turn, but during a reset): no work.
+    pub(super) async fn wait_for_rewind(&self, session: &Session) {
+        if self.rewind_gate.idle() {
+            return;
+        }
+        let Some(root) = crate::git_state::repo_root(&session.meta().cwd) else { return };
+        loop {
+            let freed = self.rewind_gate.freed.notified();
+            tokio::pin!(freed);
+            freed.as_mut().enable();
+            if !self.rewind_gate.holds(&root) {
+                return;
+            }
+            freed.await;
+        }
+    }
+
+    /// Repository `cwd` reserved for a reset of its files, then no chat working there: refused
+    /// (`shared`) otherwise. Not a repository: nothing to reserve.
+    fn reserve_files(&self, cwd: &Path) -> Result<Option<Reserved<'_>>, RpcError> {
+        let Some(root) = crate::git_state::repo_root(cwd) else { return Ok(None) };
+        let reserved = self.rewind_gate.reserve(&root)?;
+        let shared = self.chats_sharing(&root);
+        if !shared.is_empty() {
+            return Err(refused("shared", "a chat is working in this folder")
+                .with_data(json!({"reason": "shared", "sharedWith": shared})));
+        }
+        Ok(Some(reserved))
     }
 
     /// `_acpmux/rewind`: see the module comment. `dry_run` answers what a rewind would do and
@@ -314,6 +414,9 @@ impl Hub {
             let config = self.config.read().await;
             config.profile(&harness).and_then(|p| crate::config::turn_cut(&harness, p)).is_some()
         };
+        // A reset of the files holds its repository from the check to the end of the fork.
+        let _reserved =
+            if request.files && !request.dry_run { self.reserve_files(&cwd)? } else { None };
         let files = self.rewind_files_plan(&cwd, &prompt, request.dry_run || request.files).await;
         if request.dry_run {
             let mut reply = Map::new();
@@ -396,10 +499,24 @@ impl Hub {
                 }
                 Err(e) => {
                     // The conversation stayed: put the files back too, so nothing half happened.
-                    if let Some(safety) = &safety_id {
-                        let _ = self.rewind_undo_at(&cwd, safety).await;
-                    }
-                    return Err(e);
+                    let Some(safety) = safety_id else { return Err(e) };
+                    return Err(match self.rewind_undo_at(&cwd, &safety).await {
+                        Ok(_) => with_fields(e, json!({"filesRolledBack": true})),
+                        // Still reset: the error says so and names the Undo that puts them back.
+                        Err(undo) => {
+                            let message = format!(
+                                "{}; the files were reset and putting them back failed ({}): undo with `acpmux session rewind {} --undo {safety}`",
+                                e.message, undo.message, session.id
+                            );
+                            let undo = json!({
+                                "filesRolledBack": false,
+                                "rollbackError": undo.message,
+                                "filesRestored": restored,
+                                "undo": {"sessionId": session.id, "safetyCheckpointId": safety},
+                            });
+                            with_fields(RpcError { message, ..e }, undo)
+                        }
+                    });
                 }
             }
         }
@@ -463,13 +580,7 @@ impl Hub {
         safety: &str,
     ) -> Result<Value, RpcError> {
         let cwd = session.meta().cwd.clone();
-        if let Some(root) = crate::git_state::repo_root(&cwd) {
-            let shared = self.chats_sharing(&root);
-            if !shared.is_empty() {
-                return Err(refused("shared", "a chat is working in this folder")
-                    .with_data(json!({"reason": "shared", "sharedWith": shared})));
-            }
-        }
+        let _reserved = self.reserve_files(&cwd)?;
         let (restored, again) = self.rewind_undo_at(&cwd, safety).await?;
         // Undo's own safety checkpoint: `--undo` with it puts the rewind back.
         Ok(json!({"filesRestored": restored, "safetyCheckpointId": again}))

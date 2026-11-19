@@ -1048,6 +1048,9 @@ pub struct Hub {
     /// Turns a shutdown settled as cancelled (`endAgents`) or handed to the next daemon: their
     /// prompt futures write no result of their own when the agent ends.
     pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
+    /// The repositories a rewind or its Undo is resetting now: a turn in one waits for it to
+    /// finish (`turn_rewind.rs` `RewindGate`).
+    pub(super) rewind_gate: turn_rewind::RewindGate,
     /// A turn's end under way (`Session::ending`) landed or went: a shutdown waiting for those
     /// ends looks again (`shutdown.rs` `settle_ends`).
     pub(super) ends_moved: Notify,
@@ -1487,6 +1490,7 @@ impl Hub {
             agent_hosts: AtomicBool::new(false),
             shutdown_plan: StdMutex::new(shutdown::ShutdownPlan::default()),
             settled_by_shutdown: StdMutex::new(Default::default()),
+            rewind_gate: turn_rewind::RewindGate::default(),
             ends_moved: Notify::new(),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),

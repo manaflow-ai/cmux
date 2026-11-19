@@ -16,6 +16,7 @@ import {
   localRewindPrompts,
   parseDryRun,
   readTurnRewind,
+  undoAfterFailedRewind,
   undoRewind,
 } from "./localRewindModel";
 
@@ -249,4 +250,25 @@ test("a refused rewind rejects with acpmux's reason and opens nothing", async ()
     ),
   ).rejects.toBe(refusal);
   expect(opened).toEqual([]);
+});
+
+test("a rewind that failed with its files still reset leaves their Undo; any other failure leaves none", () => {
+  const stuck = Object.assign(new Error("no fork"), {
+    data: {
+      reason: "fork.unsupported",
+      filesRolledBack: false,
+      filesRestored: 3,
+      undo: { safetyCheckpointId: "ckpt_s" },
+    },
+  });
+  expect(undoAfterFailedRewind(stuck, "chat-1")).toEqual({
+    original: "chat-1",
+    conversation: false,
+    safetyCheckpointId: "ckpt_s",
+    files: 3,
+  });
+  const rolledBack = Object.assign(new Error("no fork"), { data: { filesRolledBack: true } });
+  expect(undoAfterFailedRewind(rolledBack, "chat-1")).toBeUndefined();
+  expect(undoAfterFailedRewind(new Error("refused"), "chat-1")).toBeUndefined();
+  expect(undoAfterFailedRewind(undefined, "chat-1")).toBeUndefined();
 });
