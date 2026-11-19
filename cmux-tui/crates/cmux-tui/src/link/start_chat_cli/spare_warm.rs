@@ -219,6 +219,16 @@ pub(super) fn report_login(request: &Request, credential: &str, team: &str, mach
     }
 }
 
+/// The warm's own answer object. The platform wraps it (`{ok: true, value: {machine, ...}}`,
+/// SpareWarmRoute.ts): read bare, `machine` was never found and every warm answered "no spare",
+/// so no login was copied and no spare was keyed or linked ahead. A bare object is read as it is.
+fn answered(body: Value) -> Value {
+    match body.get("value") {
+        Some(value) if value.is_object() => value.clone(),
+        _ => body,
+    }
+}
+
 /// The real transport: the person's session credential, in `team` (`x-cmux-team`).
 pub(super) fn post(
     request: &Request,
@@ -391,6 +401,10 @@ pub(super) fn run_reporting(
     });
     if let Some(last) = live {
         let mut answer = json!({"ok": true, "machine": last.machine, "warm_until": last.warm_until, "team": team, "fresh": false});
+        // The replay says whose it is, as the platform's answer did: the App makes only the person's own spare ready.
+        if last.owner {
+            answer.set("vm_kind", json!("owner"));
+        }
         // A copy abandoned since is answered again from the record: the machine is still warm.
         if last.owner && !last.copy_given {
             answer.set("fresh", json!(true));
@@ -444,9 +458,16 @@ pub(super) fn run_reporting(
             ));
         }
     };
+    let body = answered(body);
     let Some(machine) = reservations::machine(&body).map(str::to_string) else {
         let reason = body.get("reason").and_then(Value::as_str).unwrap_or("none");
-        let answer = json!({"ok": true, "machine": null, "fresh": false, "reason": reason});
+        let mut answer = json!({"ok": true, "machine": null, "fresh": false, "reason": reason});
+        // Which check refused and how the warm read the pool, as the platform said it: a warm that names no spare says why.
+        for key in ["why", "fill", "spares", "spare_skips"] {
+            if let Some(value) = body.get(key).filter(|value| !value.is_null()) {
+                answer.set(key, value.clone());
+            }
+        }
         return Some(attempted(&path, file, &request.account, &team, now_ms, answer));
     };
     // Scope changes invalidate proof, not an active guest writer. Wait for its bounded work to

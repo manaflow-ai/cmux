@@ -155,6 +155,81 @@ def usage(pid: int):
     return buf[8], buf[9], buf[30], cpu_ns, buf[4] + buf[5]
 
 
+def disk_io(pid: int):
+    """(bytes read, bytes written, logical bytes written) over the process's life, or None once the pid is
+    gone. RUSAGE_INFO_V4 words 18 and 19 (ri_diskio_bytesread, ri_diskio_byteswritten: what reached the
+    storage device, page-ins and write-backs included) and 29 (ri_logical_writes: bytes the process wrote,
+    before the cache folds them)."""
+    buf = (ctypes.c_uint64 * 64)()
+    if _libproc.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(4), ctypes.byref(buf)) != 0:
+        return None
+    return buf[18], buf[19], buf[29]
+
+
+def gpu_stats() -> dict:
+    """The GPU's own counters now (`ioreg -r -c IOAccelerator`, PerformanceStatistics of the first
+    accelerator that has them): device, renderer and tiler utilization % and the memory it holds. macOS
+    gives no per-process GPU time and no frame count here; the GPU process's CPU is in its kind's row."""
+    try:
+        out = subprocess.run(["ioreg", "-r", "-c", "IOAccelerator", "-d", "1", "-a"], capture_output=True,
+                             timeout=10).stdout
+        entries = plistlib.loads(out) if out else []
+    except (subprocess.TimeoutExpired, OSError, ValueError, plistlib.InvalidFileException):
+        return {}
+    for entry in entries if isinstance(entries, list) else [entries]:
+        stats = entry.get("PerformanceStatistics") if isinstance(entry, dict) else None
+        if isinstance(stats, dict):
+            return {key: value for key, value in stats.items() if isinstance(value, (int, float))}
+    return {}
+
+
+def gpu_summary(samples: list[dict]) -> dict:
+    """The mean of each GpuSampler key over a window's gpu_stats() samples (memory in MB)."""
+    if not samples:
+        return {"error": "ioreg gave no IOAccelerator PerformanceStatistics"}
+    out: dict = {"samples": len(samples)}
+    for key in GpuSampler.KEYS:
+        values = [s[key] for s in samples if key in s]
+        if not values:
+            continue
+        name = key.lower().replace(" %", "_pct").replace(" ", "_")
+        mean = sum(values) / len(values)
+        if key.endswith("memory"):
+            out[name + "_mb"] = round(mean / MB, 1)
+        else:
+            out[name] = round(mean, 2)
+    return out
+
+
+class GpuSampler:
+    """Samples gpu_stats() every `interval` seconds from a thread of this script (an ioreg child, nothing
+    the measured app runs) and averages each counter over the window."""
+
+    KEYS = ("Device Utilization %", "Renderer Utilization %", "Tiler Utilization %",
+            "In use system memory", "Alloc system memory")
+
+    def __init__(self, interval: float = 5.0):
+        import threading
+        self.interval, self.samples = interval, []
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self):
+        while not self.stop_event.is_set():
+            got = gpu_stats()
+            if got:
+                self.samples.append(got)
+            self.stop_event.wait(self.interval)
+
+    def start(self):
+        self.thread.start()
+
+    def finish(self) -> dict:
+        self.stop_event.set()
+        self.thread.join(15)
+        return gpu_summary(self.samples)
+
+
 def process_table():
     rows = []
     out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
@@ -304,13 +379,19 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
     adds `child_cpu_pct`: the CPU of the process's children that ended in the window."""
     start = {}
     child_start = {}
+    io_start = {}
+    gpu = None
     if measure > 0:
         for pid in owned(app_pid, bundle):
             got = usage(pid)
             if got is not None:
                 start[pid] = got
+                io_start[pid] = disk_io(pid)
                 if child_ns is not None:
                     child_start[pid] = child_ns(pid)
+        if SAMPLE_GPU:
+            gpu = GpuSampler()
+            gpu.start()
         time.sleep(measure)  # test script: the measured idle window
     rows = []
     for pid, (kind, cmd) in owned(app_pid, bundle).items():
@@ -326,6 +407,13 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
             child_end = child_ns(pid) if child_ns is not None else None
             if child_end is not None and child_start.get(pid) is not None:
                 row["child_cpu_pct"] = round(100 * (child_end - child_start[pid]) / 1e9 / measure, 3)
+            io_end = disk_io(pid)
+            if io_end is not None and io_start.get(pid) is not None:
+                # MB per hour of the window: a process that writes 1 MB a minute reads 60.
+                per_hour = 3600 / measure / MB
+                row["disk_read_mb_per_h"] = round((io_end[0] - io_start[pid][0]) * per_hour, 2)
+                row["disk_write_mb_per_h"] = round((io_end[1] - io_start[pid][1]) * per_hour, 2)
+                row["logical_write_mb_per_h"] = round((io_end[2] - io_start[pid][2]) * per_hour, 2)
         rows.append(row)
     rows.sort(key=lambda row: -row["footprint_mb"])
     kinds = {}
@@ -339,11 +427,22 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
             entry["wakeups_per_s"] = round(entry.get("wakeups_per_s", 0.0) + row["wakeups_per_s"], 2)
         if "child_cpu_pct" in row:
             entry["child_cpu_pct"] = round(entry.get("child_cpu_pct", 0.0) + row["child_cpu_pct"], 3)
-    return {"measure_s": measure, "label": label, "workspaces": workspaces, "time": round(time.time()),
-            "total_rss_mb": round(sum(r["rss_mb"] for r in rows), 1),
-            "total_footprint_mb": round(sum(r["footprint_mb"] for r in rows), 1),
-            "kinds": dict(sorted(kinds.items(), key=lambda item: -item[1]["footprint_mb"])),
-            "processes": rows}
+        for key in IO_KEYS:
+            if key in row:
+                entry[key] = round(entry.get(key, 0.0) + row[key], 2)
+    result = {"measure_s": measure, "label": label, "workspaces": workspaces, "time": round(time.time()),
+              "total_rss_mb": round(sum(r["rss_mb"] for r in rows), 1),
+              "total_footprint_mb": round(sum(r["footprint_mb"] for r in rows), 1),
+              "kinds": dict(sorted(kinds.items(), key=lambda item: -item[1]["footprint_mb"])),
+              "processes": rows}
+    if gpu is not None:
+        result["gpu"] = gpu.finish()
+    return result
+
+
+IO_KEYS = ("disk_read_mb_per_h", "disk_write_mb_per_h", "logical_write_mb_per_h")
+# --gpu: each measured window also samples the GPU's own counters (GpuSampler).
+SAMPLE_GPU = False
 
 
 class _ThreadInfo(ctypes.Structure):
@@ -532,10 +631,14 @@ def print_vmmap(result, kinds_arg: str | None) -> None:
 def print_sample(result, top: int):
     print(f"== {result['label']}: {result['workspaces']} workspaces, {len(result['processes'])} processes, "
           f"footprint {result['total_footprint_mb']:.0f} MB, RSS {result['total_rss_mb']:.0f} MB")
-    print(f"   {'kind':<22}{'n':>4}{'footprint MB':>14}{'RSS MB':>10}{'CPU %':>9}{'wakeups/s':>11}")
+    print(f"   {'kind':<22}{'n':>4}{'footprint MB':>14}{'RSS MB':>10}{'CPU %':>9}{'wakeups/s':>11}"
+          f"{'disk W MB/h':>13}{'disk R MB/h':>13}")
     for kind, entry in result["kinds"].items():
         print(f"   {kind:<22}{entry['count']:>4}{entry['footprint_mb']:>14.1f}{entry['rss_mb']:>10.1f}"
-              f"{entry.get('cpu_pct', float('nan')):>9.3f}{entry.get('wakeups_per_s', float('nan')):>11.2f}")
+              f"{entry.get('cpu_pct', float('nan')):>9.3f}{entry.get('wakeups_per_s', float('nan')):>11.2f}"
+              f"{entry.get('disk_write_mb_per_h', float('nan')):>13.2f}{entry.get('disk_read_mb_per_h', float('nan')):>13.2f}")
+    if result.get("gpu"):
+        print(f"   GPU (whole Mac, ioreg): {json.dumps(result['gpu'])}")
     for kind, entry in result["kinds"].items():
         if "child_cpu_pct" in entry:
             print(f"   children of {kind:<22}{entry['child_cpu_pct']:>9.3f} CPU % (ended in the window)")
@@ -617,6 +720,95 @@ class App:
         return out.returncode == 0
 
 
+def workspace_ids(app: App) -> set[str]:
+    """The ids of the app's workspaces (`snapshot.get`)."""
+    found: set[str] = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            value = node.get("id")
+            if isinstance(value, str) and value.startswith("ws_"):
+                found.add(value)
+            for child in node.values():
+                walk(child)
+        elif isinstance(node, list):
+            for child in node:
+                walk(child)
+    walk(app.call("snapshot.get", timeout=30))
+    return found
+
+
+# --axis: one kind of item, all hidden (each in a workspace of its own, the launch workspace shown) or all
+# visible (each in a pane of the launch workspace).
+AXES = ("chat-hidden", "chat-visible", "terminal-hidden", "terminal-visible")
+
+
+def add_axis_item(app: App, chats: "FakeChats | None", axis: str, index: int, opened: list) -> bool:
+    """Adds item `index` (0-based) of `axis`; True when the app made it.
+
+    Hidden: a workspace of its own (an answered chat, or a terminal), as open_workspace does; the caller
+    shows the launch workspace again afterwards. Visible: the first item in the launch workspace's pane,
+    each later one in a new pane of it (`newPaneAutoLayout`, which a script's run opens on a terminal; a
+    chat then opens over it with `agent.openSessionTab`, so each visible chat's pane also holds one hidden
+    terminal)."""
+    if axis == "chat-hidden":
+        workspace = chats.open(index)
+        if workspace is not None:
+            # Shown once, so its page loads, as open_workspace does; hidden again by the next item.
+            app.action("goToWorkspace", workspace=workspace, focus=True)
+    elif axis == "terminal-hidden":
+        workspace = open_workspace(app, "terminal", "", index)
+    else:
+        workspace = None
+        if index > 0:
+            split = app.action("newPaneAutoLayout", focus=True)
+            if split.get("error") or split.get("code"):
+                print(f"   newPaneAutoLayout {index}: {split.get('message') or split.get('error')}", file=sys.stderr)
+                return False
+            if axis == "terminal-visible":
+                return True
+        if axis == "terminal-visible":
+            made = app.run("newSurface")
+        else:
+            session = chats.new_session(index)
+            if session is None:
+                return False
+            made = app.action("agent.openSessionTab", session=session, focus=True)
+        if made.get("error") or made.get("code"):
+            print(f"   {axis} {index}: {made.get('message') or made.get('error')}", file=sys.stderr)
+            PANE_FAILURES.append(f"{axis} {index}: {made.get('message') or made.get('error')}"[:200])
+            return False
+        return True
+    if workspace is None:
+        return False
+    opened.append(workspace)
+    return True
+
+
+def run_axis(app: App, chats, axis: str, counts: list[int], launch_workspaces: list[str], opened: list,
+             settle_and_sample, settled_wait: float) -> dict:
+    """Samples `axis` at each item count (`items-N`), and with `settled_wait` again after that much more
+    idle time (`settled-N`: the hidden chats' pages frozen and released). Returns {count: items made}."""
+    made, made_at = 0, {}
+    for count in counts:
+        while made < count:
+            if not add_axis_item(app, chats, axis, made, opened):
+                break
+            made += 1
+        if axis.endswith("-hidden") and launch_workspaces:
+            # Every item hidden: the launch workspace shown again, as a person who went back to it.
+            app.action("goToWorkspace", workspace=launch_workspaces[0], focus=True)
+        made_at[count] = made
+        settle_and_sample(f"items-{count}")["items"] = made
+        if settled_wait > 0:
+            time.sleep(settled_wait)  # test script: past the hidden pages' freeze (30 s) and release (60 s) timers
+            settle_and_sample(f"settled-{count}")["items"] = made
+        if made < count:
+            print(f"== {axis}: the app made {made} of {count} items; later counts stop here", flush=True)
+            break
+    return made_at
+
+
 FAKE_AGENT_ID = "bench-memory-fake"
 # The first prompt of each --fake-agent chat (--chat-prompt); the fake agent echoes it back, so a
 # long one gives the chat a long history to hold.
@@ -668,31 +860,23 @@ class FakeChats:
         raise SystemExit("bench-memory: the app's acpmux opened no socket within 90 s")
 
     def workspace_ids(self) -> set[str]:
-        """The ids of the app's workspaces (`snapshot.get`)."""
-        found: set[str] = set()
+        return workspace_ids(self.app)
 
-        def walk(node):
-            if isinstance(node, dict):
-                value = node.get("id")
-                if isinstance(value, str) and value.startswith("ws_"):
-                    found.add(value)
-                for child in node.values():
-                    walk(child)
-            elif isinstance(node, list):
-                for child in node:
-                    walk(child)
-        walk(self.app.call("snapshot.get", timeout=30))
-        return found
-
-    def open(self, index: int) -> str | None:
-        """A new workspace on a new answered chat; returns the workspace id."""
+    def new_session(self, index: int) -> str | None:
+        """A new acpmux session on the fake agent, its first turn answered; returns its id."""
         made = subprocess.run([self.app.cli_path, "acp", "new", "--json", "-d", "-m", FAKE_AGENT_ID,
                                f"memory bench chat {index}" + (f"\n\n{CHAT_PROMPT}" if CHAT_PROMPT else "")],
                               capture_output=True, text=True, timeout=120, env=self.env)
         try:
-            session = json.loads(made.stdout)["sessionId"]
+            return json.loads(made.stdout)["sessionId"]
         except (ValueError, KeyError):
             print(f"   acp new: {(made.stdout + made.stderr).strip()[:300]}", file=sys.stderr)
+            return None
+
+    def open(self, index: int) -> str | None:
+        """A new workspace on a new answered chat; returns the workspace id."""
+        session = self.new_session(index)
+        if session is None:
             return None
         before = self.workspace_ids()
         response = self.app.action("agent.openSessionWorkspace", session=session)
@@ -1394,8 +1578,21 @@ def main():
                         help="with --app-vm: launch with MallocStackLogging=lite and print each live block of the classes "
                              "`heap -addresses PATTERN` names with the stack that allocated it (a diagnostic run: the "
                              "logging itself costs memory, so its footprint is not a measurement)")
+    parser.add_argument("--axis", choices=AXES,
+                        help="instead of --workspaces: --items counts of one kind of item, visible or hidden "
+                             "(chat-hidden needs --fake-agent; see run_axis)")
+    parser.add_argument("--items", default="1,10,100", help="--axis: item counts to sample (0 is idle-launch)")
+    parser.add_argument("--settled-wait", type=float, default=0, metavar="SECONDS",
+                        help="--axis: after each count's sample, wait this long more (past the hidden pages' freeze "
+                             "and release timers, 30 s and 60 s) and sample again as settled-N")
+    parser.add_argument("--gpu", action="store_true",
+                        help="each measured window also samples the GPU's counters (ioreg IOAccelerator)")
     parser.add_argument("--out")
     args = parser.parse_args()
+    global SAMPLE_GPU
+    SAMPLE_GPU = args.gpu
+    if args.axis and args.axis.startswith("chat-") and not args.fake_agent:
+        parser.error("--axis chat-* needs --fake-agent (chats whose first turn is answered)")
     global CHAT_PROMPT
     CHAT_PROMPT = args.chat_prompt
     if (args.purge_hidden or args.release_hidden_chats > 0) and len([n for n in args.workspaces.split(",") if n]) > 1:
@@ -1514,7 +1711,13 @@ def main():
     try:
         if args.fake_agent:
             chats = FakeChats(app, bundle, args.fake_agent)
-        settle_and_sample("idle-launch")
+        launch_workspaces = sorted(workspace_ids(app)) if args.axis else []
+        settle_and_sample("idle-launch")["items"] = 0
+        if args.axis:
+            report["axis"] = args.axis
+            report["axis_made"] = run_axis(app, chats, args.axis, sorted(int(n) for n in args.items.split(",") if n),
+                                           launch_workspaces, opened, settle_and_sample, args.settled_wait)
+            counts = []
         if args.tabs:
             tab_counts = sorted(int(n) for n in args.tabs.split(",") if n)
             urls = tab_urls(args.urls, max(tab_counts))

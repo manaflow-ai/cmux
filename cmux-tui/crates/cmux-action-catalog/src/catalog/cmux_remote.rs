@@ -1,6 +1,7 @@
 // cmux NEXT action catalog data. Edit by hand: this is the source of truth.
 //! The `CmuxRemoteActionCatalog` actions.
 
+use super::args;
 use crate::model::*;
 use crate::text::t;
 
@@ -83,6 +84,19 @@ pub static ACTIONS: &[Action] = &[
         symbol: "stop.circle",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "remote stop-screen-session",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "remote.setQuality",
+        group: GROUP,
+        title: t("ActionCatalog", "action.remote.setQuality", "Set Screen Sharing Quality…"),
+        keywords: &["screen sharing", "screen share", "remote desktop", "vnc", "quality", "sharp text", "smooth motion", "low bandwidth", "auto", "bitrate", "resolution", "lag"],
+        category: "remote",
+        symbol: "dial.medium",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::REMOTE_QUALITY],
+        targets: &["tab"],
+        cli_name: "action remote-set-quality",
         ..Action::DEFAULT
     },
     Action {

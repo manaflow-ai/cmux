@@ -160,6 +160,9 @@ class SidebarItemRowView: NSView {
     var onDragEnded: ((_ windowPoint: NSPoint) -> Void)? // the release, which decides the drop
     /// Every press, before it acts: a drag an earlier press left held ends (its release went elsewhere).
     var onPressBegan: (() -> Void)?
+    /// The menu this row's press opened (the profile control's) follows the rest of the press: the row holds the
+    /// mouse, so it hands the press's drags and its release to the menu, as an `NSMenu` tracks its button's press.
+    var pressTracker: ((NSEvent) -> Void)?
     private var pressLocation: NSPoint?
     private var didDrag = false
     /// The press's modifiers, which the release acts with (Option opens a workspace).
@@ -680,6 +683,7 @@ class SidebarItemRowView: NSView {
 
     /// Past the drag threshold the region reorders in place (R77). An item that cannot move drags nothing.
     override func mouseDragged(with event: NSEvent) {
+        if let pressTracker, pressLocation != nil { return pressTracker(event) }
         guard isMovable, let pressLocation, onDragged?(pressLocation, event) == true else { return super.mouseDragged(with: event) }
         didDrag = true
         isPressed = false
@@ -689,6 +693,10 @@ class SidebarItemRowView: NSView {
     /// button: a press that became a drag (or left the item first) never runs it. Acting
     /// on the press made a tab under a launcher the user only meant to move.
     override func mouseUp(with event: NSEvent) {
+        if let tracker = pressTracker, pressLocation != nil {
+            endPress()
+            return tracker(event)
+        }
         let dragged = didDrag
         let activated = activatedOnPress
         if dragged { onDragEnded?(event.locationInWindow) }
@@ -708,6 +716,7 @@ class SidebarItemRowView: NSView {
     /// `SidebarListView.endPointerGesture`), so its release never comes here. The pressed fill clears, and a later
     /// drag or release of that press does nothing.
     func endPress() {
+        pressTracker = nil
         pressLocation = nil
         didDrag = false
         activatedOnPress = false
