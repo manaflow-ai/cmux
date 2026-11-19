@@ -144,7 +144,7 @@ test("an adopted spare draws its harness's sign-in line in its first shown frame
   const page = await adoptedSpare(undefined);
   try {
     expect(page.queries).toEqual([{ target: { harness: "codex" } }, { target: { harness: "codex", cwd: FOLDER } }]);
-    expect(page.spareLine).toContain("Codex");
+    expect(page.spareLine).toContain("signed in");
     // The folder's own check has not answered: the line the spare drew stays, so nothing moves.
     expect(page.line()).toBe(page.spareLine);
   } finally {
