@@ -123,10 +123,13 @@ extension PaneCommitMotionTests {
         }
     }
 
+    /// Each mode of a column at the screen's edge, by its name.
+    nonisolated static let dockModes: [String] = DockMode.allCases.map { $0.rawValue }
+
     /// A zoom of a strip pane beside a column at the right edge. The zoomed pane grows over the other strip pane and
     /// over the column's pane: at the start, at each quarter and at the end of its move the screen shows none of them in
     /// its rect, also not through its tab row.
-    @Test(arguments: DockMode.allCases.map(\.rawValue))
+    @Test(arguments: dockModes)
     func aZoomBesideAColumnShowsNoPaneUnderTheZoomedPane(_ mode: String) throws {
         let dock = try #require(DockMode(rawValue: mode), "SETUP: no dock mode \(mode)")
         let harness = Commit.Harness(Self.dockStrip(dock), focused: "p1", holds: false)
