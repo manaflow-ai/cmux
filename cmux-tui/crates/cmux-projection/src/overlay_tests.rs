@@ -306,8 +306,7 @@ fn the_cache_stays_within_its_bound_when_everything_is_read() {
     // Room for two big chunks, not the whole 9 MiB file.
     let bound = 2 * CHUNK + 1024;
     let overlay =
-        Overlay::open_bounded(manifest.clone(), state.path(), fake.clone(), (1000, 1000), bound)
-            .unwrap();
+        Overlay::open_bounded(manifest.clone(), state.path(), fake, (1000, 1000), bound).unwrap();
     for _ in 0..2 {
         read_everything(&overlay, &manifest);
         assert!(overlay.cache_usage().bytes <= bound);
