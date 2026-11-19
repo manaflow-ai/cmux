@@ -271,11 +271,13 @@ struct NewTabCommandListKeptTests {
             // The write of the page's flag only asks for the read, in the main queue's next turn: its own turn
             // queues no task of the lister.
             #expect(!frames.activeClients.contains(Self.lister), "the first input's own turn queued a task of the lister")
+            #expect(lister.counts == shown, "the first input's own turn started \(lister.counts.started - shown.started) listings")
             // Exactly one turn of the main queue: a block of the row's own, which the queue runs after the app's. The
-            // lister's first task is queued then, and it ran in no frame yet. An ask two turns away is an issue here.
+            // lister has its task then: an ask two turns away is an issue here. The app's own display can fire a
+            // frame before the row runs again, so the listing's first task may have run; no action is read to an end.
             await withCheckedContinuation { turn in DispatchQueue.main.async { turn.resume() } }
             #expect(frames.activeClients.contains(Self.lister), "one turn of the main queue after the first input the lister has no task")
-            #expect(lister.counts == shown, "the turn after the first input started \(lister.counts.started - shown.started) listings")
+            #expect(lister.counts.actionsRead == shown.actionsRead, "the turn after the first input read a listing to its end")
             let limit = Self.frameLimit(services)
             var fired = 0
             while lister.counts.started == shown.started, fired < limit {
@@ -286,7 +288,7 @@ struct NewTabCommandListKeptTests {
             #expect(started.started == shown.started + 1, "the first input started \(started.started - shown.started) listings in \(fired) frames")
             let read = await Self.listed(services)
             let end = lister.counts
-            print("new-tab-list: the first input in a web page: the listing's first task \(fired) frames later; \(end.started - shown.started) listings "
+            print("new-tab-list: the first input in a web page: the listing's first task after \(fired) frames of the row; \(end.started - shown.started) listings "
                 + "started, \(end.actionsRead - shown.actionsRead) catalog actions read, \(read.frames) frames with a lister task after the row's ask")
             #expect(end.started == shown.started + 1, "the first input and one ask started \(end.started - shown.started) listings")
         }
@@ -332,6 +334,60 @@ struct NewTabCommandListKeptTests {
                     "the older page has \(view.model.newTab?.omnibar.actions.count ?? 0) of the \(web.list.actions.count) actions")
             #expect(end.started == held.started,
                     "the older page started \(end.started - held.started) listings and read \(end.actionsRead - held.actionsRead) catalog actions again")
+        }
+    }
+
+    // MARK: - A key from a terminal
+
+    /// The focus contexts that the slices of one listing read under, in their order (one value while it holds).
+    @MainActor private final class Slices { var contexts: [String] = [] }
+
+    /// The first New Tab key from a terminal, as a person holds it there: the focus goes from the terminal to the
+    /// page. One listing reads the page's list, each of its slices under the focus context that the page has at the
+    /// hand-over, and the list is kept: a second ask starts no listing.
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func aFirstKeyFromATerminalIsOneListingUnderOneFocus() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-list-kept-terminal")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            let (_, pane) = try await NewTabOpenFramesTests.focusedPane(services)
+            let pool = services.newTabSpares
+            pool.dropAll()
+            pool.makeSpare = { _ in nil }
+            defer { pool.makeSpare = nil }
+            // The fixture: a terminal tab of the pane has the focus. These waits are the fixture's, not the row's.
+            let store = services.daemon.store
+            let surface = try await connection.newTab(in: pane.pane.handle).surface
+            try await PasswordManagerRouteTests.until({ store.tab(surface: surface).map { pane.orderedIDs.map(\.rawValue).contains($0.id) } == true },
+                                                      report: { "setup: the pane's strip does not list the new terminal tab" })
+            let terminal = try #require(store.tab(surface: surface), "setup: the store has no tab for the new terminal")
+            pane.select(CmuxNextTabs.TabID(terminal.id))
+            try await PasswordManagerRouteTests.until({ services.registry.context.contains(.terminalFocused) },
+                                                      report: { "setup: the focus context \(Self.focus(services)) has no terminal" })
+            let lister = services.newTabActions, tabs = services.agentTabs
+            let known = Set(tabs.newTabPages.keys), before = lister.counts, start = Self.focus(services)
+            NewTabPage.open(in: pane, seed: nil)
+            // The row's ask joins the page's listing. A frame whose task reads a slice (the listing started, and its
+            // last slice is not read) notes the focus context that the slice reads under.
+            let key = Self.focus(services), slices = Slices()
+            let cold = await Self.listed(services) {
+                let counts = lister.counts, focus = Self.focus(services)
+                guard counts.started > before.started, counts.actionsRead == before.actionsRead else { return }
+                if slices.contexts.last != focus { slices.contexts.append(focus) }
+            }
+            let handed = Self.focus(services), first = lister.counts
+            let again = await Self.listed(services)
+            let end = lister.counts
+            print("new-tab-list: a first key from a terminal: \(first.started - before.started) listings started, its slices read under the focus "
+                + "contexts \(slices.contexts); a second ask: \(end.started - first.started) listings started, \(end.actionsRead - first.actionsRead) "
+                + "catalog actions read again; \(cold.frames) + \(again.frames) frames with a lister task; the focus context \(start) before the key, "
+                + "\(key) in the key's turn, \(handed) after the first hand-over, \(Self.focus(services)) now")
+            #expect(first.started == before.started + 1, "the first key from a terminal started \(first.started - before.started) listings")
+            #expect(slices.contexts == [handed], "the listing's slices read under the focus contexts \(slices.contexts); the page has \(handed) at the hand-over")
+            #expect(end.started == first.started, "a second ask started \(end.started - first.started) listings")
+            let page = try #require(tabs.newTabPages.keys.first { !known.contains($0) }, "the key opened no New Tab page")
+            let view = try #require(tabs.views[page], "the page has no view after its listing")
+            #expect(cold.list != nil && view.model.newTab?.omnibar.actions == again.list?.actions, "the page does not show the list of now")
         }
     }
 
@@ -488,13 +544,14 @@ struct NewTabCommandListKeptTests {
     }
 
     /// Asks for the list as a page does, and is the display until the lister hands it over.
-    private static func listed(_ services: AppServices) async -> Asked {
-        await handOver(to: ask(services), services)
+    private static func listed(_ services: AppServices, inFrame: @escaping @MainActor @Sendable () -> Void = {}) async -> Asked {
+        await handOver(to: ask(services), services, inFrame: inFrame)
     }
 
     /// Is the display until the lister hands the list to `waiter`: one frame after another, with no clock. No
-    /// hand-over in ``frameLimit(_:)`` frames with a lister task is an issue.
-    private static func handOver(to waiter: Waiter, _ services: AppServices) async -> Asked {
+    /// hand-over in ``frameLimit(_:)`` frames with a lister task is an issue. `inFrame` runs before each frame
+    /// that the lister has a task for.
+    private static func handOver(to waiter: Waiter, _ services: AppServices, inFrame: @escaping @MainActor @Sendable () -> Void = {}) async -> Asked {
         let (lists, feed) = waiter
         let limit = frameLimit(services)
         // The row's display link: it ends only when the row cancels it.
@@ -506,6 +563,7 @@ struct NewTabCommandListKeptTests {
                 if services.mainWork.frames.activeClients.contains(lister) {
                     working += 1
                     if working == limit + 1 { feed.finish() }
+                    inFrame()
                 }
                 services.mainWork.frameDidFire()
                 // The JSON's hop back to the main thread runs here.
