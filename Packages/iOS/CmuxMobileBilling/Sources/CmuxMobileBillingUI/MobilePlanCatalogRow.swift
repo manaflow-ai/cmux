@@ -29,6 +29,7 @@ struct MobilePlanCatalogRow: View {
                         .accessibilityIdentifier("BillingCatalogCurrent.\(planID.rawValue)")
                 }
             }
+            // visible-only: at most 3 fixed, distinct feature strings per plan; each string is its own stable id.
             ForEach(copy.features, id: \.self) { feature in
                 Label(feature, systemImage: "checkmark")
                     .font(.subheadline)
