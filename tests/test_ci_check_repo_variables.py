@@ -71,7 +71,8 @@ class Values(unittest.TestCase):
             with self.subTest(name=name):
                 record = json.dumps({"changed": {name: {"before": None, "after": label}}})
                 for extra in ({}, {"CI_CLOUD_OVERFLOW_SAVED": record}):
-                    found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=GOOD_RUNNERS + f"{name}={label}\n", **extra))
+                    base = "".join(line + "\n" for line in GOOD_RUNNERS.splitlines() if not line.startswith(f"{name}="))
+                    found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=base + f"{name}={label}\n", **extra))
                     self.assertEqual(len([p for p in found if p.startswith(f"{name}=")]), 1, found)
                     self.assertIn("GitHub-hosted", " ".join(found))
 
