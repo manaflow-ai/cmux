@@ -461,7 +461,7 @@ test("a failed setup keeps the environment target and opens its editor for repai
     state: "failed",
     environment: "env_selected",
     environmentId: "env_resolved",
-    setup: { state: "failed", status: "failed", logTail: "secret host grant refused" },
+    setup: { state: "failed", status: "failed", hasScript: true, logTail: "setup exited with status 1" },
     step: undefined,
     retryable: true,
     message: "Environment setup failed.",
@@ -472,8 +472,8 @@ test("a failed setup keeps the environment target and opens its editor for repai
     root.render(<CloudStartView start={failed} onOpenEnvironment={(options) => opened.push(options)} />);
   });
   const link = container.querySelector<HTMLButtonElement>("[data-step-id=setup] button");
-  expect(link?.textContent).toBe("Add a setup script to install dependencies and configure your environment.");
-  expect(container.querySelector('[data-step-id="setup"]')?.textContent).toContain("secret host grant refused");
+  expect(link?.textContent).toBe("Edit cloud environment");
+  expect(container.querySelector('[data-step-id="setup"]')?.textContent).toContain("setup exited with status 1");
   await act(async () => link?.click());
   expect(opened).toEqual([{ environmentId: "env_resolved", section: "script" }]);
 });

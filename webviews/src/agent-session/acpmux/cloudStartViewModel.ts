@@ -239,7 +239,7 @@ export function startupChecklist(
         }
       : {}),
     ...(hasScript === false ||
-    (start.state === "failed" && start.setup?.state === "failed" && Boolean(start.environmentId ?? start.environment))
+    (start.state === "failed" && setupState === "error" && Boolean(start.environmentId ?? start.environment))
       ? {
           detail: hasScript === false ? t("cloudStartup.setupHint") : start.setup?.logTail || start.setup?.error,
           action: true,

@@ -5259,7 +5259,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // the first send, so same-key Retry must use the card's target instead of silently provisioning Auto.
     const retryEnvironment =
       cloudStart?.state === "failed" && cloudStart.task === text ? cloudStart.environment : undefined;
-    const environment = cloudEnvironment.forSend(start.environment ?? retryEnvironment);
+    const environment = cloudEnvironment.forSend(start.environment, retryEnvironment);
     const reservationKey = cloudReservation.handoff(environment);
     const team = cloudSwitchTeam.forSend();
     const request: CloudStart = {

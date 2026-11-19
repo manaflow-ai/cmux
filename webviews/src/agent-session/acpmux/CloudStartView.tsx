@@ -734,13 +734,21 @@ export function CloudStartView({
                   {step.duration && <time className="acpmux-cloud-start__time">{step.duration}</time>}
                   {step.id === "setup" && step.action ? (
                     <span className="acpmux-cloud-start__detail">
-                      {step.detail && (start.setup?.hasScript !== false || !step.action) && <span>{step.detail} </span>}
+                      {step.detail && start.setup?.hasScript !== false && <span>{step.detail} </span>}
                       {onOpenEnvironment ? (
                         <button type="button" className="acpmux-cloud-start__link" onClick={openEnvironment}>
-                          {t("cloudStartup.setupHint")}
+                          {t(
+                            start.setup?.hasScript === false
+                              ? "cloudStartup.setupHint"
+                              : "cloudRepository.editEnvironment",
+                          )}
                         </button>
                       ) : (
-                        t("cloudStartup.setupHint")
+                        t(
+                          start.setup?.hasScript === false
+                            ? "cloudStartup.setupHint"
+                            : "cloudRepository.editEnvironment",
+                        )
                       )}
                     </span>
                   ) : step.detail ? (

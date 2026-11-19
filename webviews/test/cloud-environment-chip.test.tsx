@@ -139,7 +139,7 @@ afterAll(async () => {
 const flush = () => act(async () => await new Promise((done) => setTimeout(done, 0)));
 
 /// App.tsx's hold of a new chat's pick (useChatCloudEnvironment): the harness's chat and its send.
-let chatSend: ((explicit?: string) => string | undefined) | undefined;
+let chatSend: ((explicit?: string, retry?: string) => string | undefined) | undefined;
 
 async function mount({ flag, mode, chat: firstChat }: { flag: boolean; mode: "persistent" | "cloud"; chat?: string }) {
   let chat = firstChat;
@@ -150,7 +150,7 @@ async function mount({ flag, mode, chat: firstChat }: { flag: boolean; mode: "pe
   function Held(props: Parameters<typeof ComposerContext>[0] & { chat: string }) {
     const { chat: key, ...rest } = props;
     const held = useChatCloudEnvironment(key);
-    chatSend = (explicit) => held.forSend(explicit);
+    chatSend = (explicit, retry) => held.forSend(explicit, retry);
     return <ComposerContext {...rest} runMode={{ ...rest.runMode!, environment: held.pick }} />;
   }
   (await import("../src/agent-session/acpmux/composerSettings")).setComposerSettings({ cloudEnvironments: flag });
@@ -335,6 +335,44 @@ test("cloud.startChat's payload: Auto and the flag off send today's; a pick goes
   let own: string | undefined;
   act(() => void (own = chatSend!("env_web")));
   expect(own).toBe("env_web");
+});
+
+test("a failed start retains its environment unless the person picks another target, including Auto", async () => {
+  await mount({ flag: true, mode: "cloud", chat: "retry-chat" });
+  const { cloudStartKeys, startCloudChat } = await import("../src/agent-session/acpmux/cloudRun");
+  const keys = cloudStartKeys();
+  const first = { task: "Fix the build", cwd: "/project", environment: "env_gpu" };
+  const key = keys.keyFor(first);
+  keys.ended(first, { ok: false, code: "setup_failed", message: "Environment setup failed." });
+  const send = (retry?: string, explicit?: string) => {
+    let result: string | undefined;
+    act(() => void (result = chatSend!(explicit, retry)));
+    return result;
+  };
+  const pick = async (label: string) => {
+    await openChip();
+    await act(async () => row(label)!.click());
+    await flush();
+  };
+  await pick("GPU training");
+  const failedEnvironment = send();
+  expect(failedEnvironment).toBe("env_gpu");
+  // Send reset the chip to Auto; repairing or cancelling the editor makes no new pick.
+  const retried = { ...first, environment: send(failedEnvironment) };
+  expect(retried.environment).toBe("env_gpu");
+  expect(keys.keyFor(retried)).toBe(key);
+  const sent: unknown[] = [];
+  await startCloudChat(async (method, params) => void sent.push({ method, params }), retried, keys.keyFor(retried));
+  expect(sent).toEqual([{ method: "cloud.startChat", params: { ...first, key } }]);
+  await pick("atlas-web");
+  expect(send(failedEnvironment)).toBe("env_web");
+  await pick(t("composer.envAuto"));
+  expect(send(failedEnvironment)).toBeUndefined();
+  // A changed draft supplies no retry, so it never inherits the previous target.
+  expect(send()).toBeUndefined();
+  // Explicit page starts still name their own environment.
+  await pick("GPU training");
+  expect(send(failedEnvironment, "env_web")).toBe("env_web");
 });
 
 test("the GUI hooks: the chip and every drop-up row carry a stable test id", async () => {
