@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import datetime as dt
+import functools
 import gzip
 import importlib.util
 import io
@@ -56,9 +57,10 @@ def runner(name: str, label: str = SIDE, *, busy: bool = False, status: str = "o
             "labels": [{"name": item} for item in ("self-hosted", owned, label)]}
 
 
-def fleet_runner(name: str = "cmux-fleet-1", *, busy: bool = False, status: str = "online") -> dict:
+def fleet_runner(name: str = "cmux-fleet-1", *, busy: bool = False, status: str = "online",
+                 label: str = "cmux-fleet-linux-x64") -> dict:
     return {"name": name, "status": status, "busy": busy, "os": "Linux",
-            "labels": [{"name": item} for item in ("self-hosted", "cmux-fleet-linux-x64")]}
+            "labels": [{"name": item} for item in ("self-hosted", label)]}
 
 
 def snapshot(pools: dict | None = None, *, age_minutes: int = 2) -> dict:
@@ -740,7 +742,9 @@ class Wiring(unittest.TestCase):
         workflow = jobs("cmux-tui-artifacts.yml")
         preflight = workflow["tree-preflight"]
         picker = next(step for step in preflight["steps"] if step.get("id") == "linux-placement")
-        self.assertEqual(picker["env"]["FLEET_LINUX"], "cmux-fleet-linux-x64")
+        # The persistent GCP build lane, vouched as Linux: cmux-fleet-linux-x64 had no runner on 2026-11-19.
+        self.assertEqual(picker["env"]["FLEET_LINUX"], "cmux-gcp-lane-build-x64")
+        self.assertEqual(picker["env"]["FLEET_LINUX_VOUCHED"], "1")
         self.assertEqual(picker["env"]["REQUIRE_LIVE_CAPACITY"], "1")
         daemon = single_runs_on(workflow["cmux-next-daemon-tests"])
         live = daemon.index("needs.tree-preflight.outputs.linux_runner")
@@ -772,7 +776,8 @@ class Wiring(unittest.TestCase):
         ids = [step.get("id") for step in preflight["steps"]]
         picker = preflight["steps"][ids.index("linux-build-placement")]
         config = picker["env"]
-        self.assertEqual(config["FLEET_LINUX"], "cmux-fleet-linux-x64")
+        self.assertEqual(config["FLEET_LINUX"], "cmux-gcp-lane-build-x64")
+        self.assertEqual(config["FLEET_LINUX_VOUCHED"], "1")
         self.assertEqual(config["JOBS"].split(), ["tree-x86_64-musl", "tree-aarch64-musl",
                                                   "machine-x86_64-musl", "machine-aarch64-musl"])
         self.assertEqual(config["LINUX_ONLY"].split(), config["JOBS"].split())
@@ -825,20 +830,24 @@ class Wiring(unittest.TestCase):
         picker = next(step for step in jobs("cmux-tui-artifacts.yml")["tree-preflight"]["steps"]
                       if step.get("id") == "linux-build-placement")
         config = {**picker["env"], "GITHUB_RUN_ATTEMPT": "1"}
+        # The pick looks on the persistent GCP build lane (cmux-fleet-linux-x64 had no runner, 2026-11-19).
+        LANE = config["FLEET_LINUX"]
+        self.assertEqual(LANE, "cmux-gcp-lane-build-x64")
+        lane_runner = functools.partial(fleet_runner, label=LANE)
         tree = ("tree-x86_64-musl", "tree-aarch64-musl")
         both = tree + ("machine-x86_64-musl", "machine-aarch64-musl")
         for count, expected in ((0, ()), (1, ()), (2, tree), (3, tree), (4, both), (5, both)):
             with self.subTest(idle=count):
-                fleet = [fleet_runner(f"gcp-{index}") for index in range(count)] + [fleet_runner("gcp-busy", busy=True)]
+                fleet = [lane_runner(f"gcp-{index}") for index in range(count)] + [lane_runner("gcp-busy", busy=True)]
                 placed = placement.decide(config, fleet, snapshot(), NOW)
                 self.assertEqual(placed.linux_jobs, expected)
-                self.assertEqual(placed.linux_runner, "cmux-fleet-linux-x64" if expected else "")
+                self.assertEqual(placed.linux_runner, LANE if expected else "")
                 self.assertEqual(placed.mini_jobs, ())
         # Queued jobs on the label (a nightly's, say) take its idle runners first.
-        queued = snapshot({"cmux-fleet-linux-x64": {"queued": 1, "oldest_queued_minutes": 1}})
-        self.assertEqual(placement.decide(config, [fleet_runner("a"), fleet_runner("b")], queued, NOW).linux_jobs, ())
+        queued = snapshot({LANE: {"queued": 1, "oldest_queued_minutes": 1}})
+        self.assertEqual(placement.decide(config, [lane_runner("a"), lane_runner("b")], queued, NOW).linux_jobs, ())
         # No online fleet member (the pool cannot boot VMs): Blacksmith at once, no 2-minute wait.
-        for first in ([], [fleet_runner(status="offline")]):
+        for first in ([], [lane_runner(status="offline")]):
             with self.subTest(first=first), \
                  mock.patch.object(placement, "read", return_value=(first, snapshot())) as read, \
                  mock.patch.object(placement.dt, "datetime", wraps=dt.datetime) as clock, \
@@ -851,11 +860,11 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(read.call_count, 1)
                 self.assertEqual(write.call_args.args[0].linux_runner, "")
         # A busy fleet: wait, and take the label once two runners are free inside the window.
-        free = [fleet_runner("a"), fleet_runner("b")]
-        for second, expected in (([fleet_runner("a", busy=True)], ""), (free, "cmux-fleet-linux-x64")):
+        free = [lane_runner("a"), lane_runner("b")]
+        for second, expected in (([lane_runner("a", busy=True)], ""), (free, LANE)):
             with self.subTest(second=second), \
                  mock.patch.object(placement, "read",
-                                   side_effect=[([fleet_runner("a", busy=True)], snapshot()), (second, snapshot())]) as read, \
+                                   side_effect=[([lane_runner("a", busy=True)], snapshot()), (second, snapshot())]) as read, \
                  mock.patch.object(placement.dt, "datetime", wraps=dt.datetime) as clock, \
                  mock.patch.object(placement.time, "monotonic", side_effect=[0, 60, 120]), \
                  mock.patch.object(placement.time, "sleep") as sleep, \
@@ -872,19 +881,23 @@ class Wiring(unittest.TestCase):
         picker = next(step for step in jobs("cmux-tui-artifacts.yml")["tree-preflight"]["steps"]
                       if step.get("id") == "linux-build-placement")
         config = {**picker["env"], "GITHUB_RUN_ATTEMPT": "1"}
+        # The pick looks on the persistent GCP build lane (cmux-fleet-linux-x64 had no runner, 2026-11-19).
+        LANE = config["FLEET_LINUX"]
+        self.assertEqual(LANE, "cmux-gcp-lane-build-x64")
+        lane_runner = functools.partial(fleet_runner, label=LANE)
         # Four free: both pairs take the fleet.
-        placed = placement.decide(config, [fleet_runner(f"gcp-{i}") for i in range(4)], snapshot(), NOW)
+        placed = placement.decide(config, [lane_runner(f"gcp-{i}") for i in range(4)], snapshot(), NOW)
         self.assertEqual(placed.linux_jobs, ("tree-x86_64-musl", "tree-aarch64-musl",
                                              "machine-x86_64-musl", "machine-aarch64-musl"))
         # Three free: the tree pair takes two, and the machine pair does not split onto the third.
-        placed = placement.decide(config, [fleet_runner(f"gcp-{i}") for i in range(3)], snapshot(), NOW)
+        placed = placement.decide(config, [lane_runner(f"gcp-{i}") for i in range(3)], snapshot(), NOW)
         self.assertEqual(placed.linux_jobs, ("tree-x86_64-musl", "tree-aarch64-musl"))
         # Without the tree pair (a run that builds no shipped tree), two free take the machine pair.
         alone = {**config, "JOBS": "machine-x86_64-musl machine-aarch64-musl"}
-        self.assertEqual(placement.decide(alone, [fleet_runner("a"), fleet_runner("b")], snapshot(), NOW).linux_jobs,
+        self.assertEqual(placement.decide(alone, [lane_runner("a"), lane_runner("b")], snapshot(), NOW).linux_jobs,
                          ("machine-x86_64-musl", "machine-aarch64-musl"))
         # The tree pair placed at once: no wait for room for the machine pair.
-        with mock.patch.object(placement, "read", return_value=([fleet_runner("a"), fleet_runner("b")], snapshot())), \
+        with mock.patch.object(placement, "read", return_value=([lane_runner("a"), lane_runner("b")], snapshot())), \
              mock.patch.object(placement.dt, "datetime", wraps=dt.datetime) as clock, \
              mock.patch.object(placement.time, "sleep") as sleep, \
              mock.patch.object(placement.signal, "setitimer"), \
