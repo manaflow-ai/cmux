@@ -6,11 +6,17 @@ import os
 /// "we cannot trade off instant loads. instant > memory", so a hidden chat keeps its page and its switch back draws
 /// it at once; what goes is what Chromium can rebuild: its caches, and the frames and tiles of pages no one sees.
 ///
-/// ``delay`` (10 s) after the newest hide of a cmux page, every cmux page still hidden gets a memory-pressure notice
-/// (`Memory.simulatePressureNotification`, ``level``) through its own DevTools session, at most once per
-/// ``minimumGap``. A hide inside the wait moves it to 10 s after that hide, so a burst of switches costs one round.
-/// Each notice reaches that page's renderer: V8 collects and shrinks its heap, Blink drops decoded images, fonts and
-/// resources it can read again. Nothing is reloaded: every page keeps its DOM, scroll and state.
+/// ``delay`` (10 s) after the newest hide of a cmux page, while a cmux page is still hidden, Chromium gets one
+/// memory-pressure notice (`Memory.simulatePressureNotification`, ``level``) through one hidden page's DevTools
+/// session, at most once per ``minimumGap``. A hide inside the wait moves it to 10 s after that hide, so a burst of
+/// switches costs one round. Nothing is reloaded: every page keeps its DOM, scroll and state.
+///
+/// Chromium answers the notice in the browser process only (content/browser/devtools/protocol/memory_handler.cc;
+/// Blink has no handler): `MemoryPressureSource` runs every listener of the whole browser process, synchronously,
+/// inside the shim's `SendDevToolsMessage`, on the main thread, and each notice runs them all again. One notice per
+/// hidden page made a round of N pages N process-wide purges in a row: 12 of the 17 NIGHTLY hangs in
+/// `cmux_shim_devtools_call` of 2026-11-17/18 (2.1-4.6 s each, 2-5% CPU, page-ins) came from builds with that loop
+/// (HQ #8689, #13672). So a round sends one notice, whatever the number of hidden pages.
 @MainActor
 final class CEFHiddenPageTrim {
     /// Chromium's pressure level the notice names.
@@ -47,15 +53,15 @@ final class CEFHiddenPageTrim {
         _ = try? await tab.devTools(method: "Memory.simulatePressureNotification", params: ["level": level], timeout: .seconds(10))
     }
 
-    /// Sends the notice to every cmux page hidden now; none when none is.
+    /// Sends the notice once, through the first cmux page hidden now; none when none is.
     func trim() async {
         let pages = hiddenPages()
-        guard !pages.isEmpty else { return }
+        guard let page = pages.first else { return }
         lastNotice = now()
         notices += 1
         // Notice, not info: the field log keeps it (the bench reads it to see the round ran).
-        logger.notice("hidden page trim: pressure notice to \(pages.count, privacy: .public) hidden cmux pages")
-        for page in pages { await notify(page) }
+        logger.notice("hidden page trim: pressure notice (one) for \(pages.count, privacy: .public) hidden cmux pages")
+        await notify(page)
     }
 
     /// ``delay``, or longer when the last round was less than ``minimumGap`` before `now`.

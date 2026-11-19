@@ -128,6 +128,27 @@ import Testing
                 "3 hidden pages, one browser-process purge")
     }
 
+    /// No timeout bounds the shim call: Chromium dispatches every DevTools message on the main thread, and a method
+    /// the browser process answers runs inside it. A call past one frame is recorded with its method and size, which
+    /// a hang report's stack does not name; a fast one is not.
+    @Test func aSendThatHoldsTheMainThreadIsRecordedWithItsMethodAndSize() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        Task { _ = try? await tab.devTools(method: "Input.insertText", params: ["text": "a"]) }
+        await rig.until { Recorder.sent(["Input.insertText"]).count == 1 }
+        #expect(rig.runtime.slowDevToolsSends.isEmpty, "a fast send is not recorded")
+
+        Recorder.sendNanos = 40_000_000
+        Task { _ = try? await tab.devTools(method: "Memory.simulatePressureNotification", params: ["level": "critical"]) }
+        await rig.until { !rig.runtime.slowDevToolsSends.isEmpty }
+        let slow = try #require(rig.runtime.slowDevToolsSends.first)
+        #expect(slow.method == "Memory.simulatePressureNotification")
+        #expect(slow.paramsBytes == #"{"level":"critical"}"#.utf8.count)
+        #expect(slow.took >= .milliseconds(40), "the shim call itself, entry to return")
+        #expect(rig.runtime.slowDevToolsSends.count == 1)
+    }
+
     // MARK: Rig
 
     @MainActor final class Rig {
