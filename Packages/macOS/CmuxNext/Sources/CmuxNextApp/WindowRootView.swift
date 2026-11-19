@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextApps
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
@@ -239,6 +240,8 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     }
     /// The host pressure indicator after the band and the badge (`layoutTitlebarAccessories`).
     var hostPressureIndicator: NSView? { didSet { oldValue?.removeFromSuperview(); hostPressureIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
+    /// The extensions' status items (`cmux.status/1`, place `titlebar`) after the indicator; hidden while none draws.
+    var extensionStatusStrip: AppStatusStripView? { didSet { oldValue?.removeFromSuperview(); extensionStatusStrip.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
     /// Swift live mode's "Live mode" mark, last in the top row (`layoutTitlebarAccessories`).
     var liveModeBadge: NSView? { didSet { oldValue?.removeFromSuperview(); liveModeBadge.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
 

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextApps
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextLiveCode
@@ -25,6 +26,14 @@ extension WindowController {
             self?.root.layoutSubtreeIfNeeded()
             self?.relayoutTopRowStrips()
         }
+        // Extensions' status items (`cmux.status/1`, place titlebar) after it; hidden while none draws.
+        let strip = AppStatusStripView(items: services.apps.statusItems)
+        strip.onWidthChange = { [weak self] in
+            self?.root.needsLayout = true
+            self?.root.layoutSubtreeIfNeeded()
+            self?.relayoutTopRowStrips()
+        }
+        root.extensionStatusStrip = strip
         // Swift live mode's mark: in the sidebar's footer, and in the top row while the sidebar is hidden.
         services.liveCode.whenLive { [weak self] in
             self?.sidebar.container.sidebarView.liveModeBadge = LiveModeBadgeView()

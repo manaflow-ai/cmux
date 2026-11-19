@@ -92,6 +92,8 @@ mod sidebar;
 #[cfg(all(test, unix))]
 mod sidebar_integration_tests;
 #[cfg(unix)]
+mod status_items;
+#[cfg(unix)]
 mod storage;
 #[cfg(unix)]
 mod store;

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentLanes
+import CmuxNextApps
 import CmuxNextMacScreen
 import CmuxNextSettings
 
@@ -19,5 +20,6 @@ extension AppServices: MenuBarExtraHost {
     func menuBarChatImage(_ chat: MenuBarMenuState.Chat) -> NSImage? { AgentPriorityChats.menuBarImage(harness: chat.harness) }
     func menuBarResumeComputerUse(_ session: String) { cmuxRemote.sendComputerUseSession(.resume, session: session) }
     func menuBarShowComputerUseCursor(_ session: String) { cmuxRemote.sendComputerUseSession(.spotlight, session: session) }
+    func menuBarExtensionRows() -> [NSView] { apps.statusItems.menuBarRows() }
     func menuBarOpenChat(_ id: String) { if let lane = AgentPriorityChats.app.lane(id) { SidebarPriorityFeed.open(lane, services: self) } }
 }
