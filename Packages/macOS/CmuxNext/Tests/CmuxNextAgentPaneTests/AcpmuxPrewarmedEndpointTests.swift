@@ -20,7 +20,7 @@ struct AcpmuxPrewarmedEndpointTests {
                                             home: root.appending(path: "home"),
                                             socketPath: root.appending(path: "acpmux.sock").path,
                                             daemonArguments: [], childEnvironment: [:])
-        return AcpmuxHost(daemons: AcpmuxLocalDaemons(), resolve: { environment }, enrollComputerUse: { _ in },
+        return AcpmuxHost(daemons: AcpmuxLocalDaemons(), resolve: { environment },
                           lookup: { _, _ in endpoint(lookups.run()) })
     }
 

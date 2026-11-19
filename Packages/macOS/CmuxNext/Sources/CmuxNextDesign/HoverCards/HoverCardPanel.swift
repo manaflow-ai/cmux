@@ -399,7 +399,9 @@ final class HoverCardPanel: NSPanel {
         // Whole device pixels, so the edge `origin(for:)` puts on the target stays there. The content's own size: the
         // glass adds nothing around it, and its panel's views in the measure's temporary layout engine cost a fresh
         // solve of their constraints on every refit (a Show details press, Lawrence 2026-11-18).
-        let fitting = glass.contentView.fittingSize
+        // The body's own size when it reports one and is the content's only view (a glide's leaving view sizes it too).
+        let reported = leavingBody == nil ? (body as? HoverCardSizeReporting)?.reportedFittingSize : nil
+        let fitting = reported ?? measuredContentSize()
         let size = CGSize(width: (fitting.width * scale).rounded(.up) / scale, height: (fitting.height * scale).rounded(.up) / scale)
         let screen = parentWindowRef?.screen ?? NSScreen.main
         let rest = Self.rest(for: placement, anchor: anchor, size: size, screen: screen?.frame,
@@ -418,7 +420,18 @@ final class HoverCardPanel: NSPanel {
         // R131: the window moves in the same frame (a window-frame slide restarted on every tab
         // trailed the pointer); a retarget's slide runs inside it (`slide(from:)`).
         restCardFrame = CGRect(origin: origin, size: size)
-        if appliesFrame { applyRestFrame() }
+        if appliesFrame {
+            applyRestFrame()
+            bodyRests()
+        }
+    }
+
+    /// Content measures the panel ran (`fittingSize`, a temporary layout engine each): tests count them.
+    private(set) var contentMeasures = 0
+
+    private func measuredContentSize() -> CGSize {
+        contentMeasures += 1
+        return glass.contentView.fittingSize
     }
 
     /// The window at the card's rest frame plus its clear band.

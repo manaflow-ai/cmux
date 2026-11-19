@@ -1,6 +1,923 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "customize.element.titlebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط العنوان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naslovna traka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titellinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titelleiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title Bar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de título"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre de titre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra del titolo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារចំណងជើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tittellinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek tytułu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de título"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заголовок окна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบชื่อเรื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlık Çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смуга заголовка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh tiêu đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标题栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標題列"
+          }
+        }
+      }
+    },
+    "customize.element.tabBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka kartica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanelinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tableiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Bar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre d’onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra delle schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanelinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель вкладок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme Çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель вкладок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標籤列"
+          }
+        }
+      }
+    },
+    "customize.element.chatComposer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محرر الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uređivač chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatindtastning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat-Eingabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Composer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redactor del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zone de rédaction du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editor della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのコンポーザー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីសរសេរជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 작성기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatinntasting"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edytor czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editor do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поле ввода чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวเขียนแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet Düzenleyicisi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поле введення чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ô soạn trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天编写器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天編寫器"
+          }
+        }
+      }
+    },
+    "customize.element.widget": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أداة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidžet"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィジェット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វិដជិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위젯"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widżet"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виджет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิดเจ็ต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Віджет"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiện ích"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小组件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小工具"
+          }
+        }
+      }
+    },
+    "argument.customize.element": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العنصر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elemento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Élément"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elemento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要素"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធាតុ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elemento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Элемент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "องค์ประกอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öğe"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Елемент"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thành phần"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元素"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元素"
+          }
+        }
+      }
+    },
+    "argument.customize.draft": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المسودة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nacrt"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kladde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwurf"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draft"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brouillon"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bozza"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下書き"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេចក្ដីព្រាង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "초안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utkast"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szkic"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rascunho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Черновик"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ฉบับร่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taslak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чернетка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản nháp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "草稿"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "草稿"
+          }
+        }
+      }
+    },
+    "action.customize.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة العنصر إلى الإعدادات الافتراضية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrati element na zadano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nulstil element til standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element auf Standard zurücksetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Element to Defaults"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restablecer elemento a los valores predeterminados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réinitialiser l’élément aux valeurs par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina l’elemento ai valori predefiniti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要素をデフォルトに戻す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណត់ធាតុទៅលំនាំដើមឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요소를 기본값으로 재설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilbakestill element til standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywróć domyślne ustawienia elementu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redefinir elemento para o padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбросить элемент по умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รีเซ็ตองค์ประกอบเป็นค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öğeyi Varsayılanlara Sıfırla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скинути елемент до стандартних"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đặt lại thành phần về mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将元素重置为默认值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將元素重置為預設值"
+          }
+        }
+      }
+    },
     "action.tabs.toolbar.togglePin": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تثبيت زر شريط علامات التبويب أو إلغاء تثبيته…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikači ili otkači dugme trake kartica…"}},"da":{"stringUnit":{"state":"needs_review","value":"Fastgør eller frigør knap på fanelinjen…"}},"de":{"stringUnit":{"state":"needs_review","value":"Schaltfläche der Tableiste anheften oder lösen…"}},"en":{"stringUnit":{"state":"translated","value":"Pin or Unpin Tab Bar Button…"}},"es":{"stringUnit":{"state":"needs_review","value":"Fijar o desfijar botón de la barra de pestañas…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Épingler ou détacher un bouton de la barre d'onglets…"}},"it":{"stringUnit":{"state":"needs_review","value":"Fissa o sblocca pulsante della barra delle schede…"}},"ja":{"stringUnit":{"state":"translated","value":"タブバーのボタンを固定/固定解除…"}},"km":{"stringUnit":{"state":"needs_review","value":"ខ្ទាស់ ឬដោះខ្ទាស់ប៊ូតុងរបារផ្ទាំង…"}},"ko":{"stringUnit":{"state":"needs_review","value":"탭 막대 버튼 고정 또는 고정 해제…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Fest eller løsne knapp på fanelinjen…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przypnij lub odepnij przycisk paska kart…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Fixar ou desafixar botão da barra de abas…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Закрепить или открепить кнопку панели вкладок…"}},"th":{"stringUnit":{"state":"needs_review","value":"ปักหมุดหรือเลิกปักหมุดปุ่มแถบแท็บ…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sekme Çubuğu Düğmesini Sabitle veya Kaldır…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Закріпити або відкріпити кнопку панелі вкладок…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ghim hoặc bỏ ghim nút thanh tab…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"固定或取消固定标签栏按钮…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"釘選或取消釘選分頁列按鈕…"}}}},
     "action.tips.muteDay": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"كتم النصائح ليوم واحد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Utišaj savjete na 1 dan"}},"da":{"stringUnit":{"state":"needs_review","value":"Slå tips fra i 1 dag"}},"de":{"stringUnit":{"state":"needs_review","value":"Tipps für 1 Tag stummschalten"}},"en":{"stringUnit":{"state":"translated","value":"Mute Tips for 1 Day"}},"es":{"stringUnit":{"state":"needs_review","value":"Silenciar consejos durante 1 día"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer les astuces pendant 1 jour"}},"it":{"stringUnit":{"state":"needs_review","value":"Silenzia i suggerimenti per 1 giorno"}},"ja":{"stringUnit":{"state":"translated","value":"ヒントを1日ミュート"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទគន្លឹះរយៈពេល 1 ថ្ងៃ"}},"ko":{"stringUnit":{"state":"needs_review","value":"1일 동안 팁 끄기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Demp tips i 1 dag"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wycisz wskazówki na 1 dzień"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Silenciar Dicas por 1 Dia"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отключить советы на 1 день"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิดเคล็ดลับ 1 วัน"}},"tr":{"stringUnit":{"state":"needs_review","value":"İpuçlarını 1 Gün Sessize Al"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вимкнути поради на 1 день"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tắt mẹo trong 1 ngày"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"静音提示 1 天"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"靜音提示 1 天"}}}},
     "action.tips.muteWeek": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"كتم النصائح لأسبوع واحد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Utišaj savjete na 1 sedmicu"}},"da":{"stringUnit":{"state":"needs_review","value":"Slå tips fra i 1 uge"}},"de":{"stringUnit":{"state":"needs_review","value":"Tipps für 1 Woche stummschalten"}},"en":{"stringUnit":{"state":"translated","value":"Mute Tips for 1 Week"}},"es":{"stringUnit":{"state":"needs_review","value":"Silenciar consejos durante 1 semana"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer les astuces pendant 1 semaine"}},"it":{"stringUnit":{"state":"needs_review","value":"Silenzia i suggerimenti per 1 settimana"}},"ja":{"stringUnit":{"state":"translated","value":"ヒントを1週間ミュート"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទគន្លឹះរយៈពេល 1 សប្តាហ៍"}},"ko":{"stringUnit":{"state":"needs_review","value":"1주 동안 팁 끄기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Demp tips i 1 uke"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wycisz wskazówki na 1 tydzień"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Silenciar Dicas por 1 Semana"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отключить советы на 1 неделю"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิดเคล็ดลับ 1 สัปดาห์"}},"tr":{"stringUnit":{"state":"needs_review","value":"İpuçlarını 1 Hafta Sessize Al"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вимкнути поради на 1 тиждень"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tắt mẹo trong 1 tuần"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"静音提示 1 周"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"靜音提示 1 週"}}}},
