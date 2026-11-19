@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """feat-cmux-next pull requests and pushes run the release-notary guard group.
 
-Pushes run it in nightly-guards (judged at the tip) and in the CI guard group (so the merge gate has a
+Pushes run it once, in the CI guard group (so the merge gate has a
 base verdict for each of its steps); pull requests run it in the CI guard group, compared with their base.
 
 ci.yml skips its guards for feat-cmux-next and has no push trigger, so the
@@ -29,20 +29,30 @@ def callers():
 
 
 class CmuxNextGuardsRouteTests(unittest.TestCase):
-    def test_feat_cmux_next_runs_release_notary_on_pushes(self):
-        found = []
+    def test_feat_cmux_next_runs_release_notary_once_on_a_push(self):
+        # A push runs release-notary in the CI guard group (every routed group, release-notary included:
+        # test_a_push_runs_every_guard_group_a_pull_request_can_run). No ci-guards.yml caller runs its matrix leg
+        # for feat-cmux-next pushes too: nightly-guards did until 2026-11-19, the same group a second time on
+        # every push (about 10 minutes each) with no reader.
+        doubled = []
         for name, triggers, job in callers():
             if not isinstance(triggers, dict):
                 continue
             push = triggers.get("push") or {}
-            if "feat-cmux-next" not in (push.get("branches") or []) or push.get("paths"):
+            if "feat-cmux-next" not in (push.get("branches") or []):
                 continue
             inputs = job.get("with") or {}
             if "release-notary" in json.loads(inputs.get("linux_guard_test_groups", "[]")) and "true" in str(
                 inputs.get("linux_guard_tests")
             ):
-                found.append(name)
-        self.assertTrue(found, "no workflow runs the release-notary guards for feat-cmux-next pushes")
+                doubled.append(name)
+        self.assertEqual(doubled, [], "the CI guard group already runs release-notary on every feat-cmux-next push")
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        triggers = workflow.get(True) or workflow.get("on") or {}
+        push = triggers.get("push") or {}
+        self.assertIn("feat-cmux-next", push.get("branches") or [])
+        self.assertFalse(push.get("paths"), "every feat-cmux-next push runs the CI guard group")
+        self.assertIn("ci-guard-group", workflow["jobs"])
 
     def test_a_pull_request_runs_release_notary_against_its_base(self):
         # Run on its own, every pull request was red while the branch was (833 of 1656 runs in the 24 h to
@@ -60,8 +70,7 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         # nightly-guards still runs on a pull request (the submodule forward-only guard, Guard status), without
         # the release-notary matrix leg.
         self.assertEqual(jobs["nightly-guards"]["if"], "${{ !cancelled() }}")
-        self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"],
-                         "${{ github.event_name != 'pull_request' && 'true' || 'false' }}")
+        self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"], "${{ 'false' }}")
         group = jobs["ci-guard-group"]
         self.assertEqual(group["if"], "${{ !cancelled() }}")
         steps = {step.get("name"): step for step in group["steps"]}

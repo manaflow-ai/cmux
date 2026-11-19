@@ -8,10 +8,12 @@ name: cmux-next guards
 # its pull requests and pushes. There is no workflow path filter, so a base red
 # shows on the push that caused it.
 #
-# A push runs the group in nightly-guards, judged at its tip, so a base red
-# still fails the push that caused it, and in the CI guard group, so the merge
-# gate's base-red excuse finds a base verdict for every release-notary step a
-# pull request's guard group can fail. A pull request runs it inside the CI
+# A push runs the group once, in the CI guard group (every routed group), so a
+# red fails the push that caused it and the merge gate's base-red excuse finds a
+# base verdict for every release-notary step a pull request's guard group can
+# fail. nightly-guards no longer runs it a second time on every push (it did
+# until 2026-11-19: ~600 pushes a day, ~10 minutes each, duplicating the guard
+# group's pass with no reader). A pull request runs it inside the CI
 # guard group's head-and-base comparison instead (ci-guard-group, below), which
 # fails only on a step red on the change and not on its base, and only when the
 # change reaches what the group reads: release, notary and signing paths, the
@@ -106,9 +108,11 @@ jobs:
     with:
       # Fleet Linux or a free mini when portable-placement found one; empty keeps ci-guards.yml's own runner.
       guard_tests_runner: ${{ needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ') && needs.portable-placement.outputs.mini_runner || '' }}
-      # Pushes only: a pull request runs release-notary in ci-guard-group's head-and-base comparison (header),
-      # and keeps this call for the submodule forward-only guard and Guard status.
-      linux_guard_tests: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
+      # Never here: since #45606 a push runs release-notary in ci-guard-group (every routed group, compared with the
+      # previous tip or judged at the tip), and a pull request runs it there by its paths. This leg ran the same
+      # group a second time on every push, about 10 minutes each, ~600 pushes a day, with no reader: the merge gate's
+      # base verdict is the guard group's. This call keeps the submodule forward-only guard and Guard status.
+      linux_guard_tests: ${{ 'false' }}
       linux_guard_test_groups: '["release-notary"]'
       linux_guard_history: ${{ 'false' }}
       linux_guard_cli: ${{ 'false' }}
