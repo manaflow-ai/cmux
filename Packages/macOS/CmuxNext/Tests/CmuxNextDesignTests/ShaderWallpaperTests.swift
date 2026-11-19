@@ -61,17 +61,15 @@ import UniformTypeIdentifiers
         }
     }
 
-    /// With `CMUX_SHADER_STILLS_DIR` set, writes every shader's light and dark still (640x400 PNG)
-    /// there, plus `stills.png`, one sheet of them all (a row per shader, light then dark), so a CI
-    /// step returning one file returns every capture. A relative directory is taken from the
-    /// repository root. Without the variable nothing is written.
-    @Test func everyShaderStillIsWrittenWhenAskedFor() throws {
-        guard let folder = ProcessInfo.processInfo.environment["CMUX_SHADER_STILLS_DIR"], !folder.isEmpty,
-              let renderer = BackdropShaderRenderer() else { return }
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let directory = folder.hasPrefix("/") ? URL(fileURLWithPath: folder, isDirectory: true)
-            : root.appendingPathComponent(folder, isDirectory: true)
+    /// Writes every shader's light and dark still (640x400 PNG) for review, plus `stills.png`, one
+    /// sheet of them all (a row per shader, light then dark), so a CI step returning one file
+    /// returns every capture (`$CMUX_SHADER_STILLS_DIR`, else the repository's
+    /// `.build/artifacts/shader-stills/`, as the sign-in button's shots do).
+    @Test func everyShaderStillIsWrittenForReview() throws {
+        guard let renderer = BackdropShaderRenderer() else { return } // a host without Metal
+        let directory = ProcessInfo.processInfo.environment["CMUX_SHADER_STILLS_DIR"].map { URL(fileURLWithPath: $0) }
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../../../../.build/artifacts/shader-stills").standardized
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let width = 640, height = 400, shaders = BackdropShader.allCases
         let sheet = try #require(CGContext(data: nil, width: width * 2, height: height * shaders.count, bitsPerComponent: 8,
