@@ -68,6 +68,46 @@ struct ScreenLowLatencyEncoderTests {
         #expect(ScreenLowLatencyEncoder().scalingSettings()?.low == 28 && ScreenLowLatencyEncoder().scalingSettings()?.high == 39)
     }
 
+    /// One display of a wider BGRA framebuffer (a real crop, not the adapter's alignment):
+    /// the GPU crops and converts it, and every frame is encoded at the asked size. The
+    /// CPU path (libyuv) would write BGRA bytes into the NV12 buffer.
+    @Test(.timeLimit(.minutes(1)))
+    func aCroppedBGRAFrameIsEncoded() async throws {
+        let encoder = ScreenLowLatencyEncoder()
+        let sizes = EncodedSizes()
+        encoder.setCallback { image, _ in
+            sizes.add(image.encodedWidth, image.encodedHeight, image.buffer.count)
+            return true
+        }
+        let settings = RTCVideoEncoderSettings()
+        settings.name = kRTCVideoCodecH264Name
+        settings.width = 1280
+        settings.height = 800
+        settings.startBitrate = 8000
+        settings.maxBitrate = 16000
+        settings.minBitrate = 300
+        settings.maxFramerate = 60
+        settings.mode = .screensharing
+        #expect(encoder.startEncode(with: settings, numberOfCores: 4) == 0)
+        defer { _ = encoder.release() }
+        var made: CVPixelBuffer?
+        let attributes = [kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()] as CFDictionary
+        CVPixelBufferCreate(nil, 3840, 1200, kCVPixelFormatType_32BGRA, attributes, &made)
+        let pixels = try #require(made)
+        for index in 0 ..< 5 {
+            // The right-hand display: x 1920, 1920x1200, scaled to 1280x800.
+            let buffer = RTCCVPixelBuffer(pixelBuffer: pixels, adaptedWidth: 1280, adaptedHeight: 800,
+                                          cropWidth: 1920, cropHeight: 1200, cropX: 1920, cropY: 0)
+            let frame = RTCVideoFrame(buffer: buffer, rotation: ._0, timeStampNs: Int64(index) * 16_666_667)
+            frame.timeStamp = Int32(index * 1500 + 1)
+            let type: RTCFrameType = index == 0 ? .videoFrameKey : .videoFrameDelta
+            #expect(encoder.encode(frame, codecSpecificInfo: nil, frameTypes: [NSNumber(value: type.rawValue)]) == 0)
+        }
+        for _ in 0 ..< 30 where sizes.count < 5 { try await Task.sleep(for: .milliseconds(100)) }
+        #expect(sizes.count == 5, "every cropped BGRA frame was encoded (\(sizes.count))")
+        #expect(sizes.all.allSatisfy { $0.0 == 1280 && $0.1 == 800 && $0.2 > 0 })
+    }
+
     /// Every rate control against libwebrtc's encoder at the bitrates a stream runs at:
     /// scrolling text, 3456x2234 scaled to Auto's 120 fps size, 2 s each. Prints
     /// SCREEN-ENCODER-MODES lines: frames out of 240 (the rest were dropped), the
@@ -305,5 +345,13 @@ final class ScrollingPictures {
         }
         return buffer
     }
+}
+private final class EncodedSizes: @unchecked Sendable {
+    // @unchecked: behind `lock`.
+    private let lock = NSLock()
+    private var sizes: [(Int32, Int32, Int)] = []
+    func add(_ width: Int32, _ height: Int32, _ bytes: Int) { lock.withLock { sizes.append((width, height, bytes)) } }
+    var count: Int { lock.withLock { sizes.count } }
+    var all: [(Int32, Int32, Int)] { lock.withLock { sizes } }
 }
 #endif

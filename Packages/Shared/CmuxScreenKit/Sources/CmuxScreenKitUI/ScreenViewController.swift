@@ -212,10 +212,12 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         }
         video.onFrame = { [weak self] in self?.session.perf?.streamFrame() }
         session.onVideoTrack = { [weak video] box in video?.attach(box) }
+        // The rate the Mac streams at: above 60, the view asks a ProMotion display for it,
+        // and stops asking when the stream ends or reconnects.
+        session.onStreamRate = { [weak video] fps in video?.frameRate = fps ?? 0 }
+        videoView?.frameRate = session.stats.targetFps ?? 0
         session.onStreamDisplays = { [weak self, weak video] sizes, current in
             guard let self else { return }
-            // The rate the Mac streams at: above 60, the view asks a ProMotion display for it.
-            video?.frameRate = session.stats.targetFps ?? 0
             streamDisplays = sizes
             page = current
             pageControl.numberOfPages = sizes.count

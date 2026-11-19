@@ -49,7 +49,9 @@ public final class ScreenSession {
         didSet { resumeWaiters() }
     }
     @ObservationIgnored private var phaseWaiters: [CheckedContinuation<Bool, Never>] = []
-    public private(set) var stats = LiveStats()
+    public private(set) var stats = LiveStats() {
+        didSet { if stats.targetFps != oldValue.targetFps { onStreamRate?(stats.targetFps) } }
+    }
     /// The remote screen's pixel size (the streamed display, or the framebuffer).
     public private(set) var frameSize = CGSize.zero
     public var preferences: ScreenPreferences
@@ -86,6 +88,9 @@ public final class ScreenSession {
     @ObservationIgnored public var onVideoTrack: ((VideoTrackBox) -> Void)?
     /// Stream displays (sizes) and the one streaming.
     @ObservationIgnored public var onStreamDisplays: (([CGSize], Int) -> Void)?
+    /// The rate the Mac streams at, each time it changes; nil when the stream ends or
+    /// reconnects (main actor).
+    @ObservationIgnored public var onStreamRate: ((Int?) -> Void)?
     /// A screen stream's pointers, as fractions of the streamed display:
     /// the Mac's own (the person's) and the agent's; nil when off it. Only
     /// with ``drawsPointers`` (main actor).

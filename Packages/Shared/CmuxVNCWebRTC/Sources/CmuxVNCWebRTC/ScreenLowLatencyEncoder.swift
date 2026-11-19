@@ -61,7 +61,6 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
     private var height: Int32 = 0
     private var bitrate = 0
     private var frameRate = 60
-    private var pool: CVPixelBufferPool?
     private var scaleBuffer: [UInt8] = []
     private var transfer: VTPixelTransferSession?
     private var failed = false
@@ -109,16 +108,33 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
 
     // perf-hot: 1ms screen-stream-encode
     func encode(_ frame: RTCVideoFrame, codecSpecificInfo info: (any RTCCodecSpecificInfo)?, frameTypes: [NSNumber]) -> Int {
-        let (session, width, height) = lock.withLock { (self.session, self.width, self.height) }
-        guard let session, let pixels = pixelBuffer(of: frame, width: width, height: height) else { return -1 }
         let keyframe = frameTypes.contains { $0.uintValue == RTCFrameType.videoFrameKey.rawValue }
+        var status = encodeOnce(frame, keyframe: keyframe)
+        // VideoToolbox invalidates a session on sleep and wake, a GPU reset or a media
+        // server restart. As libwebrtc's own H.264 encoder does, make a new one and try
+        // again once; the new session's first frame is a keyframe.
+        if status == kVTInvalidSessionErr || lock.withLock({ session == nil }) {
+            guard makeSession() else { return -1 } // WEBRTC_VIDEO_CODEC_ERROR
+            status = encodeOnce(frame, keyframe: true)
+        }
+        return status == noErr ? 0 : -1
+    }
+
+    /// One frame into the current session; `kVTInvalidSessionErr` when there is none.
+    private func encodeOnce(_ frame: RTCVideoFrame, keyframe: Bool) -> OSStatus {
+        let (session, width, height) = lock.withLock { (self.session, self.width, self.height) }
+        guard let session else { return kVTInvalidSessionErr }
+        guard let pixels = pixelBuffer(of: frame, session: session, width: width, height: height) else {
+            // No pool: the session is gone (the caller makes a new one).
+            return VTCompressionSessionGetPixelBufferPool(session) == nil ? kVTInvalidSessionErr : kVTPixelTransferNotSupportedErr
+        }
         let options = keyframe ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue] as CFDictionary : nil
         let pts = CMTime(value: frame.timeStampNs, timescale: 1_000_000_000)
         let rtpTimestamp = UInt32(bitPattern: frame.timeStamp)
         let captureMs = frame.timeStampNs / 1_000_000
         let rotation = frame.rotation
-        let status = VTCompressionSessionEncodeFrame(session, imageBuffer: pixels, presentationTimeStamp: pts, duration: .invalid,
-                                                     frameProperties: options, infoFlagsOut: nil) { [weak self] status, flags, sample in
+        return VTCompressionSessionEncodeFrame(session, imageBuffer: pixels, presentationTimeStamp: pts, duration: .invalid,
+                                               frameProperties: options, infoFlagsOut: nil) { [weak self] status, flags, sample in
             guard let self else { return }
             guard status == noErr, !flags.contains(.frameDropped), let sample else {
                 lock.withLock {
@@ -128,7 +144,6 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
             }
             deliver(sample, width: width, height: height, rtpTimestamp: rtpTimestamp, captureMs: captureMs, rotation: rotation)
         }
-        return status == noErr ? 0 : -1
     }
 
     func setBitrate(_ bitrateKbit: UInt32, framerate: UInt32) -> Int32 {
@@ -186,10 +201,7 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
         set(kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, 240 as CFNumber)
         applyRate(made)
         VTCompressionSessionPrepareToEncodeFrames(made)
-        lock.withLock {
-            session = made
-            pool = VTCompressionSessionGetPixelBufferPool(made)
-        }
+        lock.withLock { session = made }
         return true
     }
 
@@ -207,24 +219,33 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
     /// The frame's pixels at the session's size: the source's own buffer when it fits,
     /// else cropped and scaled (libwebrtc's adapter lowered the resolution) or an I420
     /// frame copied into a pooled NV12 buffer.
-    private func pixelBuffer(of frame: RTCVideoFrame, width: Int32, height: Int32) -> CVPixelBuffer? {
+    private func pixelBuffer(of frame: RTCVideoFrame, session: VTCompressionSession, width: Int32, height: Int32) -> CVPixelBuffer? {
         if let buffer = frame.buffer as? RTCCVPixelBuffer {
             let crop = buffer.requiresCropping()
             guard crop || buffer.requiresScaling(toWidth: width, height: height) else { return buffer.pixelBuffer }
-            guard let out = pooledBuffer() else { return nil }
+            guard let out = pooledBuffer(session) else { return nil }
             // A smaller picture (Auto above 60 fps, Smooth Motion under load): scaled on the
             // GPU. libwebrtc's own path scales NV12 on the CPU (libyuv) on every frame. Its
             // adapter also crops a few pixels to align the smaller size; the whole picture is
             // scaled instead (``cropIsAlignment``), which keeps the viewer's pointer fractions exact.
-            if !crop || Self.cropIsAlignment(buffer), let transfer = transferSession(), VTPixelTransferSessionTransferImage(transfer, from: buffer.pixelBuffer, to: out) == noErr {
-                return out
+            // A real crop (one display of a wider framebuffer): the GPU crops it too, which
+            // also converts a BGRA source (libyuv's ARGB path would need a BGRA output).
+            let whole = !crop || Self.cropIsAlignment(buffer)
+            if let transfer = transferSession() {
+                let rect = whole ? CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(buffer.pixelBuffer), height: CVPixelBufferGetHeight(buffer.pixelBuffer))
+                    : CGRect(x: Int(buffer.cropX), y: Int(buffer.cropY), width: Int(buffer.cropWidth), height: Int(buffer.cropHeight))
+                VTSessionSetProperty(transfer, key: kVTPixelTransferPropertyKey_SourceCropRectangle, value: rect.dictionaryRepresentation)
+                if VTPixelTransferSessionTransferImage(transfer, from: buffer.pixelBuffer, to: out) == noErr { return out }
             }
+            // libyuv's NV12 path only: its ARGB path needs an ARGB output, and this one is NV12.
+            guard CVPixelBufferGetPixelFormatType(buffer.pixelBuffer) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+                || CVPixelBufferGetPixelFormatType(buffer.pixelBuffer) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange else { return nil }
             let size = Int(buffer.bufferSizeForCroppingAndScaling(toWidth: width, height: height))
             if scaleBuffer.count < size { scaleBuffer = [UInt8](repeating: 0, count: size) }
             let ok = scaleBuffer.withUnsafeMutableBufferPointer { temp in buffer.cropAndScale(to: out, withTempBuffer: temp.baseAddress) }
             return ok ? out : nil
         }
-        guard let out = pooledBuffer() else { return nil }
+        guard let out = pooledBuffer(session) else { return nil }
         let i420 = frame.buffer.toI420()
         CVPixelBufferLockBaseAddress(out, [])
         defer { CVPixelBufferUnlockBaseAddress(out, []) }
@@ -264,8 +285,9 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
         return transfer
     }
 
-    private func pooledBuffer() -> CVPixelBuffer? {
-        guard let pool = lock.withLock({ pool }) else { return nil }
+    /// A buffer from the session's own pool (VideoToolbox may replace the pool).
+    private func pooledBuffer(_ session: VTCompressionSession) -> CVPixelBuffer? {
+        guard let pool = VTCompressionSessionGetPixelBufferPool(session) else { return nil }
         var out: CVPixelBuffer?
         CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out)
         return out
