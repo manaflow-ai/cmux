@@ -705,6 +705,11 @@ public final class TerminalModel {
         controller?.focusTerminal()
     }
 
+    /// The output pump's state (`TerminalViewController.benchPumpState`); empty before the page.
+    public func benchPumpState() -> [String: Any] {
+        controller?.benchPumpState() ?? [:]
+    }
+
     /// Demo drivers (`ws-terminal-composer`): a draft, with two photos and a
     /// file attached when asked, for gallery captures of the composer.
     public func demoFillComposer(_ text: String, attachments withAttachments: Bool) {

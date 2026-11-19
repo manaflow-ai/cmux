@@ -28,6 +28,8 @@ import SwiftUI
 ///   through the native keyboard path (`insertText`, as the software keyboard calls it), 8 a
 ///   second, and each key's main-thread time is measured.
 /// - `-CmuxMobileFloodBenchLiveRows 24`: rows of the agent's live area.
+/// - `-CmuxMobileFloodBenchNoFocus`: the agent workload types without giving the terminal the
+///   keyboard (no software keyboard, no input delegate).
 /// - `-CmuxMobileFloodBenchSeconds 10`: flood length.
 ///
 /// Phases: 3 s idle, the flood, 6 s after it. Each second it logs the main
@@ -122,8 +124,10 @@ final class TerminalFloodBench {
         while !model.connectionState.isAttached { try? await clock.sleep(for: .milliseconds(50)) }
         // The agent workload types into the terminal itself: it takes the keyboard first, and the
         // keyboard's animation ends in the settle below.
-        if agent { model.benchFocusTerminal() }
+        let focuses = agent && !CommandLine.arguments.contains("-CmuxMobileFloodBenchNoFocus")
+        if focuses { model.benchFocusTerminal() }
         try? await clock.sleep(for: .seconds(2))
+        let pumpAtStart = model.benchPumpState()
         sampler.start()
         let keys = KeystrokeTimer(probe: probe, every: agent ? .milliseconds(125) : .milliseconds(200)) { [weak self] in
             guard let self else { return }
@@ -225,6 +229,10 @@ final class TerminalFloodBench {
             ] as [String: Any]
         }
         summary["pendingEchoesAtEnd"] = probe.take().pendingEchoes
+        summary["focused"] = focuses
+        summary["frameLog"] = CommandLine.arguments.contains("-CmuxMobileFrameLog")
+        summary["pumpAtStart"] = pumpAtStart
+        summary["pumpAtEnd"] = model.benchPumpState()
         if let frames = Self.streamingFrameStats() { summary["streamingFrames"] = frames }
         _ = flood
         log("summary \(summary)")

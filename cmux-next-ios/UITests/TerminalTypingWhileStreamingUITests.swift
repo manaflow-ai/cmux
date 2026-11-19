@@ -18,25 +18,44 @@ final class TerminalTypingWhileStreamingUITests: XCTestCase {
         continueAfterFailure = true
     }
 
+    /// The terminal has the keyboard, as when a person types: the software keyboard and UIKit's
+    /// text system are in the loop for each key.
     @MainActor
     func testTypingWhileAnAgentStreams() throws {
+        try run(name: "focused", extra: ["-CmuxMobileFrameLog"])
+    }
+
+    /// The same keys without the keyboard: what UIKit's text system adds is the difference.
+    @MainActor
+    func testTypingWithoutTheKeyboard() throws {
+        try run(name: "unfocused", extra: ["-CmuxMobileFloodBenchNoFocus", "-CmuxMobileFrameLog"])
+    }
+
+    /// The keyboard, no frame log: what the log's writes add is the difference.
+    @MainActor
+    func testTypingWithoutTheFrameLog() throws {
+        try run(name: "focused-nolog", extra: [])
+    }
+
+    @MainActor
+    private func run(name: String, extra: [String]) throws {
         let app = XCUIApplication()
         app.launchArguments += [
             "-CmuxMobileFloodBench", "-CmuxMobileFloodBenchMode", "agent",
-            "-CmuxMobileFloodBenchSeconds", "10", "-CmuxMobileFrameLog",
-        ]
+            "-CmuxMobileFloodBenchSeconds", "10",
+        ] + extra
         app.launch()
         // Attach, 2 s settle, 3 s idle, then the stream: a shot in the middle of it.
         _ = XCTWaiter.wait(for: [XCTestExpectation(description: "the agent streams")], timeout: 10)
-        attach(app, "typing-while-streaming")
+        attach(app, "typing-while-streaming-\(name)")
         let result = app.staticTexts["flood-bench.result"]
         XCTAssertTrue(result.waitForExistence(timeout: 120), "no bench result")
-        print("TYPING_BENCH \(result.label)")
+        print("TYPING_BENCH \(name) \(result.label)")
         let summary = XCTAttachment(string: result.label)
-        summary.name = "typing-bench-result"
+        summary.name = "typing-bench-result-\(name)"
         summary.lifetime = .keepAlways
         add(summary)
-        attach(app, "after-stream")
+        attach(app, "after-stream-\(name)")
         let flood = try XCTUnwrap(Self.phase("flood", in: result.label), "no flood phase in \(result.label)")
         // Every key was echoed and drawn: none waits past the run.
         XCTAssertGreaterThan(flood["keyCount"] as? Int ?? 0, 40, "keys typed while streaming")

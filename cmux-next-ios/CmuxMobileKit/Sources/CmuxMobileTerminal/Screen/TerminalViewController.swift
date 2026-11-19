@@ -1656,6 +1656,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         return true
     }
 
+    #if DEBUG
+    /// The output pump's state, for the flood bench's result: where output waits when none
+    /// reaches Ghostty.
+    func benchPumpState() -> [String: Any] {
+        [
+            "frameTicks": outputCounts.frameTicks, "pumps": outputCounts.pumps, "batches": outputCounts.batches,
+            "replayHolding": replayHold.holding, "feedInFlight": feedInFlight, "queueEmpty": output.isEmpty,
+            "outputPaused": outputPaused, "outputLink": outputLink != nil, "frozen": freezeView != nil,
+            "drawsFrames": surface.drawsFrames.map { $0 ? 1 : 0 } ?? -1, "drawRequests": surface.drawRequests,
+            "renderedFrames": Int(surface.renderedFrames), "keyboardVisible": model.keyboardVisible,
+            "firstResponder": surface.isFirstResponder, "tui": model.isTUI,
+        ]
+    }
+    #endif
+
     /// Hands Ghostty the next batch. `catchUp` (a hidden page's turn, or the
     /// page shown again) takes up to `hiddenFeedBudget` bytes in one batch,
     /// with no wait for a display frame or a burst's end: nothing is drawn
