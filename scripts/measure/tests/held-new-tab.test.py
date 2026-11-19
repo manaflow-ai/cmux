@@ -566,7 +566,8 @@ class Case(unittest.TestCase):
         opts = argparse.Namespace(workspaces=3, live_shells=0, page_url="http://127.0.0.1:9/", seed_deadline=1.0, out=self.out,
                                   neighbours=2, rounds=rounds, film=film, keys="app-queue", hold_ms=3000.0, every_ms=500.0,
                                   repeat_delay_ms=0.0, repeat_ms=0.0, deadline=1.0, sample_s=sample,
-                                  recent_sites=recent[0], recent_pages=recent[1], recent_deadline=600.0)
+                                  recent_sites=recent[0], recent_pages=recent[1], recent_deadline=600.0,
+                                  letter_cases=0, letter_only=False)
         app = argparse.Namespace(rpc=world.rpc, socket="/fake-app.sock", process=argparse.Namespace(pid=1))
         report = {"rows": [], "failures": []}
         with self.fakes(world):
