@@ -292,13 +292,13 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
             (window as? ShellWindow)?.noteTrafficLights(lights)
             let local = convert(lights, from: nil)
             // One ink gap before the toggle's glyph and between glyphs (`TopRowSpacing.glyphGap`).
-            (lightsMaxX, lead) = (local.maxX, TopRowSpacing.leadingGap(gap: TopRowSpacing.glyphGap, leadingInk: toolbarBand.slots.leadingInk))
+            (lightsMaxX, lead) = (local.maxX, TopRowSpacing.leadingGap(gap: TopRowSpacing.glyphGap, leadingInk: toolbarBand.slots().leadingInk))
             midY = WindowTitlebar.topRowLine(in: window).map { bounds.maxY - $0.centerY } ?? local.midY
         }
         let presence = toolbarBandPresence
         let bandHeight = TopRowSpacing.buttonSide
         let fullBand = CGRect(x: lightsMaxX + lead, y: midY - bandHeight / 2,
-                              width: toolbarBand.slots.width, height: bandHeight)
+                              width: toolbarBand.slots().width, height: bandHeight)
         let presenceChanged = toolbarBand.presence != presence
         toolbarBand.presence = presence
         toolbarBand.frame = WindowTitlebar.alignedFrame(CGRect(x: lightsMaxX + lead * presence, y: fullBand.minY,
@@ -307,11 +307,11 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
         // A right sidebar's header is clear of the traffic lights and the band.
         // The reserve is the full band, so the header does not reflow while
         // the sidebar slides out.
-        let fullBandMaxX = WindowTitlebar.alignedFrame(fullBand, scale: window?.backingScaleFactor ?? 1).maxX
+        let alignedFullBand = WindowTitlebar.alignedFrame(fullBand, scale: window?.backingScaleFactor ?? 1), fullBandMaxX = alignedFullBand.maxX
         let (left, bandEdge) = (sidebarSide == .left, convert(toolbarBand.frame, to: nil).maxX + Metrics.space2) // the band's edge as it closes up
         sidebar.sidebarView.followToolbarBand(windowControls: left, reserve: left ? fullBandMaxX + Metrics.space2 : Metrics.space3, edgeInWindow: left ? bandEdge : nil)
         if presenceChanged { onToolbarBandPresenceChange?() }
-        layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
+        layoutTitlebarReveal(rowHeight: rowHeight, openForwardMaxX: alignedFullBand.minX + toolbarBand.slots().width)
         sidebarFloat.layout(in: self, rowHeight: rowHeight, sidebarHidden: sidebarHidden, side: sidebarSide, cornerRadius: mainPaneCornerRadius)
         layoutTitlebarAccessories(midY: midY)
     }

@@ -22,6 +22,7 @@ import type { CloudPlanTeam, CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import {
   CLOUD_PLAN_IDS,
   CLOUD_PLANS,
+  cloudPlanMachineWords,
   cloudSizeWords,
   sizeFits,
   type CloudPlanId,
@@ -140,7 +141,7 @@ function PlanOffer({
       </span>
       <span className="acpmux-cloud-plans__price">{t("cloudStart.plans.perMonth", { price: offer.price })}</span>
       <span className="acpmux-cloud-ask__line">
-        {t("cloudStart.plans.includes", { size: cloudSizeWords(offer.maxSize, t) })}
+        {t("cloudStart.plans.includes", { size: cloudPlanMachineWords(plan, t) })}
       </span>
       <button
         type="button"
@@ -160,13 +161,14 @@ function PlanOffer({
 }
 
 /// The pricing card: a Cloud send the account has no plan for (the platform's `cloud_plan_required`, or the page's
-/// own hold when `cloudMachine.list` says `plan.state` `none`). A final state, no retry and no wait: Pro and Max
-/// side by side, each with Subscribe (`cloud.plan.subscribe`, the start goes again by itself once the plan is on,
-/// cloudPlanSubscribe.ts), then Run on This Mac and Not now. A refusal in a team (`refusal`) names the team the send
+/// own hold when `cloudMachine.list` says `plan.state` `none`). A final state, no retry and no wait: cmux NEXT Plus, Pro and
+/// Max side by side (or the plans the refusal named, `plans`), each with Subscribe (`cloud.plan.subscribe`, the start
+/// goes again by itself once the plan is on, cloudPlanSubscribe.ts), then Run on This Mac and Not now. A refusal in a team (`refusal`) names the team the send
 /// was in (the one picked in the team menu, which is easy to miss) and offers the person's own team first, which
 /// switches and sends again.
 function PlanCard({
   refusal,
+  plans: offered = CLOUD_PLAN_IDS,
   look,
   planStore,
   onSwitchTeam,
@@ -175,6 +177,7 @@ function PlanCard({
   runHereLabel,
 }: {
   refusal?: CloudPlanTeamRefusal;
+  plans?: readonly CloudPlanId[];
   look: CloudPlanTeamLook;
   planStore?: CloudPlanSubscribeStore;
   onSwitchTeam?: (team: CloudPlanTeam) => void;
@@ -222,11 +225,11 @@ function PlanCard({
   );
   const plans = (
     <ul className="acpmux-cloud-plans">
-      {CLOUD_PLAN_IDS.map((plan) => (
+      {offered.map((plan, index) => (
         <PlanOffer
           key={plan}
           plan={plan}
-          filled={!switchLeads && plan === "pro"}
+          filled={!switchLeads && index === 0}
           pending={subscriber.state.pending}
           onSubscribe={subscribe}
         />
@@ -609,6 +612,7 @@ export function CloudStartView({
       look={planTeamLook}
       runHereLabel={planLabels.runHere}
       {...(start.planTeam ? { refusal: start.planTeam } : {})}
+      {...(start.plans ? { plans: start.plans } : {})}
       {...(planStore ? { planStore } : {})}
       {...(onSwitchTeam ? { onSwitchTeam } : {})}
       {...(onRunHere ? { onRunHere } : {})}

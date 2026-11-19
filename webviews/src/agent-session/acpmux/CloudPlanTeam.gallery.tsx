@@ -1,7 +1,8 @@
 // l10n-allow-file: gallery fixtures (a sample prompt and team names), not shipped UI.
 //
 // The pricing card (CloudStartView PlanCard): a Cloud send with no Cloud plan, the platform's refusal or the page's
-// own hold when `cloudMachine.list` says `plan.state` `none`, shows Pro and Max with Subscribe each. In a team that
+// own hold when `cloudMachine.list` says `plan.state` `none`, shows cmux NEXT Plus, Pro and Max with Subscribe each (the
+// classic Pro and Max only when a refusal names them). In a team that
 // is not the person's own it says "This team has no Cloud plan" and offers the person's own team first. Leo,
 // 2026-11-09: "i guess is team? it's kinda hard to realize tho". The looks compare where the words go; the pane
 // draws `notice`. A folder that needs a larger machine than the plan includes (`cloud_size_locked`) offers the plan
@@ -28,7 +29,7 @@ const sizeLocked: CloudStartProgress = {
   code: "cloud_size_locked",
   retryable: true,
   message: "This folder needs a machine with 16 vCPU and 32 GB memory, more than your plan includes.",
-  sizeLocked: { needed: "xl", allowed: "lg", upgradePlan: "max" },
+  sizeLocked: { needed: "xl", allowed: "lg", upgradePlan: "next_max" },
 };
 const refused: CloudStartProgress = {
   key: "gallery",
@@ -63,20 +64,51 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
     "agent-session/acpmux/cloudPlans.ts",
     "agent-session/acpmux/cloudPlanSubscribe.ts",
   ],
-  keywords: ["cloud", "plan", "pricing", "subscribe", "pro", "max", "size", "team", "switch", "upgrade", "refusal"],
+  keywords: [
+    "cloud",
+    "plan",
+    "pricing",
+    "subscribe",
+    "pro",
+    "max",
+    "next",
+    "size",
+    "team",
+    "switch",
+    "upgrade",
+    "refusal",
+  ],
   styles: () => Promise.all([import("./styles.css"), import("./conversation/conversation.css")]),
   load: () => import("./CloudStartView").then((module) => module.CloudStartView),
   widths: { narrow: 400, normal: 620, wide: 760 },
   height: 260,
   variants: {
     pricing: {
-      note: "No Cloud plan (the page's hold at Send, or the platform's refusal): Cloud needs a plan, Pro and Max side by side with their price, the largest machine each includes and Subscribe (Pro filled), then Run on This Mac and Not now.",
+      note: "No Cloud plan (the page's hold at Send, or the platform's refusal): Cloud needs a plan, cmux NEXT Plus, cmux NEXT Pro and cmux NEXT Max side by side (one under the other in a narrow pane) with their price, the largest machine each includes and Subscribe (cmux NEXT Plus, the first, filled), then Run on This Mac and Not now.",
       props: { start: noPlan, ...actions },
+      height: 460,
+    },
+    "pricing-two": {
+      note: "Before: a refusal that names only cmux NEXT Pro and cmux NEXT Max (a server from before cmux NEXT Plus), cmux NEXT Pro filled.",
+      props: { start: { ...noPlan, plans: ["next_pro", "next_max"] }, ...actions },
+      height: 340,
+    },
+    "pricing-classic": {
+      note: "A refusal that names the classic plans (an older server): Pro and Max as before, Pro filled.",
+      props: { start: { ...noPlan, plans: ["pro", "max"] }, ...actions },
       height: 340,
     },
     "size-locked": {
-      note: "The folder needs a larger machine than the plan includes: the size in vCPU and memory, Upgrade to Max (filled), Run on This Mac and Retry.",
+      note: "The folder needs a larger machine than the plan includes: the size in vCPU and memory, Upgrade to cmux NEXT Max (filled), Run on This Mac and Retry.",
       props: { start: sizeLocked, ...actions, onRetry: () => undefined },
+    },
+    "size-locked-classic": {
+      note: "The same refusal naming the classic Max (an older server): Upgrade to Max.",
+      props: {
+        start: { ...sizeLocked, sizeLocked: { needed: "xl", allowed: "lg", upgradePlan: "max" } },
+        ...actions,
+        onRetry: () => undefined,
+      },
     },
     "size-locked-largest": {
       note: "On the largest plan already: the folder is too large for Cloud, Run on This Mac (filled) and Retry, no upgrade.",
@@ -105,7 +137,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
       props: { start: refused, ...actions, planTeamLook: "banner" },
     },
     "no-own-team": {
-      note: "The team menu lists no personal team (or the device is kept to one team): Pro's Subscribe leads; the team is still named.",
+      note: "The team menu lists no personal team (or the device is kept to one team): the first plan's Subscribe (cmux NEXT Plus) leads; the team is still named.",
       props: { start: { ...refused, planTeam: { team: "cmux" } }, ...actions },
     },
     "long-names": {

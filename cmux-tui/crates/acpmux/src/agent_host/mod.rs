@@ -368,6 +368,12 @@ pub struct HostRecord {
     pub protocol_max: u16,
     pub host_build: String,
     pub socket: PathBuf,
+    /// The host runs Claude Code's translator (`SpawnSpec::translator`), which registers the
+    /// `cmux-repo-sync` PreToolUse callback for every tool, as a direct one does
+    /// (`hub/repo_sync.rs`). False for a host of an older build: its chat waits for the whole
+    /// checkout, as before.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub claude_translator: bool,
 }
 
 /// A record file that this build cannot read, and what it could parse.
