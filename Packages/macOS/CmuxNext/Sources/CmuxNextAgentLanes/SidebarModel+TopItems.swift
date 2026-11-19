@@ -8,8 +8,8 @@ import Observation
 /// while `home.channelsEnabled` is on (cx-frn2y), and the Chief's subagent rows under the Chief
 /// item (`ChiefSidebar`), which draw only once the person adds that item. No Lanes item (Lawrence
 /// 2026-10-20). What's New never shows here: after an update it is only the bottom-left "cmux
-/// Updated!" card (Lawrence 2026-10-18). Remote machine rows are supplied by the app bridge as an
-/// additional transient source, so this shared feed stays independent of the app's peer transport.
+/// Updated!" card (Lawrence 2026-10-18). Feature modules may add transient rows through the
+/// `additional` source; those rows never enter the durable sidebar document.
 extension SidebarModel {
     /// Keeps `transientTopItems` current until cancelled. `document`: the app's own sidebar document, which every
     /// window of that app draws from.
