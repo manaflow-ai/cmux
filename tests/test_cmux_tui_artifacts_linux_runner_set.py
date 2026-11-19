@@ -90,6 +90,9 @@ NIGHTLY = "cmux-gcp-nightly-x64"
 OWN_ROUTE_JOBS = ("cmux-next-daemon-tests", DARWIN_CROSS_JOB)
 # The jobs a NEXT nightly waits for; only these take the 4-runner owned GCP lane first.
 NIGHTLY_TREE_JOBS = ("tree-preflight", "tree-owner-wait", "publish", "publish-tree", "mark-tree-commits")
+# The gate jobs of a feat-cmux-next push: they take NIGHTLY, not OWNED, on attempt 1. On 2026-11-19 six pushes'
+# preflights (5ddb1e0d..c50d4faf) sat queued 20-60 min on OWNED behind lane PR jobs, so no newer tree reached the nightly.
+PUSH_GATE_JOBS = ("tree-preflight", "tree-owner-wait")
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
 # The short jobs that sat queued on 2026-10-30; each must stay in the set.
 SHORT_JOBS = (
@@ -216,6 +219,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             for case, values, owned in cases:
                 if workflow == "cmux-tui-tree-request.yml" and case in ("lane push", "feat-cmux-next push"):
                     continue  # it runs only as a feat-cmux-next dispatch
+                if case == "feat-cmux-next push" and workflow == WORKFLOW.name and name in PUSH_GATE_JOBS:
+                    owned = NIGHTLY  # a push's gate jobs never queue behind lane PR jobs (2026-11-19)
                 text = runs_on.replace("github.run_attempt", values["attempt"])
                 text = text.replace("github.event_name", values["event"])
                 text = re.sub(r"\bgithub\.ref\b", values["ref"], text)
