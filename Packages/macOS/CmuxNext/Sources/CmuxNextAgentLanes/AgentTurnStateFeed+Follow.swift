@@ -155,18 +155,24 @@ nonisolated extension AgentWatchPage {
     }
 
     /// Lays a follow's reply over this list: each row it holds replaces the one held, each row
-    /// that went leaves, and every other row stands.
+    /// that went leaves, and every other row stands. The list ends as a whole list of the same rows
+    /// reads: a whole list keys a peer's summary's facts (state, title, name...) by its session id as
+    /// it does this Mac's (``AgentWatchPage/init(result:)``), and so does a push (`hold`), so a peer
+    /// row's facts come and go with it here too.
     mutating func lay(_ follow: AgentWatchFollow) {
         let rows = follow.page
         for row in follow.rows {
+            let id = row.session
             if let peer = row.peer {
-                setPeerRow(row.session, peer: peer, row: rows.peers[row.session]?[peer])
+                setPeerRow(id, peer: peer, row: rows.peers[id]?[peer])
                 // Its lane too, as a whole list keeps it: without it a machine enrolled while the
                 // app ran had no chat here (`open-tab --host` refused it as no peer's, 2026-11-15).
-                if let lane = rows.lanes[row.session], lane.peer == peer { lanes[row.session] = lane }
+                let lane = rows.lanes[id].flatMap { $0.peer == peer ? $0 : nil } ?? lanes[id]
+                setSession(id, state: rows.states[id], lastMessage: rows.lastMessages[id], muted: rows.muted.contains(id),
+                           title: rows.titles[id], generatedTitle: rows.generatedTitles[id], sessionName: rows.sessionNames[id],
+                           detail: rows.details[id], lane: lane, startedBy: rows.startedBy[id])
                 continue
             }
-            let id = row.session
             setSession(id, state: rows.states[id], lastMessage: rows.lastMessages[id], muted: rows.muted.contains(id),
                        title: rows.titles[id], generatedTitle: rows.generatedTitles[id], sessionName: rows.sessionNames[id],
                        detail: rows.details[id], lane: rows.lanes[id], startedBy: rows.startedBy[id])
@@ -175,6 +181,13 @@ nonisolated extension AgentWatchPage {
             if let peer = row.peer {
                 setPeerRow(row.session, peer: peer, row: nil)
                 if lanes[row.session]?.peer == peer { lanes[row.session] = nil }
+                // The id's last row went (no other peer's row, no lane of this Mac's session): its facts
+                // go too, as a whole list without it has none. They stood before, so a follow kept a gone
+                // peer chat working and titled where a whole list dropped it.
+                if peers[row.session] == nil, lanes[row.session] == nil {
+                    setSession(row.session, state: nil, lastMessage: nil, muted: false, title: nil, generatedTitle: nil,
+                               sessionName: nil, detail: nil, lane: nil, startedBy: nil)
+                }
             } else {
                 setSession(row.session, state: nil, lastMessage: nil, muted: false, title: nil, generatedTitle: nil,
                            sessionName: nil, detail: nil, lane: nil, startedBy: nil)

@@ -156,8 +156,13 @@ struct SidebarScaleWorkTests {
             }
             #expect(scene.lanes.lanes["s8"]?.state == .working, "the change reached the lanes")
             #expect(scene.lanes.lanes["s16"]?.state == .working, "the follow reached the lanes")
-            #expect(scene.sidebar.machines.first { $0.peer == "vm0" }?.chats.first?.id == "s16",
-                    "the follow's chat leads its machine's group")
+            // vm0's two working chats: s8 changed at listSeq 4 (since 1.8e12 + 4 - 8,000 ms) and s16 followed at 5
+            // (since 1.8e12 + 5 - 16,000 ms). The newest `since` leads (`RemoteMachinesSidebar.newer`): s8, then s16.
+            // The groups moved in place must equal a whole build of the same lanes.
+            let vm0 = scene.sidebar.machines.first { $0.peer == "vm0" }?.chats.map(\.id)
+            #expect(vm0.map { Array($0.prefix(2)) } == ["s8", "s16"], "the changed chats lead their machine's group, newest first")
+            #expect(vm0 == RemoteMachinesSidebar.machines(lanes: scene.lanes.lanes.values, peers: nil)
+                .first { $0.peer == "vm0" }?.chats.map(\.id), "the groups moved in place are the whole build's")
         }
         for (op, byN) in totals.sorted(by: { $0.key < $1.key }) {
             let (small, large) = (byN[Self.sizes[0]] ?? 0, byN[Self.sizes.last ?? 0] ?? 0)

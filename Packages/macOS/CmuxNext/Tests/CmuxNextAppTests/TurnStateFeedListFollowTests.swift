@@ -62,6 +62,9 @@ struct TurnStateFeedListFollowTests {
         #expect(held.states["b"] == nil, "a gone row goes")
         #expect(held.titles["b"] == nil)
         #expect(held.peers["c"]?["box"] == nil, "a gone peer row goes")
+        #expect(held.states["c"] == nil, "a gone peer row's facts go with it, as a whole list without it has none")
+        #expect(held.titles["c"] == nil)
+        #expect(held.sessionNames["c"] == nil)
         #expect(held.states["d"] == .needsInput, "a row the follow does not name stands")
         #expect(held.titles["d"] == "D")
 
@@ -88,6 +91,8 @@ struct TurnStateFeedListFollowTests {
         ]]) else { Issue.record("a follow is not read as a follow"); return }
         held.lay(came)
         #expect(held.lanes["walk-remote/x"]?.peer == "walk-remote", "a peer's chat that came in a follow has its lane")
+        #expect(held.states["walk-remote/x"] == .working, "and its facts, as a whole list has them")
+        #expect(held.titles["walk-remote/x"] == "walk-remote/reconnect-chat")
         #expect(held.lanes.values.peerSession("reconnect-chat", on: "walk-remote") == .session("walk-remote/x"))
         guard case .follow(let went) = try message(["jsonrpc": "2.0", "id": 2, "result": [
             "follow": true, "listSeq": 12, "listEpoch": "run-a", "more": false, "sessions": [],
@@ -95,6 +100,8 @@ struct TurnStateFeedListFollowTests {
         ]]) else { Issue.record("a follow is not read as a follow"); return }
         held.lay(went)
         #expect(held.lanes["walk-remote/x"] == nil, "a gone peer chat's lane goes")
+        #expect(held.states["walk-remote/x"] == nil, "and its facts")
+        #expect(held.titles["walk-remote/x"] == nil)
         #expect(held.lanes.values.peerSession("reconnect-chat", on: "walk-remote") == .notAPeer)
     }
 
