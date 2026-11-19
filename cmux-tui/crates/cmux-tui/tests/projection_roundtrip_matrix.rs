@@ -795,10 +795,14 @@ mod randomized {
                         let edited = path
                             .strip_suffix(".cmux-sync-conflict")
                             .unwrap_or_else(|| panic!("{context}: {path} appeared on a conflict"));
-                        assert_eq!(
-                            machine.get(edited),
-                            Some(&Some(text.clone())),
-                            "{context}: {path}"
+                        // The machine's file whole (a projected base), or the line merge of
+                        // the three versions with markers (a hashed base), which holds it.
+                        let Some(Some(theirs)) = machine.get(edited) else {
+                            panic!("{context}: {path} beside a path the machine did not write")
+                        };
+                        assert!(
+                            text == theirs || text.contains(&format!("=======\n{theirs}")),
+                            "{context}: {path}: {text:?}"
                         );
                     }
                 }
@@ -806,8 +810,10 @@ mod randomized {
             for path in mac_now.keys() {
                 assert!(after.contains_key(path), "{context}: {path} went");
             }
+            // Against a projected base (the first pull) the machine's version always goes
+            // beside; against a hashed one a delete on one side is a whole-file conflict, named.
             for path in &both {
-                if matches!(machine.get(*path), Some(Some(_))) {
+                if pull == 0 && matches!(machine.get(*path), Some(Some(_))) {
                     assert!(
                         after.contains_key(&format!("{path}.cmux-sync-conflict")),
                         "{context}: no conflict file for {path}"
