@@ -450,3 +450,25 @@ test("typing over a draft starts at its end, never over the person's selection",
   await drive.end();
   expect(atInsert).toEqual([{ collapsed: true, atEnd: true }]);
 });
+
+test("a person's key the run ends on, before a frame acts on it, still stops the typing as the person's", async () => {
+  const { ChatDrive } = await import("../src/agent-session/acpmux/chatDrive");
+  const { COMPOSER_EDITOR } = await import("../src/agent-session/acpmux/composerSelectors");
+  await render("Ask anything");
+  const page = fakeEnv();
+  const drive = new ChatDrive();
+  const doc = dom.window.document as unknown as { execCommand(command: string, ui: boolean, text: string): boolean };
+  doc.execCommand = () => true;
+  expect(
+    await drive.begin({ seconds: 1, type: { text: "abcdef", allow_draft: false } }, idleHost(), page.env),
+  ).toMatchObject({ ok: true });
+  page.frames(2);
+  dispatchTrusted(
+    dom.window.document.querySelector(COMPOSER_EDITOR)!,
+    new dom.window.KeyboardEvent("keydown", { key: "x", bubbles: true }),
+  );
+  // No frame between the key and the end: the typing's own check never ran.
+  const report = (await drive.end()) as Record<string, any>;
+  expect(report.typed).toBe(2);
+  expect(report.type_stopped).toBe("person");
+});
