@@ -32,9 +32,7 @@ extension HomeService {
     func ensureHomeWorkspace(_ connection: DaemonConnection) {
         homeWorkspaceTask?.cancel()
         homeWorkspaceStep = "ensure_home"
-        homeEnsureGeneration &+= 1
-        let generation = homeEnsureGeneration
-        homeEnsureInFlight = true
+        let generation = ensure.begin()
         // task-owner: one ensure_home, then at most one conversation create and one tab create
         homeWorkspaceTask = Task { [weak self] in
             defer { self?.ensureOwner.end(generation) }
@@ -43,7 +41,7 @@ extension HomeService {
                 // Cancelled: the newer ensure_home owns the in-flight flag.
                 guard let self, !Task.isCancelled else { return }
                 homeWorkspaceID = home
-                settleHomeEnsure(generation); DebugTimings.markLaunch("home.ensure_home")
+                ensure.settle(generation); DebugTimings.markLaunch("home.ensure_home")
                 async let chiefTab: Void = ensureChiefTab(connection, home: home, generation: generation) // beside the dock steps: Home's first page waits for both
                 homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home) {
                     TabMoves.toNewDockColumn($0, anchor: $1, edge: .left, role: .agentChat, respawn: $2, pinned: $3, services: services,
@@ -53,21 +51,11 @@ extension HomeService {
                 DebugTimings.markLaunch("home.window_docks"); try await chiefTab
             } catch is CancellationError {
             } catch {
-                self?.settleHomeEnsure(generation)
+                self?.ensure.settle(generation)
                 self?.homeWorkspaceStep = "failed: \(String(describing: error))"
                 self?.logger.error("home workspace: \(String(describing: error), privacy: .public)")
             }
         }
-    }
-
-    private func settleHomeEnsure(_ generation: Int) {
-        if homeEnsureGeneration == generation { homeEnsureInFlight = false }
-    }
-
-    /// Returns once no `ensure_home` is in flight (at once when none is).
-    /// Each request has the connection's timeout, so this never outlives it.
-    func awaitHomeEnsured() async {
-        for await inFlight in ObservationStream({ self.homeEnsureInFlight }) where !inFlight { return }
     }
 
     /// The chief conversation (``HomeChiefName/conversation(_:listed:user:mux:mark:renameFailed:)``).
