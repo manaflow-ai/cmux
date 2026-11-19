@@ -75,6 +75,9 @@ const snapshot: AcpmuxSnapshot = ((base) => ({
 /** Opens + with `recents` as the person's recent commands (the menu reads them as it opens). */
 function openWith(recents: readonly string[]) {
   return async (ctx: PlayContext) => {
+    // The experiment's setup runs after the variant's play (gallery/frame/main.ts): when the play
+    // opened + already, a second click would close it, so the variant's own recents stand.
+    if (ctx.document.querySelector('.acpmux-composer-plus [data-value="add.commands"]')) return;
     ctx.document.defaultView?.localStorage.setItem(RECENTS_KEY, JSON.stringify(recents));
     await ctx.click({ selector: PLUS_PICKER });
     await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="add.commands"]'));
