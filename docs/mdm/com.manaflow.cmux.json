@@ -63,6 +63,16 @@
       "title" : "Command Labels",
       "type" : "string"
     },
+    "agentPane.display.composerLook" : {
+      "default" : "claude",
+      "description" : "How the message box lays out its controls: Claude's quiet row under the box, or Codex's row inside it. The dots under the composer pick it too.",
+      "enum" : [
+        "claude",
+        "codex"
+      ],
+      "title" : "Composer Style",
+      "type" : "string"
+    },
     "agentPane.display.environment.placement" : {
       "default" : "left",
       "description" : "Where the chip sits: under the tabs (Left) or in the header (Right).",
@@ -157,6 +167,12 @@
       "title" : "Chat Minimap",
       "type" : "string"
     },
+    "agentPane.display.modelChipIcon" : {
+      "default" : true,
+      "description" : "Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on.",
+      "title" : "Model Logo in Composer",
+      "type" : "boolean"
+    },
     "agentPane.display.pinnedPlan" : {
       "default" : false,
       "description" : "Keeps the agent's task list under the latest message, not over the composer.",
@@ -177,6 +193,12 @@
       "default" : true,
       "description" : "After a chat with many corrections, shows a better first prompt.",
       "title" : "Prompt Coach",
+      "type" : "boolean"
+    },
+    "agentPane.display.queueing" : {
+      "default" : true,
+      "description" : "On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits.",
+      "title" : "Queue Prompts During a Turn",
       "type" : "boolean"
     },
     "agentPane.display.rail.side" : {
@@ -2061,6 +2083,17 @@
       "description" : "A theme file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json.",
       "title" : "Theme File",
       "type" : "string"
+    },
+    "appearance.themeFileExceptions" : {
+      "default" : [
+
+      ],
+      "description" : "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Changed Over Theme File",
+      "type" : "array"
     },
     "appearance.titleAreaContrast" : {
       "default" : 1,
