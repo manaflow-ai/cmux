@@ -118,8 +118,10 @@
   padding: var(--ds-space-2);
   border-radius: var(--ds-radius-control);
 }
-.acpmux-needs-you-item + .acpmux-needs-you-item {
-  margin-top: 1px;
+/* Rows are placed by the list's window (VirtualList), each measured whole: the 1px between two
+   rows is the lower row's own padding, not a margin the measure would miss. */
+.acpmux-needs-you-slot:not([aria-posinset="1"]) {
+  padding-top: 1px;
 }
 /* The ask a link opened the list on: a wash of the needs-you mark, no ring. */
 .acpmux-needs-you-item[data-focused] {
