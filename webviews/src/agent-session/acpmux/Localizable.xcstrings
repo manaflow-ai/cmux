@@ -7261,138 +7261,6 @@
         }
       }
     },
-    "prompt.delivery.queued": {
-      "comment": "Agent pane: in a sent prompt's footer, in place of its time, while the prompt waits behind the agent's running turn on its way to the agent; it goes on its own",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "في الانتظار، تُرسل عند انتهاء الدور الحالي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Na čekanju, šalje se kad se trenutni potez završi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "I kø, sendes når den nuværende tur slutter"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "In der Warteschlange, wird gesendet, wenn der aktuelle Durchgang endet"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Queued, sends when the current turn ends"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En cola, se envía cuando termine el turno actual"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En file d’attente, envoyé à la fin du tour en cours"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "In coda, viene inviato al termine del turno corrente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "キュー済み、現在のターンが終わると送信されます"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កំពុងរង់ចាំ ផ្ញើនៅពេលវេនបច្ចុប្បន្នបញ្ចប់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "대기 중, 현재 턴이 끝나면 전송됩니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "I kø, sendes når den gjeldende runden er ferdig"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "W kolejce, zostanie wysłana po zakończeniu bieżącej tury"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Na fila, será enviada quando o turno atual terminar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "В очереди, отправится, когда закончится текущий ход"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "อยู่ในคิว จะส่งเมื่อเทิร์นปัจจุบันจบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sırada, mevcut tur bitince gönderilir"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "У черзі, надішлеться, коли завершиться поточний хід"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đang chờ, sẽ gửi khi lượt hiện tại kết thúc"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已排队，当前轮次结束后发送"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已排隊，目前輪次結束後傳送"
-          }
-        }
-      }
-    },
     "prompt.failure.hostAway": {
       "comment": "Agent pane: a kept prompt's one quiet word on its row when it waited for the agent service (starting, reconnecting, or a relaunch) and was not taken; the row keeps Retry, Edit and Remove. Never says the service is slow (Leo, 2026-11-12)",
       "extractionState": "manual",
@@ -344942,534 +344810,10 @@
         }
       }
     },
-    "computerUse.preview.runningLabelNoApp": {
-      "comment": "Agent pane: accessibility label of the live preview card while the agent uses an app whose name is not known (computerUse/ComputerUsePreviewCard.tsx)",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "معاينة مباشرة للتطبيق. فتح في نشاط الوكيل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pregled aplikacije uživo. Otvori u Aktivnosti agenta"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Live forhåndsvisning af app. Åbn i Agentaktivitet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Live-Vorschau der App. In Agentenaktivität öffnen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Live app preview. Open in Agent Activity"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vista previa de la app en directo. Abrir en Actividad de agentes"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aperçu de l'app en direct. Ouvrir dans Activité des agents"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Anteprima dell'app dal vivo. Apri in Attività degli agenti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アプリのライブプレビュー。エージェントのアクティビティで開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការមើលកម្មវិធីជាមុនផ្ទាល់។ បើកក្នុងសកម្មភាពភ្នាក់ងារ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "실시간 앱 미리보기. 에이전트 활동에서 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Direkte forhåndsvisning av app. Åpne i Agentaktivitet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Podgląd aplikacji na żywo. Otwórz w Aktywności agentów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prévia do app ao vivo. Abrir em Atividade de agentes"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Просмотр приложения в реальном времени. Открыть в Активности агентов"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ตัวอย่างแอปสด เปิดในกิจกรรมของเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Canlı uygulama önizlemesi. Ajan etkinliğinde aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Перегляд застосунку наживо. Відкрити в Активності агентів"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Xem trước ứng dụng trực tiếp. Mở trong Hoạt động của tác tử"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "实时应用预览。在代理活动中打开"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "即時 App 預覽。在代理活動中開啟"
-          }
-        }
-      }
-    },
-    "computerUse.preview.doneLabelNoApp": {
-      "comment": "Agent pane: accessibility label of the live preview card after the agent's session ended, when the app's name is not known (computerUse/ComputerUsePreviewCard.tsx)",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "معاينة التطبيق، انتهى. فتح في نشاط الوكيل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pregled aplikacije, završeno. Otvori u Aktivnosti agenta"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Forhåndsvisning af app, færdig. Åbn i Agentaktivitet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "App-Vorschau, fertig. In Agentenaktivität öffnen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "App preview, done. Open in Agent Activity"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vista previa de la app, terminado. Abrir en Actividad de agentes"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aperçu de l'app, terminé. Ouvrir dans Activité des agents"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Anteprima dell'app, completato. Apri in Attività degli agenti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アプリのプレビュー、完了。エージェントのアクティビティで開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការមើលកម្មវិធីជាមុន រួចរាល់។ បើកក្នុងសកម្មភាពភ្នាក់ងារ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "앱 미리보기, 완료. 에이전트 활동에서 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Forhåndsvisning av app, ferdig. Åpne i Agentaktivitet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Podgląd aplikacji, gotowe. Otwórz w Aktywności agentów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prévia do app, concluído. Abrir em Atividade de agentes"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Просмотр приложения, готово. Открыть в Активности агентов"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ตัวอย่างแอป เสร็จแล้ว เปิดในกิจกรรมของเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uygulama önizlemesi, bitti. Ajan etkinliğinde aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Перегляд застосунку, готово. Відкрити в Активності агентів"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Xem trước ứng dụng, đã xong. Mở trong Hoạt động của tác tử"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "应用预览，已完成。在代理活动中打开"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "App 預覽，已完成。在代理活動中開啟"
-          }
-        }
-      }
-    },
-    "computerUse.preview.runningLabel": {
-      "comment": "Agent pane: accessibility label of the live preview card while the agent uses the app; {app} is the app's name (computerUse/ComputerUsePreviewCard.tsx)",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}، مباشر. فتح في نشاط الوكيل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, uživo. Otvori u Aktivnosti agenta"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, live. Åbn i Agentaktivitet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, live. In Agentenaktivität öffnen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{app}, live. Open in Agent Activity"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, en directo. Abrir en Actividad de agentes"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, en direct. Ouvrir dans Activité des agents"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, dal vivo. Apri in Attività degli agenti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{app}、ライブ。エージェントのアクティビティで開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app} ផ្ទាល់។ បើកក្នុងសកម្មភាពភ្នាក់ងារ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, 실시간. 에이전트 활동에서 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, direkte. Åpne i Agentaktivitet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, na żywo. Otwórz w Aktywności agentów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, ao vivo. Abrir em Atividade de agentes"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, в реальном времени. Открыть в Активности агентов"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app} สด เปิดในกิจกรรมของเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, canlı. Ajan etkinliğinde aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, наживо. Відкрити в Активності агентів"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, trực tiếp. Mở trong Hoạt động của tác tử"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}，实时。在代理活动中打开"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}，即時。在代理活動中開啟"
-          }
-        }
-      }
-    },
-    "computerUse.preview.doneLabel": {
-      "comment": "Agent pane: accessibility label of the live preview card after the agent's session ended; {app} is the app's name (computerUse/ComputerUsePreviewCard.tsx)",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}، انتهى. فتح في نشاط الوكيل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, završeno. Otvori u Aktivnosti agenta"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, færdig. Åbn i Agentaktivitet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, fertig. In Agentenaktivität öffnen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{app}, done. Open in Agent Activity"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, terminado. Abrir en Actividad de agentes"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, terminé. Ouvrir dans Activité des agents"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, completato. Apri in Attività degli agenti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{app}、完了。エージェントのアクティビティで開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app} រួចរាល់។ បើកក្នុងសកម្មភាពភ្នាក់ងារ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, 완료. 에이전트 활동에서 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, ferdig. Åpne i Agentaktivitet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, gotowe. Otwórz w Aktywności agentów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, concluído. Abrir em Atividade de agentes"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, готово. Открыть в Активности агентов"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app} เสร็จแล้ว เปิดในกิจกรรมของเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, bitti. Ajan etkinliğinde aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, готово. Відкрити в Активності агентів"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}, đã xong. Mở trong Hoạt động của tác tử"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}，已完成。在代理活动中打开"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{app}，已完成。在代理活動中開啟"
-          }
-        }
-      }
-    },
+    "computerUse.preview.runningLabelNoApp":{"comment":"Agent pane: accessibility label of the live preview card while the agent uses an app whose name is not known (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"معاينة مباشرة للتطبيق"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pregled aplikacije uživo"}},"da":{"stringUnit":{"state":"needs_review","value":"Live forhåndsvisning af app"}},"de":{"stringUnit":{"state":"needs_review","value":"Live-Vorschau der App"}},"en":{"stringUnit":{"state":"translated","value":"Live app preview"}},"es":{"stringUnit":{"state":"needs_review","value":"Vista previa de la app en directo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aperçu de l'app en direct"}},"it":{"stringUnit":{"state":"needs_review","value":"Anteprima dell'app dal vivo"}},"ja":{"stringUnit":{"state":"translated","value":"アプリのライブプレビュー"}},"km":{"stringUnit":{"state":"needs_review","value":"ការមើលកម្មវិធីជាមុនផ្ទាល់"}},"ko":{"stringUnit":{"state":"needs_review","value":"실시간 앱 미리보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Direkte forhåndsvisning av app"}},"pl":{"stringUnit":{"state":"needs_review","value":"Podgląd aplikacji na żywo"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Prévia do app ao vivo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Просмотр приложения в реальном времени"}},"th":{"stringUnit":{"state":"needs_review","value":"ตัวอย่างแอปสด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Canlı uygulama önizlemesi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перегляд застосунку наживо"}},"vi":{"stringUnit":{"state":"needs_review","value":"Xem trước ứng dụng trực tiếp"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"实时应用预览"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"即時 App 預覽"}}}},
+    "computerUse.preview.doneLabelNoApp":{"comment":"Agent pane: accessibility label of the live preview card after the agent's session ended, when the app's name is not known (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"معاينة التطبيق، انتهى"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pregled aplikacije, završeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Forhåndsvisning af app, færdig"}},"de":{"stringUnit":{"state":"needs_review","value":"App-Vorschau, fertig"}},"en":{"stringUnit":{"state":"translated","value":"App preview, done"}},"es":{"stringUnit":{"state":"needs_review","value":"Vista previa de la app, terminado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aperçu de l'app, terminé"}},"it":{"stringUnit":{"state":"needs_review","value":"Anteprima dell'app, completato"}},"ja":{"stringUnit":{"state":"translated","value":"アプリのプレビュー、完了"}},"km":{"stringUnit":{"state":"needs_review","value":"ការមើលកម្មវិធីជាមុន រួចរាល់"}},"ko":{"stringUnit":{"state":"needs_review","value":"앱 미리보기, 완료"}},"nb":{"stringUnit":{"state":"needs_review","value":"Forhåndsvisning av app, ferdig"}},"pl":{"stringUnit":{"state":"needs_review","value":"Podgląd aplikacji, gotowe"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Prévia do app, concluído"}},"ru":{"stringUnit":{"state":"needs_review","value":"Просмотр приложения, готово"}},"th":{"stringUnit":{"state":"needs_review","value":"ตัวอย่างแอป เสร็จแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Uygulama önizlemesi, bitti"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перегляд застосунку, готово"}},"vi":{"stringUnit":{"state":"needs_review","value":"Xem trước ứng dụng, đã xong"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"应用预览，已完成"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"App 預覽，已完成"}}}},
+    "computerUse.preview.runningLabel":{"comment":"Agent pane: accessibility label of the live preview card while the agent uses the app; {app} is the app's name (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{app}، مباشر"}},"bs":{"stringUnit":{"state":"needs_review","value":"{app}, uživo"}},"da":{"stringUnit":{"state":"needs_review","value":"{app}, live"}},"de":{"stringUnit":{"state":"needs_review","value":"{app}, live"}},"en":{"stringUnit":{"state":"translated","value":"{app}, live"}},"es":{"stringUnit":{"state":"needs_review","value":"{app}, en directo"}},"fr":{"stringUnit":{"state":"needs_review","value":"{app}, en direct"}},"it":{"stringUnit":{"state":"needs_review","value":"{app}, dal vivo"}},"ja":{"stringUnit":{"state":"translated","value":"{app}、ライブ"}},"km":{"stringUnit":{"state":"needs_review","value":"{app} ផ្ទាល់"}},"ko":{"stringUnit":{"state":"needs_review","value":"{app}, 실시간"}},"nb":{"stringUnit":{"state":"needs_review","value":"{app}, direkte"}},"pl":{"stringUnit":{"state":"needs_review","value":"{app}, na żywo"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{app}, ao vivo"}},"ru":{"stringUnit":{"state":"needs_review","value":"{app}, в реальном времени"}},"th":{"stringUnit":{"state":"needs_review","value":"{app} สด"}},"tr":{"stringUnit":{"state":"needs_review","value":"{app}, canlı"}},"uk":{"stringUnit":{"state":"needs_review","value":"{app}, наживо"}},"vi":{"stringUnit":{"state":"needs_review","value":"{app}, trực tiếp"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{app}，实时"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{app}，即時"}}}},
+    "computerUse.preview.doneLabel":{"comment":"Agent pane: accessibility label of the live preview card after the agent's session ended; {app} is the app's name (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{app}، انتهى"}},"bs":{"stringUnit":{"state":"needs_review","value":"{app}, završeno"}},"da":{"stringUnit":{"state":"needs_review","value":"{app}, færdig"}},"de":{"stringUnit":{"state":"needs_review","value":"{app}, fertig"}},"en":{"stringUnit":{"state":"translated","value":"{app}, done"}},"es":{"stringUnit":{"state":"needs_review","value":"{app}, terminado"}},"fr":{"stringUnit":{"state":"needs_review","value":"{app}, terminé"}},"it":{"stringUnit":{"state":"needs_review","value":"{app}, completato"}},"ja":{"stringUnit":{"state":"translated","value":"{app}、完了"}},"km":{"stringUnit":{"state":"needs_review","value":"{app} រួចរាល់"}},"ko":{"stringUnit":{"state":"needs_review","value":"{app}, 완료"}},"nb":{"stringUnit":{"state":"needs_review","value":"{app}, ferdig"}},"pl":{"stringUnit":{"state":"needs_review","value":"{app}, gotowe"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{app}, concluído"}},"ru":{"stringUnit":{"state":"needs_review","value":"{app}, готово"}},"th":{"stringUnit":{"state":"needs_review","value":"{app} เสร็จแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{app}, bitti"}},"uk":{"stringUnit":{"state":"needs_review","value":"{app}, готово"}},"vi":{"stringUnit":{"state":"needs_review","value":"{app}, đã xong"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{app}，已完成"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{app}，已完成"}}}},
     "computerUse.preview.close": {
       "comment": "Agent pane: accessibility label of the live preview card's close button, which hides the card for that session (computerUse/ComputerUsePreviewCard.tsx)",
       "extractionState": "manual",
@@ -358149,127 +357493,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pick the folder in the project menu below."
+            "value": "Pick the folder in the folder menu below."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اختر المجلد من قائمة المشروع أدناه."
+            "value": "اختر المجلد من قائمة المجلدات أدناه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odaberite mapu u meniju projekta ispod."
+            "value": "Odaberite mapu u meniju mapa ispod."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vælg mappen i projektmenuen nedenfor."
+            "value": "Vælg mappen i mappemenuen nedenfor."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wähle den Ordner im Projektmenü unten."
+            "value": "Wähle den Ordner im Ordnermenü unten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Elige la carpeta en el menú de proyecto de abajo."
+            "value": "Elige la carpeta en el menú de carpetas de abajo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Choisissez le dossier dans le menu du projet ci-dessous."
+            "value": "Choisissez le dossier dans le menu des dossiers ci-dessous."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Scegli la cartella nel menu del progetto qui sotto."
+            "value": "Scegli la cartella nel menu delle cartelle qui sotto."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "下のプロジェクトメニューでフォルダを選んでください。"
+            "value": "下のフォルダメニューでフォルダを選んでください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជ្រើសថតនៅក្នុងម៉ឺនុយគម្រោងខាងក្រោម។"
+            "value": "ជ្រើសថតនៅក្នុងម៉ឺនុយថតខាងក្រោម។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "아래 프로젝트 메뉴에서 폴더를 선택하세요."
+            "value": "아래 폴더 메뉴에서 폴더를 선택하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Velg mappen i prosjektmenyen nedenfor."
+            "value": "Velg mappen i mappemenyen nedenfor."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wybierz folder w menu projektu poniżej."
+            "value": "Wybierz folder w menu folderów poniżej."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Escolha a pasta no menu de projeto abaixo."
+            "value": "Escolha a pasta no menu de pastas abaixo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Выберите папку в меню проекта ниже."
+            "value": "Выберите папку в меню папок ниже."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เลือกโฟลเดอร์ในเมนูโปรเจกต์ด้านล่าง"
+            "value": "เลือกโฟลเดอร์ในเมนูโฟลเดอร์ด้านล่าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Klasörü aşağıdaki proje menüsünden seçin."
+            "value": "Klasörü aşağıdaki klasör menüsünden seçin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Виберіть папку в меню проєкту нижче."
+            "value": "Виберіть папку в меню папок нижче."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chọn thư mục trong menu dự án bên dưới."
+            "value": "Chọn thư mục trong menu thư mục bên dưới."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "请在下方的项目菜单中选择文件夹。"
+            "value": "请在下方的文件夹菜单中选择文件夹。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "請在下方的專案選單中選擇資料夾。"
+            "value": "請在下方的資料夾選單中選擇資料夾。"
           }
         }
       }
@@ -436332,662 +435676,134 @@
         }
       }
     },
-    "composer.githubAddRepos": {
-      "comment": "Agent pane: the last row of a new Cloud chat's folder menu while the cmux GitHub App is not installed; it opens the install card",
+    "composer.githubConnect": {
+      "comment": "Agent pane: the one GitHub row of a new Cloud chat's folder menu while GitHub is not connected; choosing it opens the GitHub install page, or sign-in when signed out, in the browser",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "الاتصال بـ GitHub"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "Poveži se s GitHubom"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "Opret forbindelse til GitHub"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "Mit GitHub verbinden"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add repositories from GitHub"
+            "value": "Connect to GitHub"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "Conectar con GitHub"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "Se connecter à GitHub"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "Connetti a GitHub"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "GitHub に接続"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "ភ្ជាប់ទៅ GitHub"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "GitHub에 연결"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "Koble til GitHub"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "Połącz z GitHubem"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "Conectar ao GitHub"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "Подключиться к GitHub"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "เชื่อมต่อกับ GitHub"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "GitHub'a bağlan"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "Підключитися до GitHub"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "Kết nối với GitHub"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
+            "value": "连接到 GitHub"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Add repositories from GitHub"
-          }
-        }
-      }
-    },
-    "composer.githubInstallTitle": {
-      "comment": "Agent pane: the title of the install card in a new Cloud chat's folder menu",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install the cmux GitHub App"
-          }
-        }
-      }
-    },
-    "composer.githubInstallSubtitle": {
-      "comment": "Agent pane: the line under the install card's title in a new Cloud chat's folder menu",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "You choose which repositories cmux can reach"
-          }
-        }
-      }
-    },
-    "composer.githubInstall": {
-      "comment": "Agent pane: the install card's one button; it opens GitHub in the browser",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Install on GitHub"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Install on GitHub"
-          }
-        }
-      }
-    },
-    "composer.githubWaiting": {
-      "comment": "Agent pane: the install card after Install on GitHub, until the app is installed",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Waiting for GitHub…"
+            "value": "連線到 GitHub"
           }
         }
       }
@@ -439136,6 +437952,138 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "worktree.preparingRepo": {
+      "comment": "Agent pane: a GitHub repository picked for a new chat on this Mac while its checkout is found or cloned, before its worktree is made. {repo} is owner/name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getting {repo} ready…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ تجهيز {repo}…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Priprema {repo}…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gør {repo} klar…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{repo} wird vorbereitet…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preparando {repo}…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Préparation de {repo}…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preparazione di {repo}…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{repo} を準備中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរៀបចំ {repo}…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{repo} 준비 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gjør {repo} klar…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przygotowywanie {repo}…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preparando {repo}…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подготовка {repo}…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังเตรียม {repo}…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{repo} hazırlanıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Підготовка {repo}…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chuẩn bị {repo}…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在准备 {repo}…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在準備 {repo}…"
           }
         }
       }
