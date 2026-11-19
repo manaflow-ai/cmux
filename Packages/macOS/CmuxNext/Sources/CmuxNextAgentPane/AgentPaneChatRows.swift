@@ -12,8 +12,9 @@ import Foundation
 /// are built off the main actor, and the page gets one call per batch.
 ///
 /// - The handle opens at the document's first `chat.rows.open`, on the pane's own daemon on this
-///   Mac (``AgentPaneModel/pendingAsksSocket``); no socket (a chat on another machine, a pane
-///   before its handshake) or no client answers `chat.rows.off` and the page runs v1.
+///   Mac (``AgentPaneModel/pendingAsksSocket``). A chat on another machine, or no client, answers
+///   `chat.rows.off` and the page runs v1. A local pane before its handshake has no socket yet:
+///   that chat alone is refused with v1's `transport.no_connection`, none of the four row codes.
 /// - `open` is refused for a chat that is not one of the pane's sessions with the v1 transport's
 ///   code for the same case, `transport.session_not_in_pane`, and no `sub` goes out.
 /// - Hidden is ``AgentPaneFramePacer/nobodySees(_:)`` on the page view, the signal v1's pacer reads;
@@ -26,6 +27,9 @@ final class AgentPaneChatRows: PageProvider {
 
     /// The pane's own daemon socket on this Mac, or nil (tests replace it).
     var socket: @MainActor () -> String?
+    /// Whether the pane's chat runs on another machine, or there is no pane: its rows are
+    /// `chat.rows.off`. A local pane with no socket is one before its handshake (tests replace it).
+    var isRemote: @MainActor () -> Bool
     /// Whether `chat` is one of the pane's sessions (tests replace it).
     var holdsSession: @MainActor (String) -> Bool
     /// Whether nobody can see the page (tests replace it).
@@ -43,6 +47,7 @@ final class AgentPaneChatRows: PageProvider {
 
     init(model: AgentPaneModel?) {
         socket = { [weak model] in model?.pendingAsksSocket }
+        isRemote = { [weak model] in model.map { $0.remoteChat || $0.transport.remoteWire } ?? true }
         holdsSession = { [weak model] session in model?.transport.sessions.contains(session) ?? false }
     }
 
@@ -75,7 +80,7 @@ final class AgentPaneChatRows: PageProvider {
             guard holdsSession(chat) else {
                 throw PageError(code: AgentPaneTransportError.sessionNotInPane.rawValue, message: "This chat is not one of the pane's")
             }
-            guard let host = openHost() else { throw Self.refusal(.off) }
+            let host = try openHost()
             let opened = try await Self.value(host.open(sid: sid, request: request))
             return .object(["sid": .string(opened)])
         case "close":
@@ -103,9 +108,14 @@ final class AgentPaneChatRows: PageProvider {
         hiddenSent = nil
     }
 
-    private func openHost() -> AcpmuxChatRowsHost? {
+    /// The pane's host, made at the first open. Another machine is `chat.rows.off` for the
+    /// document; a local pane with no socket yet refuses this chat alone.
+    private func openHost() throws -> AcpmuxChatRowsHost {
         if let host { return host }
-        guard let path = socket(), !path.isEmpty else { return nil }
+        guard !isRemote() else { throw Self.refusal(.off) }
+        guard let path = socket(), !path.isEmpty else {
+            throw PageError(code: AgentPaneTransportError.noConnection.rawValue, message: "The pane has no connection yet")
+        }
         let host = makeHost(path) { [weak self] script in
             // The host calls from its own queue, once a batch: one main-queue turn runs the page's one call.
             MainDelivery().run { self?.evaluate(script) }
