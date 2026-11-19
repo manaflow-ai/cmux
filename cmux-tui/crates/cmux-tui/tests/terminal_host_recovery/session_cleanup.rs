@@ -229,6 +229,7 @@ fn adopted_replacement_host_terminate_reaps_session_descendant() {
             kitty_graphics_limits: KittyGraphicsLimits::default(),
             seed: b"",
             host_binary: Some(PathBuf::from(bin())),
+            fence_wait: Default::default(),
         },
     )
     .unwrap();

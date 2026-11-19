@@ -41,6 +41,13 @@ public final class NativePopupHost {
     /// The menus AppKit tracks while the popup shows (``MenuTracking``), for ``childMenus``.
     private var menus: MenuTracking?
     private var monitors: [Any] = []
+    /// A popup of ``PopupRowView`` rows that a page opens on a press (``DeclarativePopupHost``,
+    /// ``WebPopupHost``): opened under a held press, it follows that press to its release
+    /// (``PopupPressRelease``). Glass menus follow their own press (GlassMenu).
+    public var followsOpeningPress = false
+    /// The held press the popup opened under, followed to its release (``PopupPressRelease``).
+    private var press: PopupPressRelease?
+    private var pressMonitor: Any?
     /// The menus opened from inside the popup that are tracking now (their top menus).
     private var childMenus: Set<ObjectIdentifier> = []
     /// Where the host observes the app's and windows' notices (tests inject their own).
@@ -191,7 +198,46 @@ public final class NativePopupHost {
             if tooltipEntrance { panel.openTooltipWithEntrance(pivot: pivot) } else { panel.openPopup(pivot: pivot) }
         }
         watch(dismissalWindow ?? window)
+        if opening, followsOpeningPress { followHeldPress(buttons: NSEvent.pressedMouseButtons) }
         return (frame, side)
+    }
+
+    /// The popup opened while the left or right button is held outside it (a page menu button's
+    /// press, a right-click): drags over its rows highlight them and the release picks one
+    /// (``PopupPressRelease``). The release still reaches the window the press began in.
+    func followHeldPress(buttons: Int, at start: CGPoint = NSEvent.mouseLocation,
+                         time: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        stopFollowingPress()
+        guard buttons & 0b11 != 0, !contains(NSApp.currentEvent?.window) else { return }
+        press = PopupPressRelease(panel: panel, start: start, startedAt: time)
+        pressMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDragged, .rightMouseDragged, .leftMouseUp, .rightMouseUp]
+        ) { [weak self] event in
+            guard let self, !self.contains(event.window) else { return event }
+            let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? NSEvent.mouseLocation
+            switch event.type {
+            case .leftMouseDragged, .rightMouseDragged: self.pressDragged(to: point)
+            default: self.pressReleased(at: point, time: event.timestamp)
+            }
+            return event
+        }
+    }
+
+    func pressDragged(to point: CGPoint) { press?.dragged(to: point) }
+
+    func pressReleased(at point: CGPoint, time: TimeInterval) {
+        guard let press else { return }
+        stopFollowingPress()
+        // A release on a submenu's panel (a child window, following the same press) is the
+        // submenu's: the popup stays for it.
+        let onChild = panel.childWindows?.contains { $0.isVisible && $0.frame.contains(point) } ?? false
+        if press.released(at: point, time: time) == .closes, !onChild { dismiss() }
+    }
+
+    private func stopFollowingPress() {
+        press = nil
+        if let pressMonitor { NSEvent.removeMonitor(pressMonitor) }
+        pressMonitor = nil
     }
 
     /// Closes the popup (fading toward its anchor) without calling ``onDismiss``.
@@ -276,6 +322,7 @@ public final class NativePopupHost {
     }
 
     private func unwatch() {
+        stopFollowingPress()
         observers.forEach(center.removeObserver)
         observers = []
         monitors.forEach(NSEvent.removeMonitor)

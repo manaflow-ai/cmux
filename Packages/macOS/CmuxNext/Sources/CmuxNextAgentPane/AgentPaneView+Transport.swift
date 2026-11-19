@@ -117,6 +117,8 @@ extension AgentPaneView {
             self?.refreshQuestionKeyBinding()
             self?.refreshOtherInstallNotice()
             self?.shownPushes.onSessionChange?() // the new chat's owed work (AgentPaneOwedWork)
+            // A painted page that moved to another chat shows it (``AgentPaneSeenChats``).
+            if let model = self?.model, model.hasPainted, let session = model.sessionId { AgentPaneTailCache.shared.seen.noteShown(session) }
         }
         model.transport.deliver = { [weak self] event, done in
             guard let self else { return done() }

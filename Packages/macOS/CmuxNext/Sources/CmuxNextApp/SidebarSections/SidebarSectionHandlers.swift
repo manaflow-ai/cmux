@@ -4,6 +4,7 @@ import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextApps
+import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextSidebar
 
@@ -144,6 +145,12 @@ enum SidebarSectionHandlers {
             let title = invocation["title"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
             return .sectionAdd(LayoutSection(id: .mint(), title: title ?? SidebarSectionStrings.untitledSection, region: region, look: .list),
                                index: region == .middle ? 0 : Int.max)
+        }
+        // The Team section (team Cloud sessions, CloudTeamFeature) is a bottom app section the app draws itself.
+        bind("cloud.team.showSection", unavailable: { services.cloud.isSignedIn ? nil : CloudTeamStrings.signedOut }) { _, doc in
+            guard !doc.sections.contains(where: { $0.contribution == CloudTeamFeature.contribution }) else { return nil }
+            return .sectionAdd(LayoutSection(id: .mint(), title: CloudTeamStrings.sectionTitle, region: .bottom, look: .list,
+                                             content: .app, contribution: CloudTeamFeature.contribution), index: Int.max)
         }
         bind("sidebar.section.rename") { invocation, doc in
             let section = try SidebarSectionResolve.section(invocation.target, in: doc)
