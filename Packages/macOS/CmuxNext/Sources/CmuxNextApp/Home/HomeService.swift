@@ -213,7 +213,7 @@ final class HomeService {
         // MessagesLab's flight recorder (HomeTunables): DEV on, NIGHTLY opt-in, Release and RC never.
         HomeFlightRecording.install(available: DevTools.isEnabled,
                                     logFolder: Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "cmux")
-        wireHostedChief()
+        wireHostedChief(); dock.mark = { DebugTimings.markLaunch($0) }
     }
 
     /// Observes the Chief owner: each new connection reloads the list and
