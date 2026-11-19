@@ -20,7 +20,7 @@
           },
           "help": {
             "key": "settings.agentPane.outsideRoots.help",
-            "text": "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open."
+            "text": "What a link to a file outside the chat's folders does. Keys and .env files never open."
           },
           "summary": {
             "key": "settings.agentPane.outsideRoots.summary",
@@ -138,7 +138,7 @@
           },
           "help": {
             "key": "settings.agentPane.needsYou.help",
-            "text": "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs."
+            "text": "A badge in the chat header counts what your agents wait on."
           },
           "kind": "toggle",
           "default": false,

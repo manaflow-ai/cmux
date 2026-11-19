@@ -5,7 +5,7 @@
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { categoryById, homes, categoryOf } from "./categories";
 import { personalizationPartOf } from "./personalizationParts";
-import type { AgentsState, ChannelsState, LibraryListing, SharesState, TailnetState, KeysState } from "./ops";
+import type { AgentsState, ChannelsState, KeysState, SharesState, TailnetState, LibraryListing } from "./ops";
 import { settingsKeys } from "./queries";
 import type { SettingsStore } from "./store";
 
@@ -131,6 +131,8 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
     reads.push({ options: { queryKey: settingsKeys.themeColors }, revalidate: false });
   if (cards.has("accounts")) reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
   if (cards.has("harnesses")) reads.push({ options: { queryKey: settingsKeys.harnesses }, revalidate: false });
+  if (cards.has("models") || cards.has("cloudModels"))
+    reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
   if (cards.has("customizeLibrary")) reads.push({ options: libraryQuery(store), revalidate: true });
