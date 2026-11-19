@@ -131,7 +131,7 @@ const STDIO_MCP_SERVERS: [&str; 9] = [
     "forum-mcp",
     "offer-mcp",
     "secret-mcp",
-    "cua-mcp",
+    "computer-use-mcp",
     "repo-mcp",
     "hosted-mcp",
     "github-mcp",
@@ -497,7 +497,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 errors::exit_with(&anyhow::Error::new(app), cli.json)
             }
         },
-        Some(Command::CuaMcp) => crate::cua_v2::run_bridge().await,
+        Some(Command::ComputerUseMcp) => crate::computer_use::mcp::run(false).await,
         Some(Command::SecretMcp) => crate::secret_mcp::run().await,
         Some(Command::OfferMcp) => crate::offer_mcp::run().await,
         Some(Command::SubsessionMcp) => crate::subsession_mcp::run().await,
@@ -575,7 +575,7 @@ mod tests {
             "forum-mcp",
             "offer-mcp",
             "secret-mcp",
-            "cua-mcp",
+            "computer-use-mcp",
             "repo-mcp",
             "hosted-mcp",
             "github-mcp",
