@@ -4631,9 +4631,11 @@ class InFlightRunListingTests(unittest.TestCase):
         self.assertEqual(len(ids), 400)  # four full pages, then the empty fifth: no cap at three
 
 
-def github_listing(runs, *, result_pages=10):
+def github_listing(runs, *, result_pages=10, count_cap=None):
     """A janitor client whose run listing answers like GitHub: newest first, 100 a page, `status` and
-    `created<=` filters, and nothing past `result_pages` pages (its 1,000-result cap). Returns (client, asked)."""
+    `created<=` filters, and nothing past `result_pages` pages (its 1,000-result cap). `count_cap` caps
+    total_count the way GitHub's filtered listing does (2,500 for `status=queued` on 2026-11-18 while about
+    3,600 runs were queued). Returns (client, asked)."""
     github = janitor.GitHub("token", "manaflow-ai/cmux")
     asked = []
     ordered = sorted(runs, key=lambda run: (run["created_at"], run["id"]), reverse=True)
@@ -4646,7 +4648,8 @@ def github_listing(runs, *, result_pages=10):
         rows = [run for run in ordered if run["status"] == status
                 and (not created or run["created_at"] <= created.removeprefix("<="))]
         batch = rows[(page - 1) * 100:page * 100] if page <= result_pages else []
-        return {"workflow_runs": batch, "total_count": len(rows)}
+        count = len(rows) if count_cap is None else min(len(rows), count_cap)
+        return {"workflow_runs": batch, "total_count": count}
 
     github.request = request
     return github, asked
@@ -4686,6 +4689,25 @@ class FullQueueListingTests(unittest.TestCase):
         self.assertIs(state["truncated"], True)
         self.assertEqual((state["listed"], state["total"]), (200, 500))
         self.assertIs(state["statuses"]["queued"]["truncated"], True)
+
+    def test_a_capped_total_count_never_reads_below_the_runs_listed(self):
+        # 2026-11-18 15:12Z: "Listed 4680 of 3255 in-flight runs" (queued 3948/2500): GitHub's total_count for
+        # status=queued stops at 2,500, so the total read below what the sweep had listed.
+        github, _ = github_listing(queued_runs(3000), count_cap=2500)
+        github.in_flight_runs()
+        state = janitor.listing_state(github, set())
+        self.assertEqual((state["truncated"], state["listed"], state["total"]), (False, 3000, 3000))
+        self.assertIn("Listed 3000 of 3000 in-flight runs", janitor.render_listing(state))
+        # Cut by the page ceiling, the total is only a lower bound, and says so.
+        github, _ = github_listing(queued_runs(3000), count_cap=2500)
+        with mock.patch.object(janitor, "MAX_RUN_PAGES", 20):
+            github.in_flight_runs()
+        state = janitor.listing_state(github, set())
+        self.assertIs(state["truncated"], True)
+        self.assertLess(state["listed"], 3000)
+        self.assertGreaterEqual(state["total"], state["listed"])
+        self.assertIs(state["statuses"]["queued"]["total_at_least"], True)
+        self.assertIn(f"Listed {state['listed']} of at least 2500 in-flight runs", janitor.render_listing(state))
 
     def test_runs_left_past_the_job_listing_cap_truncate_the_listing(self):
         runs = [make_run(status="queued", age=age, branch=f"b{age}") for age in (5, 10, 15)]
