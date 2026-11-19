@@ -152,6 +152,30 @@
             "theme",
             "labs"
           ]
+        },
+        {
+          "key": "labs.agentCustomization",
+          "note": "Opt-in Claude Code and Codex customization (cmux-agent-customize, `cmux agent-config`): Settings > MCP Servers shows and edits the MCP servers the person gave Claude Code (~/.claude.json, .mcp.json) and Codex (~/.codex/config.toml, .codex/config.toml, plugins) in those agents own files. Off by default; off shows only cmux own servers, as before. Leo 2026-11-19: \"when I say Claude Code, when I say Codex [...] I need you guys to be, like, doing the thing.\"",
+          "title": {
+            "key": "settings.labs.agentCustomization",
+            "text": "Claude Code and Codex Customization"
+          },
+          "help": {
+            "key": "settings.labs.agentCustomization.help",
+            "text": "Show and edit the MCP servers Claude Code and Codex use, in their own config files."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "claude",
+            "codex",
+            "mcp",
+            "servers",
+            "customize",
+            "agent",
+            "config",
+            "labs"
+          ]
         }
       ]
     }

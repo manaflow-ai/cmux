@@ -6,6 +6,8 @@
 
 #[cfg(unix)]
 mod action_hint;
+#[cfg(unix)]
+mod agent_config;
 mod agent_input_hint;
 mod agent_message;
 #[cfg(unix)]
@@ -831,6 +833,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     };
     #[cfg(unix)]
     if let Some(code) = agent_start::run_if_requested(args)
+        .or_else(|| agent_config::run_if_requested(args))
         .or_else(|| chat_start::run_if_requested(args))
         .or_else(|| mcp::run_if_requested(args))
         .or_else(|| workflow::run_if_requested(args))
