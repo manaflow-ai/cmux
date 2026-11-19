@@ -19,6 +19,9 @@ import Observation
 /// client-local: it only changes which workspace this window shows.
 final class SidebarBridge {
     let model = SidebarCollapsedSections(defaults: .standard).restoring(SidebarModel())
+    /// Client-only machine groups. The model owns grouping and pagination; the bridge only supplies
+    /// the daemon transport and puts its transient rows beside the other top items.
+    let remoteMachines = RemoteMachinesSidebar()
     let container: SidebarContainerView
     unowned let services: AppServices
     /// Weak: a daemon command's `Task` can outlive the window.
@@ -121,6 +124,7 @@ final class SidebarBridge {
             focus.send(.focusTarget(.content, source: .keyboard))
         }
         seedFromSnapshot(state)
+        bindRemoteMachines()
         // Clear until real content (`markReadyForReveal`, or the deadline); a no-op once it is ready.
         services.launchReveal.hold(container, until: .sidebar)
         observe()
@@ -135,8 +139,21 @@ final class SidebarBridge {
         sectionsPass?.cancel()
         appSections?.releaseAll()
         cardsObservation?.cancel()
+        remoteMachines.stop()
         container.sidebarView.tearDownSpaceWindowMarks() // a retained closed window keeps its views (#38333 review)
         container.sidebarView.updateSurfaces = nil // the update surface pages cancel their subscriptions (cx-urd.61.2)
+    }
+
+    /// Connects the native sidebar model to this app's acpmux mirror. Peer/session reads are bounded
+    /// by the transport client; lane updates remain event-driven through the shared turn-state feed.
+    private func bindRemoteMachines() {
+        let socket = QuitAgents.environment(services)?.socketPath ?? services.agentLanes.socketPath
+        remoteMachines.bind(host: .host(socketPath: socket,
+            displayName: { [weak services] peer in services?.machines.machineName(peer: peer) },
+            open: { [weak services] lane in
+                guard let services else { return }
+                SidebarPriorityFeed.open(lane, services: services)
+            }))
     }
 
     private func observe() {

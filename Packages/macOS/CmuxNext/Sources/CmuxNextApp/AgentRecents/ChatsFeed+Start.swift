@@ -23,6 +23,11 @@ extension ChatsFeed {
         let turns = AgentTurnStateFeed.shared ?? AgentTurnStateFeed(socketPath: environment.socketPath, lanes: services.agentLanes,
                                                                    peerSessionChanged: { [updates = services.daemonUpdates] in updates.peerSessionChanged($0, stale: $1) })
         AgentTurnStateFeed.shared = turns
+        // One app-level fan-out keeps every open window's remote groups in
+        // sync without chaining callbacks as windows are created and closed.
+        turns.peerStateChanged = { [weak services] peer, state in
+            services?.windows.controllers.forEach { $0.sidebar.remoteMachines.peerStateChanged(peer: peer, state: state) }
+        }
         AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
         // Chat uploads the app wrote go once past their age, at launch (``AgentChatUploads``).
         AgentChatUploads.sweepInBackground()
