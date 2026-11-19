@@ -472,6 +472,25 @@ struct CmuxRemoteSharingSetupTests {
         #expect(fixture.consent)
     }
 
+    /// A native Share click with both grants ready shows no sheet, so it never records the standing
+    /// yes the overview sheet names (review of #47312).
+    @Test func aSheetlessNativeShareKeepsNoStandingYes() async throws {
+        let fixture = Fixture(permissions: (true, true), answers: [])
+        let setup = fixture.setup()
+
+        #expect(try await setup.proceed(after: "continue", remembersYes: false, present: fixture.present))
+        #expect(fixture.enables == 1)
+        #expect(fixture.presented.isEmpty)
+        #expect(fixture.remembers == 0)
+        #expect(!fixture.consent)
+    }
+
+    /// The overview sheet, the only one whose answer records the yes, says what the yes allows.
+    @Test func theOverviewNamesTheStandingYes() {
+        let lines = CmuxRemoteSharingSetup.spec(.overview).lines.joined(separator: " ")
+        #expect(lines.contains("without asking"))
+    }
+
     @Test func eachGuideStepHasAStableIdentifierAndCancel() {
         for step in CmuxRemoteSharingSetup.Step.allCases {
             let spec = CmuxRemoteSharingSetup.spec(step)
