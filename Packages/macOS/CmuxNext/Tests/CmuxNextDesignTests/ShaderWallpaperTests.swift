@@ -11,7 +11,7 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct ShaderWallpaperTests {
     @Test func everyShaderIsAPickerChoiceTheSettingReadsBack() {
         let ids = BackdropCatalog.shaders.map(\.id)
-        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field"])
+        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field", "shader:aero"])
         for choice in BackdropCatalog.shaders {
             #expect(BackdropSelection(id: choice.id) == choice, "\(choice.id) does not read back")
             #expect(choice.pickerCollection?.id == BackdropShader.collection)
