@@ -1597,8 +1597,9 @@
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
   grid-row: 2;
-  align-self: start;
-  margin: var(--acpmux-prompt-control-top) 0 0 var(--acpmux-composer-inset);
+  align-self: var(--acpmux-prompt-control-align, start);
+  margin: var(--acpmux-prompt-control-above, var(--acpmux-prompt-control-top)) 0 var(--acpmux-prompt-control-below, 0)
+    var(--acpmux-composer-inset);
 }
 .acpmux-composer-inner > .acpmux-composer-plus {
   display: flex;
@@ -1608,20 +1609,19 @@
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
   grid-row: 2;
-  align-self: start;
-  margin: var(--acpmux-prompt-control-top) var(--acpmux-composer-inset) 0 0;
+  align-self: var(--acpmux-prompt-control-align, start);
+  margin: var(--acpmux-prompt-control-above, var(--acpmux-prompt-control-top)) var(--acpmux-composer-inset)
+    var(--acpmux-prompt-control-below, 0) 0;
 }
 /* A capped draft keeps the controls below its scrollbar. The edge marks exclude temporary
-   overflow while a short draft grows, so wrapping a line never moves the controls. */
-.acpmux-composer-box[data-composer-grid]:has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
-  .acpmux-composer-inner > :not(.acpmux-composer-actions) {
-  align-self: end;
-  margin: 0 0 var(--acpmux-prompt-control-top) var(--acpmux-composer-inset);
-}
-.acpmux-composer-box[data-composer-grid]:has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom]))
-  .acpmux-composer-inner > .acpmux-composer-actions {
-  align-self: end;
-  margin: 0 var(--acpmux-composer-inset) var(--acpmux-prompt-control-top) 0;
+   overflow while a short draft grows, so wrapping a line never moves the controls. The `:has()`
+   rule's subject is the box itself, which hands the bar's controls their placement through these
+   properties: a `:has()` rule whose subject is any child of the bar (`> :not(...)`) makes every
+   `:has()` change in the page restyle those elements (css-invalidation-scope.test.ts). */
+.acpmux-composer-box[data-composer-grid]:has(.acpmux-md-field:is([data-fade-top], [data-fade-bottom])) {
+  --acpmux-prompt-control-align: end;
+  --acpmux-prompt-control-above: 0px;
+  --acpmux-prompt-control-below: var(--acpmux-prompt-control-top);
 }
 /* The right inset less the minimal scroller's reserved lane (markdownField.css). */
 .acpmux-composer-box[data-composer-grid] .acpmux-md-field {
