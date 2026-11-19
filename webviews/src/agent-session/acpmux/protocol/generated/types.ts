@@ -202,6 +202,12 @@ export interface AttachParams {
   /** Default 2000. */
   limit?: (number | null);
   maxBytes?: (number | null);
+  /**
+   * True: the client draws nothing of the chat while it is hidden (`visible: false`), so the
+   * agent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends
+   * one `_acpmux/lagged` naming the chat (`server/view.rs`); default false.
+   */
+  quietHidden?: (boolean | null);
   sessionId: string;
   /**
    * Answer from the chat's settled view first (`settled-attach-v1`,
