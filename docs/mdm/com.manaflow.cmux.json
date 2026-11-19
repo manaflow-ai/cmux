@@ -4496,6 +4496,12 @@
       "title" : "End Sharing When cmux Quits",
       "type" : "boolean"
     },
+    "remote.shareWithOwnDevicesByDefault" : {
+      "default" : false,
+      "description" : "On: your other devices view this Mac with no Allow, until you stop sharing.",
+      "title" : "Share With My Devices by Default",
+      "type" : "boolean"
+    },
     "remote.ultra" : {
       "default" : "auto",
       "description" : "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data.",

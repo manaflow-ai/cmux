@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 622,
+  "count": 623,
   "sections": [
     {
       "id": "general",
@@ -1196,6 +1196,14 @@
           "key": "remote.endSharingOnQuit",
           "title": "End Sharing When cmux Quits",
           "help": "Off: this Mac stays available to your devices while cmux is quit.",
+          "kind": "toggle",
+          "default": false,
+          "group": "cmux Remote"
+        },
+        {
+          "key": "remote.shareWithOwnDevicesByDefault",
+          "title": "Share With My Devices by Default",
+          "help": "On: your other devices view this Mac with no Allow, until you stop sharing.",
           "kind": "toggle",
           "default": false,
           "group": "cmux Remote"

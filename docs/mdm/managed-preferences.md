@@ -690,6 +690,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `macScreen.systemShortcuts` | boolean | `false` |  | Send System Shortcuts to the Remote Mac. Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility. |
 | `macScreen.debug.relayOnly` | boolean | `false` |  | Relay Only. Mac Screen tabs connect only through the relay, to test it. |
 | `remote.endSharingOnQuit` | boolean | `false` |  | End Sharing When cmux Quits. Off: this Mac stays available to your devices while cmux is quit. |
+| `remote.shareWithOwnDevicesByDefault` | boolean | `false` |  | Share With My Devices by Default. On: your other devices view this Mac with no Allow, until you stop sharing. |
 | `remote.ultra` | string | `"auto"` | `off`, `auto`, `always` | Ultra Connection Mode. Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data. |
 | `deviceHub.url` | string | `""` |  | Device Hub Address. The device hub for Mac Screen sharing. Empty uses the built-in one. |
 | `contextMenus.showCustomizeItem` | boolean | `true` |  | Show Customize Menu…. Adds Customize Menu… to the end of every right-click menu. |

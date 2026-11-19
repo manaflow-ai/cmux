@@ -9962,6 +9962,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>On: your other devices view this Mac with no Allow, until you stop sharing.</string>
+			<key>pfm_name</key>
+			<string>remote.shareWithOwnDevicesByDefault</string>
+			<key>pfm_title</key>
+			<string>Share With My Devices by Default</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>auto</string>
 			<key>pfm_description</key>
 			<string>Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data.</string>
