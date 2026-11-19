@@ -185,6 +185,36 @@ fn a_theme_file_sets_the_terminal_font_and_the_sidebar_shape() {
     );
 }
 
+/// Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a lot
+/// deeper too. prob likewise the session info and the top right buttons as
+/// well". A theme sets the toolbar's buttons, Session Info and the sidebar's
+/// buttons, and carries its own density (the app reads it), which the
+/// schema checks.
+#[test]
+fn a_theme_file_sets_the_buttons_session_info_and_its_own_density() {
+    let file = overlay(
+        r#"{ "tabs.toolbarButtons": ["file.open"], "window.titlebarButtons": "always", "sidebar.showSearchButton": false, "agentPane.display.sessionInfo.placement": "overlay", "density": { "basedOn": "compact", "tokens": { "tabCornerRadius": 2 } } }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(
+        file.keys(),
+        [
+            "agentPane.display.sessionInfo.placement",
+            "sidebar.showSearchButton",
+            "tabs.toolbarButtons",
+            "window.titlebarButtons"
+        ]
+    );
+    let schema = Schema::embedded().theme_file_json_schema(is_look);
+    let validator = jsonschema::validator_for(&schema).expect("a valid schema");
+    assert!(
+        validator
+            .is_valid(&json!({"density": {"basedOn": "cozy", "tokens": {"sidebarWidth": 250}}}))
+    );
+    assert!(!validator.is_valid(&json!({"density": {"basedOn": "huge"}})));
+    assert!(!validator.is_valid(&json!({"density": {"tokens": {"tabCornerRadius": "round"}}})));
+}
+
 #[test]
 fn a_relative_picture_resolves_against_the_themes_folder() {
     let folder = Path::new("/tmp/cmux-config/themes");

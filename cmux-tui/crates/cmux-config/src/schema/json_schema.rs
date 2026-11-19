@@ -76,6 +76,25 @@ impl Schema {
             }),
         );
         root.insert(
+            "density".into(),
+            json!({
+                "type": "object",
+                "description": "The look's own density: the shape of every tab and sidebar row, the toolbar's buttons and the sidebar's width. A built-in (basedOn) with the Density Playground's tokens over it; it is the density in use while the file applies.",
+                "properties": {
+                    "basedOn": { "enum": ["ultraCompact", "compact", "cozy", "comfortable", "spacious"] },
+                    "level": { "type": "number" },
+                    "spacing": { "type": "number" },
+                    "fontSize": { "type": "number" },
+                    "tokens": {
+                        "type": "object",
+                        "description": "Density Playground tokens by name (tabCornerRadius, sidebarCornerRadius, sidebarWidth, browserRowHeight, toolbarGlyphSize, ...), in points.",
+                        "additionalProperties": { "type": "number", "minimum": 0 },
+                    },
+                },
+                "additionalProperties": false,
+            }),
+        );
+        root.insert(
             crate::theme_file::sounds::KEY.into(),
             crate::theme_file::sounds::json_schema(),
         );
