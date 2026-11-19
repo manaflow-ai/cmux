@@ -492,13 +492,15 @@ fn burst(daemon: &Daemon, scripts: &Path, payload_path: &Path, label: &str, view
         "threads": busiest(&before, &after, wall),
     });
     if let Some(attached) = attached {
-        // The viewer's tail: wait until it has had no output for 300 ms.
+        // The viewer's tail: wait until it has every payload byte, or no output
+        // for 5 s. A shorter quiet wait ended the row inside a daemon pause (a
+        // resize's reflow), so bytes still on their way read as never sent.
         let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             let stats = attached.stats();
-            let quiet =
-                stats.last_output.is_none_or(|at| at.elapsed() > Duration::from_millis(300));
-            if quiet || Instant::now() > deadline {
+            let whole = stats.output_bytes >= bytes as u64;
+            let quiet = stats.last_output.is_none_or(|at| at.elapsed() > Duration::from_secs(5));
+            if whole || quiet || Instant::now() > deadline {
                 break;
             }
             std::thread::sleep(Duration::from_millis(50));
@@ -675,13 +677,15 @@ fn terminal_throughput_by_stage() {
             .collect();
         let viewer = row.get("viewer").map_or(String::new(), |v| {
             format!(
-                "{} outputs, {} B each, {} replays, {:.1} MB/s to last output, viewer {} % CPU ({} % decoding)",
+                "{:.1} MB in {} outputs, {} B each, {} replays, {:.1} MB/s to last output, viewer {} % CPU ({} % decoding), events {}",
+                v["output_bytes"].as_f64().unwrap_or(0.0) / 1e6,
                 v["outputs"],
                 v["bytes_per_output"],
                 v["replays"],
                 v["mb_s_to_last_output"].as_f64().unwrap_or(0.0),
                 v["viewer_cpu_pct"],
-                v["decode_pct"]
+                v["decode_pct"],
+                v["other_events"]
             )
         });
         table.push_str(&format!(
