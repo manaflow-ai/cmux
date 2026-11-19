@@ -648,7 +648,7 @@ fn a_repo_with_no_preview_is_refused_and_that_is_kept_too() {
     };
     for _ in 0..2 {
         let Err(failure) =
-            preview(&customize, "manaflow-ai/newtab-threads-look", Scheme::Light, &mut get, 5)
+            preview(&customize, "manaflow-ai/studio-look", Scheme::Light, &mut get, 5)
         else {
             panic!()
         };
