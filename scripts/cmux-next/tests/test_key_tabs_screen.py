@@ -36,6 +36,7 @@ class KeyTabsApp(close.CloseApp):
         self.actions, self.order = [], []  # each action that makes a tab, and the order of the calls by kind
         # The workspace that the app shows, each `goToWorkspace` action, and whether the app goes there when asked.
         self.shows, self.went, self.goes = "ws-0", [], True
+        self.tree = None  # the screens of each workspace in the app's list, with their panes and tabs (None: the list has none)
         # `refuse_from`: the app refuses each action from this number on. `unlisted`: the numbers of the actions that
         # the app takes and whose tab it never lists. `provisional_reads`: the reads of the list in which a new tab
         # has its provisional id (`pending`: the reads that are left for a tab).
@@ -57,7 +58,7 @@ class KeyTabsApp(close.CloseApp):
             self.order.append("window")
             return self.window_focus(params)
         if method == "snapshot.get":
-            listed = [{"id": f"ws-{n}", "name": f"workspace {n}"} for n in range(self.workspaces)]
+            listed = [{"id": f"ws-{n}", "name": f"workspace {n}", **({"screens": self.tree} if self.tree else {})} for n in range(self.workspaces)]
             return {"topology": {"workspaces": listed, "focus": {"workspace": self.shows}}}
         if method == "action.run" and action == "goToWorkspace":
             self.went.append(params)
@@ -204,11 +205,23 @@ class KeyTabsTests(unittest.TestCase):
         self.assertEqual((app.order[:3], app.order.count("workspace"), app.order.count("window")), (["workspace", "window", "action"], 1, 1))
         self.assertEqual(app.window_calls, [{"window": "window-1", "activate": True}])
         self.assertEqual(report["key_workspace"], {"is": "a workspace of the made session", "id": "ws-3", "name": "workspace 3",
-                                                   "shown_by_the_app": True, "by": "action.run goToWorkspace, then snapshot.get's focus"})
-        self.assertEqual(report["head"], ["the app was active: yes", "the key's workspace: a workspace of the made session (workspace 3)"])
-        self.assertIn("NEW-SURFACE-SCREEN-HEAD the app was active: yes; the key's workspace: a workspace of the made session (workspace 3)",
-                      said.splitlines())
+                                                   "shown_by_the_app": True, "by": "action.run goToWorkspace, then snapshot.get's focus",
+                                                   "terminals_before_shown": None})
+        self.assertEqual(report["head"], ["the app was active: yes", "the key's workspace: a workspace of the made session (workspace 3)",
+                                          "the ask for the active app: 1 reads of the app's answer, 0 s from the ask to the answer",
+                                          "the key's workspace's terminals before the app showed it: NOT KNOWN (the app's list has no such fact)"])
+        self.assertIn("NEW-SURFACE-SCREEN-HEAD " + "; ".join(report["head"]), said.splitlines())
         self.assertEqual([(row["app_active"], row["shell_window_is_key"], row["invalid"]) for row in report["rows"]], [(True, True, [])] * 2)
+
+    def test_the_head_says_the_made_workspaces_terminals_before_the_app_showed_it_by_the_apps_own_list(self):
+        app = KeyTabsApp(self.folder)
+        # The app's list of a workspace's tabs: a terminal with no shell (a parked one reads so), one with a shell, a page.
+        app.tree = [{"panes": [{"tabs": [{"id": "a", "kind": "pty", "dead": True}, {"id": "b", "kind": "pty", "dead": False},
+                                         {"id": "c", "kind": "browser", "dead": False}]}]}]
+        report, _ = self.run_mode(app, key_tabs=[6], keys="t")
+        self.assertEqual(report["key_workspace"]["terminals_before_shown"], {"terminals": 2, "with_no_shell": 1})
+        self.assertEqual(report["head"][3], "the key's workspace's terminals before the app showed it: 1 of 2 with no shell by the app's list "
+                                            "(`dead`; a parked terminal reads so, and its shell starts when the app shows its workspace)")
 
     def test_a_made_workspace_that_the_app_does_not_show_ends_the_run_before_the_ask_a_tab_or_a_case(self):
         app = KeyTabsApp(self.folder)

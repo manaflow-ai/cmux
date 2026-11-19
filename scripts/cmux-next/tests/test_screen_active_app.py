@@ -67,13 +67,14 @@ class ActiveAppTests(unittest.TestCase):
         asked = app.names.index("debug.window.focus")
         self.assertTrue(all(asked < app.names.index(call) for call in ("frame_strip", "debug.key")), app.names)
         self.assertEqual(report.get("activation"), {"by": "debug.window.focus", "asked": ASK, "reply": {"key": "window-1", "front": "window-1"},
-                                                    "app_active": True, "shell_window_is_key": True, "reads": 1})
+                                                    "app_active": True, "shell_window_is_key": True, "reads": 1, "seconds": 0.0})
         # Each row says the app's own answer, read directly before its recording.
         self.assertEqual([(row.get("app_active"), row.get("shell_window_is_key"), row["invalid"]) for row in report["rows"]], [(True, True, [])] * 3)
+        # The head: the app, the workspace of the keys, and how long the app took to become active.
         self.assertEqual(report["head"], ["the app was active: yes",
-                                          "the key's workspace: the workspace that the app showed at its launch (the tool asked for no other)"])
-        self.assertIn("NEW-SURFACE-SCREEN-HEAD the app was active: yes; the key's workspace: the workspace that the app showed at its "
-                      "launch (the tool asked for no other)", said.splitlines())
+                                          "the key's workspace: the workspace that the app showed at its launch (the tool asked for no other)",
+                                          "the ask for the active app: 1 reads of the app's answer, 0 s from the ask to the answer"])
+        self.assertIn("NEW-SURFACE-SCREEN-HEAD " + "; ".join(report["head"]), said.splitlines())
         self.assertEqual(report["cases"]["cmd-w/idle"]["active"], {"app_active": {"yes": 1, "of": 1}, "shell_window_is_key": {"yes": 1, "of": 1}})
 
     def test_an_app_that_does_not_become_active_ends_the_run_before_a_case(self):
@@ -88,7 +89,8 @@ class ActiveAppTests(unittest.TestCase):
         self.assertEqual(report["head"][0], "the app was active: no")
         self.assertEqual(said.splitlines()[-1], f"NEW-SURFACE-SCREEN report only: 0 rows, 0 INVALID, 0 pictures kept; STOPPED {report['stopped']}")
         # The tool reads the app's answer again for a time before it ends the run, and it asks one time only.
-        self.assertEqual(report["activation"]["reads"], new_surface_screen.ACTIVE_READS)
+        self.assertEqual((report["activation"]["reads"], report["activation"].get("seconds")), (new_surface_screen.ACTIVE_READS, 9.8))
+        self.assertEqual(report["head"][2], "the ask for the active app: 50 reads of the app's answer, 9.8 s from the ask to the answer")
 
     def test_an_active_app_whose_window_is_not_the_key_window_ends_the_run(self):
         app = App(self.folder)
@@ -103,6 +105,7 @@ class ActiveAppTests(unittest.TestCase):
         report, _ = self.run_mode(app, keys="t", gaps="0")
         self.assertEqual(report.get("stopped"), "active: the app lists no window (debug.focus): no tab made, no case recorded")
         self.assertEqual((app.window_calls, report["rows"], app.strips), ([], [], 0))
+        self.assertEqual(report["head"][2], "the ask for the active app: not made")
 
     def test_a_hold_in_an_app_that_is_not_active_is_invalid_and_in_another_case_it_is_a_fact(self):
         app = App(self.folder)
