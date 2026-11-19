@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "chat-disk"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "chat-disk", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -773,6 +773,21 @@ class WebUiTests(unittest.TestCase):
             {"name": "chat_disk.growth_ratio", "p50": 374.0, "p95": 374.0, "unit": "x", "target": 1.2}]},
             budgets_mod, {"rows": {}})
         self.assertEqual(rows["webui.chat_disk.growth_ratio"]["p95"], 374.0)
+
+    def test_the_chat_search_rows_have_their_own_linux_part_and_only_the_keystroke_is_judged(self):
+        self.assertTrue(cron.is_linux_part("chat-search"))
+        self.assertEqual(cron.part_for_row("webui.chat_search.keystroke@linux"), "chat-search")
+        runs = cron.linux_bench_runs("/r", "chat-search")
+        self.assertEqual(list(runs), ["build", "suite"])  # the release build runs first, under its own cap
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/chat-search-linux.sh", "build-only"])
+        self.assertEqual(runs["suite"][0], ["bash", "/r/scripts/measure/chat-search-linux.sh"])
+        rows = cron.rows_of_part(cron.PART_BY_NAME["chat-search"], {"rows": [
+            {"name": "chat_search.keystroke", "p50": 23.7, "p95": 75.1, "unit": "ms", "target": 150}]},
+            budgets_mod, {"rows": {}})
+        self.assertEqual(rows["webui.chat_search.keystroke"]["p95"], 75.1)
+        self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("webui.chat_search.keystroke"))
+        self.assertTrue(cron.REPORT_ONLY_ROW_RE.match("webui.chat_search.fill"))
+        self.assertTrue(cron.REPORT_ONLY_ROW_RE.match("webui.chat_search.scan_keystroke"))
 
     def test_the_million_event_chat_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-million"))
