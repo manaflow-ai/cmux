@@ -10,17 +10,26 @@ public final class HostsSidebar {
     public struct Host {
         public var rows: @MainActor () -> [MachineSectionRow]
         public var add: @MainActor () -> Void
+        public var refresh: @MainActor () async -> Void
+        public var startAging: @MainActor (AnyObject, @escaping @MainActor () -> Bool) -> Void
+        public var stopAging: @MainActor (AnyObject) -> Void
         private var openConnected: @MainActor (String) -> Void
         private var openJoined: @MainActor (JoinedMachine) -> Void
 
         public init(rows: @escaping @MainActor () -> [MachineSectionRow],
                     add: @escaping @MainActor () -> Void,
                     openConnected: @escaping @MainActor (String) -> Void,
-                    openJoined: @escaping @MainActor (JoinedMachine) -> Void) {
+                    openJoined: @escaping @MainActor (JoinedMachine) -> Void,
+                    refresh: @escaping @MainActor () async -> Void = {},
+                    startAging: @escaping @MainActor (AnyObject, @escaping @MainActor () -> Bool) -> Void = { _, _ in },
+                    stopAging: @escaping @MainActor (AnyObject) -> Void = { _ in }) {
             self.rows = rows
             self.add = add
             self.openConnected = openConnected
             self.openJoined = openJoined
+            self.refresh = refresh
+            self.startAging = startAging
+            self.stopAging = stopAging
         }
 
         /// Mesh-only joined Macs use the signed-in dial flow; linked rows use the ordinary workspace action.
@@ -46,11 +55,29 @@ public final class HostsSidebar {
     private static let rowPrefix = prefix + "row:"
 
     @ObservationIgnored private var host: Host?
+    @ObservationIgnored private var initialRefresh: Task<Void, Never>?
     public private(set) var expanded = true
 
-    public init(host: Host? = nil) { self.host = host }
+    public init(host: Host? = nil) {
+        self.host = host
+        if let host {
+            initialRefresh = Task { await host.refresh() }
+            host.startAging(self) { true }
+        }
+    }
 
-    public func bind(host: Host) { self.host = host }
+    public func bind(host: Host) {
+        initialRefresh?.cancel()
+        if let previous = self.host { previous.stopAging(self) }
+        self.host = host
+        initialRefresh = Task { await host.refresh() }
+        host.startAging(self) { true }
+    }
+
+    deinit {
+        initialRefresh?.cancel()
+        host?.stopAging(self)
+    }
 
     /// Rows are transient and therefore never become a second machine catalog or a durable layout item.
     public func rows() -> [SidebarTransientItem] {

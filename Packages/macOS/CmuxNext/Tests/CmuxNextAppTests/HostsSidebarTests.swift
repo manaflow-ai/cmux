@@ -79,4 +79,22 @@ struct HostsSidebarTests {
         #expect(connected == nil)
         #expect(dialed == nil)
     }
+
+    @Test func boundHostRefreshesAndOwnsJoinedMachineAging() async {
+        var refreshes = 0
+        var starts = 0
+        var stops = 0
+        let host = HostsSidebar.Host(rows: { [] }, add: {}, openConnected: { _ in }, openJoined: { _ in },
+                                     refresh: { refreshes += 1 },
+                                     startAging: { _, _ in starts += 1 },
+                                     stopAging: { _ in stops += 1 })
+        let hosts = HostsSidebar(host: host)
+        await Task.yield()
+        #expect(refreshes == 1)
+        #expect(starts == 1)
+
+        hosts.bind(host: .init(rows: { [] }, add: {}, openConnected: { _ in }, openJoined: { _ in },
+                               refresh: {}, startAging: { _, _ in }, stopAging: { _ in }))
+        #expect(stops == 1)
+    }
 }
