@@ -203,7 +203,7 @@ impl Brain {
 }
 
 /// Whether `text` names subagent `id` as a word (`a1` is not in `a12`).
-fn names(text: &str, id: &str) -> bool {
+pub(super) fn names(text: &str, id: &str) -> bool {
     let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
     text.match_indices(id).any(|(at, _)| {
         !word(text[..at].chars().next_back()) && !word(text[at + id.len()..].chars().next())
