@@ -242,12 +242,15 @@ pub(super) fn restore_resource_state(
         let floating = screen
             .floating
             .iter()
-            .filter_map(|entry| {
-                let pane = *pane_slots.get(&entry.pane)?;
-                Some(cmux_layout_reducer::floating_panes::Floating { pane, frame: entry.frame })
-            })
+            .filter_map(|entry| entry.clone().renamed(|pane| pane_slots.get(&pane).copied()))
             .collect::<Vec<_>>();
-        let floating = Screen::settled_floating_panes(&root, &layout_columns, &floating);
+        // `quick-terminal-v1`: a hidden quick terminal never has the focus, so the one that has it shows.
+        let floating = Screen::settled_floating_panes_with_focus(
+            &root,
+            &layout_columns,
+            &floating,
+            active_pane,
+        );
         let zoomed_pane = Screen::zoom_beside_floating_panes(zoomed_pane, &floating);
         let restored_screen = Screen {
             id,
@@ -293,6 +296,8 @@ pub(super) fn restore_resource_state(
         "active-screen metadata does not exactly cover the live workspaces"
     );
     for workspace in &mut workspaces {
+        // `quick-terminal-v1`: a workspace has one quick terminal, also in a store that has 2 marks.
+        workspace.settle_quick_terminals();
         workspace.active_screen = match active_screens[&workspace.public_id].as_ref() {
             Some(active) => {
                 workspace.screens.iter().position(|screen| &screen.public_id == active).ok_or_else(

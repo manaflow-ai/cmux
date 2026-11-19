@@ -216,7 +216,7 @@ final class ScreenContentView: NSView {
         let floatsOnly = floatChange == .frames && self.layout == layout && self.zoomed == zoomed
         let unzooming = self.zoomed && !zoomed
         let zooming = !self.zoomed && zoomed
-        // A newer change, or a second zoom key, ends a zoom's dim that still shows; a zoom of one pane may get one.
+        // A newer change, or a second zoom key, ends a dim that still shows; a zoom whose pane moves gets one with the move.
         // The dim hears the tiled layout's change only: a floating pane that comes or goes brings no dim and ends none.
         zoomDim.layoutWillChange(on: self, to: layout, zoomed: zoomed, structural: tiledChange, onCanvas: canvasState.canvas != nil || canvas != nil, waitsForFrame: snapWaitsForFrame)
         // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
@@ -422,7 +422,7 @@ final class ScreenContentView: NSView {
         // A change that snaps shows at the next frame tick when it resizes a pane. Else it shows in this turn, or, when
         // the turn holds its presentations (a key's sync, a frame tick's input), in the pass that turn asked for. What
         // the change took out goes in the pass that places the panes, never a turn before it.
-        if holdsSnap, !zoomDim.holdsSnap(of: self) { _ = holdsSnapForContent(keyPress: keySnap) }
+        if holdsSnap { zoomDim.sizesWillChange(on: self); _ = holdsSnapForContent(keyPress: keySnap) } // a zoom's sizes too: no dim comes before them
         if !frameInput.snapWaitsForContent, !context.holdsPresentations { beginShowingChange() }
         if presents { applyPresentation() }
         let moving = (animate || floatsOnly) && hasMotion

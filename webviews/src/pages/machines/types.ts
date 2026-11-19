@@ -94,6 +94,7 @@ export interface MachinesSnapshot {
   failed: Record<string, JoinedMachineChange>;
   /** The joined machine whose menu shows as open (the capture fixture's). */
   openMenu?: string;
-  /** The team the Cloud machines belong to (the app's active team), named on the Cloud header. */
+  /** The team the Cloud machines belong to (the app's active team); the Cloud header does not name it
+   *  for now (https://github.com/manaflow-ai/cmux/issues/45695). */
   cloudTeam?: { name: string; personal: boolean };
 }

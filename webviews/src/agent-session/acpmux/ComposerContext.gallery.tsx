@@ -12,8 +12,8 @@ import type { Project } from "./ProjectChooser";
 import { fleetPeers } from "../../gallery/fixtures/acpmux";
 import { thisMacName } from "./environments";
 
-/// The Cloud face says only Cloud, whole, for every team: the team is named on the menu's Cloud row,
-/// never on the chip (Austin, 2026-11-16: "get rid of the austin wang's team part just have cloud and
+/// The Cloud face says only Cloud, whole: neither the chip nor the menu's Cloud row names the team
+/// (https://github.com/manaflow-ai/cmux/issues/45695; Austin, 2026-11-16: "get rid of the austin wang's team part just have cloud and
 /// that's it").
 async function checkCloudFace(ctx: Parameters<Play>[0]) {
   const find = () =>
@@ -807,33 +807,6 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
       play: openFolder,
     },
-    "folder-short-note": {
-      note: "A short pane with a private-folder explanation keeps project rows visible.",
-      props: {
-        ...repoProps,
-        summary: { ...repoProps.summary, cwd: "" },
-        folderNote: "New chats in this workspace start in a private folder.",
-      },
-      play: openFolder,
-    },
-    "folder-short-note-de": {
-      note: "A two-line German private-folder explanation in a short pane.",
-      props: {
-        ...repoProps,
-        summary: { ...repoProps.summary, cwd: "" },
-        folderNote: "Neue Chats in diesem Arbeitsbereich starten in einem privaten Ordner.",
-      },
-      play: openFolder,
-    },
-    "folder-short-note-fr": {
-      note: "A two-line French private-folder explanation in a short pane.",
-      props: {
-        ...repoProps,
-        summary: { ...repoProps.summary, cwd: "" },
-        folderNote: "Les nouvelles discussions de cet espace de travail démarrent dans un dossier privé.",
-      },
-      play: openFolder,
-    },
     "folder-long-list": {
       note: "The actions stay under the list while a long folder list scrolls; the thumb stays inside the right edge.",
       props: {
@@ -1281,56 +1254,6 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"][data-current]'));
       },
     },
-    "environment-picker-cloud-team-row": {
-      note: "Active team (Leo, 2026-11-09: \"i guess is team? it's kinda hard to realize tho\"): the Cloud row names the team Cloud runs in, with the people icon the account menu and Switch Active Team draw on that team's row.",
-      props: {
-        ...baseProps,
-        environments: true,
-        cloudSignedIn: true,
-        cloudTeam: { name: "cmux", personal: false },
-        runMode: { mode: "persistent", onMode: () => undefined },
-      },
-      play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"] .acpmux-team-tag'));
-      },
-    },
-    "environment-picker-cloud-team-closed": {
-      note: "Active team: Cloud picked in a team, the closed control says only Cloud; the team is named on the menu's Cloud row.",
-      props: {
-        ...baseProps,
-        environments: true,
-        cloudSignedIn: true,
-        cloudTeam: { name: "cmux", personal: false },
-        runMode: { mode: "cloud", onMode: () => undefined },
-      },
-      play: checkCloudFace,
-    },
-    "environment-picker-cloud-long-team-closed": {
-      note: "Cloud picked in a team with a long name (Austin Wang's Team): the closed control still says only Cloud, never the team.",
-      props: {
-        ...baseProps,
-        environments: true,
-        cloudSignedIn: true,
-        cloudTeam: { name: "Austin Wang's Team", personal: false },
-        runMode: { mode: "cloud", onMode: () => undefined },
-      },
-      play: checkCloudFace,
-    },
-    "environment-picker-cloud-long-team-row": {
-      note: "The Cloud row with a long team: label left, the team at the trailing edge in the shortcut's caption style (as This Mac's ⌥⌘1), the check in its own column.",
-      props: {
-        ...baseProps,
-        environments: true,
-        cloudSignedIn: true,
-        cloudTeam: { name: "Austin Wang's Team", personal: false },
-        runMode: { mode: "cloud", onMode: () => undefined },
-      },
-      play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"] .acpmux-team-tag'));
-      },
-    },
     "folder-cloud-start-out": {
       note: "A Cloud start is out (the composer takes typing as a draft): the folder chip is a plain label of what the start carries, never this Mac's folder menu.",
       props: {
@@ -1360,20 +1283,10 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='listbox']"));
       },
     },
-    "environment-picker-cloud-personal-closed": {
-      note: "Active team: the person's own team. The closed control says only Cloud, as for a shared team.",
-      props: {
-        ...baseProps,
-        environments: true,
-        cloudSignedIn: true,
-        cloudTeam: { name: "Personal", personal: true },
-        runMode: { mode: "cloud", onMode: () => undefined },
-      },
-      play: checkCloudFace,
-    },
     "environment-picker-cloud-closed": {
       note: "Labs (cloud work mode): the closed control with Cloud picked, as the composer shows it before the first send.",
       props: { ...baseProps, environments: true, runMode: { mode: "cloud", onMode: () => undefined } },
+      play: checkCloudFace,
     },
     "environment-picker-cloud-machines": {
       note: "Machines…: the machines, then the account's Cloud machines acpmux does not list (`cloudMachine.list`) among the other machines, each with its stage: build box is paused (a pick resumes it), eval box is ready (a pick opens it), fresh box is still booting. They take no ⌥⌘ digit and are not greyed.",

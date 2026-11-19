@@ -187,6 +187,7 @@ extension ScreenContentView {
         var changed = force
         let scale = self.scale
         let laysOutNow = window != nil && bounds.width >= 1 && bounds.height >= 1
+        if zoomDim.motion.acts { MotionTrace.begin("layout.place") } // a probe's time of this loop, in the pass that shows an act
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
@@ -241,9 +242,9 @@ extension ScreenContentView {
             if host.isDocked == (scrolls || geometry.floatingCards[pane] != nil) { host.isDocked.toggle() }
             clips.append((host, scrolls))
         }
+        MotionTrace.end("layout.place")
         // The panes this change brought back from a zoom's cover show now, placed.
         if showSnapReturning() { changed = true }
-        zoomDim.panesPlaced(on: self) // an unzoom shows: its dim is over the other panes in this frame, and goes
         // Once every frame is placed: a pane is clipped by the panes in front of it. A host whose
         // clip inputs did not change keeps its clip without recomputing it.
         if presentFloatingCards() { changed = true }
@@ -271,6 +272,7 @@ extension ScreenContentView {
             if let area = shownArea { pointerClip = pointerClip.map { $0.intersection(area) } ?? area }
             view.cursorClip = pointerClip
         }
+        zoomDim.panesPlaced(on: self) // panes and dividers are placed: a split's, a close's and a zoom's panes move; a zoom's dim comes, an unzoom's goes
         // A pan with the finger down is layout motion too (hasMotion leaves user gestures out): motion-time content
         // (divider catcher panels, page windows) waits for the landing. The landing frame's advanceFrame clears it.
         let gesturing = isUserScrolling || rowScrolls.values.contains(where: \.state.isGestureActive)
