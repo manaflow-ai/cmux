@@ -213,6 +213,7 @@ jobs:
       # 2026-11-04 (14:03-15:02Z) at about 54 GITHUB_TOKEN requests a run, six runs an hour. Variable writes stay
       # on SWITCH_TOKEN; a failed mint falls back to the workflow token.
       - name: Point the runner pools at live members
+        id: pools
         if: always() && steps.switch.outcome != 'skipped'
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
@@ -238,6 +239,32 @@ jobs:
             echo "::warning title=Runner pools::no linux pool spill checkout; main's runner_pools.py runs alone"
             python3 scripts/ci/runner_pools.py
           fi
+
+      # A job already queued on a label the step above marked dead keeps that label: the pools
+      # moved, the job did not, and it waits until someone cancels it (2026-11-18: 4, 8 and 16
+      # vCPU dead from 09:32Z while 2 and 32 vCPU served, an outcome the switch leaves alone, and
+      # the cmux-tui tree owners queued there held the NEXT nightly for hours). Re-run every run
+      # stuck PROBE_MINUTES on a dead label no pool names any more, so it picks a live one
+      # (cloud_overflow_switch.dead_labels). Reads RUNNER_POOLS live, after the step above wrote it.
+      # Each run gets one try, and signing, deploy, promotion, rollback and nightly runs are left
+      # alone (DEAD_PROTECTED_WORKFLOW). It runs before the step that ends this run (which would
+      # skip it), so it stays short: at most 10 runs and a 120 s cancel wait in a 5-minute limit,
+      # which with the switch's probe and health waits keeps the job under its 25 minutes.
+      # Only after the pools step succeeded: it writes RUNNER_POOLS before LINUX_RUNNER, and a
+      # half-done pass could leave a variable the re-run reads on the dead label.
+      - name: Re-run runs stranded on a dead label
+        if: always() && steps.switch.outcome != 'skipped' && steps.pools.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SWITCH_TOKEN: ${{ steps.switch-token.outputs.token }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
+          PROBE_MINUTES: ${{ vars.CI_CLOUD_PROBE_MINUTES }}
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
+        run: bash scripts/ci/python-with-yaml.sh scripts/ci/cloud_overflow_switch.py --rescue-dead
 
       # Last, in its own step so the summary above is already saved. If the
       # switch did not observe every probe start (one may still be queued),

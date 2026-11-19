@@ -4631,9 +4631,11 @@ class InFlightRunListingTests(unittest.TestCase):
         self.assertEqual(len(ids), 400)  # four full pages, then the empty fifth: no cap at three
 
 
-def github_listing(runs, *, result_pages=10):
+def github_listing(runs, *, result_pages=10, count_cap=None):
     """A janitor client whose run listing answers like GitHub: newest first, 100 a page, `status` and
-    `created<=` filters, and nothing past `result_pages` pages (its 1,000-result cap). Returns (client, asked)."""
+    `created<=` filters, and nothing past `result_pages` pages (its 1,000-result cap). `count_cap` caps
+    total_count the way GitHub's filtered listing does (2,500 for `status=queued` on 2026-11-18 while about
+    3,600 runs were queued). Returns (client, asked)."""
     github = janitor.GitHub("token", "manaflow-ai/cmux")
     asked = []
     ordered = sorted(runs, key=lambda run: (run["created_at"], run["id"]), reverse=True)
@@ -4646,7 +4648,8 @@ def github_listing(runs, *, result_pages=10):
         rows = [run for run in ordered if run["status"] == status
                 and (not created or run["created_at"] <= created.removeprefix("<="))]
         batch = rows[(page - 1) * 100:page * 100] if page <= result_pages else []
-        return {"workflow_runs": batch, "total_count": len(rows)}
+        count = len(rows) if count_cap is None else min(len(rows), count_cap)
+        return {"workflow_runs": batch, "total_count": count}
 
     github.request = request
     return github, asked
@@ -4686,6 +4689,25 @@ class FullQueueListingTests(unittest.TestCase):
         self.assertIs(state["truncated"], True)
         self.assertEqual((state["listed"], state["total"]), (200, 500))
         self.assertIs(state["statuses"]["queued"]["truncated"], True)
+
+    def test_a_capped_total_count_never_reads_below_the_runs_listed(self):
+        # 2026-11-18 15:12Z: "Listed 4680 of 3255 in-flight runs" (queued 3948/2500): GitHub's total_count for
+        # status=queued stops at 2,500, so the total read below what the sweep had listed.
+        github, _ = github_listing(queued_runs(3000), count_cap=2500)
+        github.in_flight_runs()
+        state = janitor.listing_state(github, set())
+        self.assertEqual((state["truncated"], state["listed"], state["total"]), (False, 3000, 3000))
+        self.assertIn("Listed 3000 of 3000 in-flight runs", janitor.render_listing(state))
+        # Cut by the page ceiling, the total is only a lower bound, and says so.
+        github, _ = github_listing(queued_runs(3000), count_cap=2500)
+        with mock.patch.object(janitor, "MAX_RUN_PAGES", 20):
+            github.in_flight_runs()
+        state = janitor.listing_state(github, set())
+        self.assertIs(state["truncated"], True)
+        self.assertLess(state["listed"], 3000)
+        self.assertGreaterEqual(state["total"], state["listed"])
+        self.assertIs(state["statuses"]["queued"]["total_at_least"], True)
+        self.assertIn(f"Listed {state['listed']} of at least 2500 in-flight runs", janitor.render_listing(state))
 
     def test_runs_left_past_the_job_listing_cap_truncate_the_listing(self):
         runs = [make_run(status="queued", age=age, branch=f"b{age}") for age in (5, 10, 15)]
@@ -5990,6 +6012,135 @@ class OrphanedDispatchRerunTests(unittest.TestCase):
             LostAssignmentSweepTests.sweep(self, fake, temp, "--dry-run")
         self.assertEqual(fake.posts(), [])
         self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+
+
+WEB = ".github/workflows/web-validation.yml"
+HOSTED = "ubuntu-24.04"
+
+
+def web_run(*, status, sha, age, branch="lane/cmux-tui-size-570", path=WEB):
+    return make_run(status=status, sha=sha, age=age, branch=branch, path=path, name="Web validation")
+
+
+def gate_job(*, age, status="queued", runner=None, label=HOSTED):
+    return {"status": status, "name": "web-validation", "labels": [label], "created_at": iso(age),
+            "runner_name": runner}
+
+
+def finished_jobs(age):
+    return [{"status": "completed", "conclusion": "cancelled", "name": "portable light placement",
+             "labels": [HOSTED], "created_at": iso(age), "runner_name": None},
+            {"status": "completed", "conclusion": "skipped", "name": "changes",
+             "labels": [LINUX], "created_at": iso(age), "runner_name": None}]
+
+
+class ConcurrencyHolderTests(unittest.TestCase):
+    """cmux#45922 on 2026-11-18: the 05:07Z run at 46575f8b held web-validation-refs/pull/45922/merge."""
+
+    def setUp(self):
+        self.parked = web_run(status="pending", sha="5eb00df1", age=42)
+        self.holder = web_run(status="queued", sha="46575f8b", age=324)
+        self.jobs = {self.holder["id"]: finished_jobs(324) + [gate_job(age=283)]}
+
+    def holder_of(self, candidates=None, jobs=None):
+        candidates = janitor.holder_candidates(self.parked, candidates or [self.holder])
+        return janitor.concurrency_holder(self.parked, candidates, jobs or self.jobs, now=NOW)
+
+    def test_superseded_run_with_only_a_runnerless_queued_gate_is_the_holder(self):
+        found = self.holder_of()
+        self.assertIsNotNone(found)
+        self.assertIs(found.run, self.holder)
+        self.assertEqual(found.job_name, "web-validation")
+        self.assertIsNone(found.job_id)  # never re-run by orphan_reruns()
+        self.assertIn(f"pending run {self.parked['id']}", found.evidence)
+        self.assertIn("`ubuntu-24.04`", found.evidence)
+
+    def test_a_holder_running_anything_is_kept(self):
+        jobs = {self.holder["id"]: finished_jobs(324) + [gate_job(age=283, status="in_progress", runner="r1")]}
+        self.assertIsNone(self.holder_of(jobs=jobs))
+
+    def test_a_job_with_a_runner_or_waiting_for_approval_keeps_the_run(self):
+        for job in (gate_job(age=283, runner="blacksmith-4vcpu-1"), gate_job(age=283, status="waiting")):
+            self.assertIsNone(self.holder_of(jobs={self.holder["id"]: [job]}), job)
+
+    def test_a_recently_queued_gate_is_not_yet_a_holder(self):
+        self.assertIsNone(self.holder_of(jobs={self.holder["id"]: [gate_job(age=3)]}))
+
+    def test_same_head_newer_other_branch_or_other_workflow_is_never_a_holder(self):
+        others = [web_run(status="queued", sha="5eb00df1", age=324),          # same head: a re-run
+                  web_run(status="queued", sha="46575f8b", age=10),           # newer than the parked run
+                  web_run(status="queued", sha="46575f8b", age=324, branch="other"),
+                  web_run(status="queued", sha="46575f8b", age=324, path=".github/workflows/ci.yml")]
+        self.assertEqual(janitor.holder_candidates(self.parked, others), [])
+
+    def test_only_old_pending_pull_request_runs_are_parked(self):
+        young = web_run(status="pending", sha="x", age=5)
+        push = dict(web_run(status="pending", sha="y", age=60), event="push")
+        parked = janitor.parked_pull_request_runs([young, push, self.parked], now=NOW)
+        self.assertEqual(parked, [self.parked])
+
+    def test_parked_alert_names_the_oldest_run_after_twenty_minutes(self):
+        alert = janitor.parked_alert([self.parked], now=NOW)
+        self.assertTrue(alert.startswith("::error title=Runs parked behind a concurrency group::1 pull request"))
+        self.assertIn(self.parked["html_url"], alert)
+        self.assertIsNone(janitor.parked_alert([web_run(status="pending", sha="z", age=15)], now=NOW))
+
+
+class HolderFakeGitHub(FakeGitHub):
+    def request(self, method, path, body=None, *, app_only=False):
+        bare = path.replace("/repos/manaflow-ai/cmux", "", 1)
+        if method == "GET" and bare.startswith("/actions/workflows/") and "status=queued" in bare:
+            self.calls += 1
+            self.log.append((method, path))
+            name = bare.split("?", 1)[0].split("/")[3]
+            query = urllib.parse.parse_qs(bare.split("?", 1)[1])
+            return {"workflow_runs": [dict(r) for r in self.runs.values() if r["path"].endswith("/" + name)
+                                      and r["head_branch"] == query["branch"][0] and r["status"] == "queued"]}
+        return super().request(method, path, body, app_only=app_only)
+
+
+class HolderSweepTests(unittest.TestCase):
+    def sweep(self, *args):
+        parked = web_run(status="pending", sha="5eb00df1", age=42)
+        holder = web_run(status="queued", sha="46575f8b", age=324)
+        fake = HolderFakeGitHub({r["id"]: dict(r) for r in (parked, holder)},
+                                {holder["id"]: finished_jobs(324) + [gate_job(age=283)]},
+                                ignore_cancel=[holder["id"]])
+        # A backlog pushes the holder past the in-flight listing's pages: only the parked run is listed.
+        fake.in_flight_runs = lambda: [dict(fake.runs[parked["id"]])]
+        printed = []
+        with tempfile.TemporaryDirectory() as temp:
+            summary = Path(temp) / "summary.md"
+            argv = ["--repo", "manaflow-ai/cmux", "--summary", str(summary),
+                    "--workflows-dir", str(Path(temp) / "none"), *args]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                    mock.patch.object(janitor.time, "sleep", lambda _: None), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print", lambda *a, **k: printed.append(" ".join(map(str, a)))):
+                code = janitor.main(argv)
+            return code, fake, summary.read_text(), holder, printed
+
+    def test_live_sweep_force_cancels_a_holder_outside_the_listing(self):
+        code, fake, text, holder, printed = self.sweep()
+        self.assertEqual(code, 0, text)
+        self.assertEqual(fake.posts(), [[str(holder["id"]), "cancel"], [str(holder["id"]), "force-cancel"]])
+        self.assertIn("Concurrency holders", text)
+        self.assertIn("force-cancelled", text)
+        self.assertTrue(any(line.startswith("::error title=Runs parked") for line in printed))
+
+    def test_dry_run_reports_the_holder_and_cancels_nothing(self):
+        code, fake, text, holder, _ = self.sweep("--dry-run")
+        self.assertEqual(code, 0, text)
+        self.assertEqual(fake.posts(), [])
+        self.assertIn("would force-cancel", text)
+        self.assertIn(holder["html_url"], text)
+
+    def test_zero_holder_cap_looks_nothing_up(self):
+        code, fake, text, _, _ = self.sweep("--max-holder-cancels", "0")
+        self.assertEqual(code, 0, text)
+        self.assertFalse(any("status=queued" in path and "/actions/workflows/" in path for _, path in fake.log))
+        self.assertIn("No concurrency holders found.", text)
 
 
 if __name__ == "__main__":
