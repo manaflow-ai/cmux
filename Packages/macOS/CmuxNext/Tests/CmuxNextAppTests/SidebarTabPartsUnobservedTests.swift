@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextBridge
 @testable import CmuxNextBrowser
 @testable import CmuxNextDaemon
+import CmuxNextFavicons
 import CmuxNextRemoteLocalhostService
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -211,6 +212,54 @@ struct SidebarTabPartsUnobservedTests {
         let shows: SidebarFavicon? = marker, none: SidebarFavicon? = nil
         try Self.showsTheChange(session, row, tab: tab.id, before: shows, after: none, what: "favicon", shown: { $0.favicon }) {
             proxied.record(tab.id, store: BrowserMachineStore(machineKey: "0123456789abcdef", machineName: "box", proxyPort: 1))
+        }
+    }
+
+    /// A PNG file of the 1x1 image, as a page's engine gives its favicon to the loader.
+    static func png() throws -> Data {
+        try #require(NSBitmapImageRep(cgImage: try icon()).representation(using: .png, properties: [:]), "setup: no PNG file of the 1x1 image")
+    }
+
+    /// A page whose favicon the app could not fetch shows none while that failure is remembered. Another page of
+    /// the site then loads, and its engine's own fetch puts the icon in the loader's cache: the next map of the row
+    /// shows it for the first page too (#42435). The loader's cache is not observable.
+    ///
+    /// The page function and the input are the app's own, over the app's favicon store and its shared loader. Each
+    /// page of the session has an `http` address on a host of its own: the loader refuses it with no request, so
+    /// each fetch fails at once and the row asks no network. The map after the drain starts no second fetch: the
+    /// failure is remembered.
+    @Test func aPageWhoseFetchFailedShowsTheIconOfTheLoadersCacheAtTheNextMap() async throws {
+        let run = UUID().uuidString.lowercased()
+        let session = try Session(tabs: 6) { tree in
+            for at in tree.workspaces.indices {
+                for tab in tree.workspaces[at].screens[0].panes[0].tabs.indices where tree.workspaces[at].screens[0].panes[0].tabs[tab].kind == .browser {
+                    tree.workspaces[at].screens[0].panes[0].tabs[tab].url = "http://page-\(at)-\(tab)-\(run).example/"
+                }
+            }
+        }
+        let services = session.services
+        let tab = try #require(session.tabs.last { $0.kind == .browser }, "setup: the storm workspace has no browser tab")
+        let address = try #require(SidebarMapping.favicon(tab.faviconURL, page: tab.url), "setup: the page has no favicon address")
+        let url = try #require(URL(string: address), "setup: the page's favicon address is no URL")
+        let profile = services.browserProfiles.engineProfile(for: tab, incognito: false)
+        let titles = TabTitleResolver(services: services)
+        let page: SidebarTabParts.Page = { workspace, asked in SidebarMapping.PageFace(tab: asked, of: workspace, services) }
+        let given: SidebarTabParts.Given = { _ in
+            { asked, newTabPage in SidebarTabParts.Unobserved(asked, newTabPage: newTabPage, incognito: false, titles: titles, services) }
+        }
+        let row = Row(parts: SidebarTabParts(page: page, given: given), title: { _, asked in titles.title(asked, incognito: false) }, page: page)
+
+        // The first map asks for each page's favicon, and each fetch fails.
+        _ = session.mapped(row.parts, title: row.title, page: row.page)
+        await LargeSessionFixture.drainMain()
+        _ = session.mapped(row.parts, title: row.title, page: row.page)
+        try #require(!services.favicons.isFetching(address, profile: profile), "setup: a fetch of the page's favicon is in work after the drain, want a remembered failure")
+        try #require(services.favicons.cachedImage(for: address, profile: profile) == nil, "setup: the page's favicon landed, want a failed fetch")
+
+        // Another page's engine fetched the site's icon: it is in the loader's cache.
+        let file = try Self.png()
+        try Self.showsTheChange(session, row, tab: tab.id, before: false, after: true, what: "favicon", shown: { $0.favicon != nil }) {
+            _ = BrowserFaviconLoader.shared.store(file, at: url, profile: profile)
         }
     }
 
