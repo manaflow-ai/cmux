@@ -545,8 +545,9 @@ fn terminal_reap_attached_terminal_survives_the_guarded_reap_close() {
 }
 
 /// Idle-only park: `park-tabs` ends a shell only when it can tell the shell runs nothing. A test
-/// terminal has no process to read, so its children are unknown: it keeps running, and the reply
-/// names it with the reason. The freeing timer with no deadline adds no wakeup.
+/// terminal's process either has a child (the shell under it, where the runner spawns one) or cannot be
+/// read: either way it keeps running, and the reply names it with a child reason. The freeing timer with no
+/// deadline adds no wakeup.
 #[test]
 fn park_tabs_keeps_a_terminal_whose_shell_cannot_be_read() {
     let mux = Mux::new_for_test("park-tabs-unknown-children", SurfaceOptions::default());
@@ -564,7 +565,14 @@ fn park_tabs_keeps_a_terminal_whose_shell_cannot_be_read() {
     let (parked, refused) = mux.park_idle_terminal_tabs(&[tab], mux.park_tabs_rules()).unwrap();
 
     assert!(parked.is_empty(), "nothing parks on an unknown fact");
-    assert_eq!(refused, [(tab, park_eligibility::ParkRefusal::ChildrenUnknown)]);
+    assert!(
+        matches!(
+            refused.as_slice(),
+            [(t, park_eligibility::ParkRefusal::Children | park_eligibility::ParkRefusal::ChildrenUnknown)]
+                if *t == tab
+        ),
+        "the reply names the tab with a child reason: {refused:?}"
+    );
     assert_eq!(lifecycle(&mux, &terminal), TerminalLifecycle::Running);
 
     assert_eq!(
