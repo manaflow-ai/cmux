@@ -94,6 +94,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var machineJoin = CmuxConfigSnapshot.machineJoinDefault
     /// `labs.liveCode`: a live code build applies Swift patches from ~/Library/Caches/cmux-next/live-code (read at launch); off when unset.
     public var liveCode = CmuxConfigSnapshot.liveCodeDefault
+    /// `labs.hostsSidebar`: the sidebar's Hosts section and remote-machine chat groups; off when unset.
+    public var hostsSidebar = CmuxConfigSnapshot.hostsSidebarDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
@@ -374,6 +376,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
         snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
         snapshot.take(Self.parseLabsToggle(root, path: liveCodePath, fallback: liveCodeDefault), \.liveCode)
+        snapshot.take(Self.parseLabsToggle(root, path: hostsSidebarPath, fallback: hostsSidebarDefault), \.hostsSidebar)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextServer
 public import CmuxNextSidebar
 import Foundation
@@ -10,14 +11,18 @@ public final class HostsSidebar {
     public struct Host {
         public var rows: @MainActor () -> [MachineSectionRow]
         public var add: @MainActor () -> Void
+        /// `labs.hostsSidebar`: off, the section and the remote-machine groups draw nothing and take no clicks.
+        public var enabled: @MainActor () -> Bool
         private var openConnected: @MainActor (String) -> Void
         private var openJoined: @MainActor (JoinedMachine) -> Void
 
         public init(rows: @escaping @MainActor () -> [MachineSectionRow],
                     add: @escaping @MainActor () -> Void,
                     openConnected: @escaping @MainActor (String) -> Void,
-                    openJoined: @escaping @MainActor (JoinedMachine) -> Void) {
+                    openJoined: @escaping @MainActor (JoinedMachine) -> Void,
+                    enabled: @escaping @MainActor () -> Bool = { true }) {
             self.rows = rows
+            self.enabled = enabled
             self.add = add
             self.openConnected = openConnected
             self.openJoined = openJoined
@@ -40,19 +45,53 @@ public final class HostsSidebar {
     private static let rowPrefix = prefix + "row:"
 
     @ObservationIgnored private var host: Host?
+    @ObservationIgnored private var labsWatch: Task<Void, Never>?
     public private(set) var expanded = true
 
     public init(host: Host? = nil) { self.host = host }
 
     public func bind(host: Host) { self.host = host }
 
+    public var isEnabled: Bool { host?.enabled() == true }
+
     /// Rows are transient and therefore never become a second machine catalog or a durable layout item.
     public func rows() -> [SidebarTransientItem] {
-        Self.rows(machines: host?.rows() ?? [], expanded: expanded)
+        guard isEnabled else { return [] }
+        return Self.rows(machines: host?.rows() ?? [], expanded: expanded)
+    }
+
+    /// The Hosts rows, then `remote`'s groups; none while the switch is off (Lawrence 2026-10-26: other
+    /// machines' chats are not top-band rows by default).
+    public func topItems(remote: RemoteMachinesSidebar?) -> [SidebarTransientItem] {
+        guard isEnabled else { return [] }
+        return rows() + (remote?.rows() ?? [])
+    }
+
+    /// A click on a Hosts row or a remote group's row; false while the switch is off.
+    public func activate(_ id: LayoutItemID, remote: RemoteMachinesSidebar) -> Bool {
+        isEnabled && (activate(id) || remote.activate(id))
+    }
+
+    /// Binds `remote` (through `bind`) while the switch is on and stops it when it turns off, so with the
+    /// switch off the groups read no peers and follow no lanes, as before it existed.
+    public func follow(remote: RemoteMachinesSidebar, bind: @escaping @MainActor () -> Void) {
+        labsWatch?.cancel()
+        // task-owner: this instance (`stop`); event-driven (Observation)
+        labsWatch = Task { [weak self] in
+            for await on in ObservationStream({ [weak self] in self?.isEnabled == true }) {
+                if on { bind() } else { remote.stop() }
+            }
+        }
+    }
+
+    public func stop() {
+        labsWatch?.cancel()
+        labsWatch = nil
     }
 
     /// Handles the header, Add Host and machine-row clicks. Returns false for another transient item.
     public func activate(_ id: LayoutItemID) -> Bool {
+        guard isEnabled else { return false }
         let raw = id.rawValue
         if raw == Self.headerID.rawValue {
             expanded.toggle()

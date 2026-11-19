@@ -137,7 +137,7 @@ extension SettingsSchema {
         "notifications.attention.moveToTop", "notifications.attention.moveToTopOnAgentFinish",
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
-        "labs.previewFeatures",
+        "labs.previewFeatures", "labs.hostsSidebar",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
         // The floating Chief pet and its character: a display the person can hide again; its reply box types only what the person writes.

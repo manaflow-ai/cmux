@@ -17,6 +17,9 @@ extension CmuxConfigSnapshot {
     /// `labs.liveCode`: Live code (docs/cmux-next/live-code.md): an opt-in, temporary switch. On, a live code build (CMUX_LIVE_CODE_BUILD=1 scripts/reload.sh: CmuxNextApp at -Onone, linked -interposable) watches ~/Library/Caches/cmux-next/live-code and applies Swift patches compiled from the person's checkout (scripts/live-code/patch.py) with no new build. Off, nothing is watched or loaded; Debug and bench builds only until a patch's signer is checked (cmux#13742). Read at launch. The person turns it on: agents may not (it loads code into the app).
     public nonisolated static let liveCodePath = ["labs", "liveCode"]
     public nonisolated static let liveCodeDefault = false
+    /// `labs.hostsSidebar`: The sidebar's Hosts section (CMUX-673): a Hosts header, an Add Host row (the Add Device card) and one row per machine of the Machines page, each opening a workspace there; plus the remote-machine chat groups. Off, the sidebar shows neither, as before (Lawrence 2026-10-26: other machines' chats are not top-band rows by default). Read live.
+    public nonisolated static let hostsSidebarPath = ["labs", "hostsSidebar"]
+    public nonisolated static let hostsSidebarDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -74,6 +77,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.liveCodeDefault),
                 keywords: ["labs", "live", "code", "hot", "reload", "patch", "inject", "swift", "develop"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.hostsSidebarPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.hostsSidebar", "Hosts in the Sidebar"),
+                help: SettingsText.keyed("settings.labs.hostsSidebar.help", "Shows your machines in the sidebar, with Add Host, and opens a workspace on one with a click."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.hostsSidebarDefault),
+                keywords: ["labs", "hosts", "machines", "computers", "sidebar", "ssh", "remote", "add host"]
             ),
         ]
     }

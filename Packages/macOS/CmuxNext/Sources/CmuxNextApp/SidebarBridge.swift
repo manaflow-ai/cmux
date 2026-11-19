@@ -125,7 +125,7 @@ final class SidebarBridge {
             focus.send(.focusTarget(.content, source: .keyboard))
         }
         seedFromSnapshot(state)
-        bindRemoteMachines()
+        hosts.follow(remote: remoteMachines) { [weak self] in self?.bindRemoteMachines() } // labs.hostsSidebar
         // Clear until real content (`markReadyForReveal`, or the deadline); a no-op once it is ready.
         services.launchReveal.hold(container, until: .sidebar)
         observe()
@@ -140,7 +140,7 @@ final class SidebarBridge {
         sectionsPass?.cancel()
         appSections?.releaseAll()
         cardsObservation?.cancel()
-        remoteMachines.stop()
+        hosts.stop(); remoteMachines.stop()
         container.sidebarView.tearDownSpaceWindowMarks() // a retained closed window keeps its views (#38333 review)
         container.sidebarView.updateSurfaces = nil // the update surface pages cancel their subscriptions (cx-urd.61.2)
     }

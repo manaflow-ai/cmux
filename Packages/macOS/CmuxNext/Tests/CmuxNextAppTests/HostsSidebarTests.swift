@@ -67,4 +67,19 @@ struct HostsSidebarTests {
         host.open(Self.machine("offline", "Offline", connected: false))
         #expect(dialed == "m1" && connected == nil)
     }
+
+    /// labs.hostsSidebar off (the default): no rows, no remote groups, and no click is taken, as before the switch.
+    @Test func theLabsSwitchOffShowsNothingAndTakesNoClicks() {
+        var on = false
+        var added = false
+        let hosts = HostsSidebar()
+        hosts.bind(host: .init(rows: { [Self.machine("m1", "Desk")] }, add: { added = true }, openConnected: { _ in },
+                               openJoined: { _ in }, enabled: { on }))
+        let remote = RemoteMachinesSidebar()
+        #expect(hosts.rows().isEmpty && hosts.topItems(remote: remote).isEmpty)
+        #expect(!hosts.activate(LayoutItemID("client.hosts:add"), remote: remote) && !added)
+        on = true
+        #expect(Array(hosts.topItems(remote: remote).map { $0.item.id.rawValue }.prefix(2)) == ["client.hosts:header", "client.hosts:add"])
+        #expect(hosts.activate(LayoutItemID("client.hosts:add"), remote: remote) && added)
+    }
 }

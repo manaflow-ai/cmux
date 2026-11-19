@@ -128,6 +128,30 @@
             "swift",
             "develop"
           ]
+        },
+        {
+          "key": "labs.hostsSidebar",
+          "note": "The sidebar's Hosts section (CMUX-673): a Hosts header, an Add Host row (the Add Device card) and one row per machine of the Machines page, each opening a workspace there; plus the remote-machine chat groups. Off, the sidebar shows neither, as before (Lawrence 2026-10-26: other machines' chats are not top-band rows by default). Read live.",
+          "title": {
+            "key": "settings.labs.hostsSidebar",
+            "text": "Hosts in the Sidebar"
+          },
+          "help": {
+            "key": "settings.labs.hostsSidebar.help",
+            "text": "Shows your machines in the sidebar, with Add Host, and opens a workspace on one with a click."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "hosts",
+            "machines",
+            "computers",
+            "sidebar",
+            "ssh",
+            "remote",
+            "add host"
+          ]
         }
       ]
     }
