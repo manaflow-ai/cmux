@@ -140,6 +140,8 @@ pub(super) struct Request {
     pub until: Option<Instant>,
     /// `--allow-large`: copy `from_folder` even past the copy's limits (link/sync_cli/size_cap.rs).
     pub allow_large: bool,
+    /// `--timings`: the answer's `stages` as a table on stderr (start_stages.rs).
+    pub timings: bool,
 }
 
 // One `Parsed` is made per command line and taken apart at once, so the size gap between `Help`
@@ -212,6 +214,9 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
     // (`size_cap`; Leo, 2026-11-15: "why are you guys still blocking on these?").
     let mut runner = SelfRunner::new(global);
     let outcome = run(&mut runner, request);
+    if let Outcome::Done(answer) = &outcome {
+        super::start_stages::print_table(request.timings, answer);
+    }
     report(&outcome, global.output)
 }
 
@@ -241,6 +246,7 @@ pub(super) fn send_existing(
         make_room: false,
         until: None,
         allow_large: false,
+        timings: false,
     };
     let mut runner = SelfRunner::new(global);
     report(&send_to(&mut runner, &request, machine_id, session), global.output)
@@ -344,6 +350,7 @@ pub(super) fn wait_on(
         account: None,
         until: None,
         allow_large: false,
+        timings: false,
     };
     let answer = json!({
         "machine_id": machine_id,
@@ -484,6 +491,7 @@ pub(super) fn parse(
     let mut wait = false;
     let mut make_room = false;
     let mut allow_large = false;
+    let mut timings = false;
     let mut timeout = DEFAULT_TIMEOUT;
     let (mut effort, mut mode, mut no_folder) = (None, None, false);
     // The prompt came after `--`: text, so `-- -` is "-", not stdin.
@@ -525,6 +533,7 @@ pub(super) fn parse(
             "--wait" => wait = true,
             "--make-room" => make_room = true,
             "--allow-large" => allow_large = true,
+            "--timings" => timings = true,
             "--no-wait" => wait = false,
             // `-- TEXT`: the prompt, read as text even when it starts with `-`.
             "--" if inline.is_none() => match words.get(index.saturating_add(1)..) {
@@ -624,6 +633,7 @@ pub(super) fn parse(
         make_room,
         until: None,
         allow_large,
+        timings,
     })))
 }
 
@@ -690,6 +700,9 @@ pub(super) trait Runner {
     /// One line of progress while the run goes on (on stderr: never part of the answer), so a start that gives up a
     /// machine and tries another is never a silent wait.
     fn say(&mut self, _line: &str) {}
+    /// The run reached the start mark `name` (start_stages.rs [`super::start_stages::MARKS`]); a runner that times
+    /// nothing ignores it.
+    fn stage(&mut self, _name: &str) {}
     /// One app control call (`cloud.machine_stream`): its result, or the app's refusal. None: no app answered on a
     /// socket (a runner that reaches none).
     fn app(
@@ -1318,6 +1331,13 @@ fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let stages = timed.stages();
     match &mut outcome {
         Outcome::Done(answer) => {
+            // The named marks, as cloud-journey.ts names them (start_stages.rs); `reply` once a turn's end was read.
+            let mut marks = super::start_stages::chat(&stages, &timed.marks, answer);
+            let now = timed.now();
+            if answer.get("turn").is_some() || answer.get("reply").is_some() {
+                marks.mark("reply", now);
+            }
+            answer.set("stages", marks.finish(now));
             answer.set("stages_ms", stages);
         }
         Outcome::Failed { error, .. } => {
@@ -1351,12 +1371,15 @@ struct Timed<'a> {
     began: Instant,
     stages: Vec<Value>,
     more: usize,
+    /// The start marks the run took itself ([`Runner::stage`]).
+    marks: super::start_stages::Marks,
 }
 
 impl<'a> Timed<'a> {
     fn new(inner: &'a mut dyn Runner) -> Self {
         let began = inner.now();
-        Self { inner, began, stages: Vec::new(), more: 0 }
+        let marks = super::start_stages::Marks::new(began);
+        Self { inner, began, stages: Vec::new(), more: 0, marks }
     }
 
     /// A step that is not a `cmux` child (an app call, a link wait), from `from` to now.
@@ -1425,6 +1448,11 @@ impl Runner for Timed<'_> {
 
     fn say(&mut self, line: &str) {
         self.inner.say(line);
+    }
+
+    fn stage(&mut self, name: &str) {
+        let now = self.inner.now();
+        self.marks.mark(name, now);
     }
 
     fn pause(&mut self, duration: Duration) {
@@ -1581,6 +1609,7 @@ fn steps(
     if let Some(environment) = &request.environment {
         match in_environment(runner, request, environment, &listed, deadline, progress) {
             Ok(id) => {
+                runner.stage("created");
                 progress.made = Some(id.clone());
                 progress.machine = Some(Machine::Target(id.clone()));
                 wanted = Machine::Target(id);
@@ -2021,8 +2050,12 @@ fn send_prompt(
     let mut sending = answer.clone();
     sending.set("sent", json!(true));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), sending));
+    runner.stage("send");
     let sent = match exec(runner, machine_id, &send) {
-        Ok(stdout) => stdout,
+        Ok(stdout) => {
+            runner.stage("sent");
+            stdout
+        }
         Err(error) => {
             // Refused before it started: the uploaded prompt does not stay on the machine. Any other
             // failure (no answer) may be a send still reading the file, so the file stays.

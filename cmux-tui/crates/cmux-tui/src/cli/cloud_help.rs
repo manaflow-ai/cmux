@@ -672,6 +672,7 @@ older name; both run the same start.
   --wait             Wait for the turn to end and print the reply (no
                      prompt: the chat is ready, nothing to wait for)
   --timeout SECONDS  How long --wait waits (default 900)
+  --timings          Where the start's time went, as a table on stderr
   --make-room        At a machine cap, free the machine the refusal offers
                      (a leftover it names is deleted; else the paused one
                      used longest ago is archived and deleted) and start again
@@ -680,6 +681,10 @@ Answers machine_id, machine_name, session_id, workspace_id and tab_id,
 plus reply with --wait, or sent: false, ready_ms and daemon_tab (the
 chat tab's number on the machine's daemon, when start-session names one)
 with no prompt, and new_machine: true when this run made the machine.
+stages: the milliseconds from the command's start to each mark it reached
+(created, connect, session_start, session_ready, send, sent, first_text,
+reply) and total, by the names scripts/cmux-next/cloud-journey.ts uses;
+stages_ms: every step it ran.
 
 EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json

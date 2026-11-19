@@ -77,6 +77,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             make_room: false,
             until: None,
             allow_large: false,
+            timings: false,
         }
     );
     let parsed = request(&[
@@ -628,6 +629,33 @@ fn the_start_sessions_own_stages_are_its_parts() {
     assert_eq!(steps[1]["step"], "cloud start-session");
     assert_eq!(steps[1]["parts"], parts);
     assert!(steps[0].get("parts").is_none() && steps[2].get("parts").is_none(), "{steps:?}");
+}
+
+/// Leo, 2026-11-19: "do we have tools for measuring cloud startup at various stages?". The answer's `stages` are
+/// cloud-journey.ts's marks, each the milliseconds from the command's start: start-session's own parts in order
+/// (a dotted sub-step is inside the step after it), then the send this run marked itself.
+#[test]
+fn the_answer_names_the_journeys_start_marks() {
+    let parts = json!([{"step": "machine", "ms": 2_000}, {"step": "connect", "ms": 1_500},
+                       {"step": "login.machine", "ms": 200}, {"step": "login", "ms": 500},
+                       {"step": "tab", "ms": 300}, {"step": "start", "ms": 600}]);
+    let mut session = started_value();
+    session["stages_ms"] = parts;
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(session),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!()
+    };
+    // The list 0-5 s, the start from 5 s, the send's exec 10-15 s; no --wait, so no turn was read.
+    assert_eq!(
+        answer["stages"],
+        json!({"created": 7_000, "connect": 8_500, "session_start": 9_300, "session_ready": 9_900,
+               "send": 10_000, "sent": 15_000, "total": 15_000})
+    );
 }
 
 #[test]
@@ -2564,6 +2592,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         make_room: false,
         until: None,
         allow_large: false,
+        timings: false,
     };
     let Outcome::Done(answer) = send_to(&mut fake, &asked, "vm-1", "sess-1") else {
         panic!("{:?}", fake.ran)
@@ -2604,6 +2633,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         make_room: false,
         until: None,
         allow_large: false,
+        timings: false,
     };
     let big = big_prompt(200 * 1024);
     let piece = exec_out(&format!("@@size {}\n", big.len()));

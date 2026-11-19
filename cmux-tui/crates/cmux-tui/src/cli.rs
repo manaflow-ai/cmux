@@ -143,6 +143,8 @@ mod safe_mode;
 #[cfg(unix)]
 mod sandbox_run;
 #[cfg(unix)]
+mod start_stages;
+#[cfg(unix)]
 mod vm;
 #[cfg(unix)]
 mod vm_ready;

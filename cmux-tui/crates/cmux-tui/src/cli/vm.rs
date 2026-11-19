@@ -708,7 +708,7 @@ const NEW_HELP: &str = "\
 usage: cmux vm new [--name NAME] [--size small|medium|large|xlarge] [--persistent]
                    [--repo OWNER/NAME[@REF]] [--machine-config FILE]
                    [--bootstrap lane --bootstrap-script FILE]
-                   [--wait [--timeout SECONDS]] [--json]
+                   [--wait [--timeout SECONDS]] [--timings] [--json]
 
 Make a Cloud VM. With the cmux app signed in, this is the same VM
 File > New Cloud Machine… makes: it shows in the sidebar, the app asks you to
@@ -727,6 +727,11 @@ running; a few minutes on cmux Cloud) and resumes when you open it again.
 secrets that file names delivered from this Mac (`cmux vm secret set NAME`).
 A failed setup answers with its status and the log to read. --timeout
 SECONDS (default 1200) ends the wait; the VM goes on starting.
+
+--json answers stages too: the milliseconds from the command's start to each
+mark it reached (created, running, machine_config, secrets) and total, by the
+names scripts/cmux-next/cloud-journey.ts uses. --timings prints them as a
+table on stderr.
 
 Headless (CI, no app) or with a VM API key of your own (CMUX_VM_API_KEY, a
 config file or `cmux vm key new`), it makes a VM API VM instead, which also
@@ -851,10 +856,21 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             || super::app::connect_command(&global).is_ok(),
             super::cloud_machines::app_found,
         );
+        // `--timings`: the start's `stages` as a table on stderr (start_stages.rs); the app's create never sees it.
+        let (words, timings) = super::start_stages::take_flag(tail);
+        let tail = words.as_slice();
         // `--wait`: the create, then the waits a person does by hand (vm_ready.rs). The app's verbs only.
         if app_present
             && new_route(tail, app_present) == NewRoute::App
-            && let Some(code) = super::vm_ready::run_if_requested(&global, tail)
+            && let Some(code) = super::vm_ready::run_if_requested(&global, tail, timings)
+        {
+            return Some(code);
+        }
+        // `--json` or `--timings`: the create as one step, its answer with `stages` (the create answered, `total`).
+        if app_present
+            && new_route(tail, app_present) == NewRoute::App
+            && (timings || matches!(global.output, super::OutputMode::Json))
+            && let Some(code) = super::start_stages::app_create(&global, tail, timings)
         {
             return Some(code);
         }
