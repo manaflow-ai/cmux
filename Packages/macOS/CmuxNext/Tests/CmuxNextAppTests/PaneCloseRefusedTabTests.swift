@@ -119,7 +119,10 @@ import Testing
 
         var hidden: Int?
         var wrong: [Int] = []
-        // A move of 0.3 s is 36 frames of this clock: the frame that ends the move hides the pane.
+        // The frames before the hide in which a pane of the screen had a move on its layer.
+        var moved = 0
+        let screen = try #require(app.root.screenViews.values.first { !$0.isHidden }, "SETUP: the layout shows no screen")
+        // The frame that ends the move hides the pane. The limit has room for a move of 0.3 s (36 frames of this clock).
         let most = moves ? Self.frames + 40 : Self.frames
         for frame in 1...most {
             _ = app.root.advanceFrame(Self.dt)
@@ -127,15 +130,22 @@ import Testing
                 hidden = frame
                 break
             }
+            if PaneCommitMotionTests.inFlight(screen) { moved += 1 }
             if !close.strip.isInALeavingPane || !close.pane.view.isInALeavingPane || stays.view.isInALeavingPane { wrong.append(frame) }
         }
         let frame = try #require(hidden, "SETUP: no frame of \(most) hid the closing pane")
-        print("PaneCloseRefusedTabTests: a view in a closed pane, the close moves its panes: \(moves): frame \(frame) hid the pane; the frames before it "
+        let movesAtTheHide = PaneCommitMotionTests.inFlight(screen)
+        print("PaneCloseRefusedTabTests: a view in a closed pane, the close moves its panes: \(moves): frame \(frame) hid the pane; a pane had a move "
+            + "on its layer in \(moved) frame(s) before it, and at the hide: \(movesAtTheHide); the frames before it "
             + "in which a view in the closed pane did not say that its pane leaves, or a view in the pane that stays said it: \(wrong); after the hide "
             + "the host says that its pane leaves: \(close.host.isLeaving), a view in it: \(close.strip.isInALeavingPane), want false for both")
         #expect(wrong.isEmpty, "the closed pane shows in the frames \(wrong), and a view in it does not say that its pane leaves, or a view in the pane that stays says it")
-        // Without this the case with the move proves no more than the case without it.
-        if moves { #expect(frame > 3, "SETUP: the pane hid in frame \(frame): no pane moved at this close") }
+        // Without these the case with the move proves no more than the case without it. The bound is the motion's own
+        // state, not a frame count: the pane showed while a pane moved, and the hide is not before the move's last frame.
+        if moves {
+            #expect(moved > 0, "SETUP: the pane hid in frame \(frame) and no pane had a move on its layer before it: no pane moved at this close")
+            #expect(!movesAtTheHide, "frame \(frame) hid the closed pane, and a pane of the screen still has a move on its layer")
+        }
         #expect(!close.host.isLeaving && !close.strip.isInALeavingPane, "after the frame that hid the closed pane, its host or a view in it says that the pane leaves")
         #expect(!stays.view.isInALeavingPane, "after the close's frame a view in the pane that stays says that its pane leaves")
     }
