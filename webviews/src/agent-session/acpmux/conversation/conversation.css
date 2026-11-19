@@ -2321,7 +2321,7 @@ pre.cv-math-source {
   margin: 0;
   padding-block: var(--grid-half-step);
   padding-inline: var(--ds-space-2) var(--ds-space-1);
-  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
+  border: var(--cmux-hairline, 0.5px) solid var(--ds-surface-card-line);
   border-radius: var(--cv-card-radius, var(--ds-radius-popup));
   background: var(--ds-surface-card);
   box-shadow: none;
@@ -2488,9 +2488,7 @@ pre.cv-math-source {
 
 :root {
   --cv-tool-strong: color-mix(in srgb, var(--cv-fg) 60%, transparent); /* #a5a5a0 settled tool rows */
-  /* The card level (design/chat-surfaces.md) under the names the galleries and a transcript look use: the
-     card rules draw their ring in --cv-card-ring, so borders none and a look's toolCard.border none
-     clear it; it is the card level's line otherwise. */
+  /* Galleries' names for the card level (design/chat-surfaces.md); the chat's own rules name the level. */
   --cv-card-ring: var(--ds-surface-card-line);
   --cv-card-fill: var(--ds-surface-card);
 }
@@ -2500,9 +2498,12 @@ pre.cv-math-source {
   --cv-codeblock-ring: transparent;
   --cv-card-ring: transparent;
 }
-/* A transcript look's toolCard.border none (conversation/transcriptLook.ts): the same, cards only. */
+/* A transcript look's toolCard.border none (conversation/transcriptLook.ts): the same, cards only. The
+   cards draw their ring in the card level's line (desktop.css), so the look clears that line, as
+   appearance.borders none does there. */
 :root[data-transcript-card-border="none"] {
   --cv-card-ring: transparent;
+  --ds-surface-card-line: transparent;
 }
 
 /* "Worked for 15s ›": one muted disclosure line over a hairline. */
@@ -3612,7 +3613,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   padding: var(--grid-cards-padding);
   border-radius: var(--cv-card-radius, var(--grid-cards-radius));
   background: var(--ds-surface-card);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
   color: var(--cv-text-muted);
 }
 .cv-shell__label,
@@ -3883,7 +3884,7 @@ button.cv-video-frames__name:focus-visible {
   border: 0;
   border-radius: var(--cv-card-radius, 6px);
   background: var(--ds-surface-card);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
   font: inherit;
 }
 .cv-video-frames__grid .cv-video-frames__frame,
@@ -3932,7 +3933,7 @@ button.cv-video-frames__frame:focus-visible {
   padding: 8px 12px;
   border-radius: var(--cv-card-radius, 12px);
   background: var(--ds-surface-card);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
   color: var(--cv-text-muted);
   font-style: normal;
   font-weight: 400;
@@ -4878,7 +4879,7 @@ a.cv-sha:focus-visible {
   padding: var(--ds-space-2);
   border-radius: var(--cv-card-radius, var(--ds-radius-popup));
   background: var(--ds-surface-card);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
   color: var(--cv-text-muted);
   font-family: var(--cv-mono);
   font-size: var(--text-detail);
@@ -4948,7 +4949,7 @@ a.cv-sha:focus-visible {
   display: grid;
   border-radius: var(--cv-card-radius, var(--ds-radius-popup));
   background: var(--ds-surface-card);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
   overflow: hidden;
 }
 .cv-tool-detail__field {
@@ -5019,7 +5020,7 @@ a.cv-sha:focus-visible {
   grid-template-columns: minmax(0, 1fr) auto;
   border-radius: var(--cv-card-radius, 12px);
   background: var(--ds-surface-card);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
 }
 /* Reserve the corner outside the text scroller, so even unwrapped lines stay clear of the buttons. */
 .cv-tool-output__box:has(> .cv-tool-output__actions) {
@@ -6319,7 +6320,7 @@ a.cv-sha:focus-visible {
   margin: 4px 0 8px;
   border-radius: var(--cv-card-radius, 6px);
   background: var(--ds-surface-card);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
   color: var(--cv-text-muted);
   font-style: normal;
   font-weight: 400;
@@ -6935,7 +6936,7 @@ a.cv-sha:focus-visible {
   padding: var(--ds-space-2) var(--ds-space-3);
   border-radius: var(--cv-card-radius, var(--grid-cards-radius));
   background: var(--ds-surface-card);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
 }
@@ -7970,7 +7971,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   margin: var(--ds-space-1) 0 var(--ds-space-2) var(--cv-tool-text-inset, 0);
   padding: var(--ds-space-2) var(--ds-space-3);
   border-radius: var(--cv-card-radius, var(--ds-radius-control));
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
   background: var(--ds-surface-card);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
@@ -8227,7 +8228,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   z-index: var(--layer-backdrop);
   border-radius: var(--cv-card-radius, var(--grid-cards-radius));
   background: var(--cv-card-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
   pointer-events: none;
 }
 /* toolCards minimal: a run's rows with no leading glyph, in the rows' own grey (the Claude and Codex captures
@@ -8242,8 +8243,8 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 :root[data-transcript-tool-cards="minimal"] .acpmux-edited-icon {
   display: none;
 }
-/* toolCard.border none reaches the edited-files card too: its ring is its ::after (styles.css),
-   drawn in --ds-surface-card-line rather than --cv-card-ring. */
+/* toolCard.border none reaches the edited-files card too: its ring is its ::after (styles.css). The
+   cleared --ds-surface-card-line covers it already; this keeps it off whatever line it is drawn in. */
 :root[data-transcript-card-border="none"] .acpmux-edited::after {
   box-shadow: none;
 }
