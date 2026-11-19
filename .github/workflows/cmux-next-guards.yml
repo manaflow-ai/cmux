@@ -867,6 +867,10 @@ jobs:
       - name: The fast gates workflow and its merge and gate script
         run: python3 tests/test_cmux_next_fast_gates.py
 
+      # Every pull-request job reuses a pass on the same tree or is denied with a reason (scripts/ci/same_tree_reuse.json).
+      - name: Same-tree reuse covers every pull request job
+        run: python3 tests/test_same_tree_reuse.py
+
       - name: A scheduled dispatch runs the whole Swift suite on the feat-cmux-next tip
         run: python3 tests/test_cmux_next_tip_swift_suite.py
 
