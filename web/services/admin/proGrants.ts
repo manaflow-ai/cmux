@@ -19,7 +19,11 @@ import { and, desc, eq, ilike, inArray, isNotNull, isNull, lt, or } from "drizzl
 import { cloudDb } from "../../db/client";
 import { adminPlanGrants } from "../../db/schema";
 import { getStackServerApp } from "../../app/lib/stack";
-import { canonicalizeEmailForMatching } from "../billing/emailMatching";
+import {
+  canonicalizeEmailForMatching,
+  emailVariantsForMatching,
+  isGmailAddress,
+} from "../billing/emailMatching";
 import { isPlainEmailLocalPart } from "./access";
 import {
   AccountDeletionMutationBlockedError,
@@ -247,18 +251,41 @@ export async function searchAdminUsers(
   const trimmed = query.trim();
   if (trimmed.length < ADMIN_USER_SEARCH_MIN_QUERY_LENGTH) return [];
   const app = options.app ?? defaultAdminStackApp();
-  const users = await app.listUsers({
-    query: trimmed,
-    limit: ADMIN_USER_SEARCH_LIMIT,
-    includeAnonymous: false,
-    includeRestricted: true,
+  const pages = await Promise.all(
+    adminUserSearchQueries(trimmed).map((variant) =>
+      app.listUsers({
+        query: variant,
+        limit: ADMIN_USER_SEARCH_LIMIT,
+        includeAnonymous: false,
+        includeRestricted: true,
+      }),
+    ),
+  );
+  const seen = new Set<string>();
+  const users = pages.flat().filter((user) => {
+    if (seen.has(user.id)) return false;
+    seen.add(user.id);
+    return true;
   });
   const billing = options.stripeBillingStatus ?? stripeBillingStatusForUser;
   return await Promise.all(
     users
       .filter((user) => !user.isAnonymous)
+      .slice(0, ADMIN_USER_SEARCH_LIMIT)
       .map(async (user) => adminUserRow(user, await billing(user.id))),
   );
+}
+
+/**
+ * Stack's user search is a literal substring match, while Gmail ignores dots
+ * and treats googlemail.com as gmail.com. A GitHub or Google sign-in can store
+ * `janedoe@gmail.com` for a mailbox an admin types as `jane.doe@gmail.com`,
+ * so a Gmail query also searches its other spellings (typed one first).
+ */
+export function adminUserSearchQueries(query: string): readonly string[] {
+  if (!isGmailAddress(query)) return [query];
+  const typed = query.toLowerCase();
+  return [query, ...emailVariantsForMatching(query).filter((variant) => variant !== typed)];
 }
 
 export async function loadAdminUser(

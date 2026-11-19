@@ -24,6 +24,7 @@ import {
   revokePendingEmailGrant,
   searchAdminTeams,
   searchAdminUsers,
+  adminUserSearchQueries,
   setManualPlanGrant,
   setTeamManualPlanGrant,
   type AdminGrantsDb,
@@ -248,6 +249,46 @@ describe("searchAdminUsers", () => {
     expect(app.listCalls).toEqual([
       { query: "pat", limit: 25, includeAnonymous: false, includeRestricted: true },
     ]);
+  });
+});
+
+describe("searchAdminUsers Gmail spellings", () => {
+  test("finds a GitHub sign-in stored without the dots the admin typed", async () => {
+    const app = fakeApp([
+      fakeUser({ id: "gh", primaryEmail: "arvindanand1123@gmail.com", primaryEmailVerified: true }),
+      fakeUser({ id: "other", primaryEmail: "someone@gmail.com" }),
+    ]);
+    const rows = await searchAdminUsers("Arvind.Anand1123@gmail.com", {
+      app,
+      stripeBillingStatus: async () => noStripe,
+    });
+    expect(rows.map((row) => row.id)).toEqual(["gh"]);
+    expect(rows[0]).toMatchObject({ email: "arvindanand1123@gmail.com", emailVerified: true });
+    const queries = (app.listCalls as Array<{ query: string }>).map((call) => call.query);
+    expect(queries[0]).toBe("Arvind.Anand1123@gmail.com");
+    expect(queries).toContain("arvindanand1123@gmail.com");
+    expect(queries).toContain("arvindanand1123@googlemail.com");
+    expect(new Set(queries).size).toBe(queries.length);
+  });
+
+  test("lists an account found by two spellings once", async () => {
+    const app = fakeApp([fakeUser({ id: "u1", primaryEmail: "patlee@gmail.com" })]);
+    const rows = await searchAdminUsers("patlee@googlemail.com", {
+      app,
+      stripeBillingStatus: async () => noStripe,
+    });
+    expect(rows.map((row) => row.id)).toEqual(["u1"]);
+  });
+
+  test("searches a non-Gmail query once, as typed", async () => {
+    const app = fakeApp([fakeUser({ id: "u1", primaryEmail: "pat.lee@example.com" })]);
+    await searchAdminUsers("Pat.Lee@example.com", { app, stripeBillingStatus: async () => noStripe });
+    expect((app.listCalls as Array<{ query: string }>).map((call) => call.query)).toEqual(["Pat.Lee@example.com"]);
+  });
+
+  test("adminUserSearchQueries leaves names and ids alone", () => {
+    expect(adminUserSearchQueries("pat")).toEqual(["pat"]);
+    expect(adminUserSearchQueries("jane.doe@gmail.com")[0]).toBe("jane.doe@gmail.com");
   });
 });
 
