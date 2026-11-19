@@ -264,7 +264,7 @@ pub(crate) async fn run(cmd: ChatsCmd, json_out: bool) -> Result<()> {
             let outcome = resolve(&client, &key, cwd.as_deref(), &cwd_map).await?;
             match outcome {
                 OpenOutcome::Session { session_id } if !json_out => {
-                    crate::tui::run(client, Some(session_id)).await
+                    crate::tui_entry::run(client, Some(session_id)).await
                 }
                 outcome => {
                     if json_out {

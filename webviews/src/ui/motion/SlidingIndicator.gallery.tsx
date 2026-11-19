@@ -2,6 +2,7 @@
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { IndicatorDemo, type IndicatorDemoProps } from "./MotionDemos";
+import { MOTION_MS } from "../../motion/scale.generated";
 
 const switchTabs: Play = async (ctx) => {
   await ctx.click({ role: "tab", name: "Stats" });
@@ -24,7 +25,7 @@ export default componentEntry<IndicatorDemoProps>({
     anchorMovePx: { value: 0, reason: "The highlight moves on transform only; nothing around the tabs moves." },
     settleMaxMs: {
       value: 300,
-      reason: "The highlight travels on transform for the 240 ms spring after the click frame.",
+      reason: `The highlight travels on transform for the ${MOTION_MS.large} ms spring after the click frame.`,
     },
   },
   covers: ["ui/motion/SlidingIndicator.tsx", "ui/motion/MotionDemos.tsx#IndicatorDemo"],
@@ -33,7 +34,7 @@ export default componentEntry<IndicatorDemoProps>({
   variants: {
     "pill-spring": { note: "Picked: chunky pill on the one spring.", props: { look: "pill" }, play: switchTabs },
     "pill-ease": {
-      note: "The pill on the ease-out at 180 ms.",
+      note: `The pill on the ease-out at ${MOTION_MS.standard} ms.`,
       props: { look: "pill", travel: "ease" },
       play: switchTabs,
     },

@@ -245,6 +245,7 @@ fn a_turn_over_the_acpmux_wire() {
             env: Default::default(),
             fast: false,
             peer: None,
+            stop_condition: None,
         },
         blocks: turn_blocks("<chat>\n</chat>", &["what is x?".into()]),
         limit: None,
@@ -338,6 +339,7 @@ fn compactor_session(dir: &std::path::Path) -> SessionSpec {
         env: Default::default(),
         fast: false,
         peer: None,
+        stop_condition: None,
     }
 }
 
