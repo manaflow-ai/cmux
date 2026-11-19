@@ -378,11 +378,20 @@ impl Drop for Daemon {
             let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
             let mut writer = stream.try_clone().ok();
             let mut reader = BufReader::new(stream);
-            let mut line = String::new();
+            let mut reply = |id: u64| -> Option<Value> {
+                for _ in 0..1000 {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).ok().filter(|read| *read > 0)?;
+                    let value: Value = serde_json::from_str(&line).ok()?;
+                    if value.get("id").and_then(Value::as_u64) == Some(id) {
+                        return Some(value);
+                    }
+                }
+                None
+            };
             if let Some(writer) = writer.as_mut()
                 && writeln!(writer, "{}", json!({"id": 1, "cmd": "identify"})).is_ok()
-                && reader.read_line(&mut line).is_ok()
-                && let Ok(identity) = serde_json::from_str::<Value>(&line)
+                && let Some(identity) = reply(1)
             {
                 let identity = &identity["data"];
                 let _ = writeln!(
@@ -391,6 +400,10 @@ impl Drop for Daemon {
                     json!({"id": 2, "cmd": "shutdown-daemon", "pid": identity["pid"],
                            "generation": identity["generation"], "end_terminals": true})
                 );
+                // The connection stays open until the daemon answers.
+                if reply(2).is_none() {
+                    eprintln!("shutdown-daemon got no answer: {}", self.log_tail());
+                }
             }
         }
         let deadline = Instant::now() + Duration::from_secs(60);
@@ -441,6 +454,11 @@ struct Terminal {
 fn grow(daemon: &Daemon, n: usize, kind: &str) -> (Vec<Terminal>, Duration) {
     let (argv, env) = shell(kind, &daemon.home());
     let mut conn = Conn::connect(&daemon.socket).unwrap();
+    conn.call(
+        2,
+        json!({"cmd": "set-client-info", "name": "attach bench setup", "kind": "frontend",
+               "capabilities": APP_CAPABILITIES}),
+    );
     let started = Instant::now();
     let mut terminals = Vec::with_capacity(n);
     for i in 0..n {
@@ -448,6 +466,7 @@ fn grow(daemon: &Daemon, n: usize, kind: &str) -> (Vec<Terminal>, Duration) {
             10 + i as u64,
             json!({
                 "cmd": "create-terminal", "create_workspace": true, "workspace_name": format!("w{i}"),
+                "key": format!("bench-w{i}"), "mutation_id": format!("bench-m{i}"),
                 "argv": argv, "env": env, "cols": COLS, "rows": ROWS,
             }),
         );
