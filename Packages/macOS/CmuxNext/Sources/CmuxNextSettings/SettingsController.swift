@@ -571,9 +571,10 @@ extension SettingsController {
             applied = overlay.applied(to: root, managed: managed)
             // Each row the file sets says where its value comes from.
             let file = "\(ThemeFileSetting.folderName)/\(name).\(ThemeFileSetting.fileExtension)"
-            let densityPath = DensitySetting.configPath.joined(separator: ".")
-            let ownDensity = overlay.density(under: managed) != nil && !overlay.values.contains { $0.path == DensitySetting.configPath }
-            diagnostics = overlay.diagnostics + (overlay.values.map { $0.path.joined(separator: ".") } + (ownDensity ? [densityPath] : []))
+            // The file's own density is over both density rows.
+            let densityRows = overlay.density(under: managed) == nil ? [] : [DensitySetting.configPath, CustomDensitySelectionSetting.configPath]
+                .filter { path in !overlay.values.contains { $0.path == path } }.map { $0.joined(separator: ".") }
+            diagnostics = overlay.diagnostics + (overlay.values.map { $0.path.joined(separator: ".") } + densityRows)
                 .filter { id in !managed.contains { $0 == id || id.hasPrefix($0 + ".") || $0.hasPrefix(id + ".") } }
                 .map { SettingsDiagnostic(kind: .setByThemeFile, path: $0, message: "set by the theme file; change it there, or unset Theme File", file: file) }
         }
