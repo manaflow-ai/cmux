@@ -22,6 +22,7 @@ use std::time::Instant;
 use acpmux_transcript_search::{self as ts, read as tr};
 use serde_json::{Value, json};
 
+use crate::json_put::put;
 use crate::transcript_search::index_path;
 
 pub const DEFAULT_AROUND: usize = 2;
@@ -112,21 +113,21 @@ impl Params {
 
     pub fn to_value(&self) -> Value {
         let mut v = json!({});
-        let mut put = |k: &str, x: Value| {
+        let mut set = |k: &str, x: Value| {
             if !x.is_null() {
-                v[k] = x;
+                put(&mut v, k, x);
             }
         };
-        put("sessionId", json!(self.session));
-        put("harnessSessionId", json!(self.harness_session));
-        put("subagent", json!(self.subagent));
-        put("line", json!(self.line));
-        put("turn", json!(self.turn));
-        put("before", json!(self.before));
-        put("after", json!(self.after));
-        put("tools", json!(self.tools));
-        put("maxBytes", json!(self.max_bytes));
-        put("host", json!(self.host));
+        set("sessionId", json!(self.session));
+        set("harnessSessionId", json!(self.harness_session));
+        set("subagent", json!(self.subagent));
+        set("line", json!(self.line));
+        set("turn", json!(self.turn));
+        set("before", json!(self.before));
+        set("after", json!(self.after));
+        set("tools", json!(self.tools));
+        set("maxBytes", json!(self.max_bytes));
+        set("host", json!(self.host));
         v
     }
 
@@ -237,10 +238,10 @@ pub fn answer(read: &tr::Read, session: &str, host: Option<&str>, took_ms: u64) 
                 "anchor": m.anchor,
             });
             if m.capped {
-                v["capped"] = json!(true);
+                put(&mut v, "capped", json!(true));
             }
             if m.cut {
-                v["cut"] = json!(true);
+                put(&mut v, "cut", json!(true));
             }
             v
         })

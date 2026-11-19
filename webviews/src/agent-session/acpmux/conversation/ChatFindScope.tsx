@@ -16,7 +16,7 @@ export function ChatFindScope({
   showHeld,
   findRef,
   index,
-  pendingReveal,
+  takePendingReveal,
   children,
 }: {
   /// What Find searches: the chat's rows, or the subagent's the transcript shows.
@@ -32,17 +32,16 @@ export function ChatFindScope({
   /// The daemon's transcript index of the chat (findIndex.ts): Find also counts and steps to its hits
   /// in turns not loaded. Undefined where there is none to ask (a subagent's view).
   index?: FindIndexSource;
-  /// A `find:` reveal that came before Find was here (findReveal.ts): it opens once Find is.
-  pendingReveal?: RefObject<FindRevealValue | undefined>;
+  /// Takes the `find:` reveal that came before Find was here (findReveal.ts), if any: it opens once
+  /// Find is.
+  takePendingReveal?: () => FindRevealValue | undefined;
   children: (find: ChatFind) => ReactNode;
 }) {
   const find = useChatFind(rows, index);
   findRef.current = find;
   useLayoutEffect(() => {
-    const waiting = pendingReveal?.current;
-    if (!waiting || !pendingReveal) return;
-    pendingReveal.current = undefined;
-    find.reveal(waiting);
+    const waiting = takePendingReveal?.();
+    if (waiting) find.reveal(waiting);
   });
   // While Find is open it searches the pane's rows, so a streamed chunk draws through the pane
   // (streamingRow.ts) and new text is found as it comes.

@@ -51,7 +51,7 @@ impl super::Hub {
             .await
             {
                 Ok(Ok(mut v)) => {
-                    v["host"] = Value::String(name);
+                    crate::json_put::put(&mut v, "host", Value::String(name));
                     Ok(v)
                 }
                 Ok(Err(e)) => Err(e),

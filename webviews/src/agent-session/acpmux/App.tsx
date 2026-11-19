@@ -2202,6 +2202,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const showSaid = useRef<(said: SaidReveal) => string | undefined>(() => undefined);
   /// A `find:` reveal that came while no transcript (no Find) was shown: Find opens on it once it is.
   const pendingFindReveal = useRef<FindRevealValue | undefined>(undefined);
+  /// Hands that reveal to Find once, and forgets it.
+  const takePendingFindReveal = useCallback(() => {
+    const waiting = pendingFindReveal.current;
+    pendingFindReveal.current = undefined;
+    return waiting;
+  }, []);
   const reveal = (value: string) => {
     // The command palette's chats page opens a chat on a hit of the transcript index: Find in Chat
     // with its query, the hit nearest its time current, paged in when its turn is not loaded.
@@ -11981,7 +11987,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                               showHeld={showHeldRuns}
                                                               findRef={findRef}
                                                               index={childRows ? undefined : findIndex}
-                                                              pendingReveal={pendingFindReveal}
+                                                              takePendingReveal={takePendingFindReveal}
                                                             >
                                                               {(find) => (
                                                                 <VirtualTranscript

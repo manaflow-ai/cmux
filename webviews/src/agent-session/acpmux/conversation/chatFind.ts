@@ -42,6 +42,7 @@ import {
   nearestStep,
   WINDOW_PAGE,
   type FindIndexSource,
+  type FindStep,
   type IndexHit,
 } from "./findIndex";
 import type { FindRevealValue } from "./findReveal";
@@ -331,6 +332,14 @@ export type FindBarState = Omit<
 const NO_MATCHES: FindMatch[] = [];
 const NO_HITS: IndexHit[] = [];
 
+/** The current step, kept by its key (FindStep.key); its hit and time find it again once it is gone. */
+type CurrentStep = { key: string; hit?: IndexHit; at: number };
+const stepIdentity = (step: FindStep): CurrentStep => ({
+  key: step.key,
+  at: step.at,
+  ...(step.hit && { hit: step.hit }),
+});
+
 type IndexAnswerState = { key: string; hits: IndexHit[]; phase: "window" | "whole" | "absent" };
 
 /** The newest of `hits` (an acpmux before `order` answers newest first). */
@@ -344,7 +353,10 @@ export function useChatFind(rows: readonly AcpmuxRow[], index?: FindIndexSource)
   const [query, setQueryState] = useState("");
   // The current step by its identity (FindStep.key), so it stays put as answers and pages land;
   // undefined while it is the default one.
-  const [currentKey, setCurrentKey] = useState<string>();
+  // With it, the hit the step was, so the match that stands for it is current once its turn lands,
+  // and the step's time, so a match whose row went hands its place to the nearest one.
+  const [currentStep, setCurrentStep] = useState<CurrentStep>();
+  const currentKey = currentStep?.key;
   // A `find:` reveal's time: the default step is the one nearest it.
   const [near, setNear] = useState<number>();
   const [focusRequest, setFocusRequest] = useState(0);
@@ -361,10 +373,13 @@ export function useChatFind(rows: readonly AcpmuxRow[], index?: FindIndexSource)
     matchesCache.current = result.cache;
     return result.matches;
   }, [open, searched, query]);
+  // The newest rows and index for the asks below, written after render (a render may be discarded).
   const rowsNow = useRef(searched);
-  rowsNow.current = searched;
   const indexNow = useRef(index);
-  indexNow.current = index;
+  useLayoutEffect(() => {
+    rowsNow.current = searched;
+    indexNow.current = index;
+  }, [searched, index]);
   // Two asks per query once typing settles: the rows on screen first (`window`), drawn at once, then
   // the whole chat, page by page until a page's newest hit is loaded (the rest are newer still).
   // A newer query or another chat drops what an older ask answers.
@@ -415,14 +430,10 @@ export function useChatFind(rows: readonly AcpmuxRow[], index?: FindIndexSource)
   );
   const steps = useMemo(() => findSteps(matches, searched, unloaded), [matches, searched, unloaded]);
   const settled = phase !== "searching" && phase !== "window";
-  // The hit the current step was, so the match that stands for it is current once its turn lands,
-  // and the step's time, so a match whose row went hands its place to the nearest one.
-  const currentHit = useRef<IndexHit | undefined>(undefined);
-  const currentAt = useRef<number | undefined>(undefined);
   let position = currentKey === undefined ? -1 : steps.findIndex((step) => step.key === currentKey);
-  if (position < 0 && currentKey !== undefined && steps.length) {
-    const hit = currentHit.current;
-    position = hit ? landedStep(steps, hit, index?.rowsOfMessage) : nearestStep(steps, currentAt.current ?? 0);
+  if (position < 0 && currentStep !== undefined && steps.length) {
+    const hit = currentStep.hit;
+    position = hit ? landedStep(steps, hit, index?.rowsOfMessage) : nearestStep(steps, currentStep.at);
     if (position < 0) position = nearestStep(steps, hit?.at ?? 0);
   }
   if (currentKey === undefined && steps.length) {
@@ -437,9 +448,7 @@ export function useChatFind(rows: readonly AcpmuxRow[], index?: FindIndexSource)
   // more pages land, and a hit that landed hands its place to its match.
   useLayoutEffect(() => {
     if (!current || current.key === currentKey || (currentKey === undefined && !settled)) return;
-    setCurrentKey(current.key);
-    currentHit.current = current.hit;
-    currentAt.current = current.at;
+    setCurrentStep(stepIdentity(current));
   }, [current, currentKey, settled]);
   // Stepping to a hit in a turn not loaded pages the transcript in through it (bounded); the match
   // that stands for it then becomes current, and the transcript scrolls to it as to any match.
@@ -465,7 +474,9 @@ export function useChatFind(rows: readonly AcpmuxRow[], index?: FindIndexSource)
   const total = steps.length;
   const active = current?.match ? current.matchIndex : current ? -1 : 0;
   const stepsNow = useRef({ steps, position });
-  stepsNow.current = { steps, position };
+  useLayoutEffect(() => {
+    stepsNow.current = { steps, position };
+  }, [steps, position]);
   // Where focus was when the bar opened, so closing it puts the reader back there.
   const opener = useRef<HTMLElement | null>(null);
   const show = useCallback((text?: string) => {
@@ -474,7 +485,7 @@ export function useChatFind(rows: readonly AcpmuxRow[], index?: FindIndexSource)
     setOpen(true);
     if (text) {
       setQueryState(text);
-      setCurrentKey(undefined);
+      setCurrentStep(undefined);
       setNear(undefined);
     }
     setFocusRequest((request) => request + 1);
@@ -497,7 +508,7 @@ export function useChatFind(rows: readonly AcpmuxRow[], index?: FindIndexSource)
   }, []);
   const setQuery = useCallback((next: string) => {
     setQueryState(next);
-    setCurrentKey(undefined);
+    setCurrentStep(undefined);
     setNear(undefined);
   }, []);
   // From the steps of this render (a ref), so the callbacks keep their identity as rows stream in.
@@ -508,9 +519,7 @@ export function useChatFind(rows: readonly AcpmuxRow[], index?: FindIndexSource)
     const to = all[(Math.min(at, all.length - 1) + by + all.length) % all.length]!;
     // A hit a bounded load stopped short of is asked for again when the reader steps to it again.
     asked.current.delete(to.key);
-    currentHit.current = to.hit;
-    currentAt.current = to.at;
-    setCurrentKey(to.key);
+    setCurrentStep(stepIdentity(to));
   }, []);
   const next = useCallback(() => step(1), [step]);
   const previous = useCallback(() => step(-1), [step]);

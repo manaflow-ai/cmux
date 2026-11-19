@@ -43,6 +43,8 @@ use std::time::{Duration, Instant};
 use acpmux_transcript_search as ts;
 use serde_json::{Value, json};
 
+use crate::json_put::put;
+
 pub const DEFAULT_LIMIT: usize = 20;
 pub const MAX_LIMIT: usize = 200;
 pub const DEFAULT_CONTEXT: usize = 300;
@@ -129,24 +131,24 @@ impl Params {
 
     pub fn to_value(&self) -> Value {
         let mut v = json!({"query": self.query, "limit": self.limit, "context": self.context});
-        let mut put = |k: &str, x: Value| {
+        let mut set = |k: &str, x: Value| {
             if !x.is_null() {
-                v[k] = x;
+                put(&mut v, k, x);
             }
         };
-        put("sessionId", json!(self.session));
-        put("harnessSessionId", json!(self.harness_session));
-        put("role", json!(self.role));
-        put("sinceMs", json!(self.since_ms));
-        put("host", json!(self.host));
+        set("sessionId", json!(self.session));
+        set("harnessSessionId", json!(self.harness_session));
+        set("role", json!(self.role));
+        set("sinceMs", json!(self.since_ms));
+        set("host", json!(self.host));
         if self.order != ts::Order::Newest {
-            v["order"] = json!(self.order.as_str());
+            put(&mut v, "order", json!(self.order.as_str()));
         }
         if let Some((from, to)) = self.window {
-            v["window"] = json!({"fromMs": from, "toMs": to});
+            put(&mut v, "window", json!({"fromMs": from, "toMs": to}));
         }
         if self.offset > 0 {
-            v["offset"] = json!(self.offset);
+            put(&mut v, "offset", json!(self.offset));
         }
         v
     }
@@ -226,7 +228,7 @@ pub fn search_here(p: &Params, roots: &ts::Roots, host: Option<&str>) -> Result<
         "unreached": [],
     });
     if let Some(total) = done.total {
-        answer["total"] = json!(total);
+        put(&mut answer, "total", json!(total));
     }
     Ok(answer)
 }
@@ -250,10 +252,10 @@ fn hit_value(h: &ts::Hit, host: Option<&str>) -> Value {
         "matches": h.matches,
     });
     if let Some(id) = &h.message_id {
-        v["messageId"] = json!(id);
+        put(&mut v, "messageId", json!(id));
     }
     if h.in_window {
-        v["inWindow"] = json!(true);
+        put(&mut v, "inWindow", json!(true));
     }
     v
 }
@@ -316,7 +318,7 @@ pub fn merge(
         "unreached": unreached,
     });
     if let Some(total) = totals {
-        merged["total"] = json!(total);
+        put(&mut merged, "total", json!(total));
     }
     merged
 }

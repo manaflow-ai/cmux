@@ -424,7 +424,7 @@ impl ChatText {
             "matches": hit.matches,
         });
         if let Some(at) = hit.at_ms {
-            said["at"] = json!(at);
+            crate::json_put::put(&mut said, "at", json!(at));
         }
         said
     }

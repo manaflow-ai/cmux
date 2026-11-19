@@ -104,7 +104,7 @@ impl super::Hub {
             merged =
                 self.place_hits(session.id.clone(), harness, own, p.query.clone(), merged).await;
         }
-        merged["tookMs"] = json!(started.elapsed().as_millis() as u64);
+        crate::json_put::put(&mut merged, "tookMs", json!(started.elapsed().as_millis() as u64));
         Ok(merged)
     }
 

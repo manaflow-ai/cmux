@@ -516,7 +516,7 @@ async fn team_inbox(daemon: &Arc<Client>, args: &Value) -> Value {
     let unread_only = args.get("unreadOnly").and_then(Value::as_bool).unwrap_or(true);
     let mut params = json!({"unreadOnly": unread_only});
     if let Some(before) = args.get("before").and_then(Value::as_u64) {
-        params["before"] = json!(before);
+        crate::json_put::put(&mut params, "before", json!(before));
     }
     match daemon.request(method::MUX_TEAM_INBOX, params).await {
         Ok(result) => ok(team_result_text(&result), result),
@@ -608,14 +608,14 @@ pub(crate) async fn transcript_search_tool(
         Some("self" | "@") if session.is_empty() => {
             return error_result("this server runs in no acpmux chat: name a session".to_owned());
         }
-        Some("self" | "@") => params["sessionId"] = json!(session),
-        Some(other) => params["sessionId"] = json!(other),
+        Some("self" | "@") => crate::json_put::put(&mut params, "sessionId", json!(session)),
+        Some(other) => crate::json_put::put(&mut params, "sessionId", json!(other)),
         None => {}
     }
     match daemon.request(method::MUX_TRANSCRIPT_SEARCH, params).await {
         Ok(r) => {
             let mut text = crate::cli::search::text(&r, false);
-            if r["hits"].as_array().is_some_and(|h| !h.is_empty()) {
+            if r.get("hits").and_then(Value::as_array).is_some_and(|h| !h.is_empty()) {
                 text.push_str(crate::transcript_read::SEARCH_HINT);
             }
             ok(text, r)
@@ -807,7 +807,7 @@ pub(crate) async fn transcript_read_tool(
     let mut params = json!({"sessionId": key});
     for k in ["line", "turn", "before", "after", "subagent", "tools", "maxBytes", "host"] {
         if let Some(v) = args.get(k).filter(|v| !v.is_null()) {
-            params[k] = v.clone();
+            crate::json_put::put(&mut params, k, v.clone());
         }
     }
     match daemon.request(method::MUX_TRANSCRIPT_READ, params).await {

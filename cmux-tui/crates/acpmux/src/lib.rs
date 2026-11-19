@@ -141,6 +141,7 @@ pub mod hunk_summary;
 pub mod idempotency;
 #[cfg(windows)]
 mod job;
+pub(crate) mod json_put;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod left_on_mac;

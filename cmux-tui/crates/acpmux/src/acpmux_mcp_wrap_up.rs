@@ -123,7 +123,7 @@ pub(super) fn check(args: &Value) -> Result<Value, String> {
 pub(super) fn call(args: &Value) -> Value {
     match check(args) {
         Ok(shown) => {
-            let text = if shown["ask"].is_string() {
+            let text = if shown.get("ask").is_some_and(Value::is_string) {
                 "Shown to the person under your answer, with the question. End your turn now; their answer comes as their next message."
             } else {
                 "Shown to the person under your answer. End your turn now."
