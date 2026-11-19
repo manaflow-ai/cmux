@@ -48,7 +48,7 @@
 //!   personal Default).
 //! - `preflight --local FOLDER`: asked before any machine or lease is made for the send: every
 //!   absolute folder goes on, whatever its size; attached local folders project first and fall
-//!   back to the existing copy path ([`preflight`]).
+//!   back to the existing head-first seed or held-copy path ([`preflight`]).
 //! - `import --entries JSON`: takes in the sends the App kept in its user
 //!   defaults before this did ([`Ledger::import`]), once, on upgrade.
 //!
@@ -1178,45 +1178,73 @@ pub(super) fn import(ledger: &Path, entries: &str) -> Value {
 /// message.
 pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, Value> + 'a;
 
-/// Prepare an attached local folder: project it first, otherwise copy its local
-/// contents. A retry reuses the completed folder rather than overwriting the
-/// chat's edits. A GitHub repository selected separately uses its own seed path.
+/// `cmux link seed push` (design/cloud.md, "Getting the project onto the
+/// machine"): a git folder with a GitHub remote is seeded from it, anything
+/// else copied (`cmux link sync push`), which refuses a machine without
+/// `fs-v1` (`machine_outdated`) itself. A seed answers once the machine has the
+/// head the chat opens on (the root's files, the harness folders and `subpath`),
+/// `filling` while it fills the rest under its sync barrier, so every tool in the
+/// chat still sees the whole checkout. The send's copy counts as finished then
+/// ([`StartCopy::run`]): the chat may open in that folder, so a retry of the send
+/// never pushes over it. What a later delta builds on waits for the fill to be
+/// done (`seed_cli`'s record). A folder outside git that the machine has nothing of
+/// takes the held copy (`seed_cli::held`), which answers at its head the same way.
+/// A projection goes before all of these ([`project_first`]).
 fn push(
     socket: &Path,
     local: &Path,
     remote: &str,
-    _subpath: &str,
+    subpath: &str,
     chat: &str,
 ) -> Result<Value, Value> {
-    if let Some(projected) = project_first(socket, local, remote, chat) {
-        return Ok(projected);
+    projected_or(
+        || project_first(socket, local, remote, chat),
+        || super::seed_cli::push(socket, local, remote, Some(subpath)),
+    )
+}
+
+/// The projection when `project` makes one, else `seed_or_copy`'s push: the head-first
+/// seed or held copy with the chat's subpath, which opens the chat at its head while the
+/// machine fills the rest, never the whole copy first. A machine without `projection-v1`
+/// (every one whose image predates it) takes that path.
+fn projected_or(
+    project: impl FnOnce() -> Option<Result<Value, Value>>,
+    seed_or_copy: impl FnOnce() -> anyhow::Result<super::seed_cli::Pushed>,
+) -> Result<Value, Value> {
+    if let Some(projected) = project() {
+        return projected;
     }
-    super::seed_cli::push_copy_only(socket, local, remote)
+    seed_or_copy()
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
 }
 
-/// An attached local folder is projected when that is on (sync_cli/project.rs): the chat opens on
-/// all of it at once, its files read from this Mac on first use. None for anything else, and for
-/// any failure to project, so the caller copies as before. Both pushes try it first: the
-/// App's first copy asks (`--on-seed-refusal ask`), and a folder its machine's disk cannot hold
-/// would end there, refused, before a projection that needs no room was tried.
-fn project_first(socket: &Path, local: &Path, remote: &str, chat: &str) -> Option<Value> {
+/// An attached folder is projected when that is on, whatever its size or whether it is a git
+/// repository (sync_cli/project.rs); only a GitHub repository the person picked is cloned: the chat
+/// opens on all of it at once, its files read from this Mac on first use. None when it is not, and for any failure to project, so the
+/// caller seeds or copies as before (head first). Both pushes try it first: the App's first copy asks
+/// (`--on-seed-refusal ask`), and a folder its machine's disk cannot hold would end there,
+/// refused, before a projection that needs no room was tried.
+fn project_first(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    chat: &str,
+) -> Option<Result<Value, Value>> {
     match super::sync_cli::project::start(socket, local, remote, chat) {
-        Ok(Ok(answer)) => Some(pushed_fields(&json!({
-            "mode": "projected",
-            "projected": answer.get("data").cloned()
-        }))),
+        Ok(Ok(answer)) => {
+            Some(Ok(json!({"mode": "projected", "projected": answer.get("data").cloned()})))
+        }
         Ok(Err(why)) => {
             eprintln!(
-                "cmux link start-chat: {} is not projected ({why:?}); copying it",
+                "cmux link start-chat: {} is not projected ({why:?}); seeding or copying it",
                 local.display()
             );
             None
         }
         Err(error) => {
             eprintln!(
-                "cmux link start-chat: projecting {} failed: {error:#}; copying it",
+                "cmux link start-chat: projecting {} failed: {error:#}; seeding or copying it",
                 local.display()
             );
             None
@@ -1224,21 +1252,19 @@ fn project_first(socket: &Path, local: &Path, remote: &str, chat: &str) -> Optio
     }
 }
 
-/// The older `--on-seed-refusal ask` caller takes the same attached-folder path:
-/// projection first, then the local folder's copy. GitHub selections seed separately.
+/// [`push`] that never copies: a refused seed is `seed_refused`
+/// (`--on-seed-refusal ask`). A projection is no copy: it is tried first, as in [`push`].
 fn push_seed_only(
     socket: &Path,
     local: &Path,
     remote: &str,
-    _subpath: &str,
+    subpath: &str,
     chat: &str,
 ) -> Result<Value, Value> {
-    if let Some(projected) = project_first(socket, local, remote, chat) {
-        return Ok(projected);
-    }
-    super::seed_cli::push_copy_only(socket, local, remote)
-        .map(|pushed| pushed_fields(&pushed.json()))
-        .map_err(|error| super::seed_cli::failure(&error))
+    projected_or(
+        || project_first(socket, local, remote, chat),
+        || super::seed_cli::push_seed_only(socket, local, remote, Some(subpath)),
+    )
 }
 
 /// What the copy's answer carries of the push's own line: how it went

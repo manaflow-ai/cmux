@@ -4,7 +4,9 @@
     hot-verify.py plan --source dir:PATH|pr:N|sha:SHA [--repo CMUX_CLONE] [--app APP | --base COMMIT] [--json]
     hot-verify.py look --source dir:PATH|pr:N|sha:SHA --app APP --out DIR [--repo CMUX_CLONE] [--side NAME]
                        [--kit DIR] [--state STEPS.json] [--no-video] [--watch]
-    hot-verify.py stop --side NAME
+    hot-verify.py run --source dir:PATH|pr:N|sha:SHA --app APP --side NAME [--repo CMUX_CLONE] [--label TEXT]
+    hot-verify.py extract --side NAME [--out FILE.patch]
+    hot-verify.py stop --side NAME [--remove]
 
 Leo, 2026-11-15: "Just screenshot it, take a video, touch it, interact with it, click around with it, and then
 push it through the various testing instead of the other way around." And: "I mean, the point is sometimes like
@@ -62,6 +64,13 @@ commit's time until that shot)}. The marker is the line cmuxterm-hq's hot-verify
 Exit 0 looked (or nothing in the app changes), 1 the look failed, 2 usage, 3 the change needs a build (no look).
 The copy is stopped at the end; --watch leaves it and its dev server running (edits to a dir: source then show
 live) until `hot-verify.py stop --side NAME`, which stops the copy and everything the look started.
+
+`run` is `cmux app try .`: the same plan and the same side copy, made fresh from APP (the golden copy) on every
+run, with the change's web and Rust put in and left running, and no screenshots, video or steps. Its last stdout
+line is JSON {side, from, copy, socket, pid, plan, applied, errors, edit_to_live_s, phases}; exit 0 running,
+1 failed (the copy stopped), 3 needs a build (no copy made). `extract --side NAME` keeps the code a run swapped in:
+the branch cmux-try/NAME at the commit it ran and a patch of the change (JSON {branch, patch, files, ...}).
+`stop --remove` also deletes the copy.
 """
 from __future__ import annotations
 
@@ -1501,10 +1510,114 @@ def resolve_tree(planned: dict, source: str) -> Path | None:
 
 
 def command_stop(args) -> int:
-    errors = Side(args.side).stop()
+    side = Side(args.side)
+    errors = side.stop()
+    if getattr(args, "remove", False) and side.exists():
+        try:
+            side.run("remove", timeout=300)
+        except (LookError, subprocess.SubprocessError) as error:
+            errors.append(str(error))
     for error in errors:
         log(error)
     return EXIT_FAILED if errors else EXIT_LOOKED
+
+
+# ---------------------------------------------------------------- run and extract: `cmux app try .`
+
+
+def emit(result: dict, phases, began: float, code: int) -> int:
+    """RESULT as the last stdout line (`cmux app try` reads it), and the exit code."""
+    result["phases"] = {**phases.rounded(), "total": round(time.monotonic() - began, 3)}
+    print(json.dumps(result), flush=True)
+    return code
+
+
+def command_run(args) -> int:
+    """`cmux app try .`: a fresh clone of APP (the golden copy; by default the installed NIGHTLY) beside everything
+    else, the source's web and Rust swapped in, left running. No screenshots, video or steps: the copy and its dev
+    server keep running (saves under webviews/ show live) until `stop --side NAME`. A change that needs a build
+    exits 3 with its plan and makes no copy."""
+    began = time.monotonic()
+    phases = hot().Phases()
+    repo = Path(args.repo).resolve()
+    side = Side(args.side)
+    the_app = real_app(args.app)
+    if the_app is None:
+        raise Usage("run needs --app APP: the app the copy is cloned from")
+    result = {"schema": 1, "side": side.name, "from": str(the_app), "app": app_info(the_app), "plan": None,
+              "copy": None, "socket": None, "pid": None, "applied": {}, "errors": [], "edit_to_live_s": None}
+    try:
+        with phases("plan"):
+            planned = plan(repo, args.source, str(the_app), None)
+        result["plan"] = planned
+        if planned["needs_build"]:
+            return emit(result, phases, began, EXIT_NEEDS_BUILD)
+        unsupported = [layer for layer in planned["layers"] if layer not in ("web", "rust")]
+        if unsupported:
+            raise LookError(f"this engine applies no {', '.join(unsupported)} layer yet")
+        if sys.platform != "darwin":
+            raise LookError("a run launches the app: it needs macOS")
+        rules = rules_for(repo)
+        src_tree = resolve_tree(planned, args.source)
+        with phases("side"):
+            # A fresh clone per try: the last one, its dev server too, goes first.
+            if side.exists():
+                side.stop()
+                side.run("remove", timeout=300)
+            side.run("make", "--from", str(the_app), "--label", args.label or f"cmux {side.name}", timeout=600)
+            side.remember(try_source=args.source, try_repo=str(repo), try_head=planned["head"],
+                          try_fork=planned["fork"], try_from=str(the_app))
+            launched = side.run("launch", timeout=LAUNCH_SECONDS)
+            found = re.search(r"pid (\d+)", launched)
+            if not found:
+                raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
+            pid = int(found.group(1))
+            named = side.socket()
+            sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
+        result.update(copy=str(side.app()), socket=sock, pid=pid)
+        scratch = Path(tempfile.mkdtemp(prefix="hot-verify-run-"))
+        try:
+            handed = time.monotonic()
+            with phases("apply"):
+                if "rust" in planned["layers"]:
+                    result["applied"]["rust"] = apply_rust(rules, planned, src_tree, side, scratch)
+                if "web" in planned["layers"]:
+                    result["applied"]["web"] = apply_web(rules, planned, src_tree, side, scratch)
+            result["edit_to_live_s"] = round(time.monotonic() - handed, 3)
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+        return emit(result, phases, began, EXIT_LOOKED)
+    except (LookError, OSError, ValueError, subprocess.SubprocessError) as error:
+        result["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
+        with phases("stop"):
+            result["errors"] += side.stop()
+        return emit(result, phases, began, EXIT_FAILED)
+
+
+def command_extract(args) -> int:
+    """The code a run swapped in, kept: the branch cmux-try/NAME at the commit it ran (the working tree as it was
+    then) and a patch of the change (from its fork with the app's commit to that commit) under the cache, so both
+    outlive the copy. The checkout's working tree is not touched."""
+    began = time.monotonic()
+    phases = hot().Phases()
+    side = Side(args.side)
+    if not side.exists():
+        raise Usage(f"no copy {side.name}: nothing was swapped in to extract")
+    state = side.state()
+    head, fork, repo = state.get("try_head"), state.get("try_fork"), state.get("try_repo")
+    if not (SHA.fullmatch(str(head)) and SHA.fullmatch(str(fork)) and repo):
+        raise Usage(f"copy {side.name} has no run recorded (hot-verify.py run records one)")
+    repo = Path(repo)
+    branch = f"cmux-try/{side.name}"
+    git(repo, "update-ref", f"refs/heads/{branch}", head)
+    out = Path(args.out) if args.out else cache_dir() / "extract" / f"{side.name}-{head[:12]}.patch"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    diff = git(repo, "diff", "--binary", fork, head)
+    out.write_text(diff + ("\n" if diff else ""))
+    files = [line for line in git(repo, "diff", "--name-only", fork, head).splitlines() if line]
+    result = {"schema": 1, "side": side.name, "branch": branch, "head": head, "fork": fork, "patch": str(out),
+              "files": files, "repo": str(repo)}
+    return emit(result, phases, began, EXIT_LOOKED)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1530,8 +1643,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--watch", action="store_true")
     p.add_argument("--pr", type=int, help="the pull request a sha: source is the head of: its published web layer")
     p.set_defaults(func=command_look)
+    p = sub.add_parser("run")
+    p.add_argument("--source", required=True)
+    p.add_argument("--app", required=True)
+    p.add_argument("--repo", default=str(ROOT))
+    p.add_argument("--side", required=True)
+    p.add_argument("--label")
+    p.set_defaults(func=command_run)
+    p = sub.add_parser("extract")
+    p.add_argument("--side", required=True)
+    p.add_argument("--out")
+    p.set_defaults(func=command_extract)
     p = sub.add_parser("stop")
     p.add_argument("--side", default=DEFAULT_SIDE)
+    p.add_argument("--remove", action="store_true")
     p.set_defaults(func=command_stop)
     args = parser.parse_args(argv)
     try:

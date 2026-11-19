@@ -24,10 +24,10 @@ public struct ActionBudgetLogLine: Sendable, Hashable {
     ///   - records: The watchdog's over-budget records (``MainThreadWatchdog/overBudget``).
     ///   - sampling: Whether this build samples over-budget tasks (``MainThreadWatchdog/recordsTaskBudgets(environment:)``).
     ///   - frames: Symbolicates a record's stack (``HangRecord/frames``; tests pass names).
-    ///   - appImage: The app executable's image name, whose frames are the app's own work.
+    ///   - appImage: The image name of the app's code (``AppSymbolMap/codeImageName``), whose frames are the app's own work.
     public init(sample: ActionTimingSample, records: [HangRecord], sampling: Bool,
                 frames: (HangRecord) -> [HangFrame] = { $0.frames },
-                appImage: String? = Bundle.main.executableURL?.lastPathComponent) {
+                appImage: String? = AppSymbolMap.codeImageName) {
         var text = "action over budget: \(sample.id.rawValue) \(sample.entrypoint.rawValue) "
             + Self.format(sample.milliseconds) + " ms to commit"
         if let input = sample.inputToCommitMilliseconds { text += " (input " + Self.format(input) + " ms)" }
