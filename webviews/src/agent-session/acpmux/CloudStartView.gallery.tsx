@@ -25,6 +25,7 @@ const galleryGitHub = createGitHubPicker(
   async () => ({ opened: true }),
   () => () => undefined,
   () => false,
+  () => () => undefined,
 );
 
 // The checklist folds behind its summary; open it to show the clone row's line.
