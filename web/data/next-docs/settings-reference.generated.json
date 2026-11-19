@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 622,
+  "count": 623,
   "sections": [
     {
       "id": "general",
@@ -345,6 +345,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Guidance and Skills"
+        },
+        {
+          "key": "agents.mcpServers.enabled",
+          "title": "Saved Servers in Agent Chats",
+          "help": "New chats can use the servers listed above.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chats"
         },
         {
           "key": "agents.modelRouter.model",
@@ -5987,7 +5995,7 @@
           "title": "Show Chief When Opening Workspaces",
           "help": "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Chief Dock"
         },
         {
@@ -6654,14 +6662,6 @@
           "group": "Cloud Workspaces"
         },
         {
-          "key": "macScreen.onlyPersonStartsViewing",
-          "title": "Only Your Click Starts Viewing a Screen",
-          "help": "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Screen Sharing"
-        },
-        {
           "key": "phone.cloudDesktop",
           "title": "Show Your Cloud Machine's Screen on Your Phone",
           "help": "View only, streamed by this Mac while the page is open.",
@@ -6704,6 +6704,14 @@
       "id": "advanced",
       "title": "Advanced",
       "rows": [
+        {
+          "key": "customize.fromTheApp",
+          "title": "Customize From the Window",
+          "help": "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
         {
           "key": "developerTools.appPages",
           "title": "Developer Tools for cmux Pages",

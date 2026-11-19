@@ -2,6 +2,116 @@
 // schemas/settings/source/machines.json. Do not edit; edit the JSON and rerun.
 
 extension MachineSettingsSchema {
+    static var macScreen: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.macScreenKeyboard", "Mac Screen")
+        return [
+            SettingDescriptor(
+                MacScreenSettings.systemShortcutsPath,
+                section: .keyboard,
+                group: group,
+                title: SettingsText.keyed("settings.macScreen.systemShortcuts", "Send System Shortcuts to the Remote Mac"),
+                help: SettingsText.keyed("settings.macScreen.systemShortcuts.help", "Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility."),
+                summary: SettingsText.keyed("settings.macScreen.systemShortcuts.summary", "System shortcuts go to the remote Mac"),
+                kind: .toggle,
+                default: .bool(MacScreenSettings.systemShortcutsDefault),
+                keywords: ["mac screen", "remote", "system shortcuts", "command tab", "spotlight", "mission control", "keyboard", "accessibility"]
+            ),
+        ]
+    }
+}
+
+extension MachineSettingsSchema {
+    static var macScreenViewing: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.screenSharing", "Screen Sharing")
+        return [
+            SettingDescriptor(
+                MacScreenSettings.onlyPersonStartsViewingPath,
+                section: .machines,
+                group: group,
+                title: SettingsText.keyed("settings.macScreen.onlyPersonStartsViewing", "Only Your Click Starts Viewing a Screen"),
+                help: SettingsText.keyed("settings.macScreen.onlyPersonStartsViewing.help", "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first."),
+                summary: SettingsText.keyed("settings.macScreen.onlyPersonStartsViewing.summary", "Agents can't start viewing your screens"),
+                kind: .toggle,
+                default: .bool(MacScreenSettings.onlyPersonStartsViewingDefault),
+                keywords: ["screen sharing", "mac screen", "agents", "automation", "cli", "view", "control", "click", "approve"]
+            ),
+        ]
+    }
+}
+
+extension MachineSettingsSchema {
+    static var macScreenDebug: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.macScreen", "Mac Screen")
+        return [
+            SettingDescriptor(
+                MacScreenDebugSettings.relayOnlyPath,
+                section: .development,
+                group: group,
+                title: SettingsText.keyed("settings.macScreen.debug.relayOnly", "Relay Only"),
+                help: SettingsText.keyed("settings.macScreen.debug.relayOnly.help", "Mac Screen tabs connect only through the relay, to test it."),
+                summary: SettingsText.keyed("settings.macScreen.debug.relayOnly.summary", "Mac Screen streams use the relay only"),
+                kind: .toggle,
+                default: .bool(MacScreenDebugSettings.relayOnlyDefault),
+                keywords: ["mac screen", "relay", "turn", "webrtc", "ice", "development", "debug"]
+            ),
+        ]
+    }
+}
+
+extension MachineSettingsSchema {
+    static var remote: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.cmuxRemote", "cmux Remote")
+        return [
+            SettingDescriptor(
+                RemoteSettings.endSharingOnQuitPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.remote.endSharingOnQuit", "End Sharing When cmux Quits"),
+                help: SettingsText.keyed("settings.remote.endSharingOnQuit.help", "Off: this Mac stays available to your devices while cmux is quit."),
+                summary: SettingsText.keyed("settings.remote.endSharingOnQuit.summary", "A session ends when cmux quits"),
+                kind: .toggle,
+                default: .bool(RemoteSettings.endSharingOnQuitDefault),
+                keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
+            ),
+            SettingDescriptor(
+                RemoteSettings.ultraPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.remote.ultra", "Ultra Connection Mode"),
+                help: SettingsText.keyed("settings.remote.ultra.help", "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data."),
+                summary: SettingsText.keyed("settings.remote.ultra.summary", "Uses more data to stay fast on lossy networks"),
+                kind: .choice([
+                    SettingChoice(UltraConnectionMode.off.rawValue, SettingsText.keyed("settings.remote.ultra.off", "Off")),
+                    SettingChoice(UltraConnectionMode.auto.rawValue, SettingsText.keyed("settings.remote.ultra.auto", "Auto")),
+                    SettingChoice(UltraConnectionMode.always.rawValue, SettingsText.keyed("settings.remote.ultra.always", "Always")),
+                ]),
+                default: .string(RemoteSettings.ultraDefault.rawValue),
+                keywords: ["ultra", "auto", "lossy", "packet loss", "bandwidth", "data", "wireguard", "cloud", "latency", "fec"]
+            ),
+        ]
+    }
+}
+
+extension MachineSettingsSchema {
+    static var deviceHub: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.deviceHub", "Device Hub")
+        return [
+            SettingDescriptor(
+                DeviceHubSettings.urlPath,
+                section: .development,
+                group: group,
+                title: SettingsText.keyed("settings.deviceHub.url", "Device Hub Address"),
+                help: SettingsText.keyed("settings.deviceHub.url.help", "The device hub for Mac Screen sharing. Empty uses the built-in one."),
+                summary: SettingsText.keyed("settings.deviceHub.url.summary", "Device hub address"),
+                kind: .url,
+                default: .string(DeviceHubSettings.urlDefault),
+                keywords: ["device hub", "devices", "mac screen", "backend", "development", "debug"]
+            ),
+        ]
+    }
+}
+
+extension MachineSettingsSchema {
     static var imessage: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.section.accounts", "Accounts")
         return [
