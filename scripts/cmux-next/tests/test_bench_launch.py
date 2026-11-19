@@ -646,5 +646,42 @@ class FreshStateTests(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.root, "tui", "session.json")))
 
 
+
+def console_root(*sessions):
+    """ioreg's Root entry with these IOConsoleUsers sessions: (name, on_console) pairs."""
+    return {"IOConsoleUsers": [{"kCGSSessionUserNameKey": name, "kCGSSessionOnConsoleKey": on, "kCGSessionLoginDoneKey": True,
+                                "CGSSessionScreenIsLocked": False} for name, on in sessions]}
+
+
+class ConsoleUserTests(unittest.TestCase):
+    """The console user is the session WindowServer has on the console, not the last login (2026-11-18: hq#13193's
+    hidden cmuxci-gui-NN accounts logged in by Screen Sharing on every mini, scutil's ConsoleUser Name read
+    cmuxci-gui-03 while cmux's session stayed on the console, and every GUI bench failed no-gui-session)."""
+
+    def test_a_hidden_screen_sharing_login_does_not_take_the_console(self):
+        root = console_root(("cmuxci-gui-03", False), ("cmux", True))
+        self.assertEqual(bl.console_user(read_root=lambda: root), "cmux")
+
+    def test_the_session_on_the_console_is_the_console_user_whoever_logged_in_last(self):
+        root = console_root(("cmux", False), ("cmuxci-gui-02", True))
+        self.assertEqual(bl.console_user(read_root=lambda: root), "cmuxci-gui-02")
+
+    def test_nobody_on_the_console_or_no_answer_fails_closed(self):
+        self.assertIsNone(bl.console_user(read_root=lambda: console_root(("cmux", False))))
+        self.assertIsNone(bl.console_user(read_root=lambda: {}))
+        self.assertIsNone(bl.console_user(read_root=lambda: None))
+        self.assertIsNone(bl.console_user(read_root=lambda: console_root(("loginwindow", True))))
+
+    def test_a_session_whose_login_is_not_done_is_not_the_console_user(self):
+        root = console_root(("cmux", True))
+        root["IOConsoleUsers"][0]["kCGSessionLoginDoneKey"] = False
+        self.assertIsNone(bl.console_user(read_root=lambda: root))
+
+    def test_the_lock_is_read_from_the_session_on_the_console(self):
+        root = console_root(("cmuxci-gui-03", False), ("cmux", True))
+        root["IOConsoleUsers"][1]["CGSSessionScreenIsLocked"] = True
+        self.assertTrue(bl.screen_locked("cmux", read_root=lambda: root))
+        self.assertIsNone(bl.screen_locked("cmuxci-gui-03", read_root=lambda: root))
+
 if __name__ == "__main__":
     unittest.main()
