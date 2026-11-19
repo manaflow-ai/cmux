@@ -548,13 +548,13 @@ public final class MacHomeFeed {
             ("group", "Build runners", 140, 0, false, "Codex: All eight runners are green again after the cache fix."),
             ("direct", "Docs search", 320, 0, false, "Claude: Search now loads its index once and keeps it between pages."),
         ]
-        rows = conversations.enumerated().compactMap { index, row in
+        setRows(conversations.enumerated().compactMap { index, row in
             MacHomeRow(wire: [
                 "id": row.kind == "chief" ? chiefConversationID : "showcase-\(index)", "kind": row.kind, "name": row.name,
                 "unread": row.unread, "activity_at": stamp.string(from: Date().addingTimeInterval(-row.minutes * 60)),
                 "preview": row.preview, "pinned": row.pinned, "pin_position": index,
             ])
-        }
+        }, complete: true)
         macChiefID = chiefConversationID
         self.macID = macID
     }
