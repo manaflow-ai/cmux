@@ -238,7 +238,7 @@ export default componentEntry<Props>({
   },
   variants: {
     engine: {
-      note: "The engine over the photo, dark: Snell refraction through a squircle rim (the edge compresses and bends the wallpaper, the middle stays true), a Fresnel sheen and a two-light rim, and a lighter tint, since the photo under it is calm.",
+      note: "The engine over the photo, dark: Snell refraction through a superellipse rim (the edge compresses and bends the wallpaper, the middle stays true), a Fresnel sheen and a two-light rim, and a lighter tint, since the photo under it is calm.",
       props: { engine: true, scheme: "dark" },
     },
     "engine-light": {

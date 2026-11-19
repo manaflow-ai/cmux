@@ -10,7 +10,7 @@ export const glassEngine = defineExperiment({
   id: "glass-engine",
   title: "Glass engine",
   description:
-    "The lens's glass as a refracting slab: Snell refraction through a squircle rim, a key light that follows the pointer, a Fresnel sheen, a veil that rises only where the wallpaper fights the text, and a flex when the glass moves. Compare the rim, the light and the text over the busy part of the wallpaper.",
+    "The lens's glass as a refracting slab: Snell refraction through a superellipse rim, a key light that follows the pointer, a Fresnel sheen, a veil that rises only where the wallpaper fights the text, and a flex when the glass moves. Compare the rim, the light and the text over the busy part of the wallpaper.",
   arms: {
     off: { label: "Lens", description: "The lens as it ships: quarter-circle bend, fixed rim light, fixed tint." },
     on: { label: "Engine", description: "The glass engine over the same still." },
