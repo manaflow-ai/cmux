@@ -258,13 +258,20 @@ class World:
 class FakeApp:
     made, faults = [], set()
 
-    def __init__(self, app, out=None, env=None, log_name=None):
+    def __init__(self, app, out=None, env=None, log_name=None, config=None):
         self.app, self.binary, self.window, self.socket, self.extra = app, BINARY, (40, 40, 1440, 900), "/fake.sock", env or {}
         # The process that the launcher started; with the fault, a pid that the fake `ps` does not list.
         self.process = mock.Mock(pid=999 if "launched-pid-not-listed" in FakeApp.faults else 100)
+        # The app config that the launch names (None: the launcher's own), and the launcher's scratch folder.
+        self.config, self.scratch = config, out
 
     def launch(self):
         env = {"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_AGENT_PANE_MOCK": "1", "ACPMUX_AGENT_LAUNCH": "deny", **self.extra}
+        if self.config is not None:  # as the launcher: the named config is a file of the scratch folder, by the environment
+            env.update(CMUX_NEXT_CONFIG_FILE=os.path.join(self.scratch, "fake-cmux.json"),
+                       CMUX_NEXT_GHOSTTY_CONFIG=os.path.join(self.scratch, "ghostty"))
+            with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as f:
+                json.dump({} if "look-not-in-the-config" in FakeApp.faults else self.config, f)
         self.launched_env = {k: v for k, v in env.items() if v is not None}
         self.world = World(self.launched_env, FakeApp.faults, len(FakeApp.made))
         FakeApp.made.append(self)
@@ -275,6 +282,21 @@ class FakeApp:
 
     def rpc(self, method, params=None, timeout=60):
         world, params = self.world, params or {}
+        # The window's look, as a model from a read of the app's code: the app's settings answer is the launch's config,
+        # and the backdrop shows the config's picture with a tint whose alpha is the config's opacity.
+        appearance = dict((self.config or {}).get("appearance") or {})
+        if method == "settings.get":
+            if "look-key-not-taken" in world.faults:
+                appearance.pop("backgroundBlur", None)
+            return {"path": params.get("path"), "exists": True, "value": appearance, "file": "/fake/cmux.json"}
+        if method == "debug.themes":
+            world.theme_reads = getattr(world, "theme_reads", 0) + 1
+            late = "picture-loads-late" in world.faults and world.theme_reads < 3
+            opacity = appearance.get("backgroundOpacity", 1)
+            backdrop = {"sheet": "#102030FF" if opacity == 1 else "", "tint": "" if opacity == 1 else "#102030%02X" % round(opacity * 255),
+                        "glassTint": "", "picture": "" if late or "look-not-shown" in world.faults else appearance.get("background", ""),
+                        "blending": "true" if late else "false"}
+            return {"windows": [{"backdrop": backdrop}]}
         # `focus-read-fails`: the read before the preflight's close of a tab, and each read while a film with a speed runs.
         if method == "debug.focus" and "focus-read-fails" in world.faults and (world.tracing or world.sequences == 1):
             return {"error": "a fake fault of the focus read"}  # as the socket call gives a read that failed
@@ -1703,6 +1725,85 @@ class FilmsCase(unittest.TestCase):
                          (1, [(i, "not_made", ["Cmd-D", "read: the tabs of the pane with the focus"]) for i in ("B-C", "A-C")]))
         for row in rows:
             self.assertIn(M.NO_NEW_PANE, row.get("reason", ""), row["id"])
+
+    # `--window-look`: the films of a window with a look. The launch's config gets the keys that the option names and
+    # no other; no film is made of a window that does not show the look. The fake's settings answer and its backdrop
+    # are a model: no test here says what the app draws.
+    LOOK = "background=test-picture,opacity=0.5,blur=frosted"
+    TAG = "look-background-test-picture-opacity-0.5-blur-frosted"
+
+    def not_run(self, *args):
+        """`main()` for a command line that starts no app: (exit code, the printed lines, the fake launches)."""
+        FakeApp.made, said, out = [], io.StringIO(), tempfile.mkdtemp(prefix="pane-films-test-")
+        self.addCleanup(shutil.rmtree, out, True)
+        argv = ["pane-motion-films.py", "--app", BUNDLE, "--out", out, "--films", "T-D", *args]
+        with mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(said), contextlib.redirect_stderr(said):
+            code = M.main()
+        return code, said.getvalue().splitlines(), list(FakeApp.made)
+
+    def test_no_look_and_the_word_opaque_change_nothing(self):
+        for args in ((), ("--window-look", "opaque")):
+            code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D", *args)
+            self.assertEqual((code, launches[0].config, "window_look" in report, "window_look" in report["launches"][0],
+                              "window_look" in report["films"][0], [line for line in lines if "look" in line]),
+                             (0, None, False, False, False, []), args)
+            self.assertEqual(getattr(launches[0].world, "theme_reads", 0), 0, args)
+
+    def test_a_look_is_in_the_launchs_config_and_in_the_report_as_the_app_says_it(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D", "--window-look", self.LOOK)
+        self.assertEqual((code, launches[0].config),
+                         (0, {"appearance": {"background": "test-picture", "backgroundOpacity": 0.5, "backgroundBlur": "frosted"}}))
+        self.assertEqual(report["window_look"], {"look": self.TAG, "background": "test-picture", "opacity": 0.5, "blur": "frosted",
+                                                 "terminal_config": []})
+        seen = report["launches"][0]["window_look"]
+        self.assertEqual((seen["resolved"]["background"], seen["resolved"]["picture"], seen["resolved"]["opacity"], seen["resolved"]["blur"]),
+                         ("picture", "test-picture", 0.502, "frosted"))
+        self.assertEqual(seen["backdrop_shown"]["tint"], "#10203080")
+        self.assertEqual([(row["status"], row["window_look"]) for row in report["films"]], [("made", self.TAG)])
+        self.assertIn(f"PREFLIGHT window look: {self.TAG}: the app shows picture 'test-picture', opacity 0.502, blur 'frosted'", lines)
+
+    def test_a_key_that_is_not_named_is_not_in_the_launchs_config(self):
+        # Not the launcher's own config either: its opacity of 1 is a key that the option does not name.
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D", "--window-look", "background=test-picture")
+        self.assertEqual((code, launches[0].config), (0, {"appearance": {"background": "test-picture"}}))
+        self.assertFalse(os.path.exists(os.path.join(self.out, "ghostty")))  # no terminal line is named: no terminal file
+
+    def test_a_named_terminal_line_is_in_the_launchs_terminal_file(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D", "--window-look", "opacity=0.5,terminal-blur=8")
+        with open(os.path.join(self.out, "ghostty")) as f:
+            written = f.read()
+        self.assertEqual((code, written, report["window_look"]["terminal_config"], launches[0].config),
+                         (0, "background-blur = 8\n", ["background-blur = 8"], {"appearance": {"backgroundOpacity": 0.5}}))
+
+    def test_a_picture_that_loads_after_the_launch_is_waited_for(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "picture-loads-late"}, "--films", "T-D", "--window-look", self.LOOK)
+        self.assertEqual((code, launches[0].world.theme_reads, report["launches"][0]["window_look"]["resolved"]["picture"]),
+                         (0, 3, "test-picture"))
+
+    def test_no_film_is_made_of_a_window_that_does_not_show_the_look(self):
+        for fault, words in (("look-not-shown", "the window shows the picture '', not 'test-picture'"),
+                             ("look-key-not-taken", "appearance.backgroundBlur is None in the app's settings, not 'frosted'"),
+                             ("look-not-in-the-config", "not in the launch's config: ['appearance.background', 'appearance.backgroundOpacity', 'appearance.backgroundBlur']")):
+            code, report, lines, launches = self.run_films({"launch-activates", fault}, "--films", "T-D,T-Z", "--window-look", self.LOOK)
+            # One launch: the other launch form has the same config, so it is not tried.
+            self.assertEqual((code, len(launches), launches[0].stopped, [row["status"] for row in report["films"]]),
+                             (1, 1, True, ["not_run", "not_run"]), fault)
+            self.assertIn(f"PREFLIGHT window look FAILED: {self.TAG}: {words}", lines, fault)
+            for row in report["films"]:
+                self.assertIn("the window does not show the look", row["reason"], fault)
+                self.assertIn(words, row["reason"], fault)
+            self.assertNotIn("forms_not_run", report, fault)
+
+    def test_another_word_starts_no_app(self):
+        for value in ("glass", "opacity=2", "behind=checker", "shade=1"):
+            code, said, launches = self.not_run("--window-look", value)
+            self.assertEqual((code, launches), (3, []), value)
+            self.assertTrue(any(line.startswith("pane-motion-films: NOT RUN: --window-look takes") for line in said), value)
+
+    def test_a_panel_behind_the_window_is_not_a_film_of_this_tool(self):
+        code, said, launches = self.not_run("--window-look", "opacity=0.5,behind=stripes")
+        self.assertEqual((code, launches), (3, []))
+        self.assertIn("pane-motion-films: NOT RUN: --window-look behind=stripes: this tool makes no panel behind the window", said)
 
 
 if __name__ == "__main__":
