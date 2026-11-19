@@ -5,6 +5,9 @@ Run: python3 -I scripts/cmux-next/tests/test_pane_perf_rows.py
 No app, display or subprocess is run: the definitions are loaded without the script's top-level app launch.
 - moving_frames: New Column moves only the strip camera (column-scroll.md R3b), so a count of the pane and divider
   springs alone (`layout.travel`) read 0 for every New Column (BENCH BASE REDS 3).
+- commit_notes: the app's own notes of a commit motion (the act that moves, or why a change showed in one frame).
+- pane-zoom-terminal.py's sample_frames: a zoom by a commit motion has `layout.commit` samples and no
+  spring frame, so a row that counts the springs alone reads 0 for it.
 - not_applicable: a one-column layout (1x2) has no vertical divider, so its drag is not applicable, not a FAIL.
 - activate: the bench opens its bundle through LaunchServices and waits for a key window.
 """
@@ -22,11 +25,14 @@ def definitions(path, names):
     tree = ast.parse(path.read_text(), filename=str(path))
     nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
     missing = set(names) - {node.name for node in nodes}
-    assert not missing, f"pane-perf-terminal.py lacks {sorted(missing)}"
+    assert not missing, f"{path.name} lacks {sorted(missing)}"
     return compile(ast.Module(body=nodes, type_ignores=[]), str(path), "exec")
 
 
-BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_applicable", "activate"})
+BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_applicable", "activate", "commit_frames",
+                                                    "late_frames", "motion_arms", "commit_notes", "commit_placements",
+                                                    "layout_spans"})
+ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
 def loaded(**extra):
@@ -72,6 +78,174 @@ class MovingFrames(unittest.TestCase):
     def test_no_samples(self):
         for samples in (None, [], {}, [None, 3]):
             self.assertEqual(self.moving_frames(samples), 0)
+
+
+class CommitFrames(unittest.TestCase):
+    def setUp(self):
+        self.commit_frames = loaded()["commit_frames"]
+
+    def test_each_tick_with_a_pane_in_flight_counts(self):
+        samples = [{"name": "clock.dt_ms", "v": 8.33}, {"name": "layout.commit", "v": 16}, {"name": "layout.travel", "v": 0},
+                   {"name": "layout.commit", "v": 16}, {"name": "layout.commit", "v": 2}, {"name": "layout.commit", "v": 0}]
+        self.assertEqual(self.commit_frames(samples), 3)
+
+    def test_a_build_without_the_sample_counts_none(self):
+        self.assertEqual(self.commit_frames(frames((600, 0), (200, 0), (0, 0))), 0)
+        for samples in (None, [], {}, [None, 3]):
+            self.assertEqual(self.commit_frames(samples), 0)
+
+
+class CommitNotes(unittest.TestCase):
+    def setUp(self):
+        self.commit_notes = loaded()["commit_notes"]
+
+    def test_the_notes_of_the_commit_motion_are_kept_in_their_order(self):
+        notes = [{"t_ms": 1, "text": "tabs: sync added 1"}, {"t_ms": 2, "text": "layout.commit: split moves 2 panes"},
+                 None, {"t_ms": 3, "text": "layout.commit: no move, the motion is off"}]
+        self.assertEqual(self.commit_notes(notes),
+                         ["layout.commit: split moves 2 panes", "layout.commit: no move, the motion is off"])
+
+    def test_a_reply_without_such_a_note_gives_none(self):
+        for notes in (None, [], {}, [{"t_ms": 3}], [{"text": None}], [{"text": "layout: rest"}]):
+            self.assertEqual(self.commit_notes(notes), [])
+
+
+class CommitPlacements(unittest.TestCase):
+    def setUp(self):
+        self.commit_placements = loaded()["commit_placements"]
+
+    def test_a_note_is_placed_after_the_start_of_its_own_tick(self):
+        samples = [{"name": "clock.dt_ms", "t_ms": 100.0, "v": 8.33}, {"name": "layout.travel", "t_ms": 100.2, "v": 0},
+                   {"name": "clock.dt_ms", "t_ms": 108.3, "v": 8.33}, {"name": "clock.dt_ms", "t_ms": 130.0, "v": 21.7}]
+        notes = [{"t_ms": 118.9, "text": "layout.commit: unzoom moves 30 panes"}, {"t_ms": 119.0, "text": "tabs: sync"},
+                 {"t_ms": 130.4, "text": "layout.commit: rest"}]
+        self.assertEqual(self.commit_placements(samples, notes), [
+            {"text": "layout.commit: unzoom moves 30 panes", "t_ms": 118.9, "after_tick_ms": 10.6},
+            {"text": "layout.commit: rest", "t_ms": 130.4, "after_tick_ms": 0.4}])
+
+    def test_a_note_before_each_tick_has_no_place(self):
+        samples = [{"name": "clock.dt_ms", "t_ms": 50.0, "v": 8.33}]
+        notes = [{"t_ms": 20.0, "text": "layout.commit: split moves 2 panes"}]
+        self.assertEqual(self.commit_placements(samples, notes),
+                         [{"text": "layout.commit: split moves 2 panes", "t_ms": 20.0, "after_tick_ms": None}])
+        self.assertEqual(self.commit_placements(None, notes)[0]["after_tick_ms"], None)
+
+    def test_a_reply_without_such_a_note_gives_none(self):
+        for notes in (None, [], {}, [None], [{"text": "layout.commit: no time"}], [{"t_ms": 3, "text": "layout: rest"}]):
+            self.assertEqual(self.commit_placements([{"name": "clock.dt_ms", "t_ms": 1.0, "v": 8.33}], notes), [])
+
+
+class LayoutSpans(unittest.TestCase):
+    def setUp(self):
+        self.layout_spans = loaded()["layout_spans"]
+
+    def test_each_named_part_has_its_count_its_sum_and_its_longest_span(self):
+        spans = [{"name": "layout.hide", "ms": 8.1, "at_ms": 400.0}, {"name": "layout.place", "ms": 1.2, "at_ms": 100.0},
+                 {"name": "layout.place", "ms": 9.6, "at_ms": 108.3}, {"name": "layout", "ms": 250.0, "at_ms": 100.0},
+                 {"name": "tabs", "ms": 3.0, "at_ms": 90.0}]
+        self.assertEqual(self.layout_spans(spans), {
+            "layout.hide": {"count": 1, "sum_ms": 8.1, "max_ms": 8.1, "max_at_ms": 400.0},
+            "layout.place": {"count": 2, "sum_ms": 10.8, "max_ms": 9.6, "max_at_ms": 108.3}})
+
+    def test_a_build_without_the_spans_gives_none(self):
+        for spans in (None, [], {}, [None, 3], [{"name": "layout", "ms": 250.0}], [{"name": "layout.place"}]):
+            self.assertEqual(self.layout_spans(spans), {})
+
+
+class ZoomSampleFrames(unittest.TestCase):
+    def setUp(self):
+        namespace = {}
+        exec(ZOOM, namespace)
+        self.sample_frames = namespace["sample_frames"]
+
+    def test_a_zoom_by_a_commit_motion_has_commit_frames_and_no_spring_frame(self):
+        samples = frames((0, 0), (0, 0), (0, 0))
+        samples[1:1] = [{"name": "layout.commit", "v": 4}, {"name": "layout.commit", "v": 4}, {"name": "layout.commit", "v": 0}]
+        self.assertEqual(self.sample_frames(samples, "layout.commit"), 2)
+        self.assertEqual(self.sample_frames(samples, "layout.travel"), 0)
+
+    def test_a_zoom_by_the_springs_counts_its_spring_frames(self):
+        samples = frames((600, 0), (200, 0), (0, 0))
+        self.assertEqual(self.sample_frames(samples, "layout.travel"), 2)
+        self.assertEqual(self.sample_frames(samples, "layout.commit"), 0)
+
+    def test_a_reply_without_samples_counts_none(self):
+        for samples in (None, [], {}, [None, 3], [{"name": "layout.travel"}]):
+            self.assertEqual(self.sample_frames(samples, "layout.travel"), 0)
+
+
+def probe(**changed):
+    """A `debug.frames` reply at 120 Hz with two long intervals: one of 2 refreshes that holds the action's send (20 ms
+    after the first frame) and one of 6 refreshes after it."""
+    reply = {"refresh_ms": 8.333, "missed": 2, "first_frame_s": 100.0, "main_max_ms": 12.5,
+             "intervals_ms": [8.33, 8.33, 16.67, 8.33, 50.42, 8.33], "missed_at_ms": [33.0, 92.0],
+             "missed_split": {"main_late": 1, "commit_late": 0, "presented_late": 1},
+             "missed_frames": [{"at_ms": 16.7, "interval_ms": 16.67, "next_tick_after_target_ms": 8.3, "cause": "main_late"},
+                               {"at_ms": 41.7, "interval_ms": 50.42, "next_tick_after_target_ms": 42.1, "cause": "presented_late"}]}
+    reply.update(changed)
+    return {key: value for key, value in reply.items() if value is not None}
+
+
+class LateFrames(unittest.TestCase):
+    def setUp(self):
+        self.late_frames = loaded()["late_frames"]
+
+    def test_the_refreshes_that_the_long_intervals_skipped_are_summed(self):
+        # `missed` is 2 (two long intervals); the screen skipped 1 + 5 refreshes.
+        late = self.late_frames(probe(), 100.02)
+        self.assertEqual(late["missed_refreshes"], 6)
+        self.assertEqual([miss["refreshes"] for miss in late["missed_frames"]], [1, 5])
+
+    def test_each_kept_stamp_is_placed_after_the_action(self):
+        late = self.late_frames(probe(), 100.02)
+        self.assertEqual(late["action_at_ms"], 20.0)
+        # The first long interval began 3.3 ms before the send and ended after it: the action's own frame.
+        self.assertEqual([miss["after_action_ms"] for miss in late["missed_frames"]], [-3.3, 21.7])
+        self.assertEqual([miss["cause"] for miss in late["missed_frames"]], ["main_late", "presented_late"])
+
+    def test_the_probes_own_fields_are_kept(self):
+        late = self.late_frames(probe(), 100.02)
+        self.assertEqual(late["missed_at_ms"], [33.0, 92.0])
+        self.assertEqual(late["missed_split"], {"main_late": 1, "commit_late": 0, "presented_late": 1})
+        self.assertEqual(late["main_max_ms"], 12.5)
+
+    def test_without_every_interval_the_kept_stamps_give_the_sum(self):
+        self.assertEqual(self.late_frames(probe(intervals_ms=None), 100.02)["missed_refreshes"], 6)
+
+    def test_no_sum_when_the_probe_kept_fewer_stamps_than_it_counted(self):
+        self.assertIsNone(self.late_frames(probe(intervals_ms=None, missed=40), 100.02)["missed_refreshes"])
+
+    def test_no_place_without_the_two_times_on_one_clock(self):
+        for reply, sent in ((probe(first_frame_s=None), 100.02), (probe(), None), (probe(), 5000.0), (probe(), 99.0)):
+            late = self.late_frames(reply, sent)
+            self.assertIsNone(late["action_at_ms"])
+            self.assertEqual([miss["after_action_ms"] for miss in late["missed_frames"]], [None, None])
+            self.assertEqual(late["missed_refreshes"], 6)
+
+    def test_a_reply_with_no_long_interval_or_no_refresh(self):
+        still = self.late_frames({"refresh_ms": 8.333, "missed": 0, "intervals_ms": [8.33, 8.34], "first_frame_s": 100.0}, 100.02)
+        self.assertEqual((still["missed_refreshes"], still["missed_frames"]), (0, []))
+        for reply in (None, {}, {"refresh_ms": 0, "missed": 1, "intervals_ms": [20.0]}):
+            self.assertIsNone(self.late_frames(reply, 100.02)["missed_refreshes"])
+
+
+class MotionArms(unittest.TestCase):
+    def setUp(self):
+        self.motion_arms = loaded()["motion_arms"]
+
+    def test_the_option_names_each_arm_one_time_in_its_order(self):
+        self.assertEqual(self.motion_arms("on,off"), ["on", "off"])
+        self.assertEqual(self.motion_arms("off, on"), ["off", "on"])
+        self.assertEqual(self.motion_arms("off"), ["off"])
+
+    def test_no_option_is_no_arm(self):
+        # The app's own setting, one pass: the rows of a run without the option keep their names.
+        self.assertEqual(self.motion_arms(None), [])
+
+    def test_another_word_is_refused(self):
+        for value in ("", "both", "on,on", "on,of", ","):
+            with self.assertRaises(ValueError, msg=value):
+                self.motion_arms(value)
 
 
 class NotApplicable(unittest.TestCase):
