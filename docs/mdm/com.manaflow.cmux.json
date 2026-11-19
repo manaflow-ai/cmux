@@ -520,6 +520,12 @@
       "title" : "Your Skills in Every Chat",
       "type" : "boolean"
     },
+    "agents.mcpServers.enabled" : {
+      "default" : true,
+      "description" : "New chats can use the servers listed above.",
+      "title" : "Saved Servers in Agent Chats",
+      "type" : "boolean"
+    },
     "agents.modelRouter.model" : {
       "default" : "deepseek/deepseek-v4.1-flash-1017",
       "description" : "The model new cmux model router chats start on.",
@@ -2696,6 +2702,12 @@
       "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
+    "customize.fromTheApp" : {
+      "default" : false,
+      "description" : "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both.",
+      "title" : "Customize From the Window",
+      "type" : "boolean"
+    },
     "developerTools.appPages" : {
       "default" : true,
       "description" : "Inspect Element and ⌥⌘I in chats, Home, Markdown and Settings.",
@@ -4837,18 +4849,6 @@
       "description" : "When an agent waited for your input or finished its turn, in the card's history.",
       "title" : "Show Waits in Workspace Cards",
       "type" : "boolean"
-    },
-    "sidebar.look" : {
-      "default" : "cmux",
-      "description" : "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win.",
-      "enum" : [
-        "cmux",
-        "claude",
-        "codex",
-        "studio"
-      ],
-      "title" : "Sidebar Look",
-      "type" : "string"
     },
     "sidebar.minimal" : {
       "default" : false,

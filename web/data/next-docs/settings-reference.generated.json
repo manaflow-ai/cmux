@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 622,
+  "count": 623,
   "sections": [
     {
       "id": "general",
@@ -345,6 +345,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Guidance and Skills"
+        },
+        {
+          "key": "agents.mcpServers.enabled",
+          "title": "Saved Servers in Agent Chats",
+          "help": "New chats can use the servers listed above.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chats"
         },
         {
           "key": "agents.modelRouter.model",
@@ -4000,20 +4008,6 @@
           "group": "Sidebar"
         },
         {
-          "key": "sidebar.look",
-          "title": "Sidebar Look",
-          "help": "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win.",
-          "kind": "choice",
-          "default": "cmux",
-          "group": "Sidebar",
-          "values": [
-            "cmux",
-            "claude",
-            "codex",
-            "studio"
-          ]
-        },
-        {
           "key": "sidebar.minimal",
           "title": "Minimal Mode",
           "help": "Sidebar and tab bar buttons show only while the pointer is over them.",
@@ -6710,6 +6704,14 @@
       "id": "advanced",
       "title": "Advanced",
       "rows": [
+        {
+          "key": "customize.fromTheApp",
+          "title": "Customize From the Window",
+          "help": "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
         {
           "key": "developerTools.appPages",
           "title": "Developer Tools for cmux Pages",
