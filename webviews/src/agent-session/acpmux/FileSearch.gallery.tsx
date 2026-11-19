@@ -22,6 +22,7 @@ const longFiles = Array.from({ length: 40 }, (_, index) => ({
 }));
 const longSearch: FileSearchSource = async () => ({ root: "/Users/you/src/cmux", results: longFiles });
 
+// gallery-capture: a typed query's latency; only the plays type, and they wait for the results (idle never searches).
 const search: FileSearchSource = async (query) => {
   await new Promise((resolve) => setTimeout(resolve, 12));
   if (query === "zz") return { root: "/Users/you/src/cmux", results: [] };

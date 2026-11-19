@@ -261,7 +261,7 @@ public final class FilesPaneView: NSView {
         let modes = FileViewMode.allCases
         if layoutControl.selectedSegment >= 0, layoutControl.selectedSegment < modes.count {
             model.viewMode = modes[layoutControl.selectedSegment]
-            window?.makeFirstResponder(focusTarget)
+            FocusRoute(.system, "the files pane's layout changed").moveKeyboard(in: window, to: focusTarget)
         }
     }
     @objc private func zoomChanged() { setIconSize(CGFloat(zoomSlider.doubleValue)) }

@@ -42,11 +42,16 @@ fn parses_new_dev_list_remove_and_help() {
     assert_eq!(parse(&words("dev --help")), Ok(Request::Help));
     assert_eq!(
         parse(&words("new my-prs")),
-        Ok(Request::New { name: "my-prs".into(), kind: "section".into(), dir: None })
+        Ok(Request::New { name: "my-prs".into(), kind: "section".into(), dir: None, repo: None })
     );
     assert_eq!(
         parse(&words("new w --kind section --dir /tmp/w")),
-        Ok(Request::New { name: "w".into(), kind: "section".into(), dir: Some("/tmp/w".into()) })
+        Ok(Request::New {
+            name: "w".into(),
+            kind: "section".into(),
+            dir: Some("/tmp/w".into()),
+            repo: None
+        })
     );
     let Ok(Request::Dev(options)) = parse(&words("dev")) else { panic!("dev") };
     assert_eq!(options.dir, PathBuf::from("."));
@@ -81,7 +86,6 @@ fn parses_new_dev_list_remove_and_help() {
         "new Bad_Name",
         "new customize",
         "new a b",
-        "new a --kind widget",
         "dev a b",
         "dev --bogus",
         "dev --build",
@@ -290,14 +294,17 @@ fn an_invalid_manifest_names_its_file_and_field_and_exits_4() {
     assert_eq!(json["phase"], "manifest");
     assert_eq!(json["exitCode"], 4);
 
-    // A third-party id is refused: the local folder holds local/ apps only.
+    // A published id (with its repository) loads as local/NAME, the only publisher the local
+    // folder holds (publish_tests); a store id with no repository is refused by the validator.
     manifest["implements"]["cmux.section/1"]["options"]["defaultRegion"] = json!("bottom");
     manifest["id"] = json!("acme/broken");
     manifest["repository"] = json!("https://github.com/acme/broken");
     std::fs::write(&path, manifest.to_string()).unwrap();
+    assert_eq!(dev::load_package(&dir).unwrap().id, "local/broken");
+    manifest.as_object_mut().unwrap().remove("repository");
+    std::fs::write(&path, manifest.to_string()).unwrap();
     let errors = dev::load_package(&dir).unwrap_err();
-    assert_eq!(errors[0].field.as_deref(), Some("/id"));
-    assert!(errors[0].message.contains("local/broken"), "{errors:?}");
+    assert_eq!(errors[0].field.as_deref(), Some("/repository"), "{errors:?}");
 }
 
 /// A fresh clone: `src/main.ts` and no `dist/` (every example gitignores it). The build makes
@@ -587,6 +594,13 @@ fn serve(
                             Err(reason) => json!({"event": "apps-mount-failed", "mount_id": mount_id, "reason": reason}),
                         },
                     );
+                } else if script.contains("THROW_IN_WIDGET") {
+                    // A widget whose render throws: the daemon keeps it mounted, stale.
+                    out.push(
+                        json!({"event": "apps-widget-health", "mount_id": mount_id, "stale": true,
+                        "reason": "render: dist/main.js:3:7 TypeError: ctx.nope is not a function",
+                        "failures": 1, "retry_ms": 1000}),
+                    );
                 } else if script.contains("THROW_AT_INIT") {
                     out.push(json!({"event": "apps-mount-failed", "mount_id": mount_id,
                         "reason": "init: dist/main.js:2:12 SyntaxError: unexpected token"}));
@@ -762,6 +776,14 @@ fn once_loads_a_new_extension_then_reports_a_load_error_with_its_position() {
         (Some("dist/main.js"), Some(2), Some(12))
     );
     assert!(broken.line().contains("the last good version stays live"), "{}", broken.line());
+
+    // A widget whose render throws stays mounted and goes stale (let it crash): the probe
+    // reports the render error at once, not a timeout.
+    std::fs::write(dir.join("dist/main.js"), "// THROW_IN_WIDGET\n").unwrap();
+    let stale = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(stale.phase, Phase::Load, "{:?}", stale.errors);
+    assert_eq!(stale.exit_code(), exit::LOAD_FAILED);
+    assert!(stale.errors[0].message.contains("TypeError"), "{:?}", stale.errors);
 
     // `ext remove` drops the copy it made, and only that.
     assert_eq!(dev::remove_made_folder(&copy), Ok(true));
@@ -1114,6 +1136,13 @@ fn a_reload_does_not_wait_for_the_file_watch() {
     assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
     let cmds = fake.cmds();
     assert!(cmds.contains(&"apps-reload-local".to_string()), "{cmds:?}");
+    // It names the folder it copied to, so the daemon's pass reads that
+    // folder only, not every local app.
+    let requests = fake.requests.lock().unwrap();
+    let asked = requests.iter().find(|r| r["cmd"] == "apps-reload-local").unwrap();
+    let folders = asked["folders"].as_array().unwrap();
+    assert_eq!(folders.len(), 1, "{asked}");
+    assert_eq!(Path::new(folders[0].as_str().unwrap()).parent(), Some(local.as_path()), "{asked}");
 }
 
 /// A daemon older than `apps-reload-local` refuses it and still reloads on

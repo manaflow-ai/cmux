@@ -11,6 +11,8 @@ mod input;
 mod keys;
 #[cfg(feature = "bench")]
 pub(crate) mod observe;
+#[cfg(feature = "bench")]
+pub(crate) mod synthetic;
 mod sys;
 
 use crate::desktop::{Desktop, FrameSource, Halves};
@@ -110,6 +112,7 @@ impl Desktop for MacDesktop {
     }
 
     fn drain(&mut self, out: &mut Vec<Rect>) -> Res<()> {
+        self.capture.recover()?;
         self.capture.drain(out);
         Ok(())
     }

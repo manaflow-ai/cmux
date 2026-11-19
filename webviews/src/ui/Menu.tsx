@@ -105,9 +105,10 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
     if (open === undefined) setInternalOpen(next);
     onOpenChange?.(next);
   };
+  const nativeAvailable = native !== undefined && nativePopup.available;
   const context: MenuContextValue = {
     isOpen,
-    nativeAvailable: native !== undefined && nativePopup.available,
+    nativeAvailable,
     trigger,
     opener,
     keyed,
@@ -133,6 +134,13 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
         handled: false,
       };
       setMenuOpen(true);
+      // The App draws this menu (a native popup): its panel follows the held press and picks the
+      // row the release lands on (NativePopupHost's press-release). The page sees only that
+      // release; a page row under the panel must not run, and the menu must not close on it.
+      if (nativeAvailable) {
+        session.current = null;
+        return;
+      }
       pointerCleanup.current = trackPressRelease(event, {
         hover: (row) => row.focus({ preventScroll: true }),
         // Base UI items act on the click.
@@ -225,6 +233,10 @@ export interface MenuButtonProps {
   buttonRef?: RefObject<HTMLButtonElement | null>;
   /** A field-like trigger (a select, a host field): its menu opens as wide as it (`matchTrigger`). */
   fieldTrigger?: boolean;
+  /** With the `ui-btn` class: a `Button`'s variant and size, so the trigger takes its hover, press
+   *  and open fills (controls.css). */
+  variant?: "ghost" | "subtle" | "solid";
+  size?: "sm" | "md" | "lg";
   children: ReactNode;
 }
 
@@ -238,6 +250,8 @@ export function MenuButton({
   "data-menu": dataMenu,
   buttonRef,
   fieldTrigger,
+  variant,
+  size,
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
@@ -254,6 +268,8 @@ export function MenuButton({
       aria-haspopup={ariaHasPopup}
       data-menu={dataMenu}
       data-field-trigger={fieldTrigger ? "" : undefined}
+      data-variant={variant}
+      data-size={size}
       data-popup-open={context?.isOpen ? "" : undefined}
       disabled={disabled}
       onKeyUp={(event) => {

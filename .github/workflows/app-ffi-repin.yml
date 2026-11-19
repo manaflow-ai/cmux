@@ -84,6 +84,20 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
 
+      # A reused work checkout an earlier job left shallow makes the treeless full-history
+      # checkout below run `git fetch --filter=tree:0 --unshallow` into it, and git 2.55/2.56
+      # aborts in pack-objects ("BUG: ... should_include_obj should only be called on
+      # existing objects") on all three tries: app FFI release run 43863985334, 2026-11-16.
+      # Dropping the shallow .git lets the checkout fetch fresh (treeless, about a minute).
+      - name: Drop a reused shallow checkout
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [[ -f "$GITHUB_WORKSPACE/.git/shallow" ]]; then
+            echo "reused shallow checkout: removing its .git so the checkout fetches fresh"
+            rm -rf "$GITHUB_WORKSPACE/.git"
+          fi
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: feat-cmux-next

@@ -19,7 +19,7 @@
           },
           "help": {
             "key": "settings.tabs.newTabTemplate.help",
-            "text": "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it."
+            "text": "The layout of the New Tab page. Terminal opens a terminal instead."
           },
           "kind": "choice",
           "swift_owner": "NewTabTemplate",
@@ -104,7 +104,7 @@
           },
           "help": {
             "key": "settings.tabs.nativeNewTabPage.help",
-            "text": "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now."
+            "text": "Cmd-T opens the faster native New Tab page. Recent chats and widgets are web only."
           },
           "kind": "toggle",
           "swift_owner": "NativeNewTabPageSetting",
@@ -381,10 +381,6 @@
             "key": "settings.tabs.newTabPosition",
             "text": "New Tab Position (Cmd-T)"
           },
-          "help": {
-            "key": "settings.tabs.newTabPosition.help",
-            "text": "Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab."
-          },
           "kind": "choice",
           "swift_owner": "NewTabPosition",
           "swift_enum": {
@@ -438,10 +434,6 @@
           "title": {
             "key": "settings.tabs.newTabButtonPosition",
             "text": "New Tab Position (+ Button)"
-          },
-          "help": {
-            "key": "settings.tabs.newTabButtonPosition.help",
-            "text": "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T)."
           },
           "kind": "choice",
           "swift_enum": {
@@ -501,7 +493,7 @@
           },
           "help": {
             "key": "settings.tabs.plusButton.help",
-            "text": "In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows."
+            "text": "Applies in Minimal Mode; otherwise the + always shows."
           },
           "kind": "choice",
           "swift_owner": "PlusButtonSetting",
@@ -543,10 +535,6 @@
           "title": {
             "key": "settings.tabs.barPosition",
             "text": "Tab Bar Position"
-          },
-          "help": {
-            "key": "settings.tabs.barPosition.help",
-            "text": "Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane."
           },
           "kind": "choice",
           "swift_owner": {
@@ -596,7 +584,7 @@
           },
           "help": {
             "key": "settings.browser.toolbarPosition.help",
-            "text": "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward."
+            "text": "Where the address bar of browser and Markdown panes sits."
           },
           "kind": "choice",
           "swift_owner": {
@@ -648,7 +636,7 @@
           },
           "help": {
             "key": "settings.tabs.barOrder.help",
-            "text": "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it."
+            "text": "Whether the tab bar sits above or below the address bar."
           },
           "summary": {
             "key": "settings.tabs.barOrder.summary",
@@ -694,14 +682,14 @@
         },
         {
           "key": "tabs.toolbarButtons",
-          "note": "The actions pinned as buttons at a pane's tab bar trailing end, in tab bar order (catalog action ids).",
+          "note": "The actions pinned as buttons next to a pane's tab bar \"...\", in tab bar order (catalog action ids).",
           "title": {
             "key": "settings.tabs.toolbarButtons",
             "text": "Tab Bar Buttons"
           },
           "help": {
             "key": "settings.tabs.toolbarButtons.help",
-            "text": "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu."
+            "text": "The rest are in the More menu."
           },
           "kind": "ordered_choices",
           "swift_owner": "PaneToolbarButtonsSetting",
@@ -757,7 +745,7 @@
             "pin",
             "more"
           ],
-          "page_hidden": "action ids; toggled from the tab bar's right-click menu (Show in Tab Bar)"
+          "page_hidden": "action ids; toggled from the tab bar's More menu (Show in Tab Bar)"
         },
         {
           "key": "appearance.metrics.tabFontSize",
@@ -848,7 +836,7 @@
           },
           "help": {
             "key": "settings.tabs.overflow.help",
-            "text": "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner."
+            "text": "Shrink narrows tabs before scrolling; Scroll keeps them wide."
           },
           "kind": "choice",
           "swift_owner": "TabOverflowSetting",
@@ -932,7 +920,7 @@
           },
           "help": {
             "key": "settings.tabs.tabMinActiveWidth.help",
-            "text": "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide."
+            "text": "The selected tab stays at least this wide when tabs shrink."
           },
           "kind": "number",
           "swift_owner": {
@@ -972,7 +960,7 @@
           },
           "help": {
             "key": "settings.tabs.tabMinInactiveWidth.help",
-            "text": "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum."
+            "text": "Narrowest the other tabs get before the strip scrolls."
           },
           "kind": "number",
           "swift_owner": {
@@ -1048,7 +1036,7 @@
           },
           "help": {
             "key": "settings.newTerminal.opensWorkspace.help",
-            "text": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "text": "Hold Option to reverse it for one click."
           },
           "kind": "toggle",
           "swift_owner": "NewTerminalWorkspaceSetting",
@@ -1070,7 +1058,7 @@
           },
           "help": {
             "key": "settings.tabs.verticalTabs.help",
-            "text": "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu."
+            "text": "Tabs in a list beside the panes. A tab bar's menu changes one workspace."
           },
           "kind": "toggle",
           "swift_owner": "VerticalTabsSetting",
@@ -1098,7 +1086,7 @@
           },
           "help": {
             "key": "settings.tabs.verticalTabsExpandOnHover.help",
-            "text": "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it."
+            "text": "Show titles while the pointer is over the collapsed list."
           },
           "kind": "toggle",
           "swift_owner": {
@@ -1123,10 +1111,6 @@
           "title": {
             "key": "settings.tabs.hideLoneChatTab",
             "text": "Hide the Tab of a Chat Alone in Its Pane"
-          },
-          "help": {
-            "key": "settings.tabs.hideLoneChatTab.help",
-            "text": "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back."
           },
           "kind": "toggle",
           "swift_owner": "LoneChatTabSetting",
@@ -1155,7 +1139,7 @@
           },
           "help": {
             "key": "settings.tabs.swapCmdTAndCmdN.help",
-            "text": "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused."
+            "text": "Cmd-T opens a workspace and Cmd-N opens a tab."
           },
           "kind": "toggle",
           "swift_owner": "SwapCmdTAndCmdNSetting",

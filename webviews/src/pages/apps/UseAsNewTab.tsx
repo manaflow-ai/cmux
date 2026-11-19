@@ -24,7 +24,7 @@ export interface NewTabState {
   /** The app New Tab shows; undefined when unset or not read yet. */
   app?: string;
   /** The last failed change: the row it was made on, and a plain sentence. */
-  error?: { app: string; message: string };
+  error?: { app: string; sentence: string };
 }
 
 type Reply = { app?: string | null } | null | undefined;
@@ -89,7 +89,7 @@ export class NewTabChoice {
       this.patch({ app: reply?.app ?? undefined, error: undefined });
     } catch (error) {
       if (!(isPageError(error) && QUIET.has(error.code)))
-        this.patch({ error: { app: row, message: userMessage(error) } });
+        this.patch({ error: { app: row, sentence: userMessage(error) } });
     }
   }
 
@@ -128,7 +128,7 @@ export function UseAsNewTab({ app, strings }: { app: { id: string; new_tab?: boo
     <NewTabControls
       app={app.id}
       current={state.app === app.id}
-      error={state.error?.app === app.id ? state.error.message : undefined}
+      error={state.error?.app === app.id ? state.error.sentence : undefined}
       onSet={(id) => void choice.set(id, app.id)}
       strings={strings}
     />

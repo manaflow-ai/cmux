@@ -570,6 +570,7 @@ export function HomeChannelsPage({
                 cloudEntry={cloudEntry}
                 actions={rowActions}
                 chiefs={sheetState.chiefs}
+                cloudError={snap.cloudError}
               />
               <section
                 className={`lg-main${snap.thread && !chiefPage ? " with-sheet" : ""}`}

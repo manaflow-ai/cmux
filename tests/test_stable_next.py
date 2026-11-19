@@ -89,6 +89,42 @@ class Pick(unittest.TestCase):
         with self.assertRaises(stable_next.Refused):
             stable_next.pick(feed(item(300)), None, set(), lambda b: None, None, {300})
 
+    def test_takes_the_newest_build_whose_release_notes_are_published(self):
+        """notes/4424316677601.json was never published: plan failed on every tick of 2026-11-17's night."""
+        has = {300: False, 200: True, 100: True}.get
+        result = stable_next.pick(feed(item(300), item(200), item(100)), None, set(), lambda b: None, None, has_notes=has)
+        self.assertEqual(result["build"], "200")
+        self.assertEqual(result["passed_without_notes"], "300")
+        self.assertEqual(stable_next.pick(feed(item(300)), None, set(), lambda b: None, None)["passed_without_notes"], "")
+        with self.assertRaises(stable_next.Refused):
+            stable_next.pick(feed(item(300)), None, set(), lambda b: None, None, has_notes=lambda b: False)
+        with self.assertRaises(stable_next.Refused):
+            stable_next.pick(feed(item(300), item(200)), None, set(), lambda b: None, 300, has_notes=has)
+
+    def test_notes_published_reads_a_folder_and_stops_at_the_first_build_with_notes(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, "200.json").write_text("{}")
+            self.assertTrue(stable_next.notes_published(folder, 200))
+            self.assertFalse(stable_next.notes_published(folder, 300))
+        asked = []
+        has = lambda b: asked.append(b) or b <= 200  # noqa: E731
+        stable_next.pick(feed(item(300), item(200), item(100)), None, set(), lambda b: None, None, has_notes=has)
+        self.assertEqual(asked, [300, 200])
+
+    def test_an_unreadable_notes_url_is_a_refusal_not_a_crash(self):
+        import urllib.error
+        from unittest import mock
+        boom = urllib.error.HTTPError("u", 503, "unavailable", {}, None)
+        with mock.patch.object(stable_next.urllib.request, "urlopen", side_effect=boom), \
+             mock.patch.object(stable_next.time, "sleep"):
+            with self.assertRaises(stable_next.Refused):
+                stable_next.notes_published("https://files-next.cmux.com/nightly-next/notes", 1)
+        forbidden = urllib.error.HTTPError("u", 403, "forbidden", {}, None)
+        with mock.patch.object(stable_next.urllib.request, "urlopen", side_effect=forbidden):
+            with self.assertRaises(stable_next.Refused):
+                stable_next.notes_published("https://files-next.cmux.com/nightly-next/notes", 1)
+
     def test_an_explicit_build_must_be_on_the_feed(self):
         self.assertEqual(stable_next.pick(feed(item(200), item(100)), None, set(), lambda b: None, 100)["build"], "100")
         with self.assertRaises(stable_next.Refused):

@@ -59,15 +59,15 @@ extension BrowserChromeView {
     public var isExtensionsMenuShown: Bool { extensionToolbar.isMenuShown || extensionToolbar.presentedMenu != nil }
 
     /// What the open Extensions bubble or extension menu shows (`debug.extensions.menu`): each
-    /// item's title, identifier, extension id and enabled state; "-" titles are separators. Nil
+    /// item's title, identifier, extension id, enabled state and row tooltip; "-" titles are separators. Nil
     /// when nothing is open.
-    public var extensionsMenuItems: [(title: String, identifier: String?, extensionID: String?, enabled: Bool)]? {
+    public var extensionsMenuItems: [(title: String, identifier: String?, extensionID: String?, enabled: Bool, tooltip: String?)]? {
         if let menu = extensionToolbar.presentedMenu {
             return menu.items.map { item in
-                (item.isSeparatorItem ? "-" : item.title, item.identifier?.rawValue, nil, item.isEnabled)
+                (item.isSeparatorItem ? "-" : item.title, item.identifier?.rawValue, nil, item.isEnabled, nil)
             }
         }
-        return extensionToolbar.menuController.report?.map { ($0.title, $0.identifier, $0.extensionID, $0.isEnabled) }
+        return extensionToolbar.menuController.report?.map { ($0.title, $0.identifier, $0.extensionID, $0.isEnabled, $0.tooltip) }
     }
 
     /// Chooses an item of the open Extensions bubble or extension menu as a click would: a row control (`run`, `pin`,

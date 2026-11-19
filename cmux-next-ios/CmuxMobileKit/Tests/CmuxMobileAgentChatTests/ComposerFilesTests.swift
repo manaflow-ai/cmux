@@ -60,6 +60,14 @@ import UIKit
         #expect(view.returnShouldInsert("a"))
     }
 
+    @Test(arguments: [ComposerReturnStyle.chat, .terminal, .message])
+    func scrolledDraftShowsNoScrollBar(style: ComposerReturnStyle) {
+        let view = ComposerReturnTextView(policy: ComposerReturnPolicy(style: style, maxLines: 14))
+        #expect(view.isScrollEnabled)
+        #expect(!view.showsVerticalScrollIndicator)
+        #expect(!view.showsHorizontalScrollIndicator)
+    }
+
     @Test func terminalFieldSendsOnTheKeyboardReturnButInsertsItsOwnLineBreak() {
         let view = ComposerReturnTextView(policy: ComposerReturnPolicy(style: .terminal, maxLines: 6))
         let delegate = ReturnDelegate()

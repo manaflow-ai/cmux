@@ -18,6 +18,9 @@
 //!   a link to the peer (reused while it lives), `auth` as a Mac with this
 //!   Mac's identity key (the peer may answer `pending` while its person
 //!   decides; each is passed on as `{"pending":true}`), then the channel.
+//! - `{"op":"traffic"}`: this host's bytes in and out per service since it
+//!   started, and per second over the last 10 s and 60 s (`traffic.rs`;
+//!   `cmux device traffic`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -125,8 +128,22 @@ async fn handle(stream: UnixStream, dialer: Arc<Dialer>) -> Result<()> {
             reply(&mut write, answer).await
         }
         Some("open") => open(&dialer, &request, read, write).await,
-        _ => reply(&mut write, json!({"error": "bad_request", "message": "op is machines or open"})).await,
+        Some("traffic") => reply(&mut write, traffic_reply(Instant::now())).await,
+        _ => {
+            reply(&mut write, json!({"error": "bad_request", "message": "op is machines, open or traffic"}))
+                .await
+        }
     }
+}
+
+/// `{"op":"traffic"}`: this host's bytes in and out per service (`traffic.rs`).
+fn traffic_reply(now: Instant) -> Value {
+    let mut answer = crate::traffic::TRAFFIC.report(now);
+    if let Some(fields) = answer.as_object_mut() {
+        fields.insert("ok".into(), json!(true));
+        fields.insert("pid".into(), json!(std::process::id()));
+    }
+    answer
 }
 
 async fn machines(dialer: &Dialer) -> Result<Vec<Value>> {
@@ -213,7 +230,11 @@ async fn splice(
     read: &mut tokio::net::unix::OwnedReadHalf,
     write: &mut tokio::net::unix::OwnedWriteHalf,
 ) {
-    let (sender, mut receiver) = channel.split();
+    let (mut sender, mut receiver) = channel.split();
+    // This Mac's own use of another machine counts as `remote` (traffic.rs).
+    let meter = crate::traffic::TRAFFIC.meter(crate::traffic::Kind::Remote);
+    sender.count_into(Arc::clone(&meter));
+    receiver.count_into(meter);
     let upstream = async {
         let mut buffer = vec![0u8; 64 * 1024];
         loop {

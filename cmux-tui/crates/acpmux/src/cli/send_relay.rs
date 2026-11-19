@@ -80,8 +80,86 @@ pub(crate) fn relay_ls(relay: &SendRelay, deadline: Option<Instant>) -> Result<O
             })
             .take(LS_MAX_ROWS)
             .cloned()
+            .map(|mut row| {
+                // How the row is reached: through the relay that listed it, not this daemon.
+                if let Some(fields) = row.as_object_mut() {
+                    fields.insert("via".to_owned(), json!(VIA));
+                }
+                row
+            })
             .collect(),
     ))
+}
+
+/// The `via` of a row the relay lists: no peer link or hub of this daemon reaches it, so only
+/// the relay's own verbs do (`send` through `argv`, its row through `lsArgv`).
+pub(crate) const VIA: &str = "relay";
+
+/// How long a lookup of one key in the relay's listing may take (`listed_row`).
+const LOOKUP_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The one row of `rows` that `key` names: `HOST/NAME`, `HOST/ID`, the qualified id, the bare
+/// id, or a bare name only one row carries (the relay may list a name with its host's prefix).
+pub(crate) fn find_row<'a>(rows: &'a [Value], key: &str) -> Option<&'a Value> {
+    let text = |r: &'a Value, k: &str| r.get(k).and_then(Value::as_str).unwrap_or_default();
+    let named = |r: &'a Value| {
+        let (peer, id, name) = (text(r, "peer"), text(r, "sessionId"), text(r, "name"));
+        let bare = name.strip_prefix(peer).and_then(|n| n.strip_prefix('/')).unwrap_or(name);
+        let on_peer = |rest: &str| {
+            !rest.is_empty()
+                && key.strip_prefix(peer).and_then(|k| k.strip_prefix('/')) == Some(rest)
+        };
+        key == id
+            || key == text(r, "qualifiedSessionId")
+            || on_peer(id)
+            || on_peer(bare)
+            || (!bare.is_empty() && (key == bare || key == name))
+    };
+    let mut found = rows.iter().filter(|&r| named(r));
+    let first = found.next()?;
+    found.next().is_none().then_some(first)
+}
+
+/// The row the configured relay's listing has for `key` ([`find_row`]), or none: no relay with
+/// an `lsArgv`, a listing that failed or ran past [`LOOKUP_DEADLINE`], or no one row it names.
+/// Asked only once this daemon found no session for `key`.
+pub(crate) async fn listed_row(key: &str) -> Option<Value> {
+    let relay = configured().filter(|r| r.ls_argv.is_some())?;
+    let deadline = Instant::now() + LOOKUP_DEADLINE;
+    let rows = tokio::task::spawn_blocking(move || relay_ls(&relay, Some(deadline)))
+        .await
+        .ok()?
+        .ok()??;
+    find_row(&rows, key).cloned()
+}
+
+/// The no-session refusal for `key`, which only the relay lists as `row`: still the refusal a
+/// send relays on ([`no_such_session`]), saying what reaches the row, with the row in its data
+/// ([`relayed_row`]), so `info` answers with the row as the relay listed it.
+pub(crate) fn listed_refusal(key: &str, row: Value) -> AppError {
+    let text = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
+    let (peer, name) = (text("peer"), text("name"));
+    let bare =
+        name.strip_prefix(peer.as_str()).and_then(|n| n.strip_prefix('/')).unwrap_or(name.as_str());
+    let target = if bare.is_empty() {
+        format!("{peer}/{}", text("sessionId"))
+    } else {
+        format!("{peer}/{bare}")
+    };
+    AppError::new(
+        Code::NoSession,
+        "no_session",
+        format!(
+            "{key:?} is {target}, which only the send relay lists (sendRelay.lsArgv): this daemon has no link to read or attach to it; prompt it with `acpmux send {target} MESSAGE`, which the send relay delivers"
+        ),
+    )
+    .with_data(json!({"via": VIA, "target": target, "row": row}))
+}
+
+/// The relay's row a [`listed_refusal`] carries.
+pub(crate) fn relayed_row(e: &anyhow::Error) -> Option<&Value> {
+    let data = e.downcast_ref::<AppError>()?.data.as_ref()?;
+    if data.get("via").and_then(Value::as_str) == Some(VIA) { data.get("row") } else { None }
 }
 
 /// At most this many rows from one relay listing.
@@ -432,6 +510,26 @@ mod tests {
         assert_eq!(delivery_id(Some(r#"{"deliveryId":"hello across"}"#)), None);
         assert_eq!(delivery_id(Some(r#"{"echo":"hello","deliveryId":"x"}"#)).as_deref(), Some("x"));
         assert_eq!(delivery_id(None), None);
+    }
+
+    #[test]
+    fn a_key_finds_the_one_relay_row_it_names() {
+        let rows = vec![
+            json!({"peer": "far", "sessionId": "01a", "name": "flap", "qualifiedSessionId": "far/01a"}),
+            json!({"peer": "lane-2", "sessionId": "01b", "name": "lane-2/goal"}),
+            json!({"peer": "lane-4", "sessionId": "01c", "name": "flap"}),
+        ];
+        let id = |key: &str| find_row(&rows, key).and_then(|r| r["sessionId"].as_str());
+        assert_eq!(id("far/flap"), Some("01a"));
+        assert_eq!(id("far/01a"), Some("01a"));
+        assert_eq!(id("01a"), Some("01a"));
+        assert_eq!(id("lane-2/goal"), Some("01b"));
+        assert_eq!(id("goal"), Some("01b"));
+        assert_eq!(id("lane-4/flap"), Some("01c"));
+        // A bare name two hosts carry, another host's name, or nothing: no row.
+        assert_eq!(id("flap"), None);
+        assert_eq!(id("far/goal"), None);
+        assert_eq!(id("nothing"), None);
     }
 
     #[test]
