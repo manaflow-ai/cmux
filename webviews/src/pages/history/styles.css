@@ -337,3 +337,9 @@
   width: 100%;
   display: flow-root;
 }
+
+/* A windowed row is measured where it is placed: skipping its rendering off screen would measure the
+   36 px placeholder size, and the row would move when it scrolls into view. */
+.history-line .history-row {
+  content-visibility: visible;
+}
