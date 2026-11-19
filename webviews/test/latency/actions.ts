@@ -1350,6 +1350,127 @@ function liveScroll(style: string): LatencyPageSpec {
 
 export const LIVE_BACKGROUND_PAGES: LatencyPageSpec[] = ["none", "aurora", "grain"].map(liveScroll);
 
+// The sidebar's chat history (test/latency/sidebar-chats.html): Earlier with 500 chats, host delay
+// 40 ms. Each action starts from Earlier open and scrolled to its top.
+const SC_ROWS = `window.__latencySidebarChats.mounted()`;
+const SC_WHEEL_STEPS = 12;
+const SC_WHEEL_DELTA = 120;
+
+async function sidebarChatsOpen(page: Page): Promise<void> {
+  if ((await attr(page, ".sc-header-foldable", "aria-expanded")) === "false") {
+    await page.click(".sc-header-foldable");
+    await page.waitForFunction(`${SC_ROWS} > 0`);
+  }
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await quiet(page);
+}
+
+function sidebarChatsActions(windowed: boolean): LatencyAction[] {
+  const id = (name: string) => `sidebar-chats${windowed ? ".windowed" : ""}.${name}`;
+  return [
+    {
+      id: id("open"),
+      name: "open to content",
+      async prepare(page) {
+        await sidebarChatsOpen(page);
+        const opens = Number((await attr(page, "html", "data-opens")) ?? 0) + 1;
+        // The page booted again and drew its first chat row.
+        return `document.documentElement.dataset.opens === "${opens}" && document.querySelector(".sc-row[data-chat]") !== null`;
+      },
+      async input(page) {
+        await page.evaluate("window.__latency.markInput('open'); window.__latencySidebarChats.reopen()");
+      },
+      settle: quiet,
+    },
+    {
+      id: id("rename"),
+      name: "rename to paint",
+      async prepare(page) {
+        await sidebarChatsOpen(page);
+        const next = Number(await page.evaluate("window.__latencySidebarChats.renames()")) + 1;
+        return `document.querySelector('.sc-row[data-chat="chat-3"] .sc-title')?.textContent === "Renamed chat ${next}"`;
+      },
+      async input(page) {
+        await page.evaluate("window.__latency.markInput('rename'); window.__latencySidebarChats.rename(3)");
+      },
+      settle: quiet,
+    },
+    {
+      id: id("scroll"),
+      name: "scroll",
+      metricType: "scroll_frame_time",
+      async prepare(page) {
+        await sidebarChatsOpen(page);
+        await page.mouse.move(120, 200);
+        const travel = SC_WHEEL_STEPS * SC_WHEEL_DELTA;
+        // Scrolled, and a chat row (not a spacer) drawn at the window's bottom.
+        return `window.scrollY >= ${travel - SC_WHEEL_DELTA / 2} &&
+          document.elementFromPoint(120, window.innerHeight - 6)?.closest(".sc-row[data-chat]") != null`;
+      },
+      async input(page) {
+        for (let step = 0; step < SC_WHEEL_STEPS; step += 1) {
+          await page.mouse.wheel(0, SC_WHEEL_DELTA);
+          await page.evaluate(() => window.cmuxPaintFrame());
+        }
+      },
+      settle: quiet,
+    },
+    {
+      id: id("fold"),
+      name: "fold Earlier",
+      async prepare(page) {
+        await sidebarChatsOpen(page);
+        return `document.querySelector(".sc-header-foldable")?.getAttribute("aria-expanded") === "false" && ${SC_ROWS} === 0`;
+      },
+      async input(page) {
+        await page.click(".sc-header-foldable");
+      },
+      settle: quiet,
+    },
+    {
+      id: id("unfold"),
+      name: "unfold Earlier",
+      async prepare(page) {
+        await sidebarChatsOpen(page);
+        await page.click(".sc-header-foldable");
+        await page.waitForFunction(`${SC_ROWS} === 0`);
+        await quiet(page);
+        return `document.querySelector(".sc-header-foldable")?.getAttribute("aria-expanded") === "true" && ${SC_ROWS} > 0`;
+      },
+      async input(page) {
+        await page.click(".sc-header-foldable");
+      },
+      settle: quiet,
+    },
+    {
+      id: id("more"),
+      name: "show more",
+      async prepare(page) {
+        await sidebarChatsOpen(page);
+        await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        await page.waitForSelector('.sc-tail[data-tail="more"]');
+        await quiet(page);
+        // The tail answers the click: Loading, or the next chat under the last.
+        const next = Number(await page.evaluate("window.__latencySidebarChats.loaded()"));
+        return `document.querySelector(".sc-tail")?.getAttribute("data-tail") !== "more" ||
+          document.querySelector('.sc-row[data-chat="chat-${next}"]') !== null`;
+      },
+      async input(page) {
+        await page.click('.sc-tail[data-tail="more"]');
+      },
+      settle: quiet,
+    },
+  ];
+}
+
+/** Earlier at 500 chats: against a host without the slice stream (every row mounts) and with it. */
+export const SIDEBAR_CHATS_PAGES: LatencyPageSpec[] = [false, true].map((windowed) => ({
+  name: windowed ? "sidebar chats windowed" : "sidebar chats",
+  path: `/test/latency/sidebar-chats.html?n=500${windowed ? "&slice" : ""}`,
+  ready: `document.querySelector(".sc-row[data-chat]") !== null`,
+  actions: sidebarChatsActions(windowed),
+}));
+
 export const PAGES: LatencyPageSpec[] = [
   DIFF_PAGE,
   MARKDOWN_PAGE,
@@ -1369,4 +1490,6 @@ export const PAGES: LatencyPageSpec[] = [
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? CHAT_SWITCH_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? GLASS_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? LIVE_BACKGROUND_PAGES : []),
+  // The sidebar's chat history at 500 chats: run on demand with CMUX_LATENCY_SIDEBAR=1.
+  ...(process.env.CMUX_LATENCY_SIDEBAR === "1" ? SIDEBAR_CHATS_PAGES : []),
 ];
