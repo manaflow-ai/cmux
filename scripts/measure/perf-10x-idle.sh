@@ -29,13 +29,19 @@
 # days (days=DAYS, default 3) of switches, tab cycles, streaming turns and a sleep/wake, as INFINITE lines.
 # vmmap=KIND,KIND: after each app sample, vmmap --summary of every process of those kinds (bench_memory.py
 # --vmmap-kinds): where its footprint is, MALLOC against frameworks and stacks.
-# axes=AXIS,AXIS (chat-hidden, chat-visible, terminal-hidden, terminal-visible; axes=all for the four): what one
+# axes=AXIS,AXIS (chat-hidden, chat-visible, terminal-hidden, terminal-visible, page-hidden, page-visible;
+# axes=all for the first four, axes=pages for the two page axes): what one
 # more idle item costs, per process (bench_memory.py --axis, one fresh app each): idle CPU %, footprint, RSS,
 # wakeups/s, disk bytes written and read per hour (proc_pid_rusage) and the GPU's utilization (ioreg; the Mac
 # has no per-process GPU time or frame count there, so the GPU process's CPU is its own row). Hidden axes sample
 # at items=COUNTS (default 1,10,100; each item a workspace of its own, the launch workspace shown) and again
 # settled=SECONDS later (default 90: past the hidden chat pages' 30 s freeze and 60 s release); visible axes at
 # visible_items=COUNTS (default 1,4,10; each item a pane of the launch workspace, as many as the window fits).
+# The page axes are Chromium pages that ask for every animation frame, a site (renderer) each: their samples add
+# the frames per second hidden and visible pages got and each renderer's base priority (ARCHITECTURE 5.5 and 6.4
+# of the frame design: a hidden page gets no begin-frames, and its renderer runs at Chromium's lower process
+# priority, never the darwin background band), and page-hidden ends with the show latency of a few hidden pages
+# (request to first frame), as PERF-IDLE-PAGES lines.
 # Writes .build/perf-idle/idle-axes.json and idle-axes.md (marginal cost per item, by process group: app,
 # cef-renderer, cef-gpu, acpmux, cmux-tui, terminal hosts), printed as PERF-IDLE-AXES lines. counts=none skips
 # the daemon and terminal-workspace runs, e.g.:
@@ -65,6 +71,7 @@ for arg in "$@"; do
     chat_renderer_crash=1) crash_env=(CMUX_BENCH_CHAT_RENDERER_CRASH=1) ;;
     vmmap=*) vmmap=(--vmmap-kinds "${arg#vmmap=}") ;;
     axes=all) axes="chat-hidden,chat-visible,terminal-hidden,terminal-visible" ;;
+    axes=pages) axes="page-hidden,page-visible" ;;
     axes=*) axes="${arg#axes=}" ;;
     items=*) items="${arg#items=}" ;;
     visible_items=*) visible_items="${arg#visible_items=}" ;;
@@ -159,6 +166,9 @@ if [[ -n "$axes" ]]; then
       --settle 20 --measure "$measure" --top 8 \
       --out "$work/axis-$axis.json" > "$work/axis-$axis.log" 2>&1 || { status=$?; tail -n 60 "$work/axis-$axis.log"; }
     [ -f "$work/axis-$axis.json" ] && axis_reports+=("$work/axis-$axis.json")
+    case "$axis" in
+      page-*) [ -f "$work/axis-$axis.json" ] && { python3 scripts/cmux-next/idle_axes_report.py --pages "$work/axis-$axis.json" | sed 's/^/PERF-IDLE-PAGES /' || status=$?; } ;;
+    esac
   done
   if (( ${#axis_reports[@]} )); then
     python3 scripts/cmux-next/idle_axes_report.py --json "$work/idle-axes.json" --markdown "$work/idle-axes.md" \
