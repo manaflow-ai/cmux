@@ -2370,7 +2370,7 @@ def judging_rows(state, t):
     return out
 
 
-# A bisect step's commit is decided by repeated runs, as Chromium's perf bisect (Pinpoint) does: BISECT_RUNS runs that
+# A bisect step's commit is decided by repeated runs, as a perf bisect should: BISECT_RUNS runs that
 # agree with at most one against. A commit with no decision after BISECT_MAX_RUNS runs is within noise (skipped). Each
 # run is bad or good by the row's candidate rule (worse_than: past its reference by 10 % and its floor), so the noise
 # threshold of a bisect is the row's own. scripts/cmux-next/perf_bisect.py replays a range with the same rule.

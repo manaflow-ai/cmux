@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """Replay a perf bisect: walk a regressed row's range with real runs on this machine, by the perf cron's own rule.
 
-Chromium's perf bisect (Pinpoint) runs each commit of a regressed range several times and names a culprit only when
-the change clears the noise. perf-cron.py's bisect steps now do that (commit_verdict: BISECT_RUNS agreeing runs, at
-most one against; BISECT_MAX_RUNS without a decision is noise). This walks a whole range in one go with the same rule:
+A perf bisect runs each commit of a regressed range several times and names a culprit only when the change clears the
+noise. perf-cron.py's bisect steps now do that (commit_verdict: BISECT_RUNS agreeing runs, at most one against; BISECT_MAX_RUNS without a decision is noise). This walks a whole range in one go with the same rule:
 to replay a past regression, to check a range the cron gave up on, or to bisect a row by hand.
 
   - The good end runs BISECT_RUNS times; their median is the reference, and the noise threshold is the row's own:
     max(--floor, --regression x reference), perf-cron.py's worse_than as one number.
   - The bad end runs until commit_verdict decides. Not bad: the answer is "within noise" and no commit is named
-    (Pinpoint's "no significant difference between the ends").
+    (no significant difference between the ends).
   - Then a binary search over the first-parent commits in between; a commit within noise, or one that does not
     measure, is skipped. No commit left between the ends names the bad one as the culprit; only skipped ones left
     is "unresolved", with the commits it could not judge.
