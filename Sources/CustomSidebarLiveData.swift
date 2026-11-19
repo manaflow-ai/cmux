@@ -154,6 +154,9 @@ final class CustomSidebarDataChangeMonitor {
     private func noteChange() {
         revision &+= 1
         changedAt = Date()
+        #if DEBUG
+        cmuxDebugLog("customSidebar.monitor.bump revision=\(revision) signals=\(receivedSignalCount)")
+        #endif
     }
 }
 
@@ -169,7 +172,13 @@ final class CustomSidebarRefreshPolicyCache {
     private struct Entry {
         let modificationDates: [Date?]
         let policy: CustomSidebarRefreshPolicy
+        var checkedAt: Date
     }
+
+    /// How long an answer is reused before the files are stat'ed again.
+    /// Lookups happen on every re-render; an edit that adds or removes
+    /// `clock` only needs to switch the tick within a few seconds.
+    static let recheckInterval: TimeInterval = 2
 
     private static let candidateExtensions = ["swift", "json", "js"]
     private var entries: [URL: Entry] = [:]
@@ -179,16 +188,25 @@ final class CustomSidebarRefreshPolicyCache {
         self.fileManager = fileManager
     }
 
-    func policy(fileURL: URL, sourceOverride: String?) -> CustomSidebarRefreshPolicy {
+    func policy(
+        fileURL: URL,
+        sourceOverride: String?,
+        now: Date = Date()
+    ) -> CustomSidebarRefreshPolicy {
         if let sourceOverride {
             return CustomSidebarRefreshPolicy.policy(forSource: sourceOverride)
         }
         let base = fileURL.deletingPathExtension()
+        if let entry = entries[base], now.timeIntervalSince(entry.checkedAt) < Self.recheckInterval {
+            return entry.policy
+        }
         let candidates = Self.candidateExtensions.map { base.appendingPathExtension($0) }
         let dates = candidates.map { url in
             (try? fileManager.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
         }
-        if let entry = entries[base], entry.modificationDates == dates {
+        if var entry = entries[base], entry.modificationDates == dates {
+            entry.checkedAt = now
+            entries[base] = entry
             return entry.policy
         }
         let sources = zip(candidates, dates).compactMap { url, date -> String? in
@@ -196,7 +214,7 @@ final class CustomSidebarRefreshPolicyCache {
             return try? String(contentsOf: url, encoding: .utf8)
         }
         let policy = CustomSidebarRefreshPolicy.policy(forSources: sources)
-        entries[base] = Entry(modificationDates: dates, policy: policy)
+        entries[base] = Entry(modificationDates: dates, policy: policy, checkedAt: now)
         return policy
     }
 }
@@ -255,15 +273,24 @@ struct CustomSidebarLiveDataReader<Content: View>: View {
         // `clock` switches its tick within a few seconds. The inner view is
         // the same in both policies (only its interval changes), so a
         // policy flip doesn't remount the surface.
-        TimelineView(.periodic(from: .now, by: CustomSidebarRefreshPolicy.fallbackInterval)) { fallback in
+        // Both schedules start from the fixed mount date, not `.now`: a new
+        // start date on every re-render would hand TimelineView a different
+        // schedule each time and force an extra update.
+        TimelineView(.periodic(from: fixedClockDate, by: CustomSidebarRefreshPolicy.fallbackInterval)) { fallback in
             let policy = monitor.refreshPolicies.policy(fileURL: fileURL, sourceOverride: sourceOverride)
-            TimelineView(.periodic(from: .now, by: Self.tickInterval(for: policy))) { timeline in
+            TimelineView(Self.tickSchedule(for: policy, fixedClockDate: fixedClockDate)) { timeline in
                 switch policy {
                 case .everySecond:
+                    #if DEBUG
+                    let _ = cmuxDebugLog("customSidebar.reader.build policy=everySecond")
+                    #endif
                     // Whole seconds, so panes ticking in the same second
                     // share one cached context.
                     content(build(timeline.date, timeline.date.flooredToWholeSecond))
                 case .onDataChange:
+                    #if DEBUG
+                    let _ = cmuxDebugLog("customSidebar.reader.build policy=onDataChange")
+                    #endif
                     content(build(
                         fixedClockDate,
                         max(changedAt, fallback.date.flooredTo(CustomSidebarRefreshPolicy.fallbackInterval))
@@ -276,12 +303,18 @@ struct CustomSidebarLiveDataReader<Content: View>: View {
         .onDisappear { hold(nil) }
     }
 
-    /// The inner tick: every second for `clock`, effectively never
-    /// otherwise (the outer safety rebuild and data changes drive it).
-    private static func tickInterval(for policy: CustomSidebarRefreshPolicy) -> TimeInterval {
+    /// The inner tick: every second for `clock` (started from now, as the
+    /// old tick was), effectively never otherwise (the outer safety rebuild
+    /// and data changes drive it, so its start stays fixed).
+    private static func tickSchedule(
+        for policy: CustomSidebarRefreshPolicy,
+        fixedClockDate: Date
+    ) -> PeriodicTimelineSchedule {
         switch policy {
-        case .everySecond: CustomSidebarRefreshPolicy.clockInterval
-        case .onDataChange: 24 * 60 * 60
+        case .everySecond:
+            .periodic(from: .now, by: CustomSidebarRefreshPolicy.clockInterval)
+        case .onDataChange:
+            .periodic(from: fixedClockDate, by: 24 * 60 * 60)
         }
     }
 
