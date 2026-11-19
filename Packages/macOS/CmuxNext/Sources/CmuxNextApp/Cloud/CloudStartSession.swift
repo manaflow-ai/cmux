@@ -233,10 +233,18 @@ struct CloudStartSession {
         // From the connect until the agent runs, the app's automatic update leaves this machine's daemon alone.
         services.cloud.startGate.enter(id)
         defer { services.cloud.startGate.leave(id) }
-        try await connected(session, request, account: account, byPerson: byPerson)
-        steps.done("connect"); try still(name)
-        // Remote approvals run beside the copy, as the composer's (awaited on every exit, cancelled on an error one); a machine this run made runs nobody's agent, so its status is not read. Their Cloud API execs need the machine running, which a new one is once connected.
-        let copy: (chat: String, trusted: Bool)? = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, made ? .daemonSaidSafe : .checkStatus) { account == services.cloud.account } }) {
+        // Remote approvals (acpmux's keyed restart: Cloud API execs, which leave the link's `mux` daemon alone) are awaited on every exit, cancelled on an error one (``approvalsBesideConnect``).
+        // A machine this run made runs nobody's agent, so its status is not read, and its first try begins with the connect once its record is running or its daemon
+        // answers (prod, app 01fc64af: a 19 s keyed start ran after an 18 s connect); one that keyed nothing (a VM not up yet) is tried again after the connect.
+        // A taken machine's run beside the copy, after the connect: it may be paused, and its status is read.
+        let approvals: @MainActor @Sendable () async -> Bool = { [services] in await services.cloud.restartWithApprovalsIfIdle(session, made ? .daemonSaidSafe : .checkStatus) { account == services.cloud.account } }
+        let copy: (chat: String, trusted: Bool)? = try await Self.approvalsBesideConnect(made: made, early: {
+            guard await CloudWait.holds(within: Self.connectWait, until: { session.machine.status == .running || session.daemon.connection != nil }), !Task.isCancelled else { return false }
+            return await approvals()
+        }, approvals: approvals) {
+            try await connected(session, request, account: account, byPerson: byPerson)
+            steps.done("connect"); try still(name)
+        } folder: {
             let folder = try await copiedIfAsked(request, to: session, account: account); steps.done("copy"); return folder // before the session starts in it
         }, cwd = copy?.chat ?? request.cwd
         try still(name); steps.done("approvals"); if await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID != nil { await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: agent)) }, update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }) } // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them; then, as the composer's start, an older daemon that would drop the owner's model credential is updated first
@@ -436,4 +444,28 @@ struct CloudStartSession {
 
     /// How long a machine has to come up (Move to Cloud's own wait).
     static let connectWait: Duration = .seconds(180)
+
+    /// The connect and the session's folder (`connect`, then `folder`) with the start's remote approvals beside them. On a machine
+    /// this run made (`made`), `early` begins with the connect, and `approvals` runs after the connect only when `early` keyed
+    /// nothing; on a taken one `approvals` begins after the connect, beside `folder`. Each is the start's own
+    /// (``RemoteApprovalPreparations/owned(_:_:)``): awaited before this returns, cancelled then awaited when a step throws, so
+    /// no keyed restart outlives the start or runs under the gate's release.
+    static func approvalsBesideConnect<T>(made: Bool, early: @escaping @MainActor @Sendable () async -> Bool, approvals: @escaping @MainActor @Sendable () async -> Bool,
+                                          connect: @MainActor () async throws -> Void, folder: @MainActor () async throws -> T) async throws -> T {
+        guard made else {
+            try await connect()
+            return try await RemoteApprovalPreparations.owned(approvals, folder)
+        }
+        let (connected, connectEnded) = AsyncStream<Void>.makeStream()
+        return try await RemoteApprovalPreparations.owned({
+            if await early() { return true }
+            for await _ in connected { return Task.isCancelled ? false : await approvals() } // the connect ended: tried again, as a taken machine's
+            return false // the connect threw, or the start was cancelled: nothing more restarts
+        }) {
+            defer { connectEnded.finish() }
+            try await connect()
+            connectEnded.yield()
+            return try await folder()
+        }
+    }
 }

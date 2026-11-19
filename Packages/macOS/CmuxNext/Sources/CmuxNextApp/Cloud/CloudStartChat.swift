@@ -292,9 +292,11 @@ struct CloudStartChat {
         let (machine, plan) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, connection: origin.connection, cli: cli, invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) } }
         return try await plan.releasing(sameAccount: { account == services.cloud.account }, delete: { try await cli.strandThenDelete(key: start.key, account: CloudStartCore().accountText(account), machine: machine.machineID) { try await services.cloud.deleteMachine($0) } }) { // a start that can't go on deletes its machine
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-            // No harness login: remote approvals alone are prepared before the first prompt.
-            try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {}
-            let cwd = try await start.cloneRepository(on: .init(api: services.cloud.machineAPI, machineID: machine.machineID), machineName: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size), report: report)
+            // No harness login: remote approvals alone are prepared before the first prompt, beside the repository's clone (each its own Cloud API execs; the
+            // clone never reaches acpmux), awaited before the chat opens and its agent is warmed, cancelled then awaited when the clone throws, so a deleted machine has no restart running.
+            let cwd = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {
+                try await start.cloneRepository(on: .init(api: services.cloud.machineAPI, machineID: machine.machineID), machineName: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size), report: report)
+            }
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
                          start: .init(environmentId: plan.environmentId, setup: plan.setup)))
