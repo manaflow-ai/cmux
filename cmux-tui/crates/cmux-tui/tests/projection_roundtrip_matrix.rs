@@ -625,3 +625,227 @@ fn an_edit_in_a_repository_of_a_parent_folder_comes_back() {
     assert_eq!(read(&t.mac("api/src/a.txt")), "alpha, edited on the machine\n", "{answer}");
     assert_eq!(t.mac.status(&t.mac("api")), t.machine.side.status(&t.at("api")));
 }
+
+/// A seeded randomized round trip, after cmux#45882's (the same seeds and promises, adapted to
+/// this pull, which changes nothing on the Mac when any path conflicts): small trees, random
+/// edits, deletes, moves and new files on the machine and edits and deletes on the Mac, then
+/// Bring Back, twice per trial. After each pull:
+/// - with no path changed on both sides, every machine change landed and every Mac edit stayed;
+/// - otherwise the conflicts are exactly the paths both sides changed, nothing of the Mac's
+///   changed, and each file the machine still has went beside the Mac's as a conflict file.
+///
+/// `CMUX_PROJECTION_RANDOM_TRIALS` sets the trials per seed (default 25).
+mod randomized {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use super::*;
+
+    const PATHS: [&str; 9] = ["a", "b", "c", "d/a", "d/b", "d/c", "d/e/a", "d/e/b", "d/e/c"];
+
+    /// xorshift64*.
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 >> 12;
+            self.0 ^= self.0 << 25;
+            self.0 ^= self.0 >> 27;
+            self.0.wrapping_mul(0x2545_f491_4f6c_dd1d)
+        }
+
+        fn below(&mut self, n: u64) -> u64 {
+            self.next() % n
+        }
+
+        /// Text no other write of the run has; its size varies too.
+        fn text(&mut self, who: &str) -> String {
+            let pad = "x".repeat(usize::try_from(self.below(8)).unwrap());
+            format!("{who} {} {pad}\n", self.next())
+        }
+    }
+
+    /// What one side did to a path: its new text, or None for a delete.
+    type Changes = BTreeMap<String, Option<String>>;
+
+    /// The Mac's files, by path (the pull's own hidden folders left out).
+    fn tree(at: &Path) -> BTreeMap<String, String> {
+        let mut files = BTreeMap::new();
+        let mut stack = vec![at.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in fs::read_dir(&dir).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                let relative = path.strip_prefix(at).unwrap().to_string_lossy().into_owned();
+                if relative.starts_with(".cmux") {
+                    continue;
+                }
+                if entry.file_type().unwrap().is_dir() {
+                    stack.push(path);
+                } else {
+                    files.insert(relative, fs::read_to_string(&path).unwrap_or_default());
+                }
+            }
+        }
+        files
+    }
+
+    /// One round of random changes: the machine's (on the mount) and the Mac's.
+    fn round(t: &Trip, rng: &mut Rng, now: &BTreeMap<String, String>) -> (Changes, Changes) {
+        let (mut machine, mut mac) = (Changes::new(), Changes::new());
+        for (path, text) in now {
+            let choice = rng.below(12);
+            // Only a path both sides agree on: an earlier Mac edit the machine never saw would
+            // make any machine change a conflict this round did not make.
+            if fs::read_to_string(t.at(path)).ok().as_ref() != Some(text) {
+                continue;
+            }
+            match choice {
+                0..=2 => {
+                    let text = rng.text("machine");
+                    write(&t.at(path), &text);
+                    machine.insert(path.clone(), Some(text));
+                }
+                3 => {
+                    fs::remove_file(t.at(path)).unwrap();
+                    machine.insert(path.clone(), None);
+                }
+                4 => {
+                    // A move: a delete and a create, as the pull sees it.
+                    let to = format!("{path}.moved");
+                    if !now.contains_key(&to) && !t.at(&to).exists() && !machine.contains_key(&to) {
+                        fs::rename(t.at(path), t.at(&to)).unwrap();
+                        machine.insert(path.clone(), None);
+                        machine.insert(to, Some(now[path].clone()));
+                    }
+                }
+                _ => {}
+            }
+        }
+        if rng.below(2) == 0 {
+            let text = rng.text("new");
+            let path = format!("d/new{}", rng.below(1000));
+            if !t.at(&path).exists() && !machine.contains_key(&path) {
+                write(&t.at(&path), &text);
+                machine.insert(path, Some(text));
+            }
+        }
+        for path in now.keys() {
+            match rng.below(10) {
+                0 => {
+                    let text = rng.text("mac");
+                    write(&t.mac(path), &text);
+                    mac.insert(path.clone(), Some(text));
+                }
+                1 => {
+                    fs::remove_file(t.mac(path)).unwrap();
+                    mac.insert(path.clone(), None);
+                }
+                _ => {}
+            }
+        }
+        (machine, mac)
+    }
+
+    fn trial(seed: u64, number: usize) {
+        let label = format!("seed {seed:#x} trial {number}");
+        let t = trip_or_skip!(&format!("random-{seed:x}-{number}"), |_, at| {
+            for path in PATHS {
+                write(&at.join(path), &format!("{path} as projected\n"));
+            }
+        });
+        let mut rng = Rng(seed ^ (number as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1);
+        for pull in 0..2 {
+            let before = tree(&t.local);
+            let (machine, mac) = round(&t, &mut rng, &before);
+            let mac_now = tree(&t.local);
+            // Changed on both sides, differently (both deleted it is no conflict).
+            let both: BTreeSet<&String> = machine
+                .iter()
+                .filter(|(path, change)| mac.get(*path).is_some_and(|mine| mine != *change))
+                .map(|(path, _)| path)
+                .collect();
+            let answer = t.bring_back();
+            let after = tree(&t.local);
+            let context = format!("{label} pull {pull}: machine {machine:?} mac {mac:?} {answer}");
+            if both.is_empty() {
+                assert_eq!(answer["ok"], true, "{context}");
+                let mut want = mac_now.clone();
+                for (path, text) in &machine {
+                    match text {
+                        Some(text) => want.insert(path.clone(), text.clone()),
+                        None => want.remove(path),
+                    };
+                }
+                assert_eq!(after, want, "{context}");
+                continue;
+            }
+            assert_eq!(answer["error_code"], "sync_conflict", "{context}");
+            let conflicts: BTreeSet<String> = answer["conflicts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|path| path.as_str().unwrap().to_owned())
+                .collect();
+            let want: BTreeSet<String> = both.iter().map(|path| (*path).clone()).collect();
+            assert_eq!(conflicts, want, "{context}");
+            for (path, text) in &after {
+                match mac_now.get(path) {
+                    Some(mine) => assert_eq!(text, mine, "{context}: {path}"),
+                    None => {
+                        let edited = path
+                            .strip_suffix(".cmux-sync-conflict")
+                            .unwrap_or_else(|| panic!("{context}: {path} appeared on a conflict"));
+                        assert_eq!(
+                            machine.get(edited),
+                            Some(&Some(text.clone())),
+                            "{context}: {path}"
+                        );
+                    }
+                }
+            }
+            for path in mac_now.keys() {
+                assert!(after.contains_key(path), "{context}: {path} went");
+            }
+            for path in &both {
+                if matches!(machine.get(*path), Some(Some(_))) {
+                    assert!(
+                        after.contains_key(&format!("{path}.cmux-sync-conflict")),
+                        "{context}: no conflict file for {path}"
+                    );
+                }
+            }
+            // The rest of a trial builds on a pull that went through.
+            return;
+        }
+    }
+
+    fn seed_run(seed: u64) {
+        let trials = std::env::var("CMUX_PROJECTION_RANDOM_TRIALS")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(25);
+        for number in 0..trials {
+            trial(seed, number);
+        }
+    }
+
+    #[test]
+    fn seed_5eed_0001() {
+        seed_run(0x5eed_0001);
+    }
+
+    #[test]
+    fn seed_5eed_0002() {
+        seed_run(0x5eed_0002);
+    }
+
+    #[test]
+    fn seed_00c0_ffee() {
+        seed_run(0x00c0_ffee);
+    }
+
+    #[test]
+    fn seed_dead_beef() {
+        seed_run(0xdead_beef);
+    }
+}
