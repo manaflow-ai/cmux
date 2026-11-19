@@ -206,11 +206,29 @@ not a wait (SAMPLE_LIMIT). The sampler's report is the file `sample-hold/sample.
 no report (the sampler did not start, its exit was not 0, the report has no main thread) keeps its row, says why
 in `sample.error`, and is a failure of the run.
 
+RECENT PAGES. --recent-sites N with --recent-pages M (both 0 by default: the option is off, and the run and its
+report are those of before) gives the session M visited pages on N sites, each site with an icon, before the rows'
+workspace is made (recent-pages.py: loopback sites of this tool, one Chromium tab in one more workspace that is
+closed again; --recent-deadline seconds at most). `recent_pages` of the report says what the app's own list had
+before and after that close, how many reads of the app's state the option made, and its `limits`. After the last
+row the tool reads the app's list ONE time more (`after_the_rows`): a list with less pages of the sites, or less
+icons, than after the close is a reason too. Each reason in its `invalid` is a failure of the run with the words
+`INVALID FOR THE OPTION`: the rows still run, and they are not rows of a session with recent pages. Each row of
+the report then has those words as its `recent_pages`, and so has the `HELD-NEW-TAB-ROW` line of each row that
+ran after the reason was known (a reason of the read after the rows comes after each line: the report has it, and
+the line `HELD-NEW-TAB-RECENT-PAGES-AFTER-THE-ROWS`). `session_limit` names `recent_pages` with the option, and
+says that the option did NOT take effect when it has a reason. Sites below 0, more than 40 sites (the app's list
+has 40 pages at most), pages with no site, or less pages than sites: NOT RUN (exit 3) before a launch.
+
+`build`: the form of the app's build, as the entry script read it from the reload's log (build-flags.py; --build
+FILE): the reload's `bench configuration` line, the optimization settings of the build's command line, and the
+count of the Swift compiler's command lines with each optimization level. With no file it says `not_read`.
+
 Prints one `HELD-NEW-TAB {json}` line and writes report.json to --out; with --artifact FILE it also packs the
-report, each take's record and signpost stream and the film's frames into that one .tgz. Exit 0 when each row
-measured what it names; 2 when a row did not (an INVALID row, a finding) and each round still has a valid row; 1
-when the preflight failed or a round has no valid row (the run ends after that round); 3 when it cannot run as
-asked (no report file then). See `exit_code`.
+report, the --build file, each take's record and signpost stream and the film's frames into that one .tgz. Exit 0
+when each row measured what it names; 2 when a row did not (an INVALID row, a finding) and each round still has a
+valid row; 1 when the preflight failed or a round has no valid row (the run ends after that round); 3 when it
+cannot run as asked (no report file then). See `exit_code`.
 Run on a fleet GUI host (held-new-tab.sh), never on a Mac that someone works on.
 """
 import argparse, ctypes, importlib.util, json, os, re, select, signal, socket, subprocess, sys, tarfile, threading, time, traceback
@@ -229,6 +247,14 @@ ROWS = ("mixed", "hold", "close")
 REPEAT_RULE = "the system's: each new key-down of T starts its repeats again after the first delay"
 SEED_LIMIT = ("the page tabs have no favicon and the terminals have one folder: the new tab page's favicon work and "
               "its list of folders are not in these rows")
+RECENT = BENCH.load("recent_pages", os.path.join(os.path.dirname(os.path.abspath(__file__)), "recent-pages.py"))
+RECENT_LIMIT = ("the page tabs of the session have no favicon and the terminals have one folder: the new tab page's list "
+                "of folders is not in these rows, and its favicon work is only that of the recent pages which "
+                "`recent_pages` names, with the limits that it names")
+RECENT_INVALID = "INVALID FOR THE OPTION (these rows are not rows of a session with recent pages)"
+RECENT_NOT_TAKEN = ("the option for recent pages did NOT take effect (`recent_pages.invalid` says why): the favicon work "
+                    "in these rows is not known; the page tabs of the session have no favicon and the terminals have "
+                    "one folder, so the new tab page's list of folders is not in these rows")
 ORDER_LIMIT = ("the app names no id at the key that makes a tab: a new tab gets its id from the Cmd-W that closes it, "
                "or by its place in the end list when no Cmd-W closed it; so a Cmd-W on a new tab is not checked for which "
                "new tab it closed (`closes_checked_by_id` counts only a Cmd-W on a tab that had its id), and tabs that "
@@ -819,14 +845,28 @@ def restore(builder, workspace, pane, state):
     return (state if left else want), left, len(came)
 
 
-def pack(out, film, target):
-    """ONE file for a step to bring back (a step's command names one artifact): the report, each take's record and
-    signpost stream, the sampler's report of the sample take, and with a film its frames.json and each fifth frame.
-    Returns the names in it."""
+def build_facts(path):
+    """The report's `build`: the entry script's read of the reload's log (build-flags.py), or why there is none."""
+    if not path:
+        return {"not_read": "no --build file: the entry script gives it"}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, ValueError) as error:
+        return {"not_read": f"{path}: {error!r}"}
+    return data if isinstance(data, dict) else {"not_read": f"{path}: not a JSON object"}
+
+
+def pack(out, film, target, build=None):
+    """ONE file for a step to bring back (a step's command names one artifact): the report, the build's form (the
+    --build file), each take's record and signpost stream, the sampler's report of the sample take, and with a film
+    its frames.json and each fifth frame. Returns the names in it."""
     names = {f"{found.parent.name}/{found.name}": found
              for kind in ("scenario.json", "run.ndjson", SAMPLE_FILE) for found in sorted(Path(out).glob(f"*/{kind}"))}
     if (Path(out) / "report.json").exists():
         names["report.json"] = Path(out) / "report.json"
+    if build and Path(build).exists():
+        names["build-flags.json"] = Path(build)
     frames = Path(film) / "frames" if film else None
     if frames and (frames / "frames.json").exists():
         names.update({f"film/{found.name}": found for found in [frames / "frames.json"] + sorted(frames.glob("frame-*[05].jpg"))})
@@ -1493,7 +1533,48 @@ def not_run(scenario, index, form, why):
     return {"scenario": scenario, "round": index, "key_source": form, "not_run": why, "errors": [], "invalid": [f"not run: {why}"]}
 
 
+def session_limit(recent_sites):
+    """`session_limit` of the report: what the session does not have. With recent pages (--recent-sites) the rows have
+    the favicon work of those pages, so the sentence of before would not be true."""
+    return RECENT_LIMIT if recent_sites else SEED_LIMIT
+
+
 def run(opts, app, signposts, report, form):
+    """The session and its rows (`run_rows`) and then, with the option for recent pages, ONE more judge of the app's
+    list after the last row, also when the rows ended early."""
+    try:
+        run_rows(opts, app, signposts, report, form)
+    finally:
+        recent_after_the_rows(app, report)
+
+
+def recent_not_taken(report):
+    """A run whose option for recent pages has a reason in `invalid`: its sentence of the session says so, and each
+    row of the report has the mark."""
+    report["session_limit"] = RECENT_NOT_TAKEN
+    for row in report["rows"]:
+        row["recent_pages"] = RECENT_INVALID
+
+
+def recent_after_the_rows(app, report):
+    """With the option: ONE read of the app's list after the last row and its judge (recent-pages.py's `after_rows`).
+    A new reason is a failure of the run, and each row of the report gets the mark."""
+    recent = report.get("recent_pages")
+    if not recent:
+        return
+    try:
+        reasons = RECENT.after_rows(recent, RECENT.listed(app.rpc("debug.new_tab", {"action": "state"})))
+    except Exception as error:  # noqa: BLE001  an app that is gone: the rows keep their numbers, and the run says why
+        reasons = [f"after the rows: the judge of the app's list stopped: {error!r}"]
+        recent.setdefault("invalid", []).extend(reasons)
+    report["failures"] += [f"recent pages: {RECENT_INVALID}: {why}" for why in reasons]
+    print("HELD-NEW-TAB-RECENT-PAGES-AFTER-THE-ROWS " + json.dumps({"after_the_rows": recent.get("after_the_rows"), "invalid": reasons}),
+          flush=True)
+    if recent.get("invalid"):
+        recent_not_taken(report)
+
+
+def run_rows(opts, app, signposts, report, form):
     builder = STRESS.Stress(app.rpc)
     path, roots = daemon_of(app)
     if not path:
@@ -1504,6 +1585,15 @@ def run(opts, app, signposts, report, form):
     made, code, count, tail = seed(app, asked, opts.live_shells, opts.page_url, opts.seed_deadline, opts.out)
     # The made workspaces are in the app's list before the rows' workspace is made: it is found as the new one.
     listed = STRESS.wait(lambda: len(builder.workspaces()) >= have + count, 120, step=1.0)
+    if opts.recent_sites:
+        # Before the rows' workspace: the pages' workspace is made and closed again, and the rows' one is the new one after it.
+        recent = RECENT.seed(builder, lambda: app.rpc("debug.new_tab", {"action": "state"}), opts.recent_sites, opts.recent_pages,
+                             opts.recent_deadline, STRESS.wait)
+        report["recent_pages"] = recent
+        print("HELD-NEW-TAB-RECENT-PAGES " + json.dumps(recent), flush=True)
+        report["failures"] += [f"recent pages: {RECENT_INVALID}: {why}" for why in recent.get("invalid") or []]
+        if recent.get("invalid"):
+            recent_not_taken(report)
     workspace = builder.new_workspace()
     report["session"] = {"asked": opts.workspaces, "maker_exit": code, "maker_last_lines": tail if code else [], "maker_made": count,
                          "maker_asked": made.get("asked"), "before": made.get("before"), "after": made.get("after"),
@@ -1668,6 +1758,8 @@ def run(opts, app, signposts, report, form):
         if sample:
             why = sample_row(row, record.get("sample"), os.path.join(out, SAMPLE_FILE))
             report["failures"] += [f"{index} {name}: {why}"] if why else []
+        if (report.get("recent_pages") or {}).get("invalid"):
+            row["recent_pages"] = RECENT_INVALID  # before the row's line: a row with no mark would say `valid` for the option
         report["rows"].append(sealed(row))
         report["failures"] += [f"{index} {name}: {why}" for why in (row.get("errors") or []) + (row.get("invalid") or [])
                                if why != ERRORS_ONLY]
@@ -1696,6 +1788,9 @@ def main():
     parser.add_argument("--keys", default="app-queue", help="the key source; only app-queue is in this script")
     parser.add_argument("--deadline", type=float, default=60.0, help="seconds after a take's frames for the app to say it is done")
     parser.add_argument("--seed-deadline", type=float, default=900.0, help="seconds for the session's maker")
+    parser.add_argument("--recent-sites", type=int, default=0, help="sites with an icon that the session visited (0: no recent pages)")
+    parser.add_argument("--recent-pages", type=int, default=0, help="visited pages on those sites, one or more for each site")
+    parser.add_argument("--recent-deadline", type=float, default=600.0, help="seconds for the visits of the recent pages")
     parser.add_argument("--film", help="a folder for one more `mixed` take under debug.window_record")
     parser.add_argument("--sample-s", type=int, default=0,
                         help="one more `hold` take with the system's sampler on the app for this many seconds (0: no such take)")
@@ -1704,6 +1799,7 @@ def main():
                         help="activate: launch without CMUX_NEXT_NO_ACTIVATE (the app takes the keyboard, as a person's does), the keys as "
                              "sequences in the key window; one-key: the launcher's launch, each key-down one call; auto: activate, then one-key")
     parser.add_argument("--display", default="real", help="what the entry script says of the display, for the preflight's first line")
+    parser.add_argument("--build", help="the JSON of build-flags.py: the form of the app's build, for the report and the artifact")
     for internal in ("--row", "--socket", "--workspace", "--pane", "--sample-pid"):
         parser.add_argument(internal, help=argparse.SUPPRESS)
     parser.add_argument("--keep", type=int, default=0, help=argparse.SUPPRESS)
@@ -1715,10 +1811,17 @@ def main():
     if opts.keys != "app-queue" or not opts.app or opts.every_ms < 200:
         print(f"held-new-tab: NOT RUN: needs --app, --keys app-queue (asked: {opts.keys}) and --every-ms of 200 or more", flush=True)
         return 3
+    if opts.recent_sites < 0 or opts.recent_sites > RECENT.MOST_SITES or opts.recent_pages < opts.recent_sites \
+            or (opts.recent_pages and not opts.recent_sites):
+        print(f"held-new-tab: NOT RUN: --recent-sites {opts.recent_sites} with --recent-pages {opts.recent_pages}: the option needs "
+              f"1 site or more, {RECENT.MOST_SITES} sites at most (the app's list has {RECENT.MOST_SITES} pages at most) and a page "
+              "or more for each site (0 and 0: no recent pages)", flush=True)
+        return 3
     os.makedirs(opts.out, exist_ok=True)
     report = {"host": BENCH.load("action_signposts_bench", "action-signposts-bench.py").host_facts(), "hid_grant": grant,
-              "hold_ms": opts.hold_ms, "every_ms": opts.every_ms, "mixed_repeat_rule": REPEAT_RULE, "session_limit": SEED_LIMIT,
-              "rows": [], "failures": []}
+              "hold_ms": opts.hold_ms, "every_ms": opts.every_ms, "mixed_repeat_rule": REPEAT_RULE,
+              "session_limit": session_limit(opts.recent_sites),
+              "build": build_facts(opts.build), "rows": [], "failures": []}
     # No osascript in a step: the launcher leaves the sound as it is and its read of the mute state is a no-op.
     os.environ.update({"BENCH_LAUNCH_AUDIO": "keep", "BENCH_LAUNCH_OSASCRIPT": "/usr/bin/true"})
     forms, app = list(LAUNCH_FORMS[opts.launch_form]), None
@@ -1758,7 +1861,7 @@ def main():
     print("HELD-NEW-TAB " + json.dumps(report), flush=True)
     if opts.artifact:
         try:
-            print(f"held-new-tab: artifact {opts.artifact}: {len(pack(opts.out, opts.film, opts.artifact))} files", flush=True)
+            print(f"held-new-tab: artifact {opts.artifact}: {len(pack(opts.out, opts.film, opts.artifact, opts.build))} files", flush=True)
         except (OSError, tarfile.TarError) as error:
             print(f"held-new-tab: no artifact {opts.artifact}: {error!r}", flush=True)
     return exit_code(report, opts.rounds)

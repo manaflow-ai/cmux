@@ -82,11 +82,13 @@ def keys(*strokes, gap=30):
         steps += [{"key_code": code, "down": True, "after_ms": gap}, {"key_code": code, "down": False, "after_ms": gap}]
         steps += [{"key_code": m, "down": False, "after_ms": gap} for m in reversed(held)]
     # The GUI host is shared: another run's app may have taken activation, and a panel takes keys only in the
-    # active app. Activate again, then make the panel key (`key_window`: its identifier).
-    subprocess.run(["/usr/bin/open", "-b", INFO["CFBundleIdentifier"]], check=False)
-    # Active once one of its windows is key (a read-only check).
-    if not wait(lambda: any(w.get("key") for w in windows()), 5):
-        print("the app did not become active", flush=True)
+    # active app. Activate only then: `open -b` on a running app is a reopen (a Dock click), which makes the main
+    # window key, and its page then takes the keys meant for the panel. Then make the panel key (`key_window`).
+    if not any(w.get("key") for w in windows()):
+        subprocess.run(["/usr/bin/open", "-b", INFO["CFBundleIdentifier"]], check=False)
+        # Active once one of its windows is key (a read-only check).
+        if not wait(lambda: any(w.get("key") for w in windows()), 5):
+            print("the app did not become active", flush=True)
     reply = rpc("debug.key", {"sequence": steps, "key_window": "cmux.densityPlayground"})
     time.sleep(len(steps) * gap / 1000 + 0.6)  # capture harness: the sequence plays, then the change draws
     return reply
@@ -100,9 +102,7 @@ def field(value):
     """Tab to the next field (a field Tab enters selects its text), type `value`, Return."""
     keys("tab")
     type_text(value)
-    reply = keys("return")
-    time.sleep(1.5)  # capture harness: the save (600 ms on) and the config reload it starts end before the next Tab
-    return reply
+    return keys("return")
 
 
 def windows():
@@ -202,7 +202,6 @@ try:
     print("name", keys("tab"), flush=True)
     type_text("Roomy")
     keys("return")
-    time.sleep(1.5)  # capture harness: the copy is saved and the config reloads
     frame("named Roomy")
     field("38")  # Vertical tabs is shown: Tab from the name reaches its first value
     frame("sidebar row height 38")

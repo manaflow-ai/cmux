@@ -406,31 +406,16 @@ class Workflow(unittest.TestCase):
     def test_the_workflow_runs_this_script_from_the_protected_branch(self) -> None:
         text = WORKFLOW.read_text()
         self.assertIn("tool=scripts/cmux-next/hot-verify-ci.py", text)
-        for command in ("verdict", "hq-ref", "pack", "unpack", "stage", "render", "post"):
+        for command in ("verdict", "nightly-commit", "result", "unpack", "stage", "render", "post"):
             with self.subTest(command=command):
                 self.assertTrue(f"hot-verify-ci.py {command} " in text or f'"$tool" {command} ' in text)
         self.assertIn("environment: pr-media", text)
         self.assertIn("uses: ./.github/actions/pr-media-publish", text)
         self.assertIn("gh workflow run cmux-next-web-bundle-publish.yml", text)
         self.assertNotIn("secrets: inherit", text)
-        self.assertIn("--script build-fleet/pr_capture/fleet-step-hot-verify.sh --display --artifact out.tar", text)
-
-    def test_the_look_step_packs_its_inputs_without_bash_4_builtins(self) -> None:
-        # #43916's look on glaeda-5 died with "mapfile: command not found": a fleet Mac's /bin/bash is 3.2. Run the
-        # step's packing lines with bash 4's array builtins switched off, as 3.2 has none of them.
-        lines = WORKFLOW.read_text().splitlines()
-        start = next(i for i, line in enumerate(lines) if line.strip().startswith('nonce="hv-'))
-        end = next(i for i in range(start, len(lines)) if lines[i].strip().startswith('log="$RUNNER_TEMP/look.log"'))
-        packing = textwrap.dedent("\n".join(lines[start:end]))
-        script = "enable -n mapfile readarray\nset -uo pipefail\n" + packing + '\nprintf "%s\\n" "${args[@]}"\n'
-        done = subprocess.run(["bash", "-c", script], cwd=ROOT, capture_output=True, text=True,
-                              env={**os.environ, "PR": "7", "HEAD_SHA": "a" * 40, "GITHUB_RUN_ID": "1",
-                                   "GITHUB_RUN_ATTEMPT": "1"})
-        self.assertEqual(done.returncode, 0, done.stderr)
-        args = done.stdout.splitlines()
-        self.assertTrue(args and all(a.startswith("--arg=") and len(a) > len("--arg=") for a in args), done.stdout)
-        expected = hv.pack(hv.step_inputs(7, "a" * 40, "hv-7-aaaaaaaaaaaa-1-1", True))
-        self.assertEqual([a[len("--arg="):] for a in args], expected)
+        # No job waits for a fleet Mac: the gateway runner and the fleet client are gone from this workflow.
+        self.assertNotIn("CI_EVAL_STEP_GATEWAY", text)
+        self.assertNotIn("cmux-ci", text.replace("cmux-ci-", ""))
 
     def test_the_plan_fetch_finds_the_merge_base_after_a_depth_one_checkout(self) -> None:
         # The fleet's looks on #43862, #43807, #43816 and #43779 failed at `git merge-base` (2026-11-15): the
@@ -490,8 +475,11 @@ class Workflow(unittest.TestCase):
         """Run JOB's one `run: |` script with a gh on PATH that prints GH_OUT and logs its argv; returns the
         process, the GITHUB_OUTPUT file and the gh calls."""
         block = self.job_block(job)
-        start = next(i for i, line in enumerate(block) if line.strip() == "run: |") + 1
-        script = textwrap.dedent("\n".join(block[start:]))
+        at = next(i for i, line in enumerate(block) if line.strip() == "run: |")
+        indent = len(block[at]) - len(block[at].lstrip()) + 2
+        end = next((j for j in range(at + 1, len(block)) if block[j].strip()
+                    and len(block[j]) - len(block[j].lstrip()) < indent), len(block))
+        script = textwrap.dedent("\n".join(block[at + 1:end]))
         scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-job-")))
         (scratch / "bin").mkdir()
         fake = scratch / "bin" / "gh"
@@ -529,8 +517,9 @@ class Workflow(unittest.TestCase):
         # stopped renewing its lease, and a reserved fleet Mac's gateway runner refused 8 looks (runs
         # 43833883489, 43834069668, ...). Each lost its look for good: nothing started one again.
         block = "\n".join(self.job_block("again"))
-        self.assertIn("needs: [target, look]", block)
-        self.assertIn("needs.look.result == 'failure'", block)
+        self.assertIn("needs: target", block)
+        self.assertIn("needs.target.outputs.tar == 'false'", block)
+        self.assertIn("inputs.look_result != ''", block)
         self.assertIn("inputs.attempt != '1'", block)
         self.assertIn("!cancelled()", block)
         self.assertIn("attempt:", WORKFLOW.read_text().split("jobs:", 1)[0])
@@ -599,6 +588,57 @@ class Workflow(unittest.TestCase):
                 else:
                     self.assertIn("reached-git", said, (done.stderr, said))
                     self.assertFalse(out.exists() and "eligible=false" in out.read_text())
+
+    def test_the_request_job_name_is_the_controllers_request(self) -> None:
+        # The build fleet controller (cmuxterm-hq build-fleet/cmd/controller/hot_verify_look.go hotLookJobName) reads
+        # the request from this job's name; nothing else carries it. Its fields come only from the target job, which
+        # checks each one's shape.
+        block = "\n".join(self.job_block("request"))
+        name = next(line.split("name: ", 1)[1] for line in self.job_block("request") if line.strip().startswith("name: hot verify request"))
+        self.assertEqual(name, "hot verify request pr=${{ needs.target.outputs.pr }} head=${{ needs.target.outputs.head }} "
+                               "attempt=${{ needs.target.outputs.attempt }} kind=${{ needs.target.outputs.kind }} "
+                               "event=${{ needs.target.outputs.event_at }} layers=${{ needs.target.outputs.layers }}"
+                               "${{ needs.rust.outputs.key != '' && format(' tree={0}', needs.rust.outputs.key) || '' }}")
+        self.assertIn("timeout-minutes: 2", block)
+        self.assertIn("permissions: {}", block)
+        self.assertNotIn("sleep", "\n".join(self.job_block("rust")) + "\n".join(self.job_block("web")))
+        row = f"manaflow-ai/cmux\t{HEAD}\tfeat-cmux-next\topen\tfalse\t-\t-"
+        for env, want in (({"KIND": "", "ATTEMPT": "", "EVENT_AT": "1794800000"}, ("kind=head", "attempt=0", "event_at=1794800000")),
+                          ({"KIND": "merge", "ATTEMPT": "1", "EVENT_AT": "x y=z"}, ("kind=merge", "attempt=1", "event_at=\n"))):
+            done, out, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web,rust", **env})
+            self.assertEqual(done.returncode, 0, done.stderr)
+            for line in want:
+                self.assertIn(line, out.read_text())
+        done, _, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web", "KIND": "head layers=web"})
+        self.assertNotEqual(done.returncode, 0)
+
+    def test_the_look_result_names_its_pr_and_head_and_its_out_tar(self) -> None:
+        url = "https://store.example/artifacts/abc?X-Amz-Signature=1"
+        done = hv.look_result(json.dumps({"pr": 7, "head": HEAD, "step_id": "0123456789abcdef01234567", "state": "done",
+                                          "exit_code": 0, "queued_s": 4620, "artifact_url": url}), 7, HEAD)
+        self.assertEqual(done["url"], url)
+        self.assertIn("after 4620 s in the queue", done["reason"])
+        lost = hv.look_result(json.dumps({"pr": 7, "head": HEAD, "state": "cancelled", "error": "no fleet Mac took the look within 3h0m0s"}), 7, HEAD)
+        self.assertEqual(lost["url"], "")
+        for bad in ({"pr": 8, "head": HEAD, "state": "done"}, {"pr": 7, "head": OTHER, "state": "done"},
+                    {"pr": 7, "head": HEAD, "state": "maybe"}, {"pr": 7, "head": HEAD, "state": "done", "artifact_url": "http://x"}):
+            with self.subTest(bad=bad), self.assertRaises(hv.Refused):
+                hv.look_result(json.dumps(bad), 7, HEAD)
+
+    def test_the_plan_plans_against_the_nightlys_commit(self) -> None:
+        # 128 steps on 2026-11-17 queued for a Mac and ended "needs a build" at the worker, which plans against the
+        # nightly; the PR half planned against the merge base. The feed item cmux's own pick() takes names it.
+        def item(build: int, commit: str, channel: str = "") -> str:
+            ch = f"<sparkle:channel>{channel}</sparkle:channel>" if channel else ""
+            return (f"<item><sparkle:version>{build}</sparkle:version>{ch}<cmux:sourceCommit>{commit}</cmux:sourceCommit>"
+                    f'<enclosure url="https://files-next.cmux.com/nightly-next/cmux-nightly-next-macos-arm64-{build}.dmg" '
+                    'length="1" sparkle:edSignature="x"/></item>')
+        feed = "<rss><channel>" + item(10, APP) + item(12, OTHER, "cmux-next-dev") + item(11, HEAD) + "</channel></rss>"
+        self.assertEqual(hv.nightly_commit(feed), HEAD)
+        self.assertEqual(hv.nightly_commit("<rss/>"), "")
+        plan = "\n".join(self.job_block("plan"))
+        self.assertIn('"$tool" nightly-commit', plan)
+        self.assertIn('${base[@]+"${base[@]}"}', plan)
 
     def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
         text = WEB_PUBLISH.read_text()

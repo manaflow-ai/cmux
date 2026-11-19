@@ -198,6 +198,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case browserHostProvider = "browser-host-provider-v1"
     /// `remote-host-*`: cmux Remote, the daemon's signed host for Computer Use and Screen Sharing (docs/cmux-remote.md).
     case remoteHost = "remote-host-v1"
+    /// `computer-use-*`: cmux Computer Use (the worker's endpoint for acpmux, the person's policy, saved approvals).
+    case computerUse = "computer-use-v1"
     /// `activate` on `new-frontend-browser-tab`: a background tab keeps the pane's active tab.
     case frontendBrowserActivate = "frontend-browser-activate-v1"
     /// `after` on `new-frontend-browser-tab`: a link's tab lands next to its opener.
@@ -602,6 +604,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// files with no patch. The diff tab asks them every few seconds; a session host without the
     /// read gets no request for it (DiffPageProvider+Git.swift).
     case gitFingerprint = "git-fingerprint-v1"
+    /// `set-layout-sizes`: the values one resize gesture ends with (a key trade's two widths, a drag
+    /// release's widths and ratios) are one commit, every value or none. Without it each value goes
+    /// as its own command under the gesture's transaction (`LayoutSizeCommands`).
+    case layoutSizesBatch = "layout-sizes-batch-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -629,7 +635,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit, .workspaceFirstTab, .frontendBrowserTabWorkspace,
              .terminalInputWhileCreating, .creatingInputCancel, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
-             .browserHostProvider, .remoteHost, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
+             .browserHostProvider, .remoteHost, .computerUse, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft, .floatingPanes,
@@ -652,7 +658,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .classicImport, .diffCommentsSend, .gitFingerprint:
+             .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch:
             return .optional
         }
     }
@@ -701,21 +707,6 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     }
     private static let notAdvertised: Set<String> = Set(names([.terminalFrontendShellIntegration, .placementShift,
                                                                .sharedSizing, .agentSessionPresence]))
-
-    /// What a connection echoes in `set-client-info`.
-    ///
-    /// - Parameters:
-    ///   - advertised: The capabilities the connection advertises.
-    ///   - resolvesShellIntegration: The connection resolves Ghostty's shell integration itself.
-    ///   - echoesPlacementShift: This build orders sidebar rows from the sidebar document only
-    ///     (the App passes true from its composition root).
-    public static func handshakeCapabilities(_ advertised: [String], resolvesShellIntegration: Bool,
-                                             echoesPlacementShift: Bool = false) -> [String] {
-        // The document path echoes `placement-shift-v1` together with `sidebar-doc-v1`.
-        let document = echoesPlacementShift && advertised.contains(Self.sidebarDoc.rawValue) ? [Self.placementShift.rawValue] : []
-        let shell = resolvesShellIntegration ? [Self.terminalFrontendShellIntegration.rawValue] : []
-        return advertised + shell + document
-    }
 
     private static func names(_ capabilities: [DaemonCapability]) -> [String] { capabilities.map(\.rawValue) }
     private static func names(in tier: Tier) -> [String] { names(allCases.filter { $0.tier == tier }) }

@@ -47,6 +47,55 @@ public enum CloudGitHubApp: String, Equatable, Sendable {
     }
 
     private static let idBytes = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-".utf8)
+
+    /// Only the App installation page `integration.connect` answers may open (https://github.com/apps/<slug>/installations/new).
+    public static func installationURL(_ raw: String) -> URL? {
+        gitHubPage(raw, path: #"^/apps/[A-Za-z0-9-]+/installations/new$"#)
+    }
+
+    /// A ready connection's installation settings (`connection.configure_url`), where the person adds repositories:
+    /// https://github.com/settings/installations/N, or /organizations/<org>/settings/installations/N. Nil when not
+    /// ready, when an older Worker does not say, or for any other page.
+    public static func configureURL(status: Int, body: Data) -> URL? {
+        guard CloudGitHubApp(status: status, body: body) == .ready,
+              let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
+              let raw = (object["connection"] as? [String: Any])?["configure_url"] as? String else { return nil }
+        return gitHubPage(raw, path: #"^(/organizations/[A-Za-z0-9-]+)?/settings/installations/[0-9]+$"#)
+    }
+
+    /// Settings' Reconfigure for a ready connection: its installation settings (``configureURL(status:body:)``), where
+    /// the person changes which repositories the App reaches, else the App's own installation chooser on GitHub
+    /// (https://github.com/apps/<slug>/installations/new, no `state`), which lists each account and org the App is on
+    /// with Configure. Nil when not ready, or when the answer names no usable App slug.
+    public static func reconfigureURL(status: Int, body: Data) -> URL? {
+        if let page = configureURL(status: status, body: body) { return page }
+        guard CloudGitHubApp(status: status, body: body) == .ready,
+              let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
+              let slug = object["app_slug"] as? String,
+              slug.range(of: #"^[A-Za-z0-9-]{1,100}$"#, options: .regularExpression) != nil else { return nil }
+        return installationURL("https://github.com/apps/\(slug)/installations/new")
+    }
+
+    /// The `exp` of the signed `state` an installation page carries; nil when it carries none. Only a cache hint:
+    /// the API verifies the state on completion.
+    public static func authorizationExpiry(_ url: URL) -> Date? {
+        guard let token = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "state" })?.value else { return nil }
+        let parts = token.split(separator: ".")
+        guard parts.count == 3 else { return nil }
+        var payload = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
+        guard let data = Data(base64Encoded: payload), let claims = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let expires = (claims["exp"] as? NSNumber)?.doubleValue else { return nil }
+        return Date(timeIntervalSince1970: expires)
+    }
+
+    /// `raw` when it is an https://github.com page whose path matches `path`, with no user, password or port.
+    static func gitHubPage(_ raw: String, path: String) -> URL? {
+        guard let url = URL(string: raw), url.scheme == "https", url.host == "github.com",
+              url.user == nil, url.password == nil, url.port == nil,
+              url.path.range(of: path, options: .regularExpression) != nil else { return nil }
+        return url
+    }
 }
 
 extension CloudOwnerAPIClient {

@@ -63,10 +63,10 @@ final class CloudMachineCreation: Identifiable {
     /// part of ``request``: a named request is a request option the app server's create refuses.
     var pinnedMachineName: String?
 
-    /// The create went to the server once, to `team`: a Retry may find the machine it made, and
-    /// goes to that same team.
-    func markRequestSent(team: String?) {
-        if !request.wasSent { request.team = team }
+    /// The create went to the server once, to `team` on `route`: a Retry may find the machine it made, and
+    /// goes to that same team on that same route (the server keeps each key per caller).
+    func markRequestSent(team: String?, route: CloudCreateRoute = .relay) {
+        if !request.wasSent { request.team = team; request.route = route }
         request.wasSent = true
     }
 

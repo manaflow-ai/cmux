@@ -146,3 +146,7 @@ skip = "vendored upstream crate with cmux's patch; cmux-tui.yml runs its tests"
 [[workspace]]
 root = "scripts/cmux-next/rust-change-class"
 run = true
+
+[[workspace]]
+root = "scripts/measure/workspace-factory"
+skip = "measure harness (wsfactory, bench workspace-factory): no CI tests by rule; its author runs cargo test through cmux-ci test, and the bench builds it on the measuring Mac"

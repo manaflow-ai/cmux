@@ -45,6 +45,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HUNK_SUMMARY,
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
+    super::controls::METHOD,
     method::MUX_HARNESS_INVENTORY_WATCH,
     method::MUX_HARNESS_INVENTORY_REFRESH,
     method::MUX_HARNESS_UPDATE_PLAN,

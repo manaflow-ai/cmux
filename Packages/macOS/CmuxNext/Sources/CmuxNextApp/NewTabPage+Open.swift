@@ -56,6 +56,7 @@ extension NewTabPage {
             openingPanes.remove(openingKey)
             return
         }
+        services.keyRouter.parkedTyping.newTabPageOpens(showing: pane.currentContent?.inputReadiness) // the text that waited for the page that the pane shows stays with that page
         var page = Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane, paletteActions: false)
         // The page's folder: the selected tab's, or (an empty pane of another machine) its workspace's there.
         let cwd = page.cwd
