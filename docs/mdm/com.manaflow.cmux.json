@@ -2062,6 +2062,17 @@
       "title" : "Theme File",
       "type" : "string"
     },
+    "appearance.themeFileExceptions" : {
+      "default" : [
+
+      ],
+      "description" : "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Changed Over Theme File",
+      "type" : "array"
+    },
     "appearance.titleAreaContrast" : {
       "default" : 1,
       "description" : "How much darker the title bar, tab bar and sidebar are. 1 is the default.",
@@ -4611,6 +4622,12 @@
       "default" : false,
       "description" : "Off: this Mac stays available to your devices while cmux is quit.",
       "title" : "End Sharing When cmux Quits",
+      "type" : "boolean"
+    },
+    "remote.shareWithOwnDevicesByDefault" : {
+      "default" : false,
+      "description" : "On: your other devices view this Mac with no Allow, until you stop sharing.",
+      "title" : "Share With My Devices by Default",
       "type" : "boolean"
     },
     "remote.ultra" : {

@@ -2554,6 +2554,27 @@
 			<string>string</string>
 		</dict>
 		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list.</string>
+			<key>pfm_name</key>
+			<string>appearance.themeFileExceptions</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Changed Over Theme File</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
 			<key>pfm_description</key>
 			<string>The color of selected text everywhere. Unset uses the terminal theme's.</string>
 			<key>pfm_name</key>
@@ -10138,6 +10159,18 @@
 			<string>remote.endSharingOnQuit</string>
 			<key>pfm_title</key>
 			<string>End Sharing When cmux Quits</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>On: your other devices view this Mac with no Allow, until you stop sharing.</string>
+			<key>pfm_name</key>
+			<string>remote.shareWithOwnDevicesByDefault</string>
+			<key>pfm_title</key>
+			<string>Share With My Devices by Default</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
