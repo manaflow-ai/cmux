@@ -328,3 +328,12 @@ async fn a_wake_keeps_a_link_that_answers() {
     serving.abort();
     answering.abort();
 }
+
+#[test]
+fn the_wake_probe_is_the_network_probe_unless_the_peer_proved_slow() {
+    use crate::peer_link::{WAKE_PROBE, wake_probe};
+    let net = crate::peer::network::NETWORK_PROBE;
+    assert_eq!(wake_probe(true, net), Duration::from_secs(2));
+    assert_eq!(wake_probe(false, net), WAKE_PROBE);
+    assert_eq!(wake_probe(true, Duration::from_secs(90)), WAKE_PROBE, "never longer than before");
+}
