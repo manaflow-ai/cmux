@@ -5780,8 +5780,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A chat that shows again starts over: its tray, if any, is simply there.
   const trayChat = useRef(shownSessionId);
   const trayAbsentIn = useRef<string | undefined>(undefined);
-  if (trayChat.current !== shownSessionId) trayAbsentIn.current = undefined;
+  // Coming back from one of its subagents is the chat showing again, too: the subagent's pane drew no
+  // tray, and the chat's own is simply there, not eased in. It eased in, and back on a running chat
+  // the last row sat 17 px low with the tray half drawn for a frame, settling by 260 ms.
+  const trayView = useRef(subagentView);
+  if (trayChat.current !== shownSessionId || trayView.current !== subagentView) trayAbsentIn.current = undefined;
   trayChat.current = shownSessionId;
+  trayView.current = subagentView;
   const trayEnters = shownSessionId !== undefined && trayAbsentIn.current === shownSessionId;
   // Absence counts only once the chat's own rows are read: a partial snapshot during a slow switch
   // would make a tray it already had look new.
