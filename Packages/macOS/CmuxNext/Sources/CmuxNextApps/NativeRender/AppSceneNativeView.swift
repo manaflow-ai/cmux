@@ -28,6 +28,9 @@ final class AppSceneNativeView: NSView {
     private var drawnRevision = -1
     private var drawnStatus: AppSceneModel.Status?
     private var drawnReloadFailure: String?
+    /// Whether this scene has drawn its first frame: a node the first scene draws does not play its
+    /// `transition` in (ABI.md Props, as the web renderer); one a later render adds does.
+    private var drewScene = false
 
     /// - Parameter copyText: What the failure row's Copy Error does with the raw reason (the general
     ///   pasteboard); tests pass a recorder.
@@ -122,6 +125,7 @@ final class AppSceneNativeView: NSView {
             if let next { addSubview(next) }
             rootView = next
         }
+        if rootView != nil { drewScene = true }
     }
 
     /// Draws the failure row in place of the scene.
@@ -131,6 +135,8 @@ final class AppSceneNativeView: NSView {
         rootView?.removeFromSuperview()
         rootView = nil
         views.removeAll()
+        // The scene that comes back draws fresh: its first frame does not animate in.
+        drewScene = false
     }
 
     /// The view of node `id`, reused when the node keeps its type, configured with its current value,
@@ -146,6 +152,7 @@ final class AppSceneNativeView: NSView {
             view.model = model
             view.bundleDirectory = bundleDirectory
             view.configure(node)
+            if !drewScene { view.enterPending = false }
             views[id] = view
         }
         if Self.isContainer(node.type) {

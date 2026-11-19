@@ -2,13 +2,14 @@ import AppKit
 import CmuxNextDesign
 
 /// `Circle`, `Capsule`, `Rectangle`, `RoundedRectangle` (`cornerRadius`, 4 by default): `fill` and
-/// `stroke` (`strokeWidth`, 1 by default) tones; with neither, filled in the secondary tone. `size`
+/// `stroke` (`strokeWidth`, 1 by default) tones; with neither, filled in the secondary tone. `fill` may
+/// also be a gradient (``AppSceneGradient``), drawn clipped to the shape. `size`
 /// makes it a square of that side; without it, it takes the width it gets and its `frame` height
 /// (a shape has no height of its own, so with no frame it draws nothing in a vertical stack).
-/// `gradient` paints the fill (or, for a stroked shape, the stroke) with a linear gradient; `trim`
-/// draws part of a stroked outline (a circle's from 12 o'clock, clockwise: a ring gauge); `glow`
-/// shines around the drawn outline. Fill, stroke, trim, glow and the outline itself animate with
-/// `animation`.
+/// `gradient` paints the fill (or, for a stroked shape, the stroke) with a linear gradient, over a
+/// gradient `fill`; `trim` draws part of a stroked outline (a circle's from 12 o'clock, clockwise: a
+/// ring gauge); `glow` shines around the drawn outline. Fill, stroke, trim, glow and the outline
+/// itself animate with `animation`.
 final class AppSceneShapeNSView: AppSceneNodeNSView {
     /// Carries the glow: its shadow follows whatever it draws (the shape, or the masked gradient).
     private let host = CALayer()
@@ -16,6 +17,9 @@ final class AppSceneShapeNSView: AppSceneNodeNSView {
     /// The `gradient`, shown through ``gradientMask`` (the outline's alpha).
     private var gradient: CAGradientLayer?
     private var gradientMask: CAShapeLayer?
+    /// The gradient `fill` (``AppSceneGradient``), masked to the outline; made the first time a node asks for one.
+    private var fillGradient: CAGradientLayer?
+    private let fillGradientMask = CAShapeLayer()
 
     override init(id: String, node: AppSceneNode) {
         super.init(id: id, node: node)
@@ -23,6 +27,7 @@ final class AppSceneShapeNSView: AppSceneNodeNSView {
                                              "position": NSNull(), "strokeStart": NSNull(), "strokeEnd": NSNull(), "lineWidth": NSNull()]
         shape.actions = still
         host.actions = ["bounds": NSNull(), "position": NSNull(), "shadowPath": NSNull()]
+        fillGradientMask.actions = still
         host.addSublayer(shape)
         layer?.addSublayer(host)
     }
@@ -58,6 +63,13 @@ final class AppSceneShapeNSView: AppSceneNodeNSView {
             : CGPath(roundedRect: path, cornerWidth: min(radius, path.width / 2), cornerHeight: min(radius, path.height / 2), transform: nil)
         animateValue(shape, \.path, "path", outline)
         shape.lineWidth = lineWidth
+        if let fillGradient {
+            // The gradient's points depend on the box's shape, so repaint after a resize.
+            if fillGradient.frame.size != box.size { needsDisplay = true }
+            fillGradient.frame = CGRect(origin: .zero, size: box.size)
+            fillGradientMask.frame = fillGradient.bounds
+            fillGradientMask.path = outline
+        }
         if let gradient, let gradientMask, let spec = node.gradient {
             animateFrame(gradient, CGRect(origin: .zero, size: box.size))
             gradientMask.frame = gradient.bounds
@@ -87,8 +99,10 @@ final class AppSceneShapeNSView: AppSceneNodeNSView {
         let fill = node.props["fill"]?.sceneColor ?? (stroke == nil ? Palette.textSecondary : .clear)
         let trim = node.trim
         paintGradient()
+        paintFillGradient()
         let painted = gradient == nil
-        animateColor(shape, \.fillColor, "fillColor", painted ? fill.cgColor : nil)
+        let fillPainted = painted && fillGradient?.isHidden != false
+        animateColor(shape, \.fillColor, "fillColor", fillPainted ? fill.cgColor : (painted ? NSColor.clear.cgColor : nil))
         animateColor(shape, \.strokeColor, "strokeColor", painted ? stroke?.cgColor : nil)
         for outline in [shape, gradientMask].compactMap({ $0 }) {
             animateNumber(outline, \.strokeStart, "strokeStart", trim?.from ?? 0)
@@ -122,5 +136,27 @@ final class AppSceneShapeNSView: AppSceneNodeNSView {
         mask.fillColor = isStroked ? nil : NSColor.black.cgColor
         mask.strokeColor = isStroked ? NSColor.black.cgColor : nil
         animateColors(fill, spec.colors.compactMap { $0.sceneColor?.cgColor })
+    }
+
+    /// A gradient `fill` (``AppSceneGradient``), shown through a mask of the outline; hidden under a `gradient`.
+    private func paintFillGradient() {
+        guard gradient == nil, let spec = AppSceneGradient(node.props["fill"]) else {
+            fillGradient?.isHidden = true
+            return
+        }
+        let drawn = fillGradient ?? {
+            let made = CAGradientLayer()
+            made.actions = ["colors": NSNull(), "startPoint": NSNull(), "endPoint": NSNull(), "bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
+            fillGradientMask.fillColor = NSColor.black.cgColor
+            fillGradientMask.path = shape.path
+            fillGradientMask.frame = CGRect(origin: .zero, size: shape.frame.size)
+            made.mask = fillGradientMask
+            made.frame = shape.frame
+            host.insertSublayer(made, below: shape)
+            fillGradient = made
+            return made
+        }()
+        drawn.isHidden = false
+        spec.apply(to: drawn, size: drawn.bounds.size, yDown: drawn.contentsAreFlipped())
     }
 }

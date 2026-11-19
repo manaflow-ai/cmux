@@ -23,6 +23,8 @@ class AppSceneNodeNSView: NSView {
     var decorationHover: PointerHover?
     /// Whether the pointer is over a node with a `hoverBackground`.
     var isDecorationHovered = false
+    /// Draws a gradient `background` under the node's content; made the first time a node asks for one.
+    var decorationGradient: CAGradientLayer?
 
     // MARK: Motion state (AppSceneNodeNSView+Motion.swift)
 

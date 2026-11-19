@@ -26,15 +26,19 @@ public nonisolated enum SceneMotion: Hashable, Sendable {
         case easeOut, easeInOut, linear
     }
 
-    /// `snappy`: a quick spring with a little give.
-    public static let snappy = SceneMotion.spring(SpringParameters(response: 0.3, dampingFraction: 0.8))
+    /// `smooth`: the motion scale's standard step on the ease-out curve (the web's CSS step).
+    public static let smooth = SceneMotion.timed(MotionScale.standard, .easeOut)
+    /// `snappy`: the motion scale's micro step on the ease-out curve (the web's CSS step).
+    public static let snappy = SceneMotion.timed(MotionScale.micro, .easeOut)
     /// `bouncy`: the one token that passes its target, for playful reveals.
     public static let bouncy = SceneMotion.spring(SpringParameters(response: 0.45, dampingFraction: 0.6))
 
-    /// A named token: `move`, `appear`, `disappear` (the chrome's springs), `fade` (the fade-in
-    /// curve), `snappy`, `bouncy`.
+    /// A named token: `smooth`, `snappy` (the motion scale's standard and micro steps), `none` (no
+    /// animation), `move`, `appear`, `disappear` (the chrome's springs), `fade` (the fade-in curve),
+    /// `bouncy`.
     public static func named(_ name: String) -> SceneMotion? {
         switch name {
+        case "smooth": smooth
         case "move": .spring(MotionSpring.move.base)
         case "appear": .spring(MotionSpring.appear.base)
         case "disappear": .spring(MotionSpring.disappear.base)
@@ -115,14 +119,17 @@ public nonisolated struct SceneLoop: Hashable, Sendable {
     }
 }
 
-/// `transition`: how a node enters when created and leaves when removed.
+/// `transition`: how a node enters when a render adds it (not in the first scene) and leaves when
+/// one removes it, as the web renderer draws them (scene.css).
 public nonisolated enum SceneTransition: String, CaseIterable, Hashable, Sendable {
     /// Opacity only.
-    case fade
-    /// Grows from (shrinks to) nothing about its center, as SwiftUI's `.scale`.
+    case opacity
+    /// Up from a little below, fading in; out upward, fading.
+    case slide
+    /// Grows from (shrinks to) 90 % about its center, fading.
     case scale
     /// In from its leading side and out toward its trailing side, a short way, fading.
-    case slide
+    case move
     /// Scale 0.6 to 1 on the bouncy spring, fading in; out on the disappear spring.
     case pop
 }
@@ -284,10 +291,12 @@ extension MotionGate {
     @MainActor public func sceneTransition(_ transition: SceneTransition, entering: Bool, opacity: Float,
                                            in space: SceneTransformSpace, window: NSWindow?) -> [String: CAAnimation] {
         guard animatesMovement(in: window) else { return [:] }
+        // The web's distances (scene.css): +y is down on screen.
         let away: CATransform3D? = switch transition {
-        case .fade: nil
-        case .scale: space.transform(scale: 0.01)
-        case .slide: space.transform(offset: CGPoint(x: entering ? -16 : 16, y: 0))
+        case .opacity: nil
+        case .slide: space.transform(offset: CGPoint(x: 0, y: entering ? 8 : -8))
+        case .scale: space.transform(scale: 0.9)
+        case .move: space.transform(offset: CGPoint(x: entering ? -12 : 12, y: 0))
         case .pop: space.transform(scale: 0.6)
         }
         let spring: SceneMotion = switch (transition, entering) {
@@ -301,7 +310,7 @@ extension MotionGate {
             let (from, to) = ends(NSValue(caTransform3D: away), NSValue(caTransform3D: CATransform3DIdentity))
             out["transform"] = sceneAnimation(spring, "transform", from: from, to: to, additive: true, in: window)
         }
-        if transition != .scale {
+        do {
             let fade = duration(entering ? .fadeIn : .fadeOut)
             if fade > 0 {
                 let (from, to) = ends(-opacity, 0 as Float)

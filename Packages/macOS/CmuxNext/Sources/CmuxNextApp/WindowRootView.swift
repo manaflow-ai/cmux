@@ -21,7 +21,7 @@ import Observation
 /// terminal read as one sheet with no panel edges or seams. In a
 /// translucent window that sheet is one material with one theme tint
 /// (`backdropView`, the bottom subview) and everything above it is clear.
-final class WindowRootView: NSView, WindowSurfacePainting {
+final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     let titlebar = TitlebarView()
     /// The window's one material and tint (`WindowBackdrop`); its glass keeps the key look through `activeLook`.
     let backdropView: WindowMaterialView
@@ -292,13 +292,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             (window as? ShellWindow)?.noteTrafficLights(lights)
             let local = convert(lights, from: nil)
             // One ink gap before the toggle's glyph and between glyphs (`TopRowSpacing.glyphGap`).
-            (lightsMaxX, lead) = (local.maxX, TopRowSpacing.leadingGap(gap: TopRowSpacing.glyphGap, leadingInk: toolbarBand.slots.leadingInk))
+            (lightsMaxX, lead) = (local.maxX, TopRowSpacing.leadingGap(gap: TopRowSpacing.glyphGap, leadingInk: toolbarBand.slots().leadingInk))
             midY = WindowTitlebar.topRowLine(in: window).map { bounds.maxY - $0.centerY } ?? local.midY
         }
         let presence = toolbarBandPresence
         let bandHeight = TopRowSpacing.buttonSide
         let fullBand = CGRect(x: lightsMaxX + lead, y: midY - bandHeight / 2,
-                              width: toolbarBand.slots.width, height: bandHeight)
+                              width: toolbarBand.slots().width, height: bandHeight)
         let presenceChanged = toolbarBand.presence != presence
         toolbarBand.presence = presence
         toolbarBand.frame = WindowTitlebar.alignedFrame(CGRect(x: lightsMaxX + lead * presence, y: fullBand.minY,
@@ -307,11 +307,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // A right sidebar's header is clear of the traffic lights and the band.
         // The reserve is the full band, so the header does not reflow while
         // the sidebar slides out.
-        let fullBandMaxX = WindowTitlebar.alignedFrame(fullBand, scale: window?.backingScaleFactor ?? 1).maxX
+        let alignedFullBand = WindowTitlebar.alignedFrame(fullBand, scale: window?.backingScaleFactor ?? 1), fullBandMaxX = alignedFullBand.maxX
         let (left, bandEdge) = (sidebarSide == .left, convert(toolbarBand.frame, to: nil).maxX + Metrics.space2) // the band's edge as it closes up
         sidebar.sidebarView.followToolbarBand(windowControls: left, reserve: left ? fullBandMaxX + Metrics.space2 : Metrics.space3, edgeInWindow: left ? bandEdge : nil)
         if presenceChanged { onToolbarBandPresenceChange?() }
-        layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
+        layoutTitlebarReveal(rowHeight: rowHeight, openForwardMaxX: alignedFullBand.minX + toolbarBand.slots().width)
         sidebarFloat.layout(in: self, rowHeight: rowHeight, sidebarHidden: sidebarHidden, side: sidebarSide, cornerRadius: mainPaneCornerRadius)
         layoutTitlebarAccessories(midY: midY)
     }
@@ -328,8 +328,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Called after `show(_:)` swaps the content (a top page or a workspace).
     var onContentChange: (() -> Void)?
 
-    /// Keeps the outgoing content until an unpainted top page paints.
-    let paintHold = PanePaintHold(owner: "window.paint-hold")
+    /// Keeps the outgoing content until its unpainted pages paint, or show their pictures after two frames of its screen.
+    let paintHold = PanePaintHold(owner: "window.paint-hold", frames: 2)
 
     /// Replaces the shown content. A workspace's view stays in the window, hidden (its controller
     /// keeps it mounted and removes it at teardown), so a switch moves no view out of the window or
@@ -392,7 +392,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         if !view.handKeyboardToWindow(), let window {
             // A field editor that refuses to resign while it validates: end the edit, then resign.
             window.endEditing(for: nil)
-            window.makeFirstResponder(nil)
+            FocusRoute(.system, "a withdrawn view gives up the keys").moveKeyboard(in: window, to: nil)
         }
         view.isHidden = true
         // Parked once hidden: the hidden subtree hears nothing more.

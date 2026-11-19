@@ -86,9 +86,15 @@ struct Later {
 
 /// Prints one line for the app (`AppLine`, the type the app's line reader reads back).
 fn say(line: AppLine) {
-    let mut out = io::stdout().lock();
-    let _ = writeln!(out, "{}", line.to_json());
-    let _ = out.flush();
+    let _ = write_line(&mut io::stdout().lock(), &line);
+}
+
+/// One app line on `out`, then a flush: the app reads stdout through a pipe, where nothing
+/// else flushes it, so each line must reach the pipe whole before the next stage waits on
+/// the app (cmuxterm-hq#13721: the answer waits for every candidate line).
+fn write_line(out: &mut impl Write, line: &AppLine) -> io::Result<()> {
+    writeln!(out, "{}", line.to_json())?;
+    out.flush()
 }
 
 pub(crate) fn hex(bytes: &[u8]) -> String {
@@ -267,12 +273,13 @@ fn default_start_kbps(
 }
 
 /// Whether a session with the setup line's `scope` (`view` or `control`) starts view only
-/// with `capture`: a capture that applies no input (the Wayland portal) is view only, so the
-/// viewer is told view, not a control session whose input is dropped.
-fn view_only_for(scope: &str, capture: CaptureBackend) -> Res<bool> {
+/// when its capture does or does not apply input: one that applies none (the Wayland portal
+/// without a RemoteDesktop grant) is view only, so the viewer is told view, not a control
+/// session whose input is dropped.
+fn view_only_for(scope: &str, applies_input: bool) -> Res<bool> {
     match scope {
         "view" => Ok(true),
-        "control" => Ok(!capture.applies_input()),
+        "control" => Ok(!applies_input),
         other => Err(format!("scope {other}: use view or control").into()),
     }
 }
@@ -290,7 +297,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     // Linux: the X cookie (`--xauthority`, else the session's XAUTHORITY, which x11rb reads),
     // the capture backend and the display, before any X connection.
     #[cfg(target_os = "linux")]
-    crate::host::set_xauthority(opts)?;
+    crate::host::check_xauthority(opts)?;
     // Capture setup states (a Wayland portal waiting for the person at the screen) reach the app.
     #[cfg(all(feature = "portal", target_os = "linux"))]
     crate::desktop::set_status_sink(Box::new(|state, message| {
@@ -303,13 +310,13 @@ pub fn run(opts: &Opts) -> Res<()> {
         })
     }));
     let capture = CaptureBackend::from_env(setup.capture.as_deref().or(opts.get("capture")))?;
-    let view_only = view_only_for(&setup.scope, capture)?;
+    let view_only = view_only_for(&setup.scope, capture.applies_input())?;
     let display = session_display(opts, &setup);
     // The displays first, so the viewer can offer a display picker; then the session key.
     #[cfg(target_os = "linux")]
     say(linux_displays(capture, &display));
     #[cfg(target_os = "macos")]
-    match crate::mac::capture::displays() {
+    match crate::desktop::displays() {
         Ok((sizes, current)) => {
             say(AppLine { displays: Some(sizes), current: Some(current), ..AppLine::default() })
         }
@@ -486,7 +493,7 @@ fn serve_session(
         codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),
         content: "screen".into(),
         openh264_lib: None,
-        threads: 2,
+        threads: crate::encoder::default_threads(),
         stats_every_ms: 1000,
         settle_us: crate::host::DEFAULT_SETTLE_US,
         upstream_record: None,
@@ -527,14 +534,59 @@ fn serve_session(
 mod tests {
     use super::*;
 
+    /// A writer that keeps what reached it only at a flush, as a pipe's reader sees it.
+    #[derive(Default)]
+    struct Piped {
+        pending: Vec<u8>,
+        flushed: Vec<u8>,
+    }
+
+    impl Write for Piped {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.pending.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushed.append(&mut self.pending);
+            Ok(())
+        }
+    }
+
     #[test]
-    fn portal_sessions_are_view_only_whatever_the_scope() {
-        // The portal backend drops input: a control session there would not be one.
-        assert!(view_only_for("view", CaptureBackend::X11).unwrap());
-        assert!(!view_only_for("control", CaptureBackend::X11).unwrap());
-        assert!(view_only_for("view", CaptureBackend::Portal).unwrap());
-        assert!(view_only_for("control", CaptureBackend::Portal).unwrap());
-        assert!(view_only_for("full", CaptureBackend::X11).is_err());
+    fn every_app_line_reaches_the_pipe_whole_and_flushed() {
+        let mut out = Piped::default();
+        let lines = [
+            AppLine { displays: Some(vec![(1920, 1080)]), current: Some(0), ..AppLine::default() },
+            AppLine { key: Some("ab".repeat(32)), ..AppLine::default() },
+            AppLine { candidate: Some("host 192.168.1.4:51000".into()), ..AppLine::default() },
+            AppLine { candidates_done: true, ..AppLine::default() },
+        ];
+        for (i, line) in lines.iter().enumerate() {
+            write_line(&mut out, line).unwrap();
+            // Nothing waits in a buffer: the reader has every line so far, each ended by one newline.
+            assert!(out.pending.is_empty());
+            let read: Vec<&[u8]> =
+                out.flushed.split(|b| *b == b'\n').filter(|l| !l.is_empty()).collect();
+            assert_eq!(read.len(), i + 1);
+            assert_eq!(AppLine::decode(read[i]).as_ref(), Some(line));
+        }
+        assert_eq!(out.flushed.last(), Some(&b'\n'));
+    }
+
+    #[test]
+    fn portal_sessions_control_only_with_a_remote_desktop_grant() {
+        // Without the grant the portal drops input: a control session there would not be one.
+        let x11 = CaptureBackend::X11.applies_input_with(false);
+        assert!(view_only_for("view", x11).unwrap());
+        assert!(!view_only_for("control", x11).unwrap());
+        let portal = CaptureBackend::Portal.applies_input_with(false);
+        assert!(view_only_for("view", portal).unwrap());
+        assert!(view_only_for("control", portal).unwrap());
+        let granted = CaptureBackend::Portal.applies_input_with(true);
+        assert!(view_only_for("view", granted).unwrap());
+        assert!(!view_only_for("control", granted).unwrap());
+        assert!(view_only_for("full", x11).is_err());
     }
 
     #[test]

@@ -66,17 +66,38 @@ extension AppSceneNodeNSView {
     func paintDecorations() {
         guard let layer else { return }
         let hover = isDecorationHovered ? node.props["hoverBackground"]?.sceneColor : nil
-        animateColor(layer, \.backgroundColor, "backgroundColor", (hover ?? node.props["background"]?.sceneColor)?.cgColor)
+        if hover == nil, let gradient = AppSceneGradient(node.props["background"]) {
+            let fill = backgroundGradientLayer(in: layer)
+            fill.isHidden = false
+            fill.frame = layer.bounds
+            gradient.apply(to: fill, size: layer.bounds.size, yDown: fill.contentsAreFlipped())
+            layer.backgroundColor = nil
+        } else {
+            decorationGradient?.isHidden = true
+            animateColor(layer, \.backgroundColor, "backgroundColor", (hover ?? node.props["background"]?.sceneColor)?.cgColor)
+        }
         animateColor(layer, \.borderColor, "borderColor", node.props["borderColor"]?.sceneColor?.cgColor)
         paintGlow()
         paintGradientBackground()
     }
 
+    /// The layer a gradient `background` draws in, below every child (made once per view).
+    private func backgroundGradientLayer(in layer: CALayer) -> CAGradientLayer {
+        if let decorationGradient { return decorationGradient }
+        let made = CAGradientLayer()
+        made.actions = ["colors": NSNull(), "startPoint": NSNull(), "endPoint": NSNull(), "bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
+        layer.insertSublayer(made, at: 0)
+        decorationGradient = made
+        return made
+    }
+
     /// The `scale`, `rotation` (clockwise, in degrees) and `offset` about the node's center, as the
-    /// layer's own transform (it does not move the node's frame), and the gradient's and glow's
+    /// layer's own transform (it does not move the node's frame), and the gradients' and glow's
     /// geometry; on each layout, since they depend on the size.
     func layoutDecorations() {
         guard let layer else { return }
+        // A gradient `background`'s points follow the box's shape: repaint it at the new size.
+        if let decorationGradient, !decorationGradient.isHidden, decorationGradient.frame != layer.bounds { needsDisplay = true }
         let parts = SceneTransformParts(scale: node.scaleFactor, degrees: node.rotationDegrees, offset: node.offset)
         let space = SceneTransformSpace(layer: layer)
         let target = space.transform(scale: parts.scale, degrees: parts.degrees, offset: parts.offset)

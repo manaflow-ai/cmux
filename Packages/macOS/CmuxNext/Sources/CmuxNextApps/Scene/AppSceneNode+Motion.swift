@@ -27,7 +27,7 @@ extension AppSceneNode {
         return SceneLoop(effect: effect, period: fields["period"]?.numberValue, amount: fields["amount"]?.numberValue)
     }
 
-    /// `transition`: `fade`, `scale`, `slide` or `pop`.
+    /// `transition`: `opacity`, `slide`, `scale`, `move` or `pop`.
     var transition: SceneTransition? { props["transition"]?.stringValue.flatMap(SceneTransition.init(rawValue:)) }
 
     /// `scale`: 1 is the identity; clamped to [0, 100].

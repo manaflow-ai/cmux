@@ -55,7 +55,9 @@ import Testing
     @Test func motionPropsParse() {
         func node(_ props: [String: AppJSON]) -> AppSceneNode { AppSceneNode(type: .circle, props: props) }
         #expect(node(["animation": "bouncy"]).motion == .bouncy)
-        #expect(node(["animation": "snappy"]).motion == .snappy)
+        #expect(node(["animation": "snappy"]).motion == .timed(MotionScale.micro, .easeOut), "the motion scale's micro step, as the web")
+        #expect(node(["animation": "smooth"]).motion == .timed(MotionScale.standard, .easeOut))
+        #expect(node(["animation": "none"]).motion == nil)
         #expect(node(["animation": "move"]).motion == .spring(MotionSpring.move.base))
         #expect(node(["animation": ["spring": ["response": 100, "dampingFraction": 0.1]]]).motion
             == .spring(SpringParameters(response: 10, dampingFraction: 0.3)), "response and damping are clamped")
@@ -72,6 +74,9 @@ import Testing
         #expect(node(["loop": ["effect": "warp"]]).loop == nil)
 
         #expect(node(["transition": "pop"]).transition == .pop)
+        #expect(node(["transition": "opacity"]).transition == .opacity)
+        #expect(node(["transition": "move"]).transition == .move)
+        #expect(node(["transition": "fade"]).transition == nil, "the base's names: opacity, not fade")
         #expect(node(["transition": "warp"]).transition == nil)
 
         #expect(node(["gradient": ["colors": ["#FF0000"]]]).gradient == nil, "one color is no gradient")
@@ -331,14 +336,19 @@ import Testing
         try Self.withReduceMotion(false) {
             let model = Self.scene([
                 .create(id: "list", type: "VStack", props: [:]),
-                .create(id: "card", type: "Text", props: ["text": "New!", "transition": "pop"]),
+                .create(id: "first", type: "Text", props: ["text": "First", "transition": "pop"]),
                 .create(id: "plain", type: "Text", props: ["text": "Plain"]),
-                .children(id: "list", children: ["card", "plain"]),
+                .children(id: "list", children: ["first", "plain"]),
                 .root(id: "list"),
             ])
             let (window, root) = Self.host(model, shown: true)
             defer { window.contentView = nil; window.close() }
             try #require(window.screen != nil)
+            let first = try #require(Self.node("first", in: root))
+            #expect(!Self.keys(first.layer).contains("scene.enter.transform"), "the first scene draws without entering")
+            model.apply([.create(id: "card", type: "Text", props: ["text": "New!", "transition": "pop"]),
+                         .children(id: "list", children: ["first", "card", "plain"])])
+            root.layoutSubtreeIfNeeded()
             let card = try #require(Self.node("card", in: root))
             let plain = try #require(Self.node("plain", in: root))
             #expect(Self.keys(card.layer).contains("scene.enter.transform"))

@@ -33,6 +33,7 @@ import {
   type ScopeData,
   type ThemeColorsData,
   type Write,
+  type ModelsData,
 } from "./queries";
 import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
@@ -51,9 +52,8 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
-  type LibraryListing,
-  type LibraryRun,
   type SharesState,
+  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -64,7 +64,11 @@ import {
   type HarnessesState,
   type HostLists,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
+  type McpServersRun,
+  type McpServersState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
@@ -78,7 +82,10 @@ import {
   SETTINGS_SENTENCES,
   type CustomizeTryOn,
   type JoinConsentSurface,
-  type KeysState,
+  type LibraryListing,
+  type LibraryRun,
+  type ModelsRun,
+  type ModelsState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -129,6 +136,8 @@ export type SettingsState = {
   harnesses: HarnessesState | null;
   /** The Devices part (Settings > Devices); null until read, or when the host has none. */
   devices: DevicesState | null;
+  /** Settings > Models; null until read, or when the host has none. */
+  models: ModelsState | null;
   /** Theme colors by name (cmux.settings.theme.colors); null until read or when the host has none. */
   themeColors: ReadonlyMap<string, GhosttyTheme> | null;
 };
@@ -147,6 +156,7 @@ export type CacheView = {
   accounts: AccountsData | undefined;
   harnesses?: HarnessesData | undefined;
   devices?: DevicesData | undefined;
+  models?: ModelsData | undefined;
   themeColors: ThemeColorsData | undefined;
 };
 
@@ -191,6 +201,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     accounts: cache.accounts ?? null,
     harnesses: cache.harnesses ?? null,
     devices: cache.devices ?? null,
+    models: cache.models ?? null,
     themeColors: cache.themeColors ?? null,
   };
 }
@@ -240,6 +251,11 @@ export class SettingsStore {
     this.queryClient.setQueryDefaults(settingsKeys.devices, {
       queryFn: () => this.native("cmux.settings.devices.state"),
     });
+    this.queryClient.setQueryDefaults(settingsKeys.models, {
+      queryFn: () => this.native("cmux.settings.models.state"),
+      // A page that opened before this Mac's agent service was up reads again until it answers.
+      refetchInterval: (query) => modelsRetryMs(query.state.data as ModelsState | undefined),
+    });
     this.queryClient.setQueryDefaults(settingsKeys.themeColors, {
       queryFn: async (): Promise<ThemeColorsData> =>
         new Map((await this.native("cmux.settings.theme.colors")).themes.map((theme) => [theme.name, theme])),
@@ -262,6 +278,9 @@ export class SettingsStore {
       ),
       this.listen("cmux.settings.devices.changed", (devices) =>
         this.queryClient.setQueryData(settingsKeys.devices, devices),
+      ),
+      this.listen("cmux.settings.models.changed", (models) =>
+        this.queryClient.setQueryData(settingsKeys.models, models),
       ),
       // A key request arrived or ended: Settings > Keys reads its list again (the event has no values).
       this.listen("cmux.settings.keys.changed", () =>
@@ -605,10 +624,15 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
-  /** Settings > Devices: one of this joined Mac's consent switches on or off, then re-read the host lists. */
-  async setJoinConsent(surface: JoinConsentSurface, on: boolean): Promise<void> {
-    await this.request("cmux.settings.devices.join_consent", { surface, on });
+  /** Settings > Devices: one of this joined Mac's consent switches on or off, then re-read the host lists.
+   * Answers the host's refusal of the call itself (an on without the person's own click), or the reason a
+   * reply that ran carries (`error`: busy with another write), else null; a write that failed later says
+   * why in the host lists' `devices_join.error`. */
+  async setJoinConsent(surface: JoinConsentSurface, on: boolean): Promise<string | null> {
+    const reply = await this.request("cmux.settings.devices.join_consent", { surface, on });
     await this.refreshHost();
+    if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
+    return reply.value.error || null;
   }
 
   /** Settings > Machines: a Cloud machine's "Dedicated agent machine" on or off, then re-read the host lists. */
@@ -743,10 +767,42 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
+  /** Settings > Agents > Agents on This Mac: one gesture (a refresh reads), and the card as it is
+   * after it; null when the host has none. */
+  async runAgentTools(run: AgentToolsCardRun): Promise<AgentToolsCardState | null> {
+    const reply = await this.request("cmux.settings.agentTools.run", run);
+    return reply.ok ? reply.value : null;
+  }
+
   /** One Agent integrations gesture, then the part as it is after it (null: the host has none). */
   async runIntegrations(run: IntegrationsRun): Promise<IntegrationsState | null> {
     await this.request("cmux.settings.integrations.run", run);
     return this.integrationsState();
+  }
+
+  /** Settings > MCP Servers; null when the host has none. */
+  async mcpServersState(): Promise<McpServersState | null> {
+    const reply = await this.request("cmux.settings.mcp.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One MCP Servers gesture, then the page as it is after it (null: the host has none). */
+  async runMcpServers(run: McpServersRun): Promise<McpServersState | null> {
+    await this.request("cmux.settings.mcp.run", run);
+    return this.mcpServersState();
+  }
+
+  /** Reads Settings > Models (a host without it rejects, and the part stays null). */
+  async refreshModels(): Promise<void> {
+    await this.fetchNative(settingsKeys.models);
+  }
+
+  /** One Settings > Models gesture, then a fresh read of the part; answers the host's refusal in plain
+   * words (userMessage), null when it took the gesture. */
+  async runModels(run: ModelsRun): Promise<string | null> {
+    const reply = await this.request("cmux.settings.models.run", run);
+    await this.refreshModels();
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** One Harnesses gesture (Settings > Agents), then a fresh read of the part. */
@@ -931,6 +987,7 @@ export class SettingsStore {
       accounts: this.queryClient.getQueryData<AccountsData>(settingsKeys.accounts),
       harnesses: this.queryClient.getQueryData<HarnessesData>(settingsKeys.harnesses),
       devices: this.queryClient.getQueryData<DevicesData>(settingsKeys.devices),
+      models: this.queryClient.getQueryData<ModelsData>(settingsKeys.models),
       themeColors: this.queryClient.getQueryData<ThemeColorsData>(settingsKeys.themeColors),
     };
   }
@@ -950,6 +1007,7 @@ export class SettingsStore {
       last.cache.accounts === cache.accounts &&
       last.cache.harnesses === cache.harnesses &&
       last.cache.devices === cache.devices &&
+      last.cache.models === cache.models &&
       last.cache.themeColors === cache.themeColors
     )
       return last.state;
@@ -1264,4 +1322,9 @@ export function managedOf(state: SettingsState, key: string): ManagedInfo | null
 export function valueOf(state: SettingsState, key: string): unknown {
   const row = state.rows.get(key);
   return row ? row.value : rowsByKey.get(key)?.default;
+}
+
+/** How soon the Models state is read again: only while this Mac's connections could not be listed. */
+export function modelsRetryMs(state: ModelsState | undefined): number | false {
+  return state && !state.personal.available ? 2000 : false;
 }

@@ -55,7 +55,7 @@ nonisolated enum MotionSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.calm", "Calm Mode"),
-                help: SettingsText.keyed("settings.ui.calm.help", "Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off."),
+                help: SettingsText.keyed("settings.ui.calm.help", "Calm stops sliding, spinning and hover highlights; Still also makes animations instant."),
                 kind: .choice([
                     SettingChoice(CalmMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
                     SettingChoice(CalmMode.calm.rawValue, SettingsText.keyed("settings.choice.calm", "Calm")),
@@ -69,7 +69,7 @@ nonisolated enum MotionSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.animations.enabled", "Play Animations"),
-                help: SettingsText.keyed("settings.ui.animations.enabled.help", "Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area."),
+                help: SettingsText.keyed("settings.ui.animations.enabled.help", "Off turns every animation off. On, the switches below pick by area."),
                 kind: .toggle,
                 default: .bool(MotionCategoriesSetting.enabledDefault),
                 keywords: ["motion", "animation", "animations", "no animations", "disable animations", "reduce motion", "instant"]
@@ -79,7 +79,7 @@ nonisolated enum MotionSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.animations.sidebar", "Animate the Sidebar"),
-                help: SettingsText.keyed("settings.ui.animations.sidebar.help", "Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once."),
+                help: SettingsText.keyed("settings.ui.animations.sidebar.help", "Rows, groups and the sidebar itself slide as they change."),
                 kind: .toggle,
                 default: .bool(MotionCategoriesSetting.sidebarDefault),
                 keywords: ["motion", "animation", "sidebar", "row", "group", "reorder", "pin", "move to top"]
@@ -89,7 +89,7 @@ nonisolated enum MotionSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.animations.tabs", "Animate Tabs"),
-                help: SettingsText.keyed("settings.ui.animations.tabs.help", "Tabs grow, shrink and slide when they open, close, reorder or collapse into a group. Off: the tab bar changes at once."),
+                help: SettingsText.keyed("settings.ui.animations.tabs.help", "Tabs grow, shrink and slide as they open, close and move."),
                 kind: .toggle,
                 default: .bool(MotionCategoriesSetting.tabsDefault),
                 keywords: ["motion", "animation", "tab", "tab bar", "reorder", "group"]
@@ -99,7 +99,7 @@ nonisolated enum MotionSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.animations.panes", "Animate Panes and Windows"),
-                help: SettingsText.keyed("settings.ui.animations.panes.help", "Splits, closes, zooms, dividers, focus rings, drop zones and windows open, close and move with motion. Off: they change at once."),
+                help: SettingsText.keyed("settings.ui.animations.panes.help", "Splits, closes, zooms, dividers and windows move with motion."),
                 kind: .toggle,
                 default: .bool(MotionCategoriesSetting.panesDefault),
                 keywords: ["motion", "animation", "pane", "split", "zoom", "window", "divider", "focus ring"]
@@ -109,7 +109,7 @@ nonisolated enum MotionSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.animations.overlays", "Animate Menus and Cards"),
-                help: SettingsText.keyed("settings.ui.animations.overlays.help", "Menus, popovers, the command palette, sheets, toasts, notices, find bars and cards fade and slide in and out. Off: they show and hide at once."),
+                help: SettingsText.keyed("settings.ui.animations.overlays.help", "Menus, popovers, the palette, sheets, toasts and cards fade and slide."),
                 kind: .toggle,
                 default: .bool(MotionCategoriesSetting.overlaysDefault),
                 keywords: ["motion", "animation", "menu", "popover", "palette", "toast", "card", "sheet", "find bar"]
@@ -129,7 +129,7 @@ nonisolated enum MotionSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.animations.home", "Animate Home and Chats"),
-                help: SettingsText.keyed("settings.ui.animations.home.help", "The Chief chat, its bubbles, the composer and the Home list move and fade. Off: they change at once."),
+                help: SettingsText.keyed("settings.ui.animations.home.help", "The Chief chat, its bubbles, the composer and the Home list move and fade."),
                 kind: .toggle,
                 default: .bool(MotionCategoriesSetting.homeDefault),
                 keywords: ["motion", "animation", "home", "chief", "chat", "bubble", "messages"]
@@ -139,7 +139,7 @@ nonisolated enum MotionSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.animations.cursor", "Animate the Agent Cursor"),
-                help: SettingsText.keyed("settings.ui.animations.cursor.help", "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple."),
+                help: SettingsText.keyed("settings.ui.animations.cursor.help", "The agent cursor glides and shows click ripples."),
                 kind: .toggle,
                 default: .bool(MotionCategoriesSetting.cursorDefault),
                 keywords: ["motion", "animation", "cursor", "agent", "computer use", "ripple"]
@@ -149,7 +149,7 @@ nonisolated enum MotionSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.animations.indicators", "Animate Spinners and Progress"),
-                help: SettingsText.keyed("settings.ui.animations.indicators.help", "Spinners turn, status dots pulse and attention flashes blink. Off: they show a still glyph."),
+                help: SettingsText.keyed("settings.ui.animations.indicators.help", "Spinners turn, status dots pulse and attention flashes blink."),
                 kind: .toggle,
                 default: .bool(MotionCategoriesSetting.indicatorsDefault),
                 keywords: ["motion", "animation", "spinner", "progress", "pulse", "flash", "loading", "status"]
@@ -159,7 +159,7 @@ nonisolated enum MotionSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.animations.feedback", "Animate Highlights and Colors"),
-                help: SettingsText.keyed("settings.ui.animations.feedback.help", "Hover and press highlights, focus fades and theme color changes ease in. Off: they change at once."),
+                help: SettingsText.keyed("settings.ui.animations.feedback.help", "Hover, press, focus and theme color changes ease in."),
                 kind: .toggle,
                 default: .bool(MotionCategoriesSetting.feedbackDefault),
                 keywords: ["motion", "animation", "hover", "highlight", "focus", "color", "theme", "transition"]
@@ -169,7 +169,7 @@ nonisolated enum MotionSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.animations.web", "Animate cmux Web Pages"),
-                help: SettingsText.keyed("settings.ui.animations.web.help", "Transitions and animations in cmux's own pages, such as agent chats, New Tab and Markdown. Off: they end at once. Websites are not changed."),
+                help: SettingsText.keyed("settings.ui.animations.web.help", "Animations in cmux's own pages, such as chats and New Tab. Websites are unchanged."),
                 kind: .toggle,
                 default: .bool(MotionCategoriesSetting.webDefault),
                 keywords: ["motion", "animation", "web", "page", "css", "transition", "new tab", "markdown", "agent chat"]

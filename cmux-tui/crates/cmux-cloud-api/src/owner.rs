@@ -1,7 +1,7 @@
 //! The cmux API Worker's routes a person's own session calls outside the op path
 //! (`ownerAPIBaseURL`; cx-kvmz): the keyed acpmux start and its person_holds check on a Cloud
 //! machine, a fork run, the person's hand-offs and their turns, the harness login copy switch
-//! and the GitHub App status. The person key goes only in a request body; nothing is retried.
+//! and the GitHub App status, repository list and Connect GitHub. The person key goes only in a request body; nothing is retried.
 
 use std::time::Duration;
 
@@ -13,7 +13,7 @@ use serde_json::{Map, Value, json};
 use zeroize::Zeroizing;
 
 use super::http::{Body, Http, path_text, worker_error};
-use super::{Failure, optional_int, text};
+use super::{Failure, optional_int, optional_text, text};
 
 /// The longest the store holds one hand-off wait (`MAX_WAIT_MS`).
 pub(crate) const HANDOFF_WAIT_LIMIT_MS: i64 = 25_000;
@@ -120,6 +120,8 @@ pub(crate) async fn run(
             harness_login_copy(&body)
         }
         "owner.github_app" => github_app(http, text(args, "team")?).await,
+        "owner.github_repos" => github_repos(http, args).await,
+        "owner.github_connect" => github_connect(http, args).await,
         other => Err(Failure::Transport(format!("no cloud api call {other:?}"))),
     }
 }
@@ -364,6 +366,112 @@ async fn github_app(http: &Http, team: &str) -> Result<Value, Failure> {
         Err(_) => "unknown",
     };
     Ok(json!({ "state": state }))
+}
+
+/// `team` when it is a team id (`team_` and up to 120 letters, digits, `_` or `-`): the only
+/// team text that reaches a GitHub call's URL or team header.
+pub(crate) fn team_id(team: &str) -> Result<&str, Failure> {
+    let id = team.strip_prefix("team_").unwrap_or_default();
+    if team.starts_with("team_") && all(id, 120, id_byte) {
+        Ok(team)
+    } else {
+        Err(Failure::Transport("not a team id".into()))
+    }
+}
+
+/// The longest repository filter the Worker takes.
+const GITHUB_QUERY_MAX: usize = 256;
+
+/// `GET /v1/integrations/github/repos?team=&query=&cursor=` with the person's session and no team
+/// header: the repositories the cmux GitHub App reaches for `team`, filtered by `query` (any part of
+/// `owner/name`, any case). Answers `{repos: [{full_name, private, default_branch}], truncated,
+/// cursor}`; `truncated` says more remain and `cursor` continues the list. A team with no GitHub
+/// connection is `github.not_connected` (the Worker's `integration.not_found`).
+async fn github_repos(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
+    let mut query = vec![("team", team_id(text(args, "team")?)?.to_owned())];
+    if let Some(filter) = optional_text(args, "query").map(str::trim).filter(|q| !q.is_empty()) {
+        if filter.chars().count() > GITHUB_QUERY_MAX || filter.chars().any(char::is_control) {
+            return Err(Failure::Transport(format!(
+                "a repository filter is at most {GITHUB_QUERY_MAX} characters of text"
+            )));
+        }
+        query.push(("query", filter.to_owned()));
+    }
+    if let Some(cursor) = optional_text(args, "cursor").filter(|c| !c.is_empty()) {
+        if cursor.len() > 4096 || !cursor.bytes().all(|b| id_byte(b) || b == b'.') {
+            return Err(Failure::Transport("not a repository list cursor".into()));
+        }
+        query.push(("cursor", cursor.to_owned()));
+    }
+    let segments = ["v1", "integrations", "github", "repos"];
+    // The Worker walks up to ten GitHub pages for one answer.
+    match get(http, &segments, &query, Duration::from_secs(60)).await {
+        Ok(body) => github_repo_list(&body).ok_or_else(|| {
+            Failure::Decoding(format!("{}: no repository list", path_text(&segments)))
+        }),
+        Err(Failure::Http { status: 404, code: Some(code), message, .. })
+            if code == "integration.not_found" =>
+        {
+            Err(Failure::http(404, Some("github.not_connected".into()), message))
+        }
+        Err(other) => Err(other),
+    }
+}
+
+/// The repository list route's answer, each row checked (`owner/name`, a boolean `private`, a
+/// default branch or null), or none when it is not one.
+pub(crate) fn github_repo_list(body: &Value) -> Option<Value> {
+    let rows = body.get("repos")?.as_array()?;
+    let mut repos = Vec::with_capacity(rows.len());
+    for row in rows {
+        let name = row.get("full_name")?.as_str()?;
+        let (owner, repo) = name.split_once('/')?;
+        if owner.is_empty() || repo.is_empty() || repo.contains('/') || name.len() > 200 {
+            return None;
+        }
+        let branch = match row.get("default_branch") {
+            None | Some(Value::Null) => Value::Null,
+            Some(Value::String(b)) if !b.is_empty() => json!(b),
+            Some(_) => return None,
+        };
+        repos.push(json!({
+            "full_name": name, "private": row.get("private")?.as_bool()?, "default_branch": branch,
+        }));
+    }
+    let cursor = match body.get("cursor") {
+        None | Some(Value::Null) => Value::Null,
+        Some(Value::String(c)) => json!(c),
+        Some(_) => return None,
+    };
+    let truncated = body.get("truncated").and_then(Value::as_bool).unwrap_or(!cursor.is_null());
+    Some(json!({ "repos": repos, "truncated": truncated, "cursor": cursor }))
+}
+
+/// `POST /v1/ops` `integration.connect {provider: "github"}` in the team the team header names:
+/// the GitHub App's install page for the person to open. `idempotencyKey` keeps a retry on the same
+/// pending connection. Answers `{authorize_url, connection}`; a deployment without the app answers
+/// the Worker's `integration.not_configured`.
+async fn github_connect(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
+    let key = match optional_text(args, "idempotencyKey") {
+        Some(key) if all(key, 128, id_byte) => key.to_owned(),
+        Some(_) => return Err(Failure::Transport("not an idempotency key".into())),
+        None => uuid::Uuid::new_v4().to_string(),
+    };
+    let body = json!({
+        "op": "integration.connect", "params": { "provider": "github" },
+        "origin": "user", "idempotency_key": key,
+    });
+    let segments = ["v1", "ops"];
+    let value = post_value(http, &segments, Body::Json(body), Duration::from_secs(20)).await?;
+    let url =
+        value.get("authorize_url").and_then(Value::as_str).filter(|u| u.starts_with("https://"));
+    let connection = value.pointer("/connection/id").and_then(Value::as_str);
+    match (url, connection) {
+        (Some(url), Some(connection)) => {
+            Ok(json!({ "authorize_url": url, "connection": connection }))
+        }
+        _ => Err(Failure::Decoding(format!("{}: no install page", path_text(&segments)))),
+    }
 }
 
 /// The status route's answer (`{configured, app_slug, allowed?, connection: {status} | null}`,

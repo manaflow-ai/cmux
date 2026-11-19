@@ -10,6 +10,11 @@ on:
   schedule:
     - cron: "23 */6 * * *"
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "Runner label for this run (the fleet's Linux VM pool label); empty takes LINUX_RUNNER"
+        type: string
+        default: ""
   push:
     branches: [main]
     paths:
@@ -27,7 +32,7 @@ concurrency:
 jobs:
   drift:
     # Fork pull requests cannot use the private Blacksmith pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.runner || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: read
