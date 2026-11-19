@@ -36,11 +36,11 @@ import Testing
     }
 
     /// Each time is where the act's spring animation ends, with 0.2 percent of its way left: the motion's frame count
-    /// ends there too. A split's 0.115 s, a close's 0.086 s and a zoom's 0.27 s; for the eye (0.5 percent left) they are
-    /// 0.10 s, 0.08 s and 0.24 s.
+    /// ends there too. A split's 0.115 s, a close's 0.086 s and a zoom's 0.128 s; for the eye (0.5 percent left) they are
+    /// 0.10 s, 0.08 s and 0.11 s.
     nonisolated static let split = Act(name: "split right", time: 0.115)
     nonisolated static let close = Act(name: "close", time: 0.086)
-    nonisolated static let zoom = Act(name: "zoom", time: 0.27)
+    nonisolated static let zoom = Act(name: "zoom", time: 0.128)
     nonisolated static let acts = [split, Act(name: "split down", time: 0.115), close, zoom]
 
     /// From here on a split, a close and a zoom of `harness` move their panes: the pane animations are on, and the

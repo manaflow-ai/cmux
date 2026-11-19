@@ -16,7 +16,7 @@ import Testing
 /// off.
 extension PaneCommitMotionTests {
     /// Where an unzoom's spring animation ends, with 0.2 percent of its way left.
-    nonisolated static let unzoom = Act(name: "unzoom", time: 0.203)
+    nonisolated static let unzoom = Act(name: "unzoom", time: 0.108)
 
     /// A pane content that rides and gives its last frame, in a content area of the double's view.
     final class Picture: NSView, PaneCommitMotionRiding, PaneCommitMotionLastFrameGiving {
