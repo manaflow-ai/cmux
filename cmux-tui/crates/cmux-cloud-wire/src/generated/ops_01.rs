@@ -5,6 +5,117 @@
 use super::*;
 
 wire_op! {
+    /// Delete one key of an app's synced storage (storage:synced). Deleting a missing key succeeds.
+    AppkvDeleteOp {
+        name: "appkv.delete",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: AppkvDeleteParams,
+        result: AppkvDeleteResult,
+        error: AppkvDeleteError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppkvDeleteParams {
+    pub app: AppKvApp,
+    pub key: AppKvKey,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppkvDeleteResult {
+    pub app: String,
+    pub key: String,
+    pub existed: bool,
+}
+
+wire_errors! {
+    /// The error codes appkv.delete declares.
+    AppkvDeleteError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Page every row of your synced app storage in revision order (a stream snapshot carries only the newest 1000).
+    AppkvListOp {
+        name: "appkv.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: AppkvListParams,
+        result: AppkvListResult,
+        error: AppkvListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppkvListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_revision: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppkvListResult {
+    pub rows: Vec<AppKvRow>,
+    pub next_after_revision: Option<WireNumber>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes appkv.list declares.
+    AppkvListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Set one key of an app's synced storage (storage:synced) to a JSON value (at most 64 KiB; 4 MiB per app). The last write wins.
+    AppkvSetOp {
+        name: "appkv.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: AppkvSetParams,
+        result: AppKvRow,
+        error: AppkvSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppkvSetParams {
+    pub app: AppKvApp,
+    pub key: AppKvKey,
+    pub value: Value,
+}
+
+wire_errors! {
+    /// The error codes appkv.set declares.
+    AppkvSetError {
+        AppLimit = "app.limit",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// The team's automation audit log, oldest first: who created, changed, ran, paused, deleted or moved which automation. Admins and owners read every entry; other members the entries of automations they may view. Never a body or a secret.
     AutomationAuditListOp {
         name: "automation.audit.list",
@@ -784,117 +895,6 @@ wire_errors! {
         MutationIndeterminate = "mutation.indeterminate",
         PolicyDenied = "policy.denied",
         ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List events of a Google calendar (single events, ordered by start). Read at call time; nothing is stored.
-    CalendarEventsListOp {
-        name: "calendar.events.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: CalendarEventsListParams,
-        result: Value,
-        error: CalendarEventsListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CalendarEventsListParams {
-    pub connection: ConnectionId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub calendar_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub time_min: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub time_max: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub query: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_results: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub page_token: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes calendar.events.list declares.
-    CalendarEventsListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IntegrationUnavailable = "integration.unavailable",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Create a channel: a group conversation you own with its own Chief, scoped to it (it is woken only by that conversation and keeps its own memory, instructions, personality and avatar). Answers the channel Chief; its channel.conversation is the channel. display_name defaults to "<title> Chief". Invite people with participants.add or invite.create on the channel.
-    ChannelCreateOp {
-        name: "channel.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: ChannelCreateParams,
-        result: HomeChief,
-        error: ChannelCreateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ChannelCreateParams {
-    pub title: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes channel.create declares.
-    ChannelCreateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Archive a chief (not the default): it stops waking; restorable for 30 days, then a tombstone keeps its id forever.
-    ChiefArchiveOp {
-        name: "chief.archive",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "destructive",
-        principals: [Session],
-        params: ChiefArchiveParams,
-        result: HomeChief,
-        error: ChiefArchiveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ChiefArchiveParams {
-    pub chief: ChiefId,
-    pub expected_rev: WireNumber,
-}
-
-wire_errors! {
-    /// The error codes chief.archive declares.
-    ChiefArchiveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ChiefIsDefault = "chief_is_default",
-        IdempotencyConflict = "idempotency.conflict",
         RevisionConflict = "revision.conflict",
         SelectorNotFound = "selector.not_found",
         ValidationInvalid = "validation.invalid",
