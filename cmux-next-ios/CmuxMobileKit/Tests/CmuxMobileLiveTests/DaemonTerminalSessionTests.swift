@@ -53,6 +53,9 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var tailReplay = false
     /// The Mac terminal's history rows above its screen (tail replays).
     var historyRows = 0
+    /// An attach gets its reply but not its `vt-state` yet: a big replay
+    /// still on the way, or not yet decoded, after the reply.
+    var withholdReplay = false
     /// The lane refuses `replay_history_rows` (a Mac app older than its daemon).
     var laneRefusesHistoryRows = false
     /// A daemon that knows the hybrid stream (`agent-cli-hybrid-v1`): an attach of a
@@ -176,8 +179,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
                 state["history_rows_omitted"] = history - kept
                 state["data"] = Data("[\(kept) rows]\(replay)".utf8).base64EncodedString()
             }
-            let lines: [Data] = [
-                Self.line(state),
+            let withheld = lock.withLock { withholdReplay }
+            let lines: [Data] = (withheld ? [] : [Self.line(state)]) + [
                 reply(shared ? ["lease": "l1", "participant": "c2", "size_state": sizeState(1)] as [String: Any] : ["lease": "l1"]),
             ] + (shared ? [Self.line(["event": "size-state", "surface": live, "self_participant": "c2", "state": sizeState(2)])] : [])
             let hybrid: [[String: Any]] = lock.withLock { declaredHybrid ? hybridEvents : [] }
