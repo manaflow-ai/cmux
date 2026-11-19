@@ -672,8 +672,16 @@ def holds_of(app, pid, args, config_path, pointer, helper, kind, ident, backgrou
                              timeout=30) or {}
             # AppKit may constrain a titled window back onto a screen: say where it landed, so an "occluded" row that
             # measured a window still on screen is not read as an off-screen one.
-            print(f"WALLPAPER-COST-NOTE {ident}: occluded frame={moved.get('frame')} screen={moved.get('screen')!r} "
-                  f"off_screen={not moved.get('screen')}", flush=True)
+            # The screen's name is empty in a fleet console session, so judge by the frame: AppKit keeps a titled
+            # window on a screen, and a frame that still meets the screen it reports is on screen.
+            landed, whole = moved.get("frame"), moved.get("screen_frame")
+            on_screen = bool(landed and whole and landed[0] < whole[0] + whole[2] and whole[0] < landed[0] + landed[2]
+                             and landed[1] < whole[1] + whole[3] and whole[1] < landed[1] + landed[3])
+            print(f"WALLPAPER-COST-NOTE {ident}: occluded frame={landed} screen_frame={whole} off_screen={not on_screen}",
+                  flush=True)
+            if on_screen:
+                print(f"WALLPAPER-COST-NOTE {ident}: AppKit kept the window on a screen; this occluded row measures a "
+                      f"visible window", flush=True)
             if live:
                 pointer.moving.set()
                 wait_state(app, lambda s: s.startswith("hold:"), 15)
