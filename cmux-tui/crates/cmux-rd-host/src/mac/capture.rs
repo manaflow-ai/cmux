@@ -122,6 +122,48 @@ impl PixelBuffer {
         }
     }
 
+    /// Finds the marker in `region` of this frame (`crate::observe::locate_marker`): observe's
+    /// own calibration, in the same pixels its counter reads use.
+    #[cfg(feature = "bench")]
+    pub fn locate_marker(
+        &self,
+        width: usize,
+        region: (usize, usize, usize, usize),
+        rows: usize,
+    ) -> Option<Result<crate::observe::Calibration, &'static str>> {
+        struct Unlock(sys::CVPixelBufferRef);
+        impl Drop for Unlock {
+            fn drop(&mut self) {
+                // SAFETY: this guard owns a successful read-only lock.
+                unsafe { cv::CVPixelBufferUnlockBaseAddress(self.0, 1) };
+            }
+        }
+        let buffer = self.0.as_ptr().cast_mut();
+        // SAFETY: retained NV12 pixel buffer from our ScreenCaptureKit stream; the luma plane
+        // stays locked for the slice's lifetime.
+        unsafe {
+            if cv::CVPixelBufferLockBaseAddress(buffer, 1) != 0 {
+                return None;
+            }
+            let _unlock = Unlock(buffer);
+            let base = cv::CVPixelBufferGetBaseAddressOfPlane(buffer, 0);
+            let stride = cv::CVPixelBufferGetBytesPerRowOfPlane(buffer, 0);
+            let height = cv::CVPixelBufferGetHeightOfPlane(buffer, 0);
+            let length = stride.checked_mul(height)?;
+            if base.is_null() || length > isize::MAX as usize {
+                return None;
+            }
+            Some(crate::observe::locate_marker(
+                std::slice::from_raw_parts(base, length),
+                stride,
+                width,
+                height,
+                region,
+                rows,
+            ))
+        }
+    }
+
     /// Bounded luma sample for explicitly enabled, local benchmark quality evidence.
     #[cfg(feature = "bench")]
     pub fn eval_roi(&self) -> Option<Vec<u8>> {

@@ -109,7 +109,7 @@ def target(name: str, folder: Path, out: Path) -> None:
             result["split"][kind]["input_to_capture_parts"] = split["input_to_capture_parts"]
         # A window-only target (its `caps` verb; screen-stream-eval.sh) has no latency stage, and
         # Screen Sharing.app's latency is unavailable unless the presented observer measured it.
-        unavailable = (split.get("method") or "").startswith("apple-screen-sharing-app:")
+        unavailable = (split.get("method") or "").startswith(("apple-screen-sharing-app:", "rd-present: pointer"))
         if g2g.get("p50") is None and not unavailable and not (folder / "window-only").exists():
             errors.append(f"latency {kind}: no samples")
     # Repeats (window-N.json, phases-N.jsonl, ocr-N.json): every number is the median of the repeats

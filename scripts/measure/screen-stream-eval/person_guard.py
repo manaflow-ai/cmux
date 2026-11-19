@@ -25,11 +25,12 @@ NEXT_STEP = 'run it with the viewer and host on dedicated fleet Macs (README.md,
 
 
 def opens_windows(target, viewer=False):
-    # Every Apple viewer variant and Moonlight drive a GUI viewer; cmux's own viewers and capture
-    # probes do not. apple-rfb posts RFB input to the host's screen, so only its viewer is headless.
+    # Every Apple viewer variant, Moonlight and rd-present (cmux's presenting window, timed by
+    # observe posting keys to it) drive a GUI viewer; cmux's other viewers and capture probes do
+    # not. apple-rfb posts RFB input to the host's screen, so only its viewer is headless.
     if target == "apple-rfb" and viewer:
         return False
-    return target.startswith("apple") or target == "moonlight"
+    return target.startswith("apple") or target in ("moonlight", "rd-present")
 
 
 def find_registry(env_path, home):

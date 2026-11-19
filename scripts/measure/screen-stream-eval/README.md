@@ -106,6 +106,8 @@ Today's targets:
   `data:` URL. The target is host and viewer at once, so it has window rows only: no latency and no
   host. Its cost is a floor, because the app also copies each frame into the helper's ring, rounds
   the corners, evaluates JavaScript and decodes the PNG in the webview.
+- `rd-present`: `rd` timed to the presented frame on the viewer Mac ("Source readiness and the
+  common marker" below says how, and what it is not).
 - `rd-window`: the same window alone as a cmux.rd/1 stream at the same 360 px rung (`cmux-rd host
   --display window:ID --max-width 360 --max-fps 6`), with `cmux-rd bench` as the viewer.
   `rd-window-30` runs it at 30 fps. Both have window rows only.
@@ -152,15 +154,21 @@ Today's targets:
   activated), binds its pid and window, quits only that pid when the view ends
   (success, failure or signal), and a watchdog ends a view that hangs; a
   Screen Sharing process the target did not start is never touched. Apple
-  window runs require `presented-observer=1` with
+  window runs require `presented-observer=1`, plus optional
+  `presented-display=main`, `presented-timeout-ms=1000` and `presented-seed=1`.
+  The viewer step runs its bundled `cmux-rd observe` against that exact visible
+  window with `--marker-origin auto`: observe captures the viewer's display,
+  finds the marker inside the bound window (cell size, origin and an input point
+  outside the marker, in its own capture pixels) and records them under the
+  receipt's `calibration`; when the window does not show the marker it fails
+  with the window, its capture rectangle and why, and times nothing. It accepts
+  only a complete `cmux.presented-marker/1` receipt. Hand geometry still works:
   `presented-marker-origin=X,Y`, `presented-cell-size=N` and
-  `presented-input-point=X,Y` (all coordinates are viewer capture pixels), plus
-  optional `presented-display=main`, `presented-timeout-ms=1000` and
-  `presented-seed=1`. The viewer step exports these values locally and runs its
-  bundled `cmux-rd observe` against that exact visible window; it accepts only
-  a complete `cmux.presented-marker/1` receipt. Without all values, Apple
-  latency stays explicitly unavailable; screenshot sampling never becomes a
-  latency claim. Each connection attempt reopens the documented View menu,
+  `presented-input-point=X,Y` (viewer capture pixels), all three or none.
+  Without `presented-observer=1`, Apple latency stays explicitly unavailable;
+  screenshot sampling never becomes a latency claim. With it, the target's
+  `caps` says `viewer-grants`, so the viewer half runs inside the launcher that
+  holds Screen Recording and Accessibility. Each connection attempt reopens the documented View menu,
   verifies the selected check mark, binds the observed PID/window, and records
   `apple-connection.json` with the chosen quality profile and host.
 
@@ -211,15 +219,27 @@ uses a precreated start signal and does not start its clock before connecting, s
 first frame remains null. No authenticated real-Mac comparison has been established by these tests.
 
 The existing `rd` and `webrtc` targets use their passive bench viewers and end
-at decode; those rows are not presentation comparisons with Apple. A common
-comparison must drive the approved production Mac Screen pane through the hub,
-put its visible window on the same viewer display, and pass that pane's exact
-PID/window and capture-pixel marker geometry through the `presented-*` arguments.
-The same `cmux-rd observe` receipt then supplies presented p50/p95 for each
-contender. Hub connection identity, selected profile, scene/marker identity,
-window bounds and capture dimensions are required artifacts; Apple transport
-bytes and decoded FPS remain unavailable unless an approved counter exists.
-No hidden decoder or alternate renderer is evidence for the table.
+at decode; those rows are not presentation comparisons with Apple.
+
+`rd-present` is cmux's presented row. The host is `rd`'s (`cmux-rd host`, same token, same
+port); the viewer is `cmux-rd bench --present window` on the viewer Mac, which decodes with
+VideoToolbox as `rd` does and also shows every frame in an on-screen window (the decoded IOSurface
+as a Core Animation layer's contents, committed and flushed per frame) and sends the keys typed
+into that window to the host. The target binds the bench's pid and window (its first stdout
+line, `{"present_window", "pid"}`), waits for its first frame, and runs the same
+`cmux-rd observe --marker-origin auto` as the Apple targets: key to presented frame, p50/p95,
+on the same display and clock as Apple's row. Pointer input is not forwarded by the window, so
+its pointer row is unavailable, not an error. Its window rows are `rd`'s passive window with the
+frames also presented.
+
+`rd-present` is not the cmux app's Mac Screen pane. The pane (`MacScreenPaneView`: the same
+VideoToolbox decode, a Metal presenter by default and the layer presenter as its fallback) needs
+a signed-in app build reached through the device hub, which a fleet step cannot open, and the
+transport differs: the pane rides `cmux rd connect`'s link, `rd-present` the host's direct
+TCP/UDP carrier, as `rd` does. Read `rd-present` minus `rd` as what presenting adds on the
+viewer Mac; the pane's own number still needs a run that opens it. `probe.json` reports both
+presented rows under `metrics.presented` (goal: cmux key p95 at most 100 ms and below Apple's,
+apple-high else apple-standard; apple-rfb ends at its decode and never counts there).
 
 The window targets add `extra.process_cpu_pct`, the CPU of the process that captures and encodes,
 over the view. Compare them in one run with `--arg=targets=cu-png,rd-window,rd-window-30`
@@ -355,10 +375,13 @@ cmux-ci run ... --target-worker HOST_MAC --pin-strict --arg=lan=HOST_LAN_IP --ar
 cmux-ci run ... --target-worker VIEWER_MAC --pin-strict --arg=viewer-of=HOST_LAN_IP --arg=peer-token=$token
 ```
 
-On the fleet's minis, use the host's tailnet address (`100.x`) for `lan` and `viewer-of`: macOS Local
-Network privacy refuses LAN addresses to the binaries a step starts (Apple's own, such as `nc`, are
-exempt, so a shell probe proves nothing), while the tailnet path between two Macs on one LAN is direct,
-inside WireGuard. The summary's link then says `lan via tailnet`.
+On the fleet's minis, use the host's LAN address (`172.20.x`) for `lan` and `viewer-of`. The tailnet
+ACL no longer lets one mini reach another (2026-11-19), so a `100.x` address times out. macOS Local
+Network privacy still refuses LAN addresses to binaries a step starts without that grant (Apple's
+own, such as `nc`, are exempt, so a shell probe proves nothing): run each half where the launcher
+holds Local Network as well as Screen Recording and Accessibility (cmux23's launcher has all three;
+cmuxterm-hq build-fleet/console-steps.json lists each Mac's grants). A `100.x` address still labels
+the link `lan via tailnet`.
 
 A third-party viewer target (its `caps` prints `viewer-grants`, as `moonlight` does) also needs
 Screen Recording and Accessibility on the viewer Mac, where `cmux-rd observe` posts input and
@@ -380,8 +403,10 @@ round trip (about 0.25 ms on a quiet LAN), and the change between the two readin
 Glass-to-glass and decode are each measured on one Mac's clock. rd's input-to-capture and transport
 cross the two Macs and are corrected by the offset.
 
-Still not in glass-to-glass on either link: the viewer's own display. The numbers end when a frame
-is decoded, not when it is presented on the viewer's screen. Real networks are G2.
+Still not in glass-to-glass on either link for `rd` and `webrtc`: the viewer's own display. Their
+numbers end when a frame is decoded, not when it is presented on the viewer's screen. `rd-present`
+and the Apple targets with `presented-observer=1` end at the compositor (ScreenCaptureKit's display
+time of the viewer frame), still before physical scanout. Real networks are G2.
 
 Trust: the run token, rd's stream token and the WebRTC pairing link cross the LAN in plain HTTP.
 The agent runs only the fixed view verbs, with checked arguments, from its own checkout. A measure

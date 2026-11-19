@@ -80,6 +80,36 @@ class ProbeTests(unittest.TestCase):
         finally:
             folder.cleanup()
 
+    def presented(self, cmux_p95, apple_p95, apple_name="apple-high", link="lan: host at 172.20.21.249"):
+        value = results(link=link)
+        value["targets"]["rd-present"] = {"latency": {"key": {"p50_ms": 40.0, "p95_ms": cmux_p95}}}
+        value["targets"][apple_name] = {"latency": {"key": {"p50_ms": 60.0, "p95_ms": apple_p95}}}
+        folder, source, destination = self.write(value)
+        try:
+            return probe.publish(source, destination)["metrics"]["presented"]
+        finally:
+            folder.cleanup()
+
+    def test_presented_passes_under_100_ms_and_below_apple(self):
+        row = self.presented(80.0, 95.0)
+        self.assertEqual(row["outcome"], "pass")
+        self.assertEqual(row["apple_target"], "apple-high")
+        self.assertTrue(row["cmux_beats_apple_p95"])
+
+    def test_presented_fails_when_apple_is_faster_or_over_target(self):
+        self.assertEqual(self.presented(80.0, 70.0)["outcome"], "fail")
+        self.assertEqual(self.presented(120.0, 200.0)["outcome"], "fail")
+
+    def test_presented_never_compares_against_apple_rfb_decode(self):
+        row = self.presented(80.0, 95.0, apple_name="apple-rfb")
+        self.assertEqual(row["outcome"], "unknown")
+        self.assertIsNone(row["apple_target"])
+        self.assertIn("Apple presented key p95 is missing", row["errors"])
+
+    def test_presented_one_mac_is_unknown(self):
+        row = self.presented(10.0, 95.0, link="loopback: host and viewer on one Mac")
+        self.assertEqual(row["outcome"], "unknown")
+
 
 if __name__ == "__main__":
     unittest.main()

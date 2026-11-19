@@ -219,6 +219,10 @@ struct Viewer {
     /// Linux `--present :N`: every decoded frame drawn in a window on that X display.
     #[cfg(target_os = "linux")]
     presenter: Option<crate::present::Presenter>,
+    /// macOS `--present window`: every decoded frame shown in an on-screen window whose keys go
+    /// to the host (screen-stream-eval `rd-present`).
+    #[cfg(target_os = "macos")]
+    mac_presenter: Option<crate::mac::present::Presenter>,
     present_errors: u64,
     /// `--decoder vp9|av1` (features `vp9`, `av1`): a royalty-free codec's decoder, for a
     /// host started with the same `--codec`, and the picture it decodes into.
@@ -297,6 +301,9 @@ impl Viewer {
                         self.decode_ms.push((t1 - t0) as f64 / 1e6);
                         match decoded {
                             Ok(Some(picture)) => {
+                                if let Some(p) = self.mac_presenter.as_mut() {
+                                    p.show(&picture);
+                                }
                                 self.decoded_frames += 1;
                                 if let Some(log) = self.eval_decode.as_mut() {
                                     log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
@@ -447,7 +454,18 @@ impl Viewer {
             self.reassembler.next_nack_us(5_000, 50_000).map_or(timeout_ns, |deadline| {
                 timeout_ns.min(deadline.saturating_mul(1000).saturating_sub(now_ns()))
             });
+        // `--present window`: keys typed into the window leave before the wait, and the wait
+        // stays short so AppKit's queue is read at least every 2 ms.
+        #[cfg(target_os = "macos")]
+        let timeout_ns = if self.mac_presenter.is_some() {
+            self.forward_window_keys()?;
+            timeout_ns.min(2_000_000)
+        } else {
+            timeout_ns
+        };
         wait_readable(&self.io.fds(), Some(timeout_ns))?;
+        #[cfg(target_os = "macos")]
+        self.forward_window_keys()?;
         let mut arrived = Vec::new();
         self.io.receive(&mut arrived)?;
         for item in arrived {
@@ -487,6 +505,26 @@ impl Viewer {
         self.reassembler.tick(now_ns() / 1000);
         self.maybe_feedback()?;
         self.send_input()?;
+        Ok(())
+    }
+
+    /// Sends the keys typed into the `--present window` window to the host, as the app's
+    /// viewer does.
+    #[cfg(target_os = "macos")]
+    fn forward_window_keys(&mut self) -> Res<()> {
+        let Some(p) = self.mac_presenter.as_mut() else {
+            return Ok(());
+        };
+        let mut any = false;
+        for (code, down) in p.take_keys() {
+            if let Some(usage) = crate::mac::present::key_to_hid(code) {
+                self.sender.push(InputEvent::Key { usage, down });
+                any = true;
+            }
+        }
+        if any {
+            self.send_input()?;
+        }
         Ok(())
     }
 
@@ -800,11 +838,29 @@ pub fn run(opts: &Opts) -> Res<()> {
         },
         #[cfg(target_os = "linux")]
         presenter: opts.get("present").map(crate::present::Presenter::open).transpose()?,
+        #[cfg(target_os = "macos")]
+        mac_presenter: match opts.get("present").as_deref() {
+            None => None,
+            Some("window") => {
+                let p = crate::mac::present::Presenter::open(
+                    &opts.str_or("present-title", "cmux rd present"),
+                )?;
+                // The harness binds observe to this window and process.
+                println!(
+                    "{}",
+                    json!({ "present_window": p.window_number(), "pid": std::process::id() })
+                );
+                Some(p)
+            }
+            Some(other) => {
+                return Err(format!("--present {other}: macOS takes --present window").into());
+            }
+        },
         present_errors: 0,
     };
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     if opts.get("present").is_some() {
-        return Err("--present needs Linux (X11)".into());
+        return Err("--present needs Linux (X11) or macOS".into());
     }
     // `--at X,Y`: where click and scroll input lands, in stream pixels.
     let (at_x, at_y) = match opts.get("at") {

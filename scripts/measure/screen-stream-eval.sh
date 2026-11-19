@@ -120,10 +120,14 @@ if [[ "$presented_observer" == 1 ]]; then
     echo "screen-stream-eval.sh: presented-pid= and presented-window= are numeric when given" >&2
     exit 2
   }
-  [[ "$presented_marker_origin" =~ ^[0-9]+,[0-9]+$ && "$presented_cell_size" =~ ^([2-9]|[1-9][0-9]+)$ && "$presented_input_point" =~ ^[0-9]+,[0-9]+$ ]] || {
-    echo "screen-stream-eval.sh: presented observer needs capture-pixel marker origin, cell size >=2 and input point" >&2
-    exit 2
-  }
+  # Geometry is all three values or none: none (the default) lets `cmux-rd observe --marker-origin
+  # auto` find the marker in the selected window itself, and fail closed when it is not there.
+  if [[ -n "$presented_marker_origin$presented_cell_size$presented_input_point" ]]; then
+    [[ "$presented_marker_origin" =~ ^[0-9]+,[0-9]+$ && "$presented_cell_size" =~ ^([2-9]|[1-9][0-9]+)$ && "$presented_input_point" =~ ^[0-9]+,[0-9]+$ ]] || {
+      echo "screen-stream-eval.sh: presented geometry is all of marker origin X,Y, cell size >=2 and input point X,Y (capture pixels), or none for auto-calibration" >&2
+      exit 2
+    }
+  fi
   [[ "$presented_timeout_ms" =~ ^[1-9][0-9]*$ && "$presented_seed" =~ ^[0-9]+$ ]] || {
     echo "screen-stream-eval.sh: presented-timeout-ms= must be positive and presented-seed= numeric" >&2
     exit 2

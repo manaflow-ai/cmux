@@ -4,6 +4,20 @@
 set -euo pipefail
 verb=$1
 shift
+
+# marker_geometry [with-point]: sets `geometry` to observe's marker arguments. Given capture-pixel
+# geometry, those values; none (the default), `--marker-origin auto`, so observe finds the marker
+# in the bound window itself and fails closed when it is not there. (An array, not mapfile: macOS
+# ships bash 3.2.)
+marker_geometry() {
+  if [[ -z "${EVAL_PRESENTED_MARKER_ORIGIN:-}" ]]; then
+    geometry=(--marker-origin auto)
+    return 0
+  fi
+  geometry=(--marker-origin "$EVAL_PRESENTED_MARKER_ORIGIN" --cell-size "$EVAL_PRESENTED_CELL_SIZE")
+  [[ "${1:-}" == with-point ]] && geometry+=(--at "$EVAL_PRESENTED_INPUT_POINT")
+  return 0
+}
 mode=${EVAL_APPLE_MODE:-high}
 host=${EVAL_PEER:-${EVAL_APPLE_HOST:-127.0.0.1}}
 
@@ -280,7 +294,7 @@ verify_scene_ready() {
     return 1
   }
   # connect() already bound viewer_pid (the launched instance) and window_id.
-  for var in EVAL_PRESENTED_OBSERVER_BIN EVAL_PRESENTED_MARKER_ORIGIN EVAL_PRESENTED_CELL_SIZE; do
+  for var in EVAL_PRESENTED_OBSERVER_BIN; do
     [[ -n "${!var:-}" ]] || {
       echo "apple-$mode: source readiness requires $var; next: configure presented-observer=1 on the viewer" >&2
       return 1
@@ -291,9 +305,11 @@ verify_scene_ready() {
     return 1
   }
   : >"$start" || return 1
+  local geometry
+  marker_geometry
   "$EVAL_PRESENTED_OBSERVER_BIN" observe --mode passive \
     --pid "$viewer_pid" --window "$window_id" --display "${EVAL_PRESENTED_DISPLAY:-main}" \
-    --marker-origin "$EVAL_PRESENTED_MARKER_ORIGIN" --cell-size "$EVAL_PRESENTED_CELL_SIZE" \
+    "${geometry[@]}" \
     --expected-nonce "$EVAL_SCENE_NONCE" --start-file "$start" --duration-s 1 --interval-ms 500 \
     >"$raw.readiness-observer.json" || {
       echo "apple-$mode: source readiness observer failed; next: verify the authorized remote scene and marker geometry" >&2
@@ -349,6 +365,12 @@ case "$verb" in
     screen_sharing_app >/dev/null || exit 1
     ;;
   host-stop) ;;
+  caps)
+    # With the presented observer, `cmux-rd observe` posts input and captures this display on the
+    # viewer Mac: that half needs Screen Recording and Accessibility (the launcher's grants).
+    [[ -n "${EVAL_PRESENTED_OBSERVER_BIN:-}" ]] && echo viewer-grants
+    exit 0
+    ;;
   latency-view)
     input=$1; raw=$3
     samples=$2
@@ -356,14 +378,8 @@ case "$verb" in
     begin_view $((samples * 2 + 120))
     if [[ -n "${EVAL_PRESENTED_OBSERVER_BIN:-}" ]]; then
       # The managed GUI step may opt into cmux-rd's protocol-independent
-      # compositor observer. Every identity and geometry value is explicit so
-      # this target cannot silently observe another Screen Sharing window.
-      for var in EVAL_PRESENTED_MARKER_ORIGIN EVAL_PRESENTED_CELL_SIZE EVAL_PRESENTED_INPUT_POINT; do
-        [[ -n "${!var:-}" ]] || {
-          echo "apple-$mode: presented observer requires $var" >&2
-          exit 1
-        }
-      done
+      # compositor observer, bound to the pid and window this run launched. The
+      # marker geometry is explicit, or observe calibrates it inside that window.
       [[ -x "$EVAL_PRESENTED_OBSERVER_BIN" ]] || {
         echo "apple-$mode: presented observer is not executable: $EVAL_PRESENTED_OBSERVER_BIN" >&2
         exit 1
@@ -372,17 +388,17 @@ case "$verb" in
       kind=key
       [[ "$input" == pointer ]] && kind=click
       observer_raw="$raw.observer"
+      marker_geometry with-point
       if ! "$EVAL_PRESENTED_OBSERVER_BIN" observe \
         --pid "$viewer_pid" \
         --window "$window_id" \
         --display "${EVAL_PRESENTED_DISPLAY:-main}" \
-        --marker-origin "$EVAL_PRESENTED_MARKER_ORIGIN" \
-        --cell-size "$EVAL_PRESENTED_CELL_SIZE" \
-        --at "$EVAL_PRESENTED_INPUT_POINT" \
+        "${geometry[@]}" \
         --input "$kind" --samples "$2" \
         --timeout-ms "${EVAL_PRESENTED_TIMEOUT_MS:-1000}" \
-        --seed "${EVAL_PRESENTED_SEED:-1}" >"$observer_raw"; then
-        echo "apple-$mode: presented observer did not produce a complete marker receipt" >"$EVAL_STATE/latency.err"
+        --seed "${EVAL_PRESENTED_SEED:-1}" >"$observer_raw" 2>"$observer_raw.err"; then
+        echo "apple-$mode: presented observer did not produce a complete marker receipt: $(tail -1 "$observer_raw.err")" >"$EVAL_STATE/latency.err"
+        cat "$observer_raw.err" >&2
         exit 1
       fi
       python3 -I - "$observer_raw" "$raw" "$mode" <<'PY'

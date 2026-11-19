@@ -12,6 +12,8 @@ mod keys;
 #[cfg(feature = "bench")]
 pub(crate) mod observe;
 #[cfg(feature = "bench")]
+pub(crate) mod present;
+#[cfg(feature = "bench")]
 pub(crate) mod synthetic;
 mod sys;
 
