@@ -125,7 +125,9 @@ CLA_TRUSTED_RUNNER_EXPRESSION = (
     '["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'
     "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
 )
-TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION)
+# The same selector without the 8 vCPU size, which the jobs that used to share the CLA selector keep.
+TRUSTED_RUNNER_EXPRESSION_SMALL = TRUSTED_RUNNER_EXPRESSION.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
+TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, TRUSTED_RUNNER_EXPRESSION_SMALL, CLA_TRUSTED_RUNNER_EXPRESSION)
 # Fast checks admission accepts only the smallest measured Blacksmith size (a
 # picker's one re-run route, never 16 or 32 vCPU), with the same hosted
 # default. No input can select a persistent runner.
