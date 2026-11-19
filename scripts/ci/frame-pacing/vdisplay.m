@@ -153,22 +153,33 @@ int main(int argc, char **argv) {
     if (![display applySettings:settings]) { printf("error: applySettings failed\n"); return 1; }
     waitForScreens(display.displayID, NO, 5.0);
     if (hidpi) {
+      // The display's mode list fills in after AppKit lists it, a beat later on a busy host (fleet step b44f5987: no
+      // 2x mode on the first read, and the display stayed 1x): read it for up to 5 s, and say what it offered if no
+      // mode is WIDTHxHEIGHT points at twice the pixels.
       NSDictionary *options = @{(__bridge NSString *)kCGDisplayShowDuplicateLowResolutionModes: @YES};
-      CFArrayRef modes = CGDisplayCopyAllDisplayModes(display.displayID, (__bridge CFDictionaryRef)options);
       CGDisplayModeRef picked = NULL;
-      for (CFIndex i = 0; modes && i < CFArrayGetCount(modes); i++) {
-        CGDisplayModeRef mode = (CGDisplayModeRef)CFArrayGetValueAtIndex(modes, i);
-        if (CGDisplayModeGetWidth(mode) == width && CGDisplayModeGetHeight(mode) == height
-            && CGDisplayModeGetPixelWidth(mode) == width * 2) { picked = mode; break; }
+      NSMutableString *offered = [NSMutableString string];
+      for (int attempt = 0; attempt < 50 && !picked; attempt++) {
+        if (attempt) [[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+        CFArrayRef modes = CGDisplayCopyAllDisplayModes(display.displayID, (__bridge CFDictionaryRef)options);
+        [offered setString:@""];
+        for (CFIndex i = 0; modes && i < CFArrayGetCount(modes); i++) {
+          CGDisplayModeRef mode = (CGDisplayModeRef)CFArrayGetValueAtIndex(modes, i);
+          [offered appendFormat:@" %zux%zu@%zux%zu", CGDisplayModeGetWidth(mode), CGDisplayModeGetHeight(mode),
+                                CGDisplayModeGetPixelWidth(mode), CGDisplayModeGetPixelHeight(mode)];
+          if (!picked && CGDisplayModeGetWidth(mode) == width && CGDisplayModeGetHeight(mode) == height
+              && CGDisplayModeGetPixelWidth(mode) == width * 2) picked = CGDisplayModeRetain(mode);
+        }
+        if (modes) CFRelease(modes);
       }
       CGDisplayConfigRef config;
-      if (!picked) fprintf(stderr, "vdisplay: no %ux%u mode at 2x pixels\n", width, height);
+      if (!picked) fprintf(stderr, "vdisplay: no %ux%u mode at 2x pixels; modes (points@pixels):%s\n", width, height, offered.UTF8String);
       else if (CGBeginDisplayConfiguration(&config) == kCGErrorSuccess) {
         CGConfigureDisplayWithDisplayMode(config, display.displayID, picked, NULL);
         CGError error = CGCompleteDisplayConfiguration(config, kCGConfigureForAppOnly);
         if (error != kCGErrorSuccess) fprintf(stderr, "vdisplay: could not switch to the 2x mode (CGError %d)\n", error);
       }
-      if (modes) CFRelease(modes);
+      if (picked) CGDisplayModeRelease(picked);
       waitForScreens(display.displayID, NO, 5.0);
     }
     if (wantMain && CGMainDisplayID() != display.displayID) {

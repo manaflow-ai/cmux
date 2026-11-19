@@ -50,7 +50,7 @@ struct AppWindowImage {
             layers += WindowImageLayer.chromiumPage(image, rect, holes: holes, clip: page.pageWindowClip, devTools: await page.dockedDevToolsPicture())
         }
         // React pages on the Chromium engine (the agent page, Settings) draw the same way.
-        for (page, rect) in PageRegistry.shownChromiumPages(in: window) {
+        for (page, rect) in skip ? [] : PageRegistry.shownChromiumPages(in: window) {
             let image = await page.chromiumImage()
             pages += 1; if image == nil { failed += 1 }
             layers += WindowImageLayer.chromiumPage(image, rect, holes: page.chromiumWindowHoles, clip: page.chromiumWindowClip, devTools: await page.chromiumDevTools()) // a chat leaves its pane's tabs uncovered

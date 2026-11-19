@@ -30,6 +30,16 @@ extension GlassParityPlayground {
         return parts.joined(separator: "-")
     }
 
+    /// The most captures of one renderer while its glass still eases to the backdrop (about 2.4 s).
+    static let maximumCaptures = 6
+
+    /// The stage's pixels in the capture at `url`, to tell whether two captures are the same.
+    nonisolated static func stagePixels(_ url: URL, _ stage: CGRect) -> [UInt8]? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        return GlassParityDiff.pixels(of: image, in: stage)?.bytes
+    }
+
     /// Captures every renderer alone into `directory` through `capture` (`debug.window_snapshot`
     /// params: the window and a PNG path) and answers each web surface's diff against the native one at
     /// the same box, with its text (`full`) and without (`material`). Writes per surface each renderer's
@@ -40,22 +50,41 @@ extension GlassParityPlayground {
         await Task.detached(priority: .utility) { try? FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true) }.value
         var shots: [String: URL] = [:]
         var snapshots: [String: JSONValue] = [:]
-        for column in Column.allCases where column == .native || pages[column] != nil {
-            solo(column)
-            await settle()
-            let png = directory.appending(path: "window-\(stem)-\(column.rawValue).png", directoryHint: .notDirectory)
-            // `chromium_pages: false`: the window server's composite already holds the Chromium page (its child window);
-            // painting Chromium's own image over it again drew its text and row fills twice, a pixel apart.
-            snapshots[column.rawValue] = await capture(["window": .string(String(window.windowNumber)), "path": .string(png.path),
-                                                        "chromium_pages": .bool(false)])
-            shots[column.rawValue] = png
-        }
-        solo(nil)
         // The capture is the window's frame at its backing scale, title bar on top, no shadow.
         let scale = window.backingScaleFactor
         let contentInWindow = content.convert(content.bounds, to: nil)
         let contentTop = (window.frame.height - contentInWindow.maxY) * scale
         let stage = CGRect(x: 0, y: contentTop, width: Self.contentSize.width * scale, height: Self.contentSize.height * scale)
+        for column in Column.allCases where column == .native || pages[column] != nil {
+            solo(column)
+            await settle()
+            let png = directory.appending(path: "window-\(stem)-\(column.rawValue).png", directoryHint: .notDirectory)
+            // Captured until two captures in a row are the same: Liquid Glass eases its adaptive look to a new backdrop
+            // over more than a second, and a hidden glass view does not ease at all, so the renderer shown first
+            // (native) still carried the last scenario's look over a dark picture (fleet run b44f5987: the tooltip's
+            // glass 46 levels darker than the same glass under the page, every web column alike).
+            var previous: [UInt8]?
+            var reply: JSONValue = .null
+            var captures = 0
+            while captures < Self.maximumCaptures {
+                captures += 1
+                // `chromium_pages: false`: the window server's composite already holds the Chromium page (its child
+                // window); painting Chromium's own image over it again drew its text and row fills twice.
+                reply = await capture(["window": .string(String(window.windowNumber)), "path": .string(png.path),
+                                       "chromium_pages": .bool(false)])
+                let now = await Task.detached(priority: .utility) { Self.stagePixels(png, stage) }.value
+                if let now, now == previous { break }
+                previous = now
+                await wait(until: { false }, limit: .milliseconds(400))
+            }
+            if case .object(var members) = reply {
+                members["captures"] = .number(Double(captures))
+                reply = .object(members)
+            }
+            snapshots[column.rawValue] = reply
+            shots[column.rawValue] = png
+        }
+        solo(nil)
         let cells = Kind.allCases.map { kind -> CellBox in
             let surface = Self.surfaceRect(kind)
             let box = surface.insetBy(dx: -8, dy: -8)
