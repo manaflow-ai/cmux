@@ -64,6 +64,8 @@ struct BrowserOpenSplitRun {
         ]
         if let origin = request.origin { params["origin"] = .string(origin) }
         if let tab = placement.targetTab { params["target"] = .string("tab:" + tab) }
+        // A named workspace names no pane: right of its agent chat when its pane holds one.
+        if placement.kind == .workspace { params["beside_chat"] = true }
         // action.run aims it beside the caller's chat, or at a new column there.
         if placement.kind.isBesideCaller, let session = request.agentSession {
             var caller: [String: JSONValue] = ["agent_session": .string(session)]
