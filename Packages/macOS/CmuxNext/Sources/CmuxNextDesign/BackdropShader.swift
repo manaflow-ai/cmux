@@ -18,6 +18,22 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
     case aurora
     /// A grid of dots the pointer pushes aside, like iron filings near a magnet.
     case field
+    /// Soft color fields that lean toward the pointer: the calmest of them.
+    case mesh
+    /// Topographic contour lines; the pointer raises a hill.
+    case contours
+    /// Lava-lamp blobs that merge and split; the pointer is one more blob.
+    case lava
+    /// Underwater light on sand; the pointer gathers it like a lens.
+    case caustics
+    /// Drifting Voronoi cells; the pointer pulls the nearest one.
+    case cells
+    /// Two ring patterns beating into moiré fringes; one follows the pointer.
+    case moire
+    /// Interlocking arc tiles that turn over near the pointer.
+    case truchet
+    /// A printer's dot screen whose dots swell near the pointer.
+    case halftone
 
     /// The prefix of a persisted id (`shader:currents`).
     public static let idPrefix = "shader:"
@@ -38,6 +54,14 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
         case .ripples: String(localized: "backdrop.shader.ripples", defaultValue: "Ripples", bundle: .module)
         case .aurora: String(localized: "backdrop.shader.aurora", defaultValue: "Aurora", bundle: .module)
         case .field: String(localized: "backdrop.shader.field", defaultValue: "Dot Field", bundle: .module)
+        case .mesh: String(localized: "backdrop.shader.mesh", defaultValue: "Mesh", bundle: .module)
+        case .contours: String(localized: "backdrop.shader.contours", defaultValue: "Contours", bundle: .module)
+        case .lava: String(localized: "backdrop.shader.lava", defaultValue: "Lava", bundle: .module)
+        case .caustics: String(localized: "backdrop.shader.caustics", defaultValue: "Caustics", bundle: .module)
+        case .cells: String(localized: "backdrop.shader.cells", defaultValue: "Cells", bundle: .module)
+        case .moire: String(localized: "backdrop.shader.moire", defaultValue: "Moiré", bundle: .module)
+        case .truchet: String(localized: "backdrop.shader.truchet", defaultValue: "Truchet", bundle: .module)
+        case .halftone: String(localized: "backdrop.shader.halftone", defaultValue: "Halftone", bundle: .module)
         }
     }
 
@@ -52,6 +76,22 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
             String(localized: "backdrop.shader.aurora.attribution", defaultValue: "Live · the light leans toward the pointer", bundle: .module)
         case .field:
             String(localized: "backdrop.shader.field.attribution", defaultValue: "Live · the pointer pushes the dots aside", bundle: .module)
+        case .mesh:
+            String(localized: "backdrop.shader.mesh.attribution", defaultValue: "Live · the colors lean toward the pointer", bundle: .module)
+        case .contours:
+            String(localized: "backdrop.shader.contours.attribution", defaultValue: "Live · the pointer raises a hill", bundle: .module)
+        case .lava:
+            String(localized: "backdrop.shader.lava.attribution", defaultValue: "Live · the pointer is one more blob", bundle: .module)
+        case .caustics:
+            String(localized: "backdrop.shader.caustics.attribution", defaultValue: "Live · the pointer gathers the light", bundle: .module)
+        case .cells:
+            String(localized: "backdrop.shader.cells.attribution", defaultValue: "Live · the pointer pulls the nearest cell", bundle: .module)
+        case .moire:
+            String(localized: "backdrop.shader.moire.attribution", defaultValue: "Live · one pattern follows the pointer", bundle: .module)
+        case .truchet:
+            String(localized: "backdrop.shader.truchet.attribution", defaultValue: "Live · tiles turn over near the pointer", bundle: .module)
+        case .halftone:
+            String(localized: "backdrop.shader.halftone.attribution", defaultValue: "Live · the dots swell near the pointer", bundle: .module)
         }
     }
 
@@ -74,6 +114,14 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
         case .ripples: 17
         case .aurora: 63
         case .field: 9
+        case .mesh: 31
+        case .contours: 55
+        case .lava: 74
+        case .caustics: 12
+        case .cells: 26
+        case .moire: 38
+        case .truchet: 47
+        case .halftone: 21
         }
     }
 

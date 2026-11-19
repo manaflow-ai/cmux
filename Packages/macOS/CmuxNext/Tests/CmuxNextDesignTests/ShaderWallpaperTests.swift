@@ -3,15 +3,19 @@ import CmuxNextDesignTokens
 @testable import CmuxNextDesign
 import CmuxNextTestSupport
 import Foundation
+import ImageIO
 import Metal
 import Testing
+import UniformTypeIdentifiers
 
 /// Living wallpapers (ask-722b8b001e): shaders that draw the window's backdrop every frame and
 /// answer the pointer, listed in the picker beside the static and moving wallpapers.
 @MainActor @Suite(.serialized, .closesItsWindows) struct ShaderWallpaperTests {
     @Test func everyShaderIsAPickerChoiceTheSettingReadsBack() {
         let ids = BackdropCatalog.shaders.map(\.id)
-        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field"])
+        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field", "shader:mesh",
+                        "shader:contours", "shader:lava", "shader:caustics", "shader:cells", "shader:moire",
+                        "shader:truchet", "shader:halftone"])
         for choice in BackdropCatalog.shaders {
             #expect(BackdropSelection(id: choice.id) == choice, "\(choice.id) does not read back")
             #expect(choice.pickerCollection?.id == BackdropShader.collection)
@@ -53,6 +57,24 @@ import Testing
                 #expect(lightness.max - lightness.min > 0.03, "\(shader) \(dark ? "dark" : "light") is one flat color")
                 #expect(dark ? lightness.mean < 0.45 : lightness.mean > 0.55,
                         "\(shader) \(dark ? "dark" : "light") averages \(lightness.mean): the wrong appearance")
+            }
+        }
+    }
+
+    /// With `CMUX_SHADER_STILLS_DIR` set, writes every shader's light and dark still (640x400 PNG)
+    /// there: the captures a review reads. Without it, nothing is written.
+    @Test func everyShaderStillIsWrittenWhenAskedFor() throws {
+        guard let folder = ProcessInfo.processInfo.environment["CMUX_SHADER_STILLS_DIR"], !folder.isEmpty,
+              let renderer = BackdropShaderRenderer() else { return }
+        let directory = URL(fileURLWithPath: folder, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for shader in BackdropShader.allCases {
+            for dark in [false, true] {
+                let image = try #require(renderer.still(shader, width: 640, height: 400, dark: dark), "\(shader) drew no still")
+                let url = directory.appendingPathComponent("\(shader.rawValue)-\(dark ? "dark" : "light").png")
+                let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
+                CGImageDestinationAddImage(destination, image, nil)
+                #expect(CGImageDestinationFinalize(destination), "\(url.lastPathComponent) was not written")
             }
         }
     }

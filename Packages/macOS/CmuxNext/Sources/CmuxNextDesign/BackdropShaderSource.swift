@@ -6,7 +6,7 @@
 /// position needs no flip. Every function draws light or dark from `u.dark`.
 nonisolated enum BackdropShaderSource {
     /// Bumped whenever a shader's look changes: the posters' file names carry it.
-    static let version = 1
+    static let version = 2
 
     /// The uniforms every fragment reads; ``BackdropShaderUniforms`` is its Swift twin.
     static let source = #"""
@@ -200,6 +200,236 @@ nonisolated enum BackdropShaderSource {
         float3 tint = 0.5 + 0.5 * cos(6.28318 * (hue + float3(0.0, 0.33, 0.67)));
         float3 darkCol = mix(float3(0.035, 0.035, 0.05), mix(float3(0.55, 0.60, 0.70), tint, 0.55), ink);
         float3 lightCol = mix(float3(0.96, 0.95, 0.93), mix(float3(0.30, 0.32, 0.38), tint * 0.7, 0.5), ink);
+        return float4(mix(lightCol, darkCol, u.dark), 1.0);
+    }
+
+    static float2 hash22(float2 p) { return float2(hash21(p), hash21(p + float2(17.31, 41.07))); }
+
+    // Mesh: soft mesh-gradient blobs, colors blended by Gaussian radial-basis weights (Shepard's
+    // inverse-distance interpolation, 1968, with a Gaussian kernel); every blob leans to the pointer.
+    fragment float4 wp_mesh(VOut in [[stage_in]], constant Uniforms& u [[buffer(0)]]) {
+        float s = min(u.res.x, u.res.y);
+        float2 px = pixel(in.pos, u);
+        float2 p = px / s, m = u.mouse / s, aspect = u.res / s;
+        float t = u.time * 0.05;
+        float3 acc = float3(0.0);
+        float total = 0.0;
+        for (int i = 0; i < 5; i++) {
+            float fi = float(i);
+            float2 c = aspect * (0.5 + 0.38 * float2(sin(t * (0.7 + 0.13 * fi) + fi * 2.1), cos(t * (0.6 + 0.11 * fi) + fi * 1.7)));
+            float2 toPointer = m - c;
+            c += toPointer * (0.16 + 0.12 * u.energy) * exp(-dot(toPointer, toPointer) * 1.5);
+            float2 d = p - c;
+            float w = exp(-dot(d, d) * 3.2) + 0.0001;
+            float3 phase = fi * 0.19 + float3(0.0, 0.33, 0.67);
+            float3 lightCol = 0.83 + 0.13 * cos(6.28318 * (phase + 0.05));
+            float3 darkCol = 0.13 + 0.10 * cos(6.28318 * (phase + 0.55));
+            acc += w * mix(lightCol, darkCol, u.dark);
+            total += w;
+        }
+        float3 col = acc / total;
+        float2 d = p - m;
+        float lift = exp(-dot(d, d) * 18.0) * (0.03 + 0.05 * u.energy) + rings(p, u, s, 0.4, 0.05) * 0.06;
+        col += lift * mix(float3(1.0, 0.98, 0.95), float3(0.55, 0.60, 0.75), u.dark);
+        col += (hash21(px) - 0.5) / 255.0; // dither: no bands in the soft gradient
+        return float4(clamp(col, 0.0, 1.0), 1.0);
+    }
+
+    // Contours: topographic isolines of fbm (Perlin 1985 noise summed in octaves); the pointer
+    // raises a hill and a click sends a ring of swell across the map.
+    fragment float4 wp_contours(VOut in [[stage_in]], constant Uniforms& u [[buffer(0)]]) {
+        float s = min(u.res.x, u.res.y);
+        float2 p = pixel(in.pos, u) / s, d = p - u.mouse / s;
+        float h = fbm(p * 1.9 + float2(u.time * 0.012, -u.time * 0.009));
+        h += (0.22 + 0.12 * u.energy) * exp(-dot(d, d) * 14.0);
+        h += rings(p, u, s, 0.35, 0.05) * 0.04;
+        float f = h * 14.0;
+        float g = abs(fract(f - 0.5) - 0.5) / max(fwidth(f), 0.0001);
+        float major = step(fract(floor(f + 0.5) * 0.2 + 0.01), 0.1);
+        float line = (1.0 - min(g / (1.0 + major * 0.8), 1.0)) * (0.55 + 0.45 * major);
+        float3 lightCol = mix(float3(0.96, 0.95, 0.91), float3(0.90, 0.93, 0.92), h);
+        lightCol = mix(lightCol, float3(0.42, 0.48, 0.52), line * 0.7);
+        float3 darkCol = mix(float3(0.035, 0.045, 0.06), float3(0.05, 0.08, 0.10), h);
+        darkCol = mix(darkCol, float3(0.30, 0.62, 0.66), line * 0.75);
+        return float4(mix(lightCol, darkCol, u.dark), 1.0);
+    }
+
+    // Lava: metaballs (Blinn 1982, "A Generalization of Algebraic Surface Drawing"): six slow
+    // blobs rise and sink like a lava lamp; the pointer is one more ball.
+    fragment float4 wp_lava(VOut in [[stage_in]], constant Uniforms& u [[buffer(0)]]) {
+        float s = min(u.res.x, u.res.y);
+        float2 p = pixel(in.pos, u) / s, aspect = u.res / s;
+        float t = u.time;
+        float field = 0.0;
+        for (int i = 0; i < 6; i++) {
+            float fi = float(i);
+            float2 c = float2(aspect.x * (0.12 + 0.76 * hash21(float2(fi, 3.0))) + 0.06 * sin(t * 0.21 + fi * 1.9),
+                              aspect.y * (0.5 + 0.42 * sin(t * (0.07 + 0.025 * fi) + fi * 1.3)));
+            float r = 0.08 + 0.06 * hash21(float2(fi, 9.0));
+            float2 d = p - c;
+            field += r * r / (dot(d, d) + 0.0001);
+        }
+        float2 dm = p - u.mouse / s;
+        float pr = 0.07 * (1.0 + 0.4 * u.energy);
+        field += pr * pr / (dot(dm, dm) + 0.0001);
+        field += rings(p, u, s, 0.4, 0.03) * 0.5;
+        float inside = smoothstep(0.92, 1.08, field);
+        float rim = smoothstep(0.75, 1.0, field) * (1.0 - smoothstep(1.0, 1.6, field));
+        float core = clamp((field - 1.0) * 0.25, 0.0, 1.0);
+        float vy = p.y / aspect.y;
+        float3 lightBg = mix(float3(0.98, 0.94, 0.89), float3(0.95, 0.92, 0.94), vy);
+        float3 lightBlob = mix(float3(0.98, 0.70, 0.55), float3(0.99, 0.82, 0.62), core);
+        float3 lightCol = mix(lightBg, lightBlob, inside) - rim * 0.04;
+        float3 darkBg = mix(float3(0.06, 0.03, 0.06), float3(0.03, 0.03, 0.07), vy);
+        float3 darkBlob = mix(float3(0.62, 0.16, 0.10), float3(0.95, 0.45, 0.18), core);
+        float3 darkCol = mix(darkBg, darkBlob, inside) + rim * float3(0.10, 0.03, 0.02);
+        return float4(clamp(mix(lightCol, darkCol, u.dark), 0.0, 1.0), 1.0);
+    }
+
+    // Caustics: underwater light on sand, the iterated-trig caustic pattern (joltz0r, Shadertoy
+    // 2013); the pointer is a lens that gathers the light and a click ripples the surface.
+    fragment float4 wp_caustics(VOut in [[stage_in]], constant Uniforms& u [[buffer(0)]]) {
+        float s = min(u.res.x, u.res.y);
+        float2 px = pixel(in.pos, u);
+        float2 p = px / s, d = p - u.mouse / s;
+        float lens = exp(-dot(d, d) * 9.0);
+        p -= d * lens * (0.25 + 0.2 * u.energy);
+        p += rings(p, u, s, 0.35, 0.04) * 0.02;
+        float t = u.time * 0.35 + 23.0;
+        float2 q = p * 5.5 - 250.0;
+        float2 i = q;
+        float c = 1.0;
+        const float inten = 0.005;
+        for (int n = 0; n < 4; n++) {
+            float tt = t * (1.0 - 3.5 / float(n + 1));
+            i = q + float2(cos(tt - i.x) + sin(tt + i.y), sin(tt - i.y) + cos(tt + i.x));
+            c += 1.0 / length(float2(q.x / (sin(i.x + tt) / inten), q.y / (cos(i.y + tt) / inten)));
+        }
+        c /= 4.0;
+        c = 1.17 - pow(c, 1.4);
+        float light = clamp(pow(abs(c), 8.0), 0.0, 1.0) * (1.0 + lens * 0.8);
+        float sand = fbm(px / s * 9.0) * 0.6 + hash21(floor(px)) * 0.4;
+        float3 lightCol = mix(float3(0.88, 0.85, 0.76), float3(0.95, 0.92, 0.84), sand);
+        lightCol = mix(lightCol, float3(0.80, 0.90, 0.92), 0.35) + light * float3(0.14, 0.15, 0.12);
+        float3 darkCol = mix(float3(0.02, 0.06, 0.09), float3(0.04, 0.10, 0.12), sand) + light * float3(0.12, 0.34, 0.36);
+        return float4(clamp(mix(lightCol, darkCol, u.dark), 0.0, 1.0), 1.0);
+    }
+
+    // A cell seed of the Worley grid: its cell plus a slow orbit.
+    static float2 cellSeed(float2 id, float t) {
+        float2 h = hash22(id);
+        return id + 0.5 + 0.38 * float2(sin(t * (0.25 + 0.2 * h.x) + 6.28318 * h.y), cos(t * (0.2 + 0.2 * h.y) + 6.28318 * h.x));
+    }
+
+    // Cells: Worley noise (Worley 1996, "A Cellular Texture Basis Function"), a Voronoi diagram of
+    // drifting seeds; the seed nearest the pointer is pulled to it and the clicks light the walls.
+    fragment float4 wp_cells(VOut in [[stage_in]], constant Uniforms& u [[buffer(0)]]) {
+        float s = min(u.res.x, u.res.y);
+        float scale = 5.0;
+        float2 p = pixel(in.pos, u) / s * scale, m = u.mouse / s * scale;
+        float t = u.time;
+        // The seed nearest the pointer, found once per pixel.
+        float2 mCell = floor(m), pulledId = mCell;
+        float best = 1e9;
+        for (int j = -1; j <= 1; j++) {
+            for (int i = -1; i <= 1; i++) {
+                float2 id = mCell + float2(float(i), float(j));
+                float dd = length(cellSeed(id, t) - m);
+                if (dd < best) { best = dd; pulledId = id; }
+            }
+        }
+        float2 pulled = mix(cellSeed(pulledId, t), m, 0.8 + 0.15 * u.energy);
+        float2 dp = pulled - p;
+        float f1 = length(dp), f2 = 1e9;
+        float2 nearId = pulledId;
+        float2 cell = floor(p);
+        for (int j = -1; j <= 1; j++) {
+            for (int i = -1; i <= 1; i++) {
+                float2 id = cell + float2(float(i), float(j));
+                if (all(id == pulledId)) continue;
+                float dd = length(cellSeed(id, t) - p);
+                if (dd < f1) { f2 = f1; f1 = dd; nearId = id; } else if (dd < f2) { f2 = dd; }
+            }
+        }
+        float edge = 1.0 - smoothstep(0.0, 0.06, f2 - f1);
+        float glow = rings(p / scale, u, s, 0.45, 0.04);
+        float hue = hash21(nearId);
+        float3 tint = 0.5 + 0.5 * cos(6.28318 * (hue * 0.35 + 0.55 + float3(0.0, 0.33, 0.67)));
+        bool isPulled = all(nearId == pulledId);
+        float3 lightCol = mix(float3(0.95, 0.95, 0.94), tint, 0.12) - f1 * 0.05 + (isPulled ? 0.02 : 0.0);
+        lightCol = mix(lightCol, float3(0.55, 0.60, 0.66), edge * (0.6 + 0.4 * glow));
+        float3 darkCol = mix(float3(0.05, 0.05, 0.07), tint * 0.25, 0.4) + f1 * 0.03 + (isPulled ? 0.03 : 0.0);
+        darkCol = mix(darkCol, mix(float3(0.25, 0.55, 0.62), float3(0.6, 0.9, 0.95), clamp(glow, 0.0, 1.0)), edge);
+        return float4(clamp(mix(lightCol, darkCol, u.dark), 0.0, 1.0), 1.0);
+    }
+
+    // Moire: two ring gratings, one drifting slowly and one centered on the pointer; where they
+    // cross, the beat draws the moire fringes (Oster, Wasserman & Zwerling 1964).
+    fragment float4 wp_moire(VOut in [[stage_in]], constant Uniforms& u [[buffer(0)]]) {
+        float s = min(u.res.x, u.res.y);
+        float2 p = pixel(in.pos, u) / s, aspect = u.res / s;
+        float t = u.time * 0.04;
+        float2 c1 = aspect * (0.5 + 0.22 * float2(sin(t * 1.3), cos(t)));
+        float freq = 6.28318 * 46.0 * (1.0 + rings(p, u, s, 0.4, 0.05) * 0.02);
+        float r1 = length(p - c1), r2 = length(p - u.mouse / s);
+        float g1 = 0.5 + 0.5 * cos(r1 * freq);
+        float g2 = 0.5 + 0.5 * cos(r2 * freq + u.time * 0.6);
+        float ink = g1 * g2;
+        float beat = 0.5 + 0.5 * cos((r1 - r2) * freq);
+        float3 tint = 0.5 + 0.5 * cos(6.28318 * (beat * 0.2 + t * 0.5 + float3(0.0, 0.33, 0.67)));
+        float strength = 0.45 + 0.25 * u.energy;
+        float3 lightCol = mix(float3(0.96, 0.95, 0.93), mix(float3(0.35, 0.38, 0.45), tint * 0.6, 0.4), ink * strength);
+        float3 darkCol = mix(float3(0.035, 0.04, 0.055), mix(float3(0.55, 0.62, 0.72), tint, 0.4), ink * strength);
+        return float4(mix(lightCol, darkCol, u.dark), 1.0);
+    }
+
+    // Truchet: quarter-circle arc tiles (Smith 1987, "The Tiling Patterns of Sebastien Truchet and
+    // the Topology of Structural Hierarchy"); tiles turn over as the pointer or a click's ring passes.
+    fragment float4 wp_truchet(VOut in [[stage_in]], constant Uniforms& u [[buffer(0)]]) {
+        float s = min(u.res.x, u.res.y);
+        float2 px = pixel(in.pos, u);
+        float gap = max(s / 14.0, 18.0);
+        float2 id = floor(px / gap);
+        float2 center = (id + 0.5) * gap;
+        float dist = length(center - u.mouse) / s;
+        float near = smoothstep(0.22 + 0.06 * u.energy, 0.10, dist);
+        float swap = clamp(near + rings(center / s, u, s, 0.45, 0.06), 0.0, 1.0);
+        float base = step(0.5, hash21(id + floor(u.time * 0.03 + hash21(id * 1.7))));
+        float angle = 1.5707963 * (base + swap);
+        float c = cos(angle), sn = sin(angle);
+        float2 q = float2x2(c, sn, -sn, c) * (px / gap - id - 0.5);
+        float d = min(abs(length(q - 0.5) - 0.5), abs(length(q + 0.5) - 0.5)) * gap;
+        float w = gap * (0.07 + 0.03 * near);
+        float line = smoothstep(w + 1.0, w - 1.0, d);
+        float hue = fract(dot(id, float2(0.017, 0.029)) + u.time * 0.008);
+        float3 tint = 0.5 + 0.5 * cos(6.28318 * (hue + float3(0.0, 0.33, 0.67)));
+        float3 lightCol = mix(float3(0.96, 0.95, 0.93), mix(float3(0.34, 0.37, 0.44), tint * 0.6, 0.35 + 0.3 * near), line);
+        float3 darkCol = mix(float3(0.035, 0.04, 0.055), mix(float3(0.50, 0.56, 0.66), tint, 0.4 + 0.3 * near), line);
+        return float4(mix(lightCol, darkCol, u.dark), 1.0);
+    }
+
+    // Halftone: an amplitude-modulated dot screen at 45 degrees (the printer's halftone, Talbot
+    // 1852); each dot's size follows slow fbm, swells near the pointer and pulses with a click.
+    fragment float4 wp_halftone(VOut in [[stage_in]], constant Uniforms& u [[buffer(0)]]) {
+        float s = min(u.res.x, u.res.y);
+        float2 px = pixel(in.pos, u);
+        float gap = max(s / 46.0, 8.0);
+        const float2x2 rot = float2x2(0.70710678, 0.70710678, -0.70710678, 0.70710678);
+        float2 rp = rot * px;
+        float2 cell = floor(rp / gap);
+        float2 center = transpose(rot) * ((cell + 0.5) * gap);
+        float2 cp = center / s;
+        float2 d = cp - u.mouse / s;
+        float tone = fbm(cp * 2.2 + float2(u.time * 0.02, u.time * 0.013));
+        tone = smoothstep(0.25, 0.75, tone) * 0.55;
+        tone += (0.35 + 0.2 * u.energy) * exp(-dot(d, d) * 16.0);
+        tone += rings(cp, u, s, 0.4, 0.04) * 0.3;
+        float radius = gap * 0.46 * sqrt(clamp(tone, 0.0, 1.0));
+        float ink = smoothstep(radius + 0.8, radius - 0.8, length(px - center));
+        float hue = fbm(cp * 0.8 - u.time * 0.01);
+        float3 tint = 0.5 + 0.5 * cos(6.28318 * (hue + float3(0.0, 0.33, 0.67)));
+        float3 lightCol = mix(float3(0.97, 0.96, 0.93), mix(float3(0.20, 0.24, 0.34), tint * 0.5, 0.35), ink);
+        float3 darkCol = mix(float3(0.035, 0.04, 0.055), mix(float3(0.70, 0.75, 0.85), tint, 0.35), ink);
         return float4(mix(lightCol, darkCol, u.dark), 1.0);
     }
     """#
