@@ -132,6 +132,23 @@ public final class RemoteMachinesSidebar {
         rebuild()
     }
 
+    /// Creates the app-facing transport adapter without coupling this model to AppServices.
+    public static func host(socketPath: String?, displayName: @escaping (String) -> String?,
+                            open: @escaping (AgentActivityLane) -> Void) -> Host {
+        Host(
+            peers: {
+                guard let socketPath else { return nil }
+                return try? await AcpmuxPeerList(socketPath: socketPath).peers()
+            },
+            older: { peer, cursor in
+                guard let socketPath else { return nil }
+                return try? await AcpmuxSessionPage(socketPath: socketPath).closed(peer: peer, cursor: cursor,
+                                                                                  limit: RemoteMachinesSidebar.pageSize)
+            },
+            displayName: displayName,
+            open: open)
+    }
+
     public func stop() {
         laneWatch?.cancel()
         refresh.cancel()
@@ -217,9 +234,11 @@ public final class RemoteMachinesSidebar {
         }
         if let rest = Self.suffix(raw, Self.olderSessionPrefix), let cut = rest.firstIndex(of: "/") {
             let (peer, session) = (String(rest[..<cut]), String(rest[rest.index(after: cut)...]))
-            let title = older[peer]?.chats.first { $0.id == session }?.title ?? session
+            let chat = older[peer]?.chats.first { $0.id == session }
+            let title = chat?.title ?? session
             host?.open(AgentActivityLane(id: session, name: peer + "/" + session, title: title, peer: peer, parent: nil, state: .idle,
-                                         since: nil, error: nil))
+                                         since: nil, error: nil, harness: chat?.harness,
+                                         chat: chat?.harness.map { "\($0):\(session)" }))
             return true
         }
         if Self.suffix(raw, Self.resourcesPrefix) != nil { return true }
