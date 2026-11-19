@@ -13,6 +13,8 @@ pub(crate) struct Claims {
     pub sub: String,
     pub email: Option<String>,
     pub plan: Option<String>,
+    /// The ChatGPT account (workspace) the tokens act for.
+    pub account: Option<String>,
 }
 
 /// Why a token is refused; never the token itself.
@@ -101,7 +103,7 @@ pub(crate) fn verify(
     keys: &[Value],
     issuer: &str,
     audience: &str,
-    nonce: &str,
+    nonce: Option<&str>,
     now: i64,
 ) -> Result<Claims, Invalid> {
     let mut parts = token.split('.');
@@ -143,7 +145,11 @@ pub(crate) fn verify(
         Some(exp) if exp + LEEWAY > now => {}
         _ => return Err(Invalid::Expired),
     }
-    if claims.get("nonce").and_then(Value::as_str) != Some(nonce) {
+    // The nonce sent must come back when the issuer echoes one; Codex's client may not echo it
+    // (its sign-in rests on PKCE and `state`), and a token naming another nonce is refused.
+    if let (Some(got), Some(sent)) = (claims.get("nonce"), nonce)
+        && got.as_str() != Some(sent)
+    {
         return Err(Invalid::Nonce);
     }
     let text = |pointer: &str| {
@@ -154,5 +160,6 @@ pub(crate) fn verify(
         sub,
         email: text("/email"),
         plan: text("/https:~1~1api.openai.com~1auth/chatgpt_plan_type"),
+        account: text("/https:~1~1api.openai.com~1auth/chatgpt_account_id"),
     })
 }
