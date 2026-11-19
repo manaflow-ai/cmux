@@ -149,8 +149,8 @@ import Testing
         let pill = strip.convert(try #require(strip.firstTabPillFrame), to: nil)
         let bar = chrome.addressBar.convert(chrome.addressBar.bounds, to: nil)
         let page = chrome.contentContainer.convert(chrome.contentContainer.bounds, to: nil)
-        // Above the tab: from the strip's top in a lower pane, from the window's top in the top row.
-        let top = topRow ? size.height : strip.convert(strip.bounds, to: nil).maxY
+        // Above the tab: from the strip's top in a lower pane, from under the window's lit rim in the top row (Lucas 2026-11-17).
+        let top = topRow ? size.height - WindowTitlebar.topRowRim(in: window) : strip.convert(strip.bounds, to: nil).maxY
         let above = top - pill.maxY, between = pill.minY - bar.maxY, under = bar.minY - page.maxY
         let at = "\(preset.rawValue) top row \(topRow)"
         #expect(abs(between - under) <= 0.5, "\(at): \(between) pt from the tab to the omnibar, \(under) pt from the omnibar to the page")

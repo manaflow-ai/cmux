@@ -41,7 +41,7 @@ import os
 ///   clicked refuses it too, for a few seconds (`InputVerificationService.endRelaunchBehind`).
 final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     private var handlingSendEvent = false
-    /// Set in `CmuxNextApp.shared.main` before `run()`; an update relaunch's startup turns it
+    /// Set in `CmuxNextApp.main` before `run()`; an update relaunch's startup turns it
     /// off again when it ends (`InputVerificationService.endRelaunchBehind`).
     var refusesActivation = false
     /// Set once by `AppServices`. Gets the key-down and the window it goes
