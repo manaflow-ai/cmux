@@ -442,6 +442,13 @@ fn end_as_v1(status: i32) {
     let socket_ours = kept.socket_ours;
     let lock = kept.lock.take();
     kept.unix = None;
+    // The stop left this listener listening for the next image (`server/ws_shutdown.rs`,
+    // `close_admission`); with none, it stops for good here, whatever copies a child holds.
+    #[cfg(target_os = "linux")]
+    if let Some(ws) = &kept.ws {
+        // SAFETY: shutdown on a descriptor this holder owns, open for the whole call.
+        unsafe { libc::shutdown(ws.as_raw_fd(), libc::SHUT_RD) };
+    }
     kept.ws = None;
     drop(kept);
     let home = crate::config::home();

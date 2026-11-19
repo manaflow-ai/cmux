@@ -157,6 +157,12 @@ fn three_restarts_in_a_row_are_each_an_exec_in_place() {
         // Dialed during the handoff: never refused; answered by the new image, or by the old one
         // in its last moment (answered, or ended and then answered on the next dial).
         std::thread::sleep(Duration::from_millis(100));
+        // The WebSocket listener too: the stop leaves it listening for the next image, so a
+        // connect during the handoff waits in its queue and is never refused.
+        let web = listen.as_str().expect("the daemon reports its WebSocket listener");
+        if let Err(e) = std::net::TcpStream::connect(web) {
+            panic!("restart {n}: a connect to {web} during the handoff was refused: {e}");
+        }
         let during = dial(&socket);
         if let Some(reply) = call(during, "_acpmux/status", json!({})) {
             let status = reply.unwrap_or_else(|e| panic!("restart {n}: status refused: {e}"));

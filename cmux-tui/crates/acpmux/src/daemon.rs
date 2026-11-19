@@ -1527,6 +1527,19 @@ pub(crate) fn commit_handoff() -> bool {
     }
 }
 
+/// Whether the stop under way execs in place and so keeps its listeners listening for the next
+/// image (`daemon/handoff.rs`). Always false off Unix.
+pub(crate) fn keeps_listeners() -> bool {
+    #[cfg(unix)]
+    {
+        handoff::handing_off()
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
 /// How many restarts this process came through as an exec in place (`_acpmux/status`
 /// `handoffs`): 0 on a normal start, and always off Unix.
 pub(crate) fn handoffs() -> u32 {
