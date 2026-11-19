@@ -128,7 +128,14 @@ export interface HomeSnapshot {
   /** Which owners take files through this host (asked once at start; absent until it answers). */
   fileSupport?: HomeAttachmentSupport;
   error?: string;
+  /** Why the last Cloud inbox read failed: the Cloud rows are the last good list, read again with
+   * backoff until one answers (absent: it answered, or no Cloud). */
+  cloudError?: string;
 }
+
+/** The first retry of a failed Cloud inbox read, doubled per failure up to the cap. */
+export const CLOUD_RETRY_FIRST_MS = 2_000;
+export const CLOUD_RETRY_MAX_MS = 60_000;
 
 /** The plain sentence of a failure; the owner's own text stays in the error. */
 const describe = (error: unknown) => userMessage(error);
@@ -400,7 +407,32 @@ export class HomeChannelsStore {
     }
   }
 
+  /** The pending retry of a failed Cloud inbox read, and the wait before the next one. */
+  private cloudRetry: ReturnType<typeof setTimeout> | undefined;
+  private cloudRetryMs = CLOUD_RETRY_FIRST_MS;
+
+  /** After a failed Cloud read, reads the inbox again: 2 s, then doubling to one a minute. An
+   * answer (or a stopped page) ends the retries and the next failure starts at 2 s again. */
+  private retryCloud(failed: boolean): void {
+    clearTimeout(this.cloudRetry);
+    this.cloudRetry = undefined;
+    if (!failed || !this.running) {
+      this.cloudRetryMs = CLOUD_RETRY_FIRST_MS;
+      return;
+    }
+    const wait = this.cloudRetryMs;
+    this.cloudRetryMs = Math.min(wait * 2, CLOUD_RETRY_MAX_MS);
+    const life = this.life;
+    this.cloudRetry = setTimeout(() => {
+      this.cloudRetry = undefined;
+      if (life === this.life) void this.reloadInbox();
+    }, wait);
+  }
+
   private stop(): void {
+    clearTimeout(this.cloudRetry);
+    this.cloudRetry = undefined;
+    this.cloudRetryMs = CLOUD_RETRY_FIRST_MS;
     this.life++;
     this.chiefWork.select(undefined);
     this.running = false;
@@ -432,7 +464,9 @@ export class HomeChannelsStore {
         loading: false,
         error: undefined,
         inboxState: inbox.inboxState === true,
+        cloudError: inbox.cloudError,
       });
+      this.retryCloud(inbox.cloudError !== undefined);
       // The open conversation's owner is known now (a reconnect says the viewing again), and an
       // open row the list dropped is no longer viewed (even with nothing to open instead).
       this.syncViewing();
