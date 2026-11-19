@@ -5,6 +5,29 @@
   ],
   "shots": [
     {
+      "name": "golden-before",
+      "entry": "native.window-chrome-shapes",
+      "variant": "recommendation-comfortable-light",
+      "widthName": "normal",
+      "width": 1360,
+      "height": 880,
+      "deviceScaleFactor": 1,
+      "clip": ".window-chrome-gallery",
+      "margin": 0,
+      "arms": {
+        "today-light": "",
+        "today-dark": ""
+      },
+      "armQuery": {
+        "today-light": {
+          "variant": "recommendation-comfortable-light"
+        },
+        "today-dark": {
+          "variant": "recommendation-comfortable-dark"
+        }
+      }
+    },
+    {
       "name": "golden-tabs",
       "entry": "native.window-chrome-shapes",
       "variant": "golden-tabs-soft",
