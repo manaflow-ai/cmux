@@ -281,6 +281,38 @@ class RowsTests(unittest.TestCase):
         self.assertFalse(cron.over_target(name, rows[name], 16.67))
         self.assertNotIn("launch.warm.did_finish_launching_start", rows, "the Dock part's rows never mix with the direct exec's")
 
+    def test_cold_launch_rows_judge_home_against_600_ms(self):
+        """A cold launch (no daemon, empty home, a fresh copy of the bundle each run) stores launch.cold.<mark> rows: Home
+        on screen against 600 ms (goals/next-launch-instant.md) and the first frame against 300 ms (launch-shell-first.md);
+        a run that never showed Home is a missing_runs row, not a dropped value."""
+        part = cron.PART_BY_NAME["launch-cold"]
+        args = part["args"]
+        self.assertEqual(args[args.index("--mode") + 1], "cold")
+        self.assertIn("--fresh-copy", args)
+        self.assertEqual(args[args.index("--ready-mark") + 1], "reveal.home")
+        self.assertEqual(args[args.index("--activation") + 1], "active")
+        slow = {"split-spring": {"cold": [{"main_start": 1500, "first_window_frame_committed": v, "reveal.home": v + 150}
+                                          for v in (2790, 2800, 2950)] + [{"main_start": 1490, "first_window_frame_committed": 2810}]},
+                "not_run": []}
+        rows = cron.rows_of_part(part, slow, budgets_mod, {"rows": {}})
+        home, frame = "launch.cold.reveal.home", "launch.cold.first_window_frame_committed"
+        self.assertEqual(rows[home]["p50"], 2950)
+        self.assertEqual(cron.target_of(home, rows[home], 16.67), 600)
+        self.assertEqual(cron.target_of(frame, rows[frame], 16.67), 300)
+        self.assertTrue(cron.over_target(home, rows[home], 16.67))
+        self.assertEqual(rows[home + ".missing_runs"]["p95"], 1, "the run that never showed Home")
+        self.assertEqual(rows[frame + ".missing_runs"]["p95"], 0)
+        for name in (home, frame, home + ".missing_runs"):
+            self.assertEqual(cron.part_for_row(name), "launch-cold")
+        self.assertEqual(cron.part_for_row("launch.warm.reveal.home"), "launch")
+        self.assertNotIn("launch.cold.sidebar_rows_shown", rows, "only the cold budget's marks are rows")
+        regs = cron.find_regressions({home: rows[home]}, {}, 16.67, 16.67, budgets_mod)
+        self.assertEqual([r["name"] for r in regs], [home], "over 600 ms with no reference is still listed")
+        fast = {"split-spring": {"cold": [{"first_window_frame_committed": v, "reveal.home": v + 200} for v in (240, 260, 280)]}}
+        rows = cron.rows_of_part(part, fast, budgets_mod, {"rows": {}})
+        self.assertFalse(cron.over_target(home, rows[home], 16.67))
+        self.assertFalse(cron.over_target(frame, rows[frame], 16.67))
+
     def test_stress_pane_summary_rows(self):
         report = {"summary": [{"action": "close", "layout": "stress", "frames_p50_ms": 16.6, "frames_p95_ms": 33.3}],
                   "runs": [{"refresh_ms": 16.67}]}
