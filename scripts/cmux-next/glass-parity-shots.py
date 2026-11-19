@@ -262,9 +262,13 @@ try:
                 params.setdefault("opacity", 1)
                 params.setdefault("row", "rest")
                 params.update({"scale": scale, "measure": True, "dir": opts.out})
-                if opts.activate and not params["active"]:
-                    # Another app takes activation (the Finder opens no window), so the playground is inactive.
-                    subprocess.run(["open", "-a", "Finder"], capture_output=True)
+                if opts.activate:
+                    # Activation is the system's to give: an app started by a process that is no app (this harness) is
+                    # never made active by its own request (fleet run b44f5987: every active cell came back with the app
+                    # inactive). LaunchServices activates the running app at this bundle path, as a Dock click would,
+                    # and the playground then makes its window key; an inactive cell gives activation to the Finder
+                    # (it opens no window).
+                    subprocess.run(["open", "-a", opts.app if params["active"] else "Finder"], capture_output=True)
                 reply = rpc("debug.glass_parity", params) or {}
                 status = reply.get("status") or {}
                 if status.get("scale") is not None and abs(float(status["scale"]) - scale) > 0.01:

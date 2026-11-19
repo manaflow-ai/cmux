@@ -49,7 +49,7 @@
   color: var(--agent-text);
 }
 .acpmux-session-info-usage__sort-option[aria-pressed="true"] {
-  background: var(--ds-color-pressed);
+  background: var(--ds-color-selection);
   color: var(--agent-text);
 }
 .acpmux-session-info-usage__sort-option:focus-visible {

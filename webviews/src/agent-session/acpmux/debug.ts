@@ -11,6 +11,7 @@ import type { LoadRunOptions, LoadTickOptions } from "./loadDebug";
 import { shownPresence } from "./multiplayer/livePresenceModel";
 import { acpWire, type AcpWireLog } from "./wire";
 import { tickWatch } from "./tickWatch";
+import { wantAllSessions } from "./sessionPages";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
 import type { IdleProbeOptions } from "./idleProbe";
@@ -63,6 +64,9 @@ export type AcpmuxDebug = {
    * child elements), then ends it as a drag does (pointerup), so the selection and its Reply chip show as a
    * person's would: captures of the chat's selection (no drag reaches a Chromium page in a capture slot). */
   selectText(selector: string, from: number, to: number): Record<string, unknown>;
+  /** Has the pane read every chat, not only the first page's, as the composer's @ chat search asks
+   *  (sessionPages.ts `wantAllSessions`). */
+  wantAllSessions(): void;
   /** Automation (automation.ts): the chat state a script reads, and the verbs it drives. */
   chatState(): Record<string, unknown>;
   sendPrompt(text: string): Promise<Record<string, unknown>>;
@@ -418,6 +422,10 @@ export function createAcpmuxDebug(
       if (typeof text !== "string" || !text.trim()) return { shown: false, text: "", error: "toast needs text" };
       host.toast?.(text);
       return { shown: host.toast != null, text };
+    },
+
+    wantAllSessions() {
+      wantAllSessions();
     },
 
     chatState() {

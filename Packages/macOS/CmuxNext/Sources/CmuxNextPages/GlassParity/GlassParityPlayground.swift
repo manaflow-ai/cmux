@@ -348,7 +348,7 @@ public final class GlassParityPlayground {
     }
 
     /// Waits until `done` holds or `limit` passes, woken by the pages' reports and one deadline.
-    private func wait(until done: () -> Bool, limit: Duration) async {
+    func wait(until done: () -> Bool, limit: Duration) async {
         deadlinePassed = false
         deadline.schedule(after: limit) { @MainActor [weak self] in
             self?.deadlinePassed = true
