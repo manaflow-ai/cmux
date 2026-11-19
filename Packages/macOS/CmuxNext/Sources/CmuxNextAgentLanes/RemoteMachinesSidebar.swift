@@ -121,6 +121,8 @@ public final class RemoteMachinesSidebar {
     @ObservationIgnored private var builtRevision: UInt64?
     @ObservationIgnored private var builtPeers: [AcpmuxPeerList.Peer]?
     @ObservationIgnored private var builtFixture = false
+    /// ``update(_:)`` changed `model` and then gave up: the whole build that follows must announce itself.
+    @ObservationIgnored private var partMoved = false
     /// The unfolded machines (folded by default). This view state stays on this Mac.
     public var expanded: Set<String> = Set(UserDefaults.standard.stringArray(forKey: RemoteMachinesSidebar.expandedKey) ?? []) {
         didSet { UserDefaults.standard.set(expanded.sorted(), forKey: Self.expandedKey) }
@@ -281,7 +283,9 @@ public final class RemoteMachinesSidebar {
             : Self.machines(lanes: lanes.lanes.values, peers: peers)
         ScaleWork.add(.lanesWalked, model.reduce(0) { $0 + $1.chats.count }) // the comparison
         (builtRevision, builtPeers, builtFixture) = (fixture ? nil : revision, peers, fixture)
-        if model != next { machines = next } else { reindex() }
+        // A move that gave up part way left `model` changed but unannounced: announce the build either way then.
+        if model != next || partMoved { machines = next } else { reindex() }
+        partMoved = false
     }
 
     /// Indexes `model` after a whole build: each machine by peer, each shown chat's machine and place.
@@ -311,13 +315,17 @@ public final class RemoteMachinesSidebar {
                 if let index = machineIndex[peer] {
                     if model[index].online { target = index }
                 } else if peers == nil {
+                    partMoved = partMoved || changed
                     return false // a new machine
                 }
             }
             let chat = lane.map(Self.chat)
             if let was = placed[id], let index = machineIndex[was.peer] {
-                let at = Self.place(of: (was.since, was.name), id: id, in: model[index].chats, placed: placed)
-                guard let at else { return false }
+                let at = Self.place(of: (was.since, was.name, id), id: id, in: model[index].chats, placed: placed)
+                guard let at else {
+                    partMoved = partMoved || changed
+                    return false
+                }
                 if index == target, let chat, model[index].chats[at] == chat, was.since == chat.since, was.name == lane?.name {
                     continue // nothing it draws or its place changed
                 }
@@ -326,10 +334,13 @@ public final class RemoteMachinesSidebar {
                 placed[id] = nil
                 changed = true
                 // A machine named only by its lanes goes with its last chat.
-                if peers == nil, model[index].chats.isEmpty, target != index { return false }
+                if peers == nil, model[index].chats.isEmpty, target != index {
+                    partMoved = true
+                    return false
+                }
             }
             guard let target, let chat, let lane else { continue }
-            let at = Self.insertion(of: (chat.since, lane.name), in: model[target].chats, placed: placed)
+            let at = Self.insertion(of: (chat.since, lane.name, id), in: model[target].chats, placed: placed)
             model[target].chats.insert(chat, at: at)
             model[target].count(chat, by: 1)
             placed[id] = (model[target].peer, chat.since, lane.name)
@@ -340,12 +351,12 @@ public final class RemoteMachinesSidebar {
     }
 
     /// Whether place key `a` comes before `b`: as ``newer(_:_:)`` orders lanes.
-    private static func before(_ a: (since: Date, name: String), _ b: (since: Date, name: String)) -> Bool {
-        a.since != b.since ? a.since > b.since : a.name < b.name
+    private static func before(_ a: (since: Date, name: String, id: String), _ b: (since: Date, name: String, id: String)) -> Bool {
+        a.since != b.since ? a.since > b.since : a.name != b.name ? a.name < b.name : a.id < b.id
     }
 
     /// The first index whose chat does not come before `key`.
-    private static func insertion(of key: (since: Date, name: String), in chats: [Chat],
+    private static func insertion(of key: (since: Date, name: String, id: String), in chats: [Chat],
                                   placed: [String: (peer: String, since: Date, name: String)]) -> Int {
         var (low, high) = (0, chats.count)
         var probes = 0
@@ -353,20 +364,20 @@ public final class RemoteMachinesSidebar {
         while low < high {
             probes += 1
             let mid = (low + high) / 2
-            let other = placed[chats[mid].id].map { ($0.since, $0.name) } ?? (chats[mid].since, "")
+            let other = placed[chats[mid].id].map { ($0.since, $0.name, chats[mid].id) } ?? (chats[mid].since, "", chats[mid].id)
             if before(other, key) { low = mid + 1 } else { high = mid }
         }
         return low
     }
 
     /// Where chat `id`, at place key `key`, is in `chats`; nil when it is not there.
-    private static func place(of key: (since: Date, name: String), id: String, in chats: [Chat],
+    private static func place(of key: (since: Date, name: String, id: String), id: String, in chats: [Chat],
                               placed: [String: (peer: String, since: Date, name: String)]) -> Int? {
         var at = insertion(of: key, in: chats, placed: placed)
         // Chats with the same key sit together; it is one of them.
         while at < chats.count {
             if chats[at].id == id { return at }
-            let other = placed[chats[at].id].map { ($0.since, $0.name) } ?? (chats[at].since, "")
+            let other = placed[chats[at].id].map { ($0.since, $0.name, chats[at].id) } ?? (chats[at].since, "", chats[at].id)
             if before(key, other) { break }
             at += 1
         }
@@ -469,7 +480,7 @@ public final class RemoteMachinesSidebar {
     /// Newest first by when it last changed state (a step leaves the order alone), then by name.
     static func newer(_ a: AgentActivityLane, _ b: AgentActivityLane) -> Bool {
         let (x, y) = (a.since ?? a.createdAt ?? .distantPast, b.since ?? b.createdAt ?? .distantPast)
-        return x != y ? x > y : a.name < b.name
+        return x != y ? x > y : a.name != b.name ? a.name < b.name : a.id < b.id
     }
 
     static func chat(_ lane: AgentActivityLane) -> Chat {
