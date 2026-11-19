@@ -222,5 +222,9 @@ grep -q 'scripts/ci/fetch-ghostty-zig-packages.sh' "$ROOT/.github/actions/ghostt
 save_if="$(grep -A1 'name: Save the Zig packages' "$ROOT/.github/actions/ghostty-zig-packages/action.yml" | sed -n 's/.*if: //p')"
 [[ "$save_if" == *"github.event_name == 'push'"* ]] \
   || { echo "FAIL: the Zig package cache is saved on more than push events: $save_if" >&2; exit 1; }
+# And only a feat-cmux-next push: an entry belongs to the ref that saved it, so a lane branch's
+# copy is read by that branch alone (2026-11-18: 18 lane copies of one 110 MB key).
+[[ "$save_if" == *"github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'"* ]] \
+  || { echo "FAIL: the Zig package cache is saved from pushes to other branches: $save_if" >&2; exit 1; }
 
 echo "PASS: Ghostty Zig packages are fetched with bounded, progress-deadlined retries"
