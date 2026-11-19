@@ -275,22 +275,23 @@ impl GitPlan {
         if base_of(folder)? != self.local {
             bail!("this Mac's branch or staged changes changed during the pull");
         }
+        // The index as it was, for [`Self::undo`], kept before anything moves.
+        if self.staged.is_some() {
+            let kept = self.quarantine.join("index-before");
+            match std::fs::copy(index_file(folder)?, &kept) {
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(anyhow::Error::from(error).context("cannot keep the index"));
+                }
+            }
+        }
         if let Some(head) = &self.head {
             let old = self.local.head.clone().unwrap_or_else(|| "0".repeat(head.len()));
             self.move_ref(folder, head, &old).context("cannot move the branch")?;
         }
         if let Some(staged) = &self.staged {
-            // The index as it was, for [`Self::undo`].
-            let kept = self.quarantine.join("index-before");
-            let index = index_file(folder)?;
-            let saved = match std::fs::copy(&index, &kept) {
-                Ok(_) => Ok(()),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                Err(error) => Err(anyhow::Error::from(error).context("cannot keep the index")),
-            };
-            let read = saved.and_then(|()| {
-                checked(local(folder).arg("read-tree").arg(format!("{staged}^{{tree}}")))
-            });
+            let read = checked(local(folder).arg("read-tree").arg(format!("{staged}^{{tree}}")));
             if let Err(error) = read {
                 if self.head.is_some() {
                     let _ = self.unmove_ref(folder);

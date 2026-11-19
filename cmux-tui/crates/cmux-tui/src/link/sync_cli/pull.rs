@@ -213,7 +213,7 @@ fn pull_based(
         prefix: String::new(),
         local: local.clone(),
         remote_root: remote_root.to_owned(),
-        manifest: manifest.clone(),
+        manifest: std::borrow::Cow::Borrowed(&manifest),
         git,
         plain_in_git,
     }]);
@@ -257,7 +257,7 @@ fn pull_based(
                     prefix: format!("{prefix}{dir}/"),
                     local: at,
                     remote_root: format!("{}/{dir}", scope.remote_root),
-                    manifest: within(&scope.manifest, &dir),
+                    manifest: std::borrow::Cow::Owned(within(&scope.manifest, &dir)),
                     git: Some(dirs),
                     plain_in_git: false,
                 }),
@@ -446,13 +446,14 @@ fn pull_based(
 }
 
 /// One working copy a pull brings back: the folder, or a repository inside it.
-struct Scope {
+struct Scope<'a> {
     /// Its folder from the top, ending in `/` (empty for the top).
     prefix: String,
     local: PathBuf,
     remote_root: String,
-    /// The part of the record under it, by paths from it ([`within`]).
-    manifest: Manifest,
+    /// The part of the record under it, by paths from it ([`within`]): the record itself for
+    /// the top.
+    manifest: std::borrow::Cow<'a, Manifest>,
     git: Option<GitDirs>,
     plain_in_git: bool,
 }
@@ -526,7 +527,7 @@ fn own_repository(
 /// `skips` by their path from the top.
 fn plan_scope(
     remote: &mut Remote,
-    scope: &Scope,
+    scope: &Scope<'_>,
     staging: &Staging,
     quarantine: &Path,
     keep_new: &dyn Fn(&str) -> bool,
@@ -535,6 +536,7 @@ fn plan_scope(
 ) -> anyhow::Result<ScopePlan> {
     let Scope { prefix, local, remote_root, manifest, git, plain_in_git } = scope;
     let (local, remote_root, plain_in_git) = (local.as_path(), remote_root.as_str(), *plain_in_git);
+    let manifest: &Manifest = manifest;
     let root = Dir::open(local)?;
     let hooks = if git.is_some() { hook_folders(local)? } else { Vec::new() };
     let MachineFiles { found, mut skipped, mut fenced } =
