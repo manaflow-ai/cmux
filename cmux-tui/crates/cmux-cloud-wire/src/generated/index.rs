@@ -61,6 +61,8 @@ pub mod op_names {
     pub const CLOUD_SNAPSHOT_DELETE: &str = "cloud.snapshot.delete";
     pub const CLOUD_SNAPSHOT_LIST: &str = "cloud.snapshot.list";
     pub const CLOUD_SNAPSHOT_RESTORE: &str = "cloud.snapshot.restore";
+    pub const CLOUD_START_TRACE_GET: &str = "cloud.start_trace.get";
+    pub const CLOUD_START_TRACE_LIST: &str = "cloud.start_trace.list";
     pub const CLOUD_VM_ATTENTION_EMIT: &str = "cloud.vm.attention.emit";
     pub const CLOUD_VM_EVENT_EMIT: &str = "cloud.vm.event.emit";
     pub const CLOUD_VM_NETWORK_POLICY: &str = "cloud.vm.network_policy";
@@ -306,6 +308,8 @@ pub mod op_names {
         CLOUD_SNAPSHOT_DELETE,
         CLOUD_SNAPSHOT_LIST,
         CLOUD_SNAPSHOT_RESTORE,
+        CLOUD_START_TRACE_GET,
+        CLOUD_START_TRACE_LIST,
         CLOUD_VM_ATTENTION_EMIT,
         CLOUD_VM_EVENT_EMIT,
         CLOUD_VM_NETWORK_POLICY,
@@ -554,6 +558,8 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "cloud.snapshot.delete" => visitor.visit::<CloudSnapshotDeleteOp>(),
         "cloud.snapshot.list" => visitor.visit::<CloudSnapshotListOp>(),
         "cloud.snapshot.restore" => visitor.visit::<CloudSnapshotRestoreOp>(),
+        "cloud.start_trace.get" => visitor.visit::<CloudStartTraceGetOp>(),
+        "cloud.start_trace.list" => visitor.visit::<CloudStartTraceListOp>(),
         "cloud.vm.attention.emit" => visitor.visit::<CloudVmAttentionEmitOp>(),
         "cloud.vm.event.emit" => visitor.visit::<CloudVmEventEmitOp>(),
         "cloud.vm.network_policy" => visitor.visit::<CloudVmNetworkPolicyOp>(),

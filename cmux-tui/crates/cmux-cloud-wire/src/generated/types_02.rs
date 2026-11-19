@@ -4,6 +4,41 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    ConversationKind {
+        Chief = "chief",
+        Dm = "dm",
+        Group = "group",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CronSpec {
+    pub expr: String,
+    pub tz: String,
+}
+
+/// A device (hardware) that groups installs.
+pub type DeviceId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DeviceStatus {
+    pub install: InstallId,
+    pub user: String,
+    pub policy_version: i64,
+    pub app_version: String,
+    pub mdm_keys: Vec<String>,
+    pub conflicts: Vec<String>,
+    pub reported_at: i64,
+}
+
+pub type EgressHost = String;
+
+pub type EmailAddress = String;
+
+/// A lowercase DNS name such as acme.com.
+pub type EmailDomain = String;
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EnrollmentToken {
     pub id: EnrollmentTokenId,
@@ -863,40 +898,4 @@ pub struct Host {
     pub network: Option<ServerNetworkState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub orphaned: Option<HostOrphaned>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostOrphaned {
-    pub at: i64,
-    pub former_owner: UserId,
-}
-
-/// A machine's session host, enrolled by its link.
-pub type HostId = String;
-
-wire_enum! {
-    HostKind {
-        Device = "device",
-        Server = "server",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkPeer {
-    pub host: HostId,
-    pub user: UserId,
-    pub install: InstallId,
-    pub device: NativeDeviceId,
-    pub wg_public_key: WgPublicKey,
-    pub install_public_key: String,
-    pub authority_version: String,
-    pub inbound: Vec<HostNetworkPeerInboundItem>,
-    pub outbound: Vec<HostNetworkPeerOutboundItem>,
-}
-
-wire_enum! {
-    HostNetworkPeerInboundItemVariant1Protocol {
-        Tcp = "tcp",
-        Udp = "udp",
-    }
 }

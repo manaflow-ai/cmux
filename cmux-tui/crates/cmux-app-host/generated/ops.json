@@ -119,6 +119,8 @@
     "cloud.retention.set",
     "cloud.shell.open",
     "cloud.snapshot.list",
+    "cloud.start_trace.get",
+    "cloud.start_trace.list",
     "cloud.vm.attention.emit",
     "cloud.vm.event.emit",
     "cloud.vm.network_policy",

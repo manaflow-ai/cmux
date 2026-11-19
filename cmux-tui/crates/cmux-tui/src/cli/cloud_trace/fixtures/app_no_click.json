@@ -1,0 +1,11 @@
+{
+  "trace": "app-idempotency-key-0001",
+  "machine": null,
+  "started_at": 1795611600000,
+  "total_ms": 1500,
+  "path": null,
+  "spans": [
+    {"hop": "api", "start_ms": 1795611600000, "end_ms": 1795611601500, "source": "platform", "attrs": {}},
+    {"hop": "placement", "start_ms": 1795611600100, "end_ms": 1795611600400, "source": "platform", "attrs": {}}
+  ]
+}

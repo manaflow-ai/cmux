@@ -107,6 +107,7 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("cloud.machine.not_found", codes::NOT_FOUND),
     ("cloud.snapshot.not_found", codes::NOT_FOUND),
     ("cloud.environment.not_found", codes::NOT_FOUND),
+    ("cloud.start_trace.not_found", codes::NOT_FOUND),
     ("cloud.environment.invalid", codes::ENVIRONMENT_INVALID),
     ("cloud.environment.busy", codes::ENVIRONMENT_BUSY),
     ("cloud.environment.secrets_unavailable", codes::SECRETS_UNAVAILABLE),

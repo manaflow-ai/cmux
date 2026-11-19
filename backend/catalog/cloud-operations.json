@@ -2463,6 +2463,83 @@
         }
       }
     },
+    "CloudStartHop": {
+      "kind": "enum",
+      "values": [
+        "click",
+        "api",
+        "placement",
+        "provider_create",
+        "restore",
+        "boot",
+        "network",
+        "agent_auth",
+        "first_token"
+      ]
+    },
+    "CloudStartSpan": {
+      "kind": "object",
+      "fields": {
+        "hop": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "CloudStartHop"
+          }
+        },
+        "start_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "end_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "source": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "app",
+              "cli",
+              "platform",
+              "machine"
+            ]
+          }
+        },
+        "attrs": {
+          "required": true,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "CloudStartTraceId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,80}$",
+      "description": "A Cloud start trace (the create's trace, else its idempotency key)."
+    },
     "CloudVmNetwork": {
       "kind": "object",
       "fields": {
@@ -35659,6 +35736,595 @@
               "revision"
             ],
             "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.start_trace.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "trace": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudStartTraceId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "trace": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudStartTraceId"
+            }
+          },
+          "machine": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "started_at": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "total_ms": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "spans": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "CloudStartSpan"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "cloud.start_trace.not_found",
+        "owner.unreachable",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "cloud start-trace get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "One Cloud start trace: its spans sorted by start, the machine it made and its path (spare, create or resume). Kept 48 h.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "trace": {
+            "$ref": "#/$defs/CloudStartTraceId"
+          }
+        },
+        "required": [
+          "trace"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "CloudStartTraceId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,80}$",
+            "description": "A Cloud start trace (the create's trace, else its idempotency key)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "trace": {
+            "$ref": "#/$defs/CloudStartTraceId"
+          },
+          "machine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "total_ms": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CloudStartSpan"
+            }
+          }
+        },
+        "required": [
+          "trace",
+          "machine",
+          "started_at",
+          "total_ms",
+          "path",
+          "spans"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "CloudStartTraceId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,80}$",
+            "description": "A Cloud start trace (the create's trace, else its idempotency key)."
+          },
+          "CloudStartHop": {
+            "type": "string",
+            "enum": [
+              "click",
+              "api",
+              "placement",
+              "provider_create",
+              "restore",
+              "boot",
+              "network",
+              "agent_auth",
+              "first_token"
+            ]
+          },
+          "CloudStartSpan": {
+            "type": "object",
+            "properties": {
+              "hop": {
+                "$ref": "#/$defs/CloudStartHop"
+              },
+              "start_ms": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "end_ms": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "app",
+                  "cli",
+                  "platform",
+                  "machine"
+                ]
+              },
+              "attrs": {
+                "type": "object",
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              }
+            },
+            "required": [
+              "hop",
+              "start_ms",
+              "end_ms",
+              "source",
+              "attrs"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.start_trace.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "since_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "window_ms": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "since_ms": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "traces": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "object",
+                "fields": {
+                  "trace": {
+                    "required": true,
+                    "type": {
+                      "kind": "ref",
+                      "name": "CloudStartTraceId"
+                    }
+                  },
+                  "machine": {
+                    "required": true,
+                    "type": {
+                      "kind": "nullable",
+                      "inner": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    }
+                  },
+                  "started_at": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "total_ms": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "path": {
+                    "required": true,
+                    "type": {
+                      "kind": "nullable",
+                      "inner": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    }
+                  },
+                  "hops_seen": {
+                    "required": true,
+                    "type": {
+                      "kind": "array",
+                      "items": {
+                        "kind": "ref",
+                        "name": "CloudStartHop"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "hops": {
+            "required": true,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "object",
+                "fields": {
+                  "n": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "p50_ms": {
+                    "required": true,
+                    "type": {
+                      "kind": "nullable",
+                      "inner": {
+                        "kind": "primitive",
+                        "name": "float64"
+                      }
+                    }
+                  },
+                  "p95_ms": {
+                    "required": true,
+                    "type": {
+                      "kind": "nullable",
+                      "inner": {
+                        "kind": "primitive",
+                        "name": "float64"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "owner.unreachable",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "cloud start-trace list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "The team's Cloud start traces since since_ms (default the last 24 h), newest first, at most limit (default and most 200), with each hop's p50 and p95 over them.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "since_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "window_ms": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "since_ms": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "traces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "trace": {
+                  "$ref": "#/$defs/CloudStartTraceId"
+                },
+                "machine": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "started_at": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "total_ms": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "path": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "hops_seen": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/CloudStartHop"
+                  }
+                }
+              },
+              "required": [
+                "trace",
+                "machine",
+                "started_at",
+                "total_ms",
+                "path",
+                "hops_seen"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "hops": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "n": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "p50_ms": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "p95_ms": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "n",
+                "p50_ms",
+                "p95_ms"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "window_ms",
+          "since_ms",
+          "traces",
+          "hops"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "CloudStartTraceId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,80}$",
+            "description": "A Cloud start trace (the create's trace, else its idempotency key)."
+          },
+          "CloudStartHop": {
+            "type": "string",
+            "enum": [
+              "click",
+              "api",
+              "placement",
+              "provider_create",
+              "restore",
+              "boot",
+              "network",
+              "agent_auth",
+              "first_token"
+            ]
           }
         }
       }

@@ -47,6 +47,9 @@ export const CloudOps = {
   billingCheckout: "cmux.cloud.billing.checkout",
   migrationStatus: "cmux.cloud.migration.status",
   migrationStart: "cmux.cloud.migration.start",
+  /** DEV and NIGHTLY only: a release Cloud server answers `cmux.cloud.unsupported`. */
+  startTraceGet: "cmux.cloud.start_trace.get",
+  startTraceList: "cmux.cloud.start_trace.list",
   fsList: "cmux.cloud.fs.list",
   fsStat: "cmux.cloud.fs.stat",
   fsRead: "cmux.cloud.fs.read",
@@ -384,6 +387,12 @@ export type MigrationState = MigrationStatus["state"];
 
 /** `cloud.migration.start`: one way, per user. */
 export type MigrationStarted = Result<"cloud.migration.start">;
+
+/** `cloud.start_trace.get {trace}`: one Cloud start trace, the platform's body verbatim. */
+export type StartTrace = Result<"cloud.start_trace.get">;
+
+/** `cloud.start_trace.list {since_ms?, limit?}`: recent start traces and each hop's p50/p95. */
+export type StartTraceList = Result<"cloud.start_trace.list">;
 
 /** `cloud.machine.create` params (contract 1.3), without the key. */
 export type CreateMachineArgs = Wire.CloudOps["cloud.machine.create"]["params"];

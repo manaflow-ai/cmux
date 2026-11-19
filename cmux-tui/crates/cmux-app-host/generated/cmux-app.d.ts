@@ -96,6 +96,9 @@ declare namespace Cmux {
   type CloudSessionView = { key: string; team: Cmux.TeamId; vm: Cmux.CloudSessionVm; session: Cmux.CloudSessionId; kind: Cmux.CloudSessionKind; workspace?: Cmux.CloudSessionId; title: string; harness?: string; owner: Cmux.UserId; owner_name: string | null; assignee: Cmux.UserId; assignee_name: string | null; machine_state: Cmux.CloudSessionMachineState; activity: Cmux.CloudSessionActivity; last_activity_at: number; created_at: number; archived: boolean; followers: Array<Cmux.UserId>; follower_count: number; following: boolean; assigned_to_you: boolean; viewers: Array<Cmux.UserId>; can_reassign: boolean; can_archive: boolean; link: string }
   type CloudSessionVm = string
   type CloudSnapshot = { id: Cmux.SnapshotId; machine: Cmux.MachineId; name: string | null; size_mb: number; status: "creating" | "ready" | "deleting" | "failed"; created_at: number; archive_of?: { machine: Cmux.MachineId; name: string | null; until: number } | null; revision: Cmux.Revision }
+  type CloudStartHop = "click" | "api" | "placement" | "provider_create" | "restore" | "boot" | "network" | "agent_auth" | "first_token"
+  type CloudStartSpan = { hop: Cmux.CloudStartHop; start_ms: number; end_ms: number; source: "app" | "cli" | "platform" | "machine"; attrs: Record<string, unknown> }
+  type CloudStartTraceId = string
   type CloudVmNetwork = { tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; ipv4_cidr: string; ipv4: string | null }
   type CloudVmNetworkPolicyView = { schema_version: 2; machine: Cmux.MachineId; host: Cmux.HostId; epoch: number; receiver_generation: string | null; user: Cmux.UserId; install: Cmux.InstallId; team: Cmux.TeamId; origin: string; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; vm: string; ipv4: string | null; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; checked_at: number; expires_at: number; admit_until?: number; acl_version: number; policy_digest: string; peers: Array<Cmux.CloudVmReceiverPeer> }
   type CloudVmReceiverPeer = { host: Cmux.HostId; user: Cmux.UserId; install: Cmux.InstallId; device: Cmux.NativeDeviceId; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; services: Array<"daemon" | "ssh" | "desktop"> }
@@ -891,6 +894,12 @@ interface CmuxGlobal {
     snapshot: {
       /** `cloud.snapshot.list` (read, scope `cloud:read`): Snapshots of one machine, or of the team. */
       list: CmuxOp<{ machine?: Cmux.MachineId }, { snapshots: Array<Cmux.CloudSnapshot> }>
+    }
+    start_trace: {
+      /** `cloud.start_trace.get` (read, scope `cloud:read`): One Cloud start trace: its spans sorted by start, the machine it made and its path (spare, create or resume). Kept 48 h. */
+      get: CmuxOp<{ trace: Cmux.CloudStartTraceId }, { trace: Cmux.CloudStartTraceId; machine: string | null; started_at: number; total_ms: number; path: string | null; spans: Array<Cmux.CloudStartSpan> }>
+      /** `cloud.start_trace.list` (read, scope `cloud:read`): The team's Cloud start traces since since_ms (default the last 24 h), newest first, at most limit (default and most 200), with each hop's p50 and p95 over them. */
+      list: CmuxOp<{ since_ms?: number; limit?: number }, { window_ms: number; since_ms: number; traces: Array<{ trace: Cmux.CloudStartTraceId; machine: string | null; started_at: number; total_ms: number; path: string | null; hops_seen: Array<Cmux.CloudStartHop> }>; hops: Record<string, { n: number; p50_ms: number | null; p95_ms: number | null }> }>
     }
     vm: {
       attention: {

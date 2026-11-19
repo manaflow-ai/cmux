@@ -4,6 +4,107 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkTargetParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh: Option<NativeMeshId>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkTargetResult {
+    pub team: TeamId,
+    pub tenant: NativeTenantId,
+    pub project: String,
+    pub origin: String,
+    pub mesh: NativeMeshId,
+    pub ipv4_cidr: String,
+}
+
+wire_errors! {
+    /// The error codes host.network.target declares.
+    HostNetworkTargetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Remove a host from the team directory (its owner or a team admin).
+    HostRemoveOp {
+        name: "host.remove",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session, Install],
+        params: HostRemoveParams,
+        result: HostRemoveResult,
+        error: HostRemoveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostRemoveParams {
+    pub host: HostId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostRemoveResult {
+    pub host: HostId,
+}
+
+wire_errors! {
+    /// The error codes host.remove declares.
+    HostRemoveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Delete the cloud copy of a host's read replica (its owner only), also while the host is off. The host stays enrolled; it publishes again only while its own app keeps the replica on.
+    HostReplicaPurgeOp {
+        name: "host.replica.purge",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session, Install],
+        params: HostReplicaPurgeParams,
+        result: HostReplicaPurgeResult,
+        error: HostReplicaPurgeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostReplicaPurgeParams {
+    pub host: HostId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostReplicaPurgeResult {
+    pub host: HostId,
+}
+
+wire_errors! {
+    /// The error codes host.replica.purge declares.
+    HostReplicaPurgeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Archive or unarchive a conversation; a new message unarchives it.
     InboxArchiveOp {
@@ -794,109 +895,4 @@ wire_op! {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct InviteAcceptVerifiedParams {
     pub conversation: ConversationId,
-}
-
-wire_errors! {
-    /// The error codes invite.accept_verified declares.
-    InviteAcceptVerifiedError {
-        AcceptLocked = "accept_locked",
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InviteExpired = "invite_expired",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        UnknownInvite = "unknown_invite",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Approve (default) or decline a join that waits for approval (pending_approval).
-    InviteApproveJoinOp {
-        name: "invite.approve_join",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: InviteApproveJoinParams,
-        result: HomeConversationCommit,
-        error: InviteApproveJoinError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InviteApproveJoinParams {
-    pub conversation: ConversationId,
-    pub invite_id: InviteId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub approve: Option<bool>,
-}
-
-wire_errors! {
-    /// The error codes invite.approve_join declares.
-    InviteApproveJoinError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InviteNotPending = "invite_not_pending",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        UnknownInvite = "unknown_invite",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Invite an email or phone to the conversation. The Worker normalizes the address, checks limits and suppression, and the invite is sent by email or iMessage/SMS after the commit.
-    InviteCreateOp {
-        name: "invite.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "send-external",
-        principals: [Session, Install],
-        params: InviteCreateParams,
-        result: HomeConversationCommit,
-        error: InviteCreateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InviteCreateParamsAddressVariant1 {
-    pub email: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InviteCreateParamsAddressVariant2 {
-    pub phone: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum InviteCreateParamsAddress {
-    Variant1(InviteCreateParamsAddressVariant1),
-    Variant2(InviteCreateParamsAddressVariant2),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InviteCreateParams {
-    pub conversation: ConversationId,
-    pub address: InviteCreateParamsAddress,
-    pub display_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub locale: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub copy_variant: Option<String>,
 }

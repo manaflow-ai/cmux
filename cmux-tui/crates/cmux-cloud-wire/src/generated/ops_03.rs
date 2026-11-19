@@ -618,6 +618,111 @@ wire_errors! {
 }
 
 wire_op! {
+    /// One Cloud start trace: its spans sorted by start, the machine it made and its path (spare, create or resume). Kept 48 h.
+    CloudStartTraceGetOp {
+        name: "cloud.start_trace.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudStartTraceGetParams,
+        result: CloudStartTraceGetResult,
+        error: CloudStartTraceGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudStartTraceGetParams {
+    pub trace: CloudStartTraceId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudStartTraceGetResult {
+    pub trace: CloudStartTraceId,
+    pub machine: Option<String>,
+    pub started_at: i64,
+    pub total_ms: i64,
+    pub path: Option<String>,
+    pub spans: Vec<CloudStartSpan>,
+}
+
+wire_errors! {
+    /// The error codes cloud.start_trace.get declares.
+    CloudStartTraceGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudStartTraceNotFound = "cloud.start_trace.not_found",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The team's Cloud start traces since since_ms (default the last 24 h), newest first, at most limit (default and most 200), with each hop's p50 and p95 over them.
+    CloudStartTraceListOp {
+        name: "cloud.start_trace.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudStartTraceListParams,
+        result: CloudStartTraceListResult,
+        error: CloudStartTraceListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudStartTraceListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudStartTraceListResultTracesItem {
+    pub trace: CloudStartTraceId,
+    pub machine: Option<String>,
+    pub started_at: i64,
+    pub total_ms: i64,
+    pub path: Option<String>,
+    pub hops_seen: Vec<CloudStartHop>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudStartTraceListResultHopsValue {
+    pub n: i64,
+    pub p50_ms: Option<f64>,
+    pub p95_ms: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudStartTraceListResult {
+    pub window_ms: i64,
+    pub since_ms: i64,
+    pub traces: Vec<CloudStartTraceListResultTracesItem>,
+    pub hops: BTreeMap<String, CloudStartTraceListResultHopsValue>,
+}
+
+wire_errors! {
+    /// The error codes cloud.start_trace.list declares.
+    CloudStartTraceListError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine).
     CloudVmAttentionEmitOp {
         name: "cloud.vm.attention.emit",
@@ -798,105 +903,4 @@ wire_enum! {
         Ready = "ready",
         Stopped = "stopped",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmReceiverLifecycleResult {
-    pub machine: MachineId,
-    pub generation: String,
-    pub phase: CloudVmReceiverLifecycleResultPhase,
-}
-
-wire_errors! {
-    /// The error codes cloud.vm.receiver.lifecycle declares.
-    CloudVmReceiverLifecycleError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudRateLimited = "cloud.rate_limited",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine).
-    CloudVmSelfGetOp {
-        name: "cloud.vm.self.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:CloudDO",
-        risk: "read",
-        principals: [Install],
-        params: CloudVmSelfGetParams,
-        result: CloudVmSelfGetResult,
-        error: CloudVmSelfGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmSelfGetParams {
-    pub machine: MachineId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmSelfGetResult {
-    pub machine: CloudMachine,
-}
-
-wire_errors! {
-    /// The error codes cloud.vm.self.get declares.
-    CloudVmSelfGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudRateLimited = "cloud.rate_limited",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
-    CloudVmStatusReportOp {
-        name: "cloud.vm.status.report",
-        class: Mutation,
-        idempotency: None,
-        owner: "cloud:CloudDO",
-        risk: "execute",
-        principals: [Install],
-        params: CloudVmStatusReportParams,
-        result: CloudVmStatusReportResult,
-        error: CloudVmStatusReportError,
-    }
-}
-
-wire_enum! {
-    CloudVmStatusReportParamsState {
-        Running = "running",
-        Degraded = "degraded",
-        Stopping = "stopping",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmStatusReportParamsDaemon {
-    pub version: String,
-    pub capabilities: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmStatusReportParamsHealth {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub disk_free_mb: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub load: Option<WireNumber>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmStatusReportParamsActivity {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_user_input_at: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_agent_action_at: Option<i64>,
-    pub active_sessions: i64,
 }

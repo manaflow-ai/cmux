@@ -717,6 +717,24 @@ and restore it as a new machine. It needs a person: when the CLI may not run
 it, it says where the app offers it.
 ";
 
+/// `cmux vm trace` (cloud_trace.rs): the Cloud start timing waterfall.
+pub(super) const TRACE: &str = "trace";
+
+pub(super) const TRACE_USAGE: &str = "\
+usage: cmux vm trace [TRACE_ID] [--limit N] [--platform URL] [--json]
+
+The Cloud start timing waterfall. With TRACE_ID: one start, hop by hop
+(click, api, placement, provider_create, restore, boot, network, agent_auth,
+first_token), each with its start offset, its time and a bar scaled to the
+whole start, beside that hop's p50 and p95 over the last day. Without it: the
+last day's p50 and p95 per hop and the newest starts with their ids (--limit,
+1 to 200, default 20). --json prints the platform's answer as it came.
+
+Traces are your team's, kept 48 hours. Signs in with CMUX_CLOUD_ACCESS_TOKEN,
+else the cmux app's sign-in; the platform is --platform, else
+CMUX_PLATFORM_URL, else production.
+";
+
 /// The new spelling of a hidden old verb.
 /// Whether Cloud's `verb` deletes something and so takes `--yes` (the app's `--confirm`): its
 /// usage here says `--yes`. Only these verbs get `--yes` respelled, so a `--yes` that is another
@@ -777,6 +795,11 @@ pub(super) fn overview(japanese: bool) -> String {
     } else {
         "\nCLEANUP\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --yes      Archive a paused machine's disk, then delete it (--yes)\n"
     });
+    text.push_str(if japanese {
+        "\nデバッグ\n  trace [TRACE_ID]                              Cloud 起動の各段階の時間 (ウォーターフォール)\n"
+    } else {
+        "\nDEBUG\n  trace [TRACE_ID]                              Cloud start timings, hop by hop (a waterfall)\n"
+    });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
     // `cmux cloud` is now `cmux vm` (vm.rs `cloud_alias`); the texts keep one spelling.
@@ -792,6 +815,9 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
     }
     if name == START_CHAT {
         return Some(START_CHAT_USAGE.to_owned());
+    }
+    if name == TRACE {
+        return Some(TRACE_USAGE.to_owned());
     }
     if name == KEEP {
         return Some(KEEP_USAGE.to_owned());

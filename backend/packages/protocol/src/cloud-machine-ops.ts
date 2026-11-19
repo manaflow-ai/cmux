@@ -518,6 +518,44 @@ export const CloudMigrationStart = cloudMutation(
   true
 )
 
+/**
+ * Cloud start traces (cmux-platform start-traces, 48 h retention): where one machine start spent its
+ * time, hop by hop, from the client's click to the agent's first token. Spans carry fixed codes and
+ * numbers only, never a key, token, message, prompt or path.
+ */
+export const CloudStartTraceId = Schema.String.check(isPattern(/^[A-Za-z0-9_-]{8,80}$/)).annotate({ identifier: "CloudStartTraceId", description: "A Cloud start trace (the create's trace, else its idempotency key)." })
+export const CloudStartHop = Schema.Literals(["click", "api", "placement", "provider_create", "restore", "boot", "network", "agent_auth", "first_token"]).annotate({ identifier: "CloudStartHop" })
+export const CloudStartSpan = Schema.Struct({
+  hop: CloudStartHop,
+  start_ms: Millis,
+  end_ms: Millis,
+  source: Schema.Literals(["app", "cli", "platform", "machine"]),
+  /** Fixed codes and numbers only (path, outcome, part). */
+  attrs: Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Finite]))
+}).annotate({ identifier: "CloudStartSpan" })
+export const CloudStartTraceGet = cloudRead(
+  "cloud.start_trace.get",
+  Schema.Struct({ trace: CloudStartTraceId }),
+  Schema.Struct({ trace: CloudStartTraceId, machine: Schema.NullOr(Schema.String), started_at: Millis, total_ms: Millis, path: Schema.NullOr(Schema.String), spans: Schema.Array(CloudStartSpan) }),
+  ["cloud.start_trace.not_found"],
+  "One Cloud start trace: its spans sorted by start, the machine it made and its path (spare, create or resume). Kept 48 h.",
+  "cloud start-trace get"
+)
+export const CloudStartTraceList = cloudRead(
+  "cloud.start_trace.list",
+  Schema.Struct({ since_ms: Schema.optionalKey(Millis.check(Schema.isGreaterThanOrEqualTo(0))), limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 200 }))) }),
+  Schema.Struct({
+    window_ms: Millis,
+    since_ms: Millis,
+    traces: Schema.Array(Schema.Struct({ trace: CloudStartTraceId, machine: Schema.NullOr(Schema.String), started_at: Millis, total_ms: Millis, path: Schema.NullOr(Schema.String), hops_seen: Schema.Array(CloudStartHop) })),
+    /** Per hop over the window: traces with the hop, and its p50 and p95 duration (null with none). */
+    hops: Schema.Record(Schema.String, Schema.Struct({ n: Schema.Int, p50_ms: Schema.NullOr(Schema.Finite), p95_ms: Schema.NullOr(Schema.Finite) }))
+  }),
+  [],
+  "The team's Cloud start traces since since_ms (default the last 24 h), newest first, at most limit (default and most 200), with each hop's p50 and p95 over them.",
+  "cloud start-trace list"
+)
+
 export const cloudMachineOps = [
   CloudMachineList,
   CloudMachineGet,
@@ -542,5 +580,7 @@ export const cloudMachineOps = [
   CloudBillingCheckout,
   CloudShellOpen,
   CloudMigrationStatus,
-  CloudMigrationStart
+  CloudMigrationStart,
+  CloudStartTraceGet,
+  CloudStartTraceList
 ] as const

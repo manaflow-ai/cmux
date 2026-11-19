@@ -88,6 +88,8 @@ mod cloud_start_chat;
 #[cfg(unix)]
 mod cloud_team_keys;
 #[cfg(unix)]
+mod cloud_trace;
+#[cfg(unix)]
 mod cloud_workspaces;
 mod code_mode;
 #[cfg(unix)]
@@ -855,6 +857,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_run_account::run_if_requested(args))
+        .or_else(|| cloud_trace::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))

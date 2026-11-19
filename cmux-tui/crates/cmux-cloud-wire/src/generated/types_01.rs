@@ -718,6 +718,50 @@ pub struct CloudSnapshotArchiveOf {
     pub until: i64,
 }
 
+wire_enum! {
+    CloudStartHop {
+        Click = "click",
+        Api = "api",
+        Placement = "placement",
+        ProviderCreate = "provider_create",
+        Restore = "restore",
+        Boot = "boot",
+        Network = "network",
+        AgentAuth = "agent_auth",
+        FirstToken = "first_token",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudStartSpan {
+    pub hop: CloudStartHop,
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub source: CloudStartSpanSource,
+    pub attrs: BTreeMap<String, CloudStartSpanAttrsValue>,
+}
+
+wire_enum! {
+    CloudStartSpanSource {
+        App = "app",
+        Cli = "cli",
+        Platform = "platform",
+        Machine = "machine",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum CloudStartSpanAttrsValue {
+    String(String),
+    Float64(f64),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+/// A Cloud start trace (the create's trace, else its idempotency key).
+pub type CloudStartTraceId = String;
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudVmNetwork {
     pub tenant: NativeTenantId,
@@ -859,38 +903,3 @@ wire_enum! {
 
 /// conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair).
 pub type ConversationId = String;
-
-wire_enum! {
-    ConversationKind {
-        Chief = "chief",
-        Dm = "dm",
-        Group = "group",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CronSpec {
-    pub expr: String,
-    pub tz: String,
-}
-
-/// A device (hardware) that groups installs.
-pub type DeviceId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DeviceStatus {
-    pub install: InstallId,
-    pub user: String,
-    pub policy_version: i64,
-    pub app_version: String,
-    pub mdm_keys: Vec<String>,
-    pub conflicts: Vec<String>,
-    pub reported_at: i64,
-}
-
-pub type EgressHost = String;
-
-pub type EmailAddress = String;
-
-/// A lowercase DNS name such as acme.com.
-pub type EmailDomain = String;
