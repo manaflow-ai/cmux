@@ -25,7 +25,7 @@ PATHs (only release control methods and the OS, so a NIGHTLY runs it):
   dock       the quit Apple event NSRunningApplication.terminate sends, as the Dock's Quit and Cmd-Q reach
              QuitCoordinator (origin .interactive)
   cmdq       Cmd-Q pressed in the app's key window (a CGEvent, needs this process to hold Accessibility); when it
-             cannot be posted the round says so and is not counted
+             cannot be posted the round says so and fails (no measurement)
   scripted   `action.run quit`, the CLI's `cmux app quit` (origin scripted)
   update     Quit and Keep Sessions (the updater's .explicit(.keep)), the bundle swapped in place for --update-dmg's
              app while it is gone, as Sparkle's installer does, then the new app opened: a version handoff
@@ -64,7 +64,10 @@ Prints one GAMUT-ROUND {json} per round (and GAMUT-RATIO {json} per sparkle-upda
 the end; writes gamut.json and gamut.md to --out. sparkle-update is not in the default paths (each round downloads
 and stages a real update): ask for it with --paths sparkle-update.
 --video records the screen (screencapture -v) from the quit to 8 s after the reopen for the named states.
-Exit 0 when every counted round passed, 1 when one failed, 3 when the run could not start.
+A round with no first window, settled or prior-chat number and no failure fails as "no measurement: <why>" (a
+round that did not run included): a run that judged nothing is never green. A fresh-install round whose prompt
+nothing could press carries harness_failure (GAMUT's harness_failed), apart from the app's failures.
+Exit 0 when every round passed, 1 when one failed, 3 when the run could not start.
 """
 from __future__ import annotations
 
@@ -184,12 +187,18 @@ def quit_app(app: App, path: str) -> tuple[str | None, int | None]:
         action = "quit" if path == "scripted" else "quitKeepSessions"
         reply = l5.call(app.sock, "action.run", {"action": action}, timeout=10)
         # A quit may end the app before its answer (the update run: "did not finish within 1999 ms", not_run), so
-        # an error is the round's only when the app is still running 20 s later.
+        # an error counts only when the app is still running 20 s later. Then the quit was asked and the app did
+        # not end: a failed quit, never a round that did not run (a timed-out action.run quit that never started
+        # left three startup rows "not run", with no number and no failure).
         if reply.get("error"):
             try:
                 process.wait(timeout=20)
             except subprocess.TimeoutExpired:
-                return f"action.run {action}: {reply['error']}", None
+                process.kill()
+                process.wait(timeout=10)
+                app.close_marks()
+                raise QuitFailed(f"the app did not end within 20 s of the {path} quit "
+                                 f"(action.run {action}: {reply['error']})") from None
             app.close_marks()
             return None, round((time.monotonic() - asked) * 1000)
     elif path == "kill":
@@ -645,7 +654,7 @@ class Gamut:
 
     def run(self, bundle: Path, env: dict, update_bundle: Path | None, previous: Path | None) -> None:
         def emit(row: dict) -> None:
-            self.rounds.append(row)
+            self.rounds.append(judge_measured(row))
             print("GAMUT-ROUND " + json.dumps(row, default=str), flush=True)
 
         def restart() -> None:
@@ -826,21 +835,35 @@ def swap_bundle(bundle: Path, source: Path) -> None:
     shutil.rmtree(old)
 
 
+MEASURES = ("first_window_ms", "settled_ms", "prior_chat_front_ms", "prior_chat_live_ms")
+
+
+def judge_measured(row: dict) -> dict:
+    """A row that measured nothing (no first window, settled or prior-chat number) and failed nothing fails with
+    why: a round that judged nothing is never green."""
+    if not row.get("failures") and all(row.get(k) is None for k in MEASURES):
+        why = row.get("not_run") or row.get("setup_error") or "the round recorded no number"
+        row.setdefault("failures", []).append(f"no measurement: {why}")
+    return row
+
+
 def table(rows: list[dict]) -> str:
     lines = ["| quit | state | survives | first window (ms) | settled (ms) | prior chat live (ms) | warm switch (ms) | "
              "quit (ms) | notes |", "|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
         if r.get("not_run"):
-            lines.append(f"| {r['path']} | {r['state']} | not run | | | | | | {r['not_run']} |")
+            notes = "; ".join(r.get("failures") or []) or r["not_run"]
+            lines.append(f"| {r['path']} | {r['state']} | {'NO, ' if r.get('failures') else ''}not run | | | | | | {notes} |")
             continue
-        ok = "yes" if not r.get("failures") else "NO"
+        ok = "yes" if not r.get("failures") else "NO (harness)" if r.get("harness_failure") else "NO"
         notes = "; ".join(r.get("failures") or [])
         if r.get("state") in IN_FLIGHT and not r.get("failures"):
             notes = f"agent pid {r.get('agent_pid_before')} kept"
         if r.get("path") == "fresh-install":
             gate = r.get("gate") or {}
             notes = (f"from open: spawn {r.get('open_to_spawn_ms')}, first window {r.get('open_to_first_window_ms')}, "
-                     f"settled {r.get('open_to_settled_ms')}; prompt wait {r.get('prompt_wait_ms')}; syspolicyd "
+                     f"settled {r.get('open_to_settled_ms')}; prompt by {r.get('prompt_route')}, shown "
+                     f"{r.get('prompt_shown_ms')}, wait {r.get('prompt_wait_ms')}; syspolicyd "
                      f"{gate.get('syspolicyd_span_ms')}, XProtect {gate.get('xprotect_span_ms')} ms; {notes}")
         elif r.get("cold") or r.get("load"):
             notes = f"{json.dumps(r.get('cold') or r.get('load'))}; {notes}"
@@ -886,7 +909,7 @@ def main(argv: list[str] | None = None) -> int:
         if "fresh-install" in args.paths:
             # Before the gamut's own home exists: each round is its own install, home and defaults set-aside.
             for index in range(1, args.fresh_rounds + 1):
-                row = startup.fresh_install_round(smoke, Path(args.dmg), index, prepare_env=ui.login_keychain)
+                row = judge_measured(startup.fresh_install_round(smoke, Path(args.dmg), index, prepare_env=ui.login_keychain))
                 gamut.rounds.append(row)
                 print("GAMUT-ROUND " + json.dumps(row, default=str), flush=True)
             args.paths = [p for p in args.paths if p != "fresh-install"]
@@ -925,8 +948,8 @@ def main(argv: list[str] | None = None) -> int:
                         pass
                 smoke.stop_child(gamut.app.process)
                 smoke.stop(smoke.own_pids(root))
-        counted = [r for r in gamut.rounds if not r.get("not_run")]
-        status = 0 if counted and all(not r.get("failures") for r in counted) else 1
+        rounds = [judge_measured(r) for r in gamut.rounds]
+        status = 0 if rounds and all(not r.get("failures") for r in rounds) else 1
     except (smoke.CannotRun, OSError, subprocess.SubprocessError) as error:
         log(f"CANNOT RUN: {error}")
     finally:
@@ -939,7 +962,9 @@ def main(argv: list[str] | None = None) -> int:
         shutil.copyfile(root / "app.log", out / "app.log") if (root / "app.log").exists() else None
         shutil.rmtree(root, ignore_errors=True)
     print("GAMUT " + json.dumps({"status": status, "rounds": len(gamut.rounds),
-                                 "failed": [f"{r['path']}-{r['state']}" for r in gamut.rounds if r.get("failures")]}), flush=True)
+                                 "failed": [f"{r['path']}-{r['state']}" for r in gamut.rounds if r.get("failures")],
+                                 "harness_failed": [f"{r['path']}-{r['state']}" for r in gamut.rounds
+                                                    if r.get("harness_failure")]}), flush=True)
     print(table(gamut.rounds), flush=True)
     return status
 
