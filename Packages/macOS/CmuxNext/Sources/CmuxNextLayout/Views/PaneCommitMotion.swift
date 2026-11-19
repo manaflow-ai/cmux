@@ -17,7 +17,7 @@ import CmuxNextDesign
 /// - A pane's ring and the dividers get the same move.
 /// - A pane that a close took out, or that a zoom covers, does not move: it stays as it shows, under the panes that
 ///   take its room, and hides in the frame that ends the motion (``keepsDeparted(on:)``). It shows only where no
-///   pane goes over it: a mask on its clip takes out the box of those panes (`PaneCommitMotion+Cut`).
+///   pane goes over it: a mask on its clip takes out the panes over it, as they show (`PaneCommitMotion+Cut`).
 /// - An unzoom's pane closes from its screen's size to its place over the panes that come back, which do not move.
 ///   Its last frame shows at its old size under its moving clip (`PaneCommitMotion+Unzoom`); with no last frame
 ///   and no picture of its own the unzoom shows in one frame.
@@ -107,6 +107,8 @@ final class PaneCommitMotion {
     /// The hosts of the panes that a close took out, under every other pane until the motion's end, each with the
     /// `zPosition` that its layer had.
     var under: [(host: PaneHostView, z: CGFloat)] = []
+    /// For each of those hosts, the panes that came over it in this motion (`PaneCommitMotion+Cut`).
+    var covers: [ObjectIdentifier: [PaneHostView]] = [:]
     /// The last frame of an unzoom's pane, from the turn that gives the sizes to the pass that shows the unzoom.
     var taken: Taken?
     /// The view that shows an unzoom's last frame over its pane's content.
@@ -256,7 +258,7 @@ final class PaneCommitMotion {
             moveRing(of: change, act.spring)
             moveClip(of: change, act.spring)
         }
-        cutKept(under: changes, act.spring)
+        cutKept()
         if act == .unzoom {
             // The others: the panes that come back, or, in a zoom's move, the panes that it still kept under.
             closeOver(changes[0], last: last, others: coming + staying.map(\.host).filter { $0 !== changes[0].host }, act.spring)
