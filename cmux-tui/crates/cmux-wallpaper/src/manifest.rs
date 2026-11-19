@@ -15,6 +15,10 @@ pub const MAX_VARIANTS: usize = 16;
 pub const MAX_ID_LEN: usize = 48;
 /// The largest `wallpaper.json` read.
 pub const MAX_MANIFEST_BYTES: usize = 16 * 1024;
+/// `idle_after` when the manifest has none: the scheduler's `IDLE_AFTER_S`.
+pub const DEFAULT_IDLE_AFTER_S: f32 = 20.0;
+/// The shortest `idle_after`.
+pub const MIN_IDLE_AFTER_S: f32 = 1.0;
 
 /// One float the program reads from `frame.params` (in manifest order).
 #[derive(Clone, Debug, PartialEq)]
@@ -66,6 +70,9 @@ pub struct Manifest {
     /// Whether agent activity wakes it (`agents`, default false): the program
     /// reads `Frame.activity`.
     pub agents: bool,
+    /// Seconds of nothing before it holds (`idle_after`, 1..=20, default 20):
+    /// a wallpaper with no motion of its own holds soon after the pointer stops.
+    pub idle_after: f32,
     pub params: Vec<Param>,
     pub still: Still,
     pub variants: Vec<Variant>,
@@ -233,6 +240,7 @@ impl Manifest {
                 "scale",
                 "interactive",
                 "agents",
+                "idle_after",
                 "params",
                 "still",
                 "variants",
@@ -281,6 +289,15 @@ impl Manifest {
                 err(ManifestErrorKind::WrongType, "/agents", "must be true or false")
             })?,
         };
+        let idle_after = match o.get("idle_after") {
+            None => DEFAULT_IDLE_AFTER_S,
+            Some(n) => number(
+                n,
+                "/idle_after",
+                f64::from(MIN_IDLE_AFTER_S),
+                f64::from(DEFAULT_IDLE_AFTER_S),
+            )?,
+        };
         let params = match o.get("params") {
             None => Vec::new(),
             Some(p) => parse_params(p)?,
@@ -299,6 +316,7 @@ impl Manifest {
             scale,
             interactive,
             agents,
+            idle_after,
             params,
             still,
             variants,
@@ -329,6 +347,7 @@ impl Manifest {
             "scale": self.scale,
             "interactive": self.interactive,
             "agents": self.agents,
+            "idle_after": self.idle_after,
             "params": self.params.iter().map(|p| json!({
                 "name": p.name,
                 "title": p.title.clone().unwrap_or_else(|| p.name.clone()),
@@ -562,6 +581,18 @@ mod tests {
     }
 
     #[test]
+    fn idle_after_is_optional_and_round_trips() {
+        let m = Manifest::from_value(&base()).unwrap();
+        assert_eq!(m.idle_after, DEFAULT_IDLE_AFTER_S);
+        assert_eq!(m.to_json()["idle_after"], json!(20.0));
+        let mut v = base();
+        v["idle_after"] = json!(2);
+        let m = Manifest::from_value(&v).unwrap();
+        assert_eq!(m.idle_after, 2.0);
+        assert_eq!(Manifest::from_value(&m.to_json()).unwrap(), m);
+    }
+
+    #[test]
     fn a_variant_may_carry_its_own_still() {
         let mut v = base();
         v["variants"][0]["still"] = json!({ "time": 3.0, "pointer": [0.2, 0.8] });
@@ -638,6 +669,21 @@ mod tests {
                 "/interactive",
             ),
             (Box::new(|v| v["agents"] = json!("yes")), ManifestErrorKind::WrongType, "/agents"),
+            (
+                Box::new(|v| v["idle_after"] = json!(0.5)),
+                ManifestErrorKind::OutOfRange,
+                "/idle_after",
+            ),
+            (
+                Box::new(|v| v["idle_after"] = json!(21)),
+                ManifestErrorKind::OutOfRange,
+                "/idle_after",
+            ),
+            (
+                Box::new(|v| v["idle_after"] = json!("2")),
+                ManifestErrorKind::WrongType,
+                "/idle_after",
+            ),
             (
                 Box::new(|v| {
                     v["params"] = json!((0..9).map(|i| json!({"name": format!("p{i}"), "default": 0, "min": 0, "max": 1})).collect::<Vec<_>>());

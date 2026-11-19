@@ -20,7 +20,7 @@ fn fail(message: &str) -> ! {
     std::process::exit(1)
 }
 
-/// The prelude's `Frame` is 160 bytes (src/frame.rs packs 40 floats).
+/// The prelude's `Frame` is 416 bytes (src/frame.rs packs 104 floats).
 fn check_frame_layout() {
     let Ok(module) = naga::front::wgsl::parse_str(program::PRELUDE) else {
         fail("src/prelude.wgsl does not parse")
@@ -34,8 +34,8 @@ fn check_frame_layout() {
         .iter()
         .find(|(_, t)| t.name.as_deref() == Some("Frame"))
         .map(|(h, _)| layouter[h].size);
-    if size != Some(160) {
-        fail(&format!("src/prelude.wgsl: Frame is {size:?} bytes, not 160 (src/frame.rs)"));
+    if size != Some(416) {
+        fail(&format!("src/prelude.wgsl: Frame is {size:?} bytes, not 416 (src/frame.rs)"));
     }
 }
 
