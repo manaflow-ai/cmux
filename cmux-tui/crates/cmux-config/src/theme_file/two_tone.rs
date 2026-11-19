@@ -262,9 +262,9 @@ pub fn fixture() -> Value {
                 accent: Rgb::hex(accent),
                 dark,
             };
-            values().into_iter().filter(|v| *v != OFF).map(move |value| {
-                let tones = resolve(value, theme).expect("every value but off resolves");
-                json!({
+            values().into_iter().filter_map(move |value| {
+                let tones = resolve(value, theme)?;
+                Some(json!({
                     "theme": name,
                     "background": hex(theme.background),
                     "foreground": hex(theme.foreground),
@@ -274,7 +274,7 @@ pub fn fixture() -> Value {
                     "chrome": hex(tones.chrome),
                     "content": tones.content.map(hex),
                     "toneAccent": hex(tones.accent),
-                })
+                }))
             })
         })
         .collect();
