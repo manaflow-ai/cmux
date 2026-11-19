@@ -136,7 +136,7 @@ describe("console sign-in authorize", () => {
   test("refuses a missing state, a plain challenge or a non-S256 method with one generic page", async () => {
     const env = setup();
     const challenge = s256Challenge(verifier());
-    const bad = [
+    const bad: Record<string, string>[] = [
       { client_id: "cmux-console", code_challenge: challenge, code_challenge_method: "S256" },
       { client_id: "cmux-console", state: "short", code_challenge: challenge, code_challenge_method: "S256" },
       { client_id: "cmux-console", state: state(), code_challenge: challenge, code_challenge_method: "plain" },

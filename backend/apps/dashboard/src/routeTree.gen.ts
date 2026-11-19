@@ -15,6 +15,8 @@ import { Route as BillingRouteImport } from './routes/billing'
 import { Route as DevicesRouteImport } from './routes/devices'
 import { Route as PolicyRouteImport } from './routes/policy'
 import { Route as TeamRouteImport } from './routes/team'
+import { Route as AuthHandoffRouteImport } from './routes/auth.handoff'
+import { Route as AuthSignInRouteImport } from './routes/auth.sign-in'
 import { Route as ICodeRouteImport } from './routes/i.$code'
 import { Route as IntegrationsIndexRouteImport } from './routes/integrations/index'
 import { Route as IntegrationsCallbackRouteImport } from './routes/integrations/callback'
@@ -51,6 +53,16 @@ const PolicyRoute = PolicyRouteImport.update({
 const TeamRoute = TeamRouteImport.update({
   id: '/team',
   path: '/team',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthHandoffRoute = AuthHandoffRouteImport.update({
+  id: '/auth/handoff',
+  path: '/auth/handoff',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthSignInRoute = AuthSignInRouteImport.update({
+  id: '/auth/sign-in',
+  path: '/auth/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ICodeRoute = ICodeRouteImport.update({
@@ -97,6 +109,8 @@ export interface FileRoutesByFullPath {
   '/devices': typeof DevicesRoute
   '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
+  '/auth/handoff': typeof AuthHandoffRoute
+  '/auth/sign-in': typeof AuthSignInRoute
   '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/preview/ai-usage': typeof PreviewAiUsageRoute
@@ -112,6 +126,8 @@ export interface FileRoutesByTo {
   '/devices': typeof DevicesRoute
   '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
+  '/auth/handoff': typeof AuthHandoffRoute
+  '/auth/sign-in': typeof AuthSignInRoute
   '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/preview/ai-usage': typeof PreviewAiUsageRoute
@@ -128,6 +144,8 @@ export interface FileRoutesById {
   '/devices': typeof DevicesRoute
   '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
+  '/auth/handoff': typeof AuthHandoffRoute
+  '/auth/sign-in': typeof AuthSignInRoute
   '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/preview/ai-usage': typeof PreviewAiUsageRoute
@@ -145,6 +163,8 @@ export interface FileRouteTypes {
     | '/devices'
     | '/policy'
     | '/team'
+    | '/auth/handoff'
+    | '/auth/sign-in'
     | '/i/$code'
     | '/integrations/callback'
     | '/preview/ai-usage'
@@ -160,6 +180,8 @@ export interface FileRouteTypes {
     | '/devices'
     | '/policy'
     | '/team'
+    | '/auth/handoff'
+    | '/auth/sign-in'
     | '/i/$code'
     | '/integrations/callback'
     | '/preview/ai-usage'
@@ -175,6 +197,8 @@ export interface FileRouteTypes {
     | '/devices'
     | '/policy'
     | '/team'
+    | '/auth/handoff'
+    | '/auth/sign-in'
     | '/i/$code'
     | '/integrations/callback'
     | '/preview/ai-usage'
@@ -191,6 +215,8 @@ export interface RootRouteChildren {
   DevicesRoute: typeof DevicesRoute
   PolicyRoute: typeof PolicyRoute
   TeamRoute: typeof TeamRoute
+  AuthHandoffRoute: typeof AuthHandoffRoute
+  AuthSignInRoute: typeof AuthSignInRoute
   ICodeRoute: typeof ICodeRoute
   IntegrationsCallbackRoute: typeof IntegrationsCallbackRoute
   PreviewAiUsageRoute: typeof PreviewAiUsageRoute
@@ -242,6 +268,20 @@ declare module '@tanstack/react-router' {
       path: '/team'
       fullPath: '/team'
       preLoaderRoute: typeof TeamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/handoff': {
+      id: '/auth/handoff'
+      path: '/auth/handoff'
+      fullPath: '/auth/handoff'
+      preLoaderRoute: typeof AuthHandoffRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/sign-in': {
+      id: '/auth/sign-in'
+      path: '/auth/sign-in'
+      fullPath: '/auth/sign-in'
+      preLoaderRoute: typeof AuthSignInRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/i/$code': {
@@ -303,6 +343,8 @@ const rootRouteChildren: RootRouteChildren = {
   DevicesRoute: DevicesRoute,
   PolicyRoute: PolicyRoute,
   TeamRoute: TeamRoute,
+  AuthHandoffRoute: AuthHandoffRoute,
+  AuthSignInRoute: AuthSignInRoute,
   ICodeRoute: ICodeRoute,
   IntegrationsCallbackRoute: IntegrationsCallbackRoute,
   PreviewAiUsageRoute: PreviewAiUsageRoute,
