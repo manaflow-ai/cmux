@@ -32,9 +32,10 @@ struct HostsSidebarTests {
     @Test func connectingAndOfflineStatesAreWordsAndRowsKeepDeviceSymbols() {
         let machines = [Self.machine("connecting", "Joining", connected: false, connecting: true),
                         Self.machine("offline", "Gone", connected: false),
+                        Self.machine("resuming", "Waking", connected: false, connecting: true, state: .resuming, kind: .cloud),
                         Self.machine("failed", "Broken", connected: false, state: .failed, kind: .server)]
         let rows = HostsSidebar.rows(machines: machines, expanded: true)
-        #expect(rows.dropFirst().map(\.info.caption) == ["Add Host…", "Connecting…", "Offline", "Failed"])
+        #expect(rows.dropFirst().map(\.info.caption) == ["Add Host…", "Connecting…", "Offline", "Resuming…", "Failed"])
         #expect(rows.first { $0.item.id.rawValue.hasSuffix("connecting") }?.info.activity == .working)
         #expect(rows.first { $0.item.id.rawValue.hasSuffix("offline") }?.info.isMissing == true)
     }
