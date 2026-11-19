@@ -6,7 +6,7 @@ name: CI cloud overflow probe
 # there (LINUX_RUNNER, CI_TRUSTED_RUNNER, MACOS_RUNNER_*, CI_PAID_MACOS_OVERFLOW) are pointed at
 # the owned pools and GitHub-hosted Linux, and pointed back once it serves
 # again. One probe, one switch: `probe` asks for a Blacksmith label and only
-# prints a line; `watch`, on an ephemeral 2 or 8 vCPU VM, waits for it.
+# prints a line; `watch`, on a GitHub-hosted runner, waits for it.
 # scripts/ci/cloud_overflow_switch.py has the rules:
 #
 # - The probe starts within CI_CLOUD_PROBE_MINUTES (default 5) of being
@@ -70,9 +70,7 @@ jobs:
       deployment: false
     name: Watch the probe and switch overflow
     if: github.repository_owner == 'manaflow-ai'
-    # The scheduled watch runs from main, whose runs-on this mirrors: one-job ephemeral Linux VMs (the 2 or 8 vCPU labels),
-    # never a probed size and never GitHub-hosted Ubuntu, which started nothing for hours on 2026-11-18.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds the App key that writes runner variables; never a probed size
+    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing
     timeout-minutes: 25
     permissions:
       actions: write
