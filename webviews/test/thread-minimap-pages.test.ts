@@ -179,4 +179,37 @@ describe("the rail's model over pages of older history", () => {
       ["m3", "m4"],
     ]);
   });
+
+  test("a streamed reply after a run of other chats' messages: the folded turns follow every token", () => {
+    // minimapTurns writes each token's turns into the list of two readings before, in place; the fold
+    // made from that list then must not be read back for it.
+    const note = (id: string, name: string): AcpmuxRow =>
+      ({
+        id,
+        kind: "user",
+        text: `note ${id}`,
+        version: 1,
+        at: 0,
+        incoming: { kind: "message", message: { name, sessionId: name, text: `note ${id}`, raw: `note ${id}` } },
+      }) as AcpmuxRow;
+    const head: AcpmuxRow[] = [
+      note("a", "peer/a"),
+      note("b", "peer/b"),
+      { id: "u", kind: "user", text: "ask", version: 1, at: 0 },
+    ];
+    const replies = ["Hello", "Hello there", "Hello there,", "Hello there, how", "Hello there, how are"];
+    let read: MinimapTurns | undefined;
+    let rows: AcpmuxRow[] = [];
+    for (const [version, text] of replies.entries()) {
+      const before = rows;
+      rows = [...head, { id: "r", kind: "assistant", text, version: version + 1, at: 0 }];
+      read = minimapTurns(rows, "s", read, before.length ? { base: before, rows, from: 3 } : undefined);
+      const folded = foldIncoming(read.turns, read.ticks, read.loadedStart ?? 0);
+      expect(folded.turns.length).toBe(2);
+      const said = (turn: MinimapTurn) => turn.reply.flatMap((block) => block.spans.map((span) => span.text)).join("");
+      expect(said(folded.turns.at(-1)!)).toBe(said(read.turns.at(-1)!));
+      expect(said(folded.turns.at(-1)!)).toBe(text);
+      expect(drawn(read)).toEqual(drawn(minimapTurns(rows, "s")));
+    }
+  });
 });

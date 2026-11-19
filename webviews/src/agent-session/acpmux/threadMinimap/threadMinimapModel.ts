@@ -15,7 +15,9 @@ export function tickIndex(ticks: readonly TickRef[] | RailRows<MinimapTickRow>, 
   if (ticks instanceof RailRows) {
     // The same three looks, each a lookup (keyIndex.ts), not a walk over the rows: a tick moved by
     // older turns put above it or taken away is found in O(1), and one gone is known gone. A row id is
-    // one tick's own or one folded run's member, and a key one tick's.
+    // one tick's own or one folded run's member, and a key one tick's. This relies on row ids being
+    // unique among the rows (the transcript's rows are): `idIndex` keeps one place per id, so with two
+    // rows of one id it would find one of them where the walk below finds the first.
     const keyed = ticks.keyIndex(ref.key);
     if (keyed !== undefined && keyed < ticks.pendingCount && keyed >= from && ticks.at(keyed)!.id === ref.id)
       return keyed;
