@@ -168,6 +168,8 @@ async fn hub_with_meta(sessions: usize, log: &Log, extra: Value) -> (Arc<Hub>, s
             hub.store.append(&id, record).unwrap();
         }
         hub.store.close_log(&id);
+        let session = hub.resolve(&id).unwrap();
+        session.seq.store(log.records.last().map_or(0, |record| record.seq), Ordering::SeqCst);
     }
     (hub, root)
 }
@@ -636,4 +638,71 @@ async fn a_second_adoption_reads_what_followed_the_first_not_the_log() {
     );
     assert!(long_size > 5 * short_size, "{short_size} {long_size}");
     assert!(long * 5 <= short * 6, "read {long} bytes of a long log, {short} of a short one");
+}
+
+/// The checkpoint is a split of the existing fold, not a different interpretation of a log.
+/// Exercise splits inside a turn, a request/decision/response, subagent creation and receipts.
+#[tokio::test]
+async fn adoption_checkpoints_match_whole_log_at_every_split() {
+    let log = hosted_log_of(3, 2);
+    for split in 1..log.records.len() {
+        let prefix = Log { records: log.records[..split].to_vec(), host_seq: 0 };
+        let (hub, root) = hub_with(1, &prefix).await;
+        let session = hub.resolve("chat0").unwrap();
+        session.seq.store(prefix.records.last().unwrap().seq, Ordering::SeqCst);
+        adopt_reads(&hub, &session);
+        for record in &log.records[split..] {
+            hub.store.append("chat0", record).unwrap();
+        }
+        session.seq.store(log.records.last().unwrap().seq, Ordering::SeqCst);
+        let cursor = hub.last_host_seq(&session, "inc");
+        assert_eq!(cursor, hub.last_host_seq_parsed(&session, "inc"), "split {split}");
+        let cached = hub.open_work(&session, "inc");
+        let all = hub.open_work_reading(&session, "inc", |_, _, _| true);
+        assert_eq!(work_fields(&cached), work_fields(&all), "split {split}");
+        assert_eq!(cached.asked_at, all.asked_at, "split {split}");
+        assert_eq!(cached.steer_prompts, all.steer_prompts, "split {split}");
+        assert_eq!(cached.ancestor_answers, all.ancestor_answers, "split {split}");
+        assert_eq!(cached.compacting, all.compacting, "split {split}");
+        hub.seed_subagents_from_log(&session);
+        let cached_running = session.subagents.lock().unwrap().running_count();
+        let point = hub.store.session_dir("chat0").unwrap().join("adoption-subagents.json");
+        // Corrupt only this test's derived file: a full reconstruction must give the same tree.
+        std::fs::write(&point, b"not a checkpoint").unwrap();
+        hub.seed_subagents_from_log(&session);
+        assert_eq!(
+            cached_running,
+            session.subagents.lock().unwrap().running_count(),
+            "split {split}"
+        );
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[tokio::test]
+async fn adoption_checkpoint_rejects_another_log_or_context() {
+    let log = hosted_log_of(3, 2);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    session.seq.store(log.records.last().unwrap().seq, Ordering::SeqCst);
+    adopt_reads(&hub, &session);
+    let part = crate::store::AdoptionPart::Work;
+    let original = hub.store.adoption_point("chat0", part).unwrap();
+    let mut point: Value = serde_json::from_slice(&original).unwrap();
+    for field in ["version", "seq", "context", "digest"] {
+        let saved = point[field].clone();
+        point[field] = json!(null);
+        hub.store.save_adoption_point("chat0", part, &serde_json::to_vec(&point).unwrap()).unwrap();
+        let actual = hub.open_work(&session, "inc");
+        let all = hub.open_work_reading(&session, "inc", |_, _, _| true);
+        assert_eq!(work_fields(&actual), work_fields(&all), "invalid {field}");
+        point[field] = saved;
+    }
+    // A valid checkpoint for another host cannot grant this host the previous one's state.
+    let actual = hub.open_work(&session, "not-inc");
+    let all = hub.open_work_reading(&session, "not-inc", |_, _, _| true);
+    assert_eq!(work_fields(&actual), work_fields(&all));
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
 }

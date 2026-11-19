@@ -126,12 +126,25 @@ impl Hub {
     /// subagents of the one before, and a turn start the foreground ones, as live.
     pub(super) fn seed_subagents_from_log(&self, session: &Session) {
         let meta = session.meta();
-        let mut tree = crate::subagents::SubagentTree::default();
+        let context = self.adoption_context(session, "subagents");
+        let (after, mut tree) = self
+            .read_adoption_point::<crate::subagents::SubagentTree>(
+                session,
+                crate::store::AdoptionPart::Subagents,
+                &context,
+            )
+            .unwrap_or_default();
+        let end = self.settled_seq(session);
+        let mut through = after;
         tree.set_own(meta.agent_session_id.as_deref());
         tree.set_roots(
             meta.agent_session_id.iter().chain(&meta.retired_agent_session_ids).map(String::as_str),
         );
-        let _ = self.store.scan_heads(&session.id, &mut |head| {
+        let scanned = self.store.scan_heads_after(&session.id, after, &mut |head| {
+            if head.seq > end {
+                return false;
+            }
+            through = head.seq;
             if head.dir == "mux" {
                 match head.kind {
                     "host_started" | "stopped" | "exited" => tree.end_background(),
@@ -151,6 +164,15 @@ impl Hub {
             }
             true
         });
+        if scanned.is_ok() && through == end {
+            self.save_adoption_point(
+                session,
+                crate::store::AdoptionPart::Subagents,
+                context,
+                through,
+                &tree,
+            );
+        }
         let (running_before, running_after) = {
             let mut live = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
             let before = live.running_count();

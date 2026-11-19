@@ -44,6 +44,24 @@ mod shared_value;
 mod text_index;
 pub use shared_value::{SharedRows, SharedValue};
 
+/// Independently resumable folds used while adopting an agent host.
+#[derive(Clone, Copy)]
+pub enum AdoptionPart {
+    Cursor,
+    Work,
+    Subagents,
+}
+
+impl AdoptionPart {
+    fn file(self) -> &'static str {
+        match self {
+            Self::Cursor => "adoption-cursor.json",
+            Self::Work => "adoption-work.json",
+            Self::Subagents => "adoption-subagents.json",
+        }
+    }
+}
+
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -1372,6 +1390,22 @@ pub trait Store: Send + Sync {
     fn save_restore_point(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
         Ok(())
     }
+    /// A derived adoption fold; a store without durable projections reads its log instead.
+    fn adoption_point(&self, _id: &str, _part: AdoptionPart) -> Option<Vec<u8>> {
+        None
+    }
+    fn save_adoption_point(&self, _id: &str, _part: AdoptionPart, _bytes: &[u8]) -> Result<()> {
+        Ok(())
+    }
+    /// Heads strictly after a saved fold, in log order.
+    fn scan_heads_after(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(&RecordHead<'_>) -> bool,
+    ) -> Result<()> {
+        self.scan(id, after, &mut |rec| visit(&RecordHead::parsed(&rec)))
+    }
     /// `scan` from the start, passing each record's head ([`RecordHead`]) until `visit` returns
     /// false; the reader parses only the records it needs (`RecordHead::record`). A file store
     /// reads a head without parsing its line: adopting a host after a restart reads its whole
@@ -2329,8 +2363,19 @@ impl Store for LocalStore {
     /// Reads each line's head (`RecordHead::read`) and parses only the lines the reader asks
     /// for, or a line whose head does not read.
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
+        self.scan_heads_after(id, 0, visit)
+    }
+
+    fn scan_heads_after(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(&RecordHead<'_>) -> bool,
+    ) -> Result<()> {
         let mut line = Vec::new();
-        for (_, path) in self.segments(id)? {
+        let segments = self.segments(id)?;
+        let start = self.segment_starts.start(id, &segments, after)?;
+        for (_, path) in &segments[start..] {
             let mut reader =
                 BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
             loop {
@@ -2342,10 +2387,10 @@ impl Store for LocalStore {
                     continue;
                 }
                 let more = match RecordHead::read(&line) {
-                    Some(head) => visit(&head),
+                    Some(head) => head.seq <= after || visit(&head),
                     None => {
                         let Ok(rec) = parse_record(&line) else { continue };
-                        visit(&RecordHead::parsed(&rec))
+                        rec.seq <= after || visit(&RecordHead::parsed(&rec))
                     }
                 };
                 if !more {
@@ -2427,6 +2472,26 @@ impl Store for LocalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_kinds_keyed_in(id, kinds, keep, visit)
+    }
+
+    fn adoption_point(&self, id: &str, part: AdoptionPart) -> Option<Vec<u8>> {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        crate::config::private_state_file(&self.dir(id).join(part.file()))
+            .ok()?
+            .read_to_end(&mut bytes)
+            .ok()?;
+        Some(bytes)
+    }
+
+    fn save_adoption_point(&self, id: &str, part: AdoptionPart, bytes: &[u8]) -> Result<()> {
+        let _open = self.writable()?;
+        let dir = self.dir(id);
+        anyhow::ensure!(
+            crate::home_fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_dir()),
+            "no folder for {id}"
+        );
+        write_atomic(&dir.join(part.file()), bytes)
     }
 
     fn restore_point(&self, id: &str) -> Option<Vec<u8>> {

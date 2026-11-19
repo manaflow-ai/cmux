@@ -558,6 +558,32 @@ impl Store for ForkView {
         self.back(id, after, before, skip, visit, true)
     }
     /// A fork's view joins two logs: it keeps no restore point, and its load reads it whole.
+    fn adoption_point(&self, id: &str, part: AdoptionPart) -> Option<Vec<u8>> {
+        let _held = self.shared();
+        match self.reference(id) {
+            Ok(None) => self.inner.adoption_point(id, part),
+            _ => None,
+        }
+    }
+    fn save_adoption_point(&self, id: &str, part: AdoptionPart, bytes: &[u8]) -> Result<()> {
+        let _held = self.shared();
+        match self.reference(id)? {
+            None => self.inner.save_adoption_point(id, part, bytes),
+            Some(_) => Ok(()),
+        }
+    }
+    fn scan_heads_after(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(&RecordHead<'_>) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.scan_heads_after(id, after, visit);
+        }
+        self.scan_heads(id, &mut |head| head.seq <= after || visit(head))
+    }
     fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
         let _held = self.shared();
         match self.reference(id) {

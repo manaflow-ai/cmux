@@ -822,6 +822,20 @@ impl Store for JournalStore {
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         self.inner.fenced(|| Store::tail_after(&self.inner.local, id, after))
     }
+    fn adoption_point(&self, id: &str, part: AdoptionPart) -> Option<Vec<u8>> {
+        Store::adoption_point(&self.inner.local, id, part)
+    }
+    fn save_adoption_point(&self, id: &str, part: AdoptionPart, bytes: &[u8]) -> Result<()> {
+        Store::save_adoption_point(&self.inner.local, id, part, bytes)
+    }
+    fn scan_heads_after(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(&RecordHead<'_>) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(|| Store::scan_heads_after(&self.inner.local, id, after, visit))
+    }
     fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
         Store::restore_point(&self.inner.local, id)
     }

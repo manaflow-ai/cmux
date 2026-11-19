@@ -27,7 +27,7 @@ const ACTIVITY_CHARS: usize = 160;
 const MAX_OPEN_TOOLS: usize = 256;
 
 /// What a running turn does now (`TurnInfo::doing`), one line each.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct TurnActivity {
     /// Its latest tool call's title, masked. None until it calls one.
     pub activity: Option<String>,

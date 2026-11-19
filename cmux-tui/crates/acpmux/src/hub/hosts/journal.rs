@@ -1,7 +1,33 @@
 //! Reconstruct in-flight host work and replay cursors from the durable journal.
 
 use super::*;
-use crate::store::RecordHead;
+use crate::store::{AdoptionPart, RecordHead};
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct Cursor {
+    current: bool,
+    env: bool,
+    last: u64,
+    at: u64,
+}
+
+/// Every input carried across a split in the recovery fold. Keeping the accumulator, rather
+/// than just its public result, preserves unanswered requests, lasting grants and subagent attribution.
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct WorkFold {
+    work: OpenWork,
+    current: bool,
+    requests: Vec<(Value, String, Option<Value>, Option<u64>)>,
+    answered: std::collections::HashSet<String>,
+    asked: HashMap<String, (String, Value, Option<Value>)>,
+    by_permission: HashMap<String, String>,
+    open_request_ids: std::collections::HashSet<String>,
+    ancestors: std::collections::HashSet<String>,
+    lasting: HashMap<String, Vec<String>>,
+    canary_passed: bool,
+    subagents: crate::subagents::SubagentTree,
+    started: bool,
+}
 
 impl Hub {
     pub(super) fn recovery_work(
@@ -29,48 +55,55 @@ impl Hub {
     }
 
     pub(super) fn remote_host_env_current(&self, session: &Session, incarnation: &str) -> bool {
-        let mut current = false;
-        let _ = self.store.scan_heads(&session.id, &mut |head| {
-            if head.dir == "mux"
-                && head.kind == "host_started"
-                && let Some(event) = head.record()
-                && event.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation)
-            {
-                current = event.msg.get("remoteEnvPolicy").and_then(Value::as_str)
-                    == Some(crate::agent::REMOTE_ENV_POLICY_ID);
-            }
-            true
-        });
-        current
+        self.adoption_cursor(session, incarnation).env
     }
 
-    /// Largest `hostSeq` logged under host `incarnation`.
+    /// Largest durable host sequence under this incarnation, resumed after the previous fold.
     pub(super) fn last_host_seq(&self, session: &Session, incarnation: &str) -> u64 {
-        // And the `seq` of the record that holds it.
-        let (mut last, mut at) = (0, 0);
-        let mut current = false;
-        // Only starts and deferred withdrawals need their incarnation parsed.
-        let _ = self.store.scan_heads(&session.id, &mut |head| {
+        self.adoption_cursor(session, incarnation).last
+    }
+
+    fn adoption_cursor(&self, session: &Session, incarnation: &str) -> Cursor {
+        let context = self.adoption_context(session, incarnation);
+        let (after, mut cursor) = self
+            .read_adoption_point::<Cursor>(session, AdoptionPart::Cursor, &context)
+            .unwrap_or_default();
+        let end = self.settled_seq(session);
+        let mut through = after;
+        let scanned = self.store.scan_heads_after(&session.id, after, &mut |head| {
+            if head.seq > end {
+                return false;
+            }
+            through = head.seq;
             if head.dir == "mux" && head.kind == "host_started" {
                 if let Some(e) = head.record() {
-                    current = e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
-                    if current {
-                        (last, at) = (0, 0);
+                    cursor.current =
+                        e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
+                    if cursor.current {
+                        cursor.last = 0;
+                        cursor.at = 0;
+                        cursor.env = e.msg.get("remoteEnvPolicy").and_then(Value::as_str)
+                            == Some(crate::agent::REMOTE_ENV_POLICY_ID);
                     }
                 }
-            } else if current
+            } else if cursor.current
                 && (head.kind != "permission_withdrawn"
                     || head.record().is_some_and(|e| host_seq_matches(&e, incarnation)))
-                && let Some(h) = head.host_seq.filter(|&h| h > last)
+                && let Some(h) = head.host_seq.filter(|&h| h > cursor.last)
             {
-                (last, at) = (h, head.seq);
+                cursor.last = h;
+                cursor.at = head.seq;
             }
             true
         });
-        if last > 0 && !self.logs_host_seq(session, at, last) {
-            return self.last_host_seq_parsed(session, incarnation);
+        if cursor.last > 0 && !self.logs_host_seq(session, cursor.at, cursor.last) {
+            cursor.last = self.last_host_seq_parsed(session, incarnation);
+            return cursor;
         }
-        last
+        if scanned.is_ok() && through == end {
+            self.save_adoption_point(session, AdoptionPart::Cursor, context, through, &cursor);
+        }
+        cursor
     }
 
     /// `last_host_seq` from whole records only.
@@ -99,10 +132,17 @@ impl Hub {
     /// `hostSeq`, which a whole-record read skips. Reads from `seq`'s segment, not the log.
     fn logs_host_seq(&self, session: &Session, seq: u64, host_seq: u64) -> bool {
         let mut whole = false;
-        let _ = self.store.scan(&session.id, seq.saturating_sub(1), &mut |e: EventRecord| {
-            whole = e.seq == seq && e.host_seq == Some(host_seq);
-            false
-        });
+        let Some(before) = seq.checked_add(1) else { return false };
+        let _ = self.store.scan_back(
+            &session.id,
+            seq.saturating_sub(1),
+            before,
+            &|_, _| false,
+            &mut |e| {
+                whole = e.seq == seq && e.host_seq == Some(host_seq);
+                false
+            },
+        );
         whole
     }
 
@@ -110,7 +150,7 @@ impl Hub {
     /// requests, answers and permission records count only within this
     /// incarnation: every harness restarts its own request ids.
     pub(in crate::hub) fn open_work(&self, session: &Session, incarnation: &str) -> OpenWork {
-        self.open_work_reading(session, incarnation, open_work_reads)
+        self.open_work_fold(session, incarnation, open_work_reads, true)
     }
 
     /// `open_work`, parsing the records `reads` asks for (tests: every one).
@@ -120,16 +160,37 @@ impl Hub {
         incarnation: &str,
         reads: fn(&RecordHead<'_>, bool, bool) -> bool,
     ) -> OpenWork {
-        let mut work = OpenWork::default();
-        let mut current = false;
-        let mut requests: Vec<(Value, String, Option<Value>, Option<u64>)> = Vec::new();
-        let mut answered: std::collections::HashSet<String> = Default::default();
-        let mut asked: HashMap<String, (String, Value, Option<Value>)> = HashMap::new();
-        let mut by_permission: HashMap<String, String> = HashMap::new();
-        let mut open_request_ids: std::collections::HashSet<String> = Default::default();
-        let mut ancestors = std::collections::HashSet::new();
-        // permissionId -> the ids of its "allow always" options.
-        let mut lasting: HashMap<String, Vec<String>> = HashMap::new();
+        self.open_work_fold(session, incarnation, reads, false)
+    }
+
+    fn open_work_fold(
+        &self,
+        session: &Session,
+        incarnation: &str,
+        reads: fn(&RecordHead<'_>, bool, bool) -> bool,
+        checkpoint: bool,
+    ) -> OpenWork {
+        let context = self.adoption_context(session, incarnation);
+        let saved = checkpoint
+            .then(|| self.read_adoption_point::<WorkFold>(session, AdoptionPart::Work, &context))
+            .flatten();
+        let (after, state) = saved.unwrap_or_default();
+        let WorkFold {
+            mut work,
+            mut current,
+            mut requests,
+            mut answered,
+            mut asked,
+            mut by_permission,
+            mut open_request_ids,
+            mut ancestors,
+            mut lasting,
+            mut canary_passed,
+            mut subagents,
+            mut started,
+        } = state;
+        let end = self.settled_seq(session);
+        let mut through = after;
         let always = |request: Option<&Value>| -> Vec<String> {
             request
                 .and_then(|r| r.get("options"))
@@ -144,12 +205,12 @@ impl Hub {
         // Only the adopted incarnation's own start counts, with the canary of
         // the current profile right before it; missing: unsandboxed.
         let remote_claude = self.remote_claude(session);
-        work.unsandboxed = remote_claude;
-        let mut canary_passed = false;
+        if after == 0 {
+            work.unsandboxed = remote_claude;
+        }
         // Which logged updates are a subagent's, as the tap tells them live: by the subagents
         // the log itself started, never by an update's own `_meta`.
         // The chat's native roots, current and earlier, are never subagents (as the tap seeds them).
-        let mut subagents = crate::subagents::SubagentTree::default();
         let meta = session.meta();
         subagents.set_own(meta.agent_session_id.as_deref());
         subagents.set_roots(
@@ -175,8 +236,11 @@ impl Hub {
         );
         // The `seq` of the record whose head alone gave `last_host_seq`, proven whole at the end.
         let mut host_seq_at: Option<u64> = None;
-        let mut started = false;
-        let scanned = self.store.scan_heads(&session.id, &mut |head| {
+        let scanned = self.store.scan_heads_after(&session.id, after, &mut |head| {
+            if head.seq > end {
+                return false;
+            }
+            through = head.seq;
             // A record the fold would leave as it is counts by its head's `hostSeq` alone.
             let last_turn_open = work.turn.as_ref().is_some_and(|t| t.0 >= last_turn);
             if !reads(head, current, last_turn_open) {
@@ -506,6 +570,24 @@ impl Hub {
         {
             return self.open_work_reading(session, incarnation, |_, _, _| true);
         }
+        let state = WorkFold {
+            work,
+            current,
+            requests,
+            answered,
+            asked,
+            by_permission,
+            open_request_ids,
+            ancestors,
+            lasting,
+            canary_passed,
+            subagents,
+            started,
+        };
+        if checkpoint && scanned.is_ok() && through == end && !state.work.receipts_unproven {
+            self.save_adoption_point(session, AdoptionPart::Work, context, through, &state);
+        }
+        let WorkFold { mut work, requests, answered, asked, ancestors, .. } = state;
         work.requests = requests
             .into_iter()
             .filter(|(id, _, _, _)| !answered.contains(&id.to_string()))
