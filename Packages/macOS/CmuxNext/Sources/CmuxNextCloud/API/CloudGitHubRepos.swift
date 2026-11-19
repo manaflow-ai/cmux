@@ -254,7 +254,12 @@ public struct CloudGitHubPicker {
         // A saved sign-in still being restored is not signed out: no sign-in to start for it.
         guard auth.isSignedIn else { return .unavailable(auth.isRestoring ? .unreachable : .signedOut) }
         guard let owner = await owner() else { return .unavailable(.unreachable) }
-        let (app, scope) = await owner.client.gitHubAppStatus(team: owner.team)
+        return await Self.status(client: owner.client, team: owner.team, connects: connects)
+    }
+
+    /// ``status()`` for `team` through `client`, once the person is signed in and the team is known.
+    static func status(client: CloudOwnerAPIClient, team: String, connects: CloudGitHubConnects) async -> Status {
+        let (app, scope) = await client.gitHubAppStatus(team: team)
         return Status(app, reposScope: scope)
     }
 
@@ -344,23 +349,27 @@ public struct CloudGitHubPicker {
     public func connect() async -> Connect {
         // A saved sign-in still being restored is not signed out: no sign-in to start for it.
         guard auth.isSignedIn else { return .unavailable(auth.isRestoring ? .unreachable : .signedOut) }
-        guard let owner = await owner(), let path = CloudGitHubApp.path(team: owner.team),
-              let status = await owner.client.person(path) else { return .unavailable(.unreachable) }
+        guard let owner = await owner() else { return .unavailable(.unreachable) }
+        return await Self.connect(client: owner.client, team: owner.team, connects: connects,
+                                  returnTo: CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme))
+    }
+
+    /// ``connect()`` for `team` through `client`, once the person is signed in and the team is known.
+    static func connect(client: CloudOwnerAPIClient, team: String, connects: CloudGitHubConnects, returnTo: String) async -> Connect {
+        guard let path = CloudGitHubApp.path(team: team), let status = await client.person(path) else { return .unavailable(.unreachable) }
         if let known = Self.connectFromStatus(status: status.status, body: status.body) { return known }
-        let client = owner.client
         // As Settings' Connect (`!pending || resumable`): another connect beside a pending one would add a second.
-        if !connects.resumable(team: owner.team) {
+        if !connects.resumable(team: team) {
             switch await client.gitHubConnectPending() {
             case false?: break
             case true?: return .pending
             case nil: return .failed
             }
         }
-        let returnTo = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
         // An API from before the completion link refuses its params (`validation.invalid`): ask again without it, and the
         // console finishes the connection as before. Under its own key, derived so a retry of it is the same ask: the API
         // keeps the first key, and the same key with other params is an `idempotency.conflict`.
-        guard let page = await connects.page(team: owner.team, now: Date(), ask: { key in
+        guard let page = await connects.page(team: team, now: Date(), ask: { key in
             let answer = await client.gitHubConnect(key: key, returnTo: returnTo)
             guard case .refused = answer else { return answer }
             return await client.gitHubConnect(key: key + ":plain")
