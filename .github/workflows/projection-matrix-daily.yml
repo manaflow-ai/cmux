@@ -1,0 +1,212 @@
+name: projection round-trip matrix (daily)
+
+# The projected-folder round trip end to end, on a Linux runner with FUSE, once a day: a folder (or a git
+# commit) projected onto a machine, edited there, and brought back, byte for byte, with git agreeing on both
+# sides (RFD 0007). Leo, 2026-11-19: "the projection folder file system thing, like among all areas, among all
+# like use cases, repositories, among all variations, we need to make sure that like is reliable back and
+# forth. And especially for remote, ... we can use it for our lanes, the lane machines, plus our CI, plus
+# whatever, the things that we offer."
+#
+# These tests skip themselves where FUSE is missing ("skipping: no FUSE here"), so a pull-request run on a
+# runner without FUSE stays green while having judged nothing. This run is where they must judge: it fails,
+# with the reason in its summary, when the runner has no usable FUSE, when any of them skipped for want of it,
+# when a test binary ran no test, or when any test fails.
+#
+# Once a UTC day, on the first push to nightly-next after midnight (the way the degenerate lab and the quality
+# report run; a schedule runs only from the default branch, so the cron below fires only if this file is ever
+# there). workflow_dispatch runs it at once. It gates nothing: nightly-next does not wait for it.
+on:
+  push:
+    branches:
+      - nightly-next
+  schedule:
+    - cron: "37 7 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: projection-matrix-daily
+  cancel-in-progress: false
+
+jobs:
+  matrix:
+    name: projection round-trip matrix
+    if: github.repository == 'manaflow-ai/cmux'
+    # The owned GCP build lane first: persistent Linux VMs with /dev/fuse and fuse3, the hosts projected
+    # checkouts are for. A rerun takes the linux_16 pool instead.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-lane-build-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+      CMUX_GHOSTTY_SRC: ""
+      CARGO_NET_RETRY: "10"
+      TMPDIR: /tmp
+    steps:
+      - name: Name today's marker
+        id: day
+        run: echo "key=projection-matrix-daily-$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Look for today's run
+        id: done
+        if: github.event_name == 'push'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/projection-matrix-marker
+          key: ${{ steps.day.outputs.key }}
+          lookup-only: true
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.done.outputs.cache-hit != 'true'
+        with:
+          persist-credentials: false
+
+      # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
+      - name: Repair a reused self-hosted checkout
+        if: runner.os == 'Linux' && steps.done.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git sparse-checkout disable 2>/dev/null || true
+            git reset -q --hard HEAD
+          fi
+
+      # The first thing judged: no usable FUSE here is this run's red, never a quiet skip. fuse3 is installed
+      # only where it is missing (a persistent lane host carries it and has no sudo).
+      - name: FUSE is usable on this runner
+        if: steps.done.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          command -v fusermount3 >/dev/null || bash scripts/ci/apt-ensure.sh fuse3
+          problems=()
+          [ -c /dev/fuse ] || problems+=("no /dev/fuse device")
+          { [ -r /dev/fuse ] && [ -w /dev/fuse ]; } || problems+=("/dev/fuse is not readable and writable by $(id -un)")
+          command -v fusermount3 >/dev/null || problems+=("no fusermount3")
+          if (( ${#problems[@]} )); then
+            for p in "${problems[@]}"; do echo "::error title=projection matrix::$p on $RUNNER_NAME"; done
+            echo "### Projection matrix: no FUSE on $RUNNER_NAME (${problems[*]})" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          fusermount3 -V
+
+      - name: Install the build dependencies
+        if: steps.done.outputs.cache-hit != 'true'
+        run: bash scripts/ci/apt-ensure.sh clang libclang-dev pkg-config
+
+      - name: Init ghostty submodule
+        if: steps.done.outputs.cache-hit != 'true'
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      - name: Cache the verified Zig tarball
+        if: steps.done.outputs.cache-hit != 'true'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-zig-tarballs
+          key: cmux-zig-tarball-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/zig-tarballs.sha256') }}
+
+      - name: Install zig
+        if: steps.done.outputs.cache-hit != 'true'
+        env:
+          ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        if: steps.done.outputs.cache-hit != 'true'
+        uses: ./.github/actions/ghostty-zig-packages
+
+      - name: Set up pinned Rust
+        if: steps.done.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        if: steps.done.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-linux
+          save-if: false
+
+      # Each target runs on its own so its result is its own line in the summary; every one runs even after
+      # an earlier one is red, so one run shows every red.
+      - name: Run the round-trip matrix tests
+        if: steps.done.outputs.cache-hit != 'true'
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/projection-matrix"
+          rm -rf "$out" && mkdir -p "$out"
+          targets=(
+            "cmux-projection|-p cmux-projection"
+            "projection_roundtrip_matrix|-p cmux-tui --test projection_roundtrip_matrix"
+            "bring_back_journey|-p cmux-tui --test bring_back_journey"
+            "link_project|-p cmux-tui --test link_project"
+          )
+          red=0
+          {
+            echo "### Projection round-trip matrix at ${GITHUB_SHA:0:12} on $RUNNER_NAME"
+            echo
+            echo "| target | result | passed | failed | ignored | FUSE skips | seconds |"
+            echo "|---|---|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for entry in "${targets[@]}"; do
+            name=${entry%%|*}; read -r -a args <<<"${entry#*|}"
+            log="$out/$name.log"
+            start=$SECONDS
+            # --nocapture: the tests' own "skipping: no FUSE here" lines must reach the log to be counted.
+            cargo test --locked "${args[@]}" -- --nocapture --test-threads=4 > "$log" 2>&1
+            status=$?
+            took=$(( SECONDS - start ))
+            passed=$(grep -oE 'test result: [a-z]+\. [0-9]+ passed' "$log" | awk '{ s += $4 } END { print s + 0 }')
+            failed=$(grep -oE '; [0-9]+ failed' "$log" | awk '{ s += $2 } END { print s + 0 }')
+            ignored=$(grep -oE '; [0-9]+ ignored' "$log" | awk '{ s += $2 } END { print s + 0 }')
+            skips=$(grep -c 'skipping: no FUSE' "$log" || true)
+            result=pass
+            if (( status != 0 )); then result="red (exit $status)"
+            elif (( passed == 0 )); then result="red (ran no test)"
+            elif (( skips > 0 )); then result="red (skipped for want of FUSE)"
+            fi
+            [[ "$result" == pass ]] || red=1
+            echo "| \`$name\` | $result | $passed | $failed | $ignored | $skips | $took |" >> "$GITHUB_STEP_SUMMARY"
+            if [[ "$result" != pass ]]; then
+              echo "::error title=projection matrix: $name::$result; the end of its log follows"
+              grep -E '^(test .* FAILED|---- |thread .* panicked|error(\[|:))' "$log" | head -40
+              tail -60 "$log"
+            else
+              echo "$name: $passed passed, $ignored ignored in $took s"
+            fi
+          done
+          # The known reds, by name, so a fixed one can be un-ignored.
+          {
+            echo
+            echo "Ignored (known reds, each naming its follow-up):"
+            echo '```'
+            grep -hE '^test .* \.\.\. ignored' "$out"/*.log || echo "(none)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$red"
+
+      - name: Keep the logs
+        if: always() && steps.done.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: projection-matrix-logs
+          path: ${{ runner.temp }}/projection-matrix/
+          if-no-files-found: ignore
+          retention-days: 3
+
+      # Only a passed push run marks the day: a red one lets the next nightly-next push try again.
+      - name: Mark today's run
+        id: mark
+        if: github.event_name == 'push' && steps.done.outputs.cache-hit != 'true'
+        run: mkdir -p "$RUNNER_TEMP/projection-matrix-marker" && date -u > "$RUNNER_TEMP/projection-matrix-marker/at"
+
+      - name: Save today's marker
+        if: steps.mark.outcome == 'success'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/projection-matrix-marker
+          key: ${{ steps.day.outputs.key }}
