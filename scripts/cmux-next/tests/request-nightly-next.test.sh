@@ -115,6 +115,18 @@ if [[ "\$1 \$2" == "run list" ]]; then
   cat "$TMP/gh-runs"; exit 0
 fi
 if [[ "\$1" == api && "\$2" == repos/*/actions/workflows/cmux-tui-artifacts.yml/runs\?* ]]; then
+  if [[ -f "$TMP/gh-active-runs" ]]; then
+    python3 - "\$2" "$TMP/gh-active-runs" <<'PY'
+import json, sys
+from urllib.parse import parse_qs, urlsplit
+query = parse_qs(urlsplit(sys.argv[1]).query)
+runs = json.load(open(sys.argv[2]))
+print(sum(run['status'] == query['status'][0]
+          and ('head_sha' not in query or run['head_sha'] == query['head_sha'][0])
+          for run in runs))
+PY
+    exit \$?
+  fi
   [[ -f "$TMP/gh-runs" ]] || exit 1
   case "\$2" in
     *"&status=in_progress&"*) cat "$TMP/gh-runs" ;;
@@ -479,6 +491,27 @@ echo 2 > "$TMP/gh-runs"
 RUN_ID=12 request --sha "$other" --release-compile-green
 ! backfilled && grep -q "queued or running" <<<"$out" \
   || fail "no backfill while an artifacts run is active:" "$out" "$(cat "$TMP/gh.log")"
+# Recovery dispatches the current branch tip, even when this request checks an
+# older commit's marker. Only active runs of that dispatch source suppress it.
+backfill_tip=$(git -C "$src" rev-parse refs/heads/feat-cmux-next)
+branch "$other"
+printf '[{"head_sha":"%s","status":"in_progress"}]\n' "$head" > "$TMP/gh-active-runs"
+RUN_ID=120 request --sha "$other" --release-compile-green
+[[ "$status" == 0 ]] && backfilled \
+  || fail "an unrelated active tree must not suppress marker backfill:" "$out" "$(cat "$TMP/gh.log")"
+for active_state in queued in_progress waiting pending requested; do
+  printf '[{"head_sha":"%s","status":"%s"}]\n' "$other" "$active_state" > "$TMP/gh-active-runs"
+  RUN_ID="121-$active_state" request --sha "$other" --release-compile-green
+  ! backfilled && grep -q "queued or running" <<<"$out" \
+    || fail "an active dispatch-source run ($active_state) must suppress backfill:" "$out" "$(cat "$TMP/gh.log")"
+done
+branch "$head"
+printf '[{"head_sha":"%s","status":"queued"}]\n' "$head" > "$TMP/gh-active-runs"
+RUN_ID=122 request --sha "$other" --release-compile-green
+! backfilled && grep -q "queued or running" <<<"$out" \
+  || fail "backfill must check the remote dispatch tip, not the older marker candidate:" "$out" "$(cat "$TMP/gh.log")"
+branch "$backfill_tip"
+rm -f "$TMP/gh-active-runs"
 rm -f "$TMP/gh-runs"
 RUN_ID=13 request --sha "$other" --release-compile-green
 ! backfilled && grep -q "could not read the cmux-tui-artifacts runs" <<<"$out" \
@@ -724,6 +757,11 @@ echo 0 > "$TMP/gh-runs"
 request --tree-ready "$pending"
 [[ "$status" == 0 ]] && ! dispatched "$pending" || fail "with no active artifacts run the building tip must wait:" "$out"
 grep -q "no active cmux-tui-artifacts run builds tree" <<<"$out" || fail "the wait must say why:" "$out"
+printf '[{"head_sha":"%s","status":"queued"}]\n' "$other" > "$TMP/gh-active-runs"
+RUN_ID=123 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && backfilled && ! dispatched "$pending" \
+  || fail "a tip with no publisher must backfill despite an unrelated queued tree:" "$out" "$(cat "$TMP/gh.log")"
+rm -f "$TMP/gh-active-runs"
 echo 1 > "$TMP/gh-runs"
 request --tree-ready "$pending"
 [[ "$status" == 0 ]] && dispatched "$pending" || fail "the building tip with the line and an active run must be requested:" "$out" "$(cat "$TMP/gh.log")"

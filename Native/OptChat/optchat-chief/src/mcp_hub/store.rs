@@ -71,6 +71,11 @@ pub struct Server {
     /// `chief`, `allChiefs`, `agents`, `everywhere`); none when a Chief added it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+    /// Whose `scope` it is: the chat's session id (`chat`), the Chief's home
+    /// id (`chief`). Kept as read, so a Chief that updates the record never
+    /// widens who sees it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
     /// The last tool list (cached so search and describe need no connect).
     #[serde(default)]
     pub tools: Vec<Value>,
@@ -87,6 +92,13 @@ pub struct Server {
     /// `connected`, `needs sign-in`, or `failed: why`.
     #[serde(default)]
     pub state: String,
+}
+
+impl Server {
+    /// Whether `viewer` may see and use it (the person's scope on the card).
+    pub fn visible_to(&self, viewer: &cmux_mcp_connect::shared::Viewer) -> bool {
+        cmux_mcp_connect::shared::visible(self.scope.as_deref(), self.owner.as_deref(), viewer)
+    }
 }
 
 /// One event subscription: a resource URI, or a notification method.

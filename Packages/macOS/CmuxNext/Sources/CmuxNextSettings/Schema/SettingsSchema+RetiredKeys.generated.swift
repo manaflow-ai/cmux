@@ -34,6 +34,10 @@ extension SettingsSchema {
         "labs.classicHome": "Home is the workspace with the Chief docked on the left",
         // The default-off switch that landed cmux Remote dormant (#28584); retired so cmux Remote is the default (Aziz 2026-11-05: "we want this to be the default way for screen sharing daemons and computer use daemons moving forward").
         "remote.enabled": "cmux Remote is how cmux runs Computer Use and Screen Sharing",
+        // cmux Computer Use is built in and on by default (Aziz 2026-11-05); the mode picker (off, look only, ask every time, approved apps, full access) replaces the switch. An old "enabled": false still reads as mode "off" (RenamedSettingKeys).
+        "computerUse.enabled": "computerUse.mode replaces it: set it to \"off\" to turn Computer Use off",
+        // cmux Computer Use replaced the legacy cmux-cua and upstream Cua Driver helpers (Aziz 2026-11-05).
+        "computerUse.driver": "cmux Computer Use is built in; there is no driver to pick",
         // Cloud machines reach models through the Cloud service's model route, so cmux no longer copies a login from the Mac (cloud multiplayer lane A, 2026-11-07).
         "cloud.useMyClaudeLoginOnMyCloudMachines": "Cloud machines reach Claude through the Cloud service; no login is copied",
         // Cloud machines reach models through the Cloud service's model route, so cmux no longer copies a login from the Mac (cloud multiplayer lane A, 2026-11-07).
