@@ -1816,7 +1816,7 @@ def check_golden(app: Path, build: dict) -> None:
 
 def stamp_commit(app: Path, commit: str) -> None:
     """A fleet DEV build names no CMUXCommit, and hot-apply refuses to put a daemon into an app it cannot place
-    ("has no CMUXCommit (a DEV build)", the first fleet golden copy's Rust apply on cmux17, 2026-11-19): the
+    ("has no CMUXCommit (a DEV build)", the first fleet golden copy's Rust apply on a fleet Mac, 2026-11-19): the
     cached app is stamped with the commit its job built, which `--from` that app then plans against too. Its seal
     breaks, as every copy's does; side-instance.sh make re-seals the copy."""
     path = app / "Contents/Info.plist"

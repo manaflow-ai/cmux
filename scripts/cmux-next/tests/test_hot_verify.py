@@ -734,7 +734,7 @@ class GoldenCopyTest(unittest.TestCase):
             self.assertEqual(slept, waits)
 
     def test_no_published_daemon_and_no_cargo_says_so(self):
-        """cmux17 (2026-11-19) has no cargo, and the tree's daemon was not published: hot-apply said only
+        """A fleet Mac (2026-11-19) has no cargo, and the tree's daemon was not published: hot-apply said only
         `exited 1: apply 4.0 s: key 3.2, plan 0.4, fetch 0.3`."""
         tree = self.root / "tree"
         (tree / "cmux-tui").mkdir(parents=True)
