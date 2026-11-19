@@ -22,7 +22,7 @@ fn vm_lifecycle_wire_rejects_unrecognized_and_missing_states() {
 #[test]
 fn vm_lifecycle_retains_identity_through_claim_pause_resume_and_delete() {
     let vm = Vm::<Unallocated, _>::new(String::from("allocation-with-idempotency-key"));
-    let vm = vm.provision().preclaim().claim().running().ready().attach();
+    let vm = vm.provision().preclaim().claim().into_vm().running().ready().attach();
     let vm = vm.pause().paused().resume().running().ready().attach().detach();
     let deleted = vm.delete().deleted();
     assert_eq!(deleted.payload(), "allocation-with-idempotency-key");
@@ -85,4 +85,15 @@ fn vm_lifecycle_proxy_connection_needs_remote_identification() {
     let connection = Vm::connected("proxy-to-vm-a");
     let attached = connection.ready().attach();
     assert_eq!(*attached.payload(), "proxy-to-vm-a");
+}
+
+#[test]
+fn vm_lifecycle_claim_and_release_preserve_provider_power() {
+    let Observed::Paused(vm) = Status::Paused.bind(String::from("paused-spare")) else {
+        panic!("not paused")
+    };
+    let paused: Vm<Paused, _> = vm.preclaim().claim().release();
+    assert_eq!(paused.payload(), "paused-spare");
+    let running: Vm<Running, _> = paused.resume().running().preclaim().release();
+    assert_eq!(running.payload(), "paused-spare");
 }
