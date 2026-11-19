@@ -43,8 +43,6 @@ final class CustomSidebarDataChangeMonitor {
     private(set) var revision: UInt64 = 0
     /// When ``revision`` last bumped.
     private(set) var changedAt = Date()
-    /// Raw change signals received before coalescing; for tests.
-    @ObservationIgnored private(set) var receivedSignalCount = 0
     /// The window's cache of which sidebar files read `clock`.
     @ObservationIgnored let refreshPolicies = CustomSidebarRefreshPolicyCache()
 
@@ -53,6 +51,7 @@ final class CustomSidebarDataChangeMonitor {
     @ObservationIgnored private let changes = PassthroughSubject<Void, Never>()
     @ObservationIgnored private var cancellables: [AnyCancellable] = []
     @ObservationIgnored private var workspaceCancellables: [AnyCancellable] = []
+    @ObservationIgnored private var workspaceTasks: [Task<Void, Never>] = []
     @ObservationIgnored private var globalTasks: [Task<Void, Never>] = []
     @ObservationIgnored private var observedWorkspaceIds: [UUID] = []
 
@@ -83,7 +82,6 @@ final class CustomSidebarDataChangeMonitor {
     var isObserving: Bool { retainCount > 0 }
 
     private func signal() {
-        receivedSignalCount &+= 1
         changes.send()
     }
 
@@ -126,6 +124,8 @@ final class CustomSidebarDataChangeMonitor {
     private func stop() {
         cancellables.removeAll()
         workspaceCancellables.removeAll()
+        workspaceTasks.forEach { $0.cancel() }
+        workspaceTasks.removeAll()
         globalTasks.forEach { $0.cancel() }
         globalTasks.removeAll()
         observedWorkspaceIds = []
@@ -136,15 +136,23 @@ final class CustomSidebarDataChangeMonitor {
         guard ids != observedWorkspaceIds else { return }
         observedWorkspaceIds = ids
         workspaceCancellables.removeAll()
+        workspaceTasks.forEach { $0.cancel() }
+        workspaceTasks.removeAll()
         guard !tabs.isEmpty else { return }
 
         var publishers: [AnyPublisher<Void, Never>] = []
-        publishers.reserveCapacity(tabs.count * 4)
+        publishers.reserveCapacity(tabs.count * 3)
         for workspace in tabs {
             publishers.append(workspace.objectWillChange.map { _ in () }.eraseToAnyPublisher())
             publishers.append(workspace.sidebarImmediateObservationPublisher)
             publishers.append(workspace.sidebarObservationPublisher)
-            publishers.append(workspace.sidebarAgentRuntimeObservation.passiveChanges)
+            let runtimeChanges = workspace.sidebarAgentRuntimeObservation.passiveChanges()
+            workspaceTasks.append(Task { @MainActor [weak self] in
+                for await _ in runtimeChanges {
+                    guard let self, !Task.isCancelled else { return }
+                    self.signal()
+                }
+            })
         }
         Publishers.MergeMany(publishers)
             .sink { [weak self] in self?.signal() }
@@ -155,67 +163,8 @@ final class CustomSidebarDataChangeMonitor {
         revision &+= 1
         changedAt = Date()
         #if DEBUG
-        cmuxDebugLog("customSidebar.monitor.bump revision=\(revision) signals=\(receivedSignalCount)")
+        cmuxDebugLog("customSidebar.monitor.bump revision=\(revision)")
         #endif
-    }
-}
-
-/// Answers ``CustomSidebarRefreshPolicy`` for a sidebar file, re-reading the
-/// file only when its modification date changes.
-///
-/// The loaded file is resolved by name and may switch between `.swift`,
-/// `.json` and `.js` across reloads, so every candidate with the same base
-/// name is checked. Each lookup stats those (small, local) files; contents
-/// are read only after one changes.
-@MainActor
-final class CustomSidebarRefreshPolicyCache {
-    private struct Entry {
-        let modificationDates: [Date?]
-        let policy: CustomSidebarRefreshPolicy
-        var checkedAt: Date
-    }
-
-    /// How long an answer is reused before the files are stat'ed again.
-    /// Lookups happen on every re-render; an edit that adds or removes
-    /// `clock` only needs to switch the tick within a few seconds.
-    static let recheckInterval: TimeInterval = 2
-
-    private static let candidateExtensions = ["swift", "json", "js"]
-    private var entries: [URL: Entry] = [:]
-    private let fileManager: FileManager
-
-    init(fileManager: FileManager = .default) {
-        self.fileManager = fileManager
-    }
-
-    func policy(
-        fileURL: URL,
-        sourceOverride: String?,
-        now: Date = Date()
-    ) -> CustomSidebarRefreshPolicy {
-        if let sourceOverride {
-            return CustomSidebarRefreshPolicy.policy(forSource: sourceOverride)
-        }
-        let base = fileURL.deletingPathExtension()
-        if let entry = entries[base], now.timeIntervalSince(entry.checkedAt) < Self.recheckInterval {
-            return entry.policy
-        }
-        let candidates = Self.candidateExtensions.map { base.appendingPathExtension($0) }
-        let dates = candidates.map { url in
-            (try? fileManager.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
-        }
-        if var entry = entries[base], entry.modificationDates == dates {
-            entry.checkedAt = now
-            entries[base] = entry
-            return entry.policy
-        }
-        let sources = zip(candidates, dates).compactMap { url, date -> String? in
-            guard date != nil else { return nil }
-            return try? String(contentsOf: url, encoding: .utf8)
-        }
-        let policy = CustomSidebarRefreshPolicy.policy(forSources: sources)
-        entries[base] = Entry(modificationDates: dates, policy: policy, checkedAt: now)
-        return policy
     }
 }
 

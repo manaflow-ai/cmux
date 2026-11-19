@@ -1,5 +1,4 @@
 import CmuxFoundation
-import Combine
 import Darwin
 import Foundation
 import Observation
@@ -31,15 +30,23 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     private var hasUnobservedChange = false
 
     @ObservationIgnored
-    private let passiveChangeSubject = PassthroughSubject<Void, Never>()
+    private(set) var passiveChangeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     /// Emits whenever any runtime map changes, without counting as an
-    /// observer of ``changes()``: it never takes the replay that
-    /// `hasUnobservedChange` holds for the next row subscriber, so a
-    /// long-lived listener (the custom-sidebar change monitor) can't leave
-    /// a row that subscribes later stale.
-    var passiveChanges: AnyPublisher<Void, Never> {
-        passiveChangeSubject.eraseToAnyPublisher()
+    /// observer of ``changes()``: it never takes or suppresses the replay
+    /// that `hasUnobservedChange` holds for the next row subscriber, so a
+    /// long-lived listener (the custom-sidebar change monitor) can't leave a
+    /// row that subscribes later stale.
+    func passiveChanges() -> AsyncStream<Void> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let id = UUID()
+            passiveChangeObservers[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in
+                    self?.passiveChangeObservers[id] = nil
+                }
+            }
+        }
     }
 
     /// Emits whenever any runtime map changes.
@@ -92,7 +99,11 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
 
     private func notifyChanged() {
         changeGeneration &+= 1
-        passiveChangeSubject.send()
+        for (id, continuation) in passiveChangeObservers {
+            if case .terminated = continuation.yield(()) {
+                passiveChangeObservers[id] = nil
+            }
+        }
         // Termination cleanup arrives through a separate MainActor task. If
         // that task is delayed by sidebar work, publication is the
         // authoritative reconciliation point so dead observers cannot make
