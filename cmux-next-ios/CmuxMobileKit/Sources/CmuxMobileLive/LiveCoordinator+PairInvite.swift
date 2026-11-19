@@ -25,6 +25,7 @@ extension LiveCoordinator {
         log.info("pairing code for \(invite.mac, privacy: .private)")
         // A tagged dev build lists and links this build for its computer from now on, not
         // another tag's build there (nothing in Release).
+        devHandoff.remember(invite.mac)
         steerToInvite()
         return true
     }

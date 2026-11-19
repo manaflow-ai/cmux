@@ -39,7 +39,9 @@ public struct MacRoster: Equatable, Sendable {
         var others: [String: [MacDevice]] = [:]
         for key in order {
             var ranked = (groups[key] ?? []).sorted(by: Self.moreActive)
-            _ = preferred  // red: not used yet
+            if let preferred, let index = ranked.firstIndex(where: { $0.id == preferred }), index > 0 {
+                ranked.insert(ranked.remove(at: index), at: 0)
+            }
             guard let first = ranked.first else { continue }
             listed.insert(first.id)
             var seen: Set<String> = [first.id]

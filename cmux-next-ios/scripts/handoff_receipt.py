@@ -8,7 +8,8 @@ receipt carries the launch's nonce, so a receipt from another launch never answe
 and `session_source` says how the session started: `auto_login` (credentials injected at
 launch) or `restored` (no credentials: the app's own Keychain session). With a Mac named,
 the receipt must also list that Mac as paired and linked, which a phone that is signed out,
-never paired, or cannot reach the Mac never writes.
+never paired, or cannot reach the Mac never writes. The receipt names the phone's focused Mac, so a
+phone on another Mac (another tag's dev build on the account) says which, by name and id.
 
   handoff_receipt.py check RECEIPT --nonce N --client-id ID --bundle-id B --account EMAIL
                     --session auto_login|restored|signed_out [--mac-id ID] [--git-sha SHA] [--dev-tag TAG]
@@ -121,6 +122,14 @@ def check(a):
             reject("the receipt lists no paired Macs")
         mine = [m for m in macs if isinstance(m, dict) and m.get("id") == a.mac_id]
         if not mine:
+            # The phone is on another Mac (another tag's dev build on the same account, say): a launch
+            # with a code may first link the Mac it remembered, so this keeps waiting, and at the
+            # deadline review.sh fails with this line.
+            other = next((m for m in macs if isinstance(m, dict) and m.get("id")), None)
+            if other:
+                state = "linked with" if other.get("linked") is True else "on"
+                retry(f"{state} another Mac, not this tag's: {other.get('name') or '?'} ({other['id']}), "
+                      f"not the tagged Mac {a.mac_id} (the phone chose another build on the account)")
             # Pairing finishes after sign-in: until the deadline this launch may still pair.
             retry(f"not paired with the tagged Mac yet ({len(macs)} other paired Mac(s))")
         if mine[0].get("linked") is not True:
