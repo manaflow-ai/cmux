@@ -5,6 +5,7 @@
 # (bun bench/update-one.bench.ts --changes 20 --turns 1000, as web-ui-suite.ts --only update-one does)
 # on every tree interleaved (A B C .. A B C ..), each run pinned to 4 cores like the cron's 4 vCPU host.
 #   bash perf-bisect-scratch/run.sh ROUNDS TAG [TAG...]     (TAG "tip" is this checkout)
+# PBU_SIZES=100,3000: only those list sizes (the bench's --sizes), the same for every tree.
 set -uo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 here="$root/perf-bisect-scratch"
@@ -64,7 +65,7 @@ for round in $(seq 1 "$rounds"); do
     dir=$(tree_of "$tag")
     log="$out/$tag-r$round.log"
     start=$(date +%s)
-    (cd "$dir/webviews" && timeout 900 taskset -c "$pin" bun bench/update-one.bench.ts --changes 20 --turns 1000 > "$log" 2>&1)
+    (cd "$dir/webviews" && timeout 900 taskset -c "$pin" bun bench/update-one.bench.ts --changes 20 --turns 1000 ${BENCH_ARGS:-} > "$log" 2>&1)
     echo "$tag r$round exit=$? $(( $(date +%s) - start ))s rows=$(grep -c '^PERF_ROW' "$log")" | tee -a "$out/summary.txt"
   done
 done
