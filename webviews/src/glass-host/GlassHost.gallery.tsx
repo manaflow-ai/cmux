@@ -107,14 +107,12 @@ function GlassHostGallery({ level, app, moves = false }: Props) {
   useEffect(() => {
     if (!moves) return;
     // gallery-capture: `menu-moves`'s play `movesDone` waits for the menu to rest (data-moves-done).
-    const timer = setInterval(
-      () =>
-        setStep((value) => {
-          if (value + 1 >= MOVE_STEPS) clearInterval(timer);
-          return Math.min(value + 1, MOVE_STEPS);
-        }),
-      MOVE_MS,
-    );
+    let taken = 0;
+    const timer = setInterval(() => {
+      taken += 1;
+      setStep(taken);
+      if (taken >= MOVE_STEPS) clearInterval(timer);
+    }, MOVE_MS);
     return () => clearInterval(timer);
   }, [moves]);
   const shift = step % MOVE_STEPS;

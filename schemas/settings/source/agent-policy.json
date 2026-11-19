@@ -27,15 +27,15 @@
     },
     {
       "agent": "settable",
-      "why": "Whether a chat shows the live view of the app its agent uses: looks only.",
       "keys": [
-        "computerUse.livePreview"
+        "shortcuts.showModifierHoldHints"
       ]
     },
     {
       "agent": "settable",
+      "why": "Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.",
       "keys": [
-        "shortcuts.showModifierHoldHints"
+        "customize.fromTheApp"
       ]
     },
     {
@@ -224,7 +224,8 @@
       "agent": "settable",
       "why": "The theme file whose look applies (looks only)",
       "keys": [
-        "appearance.themeFile"
+        "appearance.themeFile",
+        "appearance.themeFileExceptions"
       ]
     },
     {
@@ -1350,6 +1351,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether cmux adds its tools to the person's own coding agents (their config files and each terminal launch): the onboarding step asks the person, and only the person answers; an agent must not grant itself or other agents cmux's tools.",
+      "keys": [
+        "agents.cmuxMcp"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "How long Claude Code chats keep their prompt cache: it moves the person's model bill.",
       "keys": [
         "agents.promptCache"
@@ -1357,10 +1365,18 @@
     },
     {
       "agent": "userOnly",
-      "why": "On, cmux starts a helper that sees and controls other apps; only the person turns it on.",
+      "why": "Computer Use: what agents may do with the person's apps. An agent must never widen (or even change) its own access, so every computerUse.* key is the person's alone.",
       "keys": [
-        "computerUse.enabled",
-        "computerUse.driver"
+        "computerUse.mode",
+        "computerUse.deniedApps",
+        "computerUse.allowOwnMachines",
+        "computerUse.pauseOnTakeover",
+        "computerUse.allowForeground",
+        "computerUse.showCursor",
+        "computerUse.cursorTag",
+        "computerUse.settle",
+        "computerUse.livePreview",
+        "computerUse.menus"
       ]
     },
     {
@@ -1447,6 +1463,13 @@
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
         "agents.autoRetry.attempts"
+      ]
+    },
+    {
+      "agent": "network",
+      "why": "Whether new chats get the person's saved MCP servers opens their connected services (Linear, Slack and others) to agents: the person's call.",
+      "keys": [
+        "agents.mcpServers.enabled"
       ]
     },
     {

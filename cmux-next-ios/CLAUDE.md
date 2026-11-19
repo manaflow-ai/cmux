@@ -1,8 +1,8 @@
 # cmux-next iPhone app: agent notes
 
 For work under `cmux-next-ios/`, the NEXT iPhone app. The root [CLAUDE.md](../CLAUDE.md) still applies.
-`ios/` is the classic app, with its own [ios/AGENTS.md](../ios/AGENTS.md). iOS is Aziz's area
-(`azooz2003-bit`).
+This is the iPhone app. `ios/` is the retired classic app: don't change or install it. iOS is
+Aziz's area (`azooz2003-bit`).
 
 **Manaflow AI team members and their agents:** also read the private
 [cmux-next-ios skill](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/skills/ios/cmux-next-ios/SKILL.md)
@@ -23,10 +23,9 @@ covers your change:
 
 ## Hand-off command (under verification)
 
-`scripts/review.sh` is new: its phone leg has not yet run end to end (the fleet runs its
-`handoff` step only once it is on feat-cmux-next). Until one green end-to-end run, the root
-[CLAUDE.md](../CLAUDE.md#finishing-a-task) "Finishing a task" rules stay as they are; use this
-command and report its output beside them. It leaves the task's build on every connected iPhone,
+This is the root [CLAUDE.md](../CLAUDE.md#finishing-a-task) "Finishing a task" hand-off for the
+iPhone app. Its phone leg has not yet had one green end-to-end run; report any failure as the
+phone's blocker. It leaves the task's build on every connected iPhone,
 signed in and paired with the same-tag Mac build, from one command at the pushed head:
 
 ```bash
@@ -46,10 +45,7 @@ flags are for checking the other paths, and are never the hand-off:
 | `--manual-pairing` | signed in; no code handed over or marked used, so the person pairs by hand | signed in, and still after a credential-free relaunch; no pairing checks, no Mac restart | `installed, signed in (auto_login); credential-free relaunch: signed in (restored); pairing left to you (--manual-pairing)` |
 | `--no-auth` | no credentials, no code; the first launch clears the tag's stored session with the DEBUG-only `CMUX_MOBILE_CLEAR_AUTH=1` (compiled out of Release) | the receipt says signed out (welcome screen), and a plain relaunch is still signed out | `installed, not signed in (--no-auth): ...; relaunch: still signed out` |
 
-`--no-auth` implies no pairing; given both, `--no-auth` wins. The classic app's
-`ios/scripts/reload.sh --review` accepts the same flags: `--no-auth` is its explicit
-unauthenticated install (local builds only: hq's fleet installer always signs in), and
-`--manual-pairing` is ignored with a note, since the classic app does not pair by a code.
+`--no-auth` implies no pairing; given both, `--no-auth` wins.
 
 It does, in order, and exits non-zero if any phone fails a check or none is connected:
 
@@ -58,8 +54,8 @@ It does, in order, and exits non-zero if any phone fails a check or none is conn
    (`cmux-next-ios-sim.sh handoff tag=<task-slug>`) the iPhone app (Demo configuration with the
    DEBUG developer surface, bundle `dev.cmux.mobile.<task-slug>`, home-screen name
    "cmux <task-slug>", an unsigned device app) plus the fleet simulator check: signed in with the
-   worker's agent account, relaunched with no credentials and signed in again from its own session,
-   with screenshots and a recording. Rerunning resumes the saved jobs.
+   agent account's session (from your Mac, `--sign-in agent`), relaunched with no credentials and
+   signed in again from its own session, with screenshots and a recording. Rerunning resumes the saved jobs.
 2. Installs the tagged Mac app at the tag's path and starts it in the background (`open -g`,
    never frontmost), signed in to the `personal` account.
 3. On every connected, paired iPhone (new phones are registered): signs a copy with this Mac's
@@ -93,9 +89,11 @@ What it needs:
   extensions) that names each phone; the team wildcard profile covers all three. A phone no
   profile names gets a `BLOCKED: signing failed` line: register it in the team first. The phone
   needs Developer Mode, to be unlocked, and to trust this Mac. No Tailscale.
-- A fleet simulator worker with the agent account (`<host dir>/secrets/ios-agent-stack.env`). The
-  step asks for `--label ios-agent-signin`, which only such workers advertise; with none online it
-  waits in the queue.
+- A fleet simulator worker. It needs no agent account file: the step is sent with
+  `cmux-ci run --sign-in agent`, which signs the shared agent
+  account in on this Mac for that step alone, seals it to the worker, and revokes it when the step
+  ends (hq build-fleet `sign_in`; the step reads it with `scripts/lib/fleet-signin-session.sh`).
+  `cmux-ci run` follows the step while it delivers the session, so review.sh never detaches it.
 
 Its scripts: `scripts/review.sh` (the command), `scripts/sign_device_app.py` (local signing),
 `scripts/review_mac.py` (the tagged Mac over its control socket), `scripts/handoff_receipt.py`

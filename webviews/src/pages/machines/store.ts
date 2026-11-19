@@ -2,6 +2,7 @@
 // `changes` stream carries (the host sends none while the section is hidden). React reads it through
 // `useSyncExternalStore`; a read older than a newer snapshot is dropped.
 import type { PageClient } from "../shared/pageClient";
+import { keptSnapshot } from "./model";
 import { MachinesOps, type JoinedDialAnswer, type JoinedDialPhase, type MachinesSnapshot } from "./types";
 
 export interface MachinesState {
@@ -102,8 +103,11 @@ export class MachinesStore {
 
   /** Shows `snapshot` (the host's newest). A removed row it no longer lists as joined is done: gone,
    * or (a joined machine this app also runs) back as a plain machine row with the same id. */
-  land(snapshot: MachinesSnapshot): void {
+  land(sample: MachinesSnapshot): void {
     this.version += 1;
+    // The host sends every row on each change: an unchanged row keeps its object, so
+    // the memoized rows draw only the machine that changed.
+    const snapshot = keptSnapshot(this.state.snapshot, sample);
     const joined = new Set(snapshot.rows.filter((row) => row.joined).map((row) => row.id));
     const removed = new Set([...this.state.removed].filter((id) => joined.has(id)));
     this.set({ ...this.state, snapshot, removed });
