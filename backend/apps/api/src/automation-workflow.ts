@@ -2,7 +2,8 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloud
 import { callCapability } from "./automation-caps.ts"
 import { brainName } from "./chief-brain/brain-do.ts"
 import type { JobDelivery } from "./chief-brain-cc/jobs.ts"
-import { runMachineStep, type MachineExec, type StepOutcome } from "./automation-machine.ts"
+import { awaitMachine, runMachineStep, stepFailureReport, type MachineExec, type MachinePower, type StepOutcome } from "./automation-machine.ts"
+import type { Principal } from "@cmux/ownership"
 import { CodeRunError, runCode } from "./code-run.ts"
 import type { Env } from "./env.ts"
 import { UNATTRIBUTED_USER } from "./usage-user.ts"
@@ -74,6 +75,9 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
       const steps = p.body.steps
       // Journaled outputs of machine and agent steps (a replay refills this from the journal).
       const outputs = new Map<number, string>()
+      // Machines this run already found running (each is woken before its first step).
+      const awake = new Set<string>()
+      const journal = { do: <T,>(name: string, fn: () => Promise<T>) => step.do(name, fn as () => Promise<any>) as Promise<T>, sleep: (name: string, ms: number) => step.sleep(name, ms) }
       for (let i = 0; i < steps.length; i++) {
         const s = steps[i]!
         switch (s.type) {
@@ -102,12 +106,21 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
             // One command on one of the team's machines (org-workflows-DESIGN.md 4.2). The result is
             // journaled, so a replay never runs it again. No automatic retry: a lost answer does not
             // prove the command did not start (run.retry makes a new run).
+            if (!awake.has(s.machine)) {
+              // A stopped machine is started first (as the automation's creator); one that does not come up skips the run.
+              if (!(await awaitMachine(journal, machinePowerFor(this.env, p.owner, p.charged_user ?? null), s.machine, p.run))) {
+                await report(`cmux:${s.type}-not-running-${i}`, { state: "skipped", step: i - 1, error: { code: "machine_not_running", message: `step ${i}: ${s.machine} is not running and did not start` } })
+                return
+              }
+              awake.add(s.machine)
+            }
             const input = s.input_from === undefined ? null : (outputs.get(s.input_from) ?? null)
             const r: StepOutcome = await step.do(`cmux:${s.type}-${i}`, { retries: { limit: 0, delay: 1000, backoff: "constant" }, timeout: (s.timeout_seconds + 60) * 1000 }, () =>
               runMachineStep(machineExecFor(this.env, p.owner, p.charged_user ?? null), s, { run: p.run, index: i }, input)
             )
             if (!r.ok) {
-              await report(`cmux:${s.type}-failed-${i}`, { state: "failed", step: i - 1, error: { code: r.code, message: r.message.slice(0, 500) } })
+              const end = stepFailureReport(r)
+              await report(`cmux:${s.type}-failed-${i}`, { state: end.state, step: i - 1, error: { code: end.error.code, message: end.error.message.slice(0, 500) } })
               return
             }
             outputs.set(i, r.output)
@@ -130,6 +143,29 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
 const machineExecFor = (env: Env, team: string, user: string | null): MachineExec => {
   const stub = platformCloud(env.CLOUD_DO, team)
   return { exec: (machine, command, stdin, timeoutMs) => stub.automationExec(team, user, machine, command, stdin, timeoutMs) }
+}
+
+/**
+ * The team's CloudDO as the machine's power switch, as the automation's creator (a person: cloud.machine.start
+ * is a person's op, as for the Chief's own wake). A run with no creator (an old row) cannot start a machine.
+ */
+const machinePowerFor = (env: Env, team: string, user: string | null): MachinePower | null => {
+  if (!user || user === UNATTRIBUTED_USER) return null
+  const cloud = platformCloud(env.CLOUD_DO, team)
+  const principal: Principal = { identity: `session:${user}`, kind: "session", user, team }
+  return {
+    get: async (machine) => {
+      const r = await cloud.readOp(team, principal, "cloud.machine.get", { machine })
+      if (!r.ok) return { ok: false, code: r.code }
+      return { ok: true, status: String((r.value as { status?: unknown } | null)?.status ?? ""), revision: r.revision }
+    },
+    start: async (machine, key) => {
+      const reply = await cloud.submit(team, principal, { t: "op", op: "cloud.machine.start", params: { machine }, idempotency_key: key, origin: "script" })
+      const f = reply.frames.find((x) => x.t === "result" || x.t === "reject")
+      if (f && f.t === "result") return { ok: true }
+      return { ok: false, code: f && f.t === "reject" ? f.code : "cloud.machine.start_unavailable" }
+    }
+  }
 }
 
 /** The owner already ended the run; the Workflow returns without reporting again. */
