@@ -240,7 +240,9 @@ public struct RootView: View {
                let opened = OpenedURL(url: url) {
                 open(opened)
             }
-            // The iOS dev CLI's launch receipt (DevShow) for a root that is not the shell; the shell writes its own.
+            // The iOS dev CLI (DevShow): its requests reach the app on any root, and its launch
+            // receipt for a root that is not the shell (the shell writes its own).
+            DevShow.shared.startRequestWatch()
             if destination != .shell {
                 DevShow.shared.launchShown(destination: "\(destination)", shell: nil, appearance: settings.appearance, demo: options.demo)
             }
@@ -283,11 +285,7 @@ public struct RootView: View {
             #if DEBUG
             // The iOS dev CLI's link (DevShow): the shell navigates in process; never opened as a cmux link.
             if let request = DevShow.Request(url: url) {
-                if destination == .shell {
-                    DevShow.shared.request = request
-                } else {
-                    DevShow.shared.linkShown(request, destination: "\(destination)", appearance: settings.appearance)
-                }
+                DevShow.shared.deliver(request)
                 return
             }
             #endif
@@ -312,7 +310,14 @@ public struct RootView: View {
         .onChange(of: auth.isSignedIn) { _, signedIn in
             if signedIn { theme.haptics.success() } else { signedOut() }
         }
+        #if DEBUG
+        .onChange(of: destination, initial: true) { _, root in DevShow.shared.rootDestination = "\(root)" }
+        #endif
         .onChange(of: settings.appearance, initial: true) { _, mode in
+            #if DEBUG
+            DevShow.shared.rootAppearance = mode
+            DevShow.shared.appearanceSettingChanged()
+            #endif
             applyAppearance(mode)
         }
     }
