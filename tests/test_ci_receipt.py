@@ -353,5 +353,48 @@ class Produce(unittest.TestCase):
             self.assertEqual(ci_receipt.tested_head(repo), git("rev-parse", "HEAD"))
 
 
+class RustSummary(unittest.TestCase):
+    """rust-workspaces.yml's summary step, really run: a receipt skip is never shown as a plain skip."""
+
+    RUN_URL = "https://github.com/manaflow-ai/cmux/actions/runs/123"
+
+    def run_step(self, **env: str) -> tuple[int, str, str]:
+        import os  # noqa: PLC0415
+
+        import yaml  # noqa: PLC0415
+
+        workflow = yaml.safe_load((ROOT / ".github/workflows/rust-workspaces.yml").read_text())
+        (step,) = [s for s in workflow["jobs"]["summary"]["steps"] if s.get("name") == "Every planned workspace passed"]
+        with tempfile.TemporaryDirectory() as scratch:
+            summary = Path(scratch) / "summary"
+            summary.write_text("")
+            full = {"PATH": os.environ["PATH"], "GITHUB_STEP_SUMMARY": str(summary), "RECEIPT_AUDIT": "false",
+                    "RECEIPT_RUN": "", "RECEIPT_PRODUCER": "", **env}
+            done = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", step["run"]], env=full,
+                                  capture_output=True, text=True)
+            return done.returncode, done.stdout, summary.read_text()
+
+    def test_a_receipt_skip_says_verified_reuse_with_the_run_url(self):
+        code, out, summary = self.run_step(PLAN="skipped", WORKSPACES="skipped", RECEIPT_VALID="true",
+                                           RECEIPT_RUN=self.RUN_URL, RECEIPT_PRODUCER="octo")
+        self.assertEqual(code, 0)
+        self.assertIn(f"verified reuse of receipt {self.RUN_URL}", out)
+        self.assertIn(f"::notice title=CI receipt::rust workspaces: verified reuse of receipt {self.RUN_URL}", out)
+        self.assertIn(f"verified reuse of receipt {self.RUN_URL}", summary)
+
+    def test_no_receipt_never_claims_reuse(self):
+        for plan, workspaces in (("success", "success"), ("success", "skipped"), ("skipped", "skipped")):
+            with self.subTest(plan=plan, workspaces=workspaces):
+                _, out, summary = self.run_step(PLAN=plan, WORKSPACES=workspaces, RECEIPT_VALID="false",
+                                                RECEIPT_RUN=self.RUN_URL)
+                self.assertNotIn("verified reuse", out + summary)
+
+    def test_an_audited_receipt_runs_the_verdict_not_the_reuse_line(self):
+        _, out, summary = self.run_step(PLAN="success", WORKSPACES="failure", RECEIPT_VALID="true",
+                                        RECEIPT_AUDIT="true", RECEIPT_RUN=self.RUN_URL, RECEIPT_PRODUCER="octo")
+        self.assertNotIn("verified reuse", out + summary)
+        self.assertIn("CI receipt audit", out)
+
+
 if __name__ == "__main__":
     unittest.main()
