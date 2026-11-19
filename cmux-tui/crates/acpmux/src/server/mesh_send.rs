@@ -104,6 +104,9 @@ pub(super) async fn relay(
         }
     };
     Some(mesh.send(&message).await.map(|receipt| {
+        // Its sender reads the hub's status of it, as a direct send's (`status`).
+        let caller = delivery.caller.as_deref();
+        hub.outbox.record_mesh_origin(&receipt.message_id, &delivery.target, caller, false);
         json!({
             "via": "mesh",
             "relayDeliveryId": format!("{PREFIX}{}", receipt.message_id),
@@ -219,6 +222,9 @@ pub(super) async fn send(
     let receipt = mesh.send(&message).await.map_err(|e| refusal(target, e))?;
     if target.starts_with('@') {
         super::team::remember_sender(hub, conn, &receipt.message_id, target)?;
+    } else {
+        // Sent either way; unrecorded, its status is gated as a team message's (`status`).
+        hub.outbox.record_mesh_origin(&receipt.message_id, target, caller, false);
     }
     Ok(status_of(&receipt, target))
 }
@@ -242,10 +248,22 @@ pub(super) async fn status(
             )
         }
     })?;
-    let origin = hub.outbox.team_receipt(message);
-    // Stored origin is authoritative even when resolution strips teamAddress/startWork.
-    // Hub markers also protect receipts created before this daemon recorded their origin.
-    if origin.is_some() || receipt.to.team_address.is_some() || receipt.start_work.is_some() {
+    let origin = hub.outbox.mesh_origin(message);
+    let direct = origin.as_ref().filter(|d| !d.team_origin());
+    if let Some(sent) = direct {
+        // A direct `HOST/NAME` send's, which the hub stamps with `startWork` as it does every
+        // message: its proven sender's, or the person's when no session sent it.
+        if let Some(sender) = sent.caller.as_deref()
+            && !conn.is_person()
+            && conn.caller() != Some(sender)
+        {
+            return Err(RpcError::invalid_params(format!("{id} was sent by another session"))
+                .with_data(json!({"reason": "mesh.not_sender", "deliveryId": id})));
+        }
+    } else if origin.is_some() || receipt.to.team_address.is_some() || receipt.start_work.is_some()
+    {
+        // Stored origin is authoritative even when resolution strips teamAddress/startWork.
+        // Hub markers also protect receipts created before this daemon recorded their origin.
         super::team::authorize(hub, conn).await?;
         if !conn.is_person()
             && let Some(caller) = conn.caller()
