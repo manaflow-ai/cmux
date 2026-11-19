@@ -231,10 +231,7 @@ fn choose(
             if !live::takes(&payload.live_from, app_commit) {
                 why.push(messages.why_not_live_from.replace("{app_commit}", app_commit));
             } else if !live::native_matches(payload, app_commit) {
-                why.push(messages.why_live_refused.replace(
-                    "{error}",
-                    "the signed manifest does not prove unchanged native app content; a full app build is required",
-                ));
+                why.push(messages.why_native_unproven.to_owned());
             } else {
                 match live::wanted(payload, base) {
                     Ok(files) => return Plan::Live { files },
