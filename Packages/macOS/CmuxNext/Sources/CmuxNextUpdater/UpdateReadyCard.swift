@@ -27,8 +27,13 @@ nonisolated public struct UpdateReadyCard: Equatable, Sendable {
     /// (``UpdateInstallCheck``): the card says so instead of offering Restart to Update again.
     public var failure: UpdateInstallFailure?
 
+    /// What an automatic install has waited on past its bound (``UpdateRelaunchHoldState/surfaced``):
+    /// the popover's headline says so, and Restart to Update installs at once.
+    public var heldBy: UpdateRelaunchMoment.Interruption?
+
     public init(version: String?, isInstalling: Bool, automaticUpdates: Bool, notes: UpdateReadyNotes,
-                changelog: UpdateChangelog? = nil, failure: UpdateInstallFailure? = nil) {
+                changelog: UpdateChangelog? = nil, failure: UpdateInstallFailure? = nil,
+                heldBy: UpdateRelaunchMoment.Interruption? = nil) {
         // While the click installs, the card says so in its title too, not only on its disabled button.
         title = isInstalling ? UpdaterStrings.installingUpdate : UpdaterStrings.readyToInstall
         detail = (changelog ?? version.map { UpdateChangelog(version: $0, date: nil, lines: []) })?.cardDetail
@@ -41,6 +46,8 @@ nonisolated public struct UpdateReadyCard: Equatable, Sendable {
         // The install of this build failed: the title says it did not install, the detail line
         // says why, and the popover (and the button's help) has the full reason and what to do.
         self.failure = isInstalling ? nil : failure
+        self.heldBy = isInstalling || self.failure != nil ? nil : heldBy
+        if let heldBy = self.heldBy { self.notes.headline = UpdaterStrings.heldHeadline(heldBy) }
         if let failure = self.failure {
             title = UpdaterStrings.installFailedTitle
             detail = failure.summary

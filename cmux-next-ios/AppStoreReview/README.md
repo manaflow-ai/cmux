@@ -22,7 +22,8 @@ python3 <checkout>/cmux-next-ios/scripts/asc_review_package.py --app "$ASC_APP_I
 python3 <checkout>/cmux-next-ios/scripts/asc_review_package.py --app "$ASC_APP_ID" sync-listing
 ```
 
-`--version` defaults to `MARKETING_VERSION` in `cmux-next-ios/project.yml`. Both
+`--version` defaults to the AppStore configuration's `MARKETING_VERSION` in
+`cmux-next-ios/project.yml` (1.0.0; the base value is the INTERNAL lane's). Both
 commands take `--dry-run`. Environment:
 
 - App Store Connect key: `ASC_API_KEY_ID`, `ASC_API_ISSUER_ID`, and
@@ -38,7 +39,8 @@ The listing covers the 14 locales of the production record: de-DE, en-US, es-ES,
 fr-FR, it, ja, ko, nl-NL, pl, pt-BR, ru, tr, zh-Hans, zh-Hant. `asc metadata
 apply --allow-deletes` deletes a locale that is missing here.
 
-`metadata/version/` holds one directory, named for `MARKETING_VERSION`. When
+`metadata/version/` holds one directory, named for the AppStore configuration's
+`MARKETING_VERSION` (not the base one the INTERNAL lane uses). When
 that version changes, rename the directory in the same change;
 `tests/test_ios_appstore_listing_text.py` fails until it matches.
 

@@ -81,6 +81,8 @@ const TAKES_VALUE: &[&str] = &[
     "-p",
     "--agent",
     "--model",
+    "--effort",
+    "--mode",
     "--cwd",
     "--from-folder",
     "--environment",
@@ -110,6 +112,13 @@ pub(super) struct Request {
     /// `cloud start-session --model` takes it (acpmux's `session/new` model); `None` leaves the
     /// harness's default there.
     pub model: Option<String>,
+    /// `--effort EFFORT` (low, medium, high, xhigh, max…): the thinking effort the machine's agent
+    /// runs at, as the composer's effort picker sets it on a Cloud start; set on the new session
+    /// before its first prompt ([`apply_settings`]). `None` keeps the harness's default.
+    pub effort: Option<String>,
+    /// `--mode MODE`: the harness permission mode the chat starts in (the composer's mode pick),
+    /// set like `effort`; the machine's acpmux decides whether it may.
+    pub mode: Option<String>,
     pub cwd: Option<String>,
     /// `--from-folder`: a folder on this Mac, canonical; the chat starts in its copy on the machine.
     pub from_folder: Option<String>,
@@ -220,6 +229,8 @@ pub(super) fn send_existing(
         prompt: Some(prompt),
         agent: String::new(),
         model: None,
+        effort: None,
+        mode: None,
         cwd: None,
         from_folder: None,
         environment: None,
@@ -321,6 +332,8 @@ pub(super) fn wait_on(
         prompt: None,
         agent: String::new(),
         model: None,
+        effort: None,
+        mode: None,
         cwd: None,
         from_folder: None,
         environment: None,
@@ -472,6 +485,7 @@ pub(super) fn parse(
     let mut make_room = false;
     let mut allow_large = false;
     let mut timeout = DEFAULT_TIMEOUT;
+    let (mut effort, mut mode, mut no_folder) = (None, None, false);
     // The prompt came after `--`: text, so `-- -` is "-", not stdin.
     let mut literal = false;
     let mut index = 0;
@@ -496,6 +510,9 @@ pub(super) fn parse(
             "--prompt" | "-p" => prompt = Some(value()?),
             "--agent" => agent = Some(value()?),
             "--model" => model = Some(value()?),
+            "--effort" => effort = Some(setting_word("--effort", &value()?)?),
+            "--mode" => mode = Some(setting_word("--mode", &value()?)?),
+            "--no-folder" => no_folder = true,
             "--cwd" => cwd = Some(value()?),
             "--from-folder" => from_folder = Some(value()?),
             "--environment" => environment = Some(value()?),
@@ -558,6 +575,11 @@ pub(super) fn parse(
     {
         return Err(UsageError::new(format!("--cwd {dir}: an absolute folder on the machine")));
     }
+    // `--no-folder`: the composer's No folder, said outright: a fresh folder of the chat's own on
+    // the machine (`~/chats/<chat>`), nothing copied. It is also what neither folder flag means.
+    if no_folder && (cwd.is_some() || from_folder.is_some()) {
+        return Err(UsageError::new(NO_FOLDER_WITH_FOLDER));
+    }
     let from_folder = from_folder.map(|dir| local_folder(&dir, cwd.is_some())).transpose()?;
     let environment = match environment.map(|word| word.trim().to_owned()) {
         Some(word) if word.is_empty() => return Err(UsageError::new("--environment is empty")),
@@ -590,6 +612,8 @@ pub(super) fn parse(
         prompt,
         agent,
         model,
+        effort,
+        mode,
         cwd,
         from_folder,
         environment,
@@ -601,6 +625,25 @@ pub(super) fn parse(
         until: None,
         allow_large,
     })))
+}
+
+/// Refused: `--no-folder` with a folder.
+pub(super) const NO_FOLDER_WITH_FOLDER: &str = "--no-folder starts the chat in a fresh folder of its own on the machine; not with --cwd or \
+     --from-folder";
+
+/// `--effort`'s or `--mode`'s word: 1 to 64 letters, digits, `.`, `_` or `-`, not starting with
+/// `-` (the ids harnesses give their efforts and modes: `high`, `xhigh`, `acceptEdits`, `plan`).
+pub(super) fn setting_word(flag: &str, word: &str) -> Result<String, UsageError> {
+    let value = word.trim();
+    let ok = (1..=64).contains(&value.len())
+        && !value.starts_with('-')
+        && value.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c));
+    if ok {
+        Ok(value.to_owned())
+    } else {
+        let example = if flag == "--effort" { "low, medium, high, xhigh or max" } else { "plan" };
+        Err(UsageError::new(format!("{flag} {word:?}: a value such as {example}")))
+    }
 }
 
 /// `--model`'s word, checked as the machine's daemon checks `agent-session-start`'s `model`
@@ -882,6 +925,12 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     }
     if let Some(model) = &request.model {
         words.push(format!("--model {}", shell_quote(model)));
+    }
+    if let Some(effort) = &request.effort {
+        words.push(format!("--effort {}", shell_quote(effort)));
+    }
+    if let Some(mode) = &request.mode {
+        words.push(format!("--mode {}", shell_quote(mode)));
     }
     if let Some(cwd) = &request.cwd {
         words.push(format!("--cwd {}", shell_quote(cwd)));
@@ -1639,6 +1688,12 @@ fn steps(
     if let Some(model) = &request.model {
         answer.set("model", json!(model));
     }
+    if let Some(effort) = &request.effort {
+        answer.set("effort", json!(effort));
+    }
+    if let Some(mode) = &request.mode {
+        answer.set("mode", json!(mode));
+    }
     if let Some(estimate) = estimate {
         answer.set("estimate", estimate);
     }
@@ -1648,6 +1703,10 @@ fn steps(
     // the account the app is on (`app_account`); start-chat deletes nothing, since it cannot prove it
     // made the machine: the caller (a Run's cleanup) deletes its own machine by its own name there.
     if let Err(outcome) = machine_on_account(runner, request, machine_id, deadline) {
+        return outcome;
+    }
+    // The composer's effort and mode picks, on the session before anything is sent to it.
+    if let Err(outcome) = apply_settings(runner, request, machine_id, session, &answer, deadline) {
         return outcome;
     }
 
@@ -1814,6 +1873,65 @@ fn machine_on_account(
         json!({"account": request.account, "machine_id": machine_id}),
         1,
     ))
+}
+
+/// The `acp session set` script for `request`'s effort and mode on `session` (after
+/// [`GUEST_PRELUDE`]), or None when neither is asked. Mode first: a harness may offer other
+/// efforts in another mode. The first refusal stops it, its words under `@@set`.
+pub(super) fn settings_script(request: &Request, session: &str) -> Option<String> {
+    let sets: Vec<String> = [("mode", &request.mode), ("effort", &request.effort)]
+        .into_iter()
+        .filter_map(|(key, value)| {
+            value.as_ref().map(|value| {
+                format!(
+                    "\"$c\" acp session set {} {} 2>&1",
+                    shell_quote(session),
+                    shell_quote(&format!("{key}={value}"))
+                )
+            })
+        })
+        .collect();
+    if sets.is_empty() {
+        return None;
+    }
+    Some(format!("{GUEST_PRELUDE}echo @@set; {}; x=$?; echo \"@@exit $x\"", sets.join(" && ")))
+}
+
+/// Step 3b, `--effort` and `--mode` on the new session (the composer's picks, applied as its
+/// chip would), in one exec before the first prompt. A refusal fails the start with the chat's
+/// answer so far, so nothing runs at an effort or in a mode that was not asked for.
+fn apply_settings(
+    runner: &mut dyn Runner,
+    request: &Request,
+    machine_id: &str,
+    session: &str,
+    answer: &Value,
+    deadline: Deadline,
+) -> Result<(), Outcome> {
+    let Some(script) = settings_script(request, session) else { return Ok(()) };
+    if deadline.passed(runner) {
+        return Err(out_of_time(request, &Machine::Target(machine_id.to_owned()), answer.clone()));
+    }
+    let refused = |words: String| {
+        failed(
+            "chat.settings_refused",
+            format!(
+                "the chat started, but its effort or mode was not set: {}; nothing was sent \
+                 (`cmux chat send {session} TEXT` sends it as it is)",
+                words.trim()
+            ),
+            json!({"answer": answer, "effort": request.effort, "mode": request.mode}),
+            1,
+        )
+    };
+    let ran = exec(runner, machine_id, &script).map_err(|error| {
+        refused(at(&error, "message").as_str().unwrap_or("cloud exec failed").to_owned())
+    })?;
+    let reported = sections(&ran);
+    if reported.get("exit").map(|code| code.trim()) == Some("0") {
+        return Ok(());
+    }
+    Err(refused(reported.get("set").cloned().unwrap_or_default()))
 }
 
 /// Step 4, the prompt to `session` on `machine_id`: inside the command when it fits there, else from

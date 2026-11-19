@@ -546,10 +546,18 @@ class Workflow(unittest.TestCase):
         # #27425: a fixed 300 s budget still cut accent-glass-invariants' retry and skipped two more
         # files. The step's retry deadline bounds every retry, inside the job's 40 min, and no smaller
         # budget cuts a retry before it.
-        budget = int(re.search(r'CMUX_WEB_TEST_RETRY_BUDGET: "(\d+)"', step).group(1))
-        deadline = int(re.search(r'CMUX_WEB_TEST_RETRY_DEADLINE: "(\d+)"', step).group(1))
-        self.assertGreaterEqual(budget, deadline)
-        self.assertLessEqual(deadline, 34 * 60)
+        # The step reads the job's timeout-minutes (one YAML anchor) and ends its retries a fixed
+        # reserve before them: a 40 min job still stops retrying by 34 min, and longer ones scale.
+        self.assertIn("timeout-minutes: &webview-shard-minutes ", text)
+        self.assertIn("CMUX_WEB_TEST_JOB_MINUTES: *webview-shard-minutes", step)
+        reserve = int(re.search(r"export CMUX_WEB_TEST_RETRY_DEADLINE=\$\(\( CMUX_WEB_TEST_JOB_MINUTES \* 60 - (\d+) \)\)",
+                                step).group(1))
+        # The budget is the deadline, so no smaller budget cuts a retry before it.
+        self.assertIn('export CMUX_WEB_TEST_RETRY_BUDGET="$CMUX_WEB_TEST_RETRY_DEADLINE"', step)
+        for minutes in (40, 90, 150):
+            deadline = minutes * 60 - reserve
+            self.assertGreater(deadline, 0)
+            self.assertLessEqual(deadline, (minutes - 6) * 60)
 
 
     def test_a_head_red_the_merge_parent_has_is_a_base_red_even_when_the_old_base_passed(self):

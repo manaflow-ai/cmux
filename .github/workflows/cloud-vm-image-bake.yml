@@ -27,6 +27,13 @@ name: Cloud VM image bake
 # file manifest are taken after the snapshot, beside the smoke (inventory.ts). layered=false is the full bake
 # from the lock: the manual fallback, and the weekly run main's cloud-vm-image-full-bake.yml starts, so the
 # image stays reproducible from the lock alone. A dev tree bake is always a full bake.
+# large_image (off by default) also makes the large image (web/scripts/cmux-vm-image/large-image.ts): after the
+# image's own snapshot the same builder is grown to the default Cloud chat start size (4 vCPU / 16 GiB / 64 GiB)
+# and snapshotted again as <name>-large, then smoked on its own (large-smoke.ts: clones boot at that size with no
+# resize). It has its own ledger (large/resources.tsv), so it is kept only when its own smoke passed and the
+# candidate records it, as the member `large` of channel-dev.json. The image's own snapshot, id, smoke and
+# candidate fields are the same with it on or off, and a large image that fails is a warning, never a red run:
+# nothing boots it yet (creates still boot the image and grow it).
 on:
   workflow_dispatch:
     inputs:
@@ -85,6 +92,11 @@ on:
         required: false
         default: true
         type: boolean
+      large_image:
+        description: Also bake and smoke the large image, the same builder grown to the default Cloud chat start size (4 vCPU / 16 GiB / 64 GiB), named <name>-large. No create boots it yet; not with team_vm or dev_tree
+        required: false
+        default: false
+        type: boolean
   # The image roll (cloud-vm-image-roll.yml) calls the bake with roll: true: it pins cmux_tui_commit into this
   # checkout's lock first (when set), and hands the gated candidate back as outputs. Nothing else differs.
   workflow_call:
@@ -95,6 +107,7 @@ on:
       probes: { type: boolean, required: false, default: false }
       agent_tools: { type: boolean, required: false, default: true }
       layered: { type: boolean, required: false, default: true }
+      large_image: { type: boolean, required: false, default: false }
       roll: { type: boolean, required: false, default: false }
       cmux_tui_commit: { type: string, required: false, default: "" }
     # The Freestyle key and the UI test login are repository secrets, which a called workflow gets only when its
@@ -251,16 +264,23 @@ jobs:
           TEAM_VM: ${{ inputs.team_vm && '--team-vm' || '' }}
           DEV_TREE: ${{ inputs.dev_tree && '--dev-tree' || '' }}
           LAYERED: ${{ inputs.layered && '--layered --defer-inventory' || '' }}
+          LARGE: ${{ inputs.large_image && '--large' || '' }}
         run: |
           set -euo pipefail
           mkdir -p "$OUT_DIR"
           # A dev tree is a checkout of this commit: no cached layer can hold it.
           if [ -n "$DEV_TREE" ]; then LAYERED=""; fi
           # shellcheck disable=SC2086
-          bun ../images/cmux-vm/bake.ts --tag "$TAG" --out-dir "$OUT_DIR" $AGENT_TOOLS $TEAM_VM $DEV_TREE $LAYERED | tee "$OUT_DIR/bake.out"
+          bun ../images/cmux-vm/bake.ts --tag "$TAG" --out-dir "$OUT_DIR" $AGENT_TOOLS $TEAM_VM $DEV_TREE $LAYERED $LARGE | tee "$OUT_DIR/bake.out"
           snapshot="$(awk '/^IMAGE_ID /{print $2}' "$OUT_DIR/bake.out" | tail -1)"
           test -n "$snapshot"
           echo "snapshot=$snapshot" >> "$GITHUB_OUTPUT"
+          # The large image, when asked for and made: its own output, read only by the large smoke.
+          large_snapshot="$(awk '/^LARGE_IMAGE_ID /{print $2}' "$OUT_DIR/bake.out" | tail -1)"
+          echo "large_snapshot=$large_snapshot" >> "$GITHUB_OUTPUT"
+          if [ -n "$LARGE" ] && [ -z "$large_snapshot" ]; then
+            echo "::warning title=Large image::the bake made no large image (LARGE IMAGE FAILED in the bake log); the image itself is unaffected"
+          fi
 
       - name: Smoke
         if: inputs.mode == 'bake'
@@ -294,6 +314,25 @@ jobs:
             [ "$inventory_status" -eq 0 ] || { echo "::error title=Image inventory::the SBOM or file manifest failed (inventory.out)"; exit 1; }
           fi
           exit "$smoke_status"
+
+      # The large image's own smoke (large-smoke.ts), after the image's: clones boot at the large size with no
+      # resize. A failure is a warning and leaves the large image out of the candidate; the run's cleanup then
+      # deletes it. The image's own smoke above is the only gate on the image.
+      - name: Large image smoke
+        if: inputs.mode == 'bake' && steps.bake.outputs.large_snapshot != ''
+        id: large_smoke
+        continue-on-error: true
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          LARGE_SNAPSHOT: ${{ steps.bake.outputs.large_snapshot }}
+        run: |
+          set -euo pipefail
+          status=0
+          bun ../images/cmux-vm/large-smoke.ts --snapshot "$LARGE_SNAPSHOT" --tag "$TAG" --clones 2 --out-dir "$OUT_DIR" | tee "$OUT_DIR/large-smoke.out" || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::warning title=Large image::the large image's smoke failed (large-smoke.out); it is not recorded and will be deleted. The image itself is unaffected"
+          fi
+          exit "$status"
 
       # Time to first build on new machines of this image (first-build.ts); first-build-before
       # measures the dev channel's image the same way.
@@ -348,7 +387,19 @@ jobs:
           smoke_json="$OUT_DIR/smoke-$TAG.json"
           jq -e '.passed == true' "$smoke_json" > /dev/null
           candidate="$OUT_DIR/channel-dev.json"
-          jq -n --slurpfile b "$bake_json" --slurpfile s "$smoke_json" --arg id "$SNAPSHOT" --arg sha "$SOURCE_SHA" --arg run "$RUN_ID" \
+          # The large image of this bake, only when its own smoke passed on that very snapshot: the member `large`
+          # (name, id, size, smoke). Every other field of the candidate is the same with or without it.
+          large=null
+          large_smoke="$OUT_DIR/smoke-large-$TAG.json"
+          if [ -f "$large_smoke" ]; then
+            large="$(jq -c --slurpfile s "$large_smoke" --arg run "$RUN_ID" \
+              '(.large // null) as $l
+               | if $l != null and $s[0].passed == true and $s[0].snapshotId == $l.snapshotId
+                 then {snapshot: $l.name, snapshot_id: $l.snapshotId, size: {vcpu: $l.size.vcpu, mem_gib: $l.size.memGiB, disk_gib: $l.size.diskGiB},
+                       smoke: {result: "PASSED", at: (now|todate), detail: "large-smoke.ts (CI run \($run)): \($s[0].checks | length) checks passed"}}
+                 else null end' "$bake_json")"
+          fi
+          jq -n --slurpfile b "$bake_json" --slurpfile s "$smoke_json" --arg id "$SNAPSHOT" --arg sha "$SOURCE_SHA" --arg run "$RUN_ID" --argjson large "$large" \
             --arg var "$SNAPSHOT_VAR" --arg bake "images/cmux-vm/bake.ts $AGENT_TOOLS $TEAM_VM $DEV_TREE $LAYERED" --arg smoke "smoke.ts --clones $CLONES $PROBES $TEAM_VM" \
             'def words: split(" ") | map(select(. != "")) | join(" ");
              ($bake | words) as $bake | ($smoke | words) as $smoke |
@@ -357,7 +408,8 @@ jobs:
              + (if ($b[0].desktop // null) != null then {desktop: $b[0].desktop} else {} end)
              + (if ($b[0].inputsSha256 // null) != null then {inputs_sha256: $b[0].inputsSha256} else {} end)
              + (if ($b[0].daemonIdentify.capabilities // [] | type) == "array" then {cmux_tui: {commit: ($b[0].daemonIdentify.build_commit // $sha), committed_at: (now|todate), capabilities: $b[0].daemonIdentify.capabilities}} else {} end)
-             + (if $b[0].teamFilesRoot then {team_files_root: $b[0].teamFilesRoot} else {} end)' \
+             + (if $b[0].teamFilesRoot then {team_files_root: $b[0].teamFilesRoot} else {} end)
+             + (if $large != null then {large: $large} else {} end)' \
             > "$candidate"
           cat "$candidate"
           if [ "$AUTO_PROMOTE" = true ]; then
@@ -522,6 +574,13 @@ jobs:
             bun ../images/cmux-vm/cleanup.ts --ledger "$OUT_DIR/resources.tsv" $KEEP
           else
             echo "no ledger; nothing was created"
+          fi
+          # The large image and its smoke clones (their own ledger): the snapshot stays only when the image's is
+          # kept and the candidate records it (its own smoke passed); otherwise it goes with its clones.
+          if [ -f "$OUT_DIR/large/resources.tsv" ]; then
+            keep_large=""
+            if [ -n "$KEEP" ] && jq -e '.large.snapshot_id' "$OUT_DIR/channel-dev.json" > /dev/null 2>&1; then keep_large=--keep-snapshot; fi
+            bun ../images/cmux-vm/cleanup.ts --ledger "$OUT_DIR/large/resources.tsv" $keep_large || echo "::warning title=Large image::some large image resources were not deleted (large/resources.tsv in the artifact)"
           fi
           # Layers built this run are kept (the next run boots them); only a builder a killed run left goes.
           if [ -f "$OUT_DIR/layers/resources.tsv" ]; then

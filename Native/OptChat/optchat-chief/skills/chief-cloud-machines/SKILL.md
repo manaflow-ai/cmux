@@ -83,8 +83,24 @@ To hand a task to a coding agent on a Cloud machine and get its answer, use
 one command:
 
 ```sh
-cmux --json cloud start-chat --prompt '<the task>' --wait
+cmux --json chat --on cloud --prompt '<the task>' --wait
 ```
+
+That is the Cloud workspace chat the composer starts, with the same picks:
+
+- `--harness claude` (default) or `codex`; `--model <model>`; `--effort
+  low|medium|high|xhigh|max`; `--mode <permission mode>`. Effort and mode are
+  set before the first prompt; one the harness refuses fails with
+  `chat.settings_refused` and nothing is sent.
+- A folder: `--from-folder <folder on this Mac>` copies it to the machine
+  (`.env` files and keys left out), `--cwd <folder on the machine>` uses one
+  there. Or No folder: `--no-folder` (also what no folder flag means), a fresh
+  folder of the chat's own under `~/chats`.
+- `--on cloud` takes the user's running Cloud VM (a new one when they have
+  none); `--on vm:new` always makes one, `--on vm:<id or name>` uses that one.
+
+`cmux agents chat new --on cloud …` is the same start. `cmux cloud
+start-chat` (below) is its older name and takes the same flags.
 
 It starts a chat (`--agent claude` by default, or `codex`) on a new small
 machine of its own (or `--name <name>`, or `--target machine:<id>` for a
