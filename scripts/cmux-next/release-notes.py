@@ -1228,8 +1228,10 @@ def openssl():
     candidates = [os.environ.get("OPENSSL") or "", "openssl", *HOMEBREW_OPENSSL]
     found = next((c for c in candidates if c and _is_openssl3(c)), None)
     if not found and sys.platform == "darwin":
-        brew = next((b for b in ("brew", "/opt/homebrew/bin/brew", "/usr/local/bin/brew")
-                     if b == "brew" or os.path.exists(b)), "brew")
+        # A runner's PATH may lack Homebrew's bin, as reel-install-ffmpeg.sh allows for.
+        import shutil
+        brew = shutil.which("brew") or next(
+            (b for b in ("/opt/homebrew/bin/brew", "/usr/local/bin/brew") if os.path.exists(b)), "brew")
         try:
             subprocess.run([brew, "install", "openssl@3"], capture_output=True, timeout=900,
                            env={**os.environ, "HOMEBREW_NO_AUTO_UPDATE": "1"})
