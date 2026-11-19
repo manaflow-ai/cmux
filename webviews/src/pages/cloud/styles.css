@@ -1194,3 +1194,316 @@ select {
   display: block;
   margin: 8px 0;
 }
+
+/* Cloud start timings (DEV and NIGHTLY, StartTimings.tsx; design/cloud-start-timings.md). One hue:
+   the text ink. A bar the Cloud service measured is the strong step; a client's (the app, the CLI,
+   the machine) the light step with a 45 degree hatch, so the two read apart without color. The
+   day's p50 to p95 is a faint band behind the bar (the `bands` look), its p50 a hairline. A hop
+   slower than its p95 gets the warning dot and its words, never color alone. */
+.cloud-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.st-page {
+  --st-server: color-mix(in srgb, var(--cloud-text) 72%, transparent);
+  --st-client: color-mix(in srgb, var(--cloud-text) 34%, transparent);
+  --st-band: color-mix(in srgb, var(--cloud-text) 8%, transparent);
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 18px 24px;
+  min-width: 0;
+}
+
+.st-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0 4px;
+}
+
+.st-heading {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.st-page[data-loading] .st-chart {
+  opacity: 0.6;
+}
+
+.st-waterfall-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0 2px;
+}
+
+.st-trace-id,
+.st-hop,
+.st-start-machine,
+.st-table th[scope="row"] {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+}
+
+.st-total,
+.st-note,
+.st-empty,
+.st-stats,
+.st-missing,
+.st-start-when,
+.st-start-path,
+.st-start-machine {
+  color: var(--cloud-text-2);
+}
+
+.st-total {
+  font-variant-numeric: tabular-nums;
+}
+
+.st-note,
+.st-empty {
+  margin: 2px 0 6px;
+  font-size: 12px;
+}
+
+.st-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 4px 0 8px;
+  font-size: 11px;
+  color: var(--cloud-text-2);
+}
+
+.st-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.st-swatch {
+  width: 14px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.st-swatch[data-source="server"],
+.st-bar[data-source="server"] {
+  background: var(--st-server);
+}
+
+.st-swatch[data-source="client"],
+.st-bar[data-source="client"] {
+  background:
+    repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in srgb, var(--cloud-text) 22%, transparent) 3px 4px),
+    var(--st-client);
+}
+
+.st-chart {
+  display: flex;
+  flex-direction: column;
+}
+
+.st-row {
+  display: grid;
+  grid-template-columns: 112px minmax(120px, 1fr) minmax(120px, auto);
+  align-items: center;
+  gap: 0 12px;
+  min-height: 26px;
+  border-bottom: 1px solid var(--cloud-separator);
+}
+
+.st-chart[data-look="bands"] .st-row {
+  grid-template-columns: 112px minmax(120px, 1fr) minmax(176px, auto);
+}
+
+.st-axis {
+  min-height: 20px;
+  border-bottom: 1px solid var(--cloud-separator);
+}
+
+.st-track {
+  position: relative;
+  height: 26px;
+}
+
+.st-axis .st-track {
+  height: 20px;
+}
+
+.st-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--cloud-separator);
+}
+
+.st-tick-label {
+  position: absolute;
+  bottom: 3px;
+  left: 3px;
+  font-size: 10px;
+  color: var(--cloud-text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.st-bar {
+  position: absolute;
+  top: 7px;
+  height: 12px;
+  min-width: 2px;
+  border-radius: 3px;
+  /* The 2px surface gap between touching pieces of one hop (network's prepare and attach). */
+  box-shadow: 0 0 0 1px var(--cmux-surface-background, Canvas);
+}
+
+.st-band {
+  position: absolute;
+  top: 4px;
+  height: 18px;
+  border-radius: 4px;
+  background: var(--st-band);
+}
+
+.st-p50 {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--cloud-text-2);
+}
+
+.st-value {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.st-duration {
+  min-width: 52px;
+  text-align: end;
+}
+
+.st-stats {
+  font-size: 11px;
+}
+
+.st-slow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.st-slow-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cloud-warn);
+}
+
+.st-row[data-missing] .st-hop {
+  color: var(--cloud-text-2);
+}
+
+.st-table {
+  width: 100%;
+  margin-top: 18px;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.st-table caption {
+  text-align: start;
+  padding-bottom: 6px;
+}
+
+.st-table th,
+.st-table td {
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid var(--cloud-separator);
+  text-align: end;
+}
+
+.st-table th:first-child {
+  text-align: start;
+}
+
+.st-table thead th {
+  font-weight: 500;
+  color: var(--cloud-text-2);
+}
+
+.st-starts {
+  margin-top: 18px;
+}
+
+.st-start-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.st-start {
+  display: grid;
+  grid-template-columns: 88px 64px minmax(0, 1fr) auto;
+  gap: 0 12px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: start;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.st-start:hover {
+  background: var(--cloud-hover);
+}
+
+.st-start[aria-current] {
+  background: var(--cloud-selection);
+}
+
+.st-start-machine {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.st-columns {
+  display: flex;
+  gap: 0 24px;
+  align-items: flex-start;
+}
+
+.st-columns .st-starts {
+  flex: none;
+  width: 260px;
+  margin-top: 14px;
+}
+
+.st-columns .st-start {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+}
+
+.st-columns .st-start-machine,
+.st-columns .st-start-path {
+  grid-row: 2;
+}
+
+.st-columns .st-main {
+  flex: 1;
+  min-width: 0;
+}

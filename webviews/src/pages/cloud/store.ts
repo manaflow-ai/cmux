@@ -140,12 +140,15 @@ export interface CloudState {
   retention?: RetentionEdit;
 }
 
-/** `machines` lists the team's machines; `get` is the storefront. */
-export type CloudView = "machines" | "get";
+/** `machines` lists the team's machines; `get` is the storefront; `timings` the Cloud start timings
+ * (DEV and NIGHTLY, StartTimings.tsx). */
+export type CloudView = "machines" | "get" | "timings";
 
-/** The view from the page's URL fragment: `#/get` is the storefront, anything else the list. */
+/** The view from the page's URL fragment: `#/get` is the storefront, `#/timings` the start timings,
+ * anything else the list. */
 export function parseView(hash: string): CloudView {
-  return hash.replace(/^#\/?/, "").split("?", 1)[0] === "get" ? "get" : "machines";
+  const route = hash.replace(/^#\/?/, "").split("?", 1)[0];
+  return route === "get" ? "get" : route === "timings" ? "timings" : "machines";
 }
 
 export interface CloudStoreOptions {

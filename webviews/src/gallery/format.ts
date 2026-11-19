@@ -382,6 +382,8 @@ export type CloudPageVariant = VariantBase & {
   spendCap?: NonNullable<import("../pages/cloud/ops").CloudPlan["spend_cap"]>;
   /** The member's own monthly budget is spent: a start or create is refused. */
   memberBudget?: { spent_usd: number; limit_usd: number };
+  /** The server serves Cloud start timings (a DEV or NIGHTLY build): the sample traces, else none. */
+  startTraces?: boolean;
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };

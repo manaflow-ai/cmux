@@ -61,6 +61,10 @@ export const CloudOps = {
   portForward: "cmux.cloud.port.forward",
   portClose: "cmux.cloud.port.close",
   browserOpen: "cmux.cloud.browser.open",
+  /** Cloud start timings (DEV and NIGHTLY; startTraces.ts): the platform's start traces, verbatim. A
+   * build that does not serve them answers unsupported, and the page shows no entry for them. */
+  startTraceList: "cmux.cloud.start_trace.list",
+  startTraceGet: "cmux.cloud.start_trace.get",
 } as const;
 
 /** Native preview actions. They are intentionally separate from server ops so
