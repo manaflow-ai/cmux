@@ -23,7 +23,10 @@ extension UpdaterService {
             services?.quit.onQuitRefused = { behind.quitRefused() }
             behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
         }
-        relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
+        let activity = UpdateAgentActivity(environment: QuitAgents.environment(services))
+        relaunchBlockers = { [weak self, weak services, activity] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
+        // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate.
+        attachIdleGate(services: services, activity: activity)
         // The windows leave the screen when Sparkle commits to the relaunch,
         // not at the click (`UpdateWindowHandoff`); a failed install brings them back.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
@@ -122,6 +125,7 @@ extension UpdaterService {
         if self.preferences != preferences { self.preferences = preferences }
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
                   downloadAutomatically: updates.downloadAutomatically,
-                  metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData, ring: updates.channel.rawValue, idleInstall: (updates.idleInstallMaxWaitSeconds, updates.idleInstallQuietSeconds))
+                  metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData, ring: updates.channel.rawValue, idleInstall: (updates.idleInstallMaxWaitSeconds, updates.idleInstallQuietSeconds),
+                  installWhenIdleMinutes: updates.installWhenIdle ? updates.installWhenIdleMinutes : nil)
     }
 }

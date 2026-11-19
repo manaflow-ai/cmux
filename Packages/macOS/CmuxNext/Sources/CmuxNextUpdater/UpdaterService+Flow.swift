@@ -270,18 +270,29 @@ extension UpdaterService {
     /// (``follow(ring:)``) to Sparkle, and when given the automatic install's wait cap and quiet
     /// window (`idleInstallMaxWaitSeconds`, `idleInstallQuietSeconds`). The ring is kept without a
     /// driver too (the probe reads it).
+    /// - Parameter installWhenIdleMinutes: the configured idle interval, when present.
     public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool,
                           metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
-                          idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil) {
+                          idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil,
+                          installWhenIdleMinutes: TimeInterval? = nil) {
         if let ring { follow(ring: ring) }
+        installWhenIdle = installWhenIdleMinutes.map { .seconds($0 * 60) }
         if let idleInstall {
             idleInstallQuiet = .seconds(idleInstall.quiet)
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
-            // The longest an automatic install waits silently on a modal, sheet, menu or composition.
-            relaunchMomentHold.surfaceAfter = .seconds(idleInstall.maxWait)
+            // The longest an automatic install waits silently on a modal, sheet, menu or composition;
+            // with Update When Idle, never before its idle time could have passed.
+            relaunchMomentHold.surfaceAfter = max(.seconds(idleInstall.maxWait), installWhenIdle ?? .zero)
         }
-        downloadSetting = (downloadAutomatically, metered)
+        // Update When Idle installs what it downloaded: it downloads found updates too.
+        downloadSetting = (downloadAutomatically || installWhenIdle != nil, metered)
         settingsApplied = true
+        // Signed tracks install downloaded updates automatically. The relaunch still waits on
+        // ``UpdateRelaunchMomentHold/idleGate`` (the app's Rust rule), so no draft or active work
+        // is interrupted. DEV/staging builds have no public feed and keep this disabled.
+        let installsWhenIdle = (downloadAutomatically || installWhenIdle != nil) && idleInstallGate != nil
+        relaunchMomentHold.idleGate = installsWhenIdle ? idleInstallGate : nil
+        if let controller, controller.installsUpdatesWhenIdle != installsWhenIdle { controller.installsUpdatesWhenIdle = installsWhenIdle }
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         refreshReleasePush()
@@ -332,9 +343,11 @@ extension UpdaterService {
         }
         let resumed = downloads && !downloadsFoundUpdates
         downloadsFoundUpdates = downloads
-        if let controller, controller.installsUpdatesWhenIdle != downloads {
-            controller.installsUpdatesWhenIdle = downloads
-            log.append("automatic installs \(downloads ? \"on\" : \"off\")")
+        let installsWhenIdle = downloads && idleInstallGate != nil
+        relaunchMomentHold.idleGate = installsWhenIdle ? idleInstallGate : nil
+        if let controller, controller.installsUpdatesWhenIdle != installsWhenIdle {
+            controller.installsUpdatesWhenIdle = installsWhenIdle
+            log.append("automatic installs \(installsWhenIdle ? \"on\" : \"off\")")
         }
         if let controller, controller.downloadsUpdatesInBackground != downloads {
             controller.downloadsUpdatesInBackground = downloads

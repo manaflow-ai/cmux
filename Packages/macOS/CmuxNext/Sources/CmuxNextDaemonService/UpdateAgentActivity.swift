@@ -9,6 +9,9 @@ import Foundation
 public final class UpdateAgentActivity {
     private let environment: AcpmuxEnvironment?
     private var chiefInTurn: Bool?
+    /// The last census (nil until one answered, or after one failed): Update When Idle reads its turns
+    /// and drafts. Refreshed, at most once a second, only by ``applying(to:)``.
+    public private(set) var census: AcpmuxSessionCensus?
     private var refreshedAt: Date?
     private var refreshTask: Task<Void, Never>?
 
@@ -20,6 +23,8 @@ public final class UpdateAgentActivity {
         self.environment = environment
         // No acpmux environment means this app has no Home Chief to protect.
         self.chiefInTurn = environment == nil ? false : nil
+        // No acpmux: no agent works and no chat keeps a draft there.
+        self.census = environment == nil ? AcpmuxSessionCensus() : nil
     }
 
     /// Adds Home Chief activity to a daemon relaunch snapshot, conservatively holding unknown state.
@@ -49,6 +54,7 @@ public final class UpdateAgentActivity {
             let census = await AcpmuxQuit.census(environment, deadline: .seconds(1))
             guard !Task.isCancelled else { return }
             self?.chiefInTurn = census?.chiefInTurn
+            self?.census = census
             self?.refreshTask = nil
         }
     }

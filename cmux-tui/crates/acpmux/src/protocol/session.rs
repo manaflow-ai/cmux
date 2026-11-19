@@ -170,6 +170,12 @@ pub struct SessionSummary {
     /// One sidebar line; null before the first prompt.
     pub last_message: Option<LastMessage>,
     pub queued: u64,
+    /// Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
+    /// that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
+    /// a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub has_draft: bool,
     /// A turn failed: the prompts behind it wait for a client to resume them.
     pub queue_paused: bool,
     /// A daemon start holds what this chat queued until a person opens it: its folder is guarded
