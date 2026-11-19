@@ -1542,6 +1542,18 @@
       "title" : "Spring Response",
       "type" : "number"
     },
+    "appearance.cornerFlush" : {
+      "default" : "flush",
+      "description" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water.",
+      "enum" : [
+        "off",
+        "flush",
+        "flush-tight",
+        "flush-goo"
+      ],
+      "title" : "Selected Tab Shape",
+      "type" : "string"
+    },
     "appearance.customDensities" : {
       "default" : [
 
