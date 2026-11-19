@@ -31,6 +31,12 @@ public final class HomeShownWatch: NSView {
         let onScreen = isOnScreen(view)
         logger.notice("chief start asked from \(caller, privacy: .public) on_screen \(onScreen, privacy: .public) waits_for_screen \(waitsForScreen, privacy: .public)")
         guard waitsForScreen, !onScreen else { return start() }
+        whenOnScreen(view, start)
+    }
+
+    /// Runs `start` once `view` is on screen (at once when it is); a later call on the same view takes the
+    /// earlier one's place. No log: ``startChief(for:from:_:)`` and ``ChiefPaneStartGate`` say who asked.
+    public static func whenOnScreen(_ view: NSView, _ start: @escaping @MainActor () -> Void) {
         let watch = view.subviews.lazy.compactMap { $0 as? HomeShownWatch }.first ?? {
             let made = HomeShownWatch(frame: .zero)
             view.addSubview(made)
@@ -41,7 +47,7 @@ public final class HomeShownWatch: NSView {
     }
 
     /// Whether `view` is on screen now.
-    static func isOnScreen(_ view: NSView) -> Bool {
+    public static func isOnScreen(_ view: NSView) -> Bool {
         guard let window = view.window, window.isVisible, !FrameScheduler.windowIsOutOfSight(window) else { return false }
         return !view.isHiddenOrHasHiddenAncestor
     }

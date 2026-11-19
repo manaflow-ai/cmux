@@ -188,8 +188,8 @@ extension AgentTabStore {
         let home = ChiefHome.resolve(tag: services.environment.tag)
         let chief = ChiefHomeAcpmux(home: home, local: tabs.host, daemons: services.acpmuxDaemons, ensureHost: { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
-        }, startHost: { [weak services] in
-            await MainActor.run { services?.home.brain.ensureForChat() ?? false }
+        }, startHost: { [weak services, weak tabs, gate = ChiefPaneStartGate()] in // the Chief panes' ask: off screen it waits with CMUX_NEXT_CHIEF_START=visible
+            await MainActor.run { gate.ask(panes: tabs.map { t in t.views.entries.filter { t.record(for: $0.key).map { t.hostKind($0.record, listedHere: t.daemon(for: $0.key)?.isLocal != false) == .chief } ?? false }.map(\.value) } ?? []) { services?.home.brain.ensureForChat() ?? false } }
         }, peerApprover: tabs.peerApprover)
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
         // A subagent tab made under another Chief home of this Mac attaches there (#25262).
