@@ -103,10 +103,7 @@ public final class SettingsAgentMcpServers: PageProvider {
         let arguments = try Self.arguments(action: action, params: params, listed: servers)
         guard let cli = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no bundled cmux CLI") }
         let key = Self.key(params)
-        // The folder and --json go before `--`: every word after it is the server's own command.
-        var words = arguments
-        words.insert(contentsOf: ["--project", project, "--json"], at: words.firstIndex(of: "--") ?? words.endIndex)
-        let reply = try? await runCLI(cli, ["agent-config", "mcp"] + words, [:])
+        let reply = try? await runCLI(cli, ["agent-config", "mcp"] + Self.withFolder(arguments, project: project), [:])
         await refresh()
         if let reply, reply.0 == 0 {
             lastError = nil
@@ -164,10 +161,22 @@ public final class SettingsAgentMcpServers: PageProvider {
         }
     }
 
-    /// The CLI's refusal (`{"ok":false,"why":...}`) on its last line.
-    static func why(_ data: Data) -> String? {
+    /// The folder and --json go before `--`: every word after it is the server's own command.
+    nonisolated static func withFolder(_ arguments: [String], project: String) -> [String] {
+        var words = arguments
+        words.insert(contentsOf: ["--project", project, "--json"], at: words.firstIndex(of: "--") ?? words.endIndex)
+        return words
+    }
+
+    /// The CLI prints one JSON object, on its last line.
+    nonisolated static func lastLine(_ data: Data) -> JSONValue? {
         let last = String(data: data, encoding: .utf8)?.split(separator: "\n").last.map { Data($0.utf8) } ?? Data()
-        return (try? JSONValue.parse(last))?["why"]?.stringValue
+        return try? JSONValue.parse(last)
+    }
+
+    /// The CLI's refusal (`{"ok":false,"why":...}`) on its last line.
+    nonisolated static func why(_ data: Data) -> String? {
+        lastLine(data)?["why"]?.stringValue
     }
 
     /// Reads the list again; only the newest read writes the rows.
@@ -184,8 +193,7 @@ public final class SettingsAgentMcpServers: PageProvider {
         let reply = try? await runCLI(cli, ["agent-config", "mcp", "list", "--project", project, "--json"], [:])
         guard mine == generation else { return }
         loading = false
-        let last = reply.flatMap { String(data: $0.1, encoding: .utf8) }?.split(separator: "\n").last.map { Data($0.utf8) } ?? Data()
-        guard let reply, reply.0 == 0, let value = try? JSONValue.parse(last), let rows = value["servers"]?.arrayValue else {
+        guard let reply, reply.0 == 0, let value = Self.lastLine(reply.1), let rows = value["servers"]?.arrayValue else {
             problem = "failed"
             return
         }

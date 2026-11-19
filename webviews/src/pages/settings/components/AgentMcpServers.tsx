@@ -328,13 +328,12 @@ export function AgentMcpServers() {
     void store.runAgentMcp({ action: "refresh" }).then(setState);
   }, [store]);
   const run = useCallback(
-    async (gesture: AgentMcpRun) => {
+    (gesture: AgentMcpRun) => {
       setBusy(true);
-      try {
-        setState(await store.runAgentMcp(gesture));
-      } finally {
-        setBusy(false);
-      }
+      return store
+        .runAgentMcp(gesture)
+        .then(setState)
+        .finally(() => setBusy(false));
     },
     [store],
   );
