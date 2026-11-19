@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8. */
+/* cmux-tui mux protocol 12, IR 61fb1070c4d1b1a47f223c0498b0dca44b600e91824661a2f9ff4b06871b5901. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8" as const;
+export const SDK_IR_SHA256 = "61fb1070c4d1b1a47f223c0498b0dca44b600e91824661a2f9ff4b06871b5901" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3285,6 +3285,10 @@ export const COMMAND_METADATA = {
     "since": 12,
     "capability": "workspace-metadata-v1",
     "fields": {
+      "keep_awake": {
+        "since": 12,
+        "capability": "workspace-keep-awake-v1"
+      },
       "marked_unread": {
         "since": 12,
         "capability": "notification-mark-unread-v1"
@@ -29409,6 +29413,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "keep_awake": {
+          "capability": "workspace-keep-awake-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "key": {

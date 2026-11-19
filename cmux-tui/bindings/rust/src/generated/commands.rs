@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8.
+// cmux-tui mux protocol 12, IR 61fb1070c4d1b1a47f223c0498b0dca44b600e91824661a2f9ff4b06871b5901.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3828,6 +3828,8 @@ pub struct SetWorkspaceMetadataRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub icon: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub keep_awake: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub key: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub marked_unread: Optional<bool>,
@@ -5947,6 +5949,10 @@ impl CmuxClient {
     }
 
     pub fn set_workspace_metadata(&mut self, request: SetWorkspaceMetadataRequest) -> Result<SetWorkspaceMetadataResult> {
+        if !request.keep_awake.is_missing() {
+            self.require_protocol_field("set-workspace-metadata", 12)?;
+            self.require_capability_field("set-workspace-metadata", "workspace-keep-awake-v1")?;
+        }
         if !request.marked_unread.is_missing() {
             self.require_protocol_field("set-workspace-metadata", 12)?;
             self.require_capability_field("set-workspace-metadata", "notification-mark-unread-v1")?;

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8";
+pub const ir_sha256 = "61fb1070c4d1b1a47f223c0498b0dca44b600e91824661a2f9ff4b06871b5901";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -9929,6 +9929,7 @@ pub const SetWorkspaceMetadataRequest = struct {
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
     icon: wire.Field([]const u8) = .absent,
+    keep_awake: wire.Field(bool) = .absent,
     key: wire.Field([]const u8) = .absent,
     marked_unread: wire.Field(bool) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
@@ -9949,6 +9950,7 @@ pub fn setWorkspaceMetadata(client: anytype, request: SetWorkspaceMetadataReques
             .since = 12,
             .capability = "workspace-metadata-v1",
             .fields = &.{
+                .{ .name = "keep_awake", .since = 12, .capability = "workspace-keep-awake-v1" },
                 .{ .name = "marked_unread", .since = 12, .capability = "notification-mark-unread-v1" },
                 .{ .name = "pinned", .since = 12, .capability = "workspace-pin-v1" },
             },

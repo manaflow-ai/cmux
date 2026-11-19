@@ -64,7 +64,11 @@ pub(crate) struct ReclaimCandidate {
 /// keeps (the others are refused before their children matter).
 pub(crate) fn read_children(candidates: &mut [ReclaimCandidate]) {
     for candidate in candidates.iter_mut() {
-        if candidate.facts.attached || candidate.facts.kept || candidate.facts.children.is_some() {
+        if candidate.facts.attached
+            || candidate.facts.kept
+            || candidate.facts.workspace_kept
+            || candidate.facts.children.is_some()
+        {
             continue;
         }
         candidate.facts.children = candidate.pid.and_then(crate::platform::shell_has_children);
@@ -362,7 +366,9 @@ impl Mux {
             .filter(|agent| agent.agent_session_id.is_some())
             .map(|agent| agent.terminal_id)
             .collect();
-        let rows: Vec<(TerminalPublicId, String, Vec<SurfaceId>, Arc<Surface>)> = {
+        // Pinned and kept-awake workspaces keep their shells, as the app's planner keeps them.
+        let presentation = self.presentation_snapshot();
+        let rows: Vec<(TerminalPublicId, String, Vec<SurfaceId>, Arc<Surface>, bool)> = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let mut by_terminal: HashMap<TerminalPublicId, Vec<SurfaceId>> = HashMap::new();
             for (surface, content) in &state.resource_indexes.content_ids {
@@ -381,13 +387,19 @@ impl Mux {
                         return None;
                     }
                     let host = self.resource_terminal_host_identity(&runtime)?.terminal_id;
-                    Some((id, host, surfaces, runtime))
+                    let workspace_kept =
+                        terminal_workspace_kept(&state, &surfaces, &|key: &str| {
+                            presentation
+                                .workspace(key)
+                                .is_some_and(|record| record.pinned || record.keep_awake)
+                        });
+                    Some((id, host, surfaces, runtime, workspace_kept))
                 })
                 .collect()
         };
         let placements = self.terminal_placements_by_host();
         rows.into_iter()
-            .map(|(id, host, surfaces, runtime)| {
+            .map(|(id, host, surfaces, runtime, workspace_kept)| {
                 let views = placements.get(&host).map(Vec::as_slice).unwrap_or(&[]);
                 let mut all_views = views.to_vec();
                 all_views.extend(surfaces.iter().copied());
@@ -408,6 +420,7 @@ impl Mux {
                     facts: ParkFacts {
                         attached,
                         kept: kept.contains(&host),
+                        workspace_kept,
                         saved_state_ready: park_eligibility::saved_state_ready(&runtime),
                         program_reported: runtime.shown_program_status().is_some(),
                         command_running,
@@ -424,6 +437,29 @@ impl Mux {
             })
             .collect()
     }
+}
+
+/// Whether a terminal shown at `surfaces` is in a workspace `kept_key` keeps (pinned or kept
+/// awake); a terminal none of whose surfaces is in a workspace counts as kept (an unknown
+/// fact keeps it running).
+fn terminal_workspace_kept(
+    state: &State,
+    surfaces: &[SurfaceId],
+    kept_key: &dyn Fn(&str) -> bool,
+) -> bool {
+    let mut found = false;
+    for surface in surfaces {
+        let Some(workspace) = Mux::workspace_for_surface_in_state(state, *surface)
+            .and_then(|workspace| state.workspace_by_id(workspace))
+        else {
+            continue;
+        };
+        found = true;
+        if kept_key(&workspace.key) {
+            return true;
+        }
+    }
+    !found
 }
 
 #[cfg(test)]

@@ -4,6 +4,10 @@
 //!
 //! A terminal parks only when every fact holds; a fact that cannot be read keeps it running:
 //! - no client is attached to any of its views, and `set-terminal-keep` does not keep it;
+//! - its workspace is neither pinned nor kept awake (Keep Workspace Awake, which the Mac app
+//!   mirrors to the daemon as `keep_awake`), the workspaces the app's own planner keeps
+//!   (`WorkspaceFreeingPlanner.Terminal.workspaceKept`); a terminal whose workspace cannot be
+//!   found counts as kept;
 //! - its state can be saved ([`saved_state_ready`]);
 //! - no program reports a status in it (OSC 7501);
 //! - no command runs (OSC 133 `C` without `D`);
@@ -31,6 +35,8 @@ pub(crate) enum ParkRefusal {
     Attached,
     /// `set-terminal-keep on`.
     Kept,
+    /// Its workspace is pinned or kept awake, or could not be found.
+    WorkspaceKept,
     /// Its shell's state cannot be saved yet ([`saved_state_ready`]).
     StateNotSaved,
     /// A program reports a status in it (OSC 7501).
@@ -50,6 +56,7 @@ impl ParkRefusal {
         match self {
             Self::Attached => "attached",
             Self::Kept => "kept",
+            Self::WorkspaceKept => "workspace_kept",
             Self::StateNotSaved => "state_not_saved",
             Self::ProgramStatus => "program_status",
             Self::CommandRunning => "command_running",
@@ -67,6 +74,8 @@ pub(crate) struct ParkFacts {
     pub(crate) attached: bool,
     /// `set-terminal-keep on`.
     pub(crate) kept: bool,
+    /// Its workspace is pinned or kept awake, or no workspace of it was found.
+    pub(crate) workspace_kept: bool,
     /// [`saved_state_ready`].
     pub(crate) saved_state_ready: bool,
     /// A program reports a status in it (OSC 7501).
@@ -110,6 +119,9 @@ pub(crate) fn park_refusal(facts: &ParkFacts, rules: ParkRules) -> Option<ParkRe
     }
     if facts.kept {
         return Some(ParkRefusal::Kept);
+    }
+    if facts.workspace_kept {
+        return Some(ParkRefusal::WorkspaceKept);
     }
     if !facts.saved_state_ready {
         return Some(ParkRefusal::StateNotSaved);
@@ -185,7 +197,7 @@ mod tests {
     #[test]
     fn only_an_idle_shell_at_its_prompt_parks() {
         let all = [ParkRules::PRESSURE, PARK_TABS];
-        let table: [(&str, ParkFacts, Option<ParkRefusal>); 9] = [
+        let table: [(&str, ParkFacts, Option<ParkRefusal>); 10] = [
             ("prompt idle", idle_shell(), None),
             (
                 "a foreground job",
@@ -204,6 +216,11 @@ mod tests {
             ),
             ("attached", ParkFacts { attached: true, ..idle_shell() }, Some(ParkRefusal::Attached)),
             ("kept", ParkFacts { kept: true, ..idle_shell() }, Some(ParkRefusal::Kept)),
+            (
+                "a pinned or kept-awake workspace",
+                ParkFacts { workspace_kept: true, ..idle_shell() },
+                Some(ParkRefusal::WorkspaceKept),
+            ),
             (
                 "OSC 7501",
                 ParkFacts { program_reported: true, ..idle_shell() },
