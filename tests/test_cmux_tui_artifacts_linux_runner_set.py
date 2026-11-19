@@ -82,6 +82,9 @@ DARWIN_CROSS_JOB = "macos-cross-shadow"
 DARWIN_CROSS = "darwin-cross-pool"
 # The owned GCP runners the nightly path's attempt 1 takes first (cmux-tui-artifacts.yml's jobs: comment).
 OWNED = "cmux-gcp-lane-build-x64"
+# The nightly-only runners: a nightly-next push and a tree request (dispatch) take these first, so the
+# nightly's tree never queues behind lane builds on OWNED (tree request 44427450458 sat 2 h there, 2026-11-19).
+NIGHTLY = "cmux-gcp-nightly-x64"
 # Jobs that keep their own route on the nightly path: the daemon tests (linux-placement, then Blacksmith;
 # their full checkout is not repaired for a reused self-hosted workspace) and the shadow (its override).
 OWN_ROUTE_JOBS = ("cmux-next-daemon-tests", DARWIN_CROSS_JOB)
@@ -157,7 +160,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
             # tests) stays on Blacksmith. The nightly path's attempt 1 takes the owned pool.
             allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
-                       | ({OWNED} if name in NIGHTLY_TREE_JOBS else set()))
+                       | ({OWNED, NIGHTLY} if name in NIGHTLY_TREE_JOBS else set()))
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertTrue(labels <= allowed, labels - allowed)
 
@@ -203,11 +206,11 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         self.assertGreaterEqual(len(routes), len(NIGHTLY_TREE_JOBS) + 3)
         nightly = {"event": "'push'", "ref": "'refs/heads/feat-cmux-next'", "attempt": "1"}
         cases = (
-            ("feat-cmux-next push", nightly, True),
-            ("nightly-next push", {**nightly, "ref": "'refs/heads/nightly-next'"}, True),
-            ("dispatch", {**nightly, "event": "'workflow_dispatch'", "ref": "'refs/heads/feat-cmux-next'"}, True),
-            ("re-run", {**nightly, "attempt": "2"}, False),
-            ("lane push", {**nightly, "ref": "'refs/heads/lane/x'"}, False),
+            ("feat-cmux-next push", nightly, OWNED),
+            ("nightly-next push", {**nightly, "ref": "'refs/heads/nightly-next'"}, NIGHTLY),
+            ("dispatch", {**nightly, "event": "'workflow_dispatch'", "ref": "'refs/heads/feat-cmux-next'"}, NIGHTLY),
+            ("re-run", {**nightly, "attempt": "2"}, None),
+            ("lane push", {**nightly, "ref": "'refs/heads/lane/x'"}, None),
         )
         for workflow, name, runs_on in routes:
             for case, values, owned in cases:
@@ -223,9 +226,9 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                         "LINUX_RUNNER": [linux_runner], "CI_CLOUD_OVERFLOW_SAVED": [""]})
                     with self.subTest(workflow=workflow, job=name, case=case, linux_runner=linux_runner):
                         if owned:
-                            self.assertEqual(labels, {OWNED})
+                            self.assertEqual(labels, {owned})
                         else:
-                            self.assertNotIn(OWNED, labels)
+                            self.assertFalse(labels & {OWNED, NIGHTLY}, labels)
 
     def test_a_fork_keeps_github_hosted_ubuntu(self) -> None:
         for name, runs_on in linux_routes():
