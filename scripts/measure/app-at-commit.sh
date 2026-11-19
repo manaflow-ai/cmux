@@ -12,6 +12,16 @@
 # .build/DerivedData/cmux-measure-at, which a fleet worker keeps between steps, so a second commit near the first
 # builds incrementally. Returns non-zero when the commit cannot be fetched or its build prints no app.
 
+#   measure_remove_scratch DIR
+# removes a measure script's scratch folder DIR in its EXIT trap (`trap 'measure_remove_scratch "$out"' EXIT`). A build
+# at a commit leaves Go's module cache under DIR, which Go writes read-only: a plain rm -rf failed on it, and as the
+# trap's last command its status became the step's (every --build-at bench ended exit 1, 2026-11-18). Never changes the
+# status of a step whose body failed.
+measure_remove_scratch() {
+  chmod -R u+w "$1" 2>/dev/null || true
+  rm -rf -- "$1"
+}
+
 measure_app_at_commit() {
   local sha="$1" tag="$2" tree="$3" root full status=0 app
   shift 3
