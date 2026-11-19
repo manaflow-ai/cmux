@@ -108,10 +108,10 @@ fn row(item: &Value) -> Result<Row, String> {
     if action.is_destructive {
         return Err(format!("{id:?} is destructive; the nav block never runs it in one click"));
     }
-    if let Some(title) = title {
-        if title.chars().count() > MAX_TITLE || title.chars().any(char::is_control) {
-            return Err(format!("expected a one-line title of at most {MAX_TITLE} characters"));
-        }
+    if let Some(title) = title
+        && (title.chars().count() > MAX_TITLE || title.chars().any(char::is_control))
+    {
+        return Err(format!("expected a one-line title of at most {MAX_TITLE} characters"));
     }
     if let Some(symbol) = symbol {
         let shaped = symbol.len() <= MAX_SYMBOL
