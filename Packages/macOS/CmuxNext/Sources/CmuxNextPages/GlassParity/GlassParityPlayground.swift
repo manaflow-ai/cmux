@@ -295,7 +295,7 @@ public final class GlassParityPlayground {
         }
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.frame = Self.surfaceRect(kind).offsetBy(dx: column.minX, dy: column.minY)
-        let text = GlassParityTextView(frame: surface.contentView.bounds, title: Self.title(kind), detail: Self.detail(kind))
+        let text = GlassParityTextView(frame: CGRect(origin: .zero, size: surface.frame.size), title: Self.title(kind), detail: Self.detail(kind))
         text.autoresizingMask = [.width, .height]
         surface.contentView.addSubview(text)
         return surface
