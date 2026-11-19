@@ -409,9 +409,11 @@ function cursorPosition(answer: CursorAnswer): { readonly position: string | nul
 }
 
 /**
- * Waits until the Production backfill cursor's position differs from
- * `baseline` (a new window or page, or a first cursor where there was none).
- * The cron runs every 30 minutes, so the default wait is 35.
+ * Waits until the Production backfill cursor's position differs from the
+ * first good read (a new window or page, or a first cursor where there was
+ * none). Only a configuration answer (bad token, bad query) stops the wait;
+ * a retryable 503 or a network error is read again. The cron runs every 30
+ * minutes, so the default wait is 35.
  */
 async function waitForCursorMove(
   readCursor: () => Promise<CursorAnswer>,
@@ -420,26 +422,28 @@ async function waitForCursorMove(
   timeoutMs: number,
   intervalMs: number,
 ): Promise<PostReleaseStep> {
-  const start = cursorPosition(baseline);
-  if (!start) return { name: "cursor", ok: false, detail: `the cursor read answered HTTP ${baseline.status} ${JSON.stringify(baseline.body)}` };
   const deadline = clock.now() + timeoutMs;
+  let start = cursorPosition(baseline);
   let last = baseline;
   for (;;) {
-    last = await readCursor().catch((error: unknown) => ({ status: 0, body: { error: describeError(error) } }));
+    if (isConfigurationAnswer(last.status, last.body)) {
+      return { name: "cursor", ok: false, detail: `the cursor read answered HTTP ${last.status} ${JSON.stringify(last.body)}` };
+    }
     const now = cursorPosition(last);
-    if (!now) return { name: "cursor", ok: false, detail: `the cursor read answered HTTP ${last.status} ${JSON.stringify(last.body)}` };
-    if (now.position !== null && now.position !== start.position) {
+    if (now && start && now.position !== null && now.position !== start.position) {
       const body = last.body as CursorBody;
       return { name: "cursor", ok: true, detail: `moved (next start ${String(body.nextStartAt)}, saved ${String(body.updatedAt)})` };
     }
+    start ??= now;
     if (!(await pauseUntil(clock, deadline, intervalMs))) {
       const body = last.body as CursorBody | null;
       return {
         name: "cursor",
         ok: false,
-        detail: `did not move within ${Math.round(timeoutMs / 60_000)} min (found ${String(body?.found)}, retryable stalls ${String(body?.retryableRuns ?? 0)})`,
+        detail: `did not move within ${Math.round(timeoutMs / 60_000)} min (last read HTTP ${last.status}, found ${String(body?.found)}, retryable stalls ${String(body?.retryableRuns ?? 0)})`,
       };
     }
+    last = await readCursor().catch((error: unknown) => ({ status: 0, body: { error: describeError(error) } }));
   }
 }
 

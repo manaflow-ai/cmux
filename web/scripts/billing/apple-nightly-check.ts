@@ -23,7 +23,7 @@ import { appendFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { AppStoreServerAPIClient, Environment } from "@apple/app-store-server-library";
 
-import { appleServerApiCredentials } from "../../services/billing/apple/config";
+import { appleServerApiCredentials, isAcceptedAppleBundleId } from "../../services/billing/apple/config";
 import {
   appleClientForNightly,
   checkAppleDelivery,
@@ -85,7 +85,7 @@ function save(report: DeliveryReport | ServerApiReport) {
   if (values.report) writeFileSync(values.report, JSON.stringify(report, null, 2) + "\n");
 }
 
-/** Reads the authenticated health endpoint with `params`; never throws. */
+/** Reads the authenticated health endpoint with `params`; throws on a network error or timeout. */
 async function readHealthUrl(healthUrl: string, token: string, params: Record<string, string>) {
   const url = new URL(healthUrl);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
@@ -111,6 +111,9 @@ if (check === "post-release") {
   if (!token) fail("APPLE_NOTIFICATIONS_HEALTH_TOKEN is required");
   const cursorTimeoutSeconds = Number(values["cursor-timeout-seconds"] ?? "2100");
   if (!Number.isFinite(cursorTimeoutSeconds) || cursorTimeoutSeconds <= 0) fail("--cursor-timeout-seconds must be positive");
+  const deliveryTimeoutSeconds = Number(values["timeout-seconds"] ?? "300");
+  if (!Number.isFinite(deliveryTimeoutSeconds) || deliveryTimeoutSeconds <= 0) fail("--timeout-seconds must be positive");
+  if (!isAcceptedAppleBundleId(bundleId)) fail(`--bundle-id ${bundleId} is not an accepted bundle (APPLE_IAP_BUNDLE_IDS)`);
   const report = await checkPostRelease({
     client,
     clock: realClock,
@@ -118,6 +121,7 @@ if (check === "post-release") {
     readCursor: () => readHealthUrl(healthUrl, token, { cursor: "Production", bundle: bundleId }),
     productionHistory: () => historyCount(apiClient("Production"), Date.now()),
     cursorTimeoutMs: cursorTimeoutSeconds * 1000,
+    timeoutMs: deliveryTimeoutSeconds * 1000,
   });
   if (values.report) writeFileSync(values.report, JSON.stringify(report, null, 2) + "\n");
   summarize([

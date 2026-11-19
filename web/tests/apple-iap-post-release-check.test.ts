@@ -184,6 +184,30 @@ describe("post-release check", () => {
   });
 });
 
+describe("post-release check: transient cursor reads", () => {
+  test("a retryable 503 or network error mid-wait is read again, not a failure", async () => {
+    const report = await checkPostRelease!({
+      client: client(),
+      readHealth: async () => stored,
+      readCursor: cursors([cursor("a"), { status: 503, body: { error: "lookup_failed", retryable: true } }, { status: 0, body: { error: "timeout" } }, cursor("b")]),
+      productionHistory: async () => 1,
+      clock: clock(),
+    });
+    expect(stepNamed(report, "cursor")).toMatchObject({ ok: true });
+  });
+
+  test("a failed baseline read takes the first good read as the baseline", async () => {
+    const report = await checkPostRelease!({
+      client: client(),
+      readHealth: async () => stored,
+      readCursor: cursors([{ status: 503, body: { error: "lookup_failed" } }, cursor("a"), cursor("a"), cursor("b")]),
+      productionHistory: async () => 1,
+      clock: clock(),
+    });
+    expect(stepNamed(report, "cursor")).toMatchObject({ ok: true });
+  });
+});
+
 describe("Production history adapter", () => {
   test("counts the notifications Apple returns for the last day", async () => {
     const historyCount = (nightly as unknown as {
