@@ -251,7 +251,7 @@ fn enable(args: &Args) -> Res<()> {
 /// one sentence.
 fn openh264_line() -> String {
     #[cfg(feature = "openh264")]
-    return match crate::encoder::ensure_openh264() {
+    return match crate::encoder::ensure_openh264_in(cmux_encode::cisco::default_dir()) {
         Ok(path) => format!("OpenH264 is at {}", path.display()),
         Err(e) => format!(
             "OpenH264 is not installed ({}): run cmux-rd openh264-install before a viewer connects",
