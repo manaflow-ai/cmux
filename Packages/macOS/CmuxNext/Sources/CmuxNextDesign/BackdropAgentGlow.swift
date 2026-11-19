@@ -18,7 +18,7 @@ public nonisolated struct BackdropAgentGlow: Hashable, Sendable {
         case calm
         /// An agent works: a faint wash.
         case working
-        /// An agent waits on the person (a permission, a question, a failure): the glow.
+        /// An agent waits on the person (a chat's permission or question, a blocked terminal agent): the glow.
         case needsYou
 
         public static func < (lhs: Level, rhs: Level) -> Bool { lhs.rawValue < rhs.rawValue }

@@ -79,9 +79,19 @@ import Testing
     }
 
     /// A pane's backdrop (no active look) never follows the agents; only a window's own does.
-    @Test func aPanesBackdropStaysCalm() {
-        let backdrop = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
-        #expect(backdrop.agentGlowView.isHidden)
-        #expect(backdrop.agentGlowView.shown == .calm)
+    @Test func aPanesBackdropStaysCalm() async throws {
+        let design = DesignSettings.shared
+        let saved = design.agentGlow
+        defer { design.agentGlow = saved }
+        let pane = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        // A window's own backdrop (it has an active look) follows, as the control.
+        let window = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 200, height: 100), images: .shared,
+                                        activeLook: ActiveLookScope())
+        let waiting = BackdropAgentGlow(level: .needsYou, color: Self.red)
+        design.agentGlow = waiting
+        try await waitUntil { window.agentGlowView.shown == waiting }
+        #expect(!window.agentGlowView.isHidden)
+        #expect(pane.agentGlowView.isHidden)
+        #expect(pane.agentGlowView.shown == .calm)
     }
 }

@@ -29,6 +29,7 @@ public final class AgentLaneStore {
             waiting = Set(newValue.compactMap { $0.value.state == .input ? $0.key : nil })
             if waitingSessions != waiting { waitingSessions = waiting }
             working = Set(newValue.compactMap { $0.value.state == .working ? $0.key : nil })
+            if workingSessions != working { workingSessions = working }
             unread = Set(newValue.compactMap { $0.value.unread ? $0.key : nil })
             syncCells()
             syncChiefParticipants()
@@ -47,6 +48,9 @@ public final class AgentLaneStore {
     /// The sessions whose lane runs a turn (`.working`), kept as ``waiting`` is: the menu bar's
     /// Running list reads these few lanes, never every one.
     @ObservationIgnored public private(set) var working: Set<String> = []
+    /// ``working``, observed: written only when a session starts or stops a turn, as ``waitingSessions``
+    /// is, so a reader of who works (the backdrop's agent glow) is not told of every agent step.
+    public private(set) var workingSessions: Set<String> = []
     /// The sessions whose lane has a result nobody has seen (`unread`), kept as ``waiting`` is: the
     /// menu bar's Unread list. The person's read marks (`AgentPriorityMarks`) still apply on top.
     @ObservationIgnored public private(set) var unread: Set<String> = []
@@ -63,7 +67,9 @@ public final class AgentLaneStore {
         let wasWaiting = waiting.contains(session)
         if lane?.state == .input { waiting.insert(session) } else { waiting.remove(session) }
         if waiting.contains(session) != wasWaiting { waitingSessions = waiting }
+        let wasWorking = working.contains(session)
         if lane?.state == .working { working.insert(session) } else { working.remove(session) }
+        if working.contains(session) != wasWorking { workingSessions = working }
         if lane?.unread == true { unread.insert(session) } else { unread.remove(session) }
         // Only this session's cell can change: the others' lanes are as they were.
         syncCell(session)
