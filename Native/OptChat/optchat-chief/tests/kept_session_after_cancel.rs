@@ -291,11 +291,19 @@ fn the_owners_stop_after_the_chiefs_own_stop_still_ends_the_session() {
         })
     })
     .expect("send answers");
+    // The harness does not end the turn at the first cancel (the runner sends
+    // it again each second), so the owner's Stop lands while the turn runs.
+    h.agents.inner.lock().unwrap().ignore_cancels = 1;
     let sp = spawner(&h);
     run(&mut h, move || sp.stop_turn()).expect("stop answers");
     // The owner presses Stop before the turn has ended.
-    let (reply, _answer) = std::sync::mpsc::channel();
+    let (reply, answer) = std::sync::mpsc::channel();
     h.brain.step(Input::Stop { reply });
+    assert_eq!(
+        answer.try_recv().expect("chief.stop answers at once")["stopped"],
+        true,
+        "the turn still ran when the owner stopped it"
+    );
     h.agents.hold(false);
     h.settle_posts();
     h.say("user_local", "two");
