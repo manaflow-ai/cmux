@@ -100,7 +100,7 @@ public final class HostsSidebar {
 
     private static func symbol(for machine: MachineSectionRow) -> String {
         if let symbol = machine.symbol { return symbol }
-        switch machine.kind {
+        return switch machine.kind {
         case .local: "laptopcomputer"
         case .cloud: "cloud"
         case .ssh: "terminal"
