@@ -82,6 +82,19 @@ pub async fn call_with_options<O: Op>(
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
     let body = response.bytes().await.map_err(|e| ApiError::unreachable(&e))?;
+    if status == 200 && O::CLASS == WireClass::Mutation {
+        // A success for another intent cannot complete this capability. Keep
+        // the wire envelope intact until its operation and key are checked.
+        let envelope: serde_json::Value =
+            serde_json::from_slice(&body).map_err(ApiError::unreadable)?;
+        if envelope.get("op").and_then(serde_json::Value::as_str) != Some(O::NAME)
+            || key.is_some_and(|key| {
+                envelope.get("idempotency_key").and_then(serde_json::Value::as_str) != Some(key)
+            })
+        {
+            return Err(ApiError::unreadable("mutation answer named another operation or key"));
+        }
+    }
     read_answer::<O>(status, retry_after.as_deref(), &body)
 }
 

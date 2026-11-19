@@ -13,8 +13,8 @@ use cmux_cloud_wire::{
     CloudMachinePauseParams, CloudMachineStartOp, CloudMachineStartParams,
 };
 use cmux_lifeline::vm::{
-    Attached, Claimed, Deleted, Deleting, Failed, Observed, Paused, Pausing, Preclaimed,
-    Provisioning, Ready, Running, Starting, Status, Stopped, Unknown, Vm,
+    Attached, Deleted, Deleting, Failed, Observed, Paused, Pausing, Provisioning, Ready, Running,
+    Starting, Status, Stopped, Unknown, Vm,
 };
 
 use crate::machine::{HandleError, Machine, Scope};
@@ -22,9 +22,10 @@ use crate::ops::{self, Answer};
 use crate::{ApiError, BuildError};
 
 /// The identity and last owner revision carried by a lifecycle capability.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Snapshot {
     machine: Machine,
+    team: String,
     revision: String,
 }
 
@@ -94,6 +95,8 @@ pub enum ObserveError {
     Handle(HandleError),
     /// A team-scoped credential was handed a record owned by another team.
     TeamMismatch { expected: String, actual: String },
+    /// An observation named a different allocation.
+    MachineMismatch,
 }
 
 impl std::fmt::Display for ObserveError {
@@ -102,6 +105,7 @@ impl std::fmt::Display for ObserveError {
             Self::InvalidStatus => {
                 f.write_str("the Cloud machine has an unrecognized lifecycle status")
             }
+            Self::MachineMismatch => f.write_str("Cloud observation named another machine"),
             Self::Handle(error) => error.fmt(f),
             Self::TeamMismatch { expected, actual } => {
                 write!(f, "Cloud machine belongs to team {actual}, expected {expected}")
@@ -129,8 +133,12 @@ pub fn observe(scope: &Scope, record: CloudMachine) -> Result<ObservedMachine, O
         }
     }
     let machine = scope.machine(&record.id).map_err(ObserveError::Handle)?;
-    let snapshot = Snapshot { machine, revision: record.revision };
-    Ok(match status.bind(snapshot) {
+    let snapshot = Snapshot { machine, team: record.team, revision: record.revision };
+    Ok(wrap(status.bind(snapshot)))
+}
+
+fn wrap(observed: Observed<Snapshot>) -> ObservedMachine {
+    match observed {
         Observed::Provisioning(vm) => ObservedMachine::Provisioning(Capability { vm }),
         Observed::Running(vm) => ObservedMachine::Running(Capability { vm }),
         Observed::Pausing(vm) => ObservedMachine::Pausing(Capability { vm }),
@@ -141,7 +149,7 @@ pub fn observe(scope: &Scope, record: CloudMachine) -> Result<ObservedMachine, O
         Observed::Deleted(vm) => ObservedMachine::Deleted(Capability { vm }),
         Observed::Failed(vm) => ObservedMachine::Failed(Capability { vm }),
         Observed::Unknown(vm) => ObservedMachine::Unknown(Capability { vm }),
-    })
+    }
 }
 
 /// The mutation intent retained when a response is refused or lost.
@@ -150,6 +158,27 @@ pub enum Intent {
     Pause,
     Resume,
     Delete,
+}
+
+/// Authoritative result of replaying an unresolved mutation.
+#[derive(Debug)]
+pub enum MutationOutcome {
+    Pausing(Capability<Pausing>),
+    Starting(Capability<Starting>),
+    Deleted(Capability<Deleted>),
+}
+
+fn validate_record(expected: &Snapshot, record: &CloudMachine) -> Result<Status, ObserveError> {
+    if record.id != expected.machine.id() {
+        return Err(ObserveError::MachineMismatch);
+    }
+    if record.team != expected.team {
+        return Err(ObserveError::TeamMismatch {
+            expected: expected.team.clone(),
+            actual: record.team.clone(),
+        });
+    }
+    record.status.as_str().parse().map_err(|_| ObserveError::InvalidStatus)
 }
 
 /// The consumed capability and key for one mutation intent.
@@ -210,8 +239,6 @@ macro_rules! uncertain_transition {
 
 uncertain_transition!(
     Provisioning,
-    Preclaimed,
-    Claimed,
     Running,
     Ready,
     Attached,
@@ -236,9 +263,15 @@ pub struct Reconciled {
     observed: ObservedMachine,
     intent: Intent,
     key: String,
+    original_revision: String,
 }
 
 impl Reconciled {
+    /// Revision used by the original intent; an observation does not rewrite it.
+    pub fn original_revision(&self) -> &str {
+        &self.original_revision
+    }
+
     /// Consume the reconciliation result for typed state matching and retry.
     pub fn into_parts(self) -> (ObservedMachine, Intent, String) {
         (self.observed, self.intent, self.key)
@@ -248,10 +281,29 @@ impl Reconciled {
 impl Pending<Unknown> {
     /// Reconcile this subject with a fresh authoritative Cloud record. No
     /// lifecycle action is available on `Unknown` until this succeeds.
-    pub fn reconcile(self, record: CloudMachine) -> Result<Reconciled, ObserveError> {
-        let scope = self.state.machine().scope().clone();
-        let observed = observe(&scope, record)?;
-        Ok(Reconciled { observed, intent: self.intent, key: self.key })
+    pub fn reconcile(mut self, record: CloudMachine) -> Result<Reconciled, (Self, ObserveError)> {
+        let status = match validate_record(self.state.payload(), &record) {
+            Ok(status) => status,
+            Err(error) => return Err((self, error)),
+        };
+        let original_revision = self.revision().to_owned();
+        self.state.vm.payload_mut().revision = record.revision;
+        let observed = wrap(self.state.vm.observed(status));
+        Ok(Reconciled { observed, intent: self.intent, key: self.key, original_revision })
+    }
+
+    /// Replay the exact unresolved intent. This grants no live capability and
+    /// preserves its original scope, revision, operation and idempotency key.
+    pub async fn retry(
+        self,
+        client: &LifecycleClient,
+    ) -> Result<MutationOutcome, MutationError<Unknown>> {
+        let Self { state, intent, key } = self;
+        match intent {
+            Intent::Pause => client.pause_impl(state, key).await.map(MutationOutcome::Pausing),
+            Intent::Resume => client.resume_impl(state, key).await.map(MutationOutcome::Starting),
+            Intent::Delete => client.delete_impl(state, key).await.map(MutationOutcome::Deleted),
+        }
     }
 }
 
@@ -384,8 +436,6 @@ macro_rules! pending_delete_retry {
 
 pending_delete_retry!(
     Provisioning,
-    Preclaimed,
-    Claimed,
     Running,
     Ready,
     Attached,
@@ -452,7 +502,6 @@ impl LifecycleClient {
                 return Err(MutationError::Api { pending, source: ApiError::unreadable(source) });
             }
         };
-        let expected = pending.state.payload().machine().clone();
         let params = CloudMachinePauseParams { machine };
         let answer = match ops::call_with_options::<CloudMachinePauseOp>(
             &self.http,
@@ -471,15 +520,15 @@ impl LifecycleClient {
             Ok(value) => value,
             Err(source) => return Err(mutation_error(pending, source)),
         };
-        pause_response(&self.scope, &expected, record.machine, revision)
+        pause_response(&self.scope, pending.state.payload(), record.machine, revision)
             .map_err(|source| mutation_error(pending, source))
     }
 
-    async fn resume_impl(
+    async fn resume_impl<S: UncertainTransition>(
         &self,
-        state: Capability<Paused>,
+        state: Capability<S>,
         key: impl Into<String>,
-    ) -> Result<Capability<Starting>, MutationError<Paused>> {
+    ) -> Result<Capability<Starting>, MutationError<S>> {
         let key = key.into();
         let pending = Pending::new(state, Intent::Resume, key.clone());
         let machine = match self.scope.id_of(pending.state.payload().machine()) {
@@ -488,7 +537,6 @@ impl LifecycleClient {
                 return Err(MutationError::Api { pending, source: ApiError::unreadable(source) });
             }
         };
-        let expected = pending.state.payload().machine().clone();
         let params = CloudMachineStartParams { machine };
         let answer = match ops::call_with_options::<CloudMachineStartOp>(
             &self.http,
@@ -507,7 +555,7 @@ impl LifecycleClient {
             Ok(value) => value,
             Err(source) => return Err(mutation_error(pending, source)),
         };
-        resume_response(&self.scope, &expected, record.machine, revision)
+        resume_response(&self.scope, pending.state.payload(), record.machine, revision)
             .map_err(|source| mutation_error(pending, source))
     }
 
@@ -566,13 +614,14 @@ where
 
 fn pause_response(
     scope: &Scope,
-    expected: &Machine,
+    expected: &Snapshot,
     record: CloudMachine,
     revision: String,
 ) -> Result<Capability<Pausing>, ApiError> {
-    let observed = observe(scope, record).map_err(|error| ApiError::unreadable(error))?;
+    validate_record(expected, &record).map_err(ApiError::unreadable)?;
+    let observed = observe(scope, record).map_err(ApiError::unreadable)?;
     match observed {
-        ObservedMachine::Pausing(mut capability) if capability.machine() == expected => {
+        ObservedMachine::Pausing(mut capability) if capability.machine() == expected.machine() => {
             capability.vm.payload_mut().revision = revision;
             Ok(capability)
         }
@@ -585,13 +634,14 @@ fn pause_response(
 
 fn resume_response(
     scope: &Scope,
-    expected: &Machine,
+    expected: &Snapshot,
     record: CloudMachine,
     revision: String,
 ) -> Result<Capability<Starting>, ApiError> {
-    let observed = observe(scope, record).map_err(|error| ApiError::unreadable(error))?;
+    validate_record(expected, &record).map_err(ApiError::unreadable)?;
+    let observed = observe(scope, record).map_err(ApiError::unreadable)?;
     match observed {
-        ObservedMachine::Starting(mut capability) if capability.machine() == expected => {
+        ObservedMachine::Starting(mut capability) if capability.machine() == expected.machine() => {
             capability.vm.payload_mut().revision = revision;
             Ok(capability)
         }
@@ -622,8 +672,6 @@ macro_rules! deletable {
 
 deletable!(
     Provisioning,
-    Preclaimed,
-    Claimed,
     Running,
     Ready,
     Attached,
@@ -720,143 +768,7 @@ macro_rules! delete_methods {
     };
 }
 
-delete_methods!(
-    Provisioning,
-    Preclaimed,
-    Claimed,
-    Attached,
-    Pausing,
-    Starting,
-    Stopped,
-    Failed,
-    Unknown
-);
+delete_methods!(Provisioning, Attached, Pausing, Starting, Stopped, Failed, Unknown);
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use cmux_cloud_wire::{CloudMachine, CloudMachineStatus};
-    use serde_json::json;
-
-    fn scope() -> Scope {
-        Scope::new("https://cloud-api.cmux.dev", Some("team_a")).expect("scope")
-    }
-
-    fn record(status: &str, revision: &str) -> CloudMachine {
-        serde_json::from_value(json!({
-            "id": "vm_test",
-            "team": "team_a",
-            "creator": "user_a",
-            "name": null,
-            "size": {"cpu": null, "memory_mb": null, "disk_mb": null},
-            "status": status,
-            "image": {"id": "img", "daemon_version": null},
-            "host": null,
-            "classic": false,
-            "created_at": 0,
-            "last_active_at": null,
-            "idle_policy": {"idle_seconds": 0},
-            "error": null,
-            "revision": revision
-        }))
-        .expect("CloudMachine record")
-    }
-
-    #[test]
-    fn provider_status_is_strict_at_the_capability_boundary() {
-        let mut future = record("running", "7");
-        future.status = CloudMachineStatus::Unknown("ready".to_owned());
-        assert!(matches!(observe(&scope(), future), Err(ObserveError::InvalidStatus)));
-    }
-
-    #[test]
-    fn a_record_from_another_team_is_refused_before_any_operation() {
-        let mut other = record("running", "7");
-        other.team = "team_b".to_owned();
-        assert!(matches!(observe(&scope(), other), Err(ObserveError::TeamMismatch { .. })));
-    }
-
-    #[tokio::test]
-    async fn a_foreign_capability_is_refused_before_the_request_is_sent() {
-        let owner = scope();
-        let other = Scope::new("https://cloud-api.cmux.dev", Some("team_b")).expect("scope");
-        let client = LifecycleClient::new(other, "token", "test").expect("client");
-        let ObservedMachine::Running(capability) =
-            observe(&owner, record("running", "7")).expect("running")
-        else {
-            panic!("running status")
-        };
-        let error = capability.pause(&client, "ck_foreign").await.expect_err("foreign handle");
-        let MutationErrorParts::Api { source, .. } = error.into_parts() else {
-            panic!("a foreign handle is a local refusal")
-        };
-        assert_eq!(source.code.as_deref(), Some("cloud.client.unreadable"));
-        assert!(source.status.is_none(), "the foreign handle was rejected locally");
-    }
-
-    #[test]
-    fn a_mutation_answer_must_name_the_mutated_machine() {
-        let expected = scope().machine("vm_test").expect("machine");
-        let mut other = record("pausing", "8");
-        other.id = "vm_other".to_owned();
-        let error = pause_response(&scope(), &expected, other, "8".to_owned())
-            .expect_err("identity mismatch");
-        assert!(error.message.contains("another machine"));
-    }
-
-    #[tokio::test]
-    async fn a_lost_mutation_answer_keeps_the_same_key_and_revision() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("listener");
-        let origin = format!("http://{}", listener.local_addr().expect("address"));
-        let (seen_tx, seen_rx) = tokio::sync::oneshot::channel();
-        tokio::spawn(async move {
-            if let Ok((mut stream, _)) = listener.accept().await {
-                use tokio::io::AsyncReadExt;
-                let mut request = Vec::new();
-                let mut chunk = [0; 4096];
-                loop {
-                    let length = stream.read(&mut chunk).await.unwrap_or(0);
-                    if length == 0 {
-                        break;
-                    }
-                    request.extend_from_slice(&chunk[..length]);
-                    let lower = String::from_utf8_lossy(&request).to_ascii_lowercase();
-                    let complete = lower.find("\r\n\r\n").is_some_and(|headers_end| {
-                        let body_length = lower[..headers_end]
-                            .lines()
-                            .find_map(|line| line.strip_prefix("content-length: "))
-                            .and_then(|value| value.trim().parse::<usize>().ok())
-                            .unwrap_or(0);
-                        request.len() >= headers_end + 4 + body_length
-                    });
-                    if complete {
-                        break;
-                    }
-                }
-                let _ = seen_tx.send(String::from_utf8_lossy(&request).into_owned());
-                drop(stream);
-            }
-        });
-        let scope = Scope::new(&origin, Some("team_a")).expect("scope");
-        let client = LifecycleClient::new(scope.clone(), "token", "test").expect("client");
-        let observed = observe(&scope, record("running", "7")).expect("running");
-        let ObservedMachine::Running(capability) = observed else { panic!("running status") };
-        let error = capability.pause(&client, "ck_lost").await.expect_err("lost answer");
-        let MutationErrorParts::Uncertain { pending, source } = error.into_parts() else {
-            panic!("a lost answer must consume the stable capability")
-        };
-        assert_eq!(pending.key(), "ck_lost");
-        assert_eq!(pending.revision(), "7");
-        assert_eq!(pending.intent(), Intent::Pause);
-        assert!(source.retryable, "a missing answer is safe to retry");
-        let request = seen_rx.await.expect("request captured");
-        assert!(request.contains("\"idempotency_key\":\"ck_lost\""));
-        assert!(request.contains("\"expected_revision\":\"7\""));
-
-        let (reconciled, intent, key) =
-            pending.reconcile(record("pausing", "8")).unwrap().into_parts();
-        assert_eq!(intent, Intent::Pause);
-        assert_eq!(key, "ck_lost");
-        assert!(matches!(reconciled, ObservedMachine::Pausing(_)));
-    }
-}
+mod tests;
