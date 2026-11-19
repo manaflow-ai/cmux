@@ -250,18 +250,21 @@ public final class GlassParityPlayground {
         }
         // Every page loads and reports while shown; the capture solos one renderer at a time after.
         solo(nil)
-        // Active: the app active and the window key (the harness launches the app without the no-activate
-        // switch for these cells; under it macOS may refuse, and `status().key` says so). Inactive: another
-        // app active, so the window shows its inactive look, as behind any other app's window.
+        // Active: the app active and the playground key (the harness launches the app without the no-activate switch
+        // for these cells; under it macOS may refuse, and `status().key` says so). Activation lands a few frames
+        // later and the app's own main window takes key as it does, so the playground asks for key again once the
+        // app is active. Inactive: the harness hands activation to another app (`open -a Finder`, before this
+        // call); here the playground only comes to the front without asking for it.
         if scenario.active {
-            NSRunningApplication.current.activate(options: [])
             NSApp.activate()
             window.makeKeyAndOrderFront(nil)
+            await poll(until: { NSApp.isActive }, limit: .seconds(3))
+            window.makeKeyAndOrderFront(nil)
+            await poll(until: { window.isKeyWindow }, limit: .seconds(2))
         } else {
-            NSApp.deactivate()
             window.orderFrontRegardless()
+            await poll(until: { !NSApp.isActive }, limit: .seconds(3))
         }
-        await wait(until: { scenario.active ? window.isKeyWindow : !NSApp.isActive }, limit: .seconds(3))
         await wait(until: { self.ready.count >= self.pages.count }, limit: .seconds(15))
         if scenario.mode == .host {
             await wait(until: { !self.hosts.values.contains { $0.count < Kind.allCases.count } }, limit: .seconds(4))
@@ -340,6 +343,7 @@ public final class GlassParityPlayground {
         backdropView = nil
         nativeLayer = nil
         menuRowView = nil
+
         ready = []
     }
 
@@ -354,6 +358,15 @@ public final class GlassParityPlayground {
             await withCheckedContinuation { waiters.append($0) }
         }
         deadline.cancel()
+    }
+
+    /// Waits until `done` holds or `limit` passes, checking every 50 ms: the app's activation and key state have
+    /// no report of the playground's own to wake on (a debug measure, never a person's).
+    private func poll(until done: () -> Bool, limit: Duration) async {
+        let end = ContinuousClock.now + limit
+        while !done(), ContinuousClock.now < end {
+            await wait(until: { false }, limit: .milliseconds(50))
+        }
     }
 
     private func wake() {
