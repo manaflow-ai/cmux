@@ -20,11 +20,14 @@ const begun: CloudStartProgress = {
 const known = { machine: "paint-dev", size: "4 CPU · 16 GB", secrets: 3, network: "limited" } as const;
 const timing = { startedAt: 10_000, finishedAt: 12_400 } as const;
 
-// Connect GitHub's fixture connection: the host opens GitHub, and the page never becomes the key one again here.
+// Connect GitHub's fixture connection: the host opens GitHub, the page never becomes the key one again here, and
+// no host says GitHub changed. Every hook is the fixture's own: the default ones read `window` when the module
+// loads, and the gallery's bun runners (manifest.ts, touched.ts) load this file with no window.
 const galleryGitHub = createGitHubPicker(
   async () => ({ opened: true }),
   () => () => undefined,
   () => false,
+  () => () => undefined,
 );
 
 // The checklist folds behind its summary; open it to show the clone row's line.
