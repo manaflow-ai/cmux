@@ -243,7 +243,12 @@ pub async fn run(
             () = &mut signal, if !interrupted => interrupted = true,
         }
     };
-    let vm_id = vm.payload().clone();
+    let mut provisioning = Some(vm);
+    let vm_id = provisioning
+        .as_ref()
+        .expect("a created VM has a provisioning capability")
+        .payload()
+        .clone();
     note(stderr, &format!("vm {vm_id} created"));
     // Set once an archive may be on the guest, so every exit path below
     // (a failure or an interrupt included) removes it.
@@ -253,16 +258,16 @@ pub async fn run(
         None
     } else {
         tokio::select! {
-            result = wait_running(client, vm.payload()) => Some(result),
-            () = &mut signal => {
-                interrupted = true;
-                None
-            }
+            result = wait_running(client, provisioning.as_ref().expect("the VM is provisioning").payload()) => Some(result),
+            () = &mut signal => None,
         }
     };
     let (outcome, running) = match wait {
         Some(Ok(())) => {
-            let running = vm.running();
+            let running = provisioning
+                .take()
+                .expect("the VM is still provisioning")
+                .running();
             let outcome = tokio::select! {
                 result = work(client, &running, &args, archive.as_deref(), &command, &local, &staged, stdout, stderr) => result,
                 () = &mut signal => Ok(Outcome::Interrupted),
@@ -280,7 +285,15 @@ pub async fn run(
     }
     let ended = match running {
         Some(running) => finish(client, running, args.keep).await,
-        None => finish_provisioning(client, vm).await,
+        None => {
+            finish_provisioning(
+                client,
+                provisioning
+                    .take()
+                    .expect("an unfinished VM remains provisioning"),
+            )
+            .await
+        }
     };
     let p = crate::error::program();
     match &ended {
