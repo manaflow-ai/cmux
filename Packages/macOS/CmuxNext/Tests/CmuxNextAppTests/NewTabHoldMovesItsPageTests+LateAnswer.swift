@@ -11,20 +11,24 @@ import Testing
 /// daemon. This row sends it: the request for the 6th tab waits in the row until the Close Tab key was taken, then it
 /// goes to the daemon of this tree, and the daemon's answer comes back to the app for a tab that the person closed.
 ///
-/// Want, when the answer came back and one frame later: the store had the creation as a cancelled one at the answer;
-/// the strip is the list that it was after the Close Tab key (the closed tab did not come back, and the daemon's tab
-/// is not in it); the pane shows the same tab, with the page view of the hold, in the pane's window, not hidden, with
-/// the keyboard in it; no page view was made; the app did not report the daemon's tab as the tab that the closed one
-/// became (`AgentTabs.moveSelection` with the closed tab's key: 0 calls); the app has no page view and no New Tab page
-/// under the daemon's tab's key or under the closed tab's key. Last: the store lets go of the daemon's tab within 10
-/// seconds (the app closes a tab that the daemon made for a creation that the person cancelled).
+/// Want, when the answer came back and one frame later: the strip is the list that it was after the Close Tab key
+/// (the closed tab did not come back, and the daemon's tab is not in it); the pane shows the same tab, with the page
+/// view of the hold, in the pane's window, not hidden, with the keyboard in it; no page view was made; the app did
+/// not report the daemon's tab as the tab that the closed one became (`AgentTabStore.moveSelection` with the closed tab's
+/// key: 0 calls). Last: the daemon's own list of tabs does not have the daemon's tab 10 seconds later at most. The
+/// daemon made that tab (its answer names the tab's surface), so its list loses the tab only when the app asks the
+/// daemon to close it. The row reads that list by a request to the daemon (`DaemonConnection.listWorkspaces`), and
+/// requires that the same reads have the tab that the pane shows.
+///
+/// Setup, not a want: the store had the creation as a cancelled one when the answer came back.
+///
+/// Printed only, each with the words `not a proof here`: if the app has a page view or a New Tab page under the
+/// closed tab's key or under the daemon's tab's key after the answer, and if the store lists the daemon's tab. The
+/// app can let go of the closed tab's page state before the answer, and the store can hide the daemon's tab from its
+/// first event, so these 2 reads can say the same with a fault and with none.
 ///
 /// Limits. The request leaves the app after the Close Tab key, because the row holds it; in the app it can be on
-/// its way at the key. The answer comes after the key in both. The row does not read the daemon's own list of tabs:
-/// the last want reads the store's (`DaemonStore.liveTreeLists(tab:)`), and the row's print says if the store listed
-/// the daemon's tab when the answer came, which says if that want saw a change. The row's print also says if the
-/// app had the closed tab as a New Tab page before the answer: when it did not, the want for that key cannot fail.
-/// The keys are as in row 14.
+/// its way at the key. The answer comes after the key in both. The keys are as in row 14.
 extension NewTabHoldMovesItsPageTests {
     /// What the row records of the creation that it holds.
     @MainActor final class LateAnswer {
@@ -38,10 +42,38 @@ extension NewTabHoldMovesItsPageTests {
         var stripAtTheAnswer: [String] = []
         /// Why the daemon made no tab, when it made none.
         var failure: String?
-        /// The keys of the tabs that the app reported as created (`AgentTabs.moveSelection`), in the calls' order.
+        /// The keys of the tabs that the app reported as created (`AgentTabStore.moveSelection`), in the calls' order.
         var moves: [String] = []
 
         var done: Bool { created != nil || failure != nil }
+    }
+
+    /// What the daemon's own list of tabs said of one tab over the reads of a wait.
+    struct DaemonsList {
+        var reads = 0
+        /// Whether the list had the tab at the first read and at the last one; nil when the daemon gave no answer.
+        var first: Bool?, last: Bool?
+        /// Whether a read had the tab that the pane shows: the proof that the reads see the pane's tabs.
+        var seesTheShownTab = false
+
+        static func word(_ has: Bool?) -> String { has.map { $0 ? "yes" : "no" } ?? "no answer" }
+    }
+
+    /// Reads the daemon's list of tabs until it does not have the tab with `surface`, for 10 seconds at most. It does
+    /// not throw when the daemon gives no answer.
+    static func daemonsList(of surface: SurfaceID, shown: SurfaceID?, on connection: DaemonConnection) async -> DaemonsList {
+        var list = DaemonsList()
+        let deadline = ContinuousClock.now + .seconds(10)
+        repeat {
+            if list.reads > 0 { try? await Task.sleep(for: .milliseconds(200)) }
+            let tree = try? await connection.listWorkspaces()
+            let surfaces = tree.map { tree in tree.workspaces.flatMap { $0.screens }.flatMap { $0.panes }.flatMap { $0.tabs }.map { $0.surface } }
+            list.last = surfaces.map { $0.contains(surface) }
+            if list.reads == 0 { list.first = list.last }
+            if let surfaces, let shown, surfaces.contains(shown) { list.seesTheShownTab = true }
+            list.reads += 1
+        } while list.last != false && ContinuousClock.now < deadline
+        return list
     }
 
     @Test func anAnswerForATabThatACloseTabKeyClosedChangesNothingThatThePaneShows() async throws {
@@ -57,6 +89,7 @@ extension NewTabHoldMovesItsPageTests {
             await NewTabPageAtItsFrameTests.frame(services)
             let page = try #require(pane.currentTabKey.flatMap { tabs.existingView($0) }, "setup: the tab of the 5th key has no page view")
             let window = try #require(pane.view.window, "setup: the pane's view is in no window")
+            let connection = try #require(pane.daemon.connection, "setup: the pane's daemon has no connection")
             // The request for each tab from here on waits in the row, then goes to the daemon as the app sends it.
             let gate = NewTabHoldInTheFirstNewTabTests.HeldCreations(), late = LateAnswer(), create = tabs.create, move = tabs.moveSelection
             tabs.create = { handle, daemon, record, key, transaction, split in
@@ -111,6 +144,7 @@ extension NewTabHoldMovesItsPageTests {
             try #require(late.cancelled(), "setup: the store does not have the creation as a cancelled one after the Close Tab key")
             try #require(!late.done, "setup: the creation that the row holds had its answer before the row let it go")
             let stripAfterTheKey = pane.orderedIDs.map(\.rawValue), shownAfterTheKey = pane.currentTabKey, madeBefore = views.count
+            let shownSurface = pane.pane.tabs.first { $0.id == shownAfterTheKey }?.surface
             let wasAPageBefore = tabs.isNewTabPage(closed), movesBefore = late.moves.filter { $0 == closed }.count
 
             // The request goes to the daemon now, and its answer comes back for a tab that the person closed.
@@ -125,18 +159,19 @@ extension NewTabHoldMovesItsPageTests {
             let moves = late.moves.filter { $0 == closed }.count - movesBefore
             let pageOfTheDaemonsTab = tabs.isNewTabPage(created.key) || tabs.existingView(created.key) != nil
             let pageOfTheClosedTab = tabs.isNewTabPage(closed) || tabs.existingView(closed) != nil
-            // The store lets go of the daemon's tab: a wait that does not throw, so that each fact above is in the print.
-            let deadline = ContinuousClock.now + .seconds(10)
-            while store.liveTreeLists(tab: created.key) == true, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
-            let stillListed = store.liveTreeLists(tab: created.key) == true
+            let daemons = await Self.daemonsList(of: created.surface, shown: shownSurface, on: connection)
+            let listedAtTheEnd = store.liveTreeLists(tab: created.key) == true
             print("""
                 NewTabHoldMovesItsPageTests: row 15, an answer for the 6th tab of a hold after its Close Tab key: the store had the \
-                creation as a cancelled one at the answer: \(late.cancelledAtTheAnswer); the store listed the daemon's tab at the \
-                answer: \(late.listedAtTheAnswer), 10 seconds later at most: \(stillListed); the strip had \(stripAfterTheKey.count) tabs \
+                creation as a cancelled one at the answer: \(late.cancelledAtTheAnswer); the strip had \(stripAfterTheKey.count) tabs \
                 after the key, \(late.stripAtTheAnswer.count) at the answer, \(stripAfterTheAnswer.count) one frame later; the pane one \
                 frame later: \(CloseRead.words(after.showFaults)); \(made) page views made; \(moves) reports of a created tab for the \
-                closed tab; the app had the closed tab as a New Tab page before the answer: \(wasAPageBefore); a page or a New Tab \
-                page under the closed tab's key after it: \(pageOfTheClosedTab), under the daemon's tab's key: \(pageOfTheDaemonsTab)
+                closed tab; the daemon's list had its tab at the first read: \(DaemonsList.word(daemons.first)), at the last of \
+                \(daemons.reads) reads: \(DaemonsList.word(daemons.last)), and the reads had the tab that the pane shows: \
+                \(daemons.seesTheShownTab). Not a proof here: the app had the closed tab as a New Tab page before the answer: \
+                \(wasAPageBefore); a page or a New Tab page under the closed tab's key after it: \(pageOfTheClosedTab), under the \
+                daemon's tab's key: \(pageOfTheDaemonsTab); the store listed the daemon's tab at the answer: \
+                \(late.listedAtTheAnswer), at the row's end: \(listedAtTheEnd)
                 """)
             try #require(late.cancelledAtTheAnswer, "setup: the store did not have the creation as a cancelled one when the answer came back")
             #expect(late.stripAtTheAnswer == stripAfterTheKey,
@@ -149,9 +184,10 @@ extension NewTabHoldMovesItsPageTests {
             #expect(after.showFaults.isEmpty, "one frame after the answer for the closed tab: \(after.showFaults)")
             #expect(made == 0, "\(made) page views made between the Close Tab key and one frame after the answer, want 0")
             #expect(moves == 0, "the app reported a created tab for the closed tab \(moves) times after its Close Tab key, want 0")
-            #expect(!pageOfTheDaemonsTab, "the app has a page view or a New Tab page under the key of the daemon's tab of a creation that the person cancelled")
-            #expect(!pageOfTheClosedTab, "the app has a page view or a New Tab page under the closed tab's key after the answer of its creation")
-            #expect(!stillListed, "the store still lists the daemon's tab of the cancelled creation 10 seconds after its answer")
+            #expect(daemons.seesTheShownTab,
+                    "setup: no read of the daemon's list of tabs had the tab that the pane shows (\(daemons.reads) reads): the reads prove nothing of the closed tab")
+            #expect(daemons.last == false,
+                    "the daemon still has the tab of the cancelled creation after \(daemons.reads) reads of its list in 10 seconds: \(DaemonsList.word(daemons.last))")
         }
     }
 }
