@@ -82,6 +82,15 @@ const rows = chat(
       [
         tool("Read src/net/client.ts", "read", "completed", { locations: [{ path: `${ATLAS}/src/net/client.ts` }] }),
         tool("Search for fetchJSON(", "search", "completed"),
+      ],
+      13.8,
+    ),
+    assistant("The existing retry test hangs; running the suite first to see it fail.", 13.7, {
+      assistantPhase: "commentary",
+    }),
+    // A lone call: its failure reads on its own line (a group's steps read plain).
+    activity(
+      [
         tool("bun test src/net", "execute", "failed", {
           command: "bun test src/net",
           output:
@@ -90,6 +99,11 @@ const rows = chat(
           startedAt: minutesAgo(12.6),
           endedAt: minutesAgo(12.5),
         }),
+      ],
+      13.6,
+    ),
+    activity(
+      [
         tool("Edit src/net/client.ts", "edit", "completed", {
           diffs: [{ path: "src/net/client.ts", oldText: RETRY_BEFORE, newText: RETRY_AFTER }],
         }),
@@ -117,15 +131,19 @@ const rows = chat(
     summary(11.8, { status: "completed", durationMs: 132_000, toolCount: 7 }),
     user("Great. Log each retry with its attempt number, and update the networking docs.", 1.5),
     activity(
+      [tool("Read docs/networking.md", "read", "completed", { locations: [{ path: `${ATLAS}/docs/networking.md` }] })],
+      1.2,
+    ),
+    assistant("Lint runs while the docs change waits for you.", 0.5, { assistantPhase: "commentary" }),
+    activity(
       [
-        tool("Read docs/networking.md", "read", "completed", { locations: [{ path: `${ATLAS}/docs/networking.md` }] }),
         tool("bun run lint", "execute", "in_progress", {
           command: "bun run lint",
           output: "Checking 214 files…",
           startedAt: minutesAgo(0.4),
         }),
       ],
-      1.2,
+      0.45,
     ),
   ],
   {
