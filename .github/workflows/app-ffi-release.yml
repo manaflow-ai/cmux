@@ -155,7 +155,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # The routing App's read-only key, in the environment cmux-next's placement uses.
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     # actions: write only for ffi_build_supersede.py's cancel of an older run whose build waits for a runner.
     permissions:
       actions: write
