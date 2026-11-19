@@ -1459,6 +1459,22 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             let _ = crate::home_fs::remove_file(file);
         }
     }
+    // A stop signal that came while a restart's stop ran was not read: the stop's select had
+    // ended. Looked at once here, with the stop's work done: the restart exits instead of the
+    // exec in place (`daemon/handoff.rs`), as whoever sent it expects.
+    #[cfg(unix)]
+    if handing_off {
+        let (term, int) = &mut stop_signals;
+        let came = tokio::select! {
+            biased;
+            _ = next_signal(term.as_mut()) => true,
+            _ = next_signal(int.as_mut()) => true,
+            () = std::future::ready(()) => false,
+        };
+        if came {
+            handoff::signalled();
+        }
+    }
     // The carrier's registration last, as when the start held it to the end.
     crate::server::machine_enroll::stop_carrier(&hub);
     // Usage counts are written some time after they are made, so an idle

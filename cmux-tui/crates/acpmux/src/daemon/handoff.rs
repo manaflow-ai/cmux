@@ -2,13 +2,15 @@
 //! the installed build in place of this daemon, which keeps its listening sockets and its lock
 //! through the exec. A client sees a pause and then `hello`; its dial in the meantime waits in the
 //! kept socket's backlog and is never refused. SIGTERM and a store stop keep v1's exit: a
-//! supervisor that sent SIGTERM starts the next daemon itself.
+//! supervisor that sent SIGTERM starts the next daemon itself. So does a SIGTERM or SIGINT that
+//! comes while a restart's stop runs ([`signalled`]): the stop ends as an exit, not an exec.
 //!
 //! 1. Before anything is fenced, the request resolves the path this daemon was installed at (the
 //!    path, never the open inode: a restart after an update runs the new build) and runs it as
 //!    `daemon handoff-check` with a deadline ([`CHECK_WITHIN`]): it prints its build and the
 //!    handoff arguments it takes ([`check_line`]). A failed check leaves the daemon serving and
-//!    answers the request with why ([`prepare`]).
+//!    answers the request with why ([`prepare`]). A check with no answer by the deadline (a
+//!    build's first launch can take long) is no verdict: the restart is v1's exit.
 //! 2. The stop ends the unix accept loop at once and keeps the listeners open, then fences and
 //!    runs the whole persistence as any stop does. The socket file, `daemon.pid` and the owner
 //!    record stay: the same pid serves on (the next image's `supervision::start` reads its own
@@ -27,9 +29,10 @@
 //!    exits [`super::stop_causes::EXIT_HANDOFF_FAILED`], which its supervisor restarts on.
 //!
 //! After the exec the previous image's children are this process's children with no handle.
-//! Those that ended already are reaped before this image starts anything ([`inherited`]); the
-//! agent hosts, which a stop leaves running, are named by the host registry and reaped as they
-//! exit ([`reap_inherited`]), so none stays a zombie that answers `kill(pid, 0)`.
+//! Those that ended already are reaped before this image starts anything ([`inherited`]). The
+//! ones a stop leaves running (the agent hosts, the share sessions, the local router while a kept
+//! agent uses it) are named by their own records and reaped as they exit ([`reap_inherited`]), so
+//! none stays a zombie that answers `kill(pid, 0)` or keeps its start time.
 //!
 //! v2 connections get no `bye {restart: true}` frame yet: no such frame exists. Every connection
 //! sees what a v1 restart gives it: EOF on the unix socket, the 1012 close on a WebSocket.
@@ -60,8 +63,9 @@ pub(crate) const FLAGS: [&str; 4] = [LOCK_FD, UNIX_FD, WS_FD, COUNT];
 /// The handoff this build takes, as `daemon handoff-check` names it.
 const VERSION: u64 = 1;
 
-/// How long `daemon handoff-check` may take before the restart is answered with a failure.
-// timeout: a new build that hangs at its start is a failed check; the daemon serves on.
+/// How long `daemon handoff-check` may take. Past it there is no verdict on the build, and the
+/// restart is v1's exit.
+// timeout: the restart request waits for this child; a build that is slow to launch must not hold it.
 const CHECK_WITHIN: Duration = Duration::from_secs(2);
 
 /// The flags of `daemon run` that name one of this process's own descriptors or a handoff, each
@@ -74,6 +78,8 @@ static ENABLED: AtomicBool = AtomicBool::new(false);
 static HANDOFFS: AtomicU32 = AtomicU32::new(0);
 /// The descriptors kept for the exec, and the exec once a restart request armed it.
 static KEPT: Mutex<Kept> = Mutex::new(Kept::new());
+/// SIGTERM or SIGINT came while the stop that hands off ran ([`signalled`]).
+static SIGNALLED: AtomicBool = AtomicBool::new(false);
 
 struct Kept {
     /// A close-on-exec copy of the unix socket listener, made when it was bound.
@@ -97,8 +103,8 @@ struct Exec {
     program: PathBuf,
     /// This process's own `argv[0]`: a cmux-tui copy named `acpmux` runs as acpmux by that name.
     arg0: OsString,
-    /// This daemon's arguments through `run` and its own flags, without [`PER_PROCESS`] and
-    /// `--take-over`; the handoff's flags are added at the exec.
+    /// This daemon's arguments through `run` and its own flags, without [`PER_PROCESS`]; the
+    /// handoff's flags are added at the exec.
     args: Vec<String>,
 }
 
@@ -190,32 +196,45 @@ pub(super) fn keep_ws(fd: RawFd) {
 
 /// `_acpmux/shutdown {restart: true}` (`server/requests.rs`), before anything changes: `None`
 /// keeps v1's exit (no `start`, a take-over successor's handover, which is already the next
-/// daemon, or a stop under way); `Some(Ok)` armed the exec, which the request [`commit`]s as it
-/// begins the stop; `Some(Err)` is a failed check, and nothing changed: the daemon serves on.
+/// daemon, a stop under way, or no verdict on the installed build); `Some(Ok)` armed the exec,
+/// which the request [`commit`]s as it begins the stop; `Some(Err)` is a failed check, and
+/// nothing changed: the daemon serves on.
 pub(crate) async fn prepare(reason: &str) -> Option<Result<(), String>> {
     let frozen = kept().frozen;
     if !enabled() || reason.starts_with("handover") || frozen {
         return None;
     }
-    Some(arm().await)
+    match arm().await {
+        Ok(true) => Some(Ok(())),
+        Ok(false) => None,
+        Err(why) => Some(Err(why)),
+    }
 }
 
-async fn arm() -> Result<(), String> {
-    let installed = std::env::current_exe()
-        .map(crate::self_command::undeleted)
-        .map_err(|e| format!("this daemon's installed path: {e}"))?;
+/// Arm the exec. `Ok(false)` when this daemon cannot say what to exec or got no verdict on it
+/// (logged): the restart is v1's exit, which needs neither. `Err` only for a build that answered
+/// and does not take the handoff.
+async fn arm() -> Result<bool, String> {
+    let v1 = |why: String| {
+        tracing::warn!("restart: {why}; this restart exits and starts again");
+        Ok(false)
+    };
+    let installed = match std::env::current_exe() {
+        Ok(path) => crate::self_command::undeleted(path),
+        Err(e) => return v1(format!("this daemon's installed path: {e}")),
+    };
     let arg0 = std::env::args_os().next().unwrap_or_else(|| installed.clone().into_os_string());
-    let mut args = std::env::args_os()
-        .skip(1)
-        .map(OsString::into_string)
-        .collect::<Result<Vec<String>, _>>()
-        .map_err(|_| "an argument of this daemon is not UTF-8".to_owned())?;
+    let Ok(mut args) =
+        std::env::args_os().skip(1).map(OsString::into_string).collect::<Result<Vec<String>, _>>()
+    else {
+        return v1("an argument of this daemon is not UTF-8".into());
+    };
     // `acpmux daemon` alone is `daemon run` (`cli/entry.rs`).
     if !args.iter().any(|a| a == "run") && args.last().is_some_and(|a| a == "daemon") {
         args.push("run".into());
     }
     let Some(run) = args.iter().position(|a| a == "run") else {
-        return Err("this daemon's arguments name no `run`".into());
+        return v1("this daemon's arguments name no `run`".into());
     };
     // `<installed> <prefix> handoff-check`: `daemon handoff-check`, or `acp daemon handoff-check`
     // when the daemon runs inside cmux-tui.
@@ -226,23 +245,34 @@ async fn arm() -> Result<(), String> {
     let checked = tokio::task::spawn_blocking(move || check(&program, &name, &check_args))
         .await
         .map_err(|e| format!("the check's task: {e}"))?;
-    let build = checked?;
+    let Some(build) = checked? else {
+        return v1(format!(
+            "{} daemon handoff-check gave no answer within {CHECK_WITHIN:?}",
+            installed.display()
+        ));
+    };
     let (through_run, rest) = split_run(&args);
     let mut exec_args: Vec<String> = args.iter().take(through_run).cloned().collect();
     exec_args.extend(rest);
+    // The same process is still the unit's daemon (`split_run` drops the flag for a successor,
+    // which gets its own).
+    if args.iter().skip(through_run).any(|a| a == "--take-over") {
+        exec_args.push("--take-over".into());
+    }
     let mut kept = kept();
     if kept.frozen {
-        return Err("the daemon began to stop during the check".into());
+        drop(kept);
+        return v1("the daemon began to stop during the check".into());
     }
     kept.armed = Some(Exec { program: installed.clone(), arg0, args: exec_args });
     drop(kept);
     tracing::info!("restart: {} (build {build}) takes the handoff", installed.display());
-    Ok(())
+    Ok(true)
 }
 
 /// Run `program` as `arg0` with `args` (`daemon handoff-check`) within [`CHECK_WITHIN`]: its
-/// build when it takes this handoff.
-fn check(program: &Path, arg0: &OsStr, args: &[String]) -> Result<String, String> {
+/// build when it takes this handoff, None when it gave no answer in time.
+fn check(program: &Path, arg0: &OsStr, args: &[String]) -> Result<Option<String>, String> {
     use std::io::Read as _;
     let named = |e: std::io::Error| format!("{}: {e}", program.display());
     // Its own group; dropped while it still runs (the deadline), it is ended and reaped.
@@ -255,10 +285,9 @@ fn check(program: &Path, arg0: &OsStr, args: &[String]) -> Result<String, String
         .process_group(0)
         .spawn()
         .map_err(named)?;
-    let status = child
-        .wait_timeout(CHECK_WITHIN)
-        .map_err(named)?
-        .ok_or_else(|| format!("{} daemon handoff-check: no answer", program.display()))?;
+    let Some(status) = child.wait_timeout(CHECK_WITHIN).map_err(named)? else {
+        return Ok(None);
+    };
     if !status.success() {
         return Err(format!("{} daemon handoff-check exited {status}", program.display()));
     }
@@ -267,7 +296,9 @@ fn check(program: &Path, arg0: &OsStr, args: &[String]) -> Result<String, String
     if let Some(mut pipe) = child.stdout.take() {
         pipe.read_to_end(&mut stdout).map_err(named)?;
     }
-    accepts(&stdout).map_err(|why| format!("{} daemon handoff-check: {why}", program.display()))
+    accepts(&stdout)
+        .map(Some)
+        .map_err(|why| format!("{} daemon handoff-check: {why}", program.display()))
 }
 
 /// Whether a `daemon handoff-check` output names this handoff and every argument it passes: the
@@ -295,8 +326,8 @@ fn accepts(stdout: &[u8]) -> Result<String, String> {
 
 /// `args` (a daemon's own, after its executable) split at `run`: the index just past it (0
 /// without one), and the arguments after it without [`PER_PROCESS`] (with their values) and
-/// `--take-over`. A successor's arguments (`exe_swap::handover_args`) and the exec's are built
-/// from it.
+/// `--take-over`. A successor's arguments (`exe_swap::handover_args`) and the exec's (which puts
+/// `--take-over` back) are built from it.
 pub(super) fn split_run(args: &[String]) -> (usize, Vec<String>) {
     let run = args.iter().position(|a| a == "run").map_or(0, |i| i + 1);
     let mut rest = Vec::new();
@@ -330,6 +361,14 @@ pub(super) fn confirm(by_request: bool) -> bool {
     kept().confirm(by_request)
 }
 
+/// SIGTERM or SIGINT came while the stop that hands off ran (`daemon::run` looks once the stop's
+/// work is done): whoever sent it wants this process gone, so [`exec_if_armed`] ends as v1's stop
+/// does instead of the exec. One that comes after that look, in the moment before the exec, is
+/// lost, as one that comes before a daemon's signal streams are registered ends it at once.
+pub(super) fn signalled() {
+    SIGNALLED.store(true, Ordering::SeqCst);
+}
+
 /// Whether the stop under way hands off ([`confirm`]).
 pub(super) fn handing_off() -> bool {
     let kept = kept();
@@ -348,14 +387,22 @@ pub(super) fn keep_lock(lock: DaemonLock) {
 }
 
 /// After `daemon::run` returned (`cli/entry.rs`), when a restart armed it: exec the installed
-/// build in place, with the kept descriptors. Returns only when there was nothing to exec (None)
-/// or the exec failed: then this ends as v1's stop does, and the status to exit with.
+/// build in place, with the kept descriptors. Returns only when there was nothing to exec (None),
+/// a stop signal came meanwhile ([`signalled`]) or the exec failed: then this ends as v1's stop
+/// does, and the status to exit with.
 pub(crate) fn exec_if_armed() -> Option<i32> {
     let mut kept = kept();
     if !kept.frozen {
         return None;
     }
     let exec = kept.armed.take()?;
+    if SIGNALLED.load(Ordering::SeqCst) {
+        tracing::warn!("restart: a stop signal came during the stop; exiting, no exec in place");
+        let status = super::stop_causes::exit_status();
+        drop(kept);
+        end_as_v1(status);
+        return Some(status);
+    }
     let mut args = exec.args;
     let mut fds = Vec::new();
     let handed = [
@@ -383,6 +430,15 @@ pub(crate) fn exec_if_armed() -> Option<i32> {
         "restart: the exec of {} failed: {error}; stopping (exit {status}) for the supervisor or the next client to start the daemon",
         exec.program.display()
     );
+    drop(kept);
+    end_as_v1(status);
+    Some(status)
+}
+
+/// What the stop left for the next image, ended as v1's stop ends it: the socket file, the owner
+/// record (with `status`), the pid file, the listeners, and last the lock.
+fn end_as_v1(status: i32) {
+    let mut kept = kept();
     let socket_ours = kept.socket_ours;
     let lock = kept.lock.take();
     kept.unix = None;
@@ -399,7 +455,6 @@ pub(crate) fn exec_if_armed() -> Option<i32> {
     }
     // Last, as the stop's persistence lets it go: its drop unlocks, then closes.
     drop(lock);
-    Some(status)
 }
 
 /// Set or clear `fd`'s close-on-exec flag, then read it back: whether it is as asked.
@@ -603,8 +658,11 @@ fn adopt_tcp(fd: OwnedFd, wanted: &[SocketAddr]) -> Result<std::net::TcpListener
 
 /// On a handoff start, before this image starts any process: every child it has is the previous
 /// image's. Those that ended already are reaped here (`waitpid(-1)`, safe only now: later it
-/// would take tokio's own children from it). The agent hosts, which a stop leaves running, are
-/// named by the host registry (`agent_host/sweep.rs`): their pids, for [`reap_inherited`].
+/// would take tokio's own children from it). What a stop leaves running is named by its own
+/// record: the agent hosts (`agent_host/sweep.rs`), the share sessions (`share_host/records.rs`)
+/// and the local router, which stays while a kept agent uses it and names its pid in its status
+/// (one bounded ask of its socket, `daemon/router_owner.rs`). Their pids, for [`reap_inherited`];
+/// one that is no child of this process costs one `waitpid` there.
 pub(super) fn inherited() -> Vec<libc::pid_t> {
     loop {
         let mut status: libc::c_int = 0;
@@ -613,16 +671,21 @@ pub(super) fn inherited() -> Vec<libc::pid_t> {
             break;
         }
     }
-    crate::agent_host::sweep::running_hosts(&crate::agent_host::hosts_dir())
+    let hosts = crate::agent_host::sweep::running_hosts(&crate::agent_host::hosts_dir());
+    hosts
         .into_iter()
-        .filter_map(|host| libc::pid_t::try_from(host.host_pid).ok())
+        .map(|host| host.host_pid)
+        .chain(crate::share_host::session_pids(&crate::config::home()))
+        .chain(super::router_owner::running_pid())
+        .filter_map(|pid| libc::pid_t::try_from(pid).ok())
+        .filter(|pid| *pid > 1)
         .collect()
 }
 
 /// Reap `children` ([`inherited`]) as they exit: one task of `scope` on tokio's SIGCHLD stream
 /// calls `waitpid(pid, WNOHANG)` for each listed pid only. A pid that is no child of this process
 /// (a host an earlier daemon process started) is dropped at the first pass. The next handoff
-/// lists the hosts again: those alive are still children.
+/// lists them again: those alive are still children.
 pub(super) fn reap_inherited(
     mut children: Vec<libc::pid_t>,
     scope: &cmux_scope::Scope,
@@ -634,7 +697,7 @@ pub(super) fn reap_inherited(
         Ok(stream) => stream,
         Err(e) => {
             tracing::warn!(
-                "restart handoff: no SIGCHLD stream to reap the previous image's hosts: {e}"
+                "restart handoff: no SIGCHLD stream to reap the previous image's children: {e}"
             );
             return None;
         }
@@ -653,8 +716,8 @@ pub(super) fn reap_inherited(
 /// Whether `pid` is reaped now, or no child of this process.
 fn reaped(pid: libc::pid_t) -> bool {
     let mut status: libc::c_int = 0;
-    // SAFETY: waitpid on one pid the host registry named; WNOHANG never blocks, and a pid that
-    // is no child of this process only fails with ECHILD.
+    // SAFETY: waitpid on one pid a record named; WNOHANG never blocks, and a pid that is no
+    // child of this process only fails with ECHILD.
     let got = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
     got == pid || (got < 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR))
 }

@@ -36,10 +36,20 @@ pub(crate) async fn run(
         return Ok(());
     };
     // With `acpmux.v2` `start` a restart never exits: the installed build runs in its place.
-    let status = back_from_handoff(was).await?;
+    let Some(status) = back_from_handoff(was).await? else {
+        // A stop signal during the restart, or an exec that failed: it exited after all.
+        if json_out {
+            print_json(&json!({"stopped": true, "restarted": false, "handoff": false}));
+        } else {
+            println!("stopped; the restart in place gave way to an exit");
+        }
+        return Ok(());
+    };
     let pid = status.get("pid").and_then(Value::as_u64).unwrap_or(0);
     if json_out {
         print_json(&json!({"stopped": false, "restarted": true, "handoff": true, "pid": pid}));
+    } else if end_agents {
+        println!("restarted in place; daemon pid {pid}");
     } else {
         println!("restarted in place; daemon pid {pid}, its agent hosts untouched");
     }
@@ -57,7 +67,7 @@ pub(crate) async fn restart(json_out: bool) -> Result<()> {
     drop(client);
     let handed_off = run_on(&*TokioClock::new(), false, json_out, true, true).await?;
     let back = match handed_off {
-        Some(was) => back_from_handoff(was).await.ok(),
+        Some(was) => back_from_handoff(was).await.ok().flatten(),
         None => None,
     };
     let status = match back {
@@ -87,8 +97,10 @@ pub(crate) async fn restart(json_out: bool) -> Result<()> {
 /// The daemon's status once its exec in place serves again (`daemon/handoff.rs`): the same pid,
 /// whose `handoffs` grew past `was` (the count its shutdown answer named). The old image may
 /// still accept for a moment and then end the connection, so it dials again until the new one
-/// answers, within the budget a stop has to exit ([`crate::daemon::EXIT_BUDGET`]).
-async fn back_from_handoff(was: u64) -> Result<Value> {
+/// answers, within the budget a stop has to exit ([`crate::daemon::EXIT_BUDGET`]). None when the
+/// daemon exited instead (a stop signal during the restart, or an exec that failed): only an exit
+/// removes the socket, which a restart in place keeps throughout.
+async fn back_from_handoff(was: u64) -> Result<Option<Value>> {
     // timeout: the same bound as the wait for an old daemon's exit; past it the restart failed.
     let deadline = tokio::time::Instant::now() + crate::daemon::EXIT_BUDGET;
     loop {
@@ -100,7 +112,10 @@ async fn back_from_handoff(was: u64) -> Result<Value> {
         if let Ok(Some(status)) = tokio::time::timeout_at(deadline, dial).await
             && status.get("handoffs").and_then(Value::as_u64).is_some_and(|n| n > was)
         {
-            return Ok(status);
+            return Ok(Some(status));
+        }
+        if !crate::config::socket_path().exists() {
+            return Ok(None);
         }
         if tokio::time::Instant::now() >= deadline {
             return Err(anyhow!(
