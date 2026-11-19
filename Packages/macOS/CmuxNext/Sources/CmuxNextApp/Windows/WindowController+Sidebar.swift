@@ -38,11 +38,10 @@ extension WindowController {
             for await hidden in ObservationStream({ model.isHidden }) {
                 guard let self else { return }
                 if let window { services.hoverCards.sidebarHidden(hidden, in: window) }
+                let changed = root.sidebarHidden != hidden
                 root.showsTitlebarBadge = hidden && root.titlebarBadge != nil
                 root.sidebarHidden = hidden
-                root.layoutSubtreeIfNeeded()
-                relayoutTopRowStrips()
-                pagesDidChangeChrome()
+                if changed { root.layoutSubtreeIfNeeded(); relayoutTopRowStrips(); pagesDidChangeChrome() }
             }
         }
     }
