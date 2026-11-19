@@ -7,31 +7,38 @@
 //! rows are derived data, and a later commit writes them:
 //!
 //! - **The mark.** The `meta` row `journal_subject_rows_through` names the
-//!   last journal row whose subject rows the table holds. The mark moves
+//!   last journal row whose subject rows the table holds. An open gives a
+//!   store its first mark ([`create_schema`]). After that the mark moves
 //!   only in the commit that writes the subject rows to it
 //!   ([`write_through`]): the commit of the journal row that ends a period
-//!   ([`PERIOD`]), a seal, a stop and an open ([`write_tail`]). The commit
-//!   of each other journal row writes no subject row, so a page of the index
-//!   that many journal rows of a period share is written one time for the
-//!   period.
+//!   ([`PERIOD`]), a seal, and the write of the tail ([`write_tail`]) at a
+//!   stop, at the release of the session, at an open and in a rollback's
+//!   check of a store that no daemon owns
+//!   ([`stored_number_for_a_rollback`]). The commit of each other journal
+//!   row writes no subject row, so a page of the index that many journal
+//!   rows of a period share is written one time for the period.
 //! - **Reads.** Each journal row after the mark is in the active table: a
 //!   seal writes the subject rows to its end before it moves rows out. A
-//!   read by subject takes the rows of the table and, for each journal row
-//!   after the mark, the subjects that the row itself names. One statement
-//!   reads both, so both come from one snapshot ([`read`]). The write and
-//!   the read take a row's subjects from one function ([`subjects_of`]), so
-//!   a read gives the same before and after the write.
+//!   read by subject takes the rows of the table and, when the table does
+//!   not fill the page, for each journal row after the mark the subjects
+//!   that the row itself names. One statement reads both, so both come from
+//!   one snapshot ([`read`]). The write and the read take a row's subjects
+//!   from one function ([`subjects_of`]), so a read gives the same before
+//!   and after the write.
 //! - **The schema number.** A build that does not know the mark reads the
 //!   table alone, and would miss each journal row after the mark with no
 //!   sign. So while a journal row is after the mark, the stored schema
 //!   number is [`ROWS_DUE_SCHEMA_VERSION`], which such a build refuses. The
 //!   number is set in the same transaction as the insert of the first
 //!   journal row that gets no subject rows ([`after_append`]): not in a
-//!   commit before it and not in one after it. A stop and an open write the
-//!   subject rows to the journal's head, the mark, and the number of
+//!   commit before it and not in one after it. The write of the tail puts
+//!   the subject rows to the journal's head, the mark, and the number of
 //!   [`SCHEMA_VERSION`] again, in one commit. The number can stay at
 //!   [`ROWS_DUE_SCHEMA_VERSION`] with no journal row after the mark (after
 //!   the commit that ends a period, until the stop): no write closes that.
+//!   A store whose owner ended with no stop step stays at
+//!   [`ROWS_DUE_SCHEMA_VERSION`] until this build opens the session or a
+//!   rollback's check writes its tail.
 //!
 //! A store with no mark is a store that no build with this rule opened:
 //! each of its journal rows got its subject rows in its own commit. An open
@@ -128,9 +135,19 @@ const SET_NUMBER: &str = "UPDATE meta SET value = CAST(?1 AS TEXT)
 /// `?3`: the page's limit. The table's part has the limit of the page; the
 /// journal rows after the mark are fewer than a period in a store that an
 /// owner has.
+///
+/// The journal rows after the mark are read only when the table's part has
+/// fewer rows than the limit. The journal rows whose subject rows the table
+/// holds are the first rows of the journal: each write of subject rows goes
+/// from the mark on with no gap ([`write_through`]), and a staging registry
+/// gets the rows of each kept record. So a journal row with no subject row
+/// in the table is after each row of the table, and a page that the table
+/// fills has none. Then the lower bound of the second part is the largest
+/// sequence: one seek, and no journal row is taken. The table's part is
+/// made one time (`MATERIALIZED`), so its rows and their count are the same.
 const SEQUENCES_AFTER: &str = concat!(
-    "SELECT sequence, NULL, NULL FROM (
-       SELECT DISTINCT indexed.sequence AS sequence
+    "WITH from_table(sequence) AS MATERIALIZED (
+       SELECT DISTINCT indexed.sequence
        FROM json_each(?1) AS requested
        JOIN journal_subject_index AS indexed
          INDEXED BY journal_subject_index_by_subject_sequence
@@ -139,11 +156,14 @@ const SEQUENCES_AFTER: &str = concat!(
        WHERE indexed.sequence > ?2
        ORDER BY indexed.sequence ASC
        LIMIT ?3)
+     SELECT sequence, NULL, NULL FROM from_table
      UNION ALL
      SELECT sequence, NULL, subjects_json FROM session_journal
-     WHERE sequence > MAX(?2, ",
+     WHERE sequence > CASE WHEN (SELECT COUNT(*) FROM from_table) < ?3
+                           THEN MAX(?2, ",
     mark_or!("9223372036854775807"),
-    ")"
+    ")
+                           ELSE 9223372036854775807 END"
 );
 
 /// The ids of one kind in a range. `?1`: the kind, `?2` and `?3`: the first
@@ -187,8 +207,9 @@ pub(super) fn create_schema(transaction: &Transaction<'_>) -> anyhow::Result<()>
 
 /// Writes the subject rows of each active journal row after the mark to
 /// `through`, and moves the mark to `through`: the rows and the mark are in
-/// the caller's one commit. No other statement moves the mark. Returns the
-/// subject rows written.
+/// the caller's one commit. After a store's first mark ([`create_schema`]
+/// gives it), no other statement moves the mark. Returns the subject rows
+/// written.
 ///
 /// The mark is read from the store each time, so a store with no mark gets
 /// the rows of each active journal row: more work one time, never a row
@@ -337,9 +358,10 @@ pub(crate) fn write_tail(transaction: &Transaction<'_>) -> anyhow::Result<usize>
 }
 
 impl WorkspaceRegistry {
-    /// The stop's write ([`write_tail`]), in a commit of its own. The caller
-    /// runs it after the last journal row of the run: a journal row after it
-    /// leaves the store at [`ROWS_DUE_SCHEMA_VERSION`] until the next open.
+    /// The stop's write ([`write_tail`]), in a commit of its own. A journal
+    /// row after it puts the store at [`ROWS_DUE_SCHEMA_VERSION`] again, so
+    /// the release of the session runs it one time more, as the owner's
+    /// last write.
     pub(crate) fn write_journal_subject_tail(&self) -> anyhow::Result<usize> {
         let db = self.connection.get();
         let transaction = db.unchecked_transaction()?;
@@ -528,22 +550,135 @@ pub(crate) fn write_rows_of_staged_records(
     )
 }
 
-/// The schema number that a rollback's check takes for the registry of the
-/// session directory `session` of the state root `root`, whose stored
-/// number is `stored`.
+/// The schema number that a rollback's check takes for the registry
+/// `database` of the session directory `session` of the state root `root`,
+/// whose stored number is `stored`. Each number that is not
+/// [`ROWS_DUE_SCHEMA_VERSION`] is as stored, and nothing is written.
 ///
 /// [`ROWS_DUE_SCHEMA_VERSION`] with a daemon that owns the session now reads
 /// as [`SCHEMA_VERSION`]: that owner's stop writes the subject rows and puts
-/// the number back before another build opens the store. With no owner, or
-/// when the probe cannot tell, the number stays: a build that does not know
-/// the mark must not open that store. Each other number is as stored.
-pub(crate) fn stored_number_for_a_rollback(root: &Path, session: &Path, stored: i64) -> i64 {
+/// the number back before another build opens the store.
+///
+/// With no owner, no stop will write them (the owner ended with no stop
+/// step), and one such session would refuse a rollback for each session. So
+/// the check writes them here, as an open does ([`write_tail`]), with the
+/// session's guard held: no daemon starts on the store in that time, and a
+/// daemon that has the session gets no write from here. Then the number is
+/// the one that the store has after the commit.
+///
+/// A write that fails after the store gave [`ROWS_DUE_SCHEMA_VERSION`] with
+/// the guard held reads as that number: a build that does not know the mark
+/// must not open that store. The failed write is one transaction, so the
+/// store is as it was.
+///
+/// Each doubt is an error, and the check then gives no number: the guard
+/// cannot tell whether a daemon owns the session (a lock file is not there,
+/// the lock of the session-locks directory stayed busy), or the store did
+/// not open or did not give its number with the guard held. The number that
+/// was read with no guard does not answer the question then: an owner's stop
+/// puts [`SCHEMA_VERSION`] back.
+pub(crate) fn stored_number_for_a_rollback(
+    root: &Path,
+    session: &Path,
+    database: &Path,
+    stored: i64,
+) -> anyhow::Result<i64> {
+    use crate::workspace_registry::session_guard::{WhileUnowned, while_no_daemon_owns};
+
     if stored != ROWS_DUE_SCHEMA_VERSION {
-        return stored;
+        return Ok(stored);
     }
-    let owner_runs =
-        session.file_name().and_then(|component| component.to_str()).and_then(|component| {
-            crate::workspace_registry::session_guard::session_owner_runs(root, component)
-        });
-    if owner_runs == Some(true) { SCHEMA_VERSION } else { stored }
+    let doubt = || {
+        format!(
+            "the rollback check cannot tell whether an older build can open {}: journal subject \
+             rows are due in it, and it is not known whether a daemon owns its session",
+            database.display()
+        )
+    };
+    let component = session
+        .file_name()
+        .and_then(|component| component.to_str())
+        .with_context(|| format!("{} has no name of a session guard", session.display()))
+        .with_context(doubt)?;
+    let part = crate::store_schemas::Part::start();
+    let found = while_no_daemon_owns(root, component, || write_tail_of_an_unowned_store(database));
+    part.end("16: the 2 locks, with the write in them");
+    match found.with_context(doubt)? {
+        WhileUnowned::Owned => Ok(SCHEMA_VERSION),
+        WhileUnowned::Ran(written) => match written.with_context(doubt)? {
+            UnownedWrite::Number(number) => Ok(number),
+            UnownedWrite::Failed(error) => {
+                eprintln!(
+                    "cmux-tui: the rollback check did not write the journal subject rows of {}: \
+                     {error:#}",
+                    database.display()
+                );
+                Ok(stored)
+            }
+        },
+    }
+}
+
+/// What [`write_tail_of_an_unowned_store`] found in a store that it opened.
+enum UnownedWrite {
+    /// The stored schema number, after the write when the store had rows
+    /// due.
+    Number(i64),
+    /// The store has rows due, and the write did not commit: the store is
+    /// as it was.
+    Failed(anyhow::Error),
+}
+
+/// The write of a stop and of an open ([`write_tail`]) on the store
+/// `database`, for a caller that holds the session's guard.
+///
+/// The store is opened, never made. One transaction takes the write lock
+/// first and reads the number again: only a store at
+/// [`ROWS_DUE_SCHEMA_VERSION`] gets the write, because each other number
+/// names a schema that this function does not know or a store with nothing
+/// due. The commit is on the disk before this returns (`synchronous=FULL`,
+/// and the full fsync of an owner's connection): the caller's answer lets
+/// another build open the store. An error is a store that did not open or
+/// did not give its number.
+fn write_tail_of_an_unowned_store(database: &Path) -> anyhow::Result<UnownedWrite> {
+    use crate::store_schemas::Part;
+
+    #[cfg(test)]
+    STORES_OPENED_FOR_A_WRITE.with(|stores| stores.set(stores.get() + 1));
+    let part = Part::start();
+    let mut connection = open_registry_database_with_flags(
+        database,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    connection.busy_timeout(std::time::Duration::from_millis(500))?;
+    connection.execute_batch(REGISTRY_FULLFSYNC_PRAGMA)?;
+    connection.execute_batch("PRAGMA synchronous=FULL;")?;
+    part.end("write: the open");
+    let part = Part::start();
+    let transaction =
+        connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let number = transaction.query_row(
+        "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'schema_version'",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    part.end("write: the write lock and the number");
+    if number != ROWS_DUE_SCHEMA_VERSION {
+        return Ok(UnownedWrite::Number(number));
+    }
+    let part = Part::start();
+    let rows = write_tail(&transaction);
+    part.end("write: the rows");
+    let part = Part::start();
+    let written = rows.and_then(|_| transaction.commit().map_err(anyhow::Error::from));
+    part.end("write: the commit");
+    // The last connection of the store: its close puts the log in the main
+    // file.
+    let part = Part::start();
+    drop(connection);
+    part.end("write: the close");
+    Ok(match written {
+        Ok(()) => UnownedWrite::Number(SCHEMA_VERSION),
+        Err(error) => UnownedWrite::Failed(error),
+    })
 }

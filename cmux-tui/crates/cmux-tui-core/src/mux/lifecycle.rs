@@ -176,6 +176,16 @@ impl Mux {
     pub fn release_ownership(&self, socket_path: &Path) {
         {
             let mut registry = self.workspace_registry.lock().unwrap_or_else(|e| e.into_inner());
+            // The last write of this owner, under the registry's lock: a
+            // journal row that came after the stop's write gets its subject
+            // rows, and the store has its plain schema number again, before
+            // the session is free for another owner. With no such row it
+            // writes nothing.
+            if let Err(error) = registry.write_journal_subject_tail() {
+                eprintln!(
+                    "cmux-tui: write journal subject rows at the session's release: {error:#}"
+                );
+            }
             drop(registry.lease.take());
             drop(registry.session_guard.take());
         }
@@ -291,10 +301,12 @@ impl Mux {
             eprintln!("cmux-tui: stop session journal writer during {context}: {error:#}");
         }
         lap("shutdown.journal_writer");
-        // The writer ended, so the journal has its last row of this run: its
+        // The journal's writer ended, so its rows of this run are in: the
         // subject rows that are due go in now, and an older build can open
         // the store again. A writer that did not end can still append: then
-        // nothing is written here and the next open writes them.
+        // nothing is written here. Another writer of the registry can still
+        // append after this write; the release of the session writes the
+        // subject rows of such a row (`release_ownership`).
         if joined.is_ok() {
             let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             if let Err(error) = registry.write_journal_subject_tail() {

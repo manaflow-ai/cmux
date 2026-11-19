@@ -86,6 +86,12 @@ pub(crate) fn take_parts() -> BTreeMap<&'static str, (u64, Duration)> {
 /// The newest schema each store holds in any session under `state_root`.
 /// A store that no session has written yet is absent. A store that cannot be
 /// read is an error: the caller must not guess.
+///
+/// It is a read for its caller, and it can write: the registry of a session
+/// that no daemon owns, left with journal subject rows due, gets those rows
+/// here (`stored_number_for_a_rollback`). That write changes derived rows
+/// and the stored number only, and it makes no file. When the check cannot
+/// tell whether a daemon owns such a session, that is an error too.
 pub fn stored(state_root: &Path) -> anyhow::Result<BTreeMap<String, i64>> {
     let mut found = BTreeMap::new();
     let sessions = match std::fs::read_dir(state_root) {
@@ -107,7 +113,7 @@ pub fn stored(state_root: &Path) -> anyhow::Result<BTreeMap<String, i64>> {
             }
             if let Some(version) = schema_version(&path)? {
                 let version = if *name == REGISTRY {
-                    stored_number_for_a_rollback(state_root, &session, version)
+                    stored_number_for_a_rollback(state_root, &session, &path, version)?
                 } else {
                     version
                 };

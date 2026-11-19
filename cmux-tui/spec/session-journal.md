@@ -170,22 +170,35 @@ segment seal, a daemon stop and a registry open each write the rows of every
 record after the mark (`meta.journal_subject_rows_through`) and move the mark
 in that same commit. A store that has no index yet gets the index and the
 rows of every active record in the one transaction that makes the index. A
-read by subject takes the index and, for every active record after the mark,
-the subjects that the record itself names, in one statement: it gives what an
-index written in the record transaction gives. The write and the read parse a
-stored record's subjects with one function, so a damaged record's subject that
-the write skips is skipped by the read too, and each skip is counted in a log
-line.
-Retained catch-up for exact subjects, such as one `agent_tree`, reads only
-matching sequences. Live delivery uses the bounded in-memory fanout and checks
-each new record once.
+read by subject takes the index and, when the index does not fill the page,
+for every active record after the mark the subjects that the record itself
+names, in one statement: it gives what an index written in the record
+transaction gives. The write and the read parse a stored record's subjects
+with one function, so a damaged record's subject that the write skips is
+skipped by the read too, and each skip is counted in a log line.
+Retained catch-up for exact subjects, such as one `agent_tree`, reads the
+matching sequences of the index, and the records after the mark (fewer than
+a period) only for a page that the index does not fill. Live delivery uses
+the bounded in-memory fanout and checks each new record once.
 
 While a record is after the mark, `meta.schema_version` is 16: schema 15 with
 subject rows due. A build that does not know the mark reads the index alone,
 so it must not open that store, and it refuses 16. The transaction of the
-first record that gets no subject rows sets the 16; a stop and an open put the
-15 back in the commit that writes the rows. After a crash the store stays at
-16 until a build that knows the mark opens it. So 16 is not a plain schema
+first record that gets no subject rows sets the 16; a stop, the release of
+the session after it, and an open put the 15 back in the commit that writes
+the rows. After a crash the store stays at 16 until a build that knows the
+mark opens it, or until a rollback's check (`cmux-tui __store-schemas
+--stored`) writes the rows: for a session that no daemon owns, the check
+takes the session's guard and makes the same commit, so one session that
+ended with no stop does not refuse a rollback. That check makes no file; a
+write that fails leaves the store as it was and reads 16. When the check
+cannot ask the guard (a lock file is not there, or the lock of the
+session-locks directory stays busy past its bound), it gives no number and
+ends with an error: it did not read 16 with the guard held, so the app says
+that it cannot tell whether the kept build reads the data, and does not roll
+back.
+
+So 16 is not a plain schema
 number: the next schema change takes 17 and its rows-due number is 18, and the
 open of that build writes the subject rows of a store left at 16 before it
 migrates the store.

@@ -122,26 +122,82 @@ fn open_existing_session_guard(lock_path: &Path) -> std::io::Result<File> {
     options.open(lock_path)
 }
 
-/// Whether a daemon owns the session whose guard file stem is `component`
-/// now, and nothing more: `Some(true)` only when the guard's lock is taken,
-/// `Some(false)` only when it is free, `None` for each doubt (no guard file,
-/// the lock of the session-locks directory is busy past its short bound, the
-/// path no longer names the opened file, an I/O error).
+/// What [`while_no_daemon_owns`] found for a session.
+pub(crate) enum WhileUnowned<T> {
+    /// The guard's lock is taken: a daemon owns the session, or another
+    /// process holds the guard for a short time (a host sweep, a session
+    /// reset).
+    Owned,
+    /// The guard's lock was free: the act ran with the guard held, and gave
+    /// this.
+    Ran(T),
+}
+
+/// Runs `act` while no daemon owns the session whose guard file stem is
+/// `component`, with the session's guard held from before `act` to after
+/// it. An error for each doubt, and then `act` did not run: no guard file, no
+/// file of the session-locks directory's lock, that lock is busy past its
+/// short bound, a path no longer names the opened file, an I/O error. The
+/// error names the file and the doubt: the caller does not know whether a
+/// daemon owns the session.
 ///
-/// Unlike [`probe_session_owner`] it keeps no lock: the lock it takes to see
-/// is free again while the directory's lock is still held. A daemon's start
-/// waits for the directory's lock before it tries the guard without waiting,
-/// so no start meets this probe's lock. Another process that holds the guard
-/// for a short time (a host sweep, a session reset) reads as an owner.
-pub(crate) fn session_owner_runs(root: &Path, component: &str) -> Option<bool> {
+/// The directory's lock is held from before the try of the guard until the
+/// guard is free again. A daemon's start waits for the directory's lock
+/// before it tries the guard without waiting, so no start meets the guard
+/// that is held here: it waits for `act`, and then it finds the guard free.
+/// Keep `act` short.
+///
+/// It makes no file and no directory: each of the 2 lock files is opened,
+/// never made, and the wait for the directory's lock registers no waiter.
+pub(crate) fn while_no_daemon_owns<T>(
+    root: &Path,
+    component: &str,
+    act: impl FnOnce() -> T,
+) -> anyhow::Result<WhileUnowned<T>> {
     let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
     let lock_path = session_guard_lock_component_path(&lock_dir, component);
-    let file = open_existing_session_guard(&lock_path).ok()?;
-    let _coordinator =
-        SessionLease::acquire_coordinator(&session_guard_coordinator_path(&lock_dir)).ok()?;
-    let taken = FileLock::held_elsewhere(&file, Kind::Exclusive).ok()?;
-    validate_session_lock_file(&lock_path, &file).ok()?;
-    Some(taken)
+    let coordinator_path = session_guard_coordinator_path(&lock_dir);
+    let guard = open_existing_session_guard(&lock_path)
+        .with_context(|| format!("open the session guard {}", lock_path.display()))?;
+    let coordinator = open_existing_session_guard(&coordinator_path).with_context(|| {
+        format!("open the lock of the session guards {}", coordinator_path.display())
+    })?;
+    let coordinator = FileLock::take_within(
+        coordinator,
+        Kind::Exclusive,
+        SESSION_GUARD_COORDINATOR_TIMEOUT,
+        cmux_file_lock::MIN_STEP,
+    )
+    .map_err(anyhow::Error::new)
+    .with_context(|| {
+        format!(
+            "take the lock of the session guards {} within {} ms",
+            coordinator_path.display(),
+            SESSION_GUARD_COORDINATOR_TIMEOUT.as_millis()
+        )
+    })?;
+    validate_session_lock_file(&coordinator_path, coordinator.file())?;
+    // As a lease: its drop tells a waiter that the directory's lock is free.
+    let coordinator = SessionLease::coordinator(coordinator, &coordinator_path);
+    // Locked first, then checked: the path must still name the locked file.
+    let guard = match FileLock::try_take(guard, Kind::Exclusive) {
+        Ok(guard) => guard,
+        Err(LockError::Busy(guard)) => {
+            validate_session_lock_file(&lock_path, &guard)?;
+            return Ok(WhileUnowned::Owned);
+        }
+        Err(error @ LockError::Io(_)) => {
+            return Err(anyhow::Error::new(error))
+                .with_context(|| format!("try the session guard {}", lock_path.display()));
+        }
+    };
+    validate_session_lock_file(&lock_path, guard.file())?;
+    let ran = act();
+    // The guard first: a start that waits for the directory's lock tries the
+    // guard as soon as that lock is free.
+    drop(guard);
+    drop(coordinator);
+    Ok(WhileUnowned::Ran(ran))
 }
 
 /// What the last owner run of the session `component` of `root` left in its

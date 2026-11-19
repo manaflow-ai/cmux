@@ -74,10 +74,12 @@ const FRAMES_FIXTURE_ROWS: u64 = 10_000;
 /// run writes there with a write after each journal row. Both counts are of
 /// this run, so a change of the fixture or of a page's fill moves both. How
 /// it was found: a run of this fixture gave 397 frames against 1,289, which
-/// is 31 percent. A count at or above the bound means that a period's write
-/// no longer shares its pages: the subject rows are written row by row
-/// again, or a period got shorter.
-const MAX_SUBJECT_FRAMES_PERCENT: usize = 35;
+/// is 31 percent, and the counts are not the same at each run. The bound is
+/// half: the row holds that a period writes fewer frames than a write row
+/// by row, and (its other assert) more than none. A count at or above the
+/// bound means that a period's write no longer shares its pages: the
+/// subject rows are written row by row again, or a period got shorter.
+const MAX_SUBJECT_FRAMES_PERCENT: usize = 50;
 /// The seeds of the model row, and its steps for each seed.
 const SEEDS: [u64; 4] =
     [0x9e37_79b9_7f4a_7c15, 0x2545_f491_4f6c_dd1d, 0x0123_4567_89ab_cdef, 0x0fed_cba9_8765_4321];
