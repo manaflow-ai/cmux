@@ -3286,6 +3286,20 @@ jobs:
           BUILD_SHA: ${{ steps.build.outputs.build_sha }}
           ARCHS: ${{ needs.decide.outputs.compile_archs }}
         run: bash scripts/ci/nightly-steps/chief-input-key.sh
+      # The signing Mac's own superseded checks (the feed recheck, the sign yield), here on the nightly-only pool
+      # before any sign job exists: a run that can only be superseded never takes the signer. Doubt signs. No step
+      # timeout: it calls no gh (no budget wait), every read has a 20 s deadline and the listing is page-bounded.
+      - name: Leave the sign to a newer nightly-next build
+        id: sign-gate
+        if: github.ref == 'refs/heads/nightly-next' && github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRACK: ${{ needs.decide.outputs.track }}
+          SIGN_JOB: ${{ needs.decide.outputs.one_job == 'true' && 'nightly-next-one' || 'build-sign-notarize-nightly' }}
+          NIGHTLY_NEXT_SIGN_GATE: ${{ vars.NIGHTLY_NEXT_SIGN_GATE }}
+          NIGHTLY_NEXT_SIGN_YIELD: ${{ vars.NIGHTLY_NEXT_SIGN_YIELD }}
+        run: python3 scripts/ci/nightly_sign_gate.py
       # Why: docs/ci/nightly-workflow-notes.md#note-16
       - name: Leave the build slot to a newer nightly-next push
         id: superseded
@@ -3297,20 +3311,6 @@ jobs:
           LOOP_RETRY: ${{ inputs.nightly_next_loop_retry }}
           SUPERSEDE_SKIP: ${{ vars.NIGHTLY_NEXT_SUPERSEDE_SKIP }}
         run: bash scripts/ci/nightly-steps/resolve-leave-build-slot.sh
-      # The signing Mac's own superseded checks (the feed recheck, the sign yield), here on the nightly-only pool
-      # before any sign job exists: a run that can only be superseded never takes the signer. Doubt signs.
-      - name: Leave the sign to a newer nightly-next build
-        id: sign-gate
-        if: github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && steps.superseded.outputs.superseded != 'true'
-        continue-on-error: true
-        timeout-minutes: 2
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TRACK: ${{ needs.decide.outputs.track }}
-          SIGN_JOB: ${{ needs.decide.outputs.one_job == 'true' && 'nightly-next-one' || 'build-sign-notarize-nightly' }}
-          NIGHTLY_NEXT_SIGN_GATE: ${{ vars.NIGHTLY_NEXT_SIGN_GATE }}
-          NIGHTLY_NEXT_SIGN_YIELD: ${{ vars.NIGHTLY_NEXT_SIGN_YIELD }}
-        run: python3 scripts/ci/nightly_sign_gate.py
 
   # No nightly from a tree whose webview checks are red (2026-11-02: #32056's TS2448 in SessionInfo.tsx broke every
   # agent pane and was published). The pieces of webviews' `bun run check` that gate feat-cmux-next pushes

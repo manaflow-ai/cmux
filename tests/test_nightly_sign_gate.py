@@ -137,16 +137,15 @@ class SignGateCliTest(unittest.TestCase):
 
 
 class SignGateWorkflowTest(unittest.TestCase):
-    def test_resolve_runs_the_gate_after_the_slot_check_and_exports_it(self):
+    def test_resolve_runs_the_gate_just_before_the_slot_check_and_exports_it(self):
+        # The slot check stays resolve's last step: it re-reads nightly-next last (test_nightly_trusted_routing).
         job = resolve_job()
         ids = [s.get("id") for s in job["steps"]]
-        self.assertIn("sign-gate", ids)
-        self.assertLess(ids.index("superseded"), ids.index("sign-gate"))
+        self.assertEqual(ids[-2:], ["sign-gate", "superseded"])
         step = job["steps"][ids.index("sign-gate")]
         self.assertEqual(step["run"], "python3 scripts/ci/nightly_sign_gate.py")
         self.assertEqual(step.get("continue-on-error"), "true", "a failed gate must not fail the run")
-        self.assertIn("steps.superseded.outputs.superseded != 'true'", step["if"])
-        self.assertIn("github.event_name == 'push'", step["if"])
+        self.assertEqual(step["if"], "github.ref == 'refs/heads/nightly-next' && github.event_name == 'push'")
         self.assertIn("nightly-next-one", step["env"]["SIGN_JOB"])
         self.assertIn("build-sign-notarize-nightly", step["env"]["SIGN_JOB"])
         self.assertTrue(job["outputs"]["superseded"].startswith("${{ steps.sign-gate.outputs.superseded == 'true' && 'true' ||"))
