@@ -257,6 +257,10 @@ body {
 [data-tab-shape="gooey"] .app-sidebar-list {
   overflow: visible;
 }
+/* Two tones: the sidebar sits a shade apart so the selected row, in the pane's fill, shows running into it. */
+[data-tab-shape="gooey"] .app-sidebar {
+  background: color-mix(in srgb, var(--app-content), var(--app-text) 7%);
+}
 [data-tab-shape="gooey"] .app-sidebar-row[data-selected] {
   position: relative;
   margin-right: -16px;
@@ -338,6 +342,7 @@ body {
 }
 /* Session Info: docked (push), floating (overlay) or a band (inline, proposed). */
 .app-shape-session {
+  box-sizing: border-box;
   font-size: var(--text-caption);
   color: var(--app-text-2);
 }
