@@ -90,7 +90,7 @@ struct PanesScreen: View {
                                     guard source.canEditPanes, let id = ids.first else { return }
                                     theme.haptics.selection()
                                     withAnimation(theme.motion.smooth.animation.unlessReduceMotion) {
-                                        source.dropTab(id, into: pane, at: offset)
+                                        _ = source.dropTab(id, into: pane, at: offset)
                                     }
                                 }
                         } header: {

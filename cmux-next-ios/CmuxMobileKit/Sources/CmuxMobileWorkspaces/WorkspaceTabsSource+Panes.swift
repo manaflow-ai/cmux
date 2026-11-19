@@ -141,9 +141,10 @@ extension WorkspaceTabsSource {
     /// A tab row dropped on the Panes page: `tabID` into `pane` at `offset` among its rows. The
     /// page and the grid show it there at once, so the drop settles in one motion; then the Mac
     /// moves it (`move-tab`), and a refusal puts both back (as the grid's drag does).
-    public func dropTab(_ tabID: String, into pane: WorkspaceLayout.Pane, at offset: Int) {
+    @discardableResult
+    public func dropTab(_ tabID: String, into pane: WorkspaceLayout.Pane, at offset: Int) -> Task<Void, Never>? {
         guard let layout, let workspace, let paneBackend, let tab = workspaceTab(tabID),
-              let drop = layout.dropping(tabID, into: pane.id, at: offset) else { return }
+              let drop = layout.dropping(tabID, into: pane.id, at: offset) else { return nil }
         let anchor = drop.before.flatMap { workspaceTab($0) }
         let oldTabs = workspace.tabs.map(\.id)
         store.setLayout(drop.layout, in: workspaceID)
@@ -155,7 +156,7 @@ extension WorkspaceTabsSource {
             if position != from { store.moveTab(tabID, in: workspaceID, to: position) }
         }
         refreshTabs()
-        Task { @MainActor [weak self] in
+        return Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 try await paneBackend.moveTab(tab, toPane: pane.id, before: anchor, in: workspace)
