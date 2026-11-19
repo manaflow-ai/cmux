@@ -1,4 +1,4 @@
-//! The macOS desktop: one display through ScreenCaptureKit, encoded by VideoToolbox from the
+//! The macOS desktop: one display (or one window, `window.rs`) through ScreenCaptureKit, encoded by VideoToolbox from the
 //! captured IOSurface with no CPU copy, and viewer input posted as CGEvents. Design:
 //! plans/cmux-next/remote-desktop-mac-host.md. Needs Screen Recording and Accessibility for
 //! the host process or the app that launched it.
@@ -14,6 +14,7 @@ pub(crate) mod observe;
 #[cfg(feature = "bench")]
 pub(crate) mod synthetic;
 mod sys;
+pub(crate) mod window;
 
 use crate::desktop::{Desktop, FrameSource, Halves};
 use crate::stream::SessionCfg;
@@ -65,10 +66,6 @@ pub struct MacFrames {
 /// Starts the display's capture and opens both halves of the session's desktop.
 /// `cursor_metadata`: capture without the cursor and report it through `Desktop::cursor`.
 pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
-    // One-window sharing exists on Linux X11 only; never stream the whole display instead.
-    if let Some(id) = cfg.window {
-        return Err(format!("window {id}: sharing one window is not available on macOS yet").into());
-    }
     if cfg.codec != "videotoolbox" {
         return Err(format!(
             "codec {} is not available on a macOS host (it encodes captured surfaces with videotoolbox)",
@@ -77,8 +74,13 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         .into());
     }
     let cursor_metadata = cursor_metadata && cursor::available();
-    let capture =
-        Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata)?;
+    let capture = match cfg.window {
+        // One window, captured alone; a close or resize ends the session (`drain`).
+        Some(id) => Capture::start_window(id, cfg.max_fps, cfg.max_width, !cursor_metadata)?,
+        None => {
+            Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata)?
+        }
+    };
     capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
     let (width, height) = capture.size();
     let encoder = VideoToolbox::new(
@@ -117,6 +119,18 @@ impl Desktop for MacDesktop {
 
     fn drain(&mut self, out: &mut Vec<Rect>) -> Res<()> {
         self.capture.drain(out);
+        let news = self.capture.window_news();
+        if let Some(reason) = news.ended {
+            return Err(reason.into());
+        }
+        // The shared window moved: the picture is the same, the pointer maps through its new
+        // frame.
+        if let Some(bounds) = news.moved {
+            self.injector.move_to(bounds);
+            if let Some(cursor) = self.cursor.as_mut() {
+                cursor.move_to(bounds);
+            }
+        }
         Ok(())
     }
 

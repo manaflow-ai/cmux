@@ -348,7 +348,13 @@ pub fn run(opts: &Opts) -> Res<()> {
     #[cfg(target_os = "macos")]
     match crate::desktop::displays() {
         Ok((sizes, current)) => {
-            say(AppLine { displays: Some(sizes), current: Some(current), ..AppLine::default() })
+            say(AppLine {
+                displays: Some(sizes),
+                // The windows the viewer may share one of (the setup line's `window`).
+                windows: Some(crate::desktop::windows()),
+                current: Some(current),
+                ..AppLine::default()
+            })
         }
         Err(e) => say(AppLine {
             displays: Some(Vec::new()),
