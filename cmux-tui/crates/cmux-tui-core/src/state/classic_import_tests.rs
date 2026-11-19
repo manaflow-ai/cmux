@@ -523,6 +523,9 @@ fn the_newest_channel_is_read_and_a_broken_one_falls_back() {
     let home = home(true);
     let nightly = home.session().with_file_name("session-com.cmuxterm.app.nightly.json");
     std::fs::copy(home.session(), &nightly).unwrap();
+    // Nightly saved just now. A copy can keep its source's modified time (macOS clones the file).
+    let now = std::time::SystemTime::now();
+    std::fs::File::options().write(true).open(&nightly).unwrap().set_modified(now).unwrap();
     let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
     std::fs::File::options().write(true).open(home.session()).unwrap().set_modified(old).unwrap();
     let newest = plan(&mux, &home, Mode::Manual);
