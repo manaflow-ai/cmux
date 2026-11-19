@@ -238,6 +238,7 @@ class RegressionTests(unittest.TestCase):
         args = cron.PART_BY_NAME["typing"]["args"]
         self.assertIn("--suite=typing-frame", args)
         self.assertIn("--surfaces=terminal", args)
+        self.assertIn("--phases=idle", args, "the load phase measured no key on cmux23 (focus stayed on an agent chat)")
         self.assertIn("--app-cache", args)
         self.assertEqual([a for a in args if a.startswith("--config=")],
                          [a for a in cron.PART_BY_NAME["throughput"]["args"] if a.startswith("--config=")],

@@ -198,14 +198,15 @@ PARTS = [
      "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
     # Terminal key to echo (scripts/cmux-next/typing-frame-bench.py, the cron's run of bench-typing.py's probe): one
     # key at a time typed into a `zsh -f` prompt, from the key event's timestamp to the frame Ghostty reports shown on
-    # the layer with the echoed glyph (the typing probe's contents_ms; the photon follows at the next vsync). Idle and
-    # with 20 busy terminals and 2 streaming mock chats, 3 rounds of 80 keys each pooled per phase: rows
-    # terminal.key_to_echo.idle and .load, target p95 TYPING_KEY_TO_ECHO_MS. The bench configuration, like the
-    # throughput part next to it (one build serves both): an optimized app is the latency people feel.
+    # the layer with the echoed glyph (the typing probe's contents_ms; the photon follows at the next vsync). Idle, 3
+    # rounds of 80 keys pooled: row terminal.key_to_echo.idle, target p95 TYPING_KEY_TO_ECHO_MS. The load phase is not
+    # in the part yet: on cmux23 (2026-11-19) the agent chats it opens kept the window's keyboard, so no terminal had
+    # focus and it measured no key. The bench configuration, like the throughput part next to it (one build serves
+    # both): an optimized app is the latency people feel.
     {"name": "typing", "args": [*MEASURE, "--config=bench", "--suite=typing-frame", "--surfaces=terminal",
-                                "--phases=idle,load", "--rounds=3", "--samples=80"],
+                                "--phases=idle", "--rounds=3", "--samples=80"],
      "artifact": "artifacts/split-spring/report.json", "kind": "typing", "needs": "typing",
-     "run_seconds": 1800},  # under 5 minutes of keys and load, plus a cold bench build (800 s) when this part runs first
+     "run_seconds": 2700},  # cmux23 2026-11-19: 2225 s with a cold bench build (about 1950 s) and idle plus load
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
