@@ -19,7 +19,20 @@ import Foundation
 ///     a=cmux-rd-max-fps:120                           (offer)
 ///     a=cmux-rd-displays:3342x2160,1920x1080          (answer: the host's displays)
 ///     a=cmux-rd-current:0                             (answer: the display it streams)
+///     a=cmux-rd-window:44040199                       (offer: share this one window instead)
+///     a=cmux-rd-windows:[{"id":44040199,"title":"Terminal","width":800,"height":600}]
+///                                                     (answer: the windows it can share; one
+///                                                     JSON line, written by cmux-hub-host's
+///                                                     rd_doc.rs, capped there)
 nonisolated struct MacScreenRdDocument: Equatable, Sendable {
+    /// One window the host can share (`a=cmux-rd-windows`).
+    struct Window: Codable, Equatable, Sendable {
+        var id: UInt32
+        var title: String
+        var width: Int
+        var height: Int
+    }
+
     static let header = "cmux.rd/1"
     static let keyPrefix = "cmux-rd-key "
 
@@ -31,6 +44,8 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
     var maxFps: Int?
     var displays: [CGSize] = []
     var currentDisplay: Int?
+    var window: UInt32?
+    var windows: [Window] = []
 
     var text: String {
         var lines = [Self.header, "a=fingerprint:\(Self.keyPrefix)\(key)"]
@@ -42,6 +57,10 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
             lines.append("a=cmux-rd-displays:" + displays.map { "\(Int($0.width))x\(Int($0.height))" }.joined(separator: ","))
         }
         if let currentDisplay { lines.append("a=cmux-rd-current:\(currentDisplay)") }
+        if let window { lines.append("a=cmux-rd-window:\(window)") }
+        if !windows.isEmpty, let json = try? JSONEncoder().encode(windows) {
+            lines.append("a=cmux-rd-windows:" + String(decoding: json, as: UTF8.self))
+        }
         return lines.joined(separator: "\r\n") + "\r\n"
     }
 
@@ -62,6 +81,8 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
             case "cmux-rd-max-width": maxWidth = Int(value)
             case "cmux-rd-max-fps": maxFps = Int(value)
             case "cmux-rd-current": currentDisplay = Int(value)
+            case "cmux-rd-window": window = UInt32(value)
+            case "cmux-rd-windows": windows = (try? JSONDecoder().decode([Window].self, from: Data(value.utf8))) ?? []
             case "cmux-rd-displays":
                 displays = value.split(separator: ",").compactMap { size in
                     let parts = size.split(separator: "x").compactMap { Double($0) }

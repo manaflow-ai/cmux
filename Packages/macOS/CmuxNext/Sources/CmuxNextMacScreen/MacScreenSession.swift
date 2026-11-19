@@ -83,6 +83,9 @@ public final class MacScreenSession {
 
     /// The display to show in the next session (nil: the host's main display).
     @ObservationIgnored var wantedDisplay: Int?
+    /// The one window to share in the next session instead of a display (an id from the host's
+    /// answer); nil: a display.
+    @ObservationIgnored var wantedWindow: UInt32?
     /// This session's connect start, first frame and recent round trips (`mac_screen.state`;
     /// not observed: nothing on screen follows them).
     @ObservationIgnored var timings = MacScreenConnectTimings()
@@ -92,6 +95,8 @@ public final class MacScreenSession {
     @ObservationIgnored public var onTransport: ((RemoteRdStreamTransport) -> Void)?
     /// The host's displays (pixel sizes) and the one streamed, from its answer.
     @ObservationIgnored public var onStreamDisplays: (([CGSize], Int) -> Void)?
+    /// The windows the host can share one of, from its answer.
+    @ObservationIgnored var onStreamWindows: (([MacScreenRdDocument.Window]) -> Void)?
     /// A quality or display change needs a new hub session (the ticket admits once).
     @ObservationIgnored var restart: () -> Void = {}
 
@@ -203,6 +208,7 @@ public final class MacScreenSession {
                     logger.info("cmux rd: answer received (\(answer.candidates.count, privacy: .public) candidates)")
                     reach(.link)
                     if !answer.displays.isEmpty { onStreamDisplays?(answer.displays, answer.currentDisplay ?? 0) }
+                    onStreamWindows?(answer.windows)
                     answered(answer)
                 case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
                     process.send(["candidate": candidate.candidate])
@@ -255,6 +261,7 @@ public final class MacScreenSession {
                 offer.maxWidth = wish.maxWidth
                 offer.maxFps = wish.maxFps
                 offer.display = wantedDisplay
+                offer.window = wantedWindow
                 stats.targetFps = wish.maxFps
                 pendingAnswer = { [weak self] answer in self?.sendAnswer(answer, sessionID: sessionID, servers: servers, to: process) }
                 // The signaling socket opens on its own task: the offer waits for its `hello`.
@@ -486,6 +493,14 @@ public final class MacScreenSession {
 
     public func selectDisplay(_ index: Int) {
         wantedDisplay = index
+        wantedWindow = nil
+        guard phase == .connected || phase == .connecting else { return }
+        restart()
+    }
+
+    /// Shares one window of the host instead of a display, the way a display pick restarts.
+    func selectWindow(_ id: UInt32) {
+        wantedWindow = id
         guard phase == .connected || phase == .connecting else { return }
         restart()
     }

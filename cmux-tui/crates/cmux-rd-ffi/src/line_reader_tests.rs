@@ -147,6 +147,73 @@ fn all_vectors_pushed_byte_by_byte_come_out_in_order() {
     assert_eq!(reader.next(), None);
 }
 
+/// The windows of the line last taken, as `[id, title, width, height]`.
+fn windows_of(reader: &Reader) -> Vec<(u32, String, u32, u32)> {
+    let (mut first, mut count) = (std::ptr::null(), 0usize);
+    // SAFETY: live reader, writable out pointers.
+    assert_eq!(
+        unsafe { cmux_rd_line_reader_windows(reader.0, &mut first, &mut count) },
+        CMUX_RD_OK
+    );
+    if count == 0 {
+        assert!(first.is_null());
+        return Vec::new();
+    }
+    // SAFETY: `count` windows at `first`, each title `title_len` bytes, until the next call.
+    let list = unsafe { std::slice::from_raw_parts(first, count) };
+    list.iter()
+        .map(|w| {
+            // SAFETY: as above.
+            let title = unsafe { text(w.title, w.title_len) };
+            (w.id, title.as_str().expect("title").to_owned(), w.width, w.height)
+        })
+        .collect()
+}
+
+#[test]
+fn a_serve_lines_windows_come_out_with_their_titles_and_go_with_the_next_line() {
+    let reader = Reader::new();
+    let line = r#"{"displays":[[1920,1080]],"windows":[{"id":44040199,"title":"Terminal — ~/src","width":800,"height":600},{"id":7,"title":"","width":1,"height":2}],"current":0}"#;
+    assert_eq!(reader.push(format!("{line}\n{{\"connected\":true}}\n").as_bytes()), 2);
+    let mut raw = CmuxRdLine::default();
+    // SAFETY: live reader, writable line.
+    assert_eq!(unsafe { cmux_rd_line_reader_next(reader.0, &mut raw) }, 1);
+    assert_ne!(raw.fields & CMUX_RD_LINE_WINDOWS, 0);
+    assert_ne!(raw.fields & CMUX_RD_LINE_DISPLAYS, 0);
+    assert_eq!(
+        windows_of(&reader),
+        vec![(44040199, "Terminal — ~/src".into(), 800, 600), (7, String::new(), 1, 2)]
+    );
+    // Asking twice reads the same line's windows.
+    assert_eq!(windows_of(&reader).len(), 2);
+    // The next line has none, and neither has an empty queue.
+    assert_eq!(reader.next(), Some(serde_json::json!({"connected": true})));
+    assert!(windows_of(&reader).is_empty());
+    assert_eq!(reader.next(), None);
+    assert!(windows_of(&reader).is_empty());
+    // An empty list is a list: the bit is set, the count is 0.
+    assert_eq!(reader.push(b"{\"displays\":[],\"windows\":[]}\n"), 1);
+    // SAFETY: live reader, writable line.
+    assert_eq!(unsafe { cmux_rd_line_reader_next(reader.0, &mut raw) }, 1);
+    assert_ne!(raw.fields & CMUX_RD_LINE_WINDOWS, 0);
+    assert!(windows_of(&reader).is_empty());
+    // A window of another shape makes the line not an app line.
+    assert_eq!(reader.push(b"{\"windows\":[{\"id\":\"x\"}]}\n"), 0);
+    // NULL out pointers and a NULL reader are refused.
+    let mut count = 0usize;
+    // SAFETY: live reader, NULL windows out.
+    assert_eq!(
+        unsafe { cmux_rd_line_reader_windows(reader.0, std::ptr::null_mut(), &mut count) },
+        CMUX_RD_ERR_NULL
+    );
+    let mut first = std::ptr::null();
+    // SAFETY: NULL reader, writable outs.
+    assert_eq!(
+        unsafe { cmux_rd_line_reader_windows(std::ptr::null_mut(), &mut first, &mut count) },
+        CMUX_RD_ERR_NULL
+    );
+}
+
 #[test]
 fn a_line_without_its_newline_waits() {
     let reader = Reader::new();

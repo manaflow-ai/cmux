@@ -3,11 +3,25 @@
 //! PROTOCOL.md Session flow 5), and the session's ICE servers as `cmux-rd serve` takes them.
 
 use crate::b64;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub const HEADER: &str = "cmux.rd/1";
 pub const KEY_PREFIX: &str = "cmux-rd-key ";
+/// At most this many windows go in an answer, each title cut to [`WINDOW_TITLE_MAX`]
+/// characters, so a desktop with hundreds of windows cannot swell the signaling message.
+pub const WINDOWS_MAX: usize = 64;
+pub const WINDOW_TITLE_MAX: usize = 120;
+
+/// One window the host can share (`serve`'s `windows` app line, cmux-rd-proto's
+/// `LineWindow`): its id, title and size in pixels.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RdWindow {
+    pub id: u32,
+    pub title: String,
+    pub width: u32,
+    pub height: u32,
+}
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RdDocument {
@@ -19,6 +33,11 @@ pub struct RdDocument {
     pub max_fps: Option<u32>,
     pub displays: Vec<(u32, u32)>,
     pub current_display: Option<usize>,
+    /// Offer: share this one window (an id from the answer's `windows`) instead of a display.
+    pub window: Option<u32>,
+    /// Answer: the windows the viewer may pick one of, one JSON array on one line
+    /// (`a=cmux-rd-windows:[{"id":..,"title":"..","width":..,"height":..}]`).
+    pub windows: Vec<RdWindow>,
 }
 
 impl RdDocument {
@@ -42,6 +61,37 @@ impl RdDocument {
         if let Some(c) = self.current_display {
             lines.push(format!("a=cmux-rd-current:{c}"));
         }
+        if let Some(w) = self.window {
+            lines.push(format!("a=cmux-rd-window:{w}"));
+        }
+        if !self.windows.is_empty() {
+            let windows: Vec<RdWindow> =
+                self.windows
+                    .iter()
+                    .take(WINDOWS_MAX)
+                    .map(|w| RdWindow {
+                        // JSON leaves U+0085, U+2028 and U+2029 as they are, and the Mac splits a
+                        // document's lines at them too.
+                        title: w
+                            .title
+                            .chars()
+                            .take(WINDOW_TITLE_MAX)
+                            .map(|c| {
+                                if matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}') {
+                                    ' '
+                                } else {
+                                    c
+                                }
+                            })
+                            .collect(),
+                        ..w.clone()
+                    })
+                    .collect();
+            // JSON escapes every control character, so the list stays on its one line.
+            if let Ok(json) = serde_json::to_string(&windows) {
+                lines.push(format!("a=cmux-rd-windows:{json}"));
+            }
+        }
         lines.join("\r\n") + "\r\n"
     }
 
@@ -63,6 +113,8 @@ impl RdDocument {
                 "cmux-rd-max-width" => doc.max_width = value.parse().ok(),
                 "cmux-rd-max-fps" => doc.max_fps = value.parse().ok(),
                 "cmux-rd-current" => doc.current_display = value.parse().ok(),
+                "cmux-rd-window" => doc.window = value.parse().ok(),
+                "cmux-rd-windows" => doc.windows = serde_json::from_str(value).unwrap_or_default(),
                 "cmux-rd-displays" => {
                     doc.displays = value
                         .split(',')
@@ -184,11 +236,52 @@ mod tests {
             max_fps: Some(60),
             displays: vec![(2560, 1440)],
             current_display: Some(0),
+            window: Some(0x2a0_0007),
+            windows: vec![RdWindow {
+                id: 0x2a0_0007,
+                title: "Terminal — a: b, c\r\n\"q\"".into(),
+                width: 800,
+                height: 600,
+            }],
         };
         let text = doc.text();
+        assert!(text.contains("a=cmux-rd-window:44040199\r\n"), "{text}");
+        // A title's line break does not break the document's lines.
+        assert_eq!(text.lines().count(), 10, "{text}");
         assert!(text.starts_with("cmux.rd/1\r\na=fingerprint:cmux-rd-key 0011"));
         assert_eq!(RdDocument::parse(&text), Some(doc));
         assert_eq!(fingerprint_of(&text).as_deref(), Some(format!("cmux-rd-key {KEY}").as_str()));
+    }
+
+    #[test]
+    fn an_answers_windows_are_capped_and_a_bad_list_reads_as_none() {
+        let long = RdWindow { id: 1, title: "t".repeat(500), width: 10, height: 10 };
+        let doc = RdDocument {
+            key: KEY.into(),
+            windows: vec![long; WINDOWS_MAX + 10],
+            ..RdDocument::default()
+        };
+        let back = RdDocument::parse(&doc.text()).unwrap();
+        assert_eq!(back.windows.len(), WINDOWS_MAX);
+        assert!(back.windows.iter().all(|w| w.title.chars().count() == WINDOW_TITLE_MAX));
+        let bad = format!(
+            "cmux.rd/1\r\na=fingerprint:{KEY_PREFIX}{KEY}\r\na=cmux-rd-window:x\r\na=cmux-rd-windows:[{{\"id\":\"x\"}}]\r\n"
+        );
+        let parsed = RdDocument::parse(&bad).unwrap();
+        assert!(parsed.windows.is_empty());
+        assert_eq!(parsed.window, None);
+        // The Mac splits a document's lines at U+0085, U+2028 and U+2029, which JSON keeps.
+        let odd = RdDocument {
+            key: KEY.into(),
+            windows: vec![RdWindow {
+                id: 1,
+                title: "a\u{2028}b\u{85}c".into(),
+                width: 1,
+                height: 1,
+            }],
+            ..RdDocument::default()
+        };
+        assert_eq!(RdDocument::parse(&odd.text()).unwrap().windows[0].title, "a b c");
     }
 
     #[test]

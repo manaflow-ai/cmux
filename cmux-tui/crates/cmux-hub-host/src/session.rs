@@ -240,6 +240,10 @@ pub fn serve(
                                 .collect();
                             doc.current_display = line["current"].as_u64().map(|c| c as usize);
                         }
+                        if let Some(windows) = line.get("windows") {
+                            answer.get_or_insert_with(RdDocument::default).windows =
+                                serde_json::from_value(windows.clone()).unwrap_or_default();
+                        }
                         if let Some(key) = line["key"].as_str() {
                             answer.get_or_insert_with(RdDocument::default).key = key.to_owned();
                         }
@@ -436,6 +440,7 @@ pub fn setup_line(ticket: &Ticket, offer: &RdDocument, view_only: bool) -> Value
         "display": offer.display.map_or_else(|| "main".to_owned(), |d| d.to_string()),
         "max_fps": offer.max_fps.map(|f| f.min(120)),
         "max_width": offer.max_width,
+        "window": offer.window,
     })
 }
 
@@ -525,6 +530,11 @@ mod tests {
         assert_eq!(line["viewer"]["user"], "v1");
         assert_eq!(setup_line(&ticket, &RdDocument::default(), false)["display"], "main");
         assert_eq!(setup_line(&ticket, &RdDocument::default(), false)["scope"], "control");
+        assert!(line["window"].is_null());
+        // The viewer's window pick reaches serve's setup as `window`.
+        let window = RdDocument { window: Some(0x2a0_0007), ..offer };
+        let parsed = RdDocument::parse(&window.text()).unwrap();
+        assert_eq!(setup_line(&ticket, &parsed, false)["window"], 0x2a0_0007);
     }
 
     #[test]

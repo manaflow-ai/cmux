@@ -21,6 +21,9 @@ public final class MacScreenPaneModel {
     /// The streamed Mac's displays (pixel sizes) and the one shown.
     public internal(set) var displays: [CGSize] = []
     public internal(set) var currentDisplay = 0
+    /// The windows the host can share one of, and the one shared (nil: a display).
+    var windows: [MacScreenRdDocument.Window] = []
+    var currentWindow: UInt32?
     /// A picture arrived in this connection.
     public internal(set) var hasFrame = false
     /// This tab has shown the Mac at least once (its connecting card then says Reconnecting).
@@ -136,6 +139,7 @@ public final class MacScreenPane {
             self?.model.displays = sizes
             self?.model.currentDisplay = current
         }
+        session.onStreamWindows = { [weak self] windows in self?.model.windows = windows }
         // Only a live screen takes the keyboard (no card shows: not unsupported,
         // connecting, waiting, failed or ended).
         view.input.onFocusChange = { [weak self] focused in
@@ -155,6 +159,11 @@ public final class MacScreenPane {
         actions.selectDisplay = { [weak self] index in
             session.selectDisplay(index)
             self?.model.currentDisplay = index
+            self?.model.currentWindow = nil
+        }
+        actions.selectWindow = { [weak self] id in
+            session.selectWindow(id)
+            self?.model.currentWindow = id
         }
         actions.setQuality = { quality in
             session.preferences.quality = quality
