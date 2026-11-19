@@ -5,6 +5,7 @@
 //! walks.
 
 use super::*;
+use crate::ColorSpec;
 
 const COLS: u16 = 120;
 const ROWS: u16 = 40;
