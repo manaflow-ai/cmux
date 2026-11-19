@@ -67,7 +67,7 @@ pub fn find_runtime(env: &dyn Fn(&str) -> Option<String>) -> Option<Runtime> {
     let find = |kind: &str| -> Option<Runtime> {
         dirs.iter()
             .map(|d| d.join(kind))
-            .find(|p| p.is_file())
+            .find(|p| p.is_file() && (kind != "node" || strips_types(p)))
             .map(|program| Runtime {
                 kind: kind.to_owned(),
                 program,
@@ -91,6 +91,25 @@ pub fn find_runtime(env: &dyn Fn(&str) -> Option<String>) -> Option<Runtime> {
     find("deno")
         .or_else(|| find("node"))
         .or_else(|| find("bun"))
+}
+
+/// The first Node that runs `--input-type=module-typescript` (`command`): 22.18.
+const NODE_STRIPS_TYPES: (u64, u64) = (22, 18);
+
+/// Whether the Node at `program` is new enough for `command` (its `--version`, `v22.18.0`). An
+/// older one is passed over: it refuses `--input-type=module-typescript`, so every script would
+/// fail (CI 2026-11-19, the runner's /usr/bin/node).
+fn strips_types(program: &Path) -> bool {
+    let Ok(out) = Command::new(program).arg("--version").output() else {
+        return false;
+    };
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut parts = text.trim().trim_start_matches('v').split('.');
+    let mut next = || parts.next().and_then(|p| p.parse::<u64>().ok());
+    match (next(), next()) {
+        (Some(major), Some(minor)) => (major, minor) >= NODE_STRIPS_TYPES,
+        _ => false,
+    }
 }
 
 // ---- declarations ----
