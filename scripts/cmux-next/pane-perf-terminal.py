@@ -56,9 +56,12 @@ runs one time and each row keeps its name.
 With --window-look see-through the window is a see-through window with a blur instead of the launch's opaque one. The
 look is written both ways the app reads it: `appearance.backgroundOpacity` and `appearance.backgroundBlur` in the app
 config, and `background-opacity` and `background-blur` (a radius) in the terminal config file. `see-through` alone
-takes round values (0.8, frosted, 0.8, 20); each value is an argument (`see-through:opacity=0.5,blur=glass,
+takes round values (0.8, frosted, 0.8, 10); each value is an argument (`see-through:opacity=0.5,blur=glass,
 terminal-opacity=0.5,terminal-blur=8`; `unset` leaves a key out). The window is over the fixture's desktop, or with
-`behind=checker` (or `stripes`) over the app's own patterned panel (`debug.capture_backdrop`). Each row and summary of
+`behind=checker` (or `stripes`) over the app's own patterned panel (`debug.capture_backdrop`). The conditions also
+list each window of another app that is behind the window (`windows_behind`, from the screen's window list), and a
+see-through run has a row that passes when there is none: a blur over a window that redraws is another measure than
+a blur over a still desktop. Each row and summary of
 such a run is named <layout>-see-through-<opacity>-<blur>-<terminal opacity>-<terminal blur>, so it is never compared
 with an opaque window's rows, and the report's conditions hold the look (`window_look`). Without the option, or with
 `opaque`, the launch and each row's name stay as they were.
@@ -713,7 +716,7 @@ def window_look(value):
     if value is None or value == "opaque":
         return None
     word, colon, rest = value.partition(":")
-    look = {"opacity": 0.8, "blur": "frosted", "terminal_opacity": 0.8, "terminal_blur": 20, "behind": "desktop"}
+    look = {"opacity": 0.8, "blur": "frosted", "terminal_opacity": 0.8, "terminal_blur": 10, "behind": "desktop"}
     refused = ValueError("--window-look takes opaque or see-through[:opacity=0..1,blur=frosted|glass|glass-clear|none,"
                          "terminal-opacity=0..1,terminal-blur=RADIUS,behind=desktop|checker|stripes] "
                          f"(unset leaves a key out; one key at least stays), not {value!r}")
@@ -799,6 +802,69 @@ def look_problem(look, env, read=None):
     wanted = look_config({}, look).get("appearance") or {}
     missing += [f"appearance.{key}" for key, value in wanted.items() if appearance.get(key) != value]
     return f"not in the launch's config: {missing}" if missing else None
+
+
+def screen_windows():
+    """Each on-screen window, front to back: layer, pid, owner and bounds {x, y, width, height} in top-left points
+    (CGWindowList without the desktop's own elements: bounds, layers and owner names need no grant)."""
+    import ctypes
+    cg = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+    cf = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    pointer = ctypes.c_void_p
+    cg.CGWindowListCopyWindowInfo.restype, cg.CGWindowListCopyWindowInfo.argtypes = pointer, [ctypes.c_uint32, ctypes.c_uint32]
+    cf.CFArrayGetCount.restype, cf.CFArrayGetCount.argtypes = ctypes.c_long, [pointer]
+    cf.CFArrayGetValueAtIndex.restype, cf.CFArrayGetValueAtIndex.argtypes = pointer, [pointer, ctypes.c_long]
+    cf.CFDictionaryGetValue.restype, cf.CFDictionaryGetValue.argtypes = pointer, [pointer, pointer]
+    cf.CFStringCreateWithCString.restype = pointer
+    cf.CFStringCreateWithCString.argtypes = [pointer, ctypes.c_char_p, ctypes.c_uint32]
+    cf.CFStringGetCString.restype = ctypes.c_bool
+    cf.CFStringGetCString.argtypes = [pointer, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32]
+    cf.CFNumberGetValue.restype, cf.CFNumberGetValue.argtypes = ctypes.c_bool, [pointer, ctypes.c_int, pointer]
+    cf.CFRelease.argtypes = [pointer]
+    keys = {}
+
+    def value(record, name):
+        if name not in keys:
+            keys[name] = cf.CFStringCreateWithCString(None, name.encode(), 0x08000100)  # UTF-8
+        return cf.CFDictionaryGetValue(record, keys[name]) if record else None
+
+    def number(record, name):
+        found, out = value(record, name), ctypes.c_double()
+        return out.value if found and cf.CFNumberGetValue(found, 13, ctypes.byref(out)) else 0.0  # a double
+
+    listed = cg.CGWindowListCopyWindowInfo(1 | 16, 0)  # on screen only, no desktop elements
+    windows = []
+    try:
+        for index in range(cf.CFArrayGetCount(listed) if listed else 0):
+            record = cf.CFArrayGetValueAtIndex(listed, index)
+            name, text = value(record, "kCGWindowOwnerName"), ctypes.create_string_buffer(256)
+            bounds = value(record, "kCGWindowBounds")
+            windows.append({"layer": int(number(record, "kCGWindowLayer")), "pid": int(number(record, "kCGWindowOwnerPID")),
+                            "owner": text.value.decode(errors="replace") if name and cf.CFStringGetCString(name, text, 256, 0x08000100) else None,
+                            "bounds": {key: number(bounds, key[0].upper() + key[1:]) for key in ("x", "y", "width", "height")}})
+    finally:
+        for made in [listed, *keys.values()]:
+            if made:
+                cf.CFRelease(made)
+    return windows
+
+
+def windows_behind(windows, pid):
+    """The windows of other apps that are behind the app's window: from `screen_windows` (front to back), each
+    window in the normal layer of another process that is below the app's largest normal window and under a part of
+    it. None when the list has no window of the app."""
+    mine = [window for window in windows if window["pid"] == pid and window["layer"] == 0]
+    if not mine:
+        return None
+    main = max(mine, key=lambda window: window["bounds"]["width"] * window["bounds"]["height"])
+    a = main["bounds"]
+
+    def under(b):
+        return (b["x"] < a["x"] + a["width"] and a["x"] < b["x"] + b["width"]
+                and b["y"] < a["y"] + a["height"] and a["y"] < b["y"] + b["height"])
+    below = windows[next(index for index, window in enumerate(windows) if window is main) + 1:]
+    return [{"owner": window["owner"], "bounds": window["bounds"]} for window in below
+            if window["pid"] != pid and window["layer"] == 0 and under(window["bounds"])]
 
 
 def not_applicable(step, columns):
@@ -1204,8 +1270,14 @@ def main():
     conditions["window_look"] = {"look": "see-through" if look else "opaque", **(look or {}),
                                  "terminal_config": look_terminal_lines(look), "backdrop_shown": shown,
                                  "terminal_background": themes.get("ghostty_background") if isinstance(themes, dict) else None}
+    try:
+        others = windows_behind(screen_windows(), app.pid)
+    except Exception as error:  # noqa: BLE001  a read for the record: no failure of it ends a measure
+        others = f"not read: {error!r}"
+    conditions["window_look"]["windows_behind"] = others
     if look:
         conditions["window_look"]["over"] = "the fixture's desktop" if behind is None else behind
+        row("no window of another app is behind the see-through window", "none", str(others)[:300], others == [])
     print("CONDITIONS " + json.dumps(conditions), flush=True)
     report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback,
               "conditions": conditions, "runs": []}

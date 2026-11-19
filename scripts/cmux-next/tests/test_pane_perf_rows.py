@@ -35,7 +35,7 @@ BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_appli
                                                     "layout_spans", "placed_at", "part_times", "probe_notes",
                                                     "record_offset", "turn_notes", "stalls_in", "turn_text", "stall_text",
                                                     "arm_tag", "window_look", "look_tag", "look_config",
-                                                    "look_terminal_lines", "look_problem"})
+                                                    "look_terminal_lines", "look_problem", "windows_behind"})
 ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
@@ -343,7 +343,7 @@ class WindowLook(unittest.TestCase):
 
     def test_see_through_alone_takes_the_round_values_of_the_fixture(self):
         self.assertEqual(self.window_look("see-through"),
-                         {"opacity": 0.8, "blur": "frosted", "terminal_opacity": 0.8, "terminal_blur": 20,
+                         {"opacity": 0.8, "blur": "frosted", "terminal_opacity": 0.8, "terminal_blur": 10,
                           "behind": "desktop"})
 
     def test_each_value_is_an_argument(self):
@@ -358,7 +358,7 @@ class WindowLook(unittest.TestCase):
         self.assertIsNone(look["opacity"])
         self.assertIsNone(look["blur"])
         self.assertEqual(self.look_config({}, look), {})
-        self.assertEqual(self.look_terminal_lines(look), ["background-opacity = 0.8", "background-blur = 20"])
+        self.assertEqual(self.look_terminal_lines(look), ["background-opacity = 0.8", "background-blur = 10"])
         only_app = self.window_look("see-through:terminal-opacity=unset,terminal-blur=unset")
         self.assertEqual(self.look_terminal_lines(only_app), [])
         self.assertEqual(self.look_config({}, only_app),
@@ -373,12 +373,12 @@ class WindowLook(unittest.TestCase):
 
     def test_the_terminal_config_gets_an_opacity_and_a_blur_radius(self):
         self.assertEqual(self.look_terminal_lines(self.window_look("see-through")),
-                         ["background-opacity = 0.8", "background-blur = 20"])
+                         ["background-opacity = 0.8", "background-blur = 10"])
         self.assertEqual(self.look_terminal_lines(self.window_look("see-through:terminal-opacity=1,terminal-blur=0")),
                          ["background-opacity = 1", "background-blur = 0"])
 
     def test_the_rows_name_says_each_value(self):
-        self.assertEqual(self.look_tag(self.window_look("see-through")), "see-through-0.8-frosted-0.8-20")
+        self.assertEqual(self.look_tag(self.window_look("see-through")), "see-through-0.8-frosted-0.8-10")
         self.assertEqual(self.look_tag(self.window_look("see-through:blur=unset,terminal-blur=8,behind=stripes")),
                          "see-through-0.8-unset-0.8-8-over-stripes")
 
@@ -408,14 +408,14 @@ class LookProblem(unittest.TestCase):
     def test_both_files_hold_the_look(self):
         files = {"/scratch/cmux.json": json.dumps({"layout": {}, "appearance": {"backgroundOpacity": 0.8,
                                                                                  "backgroundBlur": "frosted"}}),
-                 "/scratch/ghostty": "background-opacity = 0.8\nbackground-blur = 20\n"}
+                 "/scratch/ghostty": "background-opacity = 0.8\nbackground-blur = 10\n"}
         self.assertIsNone(self.problem("see-through", files))
 
     def test_a_missing_key_or_line_is_named(self):
         files = {"/scratch/cmux.json": json.dumps({"appearance": {"backgroundOpacity": 1, "backgroundBlur": "frosted"}}),
                  "/scratch/ghostty": "background-opacity = 0.8\n"}
         problem = self.problem("see-through", files)
-        self.assertIn("background-blur = 20", problem)
+        self.assertIn("background-blur = 10", problem)
         self.assertIn("appearance.backgroundOpacity", problem)
         self.assertNotIn("backgroundBlur", problem)
         self.assertNotIn("background-opacity = 0.8", problem)
@@ -423,6 +423,40 @@ class LookProblem(unittest.TestCase):
     def test_a_file_that_is_not_there_is_a_problem(self):
         self.assertIn("not read", self.problem("see-through", {}))
         self.assertIn("not read", self.problem("see-through", {}, env={}))
+
+
+class WindowsBehind(unittest.TestCase):
+    """What a see-through window is over: the other apps' windows below it, from the screen's window list."""
+
+    @staticmethod
+    def window(pid, x, y, width, height, layer=0, owner="other"):
+        return {"pid": pid, "layer": layer, "owner": owner, "bounds": {"x": x, "y": y, "width": width, "height": height}}
+
+    def setUp(self):
+        self.windows_behind = loaded()["windows_behind"]
+
+    def test_nothing_behind_is_an_empty_list(self):
+        listed = [self.window(9, 0, 0, 2000, 24, layer=24, owner="menu bar"), self.window(7, 40, 40, 1440, 900),
+                  self.window(9, 0, 1000, 2000, 80, layer=20, owner="dock")]
+        self.assertEqual(self.windows_behind(listed, 7), [])
+
+    def test_a_window_of_another_app_below_and_under_it_is_named(self):
+        under = self.window(5, 100, 100, 300, 200, owner="notes")
+        listed = [self.window(4, 60, 60, 200, 100, owner="in front"), self.window(7, 40, 40, 1440, 900), under,
+                  self.window(6, 3000, 40, 300, 200, owner="beside")]
+        self.assertEqual(self.windows_behind(listed, 7), [{"owner": "notes", "bounds": under["bounds"]}])
+
+    def test_the_apps_own_panel_behind_is_not_another_window(self):
+        listed = [self.window(7, 40, 40, 1440, 900), self.window(7, 0, 0, 1600, 1000)]
+        self.assertEqual(self.windows_behind(listed, 7), [])
+
+    def test_the_apps_largest_window_is_the_one_measured(self):
+        under = self.window(5, 100, 100, 300, 200, owner="notes")
+        listed = [self.window(7, 500, 50, 200, 40), under, self.window(7, 40, 40, 1440, 900)]
+        self.assertEqual(self.windows_behind(listed, 7), [])
+
+    def test_no_window_of_the_app_is_not_known(self):
+        self.assertIsNone(self.windows_behind([self.window(5, 0, 0, 10, 10)], 7))
 
 
 class NotApplicable(unittest.TestCase):
