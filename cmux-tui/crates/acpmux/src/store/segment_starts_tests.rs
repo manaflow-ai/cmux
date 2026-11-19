@@ -84,8 +84,11 @@ fn an_old_reverse_page_does_not_open_every_newer_segment() {
             .unwrap();
         assert_eq!(seqs, vec![19, 18, 17, 16, 15]);
     };
+    let copies = segment_table::PATH_COPIES.with(std::cell::Cell::get);
     let before = head_reads(&store);
     read();
+    let copied = segment_table::PATH_COPIES.with(std::cell::Cell::get) - copies;
+    assert!(copied <= 2, "a five-record old page copied {copied} segment paths");
     let cold = head_reads(&store) - before;
     let bound = u64::from(usize::BITS - segments.leading_zeros()) + 2;
     assert!(cold <= bound, "{cold} heads read for an old page in {segments} segments");

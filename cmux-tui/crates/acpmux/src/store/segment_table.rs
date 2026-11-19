@@ -22,11 +22,31 @@ pub(super) struct SegmentIter {
     range: std::ops::Range<usize>,
 }
 
+impl SegmentIter {
+    fn copy_at(&self, index: usize) -> Option<(u32, PathBuf)> {
+        let entry = self.list.get(index)?;
+        #[cfg(test)]
+        PATH_COPIES.with(|count| count.set(count.get() + 1));
+        Some(entry.clone())
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static PATH_COPIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl Iterator for SegmentIter {
     type Item = (u32, PathBuf);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.list.get(self.range.next()?).cloned()
+        let index = self.range.next()?;
+        self.copy_at(index)
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        let index = self.range.nth(n)?;
+        self.copy_at(index)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -36,7 +56,13 @@ impl Iterator for SegmentIter {
 
 impl DoubleEndedIterator for SegmentIter {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.list.get(self.range.next_back()?).cloned()
+        let index = self.range.next_back()?;
+        self.copy_at(index)
+    }
+
+    fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
+        let index = self.range.nth_back(n)?;
+        self.copy_at(index)
     }
 }
 
