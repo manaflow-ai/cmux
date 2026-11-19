@@ -594,7 +594,12 @@ export class ChatDrive {
       // A count, never the text: the report goes to the CLI's output and to logs.
       typed: typing ? typing.count : null,
       draft_left: typing ? typing.typed.length > 0 : false,
-      ...(typing?.stopped ? { type_stopped: typing.stopped } : {}),
+      // A person's key the run ended on, before a frame's typing acted on it, is theirs all the same.
+      ...(typing?.stopped
+        ? { type_stopped: typing.stopped }
+        : typing && typing.text.length > 0 && run.personTypedAt !== undefined
+          ? { type_stopped: "person" }
+          : {}),
       // The hover and card as the run ended; the host's own release comes after (`state()`).
       card_open: cardOpen(run.target),
       scrolled_into_view: run.scrolledIntoView,
