@@ -780,6 +780,9 @@ impl Store for ForkView {
     fn rehydrate(&self, id: &str) -> Result<bool> {
         self.inner.rehydrate(id)
     }
+    fn compress_log(&self, id: &str, stop: &dyn Fn() -> bool) -> Result<LogCompression> {
+        self.inner.compress_log(id, stop)
+    }
     fn is_cold(&self, id: &str) -> bool {
         self.inner.is_cold(id)
     }

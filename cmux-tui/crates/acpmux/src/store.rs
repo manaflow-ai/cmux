@@ -35,6 +35,9 @@ pub use fork_view::{
     folder_to_replace,
 };
 mod log_bytes;
+pub(crate) mod log_zst;
+pub use log_zst::LogCompression;
+pub(crate) mod segment_file;
 pub use log_bytes::{
     LogChunk, LogFilter, LogMark, LogMarks, LogPart, STAMP as LOG_STAMP, line_seq as log_line_seq,
 };
@@ -1479,6 +1482,11 @@ pub trait Store: Send + Sync {
     fn rehydrate(&self, _id: &str) -> Result<bool> {
         Ok(false)
     }
+    /// Compresses the plain segments of a closed chat's log in place (`store/log_zst.rs`),
+    /// asking `stop` before each; nothing for a store that keeps no log on disk.
+    fn compress_log(&self, _id: &str, _stop: &dyn Fn() -> bool) -> Result<LogCompression> {
+        Ok(LogCompression::default())
+    }
     /// The chat's log is in its cold archive. A few `lstat`s, no read.
     fn is_cold(&self, _id: &str) -> bool {
         false
@@ -1751,21 +1759,22 @@ impl LocalStore {
         let mut out = Vec::new();
         let mut cut_pending = false;
         let Ok(rd) = std::fs::read_dir(&dir) else {
-            return Ok((out, false));
+            return Ok((Vec::new(), false));
         };
         for entry in rd {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
             if name == compact::CUT {
                 cut_pending = true;
-            } else if let Some(stem) = name.strip_suffix(".ndjson")
-                && let Ok(idx) = stem.parse::<u32>()
-            {
-                out.push((idx, entry.path()));
+            } else if let Some((idx, zst)) = segment_file::segment_name(&name) {
+                out.push((idx, zst, entry.path()));
             }
         }
+        // A segment under both names (a compression cut short between its rename and its
+        // removal of the plain file) is read from the plain one (`store/segment_file.rs`).
         out.sort();
-        Ok((out, cut_pending))
+        out.dedup_by_key(|(idx, ..)| *idx);
+        Ok((out.into_iter().map(|(idx, _, path)| (idx, path)).collect(), cut_pending))
     }
 
     fn list_entry(
@@ -1878,8 +1887,13 @@ impl LocalStore {
         let (segs, _) = self.list_segments(id)?;
         // Never segment `000000`: it holds only a fork's history, written whole and renamed in
         // place (`history_writer`), which would replace a record appended to it (review of
-        // #37020). A log whose only segment it is goes on in `000001`.
+        // #37020). A log whose only segment it is goes on in `000001`. A compressed last segment
+        // is never written (`store/segment_file.rs`; a compression takes this lock and leaves a
+        // log with a writer alone): the log goes on in the next one.
         let (index, path) = match segs.last().filter(|(i, _)| *i > 0) {
+            Some((i, p)) if segment_file::is_zst(p) => {
+                (*i + 1, dir.join(format!("{:06}.ndjson", *i + 1)))
+            }
             Some((i, p)) => (*i, p.clone()),
             None => (1, dir.join("000001.ndjson")),
         };
@@ -2332,7 +2346,7 @@ impl Store for LocalStore {
         let mut line = Vec::new();
         for (_, path) in self.segments(id)? {
             let mut reader =
-                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
+                BufReader::with_capacity(256 * 1024, segment_file::SegmentFile::open(&path)?);
             loop {
                 line.clear();
                 if reader.read_until(b'\n', &mut line)? == 0 {
@@ -2539,6 +2553,10 @@ impl Store for LocalStore {
         LocalStore::rehydrate(self, id)
     }
 
+    fn compress_log(&self, id: &str, stop: &dyn Fn() -> bool) -> Result<LogCompression> {
+        LocalStore::compress_log(self, id, stop)
+    }
+
     fn is_cold(&self, id: &str) -> bool {
         LocalStore::is_cold(self, id)
     }
@@ -2742,7 +2760,7 @@ impl LocalStore {
         let start = self.segment_starts.start(id, &segments, after)?;
         for (_, path) in &segments[start..] {
             let mut reader =
-                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(path)?);
+                BufReader::with_capacity(256 * 1024, segment_file::SegmentFile::open(path)?);
             loop {
                 line.clear();
                 if reader.read_until(b'\n', &mut line)? == 0 {

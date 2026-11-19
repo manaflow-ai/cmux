@@ -179,7 +179,10 @@ fn a_copy_made_for_other_kinds_is_read_past() {
         // The copy an older list without `turn_result` made: none of its lines.
         let older: String =
             lines.split_inclusive('\n').filter(|l| !l.contains("\"turn_result\"")).collect();
-        let meta = kind_index::Stamp::of(&std::fs::File::open(&path).unwrap()).unwrap();
+        let meta = kind_index::Stamp::of(
+            &mut crate::store::segment_file::SegmentFile::open(&path).unwrap(),
+        )
+        .unwrap();
         let len = header["len"].as_u64().unwrap();
         store.write_kind_index("c", index, &meta, len, true, older.as_bytes()).unwrap();
         stripped.push(copy);
@@ -273,7 +276,9 @@ fn a_scan_writes_no_copy_for_a_deleted_chat() {
     let root = root();
     let (store, _) = store_with_log(&root, 3);
     let (index, path) = store.segments("c").unwrap()[0].clone();
-    let meta = kind_index::Stamp::of(&std::fs::File::open(&path).unwrap()).unwrap();
+    let meta =
+        kind_index::Stamp::of(&mut crate::store::segment_file::SegmentFile::open(&path).unwrap())
+            .unwrap();
     std::fs::remove_dir_all(root.join("c")).unwrap();
     assert!(store.write_kind_index("c", index, &meta, 0, true, b"").is_err());
     assert!(!root.join("c").exists());

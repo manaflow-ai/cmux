@@ -226,6 +226,10 @@ impl Inner {
             }
         }
         let Some(&first) = wanted.keys().next() else { return Ok(Repaired::Done) };
+        // A repair writes the log in place: a compressed segment (`store/log_zst.rs`) is put
+        // back plain first. A compression waits for the checkpoint to cover a chat, so only a
+        // log compressed by something else (a host's disk cleanup) comes here.
+        self.local.thaw_log(id).map_err(chat_error)?;
         let pieces = self.read_from(id, first).map_err(chat_error)?;
         let mut merged = wanted.clone();
         let mut last = None;

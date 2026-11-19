@@ -171,31 +171,24 @@ pub struct LogPart {
     pub read: u64,
 }
 
-/// A segment file opened for a read, with the bytes taken from it counted.
+/// A segment file opened for a read, with the bytes taken from it counted. A compressed one
+/// (`store/segment_file.rs`) reads at the plain file's offsets.
 struct Segment {
     index: u32,
-    file: File,
+    file: segment_file::SegmentFile,
     id: u64,
     read: u64,
 }
 
 impl Segment {
     fn open(index: u32, path: &Path) -> Result<Self> {
-        let file = crate::config::private_state_file(path)?;
+        let file = segment_file::SegmentFile::open(path)?;
         let id = file_id(&file.metadata()?);
         Ok(Self { index, file, id, read: 0 })
     }
 
     fn read_at(&mut self, offset: u64, out: &mut [u8]) -> Result<usize> {
-        self.file.seek(SeekFrom::Start(offset))?;
-        let mut filled = 0;
-        while let Some(rest) = out.get_mut(filled..).filter(|rest| !rest.is_empty()) {
-            let n = self.file.read(rest)?;
-            if n == 0 {
-                break;
-            }
-            filled += n;
-        }
+        let filled = self.file.read_at(offset, out)?;
         self.read += filled as u64;
         Ok(filled)
     }
@@ -449,8 +442,7 @@ impl LocalStore {
                 // A line larger than a chunk: the buffer doubles, never past what is left of
                 // the segment, so a line of n chunks costs O(n) copying and not O(n²).
                 (0, waiting) if waiting >= CHUNK_BYTES => {
-                    let left =
-                        segment.file.metadata()?.len().saturating_sub(offset + waiting as u64);
+                    let left = segment.file.len()?.saturating_sub(offset + waiting as u64);
                     waiting.min(usize::try_from(left).unwrap_or(usize::MAX)).max(1)
                 }
                 (kept, waiting) => CHUNK_BYTES.saturating_sub(kept + waiting),
@@ -515,11 +507,12 @@ impl LocalStore {
             let length = offset + (out.len() - kept) as u64;
             out.truncate(kept);
             let is_last = position + 1 == listing.segments.len();
-            // A full last segment, or a fork's history (`000000`, never appended to): the store
+            // A full last segment, a fork's history (`000000`, never appended to) or a compressed
+            // one (never appended to: a reopened chat goes on in the next): the store
             // may have started the next one since the listing. The next one's name is its
             // index + 1, so one look at that name says, and the directory is listed only when
             // it is there.
-            let full = length >= self.segment_bytes || segment.index == 0;
+            let full = length >= self.segment_bytes || segment.index == 0 || segment.file.is_zst();
             if is_last
                 && !relisted
                 && full
@@ -659,7 +652,7 @@ impl LocalStore {
 fn scan_to(segment: &mut Segment, start: u64, from: u64) -> Result<u64> {
     segment.file.seek(SeekFrom::Start(start))?;
     let found = {
-        let mut reader = BufReader::with_capacity(64 * 1024, &segment.file);
+        let mut reader = BufReader::with_capacity(64 * 1024, &mut segment.file);
         let mut offset = start;
         let mut head = Vec::with_capacity(HEAD);
         let mut length = 0u64;

@@ -157,7 +157,7 @@ impl LocalStore {
         {
             for segment in &mut staged.segments {
                 if let Some(tmp) = segment.tmp.take() {
-                    crate::home_fs::rename(&tmp, &segment.path)?;
+                    put_segment(&tmp, &segment.path)?;
                 }
             }
         }
@@ -231,9 +231,13 @@ impl LocalStore {
         let mut line = Vec::new();
         let mut timing = Timing::default();
         for (_, path) in segments {
-            let file = crate::config::private_state_file(&path)?;
+            // A compressed segment (`store/segment_file.rs`) is read as its plain bytes, and its
+            // rewrite goes in as the plain segment, which the commit puts in its place.
+            let mut file = segment_file::SegmentFile::open(&path)?;
             let len = file.metadata()?.len();
-            let tmp = write.then(|| path.with_extension("ndjson.compact"));
+            let plain_len = file.len()?;
+            let tmp =
+                write.then(|| segment_file::plain_path(&path).with_extension("ndjson.compact"));
             let mut out = match &tmp {
                 Some(tmp) => {
                     let _ = crate::home_fs::remove_file(tmp);
@@ -245,7 +249,7 @@ impl LocalStore {
             staged.segments.push(StagedSegment { path: path.clone(), len, tmp });
             // Only what was there when it was opened: a record appended since makes the commit
             // refuse the log, never a half-read line.
-            let mut reader = BufReader::with_capacity(256 * 1024, (&file).take(len));
+            let mut reader = BufReader::with_capacity(256 * 1024, (&mut file).take(plain_len));
             loop {
                 line.clear();
                 if reader.read_until(b'\n', &mut line)? == 0 {
@@ -277,7 +281,9 @@ impl LocalStore {
                 out.sync_all()?;
                 drop_cache(&out);
             }
-            drop_cache(&file);
+            if let Some(plain) = file.plain() {
+                drop_cache(plain);
+            }
             if let Some(archive) = &archive {
                 archive.keep(&path, true, false)?;
             }
@@ -356,7 +362,7 @@ impl LocalStore {
                 #[cfg(not(test))]
                 let _ = n;
                 if let Some(tmp) = segment.tmp.take() {
-                    crate::home_fs::rename(&tmp, &segment.path)?;
+                    put_segment(&tmp, &segment.path)?;
                 }
             }
             if changes {
@@ -382,6 +388,23 @@ impl LocalStore {
 /// of the file or of its folder is an error (a [`SyncFailed`] for the folder's), not ignored: a
 /// compaction's record is what keeps a log that may hold nothing from passing for a purged chat's,
 /// and the journal store freezes on a failed sync of its files (#35905).
+/// Puts a rewritten segment `tmp` in place of the segment read at `path`. A rewrite is always
+/// plain: it goes in under the plain name, and a compressed segment it replaces is removed after
+/// (`store/segment_file.rs`). A crash between the two leaves both, and every read takes the
+/// plain one, the rewrite.
+fn put_segment(tmp: &Path, path: &Path) -> Result<()> {
+    let plain = segment_file::plain_path(path);
+    crate::home_fs::rename(tmp, &plain)?;
+    if plain != path {
+        crate::config::refuse_lost_home(path)?;
+        match crate::home_fs::remove_file(path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn write_durably(path: &Path, bytes: &[u8]) -> Result<()> {
     crate::config::refuse_lost_home(path)?;
     // One name per file and process (`dead_temps`: each new name is one more path fseventsd
@@ -500,7 +523,7 @@ fn cut_long_strings(value: &mut Value) -> bool {
 /// Drops a log file's pages from the page cache once it is read or written: a pass reads every
 /// old log once, and a daemon under a memory limit (huge-blue's cgroup) is charged for its cache.
 #[cfg(target_os = "linux")]
-fn drop_cache(file: &File) {
+pub(super) fn drop_cache(file: &File) {
     use std::os::fd::AsRawFd;
     // SAFETY: the descriptor is open for the call; the advice changes no file content.
     unsafe {
@@ -509,7 +532,7 @@ fn drop_cache(file: &File) {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn drop_cache(_file: &File) {}
+pub(super) fn drop_cache(_file: &File) {}
 
 #[cfg(test)]
 #[path = "compact_tests.rs"]

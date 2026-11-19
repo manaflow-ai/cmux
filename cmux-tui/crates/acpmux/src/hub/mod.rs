@@ -177,6 +177,7 @@ pub(crate) use log_load::test_hold;
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod cold_archive;
 pub(crate) use cold_archive::COLD_CHANGED;
+mod log_zst;
 mod machine_info;
 mod repo_sync;
 mod retention;
@@ -1021,6 +1022,8 @@ pub struct Hub {
     pub(super) clone_boot: std::sync::OnceLock<String>,
     /// A chat closed: wakes the log retention worker (`retention.rs`).
     pub(super) retention_wake: Arc<Notify>,
+    /// Closed chats whose log waits for its compression, and the worker's wake (`log_zst.rs`).
+    pub(super) log_zst: log_zst::LogZst,
     /// Chats whose log the store brought back from its cold archive, whose preview is not dropped
     /// yet, and the wake of the worker that drops it (`cold_archive.rs`).
     pub(super) cold_rehydrated: Arc<StdMutex<std::collections::BTreeSet<String>>>,
@@ -1478,6 +1481,7 @@ impl Hub {
             queues_resumed: AtomicBool::new(false),
             clone_boot: std::sync::OnceLock::new(),
             retention_wake: Arc::new(Notify::new()),
+            log_zst: Default::default(),
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,
@@ -3185,6 +3189,8 @@ impl Hub {
             self.refresh_parent_asks_below(session);
             if status == SessionStatus::Closed {
                 self.retention_wake();
+                // Its log is compressed once it settles (`log_zst.rs`).
+                self.log_zst_enqueue(&session.id);
             }
         }
         true

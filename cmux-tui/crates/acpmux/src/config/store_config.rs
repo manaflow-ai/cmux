@@ -25,6 +25,10 @@ pub struct StoreConfig {
     /// Default 14; 0 keeps every log whole.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed_log_days: Option<u32>,
+    /// Compress a closed chat's event log in place once it closes (`store/log_zst.rs`). Default
+    /// on; false leaves every log plain (a log already compressed still reads).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compress_closed_logs: Option<bool>,
 }
 
 impl StoreConfig {
@@ -34,6 +38,11 @@ impl StoreConfig {
             0 => None,
             days => Some(std::time::Duration::from_secs(u64::from(days) * 86_400)),
         }
+    }
+
+    /// Whether a closed chat's log is compressed (`compressClosedLogs`, default on).
+    pub fn compress_closed_logs(&self) -> bool {
+        self.compress_closed_logs.unwrap_or(true)
     }
 }
 
@@ -47,6 +56,7 @@ impl Default for StoreConfig {
             mode: StoreMode::Local,
             segment_bytes: default_segment_bytes(),
             closed_log_days: None,
+            compress_closed_logs: None,
         }
     }
 }

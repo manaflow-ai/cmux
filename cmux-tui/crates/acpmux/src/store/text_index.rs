@@ -94,8 +94,8 @@ impl LocalStore {
         path: &Path,
         incoming: Option<(String, Entry)>,
     ) -> Result<Projector> {
-        let mut file = crate::config::private_state_file(path)?;
-        let stamp = Stamp::of(&file)?;
+        let mut file = segment_file::SegmentFile::open(path)?;
+        let stamp = Stamp::of(&mut file)?;
         let incoming_hash = fnv(serde_json::to_vec(&incoming)?.into_iter());
         let (mut projector, from, had_copy) =
             match self.read_text_index(id, index, &stamp, incoming_hash) {

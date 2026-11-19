@@ -432,11 +432,11 @@ fn copy_inode(path: &Path) -> Option<u64> {
 }
 
 /// Reads `len` bytes of `file` at `at`.
-fn read_at(file: &mut std::fs::File, at: u64, len: u32) -> std::io::Result<Vec<u8>> {
-    use std::io::Seek as _;
-    file.seek(std::io::SeekFrom::Start(at))?;
+fn read_at(file: &mut segment_file::SegmentFile, at: u64, len: u32) -> std::io::Result<Vec<u8>> {
     let mut buf = vec![0u8; usize::try_from(len).unwrap_or(usize::MAX)];
-    file.read_exact(&mut buf)?;
+    if file.read_at(at, &mut buf)? != buf.len() {
+        return Err(std::io::ErrorKind::UnexpectedEof.into());
+    }
     Ok(buf)
 }
 
@@ -554,8 +554,8 @@ impl LocalStore {
         }
         #[cfg(test)]
         SEGMENT_OPENS.with(|n| n.set(n.get() + 1));
-        let mut file = crate::config::private_state_file(path)?;
-        let stamp = kind_index::Stamp::of(&file)?;
+        let mut file = segment_file::SegmentFile::open(path)?;
+        let stamp = kind_index::Stamp::of(&mut file)?;
         // A system that names no birth time keeps no copy, so no heads.
         if stamp.id.2 == 0 {
             return self.keyed_whole(id, index, path, &scan, keep, visit);
@@ -640,7 +640,7 @@ impl LocalStore {
         id: &str,
         index: u32,
         path: &Path,
-        mut file: Option<std::fs::File>,
+        mut file: Option<segment_file::SegmentFile>,
         heads: &SegmentHeads,
         kinds: &[&str],
         keep: &mut dyn FnMut(&KindHead<'_>) -> bool,
@@ -659,14 +659,14 @@ impl LocalStore {
             let source = match head.place {
                 Place::Segment => {
                     if file.is_none() {
-                        file = Some(crate::config::private_state_file(path).ok()?);
+                        file = Some(segment_file::SegmentFile::open(path).ok()?);
                     }
                     file.as_mut()?
                 }
                 Place::Copy => {
                     if copy_file.is_none() {
                         let copy =
-                            crate::config::private_state_file(&self.kind_index_path(id, index));
+                            segment_file::SegmentFile::open(&self.kind_index_path(id, index));
                         copy_file = Some(copy.ok()?);
                     }
                     copy_file.as_mut()?

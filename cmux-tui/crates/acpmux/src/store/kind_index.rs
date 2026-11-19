@@ -217,31 +217,10 @@ pub(super) struct Stamp {
 }
 
 impl Stamp {
-    /// The open segment `file`'s, however its path changes meanwhile.
-    pub(super) fn of(file: &std::fs::File) -> std::io::Result<Self> {
-        let meta = file.metadata()?;
-        Ok(Self { id: file_id(file, &meta), len: meta.len() })
-    }
-}
-
-/// The file's device, inode and birth time (ns since the epoch; 0 where the system does not say).
-fn file_id(file: &std::fs::File, meta: &std::fs::Metadata) -> (u64, u64, u64) {
-    let born = birth_ns(file).unwrap_or_else(|| {
-        meta.created()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
-    });
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let _ = file;
-        (meta.dev(), meta.ino(), born)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (file, meta);
-        (0, 0, born)
+    /// The open segment `file`'s, however its path changes meanwhile: for a compressed segment
+    /// (`store/segment_file.rs`), the compressed file's identity and the plain bytes' length.
+    pub(super) fn of(file: &mut segment_file::SegmentFile) -> std::io::Result<Self> {
+        Ok(Self { id: file.id()?, len: file.len()? })
     }
 }
 
@@ -354,9 +333,9 @@ impl LocalStore {
             {
                 continue;
             }
-            let mut file = crate::config::private_state_file(&path)?;
+            let mut file = segment_file::SegmentFile::open(&path)?;
             let copy =
-                if indexed { self.copy_for_read_back(id, index, &path, &file)? } else { None };
+                if indexed { self.copy_for_read_back(id, index, &path, &mut file)? } else { None };
             match copy {
                 // A copy covers the segment's first `from` bytes, whole lines: what was written
                 // after them (none in a segment a log load sealed and copied, at most the segment
@@ -406,7 +385,7 @@ impl LocalStore {
         id: &str,
         index: u32,
         path: &Path,
-        file: &std::fs::File,
+        file: &mut segment_file::SegmentFile,
     ) -> Result<Option<(Vec<u8>, u64, bool)>> {
         let stamp = Stamp::of(file)?;
         let copy = self.read_kind_index(id, index, &stamp);
@@ -462,9 +441,9 @@ impl LocalStore {
         scan: &Scan<'_>,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<bool> {
-        let mut file = crate::config::private_state_file(path)?;
+        let mut file = segment_file::SegmentFile::open(path)?;
         // What a copy is of: the file this reads, however its path changes meanwhile.
-        let stamp = if scan.copied { Some(Stamp::of(&file)?) } else { None };
+        let stamp = if scan.copied { Some(Stamp::of(&mut file)?) } else { None };
         let (mut copy, from, mut parsed) = match stamp
             .as_ref()
             .and_then(|s| self.read_kind_index(id, index, s))

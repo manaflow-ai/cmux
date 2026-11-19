@@ -269,11 +269,7 @@ impl LocalStore {
     fn held_has_segment(&self, id: &str) -> Result<bool> {
         match crate::home_fs::read_dir(self.dir(id).join("events")) {
             Ok(entries) => Ok(entries.iter().any(|entry| {
-                entry
-                    .name
-                    .to_str()
-                    .and_then(|name| name.strip_suffix(".ndjson"))
-                    .is_some_and(|stem| stem.parse::<u32>().is_ok())
+                entry.name.to_str().and_then(super::segment_file::segment_name).is_some()
             })),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
             Err(e) => Err(e.into()),

@@ -1038,6 +1038,25 @@ impl Store for JournalStore {
     fn rehydrate(&self, id: &str) -> Result<bool> {
         self.inner.fenced(|| Store::rehydrate(&self.inner.local, id))
     }
+    /// As `commit_cold`: no journal record of the chat may be past the checkpoint, or a replay
+    /// would repair a log whose segments it would have to write in place. A chat a checkpoint
+    /// does not cover runs one first; a frozen or failed checkpoint stops the pass. Each
+    /// segment's renames and folder syncs (not its compression) run in `counted_sync`, so a
+    /// failed sync freezes the store as a failed log sync does.
+    fn compress_log(&self, id: &str, stop: &dyn Fn() -> bool) -> Result<LogCompression> {
+        let inner = &self.inner;
+        let covered = {
+            let order = inner.order.lock_or_recover();
+            !order.frozen
+                && order.log_lsn.get(id).is_none_or(|newest| *newest <= order.checkpointed)
+        };
+        if !covered {
+            inner.checkpoint()?;
+        }
+        inner.local.compress_log_with(id, stop, &mut |commit| {
+            inner.counted_sync("a compressed event log failed to sync", commit)
+        })
+    }
     fn is_cold(&self, id: &str) -> bool {
         Store::is_cold(&self.inner.local, id)
     }

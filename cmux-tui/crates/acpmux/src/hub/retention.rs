@@ -205,7 +205,11 @@ impl Hub {
                 }
             };
             match committed {
-                Ok(true) => report.add(&session, stats),
+                Ok(true) => {
+                    report.add(&session, stats);
+                    // The rewrite is plain: it is compressed again (`log_zst.rs`).
+                    self.log_zst_enqueue(&session.id);
+                }
                 Ok(false) => *report.skipped.entry("changed").or_default() += 1,
                 Err(e) => {
                     tracing::warn!(session = %session.id, "log retention: {e:#}");
