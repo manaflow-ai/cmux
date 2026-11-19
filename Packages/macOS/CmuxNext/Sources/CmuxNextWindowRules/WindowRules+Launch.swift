@@ -109,5 +109,51 @@ extension WindowRules {
         return launchLanding(last: .workspace(id, pane: pane, tab: tab), workspaceLive: live != nil, tab: standing)
     }
 
+    /// What the app knows when a launch decides whether it opens something fresh (cmux-window-rules `launch::FreshFacts`).
+    public nonisolated struct FreshFacts: Encodable, Equatable, Sendable {
+        /// The tree has no workspace of the person's own (`needsFirstWorkspace`, read with the Home `ensure_home` named).
+        public var emptyTree: Bool
+        /// Saved windows exist and none of them is open (#31514).
+        public var noSavedWindowOpen: Bool
+        public var classicHome: Bool
+        /// `ensure_home` named a Home workspace.
+        public var homeEnsured: Bool
+        /// An `ensure_home` is in flight, or this launch ensures Home and none answered yet.
+        public var homeNotEnsuredYet: Bool
+
+        public init(emptyTree: Bool, noSavedWindowOpen: Bool, classicHome: Bool, homeEnsured: Bool, homeNotEnsuredYet: Bool) {
+            self.emptyTree = emptyTree
+            self.noSavedWindowOpen = noSavedWindowOpen
+            self.classicHome = classicHome
+            self.homeEnsured = homeEnsured
+            self.homeNotEnsuredYet = homeNotEnsuredYet
+        }
+    }
+
+    /// What a launch opens fresh (cmux-window-rules `launch::fresh_landing`).
+    public nonisolated enum FreshLanding: String, Decodable, Sendable {
+        /// Home, the Chief's workspace.
+        case home
+        /// A new workspace on its New Tab page.
+        case newTab
+        /// Nothing yet: ask again once the facts change.
+        case waitForHome
+        /// Nothing fresh: the saved windows reopen (``launchLanding(front:workspace:)``).
+        case saved
+    }
+
+    /// What a launch opens fresh (Leo 2026-11-18: "fresh startup opening home is obv fine but if it's not first time
+    /// and the user was on a workspace and a tab, obv just take them there"): Home or a New Tab workspace for an empty
+    /// tree, a New Tab workspace when no saved window is open, and nothing while Home is not ensured yet. When the FFI
+    /// does not answer (one pinned before `window_launch_fresh_landing`), the launch's path before the rule: it waited
+    /// only for an `ensure_home` in flight (`ensureInFlight`), not for one this launch had not asked yet.
+    public func freshLanding(_ facts: FreshFacts, ensureInFlight: Bool) -> FreshLanding {
+        struct Reply: Decodable { var kind: FreshLanding }
+        if let reply = call("window_launch_fresh_landing", facts, as: Reply.self) { return reply.kind }
+        if ensureInFlight { return .waitForHome }
+        if !facts.emptyTree { return facts.noSavedWindowOpen ? .newTab : .saved }
+        return facts.classicHome || !facts.homeEnsured ? .newTab : .home
+    }
+
     private static let launchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "window-rules")
 }
