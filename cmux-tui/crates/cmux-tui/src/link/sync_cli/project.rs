@@ -35,6 +35,10 @@ use serde_json::{Value, json};
 use super::local::Source as Origin;
 use super::local::{self, LocalFile, Rules};
 
+/// A folder outside git listed stat-only on a few threads.
+#[path = "project_walk.rs"]
+mod walk;
+
 /// How long a start waits for the machine to mount the folder.
 const START_WAIT: Duration = Duration::from_secs(120);
 /// How long the server keeps dialing a machine it cannot reach before it stops.
@@ -395,26 +399,52 @@ fn dial(
     Ok((reader, answer))
 }
 
-/// The folder as the copy lists it ([`local::listed`], no cap), with every file's size and
-/// modification time, as a manifest.
+/// The folder as the copy lists it, with every file's size and modification time, as a manifest:
+/// outside git by the stat-only parallel walk ([`walk::plain`]), in git by the copy's own
+/// listing ([`list_copy`]).
 fn list(folder: &Path) -> anyhow::Result<Listed> {
-    let (set, _) = local::listed(folder, Rules::Copy, None)?;
     let root_mtime = std::fs::metadata(folder).map(|meta| mtime_ns(&meta)).unwrap_or(0);
+    let (files, links) = if local::GitDirs::of(folder)?.is_some() {
+        list_copy(folder)?
+    } else {
+        walk::plain(folder)?
+    };
+    let mut items = Vec::with_capacity(files.len() + links.len());
+    for (relative, served) in &files {
+        items.push(Item {
+            path: relative.clone(),
+            kind: Kind::File,
+            mode: served.file.permissions,
+            size: served.size,
+            mtime_ns: served.mtime_ns,
+            link: None,
+        });
+    }
+    items.extend(links);
+    let manifest = Manifest::build(root_mtime, items)?;
+    let mut served: Vec<Option<Served>> = Vec::new();
+    served.resize_with(manifest.len(), || None);
+    for (relative, file) in files {
+        if let Some(slot) =
+            manifest.resolve(&relative).and_then(|index| served.get_mut(index as usize))
+        {
+            *slot = Some(file);
+        }
+    }
+    Ok(Listed { manifest, served })
+}
+
+/// The folder's files and symlinks as the copy lists them ([`local::listed`], no cap), each
+/// file's size and time from a second stat.
+fn list_copy(folder: &Path) -> anyhow::Result<(Vec<(String, Served)>, Vec<Item>)> {
+    let (set, _) = local::listed(folder, Rules::Copy, None)?;
     let files: Vec<(String, LocalFile)> = set.files.into_iter().collect();
     let stats = stat_all(&files);
-    let mut items = Vec::with_capacity(files.len() + set.links.len());
+    let mut items = Vec::with_capacity(set.links.len());
     let mut kept = Vec::with_capacity(files.len());
     for ((relative, file), stat) in files.into_iter().zip(stats) {
         // A file gone or changed into something else since the listing is left out.
         let Some((size, mtime)) = stat else { continue };
-        items.push(Item {
-            path: relative.clone(),
-            kind: Kind::File,
-            mode: file.permissions,
-            size,
-            mtime_ns: mtime,
-            link: None,
-        });
         kept.push((relative, Served { file, size, mtime_ns: mtime }));
     }
     for (relative, linked) in set.links {
@@ -430,17 +460,7 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
             link: Some(linked.target),
         });
     }
-    let manifest = Manifest::build(root_mtime, items)?;
-    let mut served: Vec<Option<Served>> = Vec::new();
-    served.resize_with(manifest.len(), || None);
-    for (relative, file) in kept {
-        if let Some(slot) =
-            manifest.resolve(&relative).and_then(|index| served.get_mut(index as usize))
-        {
-            *slot = Some(file);
-        }
-    }
-    Ok(Listed { manifest, served })
+    Ok((kept, items))
 }
 
 fn mtime_ns(meta: &std::fs::Metadata) -> i64 {

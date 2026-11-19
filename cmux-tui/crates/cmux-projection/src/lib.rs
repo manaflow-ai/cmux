@@ -11,6 +11,9 @@ pub mod manifest;
 pub mod overlay;
 pub mod wire;
 
+#[cfg(unix)]
+pub mod walk;
+
 #[cfg(target_os = "linux")]
 pub mod mount;
 
