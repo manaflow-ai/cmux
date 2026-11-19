@@ -38,6 +38,10 @@ pub struct SessionSpec {
     /// The acpmux peer (`acpmux host ls`) the session is created on
     /// (`_meta.acpmux.peer`; a cloud subagent); None: this machine.
     pub peer: Option<String>,
+    /// When the session's agent may stop (acpmux `_meta.acpmux.stopCondition`): acpmux gives
+    /// Claude Code it as a prompt Stop hook at every start, the hook `/goal` adds, so the agent
+    /// goes on until it holds (goal.rs). None: it stops when its turn ends.
+    pub stop_condition: Option<String>,
 }
 
 /// The tag on every session the Chief itself runs (its turns and its
@@ -163,13 +167,37 @@ pub fn query_harnesses(socket: &std::path::Path, log: &dyn Fn(&str)) -> Result<V
             json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "optchat-chief", "version": env!("CARGO_PKG_VERSION")}}),
         )
         .map_err(|e| format!("initialize: {e}"))
-        .and_then(|_| {
-            client
+        .and_then(|init| {
+            let mut answer = client
                 .request("_acpmux/harnesses", json!({}))
-                .map_err(|e| format!("harnesses: {e}"))
+                .map_err(|e| format!("harnesses: {e}"))?;
+            // What the daemon can do, for the brains (brain_home.rs `prepare`).
+            if let Some(map) = answer.as_object_mut() {
+                map.insert(
+                    DAEMON_FEATURES.to_owned(),
+                    json!({
+                        "builtinPresets": builtin_presets(&init),
+                        "brainPresets": has_feature(&init, BRAIN_PRESETS_FEATURE),
+                    }),
+                );
+            }
+            Ok(answer)
         });
     client.close();
     result
+}
+
+/// The key `query_harnesses` adds to its answer: `{builtinPresets, brainPresets}`.
+pub const DAEMON_FEATURES: &str = "optchatDaemonFeatures";
+
+/// acpmux's `initialize` feature for the brain turn presets (acpmux
+/// `chief_builtins::BRAIN_PRESETS_FEATURE`).
+pub const BRAIN_PRESETS_FEATURE: &str = "chiefBrainPresets";
+
+fn has_feature(init: &Value, feature: &str) -> bool {
+    init.pointer("/_meta/acpmux/features")
+        .and_then(Value::as_array)
+        .is_some_and(|f| f.iter().any(|v| v == feature))
 }
 
 /// Whether the daemon's `initialize` says it defines the Chief's presets
@@ -1229,8 +1257,15 @@ pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
     if is_compactor(spec) {
         meta["throwaway"] = json!(true);
     }
+    if let Some(condition) = &spec.stop_condition {
+        meta[STOP_CONDITION] = json!(condition);
+    }
     meta
 }
+
+/// acpmux's `_meta.acpmux` key for a session's stop condition, and its session/new answer's flag
+/// that the session keeps it (acpmux `hub/stop_condition.rs`).
+pub const STOP_CONDITION: &str = "stopCondition";
 
 /// A compactor node's session: purged at `end_node` minutes after its one prompt, so acpmux keeps
 /// no long prompt body in its log (`_meta.acpmux.throwaway`, acpmux `hub/ephemeral.rs`). Each node's
@@ -1315,6 +1350,16 @@ pub fn new_session_watching(
         .and_then(Value::as_str)
         .map(str::to_owned)
         .ok_or_else(|| "session/new answered without a sessionId".to_owned())?;
+    // A stop condition the daemon did not keep (an acpmux from before `stopCondition`, or a
+    // harness other than Claude Code): the session runs, but it may stop at any turn end.
+    if spec.stop_condition.is_some()
+        && result.pointer(&format!("/_meta/acpmux/{STOP_CONDITION}")) != Some(&json!(true))
+    {
+        crate::log::log(format!(
+            "acpmux did not keep the stop condition of session {} ({id}): an acpmux older than stopCondition, or not a Claude Code harness; it runs without its goal",
+            spec.name
+        ));
+    }
     // Right after creation: an untagged Chief session would count as one of
     // the user's agents (quit counts, endAgents), so it does not stay.
     if !spec.tags.is_empty()

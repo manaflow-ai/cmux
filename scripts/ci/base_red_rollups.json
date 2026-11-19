@@ -148,6 +148,12 @@
     "web / Web status": {
       "job": "web-status",
       "under": {
+        "agent-pane-real-acpmux": {
+          "exact": [
+            "web / Agent pane on real acpmux"
+          ],
+          "prefixes": []
+        },
         "diff-sidecar-check": {
           "exact": [
             "web / diff-sidecar-check"
