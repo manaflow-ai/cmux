@@ -1,0 +1,121 @@
+/* The agent dot grid (AgentDotGrid.tsx). State reads from fill plus outline, never color alone:
+   running and done are solid (running pulses), needs approval is a thick ring, idle a thin ring,
+   error solid with a halo. */
+.acpmux-dot-grid {
+  --dot: 10px;
+  --dot-gap: 6px;
+  --dot-running: var(--agent-accent);
+  --dot-approval: var(--agent-warning, #d9a23a);
+  --dot-done: var(--agent-success, var(--acpmux-add, #3fb950));
+  --dot-error: var(--agent-danger, #d35c5c);
+  --dot-idle: color-mix(in srgb, var(--agent-muted) 70%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  box-sizing: border-box;
+  /* The home area sets the side insets; the grid adds only its top room, as the home lists do. */
+  padding: var(--ds-space-3) 0 0;
+  color: var(--agent-text);
+}
+.acpmux-dot-grid[data-size="compact"] {
+  --dot: 6px;
+  --dot-gap: 3px;
+}
+.acpmux-dot-grid__field {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex-wrap: wrap;
+  gap: var(--dot-gap);
+}
+.acpmux-dot-grid__cell {
+  display: flex;
+}
+.acpmux-dot-grid__dot {
+  flex: none;
+  box-sizing: border-box;
+  width: var(--dot);
+  height: var(--dot);
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--dot-idle);
+  border-radius: 50%;
+  background: transparent;
+  appearance: none;
+  cursor: pointer;
+  transition:
+    background-color 0.3s ease,
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
+}
+span.acpmux-dot-grid__dot {
+  display: inline-block;
+  cursor: default;
+}
+.acpmux-dot-grid__dot[data-state="running"] {
+  border-color: var(--dot-running);
+  background: var(--dot-running);
+  animation: acpmux-dot-grid-pulse 1.8s ease-in-out infinite;
+}
+.acpmux-dot-grid__dot[data-state="approval"] {
+  border: max(2px, calc(var(--dot) * 0.25)) solid var(--dot-approval);
+  background: transparent;
+}
+.acpmux-dot-grid__dot[data-state="done"] {
+  border-color: var(--dot-done);
+  background: var(--dot-done);
+}
+.acpmux-dot-grid__dot[data-state="error"] {
+  border-color: var(--dot-error);
+  background: var(--dot-error);
+  box-shadow:
+    0 0 0 1px var(--agent-page-bg, transparent),
+    0 0 0 2px var(--dot-error);
+}
+.acpmux-dot-grid__dot[data-current] {
+  outline: 1px solid var(--agent-text);
+  outline-offset: 2px;
+}
+.acpmux-dot-grid__dot:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 2px;
+}
+@keyframes acpmux-dot-grid-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-dot-grid__dot {
+    transition: none;
+  }
+  .acpmux-dot-grid__dot[data-state="running"] {
+    animation: none;
+  }
+}
+.acpmux-dot-grid__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1) var(--ds-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-dot-grid__key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+.acpmux-dot-grid__count {
+  font-variant-numeric: tabular-nums;
+  color: var(--agent-text);
+}

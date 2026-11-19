@@ -38,6 +38,7 @@ import { threadMinimapCard } from "../agent-session/acpmux/threadMinimap/card.ex
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
 import { codeActionsLook } from "../agent-session/acpmux/conversation/codeActions.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
+import { agentDotGrid } from "../agent-session/acpmux/dotGrid/agentDotGrid.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
 import { commandLabelLook } from "../agent-session/acpmux/conversation/commandLabel.experiment";
@@ -101,6 +102,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chiefDock,
   hoverActions,
   startedSessionCards,
+  agentDotGrid,
   fileKindIcon,
   followMotion,
   finishedTaskLook,
