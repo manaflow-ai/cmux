@@ -125,7 +125,9 @@ def check(a):
             # The phone is on another Mac (another tag's dev build on the same account, say): a launch
             # with a code may first link the Mac it remembered, so this keeps waiting, and at the
             # deadline review.sh fails with this line.
-            other = next((m for m in macs if isinstance(m, dict) and m.get("id")), None)
+            named = [m for m in macs if isinstance(m, dict) and m.get("id")]
+            # The Mac it is linked with, else the first it lists.
+            other = next((m for m in named if m.get("linked") is True), named[0] if named else None)
             if other:
                 state = "linked with" if other.get("linked") is True else "on"
                 retry(f"{state} another Mac, not this tag's: {other.get('name') or '?'} ({other['id']}), "

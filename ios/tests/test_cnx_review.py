@@ -258,6 +258,9 @@ if phone_launch_and_check {PHONE} client-1 {session} "{pair_url}"; then echo "PA
 
     def test_an_unpaired_install_fails_at_the_deadline(self):
         r, _, _ = self.launch('restored', {'paired_macs': [{'id': 'other-mac', 'name': 'x', 'linked': True}]})
+        self.assertIn("FAIL: restored launch: linked with another Mac, not this tag's: x (other-mac), not the tagged Mac mac-tagged",
+                      r.stdout)
+        r, _, _ = self.launch('restored', {'paired_macs': []})
         self.assertIn('FAIL: restored launch: not paired with the tagged Mac yet', r.stdout)
 
     STACK = 'https://cmux-dev-backend-1.tail137216.ts.net:3850'
@@ -501,6 +504,11 @@ class ReceiptCheckTests(unittest.TestCase):
                 self.assertEqual(r.returncode, 1, r.stdout)
                 self.assertIn(f"{state}, not this tag's: Aziz’s MacBook Pro ({cu_all}), not the tagged Mac {v3}",
                               r.stdout)
+        # The Mac it is linked with is named, not the first one it lists.
+        receipt = {**self.base, 'session_source': 'auto_login', 'paired_macs': [
+            {'id': 'old', 'name': 'Old', 'linked': False}, {'id': cu_all, 'name': 'cu-all', 'linked': True}]}
+        r = self.check(receipt, '--session', 'auto_login', '--mac-id', v3)
+        self.assertIn(f"linked with another Mac, not this tag's: cu-all ({cu_all})", r.stdout)
 
     def test_env_value_reads_without_sourcing(self):
         with tempfile.TemporaryDirectory() as temp:
