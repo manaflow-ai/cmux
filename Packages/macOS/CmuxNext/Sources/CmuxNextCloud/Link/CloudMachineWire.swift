@@ -22,9 +22,11 @@ public final class CloudMachineWire {
         self.team = team
     }
 
-    public convenience init(apiBaseURL: URL, auth: CloudAuth) {
+    /// `onSpareReady`: as ``onSpareReady``, set from the start.
+    public convenience init(apiBaseURL: URL, auth: CloudAuth, onSpareReady: @escaping @MainActor (String) -> Void = { _ in }) {
         self.init(apiBaseURL: apiBaseURL, token: { try await auth.tokens().access },
                   team: { await auth.teamID })
+        self.onSpareReady = onSpareReady
     }
 
     public func start(_ sink: @escaping @MainActor (CloudPortChange) -> Void) {
