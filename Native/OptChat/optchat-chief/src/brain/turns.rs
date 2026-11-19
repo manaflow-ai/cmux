@@ -2430,8 +2430,12 @@ pub(super) struct KeptTurn {
 }
 
 /// A kept session's context past this many tokens is not prompted again:
-/// a fresh session reads the view, which compaction keeps small.
-const KEEP_MAX_TOKENS: u64 = 120_000;
+/// a fresh session reads the view, which compaction keeps small. 160k since
+/// 2026-11-19: a live Chief's fresh first request is already 80-107k (the
+/// system prompt and the view), so at 120k a kept session served one turn at
+/// most and the next wrote the whole input to the cache again; its reads stay
+/// at a tenth of the input price.
+const KEEP_MAX_TOKENS: u64 = 160_000;
 
 /// A first request this large that read and wrote no cache ran with Claude
 /// Code's caching off (a pooled process started for our marks): not kept.

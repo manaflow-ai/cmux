@@ -255,7 +255,11 @@ impl Brain {
         }
         self.stop_wanted = true;
         self.steer_due = None;
-        self.interrupt.request_hard();
+        // The next turn prompts this same session with the message (its work
+        // so far stays in its context and its cache), as a person who stops
+        // an agent and writes again does; never a new session that reads the
+        // whole view uncached and starts the work over.
+        self.interrupt.request_hard_resumable();
     }
 
     /// Another person's text delivered to a running turn keeps that turn's

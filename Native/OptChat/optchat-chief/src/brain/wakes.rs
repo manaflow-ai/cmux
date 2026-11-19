@@ -66,7 +66,9 @@ impl Brain {
             return;
         }
         self.tool_stopped = true;
-        self.interrupt.request();
+        // The Chief ended its own turn after its last tool: the session is at
+        // a clean point, so the next turn may go on in it (turn.rs, kept).
+        self.interrupt.request_resumable();
         (self.log)(&format!("the Chief called {tool}: ending the running turn"));
     }
 
