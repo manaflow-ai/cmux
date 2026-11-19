@@ -154,6 +154,15 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 1_200_000,
     ownPart: true,
   },
+  // Several heavy coordinators streaming at 10x while readers attach, scroll, find, switch and type (coord-sim's
+  // records: cmux-tui/crates/coord-sim, which must be built first; COORD_SIM_BIN names it). Run only by name.
+  {
+    name: "coord-sim-load",
+    file: "coord-sim-load.bench.ts",
+    args: ["3", "10", "60", "5000"],
+    timeoutMs: 600_000,
+    ownPart: true,
+  },
   // Its 20 chats grown live to 100k rows each (about 28 minutes on a 4-vCPU runner): perf-cron.py's web-ui-flat-grown
   // part, under that part's 30-minute run cap. Its windows are 5 s (three of each kind, as in the main part) so the
   // repeats fit under that cap.

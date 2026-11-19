@@ -113,6 +113,9 @@
 #                          final.sh's: ws-200 ws-200-live4 ws-500-live8 home-300
 #                          chat-40 chat-200 chat-40-stream tabs-30 tabs-30-stream
 #                          tabs-80 diff-2400 diff-2400-pan artifacts-40 feed-ref
+#                          coord-sim (a heavy coordinator chat from coord-sim
+#                          streaming at 10x while it scrolls; its attach ms and
+#                          memory lines are in listperf/<run>.jsonl)
 #           SUMMARY.md gets one row per window; the artifact keeps listperf/.
 #   energy
 #           build, plus the battery and memory bench (cmux-next-ios/verify/energy.md):
@@ -253,6 +256,7 @@ listperf_table=(
   "diff-2400-pan   diff        LIST_COUNT=3 LIST_PAN=1 LIST_PASSES=4 LIST_SPEED=800"
   "artifacts-40    artifacts   LIST_COUNT=40"
   "feed-ref        feed        FEED_STRESS=320"
+  "coord-sim       chat        LIST_EVENTS=coord-sim LIST_PASSES=3"
 )
 listperf_base="" listperf_reps=2
 listperf_cases=(ws-200-live4 chat-40-stream chat-40 diff-2400 tabs-30-stream)
@@ -1316,11 +1320,33 @@ if [[ "$mode" == listperf ]]; then
         [[ "$side" == head ]] || side_app="$base_app"
         envs=(SIMCTL_CHILD_CMUX_MOBILE_FRAMELOG=1 SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1
           "SIMCTL_CHILD_CMUX_MOBILE_LIST_SCREEN=$screen" SIMCTL_CHILD_CMUX_MOBILE_LIST_EXIT_WHEN_DONE=1)
-        for kv in $settings; do envs+=("SIMCTL_CHILD_CMUX_MOBILE_$kv"); done
+        coord_sim=0
+        for kv in $settings; do
+          if [[ "$kv" == LIST_EVENTS=coord-sim ]]; then coord_sim=1; continue; fi
+          envs+=("SIMCTL_CHILD_CMUX_MOBILE_$kv")
+        done
         # A clean install of this side's app: no data container carried over from the other side.
         simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl install "$udid" "$side_app"
+        if [[ "$coord_sim" == 1 ]]; then
+          # One heavy coordinator's records from coord-sim (cmux-tui/crates/coord-sim, serde only: a few seconds to
+          # build), written once, copied into this install's data container for CoordSimReplaySource.
+          if [[ ! -s "$lp/coord-sim/coord-sim-chat.ndjson" ]]; then
+            cargo build --quiet --release --manifest-path cmux-tui/crates/coord-sim/Cargo.toml &&
+              cmux-tui/crates/coord-sim/target/release/coord-sim surface --target ios --out "$lp/coord-sim" \
+                --history "${COORD_SIM_HISTORY:-3000}" --rate "${COORD_SIM_RATE:-10}" --seconds 90 \
+                --max-event-bytes 65536 >"$lp/coord-sim.txt" 2>&1 ||
+              { echo "$run: coord-sim failed (see listperf/coord-sim.txt)"; listperf_status=1; }
+          fi
+          events_dir="$(simctl get_app_container "$udid" "$bundle_id" data)/Library/Caches"
+          mkdir -p "$events_dir"
+          cp "$lp/coord-sim/coord-sim-chat.ndjson" "$events_dir/" 2>/dev/null || true
+          history="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["history"])' \
+            "$lp/coord-sim/coord-sim-chat.json" 2>/dev/null || echo 0)"
+          envs+=("SIMCTL_CHILD_CMUX_MOBILE_LIST_EVENTS=$events_dir/coord-sim-chat.ndjson"
+            "SIMCTL_CHILD_CMUX_MOBILE_LIST_EVENTS_HISTORY=$history")
+        fi
         started=$SECONDS
         # The rig exits the app after its last pass; bounded at 300 s (rig.sh's WAIT).
         env "${envs[@]}" perl -e 'alarm shift; exec @ARGV' 300 xcrun simctl --set "$sims" launch --console-pty \
@@ -1335,6 +1361,9 @@ if [[ "$mode" == listperf ]]; then
         python3 -I cmux-next-ios/verify/feedperf/summarize.py "$lp/$run.jsonl" >"$lp/$run.txt" 2>&1 || true
         echo "== $run ($(( SECONDS - started )) s)"
         grep -E 'POOLED|-open' "$lp/$run.txt" || { echo "$run: no windows"; listperf_status=1; }
+        if [[ "$coord_sim" == 1 ]]; then
+          grep -hoE "list-stress (coord-sim .*|memory .*)" "$lp/$run.jsonl" | sed "s/^/$run: /" | tee -a "$lp/coord-sim-summary.txt" || true
+        fi
         python3 -I - "$lp/$run.txt" "$run" >>"$summary" <<'PY'
 import sys
 path, run = sys.argv[1], sys.argv[2]
@@ -1355,6 +1384,9 @@ PY
   done
   simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
   note "- listperf: $((SECONDS - t0)) s; sides: ${sides[*]}; reps: $listperf_reps; logs: listperf/"
+  if [[ -s "$lp/coord-sim-summary.txt" ]]; then
+    while IFS= read -r coord_line; do note "- $coord_line"; done <"$lp/coord-sim-summary.txt"
+  fi
   [[ "${listperf_status:-0}" -eq 0 ]] || note "- listperf: FAILED (a run did not finish or measured no windows; see listperf/)"
 fi
 

@@ -16,6 +16,9 @@ path = "src/main.rs"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# A child process that ends with its handle (check-spawn-owner).
+cmux-process = { path = "../cmux-process" }
+libc = "0.2"
 
 [profile.release]
 debug = 1
