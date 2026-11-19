@@ -8,6 +8,8 @@
 //!   diagnostics and comment-preserving edits.
 //! - [`jsonc`]: a comment-preserving JSONC parser and in-place editor.
 //! - [`managed`], [`effective`]: MDM and team policy layers and the merge.
+//! - [`youtube`]: the `youtube:` background id and reading a pasted YouTube
+//!   address into it.
 //! - [`store`]: the pure reducer `apply(&State, Op)`; [`owner`]: the single
 //!   writer with IO (atomic publish, cold-start cache); [`watch`]: kernel
 //!   file events.
@@ -32,6 +34,7 @@ pub mod text;
 pub mod theme_file;
 pub mod value;
 pub mod watch;
+pub mod youtube;
 
 pub use diagnostics::{Diagnostic, DiagnosticKind};
 pub use domains::Domains;

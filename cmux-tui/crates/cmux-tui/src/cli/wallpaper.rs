@@ -42,13 +42,15 @@ cmux wallpaper: the picture behind the window, and how it changes by itself.
   cmux wallpaper rotate FOLDER [--every 15m|30m|1h|daily|N]   the folder's pictures in turn (N minutes)
   cmux wallpaper location LAT,LON|auto               where sunrise and sunset are reckoned (auto: the time zone)
   cmux wallpaper off                                 no picture
-BACKGROUND: an image or movie path, a folder, none, daily (shuffle paintings), desktop
-  (your desktop picture), a painting id, or a macOS wallpaper name such as Sonoma.
+BACKGROUND: an image or movie path, a YouTube video address (or youtube:<video id>), a folder,
+  none, daily (shuffle paintings), desktop (your desktop picture), a painting id, or a macOS
+  wallpaper name such as Sonoma.
 Examples:
   cmux wallpaper follow-appearance --light ~/Pictures/day.jpg --dark ~/Pictures/night.jpg
   cmux wallpaper schedule 07:00=~/Pictures/day.jpg sunset=~/Pictures/night.jpg
   cmux wallpaper use-macos-dynamic catalina
-  cmux wallpaper rotate ~/Pictures/Walls --every 30m";
+  cmux wallpaper rotate ~/Pictures/Walls --every 30m
+  cmux wallpaper set 'https://youtu.be/dQw4w9WgXcQ?t=90'";
 
 pub(super) const BACKGROUND: &str = "appearance.background";
 pub(super) const LIGHT: &str = "appearance.backgroundLight";
@@ -185,7 +187,7 @@ pub(super) struct Env {
 }
 
 impl Env {
-    fn current() -> Env {
+    pub(super) fn current() -> Env {
         Env {
             home: std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default(),
             cwd: std::env::current_dir().unwrap_or_default(),
@@ -255,8 +257,9 @@ pub(super) enum Use {
 }
 
 /// The settings id for a background word: `none`, `daily`, `desktop`, a
-/// painting id, a path (`file:`, `system:` under the macOS wallpapers,
-/// `folder:` for a folder), an id with its prefix, or a macOS wallpaper name.
+/// painting id, a YouTube address (`youtube:`), a path (`file:`, `system:`
+/// under the macOS wallpapers, `folder:` for a folder), an id with its
+/// prefix, a macOS wallpaper name, or a bare YouTube video id.
 pub(super) fn background_id(arg: &str, env: &Env, usage: Use) -> Result<String, String> {
     let word = arg.trim();
     let lower = word.to_ascii_lowercase();
@@ -282,6 +285,12 @@ pub(super) fn background_id(arg: &str, env: &Env, usage: Use) -> Result<String, 
         }
         _ => {}
     }
+    // A YouTube address or `youtube:` id: its canonical id (cmux_config::youtube).
+    if cmux_config::youtube::claims_youtube(word) {
+        return cmux_config::youtube::YouTubeWallpaper::from_input(word)
+            .map(|wallpaper| wallpaper.id())
+            .map_err(|error| format!("{arg}: {error}"));
+    }
     for prefix in ["system:", "file:", "folder:"] {
         if let Some(path) = word.strip_prefix(prefix) {
             if prefix == "folder:" && usage == Use::Fixed {
@@ -305,6 +314,10 @@ pub(super) fn background_id(arg: &str, env: &Env, usage: Use) -> Result<String, 
     if let Some(picture) = find_system_picture(&env.pictures, word, false)? {
         return Ok(format!("system:{}", picture.path.display()));
     }
+    // Last, a bare YouTube video id (11 letters, digits, - or _, a capital or digit among them).
+    if cmux_config::youtube::looks_like_video_id(word) {
+        return Ok(format!("{}{word}", cmux_config::youtube::PREFIX));
+    }
     let paintings = painting_ids();
     let listed = if paintings.is_empty() {
         String::new()
@@ -312,7 +325,7 @@ pub(super) fn background_id(arg: &str, env: &Env, usage: Use) -> Result<String, 
         format!("; painting ids: {}", paintings.join(", "))
     };
     Err(format!(
-        "{arg:?} is not a file, folder, painting or macOS wallpaper: pass a path (~/Pictures/x.jpg), none, daily, desktop, or a macOS wallpaper name (`cmux wallpaper use-macos-dynamic` lists the dynamic ones){listed}"
+        "{arg:?} is not a file, folder, painting, YouTube video or macOS wallpaper: pass a path (~/Pictures/x.jpg), a YouTube address, none, daily, desktop, or a macOS wallpaper name (`cmux wallpaper use-macos-dynamic` lists the dynamic ones){listed}"
     ))
 }
 

@@ -12,7 +12,7 @@ pub static ACTIONS: &[Action] = &[
         id: "appearance.changeBackground",
         group: GROUP,
         title: t("ActionCatalog", "action.appearance.changeBackground", "Change Background…"),
-        keywords: &["background", "wallpaper", "art", "painting", "backdrop", "appearance"],
+        keywords: &["background", "wallpaper", "art", "painting", "backdrop", "appearance", "youtube", "video"],
         category: "settings",
         symbol: "photo",
         surfaces: PALETTE | CONTEXT_MENU,
