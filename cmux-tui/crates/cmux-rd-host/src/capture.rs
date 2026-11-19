@@ -113,6 +113,11 @@ impl Capturer {
         })
     }
 
+    /// The X screen's monitors (RandR), left to right; empty without RandR 1.5.
+    pub fn monitors(&self) -> Vec<Rect> {
+        crate::x11_view::monitors(&self.conn, self.root, (self.width, self.height))
+    }
+
     pub fn fd(&self) -> RawFd {
         self.conn.stream().as_raw_fd()
     }

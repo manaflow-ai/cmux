@@ -35,7 +35,7 @@ openh264 = { version = "0.9", default-features = false, features = ["source"], o
 cmux-codecs = { path = "../cmux-codecs", default-features = false, optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-x11rb = { version = "0.14", features = ["shm", "damage", "xtest", "xinput", "present", "dri3"] }
+x11rb = { version = "0.14", features = ["shm", "damage", "xtest", "xinput", "present", "dri3", "randr"] }
 # `dri3` only because x11rb 0.14's `present` names dri3 types without enabling that module.
 # `cmux-rd linux-host` (src/linux_host/) and `cmux-rd view`: the device hub host shared with
 # the acpmux share host on macOS (the device key, the hub client over rustls with the ring

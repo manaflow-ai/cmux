@@ -25,6 +25,10 @@ use std::collections::VecDeque;
 #[derive(Clone)]
 pub struct SessionCfg {
     pub display: String,
+    /// Linux X11: the viewer's display pick, an index into the host's display list (`main`
+    /// or none is the whole X screen). macOS picks through `display` itself.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub display_pick: Option<String>,
     pub max_fps: u32,
     pub start_kbps: u32,
     pub max_kbps: u32,
@@ -874,6 +878,7 @@ mod encode_off_loop_tests {
     fn cfg() -> SessionCfg {
         SessionCfg {
             display: String::new(),
+            display_pick: None,
             max_fps: 60,
             start_kbps: 1000,
             max_kbps: 2000,
