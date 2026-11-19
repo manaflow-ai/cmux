@@ -46,6 +46,12 @@ extension ThemeFileSetting {
     public nonisolated static let configPath = ["appearance", "themeFile"]
 }
 
+extension ThemeFileExceptionsSetting {
+    /// `appearance.themeFileExceptions`.
+    public nonisolated static let configPath = ["appearance", "themeFileExceptions"]
+    public nonisolated static let fallback: [String] = []
+}
+
 extension HighlightColorSetting {
     /// `appearance.highlightColor`.
     public nonisolated static let configPath = ["appearance", "highlightColor"]
