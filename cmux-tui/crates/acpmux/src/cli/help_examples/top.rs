@@ -43,6 +43,14 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Only a session's replies, as JSON",
                 "acpmux --json search \"root cause\" --session coord --role assistant",
             ),
+            (
+                "Read a hit whole with the messages around it (its header's session and line)",
+                "acpmux search --show e8f63fd9-94e8-4878-bcd4-704659aba1f2:120034 --after 4",
+            ),
+            (
+                "Read turn 412 of this chat, without tool calls",
+                "acpmux search --show self --turn 412 --no-tools",
+            ),
         ],
     ),
     (

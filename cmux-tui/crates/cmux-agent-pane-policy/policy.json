@@ -24,7 +24,7 @@
     "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
     "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key", "_acpmux/agent_login/cancel",
     "_acpmux/presets", "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
-    "_acpmux/cold_archive", "_acpmux/prompt_coach"
+    "_acpmux/cold_archive", "_acpmux/prompt_coach", "_acpmux/transcript_search"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -41,7 +41,7 @@
     "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
     "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
     "_acpmux/presets", "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
-    "_acpmux/cold_archive", "_acpmux/prompt_coach"
+    "_acpmux/cold_archive", "_acpmux/prompt_coach", "_acpmux/transcript_search"
   ],
   "optionally_session_scoped": [
     "acp.trust.get", "acp.trust.set", "_acpmux/session/auth",
@@ -157,6 +157,7 @@
     "_acpmux/memory_resolve": {"params": ["sessionId", "offerId", "file", "accept", "dismiss"], "acpmux": []},
     "_acpmux/subagent_transcript": {"params": ["sessionId", "runId", "agentId", "before", "after", "limit"], "acpmux": []},
     "_acpmux/native_history": {"params": ["sessionId", "before", "mark"], "acpmux": []},
+    "_acpmux/transcript_search": {"params": ["sessionId", "query", "order", "window", "limit", "offset", "context"], "acpmux": []},
     "_acpmux/subagent_stop": {"params": ["sessionId", "subagentSessionId"], "acpmux": []},
     "_acpmux/agent_pair_resume": {"params": ["sessionId", "peerSessionId"], "acpmux": []},
     "_acpmux/agent_hold": {"params": ["sessionId", "held"], "acpmux": []},

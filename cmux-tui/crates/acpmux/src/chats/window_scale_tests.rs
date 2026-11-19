@@ -162,3 +162,69 @@ fn typing_a_said_word_searches_only_the_last_hits_at_200_and_5000_chats() {
         }
     }
 }
+
+/// A word said in a chat past the text held of it (its newest `CHAT_BYTES`) comes from the
+/// transcript index: the window answers at once with what the held text found and stays filling,
+/// then shows that chat too, its match carrying the message's time.
+#[test]
+fn a_word_past_the_held_text_comes_from_the_transcript_index_while_filling() {
+    let chats = 200;
+    let home = tempfile::tempdir().unwrap();
+    let index = index_of(home.path(), chats);
+    let text = text_of(home.path(), &index, chats);
+    let old = 7;
+    assert!(!holds_word(old, chats));
+    text.deep().set_search(Box::new(move |words| {
+        assert_eq!(words, ["zephyrine".to_owned()]);
+        let hit = acpmux_transcript_search::Hit {
+            session: session_id(old),
+            harness: acpmux_transcript_search::Harness::Claude,
+            path: "/p.jsonl".into(),
+            subagent: false,
+            turn: 1,
+            line: 2,
+            at_ms: Some(1_794_000_000_000),
+            role: acpmux_transcript_search::Role::User,
+            snippet: "long ago:\nthe zephyrine   plan".into(),
+            match_start: 14,
+            match_len: 9,
+            cut_before: true,
+            cut_after: false,
+            message_id: None,
+            matches: 1,
+            in_window: false,
+        };
+        Some(vec![(hit, 2)])
+    }));
+    let mut moved = text.subscribe();
+    let activity = ChatActivity::default();
+    let spec = WindowSpec::from_params(&json!({"window": "all", "query": "zephyrine",
+        "limit": LIMIT, "content": true, "untitled": "New chat"}))
+    .unwrap();
+    let first = rows(&spec, &index, &activity, Some(&text));
+    assert!(first.filling, "the index has not answered yet");
+    assert_eq!(first.rows.len(), 3, "what the held text found, at once");
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+    runtime.block_on(async {
+        tokio::time::timeout(std::time::Duration::from_secs(10), moved.changed())
+            .await
+            .unwrap()
+            .unwrap();
+    });
+    let next = rows(&spec, &index, &activity, Some(&text));
+    assert!(!next.filling);
+    assert_eq!(next.total, Some(4));
+    let (_, row) = next
+        .rows
+        .iter()
+        .find(|(key, _)| key.ends_with(&session_id(old)))
+        .expect("the chat found by the index");
+    let said = &row["match"];
+    assert_eq!(said["at"], 1_794_000_000_000_i64);
+    assert_eq!((said["turn"].as_u64(), said["role"].as_str()), (Some(0), Some("prompt")));
+    assert_eq!(said["matches"], 2);
+    assert_eq!(said["snippet"], "…long ago: the zephyrine plan", "cut where the index cut it");
+    // The held text's own matches carry no time: the page reveals them as before.
+    let held = next.rows.iter().find(|(key, _)| !key.ends_with(&session_id(old))).unwrap();
+    assert!(held.1["match"].get("at").is_none());
+}

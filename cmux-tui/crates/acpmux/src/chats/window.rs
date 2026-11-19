@@ -54,8 +54,10 @@ fn row_value(chat: &IndexedChat, activity: &ChatActivity) -> Value {
 /// `total` of chats it could show, so a client can say how many more there are. `content` makes a
 /// query window also find chats by what was said in them (`text.rs`: every word of the query in
 /// one prompt or answer): after the chats its ranker found, the other chats that hold the words,
-/// newest first, each row with `match: {turn, role, snippet, highlights, matches}`, all counted in
-/// `total`.
+/// newest first, each row with `match: {turn, role, snippet, highlights, matches, at?}`, all
+/// counted in `total`. A chat whose held text (its newest `text::CHAT_BYTES`) lacks them is found
+/// by the transcript index (`deep.rs`): its `match` carries `at`, the message's time (ms since the
+/// epoch), and the window stays `filling` until the index answered.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowSpec {
     pub window: String,
@@ -375,13 +377,17 @@ fn ranked_rows(
     let needle = text.filter(|_| spec.content).zip(Needle::parse(query).ok());
     let mut filling = false;
     if let Some((text, needle)) = needle {
-        filling = !text.filled();
         let found = text.search(&needle);
+        // Past the text held (a chat's newest `CHAT_BYTES`): the transcript index's answer, which
+        // keeps the window filling until it comes.
+        let (deep, coming) = text.deep_search(&needle);
+        filling = !text.filled() || coming;
         let titled: HashSet<usize> = order.into_iter().collect();
         // The candidates are in the index's order: newest first.
         for (i, (key, chat)) in candidates.iter().enumerate() {
-            let Some(hit) = found.get(key) else { continue };
-            if titled.contains(&i) {
+            let hit = found.get(key);
+            let far = deep.as_ref().filter(|_| hit.is_none()).and_then(|deep| deep.get(key));
+            if (hit.is_none() && far.is_none()) || titled.contains(&i) {
                 continue;
             }
             total += 1;
@@ -389,8 +395,11 @@ fn ranked_rows(
                 continue;
             }
             let mut value = row_value(chat, activity);
-            if let (Some(said), Some(object)) = (ChatText::hit(hit, &needle), value.as_object_mut())
-            {
+            let said = match (hit, far) {
+                (Some(hit), _) => ChatText::hit(hit, &needle),
+                (None, far) => far.map(|far| ChatText::deep_hit(far, &needle)),
+            };
+            if let (Some(said), Some(object)) = (said, value.as_object_mut()) {
                 object.insert("match".into(), said);
             }
             rows.push((key.clone(), value));

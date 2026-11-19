@@ -11,6 +11,11 @@
 //! since, whatever the transcript's size, and a read cut short (a quit, a crash) resumes where it
 //! stopped and never adds a doc twice. A transcript replaced (another inode), cut shorter than that
 //! byte, or rewritten under it (the bytes before it changed) is read again from the start.
+//!
+//! A search ([`Index::page`]) first lists the matching docs' rowids and times only, up to
+//! [`EXACT_DOCS`]: within that it orders them exactly (newest, or by transcript position), puts the
+//! ones in its time window first, counts them (`total`) and reads the text of the page's docs alone.
+//! A query that matches more is read in its order with bounded queries, and its total is not given.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -30,10 +35,17 @@ CREATE TABLE IF NOT EXISTS files(
   seq INTEGER NOT NULL, turn INTEGER NOT NULL, line INTEGER NOT NULL, guard BLOB NOT NULL);
 CREATE INDEX IF NOT EXISTS files_session ON files(session);
 CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(
-  text, role UNINDEXED, at UNINDEXED, turn UNINDEXED, line UNINDEXED,
+  text, role UNINDEXED, at UNINDEXED, turn UNINDEXED, line UNINDEXED, message UNINDEXED,
   tokenize = 'trigram case_sensitive 0', detail = none);
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
 ";
+/// The schema's `user_version`. An index of another one (version 1 kept no message ids) is
+/// emptied and every transcript read again.
+const VERSION: i64 = 2;
+
+/// A search orders, counts and windows at most this many matching docs exactly; past it, its page
+/// is read with bounded queries in its order and it has no total.
+pub const EXACT_DOCS: usize = 10_000;
 
 /// The bytes before a read's end that the next read checks are unchanged.
 const GUARD_BYTES: u64 = 64;
@@ -90,6 +102,14 @@ pub struct Query {
     pub limit: usize,
     /// About this many bytes of text on each side of the match in a hit's snippet.
     pub context: usize,
+    /// More text each doc must also hold, anywhere in it (as `text` is found).
+    pub also: Vec<String>,
+    pub order: Order,
+    /// Docs written within this span (ms since the epoch, both ends in) come first, each hit
+    /// `in_window`, then the rest in `order`.
+    pub window: Option<(i64, i64)>,
+    /// Skips this many hits (in the order the hits come).
+    pub offset: usize,
 }
 
 impl Query {
@@ -101,8 +121,48 @@ impl Query {
             since_ms: None,
             limit: 20,
             context: 300,
+            also: Vec::new(),
+            order: Order::Newest,
+            window: None,
+            offset: 0,
         }
     }
+}
+
+/// The order of a search's hits.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Order {
+    /// Newest first: by the doc's time, then its place.
+    #[default]
+    Newest,
+    /// Oldest first by place: the transcript's path, then its line (and a line's docs in order).
+    Transcript,
+}
+
+impl Order {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Newest => "newest",
+            Self::Transcript => "transcript",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "newest" => Some(Self::Newest),
+            "transcript" => Some(Self::Transcript),
+            _ => None,
+        }
+    }
+}
+
+/// One page of a search: its hits and, when the index counted them, how many docs match in all.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Page {
+    pub hits: Vec<Hit>,
+    /// Every doc in the query's scope that holds it (not only this page's); None when more than
+    /// [`EXACT_DOCS`] do.
+    pub total: Option<u64>,
 }
 
 /// One doc that holds the query.
@@ -126,6 +186,12 @@ pub struct Hit {
     /// Whether the doc's text goes on before or after the snippet.
     pub cut_before: bool,
     pub cut_after: bool,
+    /// The reply's harness message id (`agent_message_chunk.messageId`), when the doc is one.
+    pub message_id: Option<String>,
+    /// How many times the doc holds the text (the snippet shows the first).
+    pub matches: usize,
+    /// The doc was written within [`Query::window`].
+    pub in_window: bool,
 }
 
 pub struct Index {
@@ -167,7 +233,15 @@ impl Index {
         conn.busy_timeout(Duration::from_secs(30))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
-        conn.execute_batch(SCHEMA)?;
+        // In one write transaction: two connections opening an old index at once empty it once.
+        let tx =
+            rusqlite::Transaction::new_unchecked(&conn, rusqlite::TransactionBehavior::Immediate)?;
+        let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version != 0 && version != VERSION {
+            tx.execute_batch("DROP TABLE IF EXISTS docs; DROP TABLE IF EXISTS files;")?;
+        }
+        tx.execute_batch(SCHEMA)?;
+        tx.commit()?;
         Ok(Self { conn })
     }
 
@@ -272,7 +346,8 @@ impl Index {
         let mut state = LineState { turn: row.turn };
         {
             let mut insert = tx.prepare_cached(
-                "INSERT INTO docs(rowid, text, role, at, turn, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO docs(rowid, text, role, at, turn, line, message)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             )?;
             for raw in buf.get(..whole).unwrap_or_default().split(|b| *b == b'\n') {
                 if raw.is_empty() {
@@ -292,7 +367,8 @@ impl Index {
                         doc.role.code(),
                         parsed.at_ms,
                         i64::from(state.turn),
-                        row.line as i64
+                        row.line as i64,
+                        doc.message
                     ])?;
                     done.docs += 1;
                 }
@@ -308,95 +384,245 @@ impl Index {
         Ok((done, more))
     }
 
-    /// The docs that hold `q.text`, newest first.
+    /// The first page of docs that hold `q.text` (and each of `q.also`), in `q.order`.
     pub fn search(&self, q: &Query) -> Result<Vec<Hit>> {
-        let needle = q.text.trim();
-        if needle.is_empty() || q.limit == 0 {
-            return Ok(Vec::new());
+        Ok(self.page(q)?.hits)
+    }
+
+    /// The docs that hold `q.text` (and each of `q.also`): those in `q.window` first, then the
+    /// rest, each part in `q.order`; `q.offset` of them skipped, then at most `q.limit`. Reads the
+    /// text of the page's docs only.
+    pub fn page(&self, q: &Query) -> Result<Page> {
+        let Some(words) = Words::of(q) else { return Ok(Page::default()) };
+        if q.limit == 0 {
+            return Ok(Page::default());
         }
         let files = self.files(q.sessions.as_deref())?;
-        // No ESCAPE (FTS5 serves an escaped pattern with no index): a `%` or `_` in the text is a
-        // wildcard here, so such a search reads more rows and keeps those holding the text itself.
-        let pattern = format!("%{needle}%");
-        let wild = needle.contains(['%', '_']);
-        let mut filter = String::new();
-        if let Some(role) = q.role {
-            filter.push_str(&format!(" AND role = {}", role.code()));
+        let scope = match &q.sessions {
+            None => None,
+            // A session's files in path order (as text: `<id>.jsonl` before `<id>/subagents/`):
+            // its docs are one rowid range per file.
+            Some(_) => {
+                let mut ids: Vec<(&std::ffi::OsStr, i64)> =
+                    files.iter().map(|(id, f)| (f.path.as_os_str(), *id)).collect();
+                ids.sort();
+                Some(ids.into_iter().map(|(_, id)| range(id)).collect::<Vec<_>>())
+            }
+        };
+        let want = q.offset.saturating_add(q.limit);
+        let listed = self.matching(&words, scope.as_deref(), "", None, EXACT_DOCS + 1)?;
+        let (rows, total) = if listed.len() <= EXACT_DOCS {
+            let total = listed.len() as u64;
+            let mut rows: Vec<(i64, Option<i64>, bool)> =
+                listed.into_iter().map(|(id, at)| (id, at, within(q.window, at))).collect();
+            match q.order {
+                Order::Newest => rows.sort_by_key(|r| std::cmp::Reverse((r.1, r.0))),
+                Order::Transcript => rows.sort_by(|a, b| {
+                    let path = |id: i64| files.get(&(id >> 32)).map(|f| f.path.as_os_str());
+                    path(a.0).cmp(&path(b.0)).then(a.0.cmp(&b.0))
+                }),
+            }
+            // Stable: each part keeps its order.
+            rows.sort_by_key(|r| !r.2);
+            (rows, Some(total))
+        } else {
+            let take = |extra: &str, inside: bool, n: usize| -> Result<Vec<_>> {
+                let got = self.ordered(&words, scope.as_deref(), extra, q.order, n)?;
+                Ok(got.into_iter().map(|(id, at)| (id, at, inside)).collect())
+            };
+            let rows: Vec<(i64, Option<i64>, bool)> = match q.window {
+                Some((from, to)) => {
+                    let mut rows = take(&format!(" AND at BETWEEN {from} AND {to}"), true, want)?;
+                    let left = want.saturating_sub(rows.len());
+                    if left > 0 {
+                        let outside = format!(" AND (at IS NULL OR at < {from} OR at > {to})");
+                        rows.extend(take(&outside, false, left)?);
+                    }
+                    rows
+                }
+                None => take("", false, want)?,
+            };
+            (rows, None)
+        };
+        let mut hits = Vec::with_capacity(q.limit.min(rows.len()));
+        for (rowid, _, inside) in rows.into_iter().skip(q.offset).take(q.limit) {
+            if let Some(hit) = self.hit(rowid, &files, &words.first, q.context, inside)? {
+                hits.push(hit);
+            }
         }
-        if let Some(since) = q.since_ms {
-            filter.push_str(&format!(" AND at >= {since}"));
+        Ok(Page { hits, total })
+    }
+
+    /// The newest prompt or reply in each session's own transcript (a subagent's left out) that
+    /// holds every one of `words`, newest first, each with how many of the matching docs read are
+    /// that session's. Reads at most `scan` matching docs, in no order: a session whose matches are
+    /// all past them is not found. For the chats page's search of what was said
+    /// (`acpmux` `chats/text.rs`).
+    pub fn chats(&self, words: &[String], scan: usize, context: usize) -> Result<Vec<(Hit, u32)>> {
+        let Some((first, rest)) = words.split_first() else { return Ok(Vec::new()) };
+        let mut q = Query::new(first.clone());
+        q.also = rest.to_vec();
+        let Some(words) = Words::of(&q) else { return Ok(Vec::new()) };
+        let files = self.files(None)?;
+        let listed = self.matching(&words, None, " AND role < 2", Some("rowid DESC"), scan)?;
+        let mut newest: HashMap<&str, (Option<i64>, i64, u32)> = HashMap::new();
+        for (rowid, at) in listed {
+            let Some(file) = files.get(&(rowid >> 32)).filter(|f| !f.subagent) else { continue };
+            let best = newest.entry(file.session.as_str()).or_insert((at, rowid, 0));
+            if (at, rowid) > (best.0, best.1) {
+                (best.0, best.1) = (at, rowid);
+            }
+            best.2 = best.2.saturating_add(1);
         }
-        let mut found: Vec<Found> = Vec::new();
-        let read = |sql: &str, args: &[&dyn rusqlite::ToSql], out: &mut Vec<Found>| -> Result<()> {
-            let mut stmt = self.conn.prepare_cached(sql)?;
-            let rows = stmt.query_map(args, |r| {
-                Ok((
-                    r.get::<_, i64>(0)?,
-                    r.get::<_, Option<i64>>(1)?,
-                    r.get::<_, i64>(2)?,
-                    r.get::<_, i64>(3)?,
-                    r.get::<_, i64>(4)?,
-                    r.get::<_, String>(5)?,
-                ))
+        let mut best: Vec<(Option<i64>, i64, u32)> = newest.into_values().collect();
+        best.sort_by_key(|b| std::cmp::Reverse((b.0, b.1)));
+        let mut out = Vec::with_capacity(best.len());
+        for (_, rowid, count) in best {
+            if let Some(hit) = self.hit(rowid, &files, &words.first, context, false)? {
+                out.push((hit, count));
+            }
+        }
+        Ok(out)
+    }
+
+    /// The rowids and times of up to `limit` docs in `scope` (rowid ranges; None: every doc) that
+    /// hold `words` and pass `extra` (more SQL conditions), in no set order (`order` given: in it).
+    fn matching(
+        &self,
+        words: &Words,
+        scope: Option<&[(i64, i64)]>,
+        extra: &str,
+        order: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<(i64, Option<i64>)>> {
+        let order = order.map(|o| format!(" ORDER BY {o}")).unwrap_or_default();
+        let mut out = Vec::new();
+        let read = |range: Option<(i64, i64)>,
+                    n: usize,
+                    out: &mut Vec<(i64, Option<i64>)>|
+         -> Result<()> {
+            let bound = if range.is_some() { " AND rowid BETWEEN ? AND ?" } else { "" };
+            let sql = format!(
+                "SELECT rowid, at FROM docs WHERE {}{bound}{extra}{order} LIMIT ?",
+                words.sql
+            );
+            let mut args = words.args.clone();
+            if let Some((lo, hi)) = range {
+                args.push(lo.into());
+                args.push(hi.into());
+            }
+            args.push((n as i64).into());
+            let mut stmt = self.conn.prepare_cached(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(args), |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?))
             })?;
             for row in rows {
                 out.push(row?);
             }
             Ok(())
         };
-        let limit = (if wild { q.limit * 8 + 64 } else { q.limit }) as i64;
-        match &q.sessions {
-            // One session: each of its files is a rowid range, read newest first up to the limit.
-            Some(_) => {
-                let sql = format!(
-                    "SELECT rowid, at, role, turn, line, text FROM docs
-                     WHERE text LIKE ?1 AND rowid BETWEEN ?2 AND ?3{filter}
-                     ORDER BY rowid DESC LIMIT ?4"
-                );
-                for id in files.keys() {
-                    let (lo, hi) = range(*id);
-                    read(&sql, &[&pattern, &lo, &hi, &limit], &mut found)?;
+        match scope {
+            None => read(None, limit, &mut out)?,
+            Some(ranges) => {
+                for range in ranges {
+                    let left = limit.saturating_sub(out.len());
+                    if left == 0 {
+                        break;
+                    }
+                    read(Some(*range), left, &mut out)?;
                 }
             }
-            None => {
-                let sql = format!(
-                    "SELECT rowid, at, role, turn, line, text FROM docs
-                     WHERE text LIKE ?1{filter}
-                     ORDER BY at DESC, rowid DESC LIMIT ?2"
-                );
-                read(&sql, &[&pattern, &limit], &mut found)?;
+        }
+        Ok(out)
+    }
+
+    /// The first `n` matching docs in `order`, read with bounded queries: a search past
+    /// [`EXACT_DOCS`].
+    fn ordered(
+        &self,
+        words: &Words,
+        scope: Option<&[(i64, i64)]>,
+        extra: &str,
+        order: Order,
+        n: usize,
+    ) -> Result<Vec<(i64, Option<i64>)>> {
+        match (scope, order) {
+            (None, Order::Newest) => {
+                self.matching(words, None, extra, Some("at DESC, rowid DESC"), n)
+            }
+            // Every transcript's docs in the order their files were first read, then by line.
+            (None, Order::Transcript) => self.matching(words, None, extra, Some("rowid"), n),
+            (Some(ranges), Order::Transcript) => {
+                self.matching(words, Some(ranges), extra, Some("rowid"), n)
+            }
+            (Some(ranges), Order::Newest) => {
+                // Each file's newest by place (its time order), then all of them by time.
+                let mut all = Vec::new();
+                for range in ranges {
+                    all.extend(self.matching(
+                        words,
+                        Some(std::slice::from_ref(range)),
+                        extra,
+                        Some("rowid DESC"),
+                        n,
+                    )?);
+                }
+                all.sort_by_key(|r| std::cmp::Reverse((r.1, r.0)));
+                all.truncate(n);
+                Ok(all)
             }
         }
-        let lower = needle.to_ascii_lowercase();
-        if wild {
-            found.retain(|f| {
-                memchr::memmem::find(f.5.to_ascii_lowercase().as_bytes(), lower.as_bytes())
-                    .is_some()
-            });
-        }
-        found.sort_by_key(|f| std::cmp::Reverse((f.1, f.0)));
-        found.truncate(q.limit);
-        let mut hits = Vec::with_capacity(found.len());
-        for (rowid, at, role, turn, line, text) in found {
-            let Some(file) = files.get(&(rowid >> 32)) else { continue };
-            let (snippet, start, len, before, after) = snippet(&text, &lower, q.context);
-            hits.push(Hit {
-                session: file.session.clone(),
-                harness: file.harness,
-                path: file.path.clone(),
-                subagent: file.subagent,
-                turn: turn as u32,
-                line: line as u64,
-                at_ms: at,
-                role: Role::from_code(role),
-                snippet,
-                match_start: start,
-                match_len: len,
-                cut_before: before,
-                cut_after: after,
-            });
-        }
-        Ok(hits)
+    }
+
+    /// Doc `rowid` as a hit for `lower` (the query's first text, ASCII-lowercased).
+    fn hit(
+        &self,
+        rowid: i64,
+        files: &HashMap<i64, FileInfo>,
+        lower: &str,
+        context: usize,
+        in_window: bool,
+    ) -> Result<Option<Hit>> {
+        let Some(file) = files.get(&(rowid >> 32)) else { return Ok(None) };
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT at, role, turn, line, text, message FROM docs WHERE rowid = ?1",
+        )?;
+        let row = stmt
+            .query_row(params![rowid], |r| {
+                Ok((
+                    r.get::<_, Option<i64>>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                ))
+            })
+            .optional()?;
+        let Some((at, role, turn, line, text, message)) = row else { return Ok(None) };
+        let (snippet, start, len, before, after) = snippet(&text, lower, context);
+        let matches =
+            memchr::memmem::find_iter(text.to_ascii_lowercase().as_bytes(), lower.as_bytes())
+                .count()
+                .max(1);
+        Ok(Some(Hit {
+            session: file.session.clone(),
+            harness: file.harness,
+            path: file.path.clone(),
+            subagent: file.subagent,
+            turn: turn as u32,
+            line: line as u64,
+            at_ms: at,
+            role: Role::from_code(role),
+            snippet,
+            match_start: start,
+            match_len: len,
+            cut_before: before,
+            cut_after: after,
+            message_id: message,
+            matches,
+            in_window,
+        }))
     }
 
     /// How many transcripts and docs the index holds.
@@ -517,5 +743,51 @@ fn snippet(text: &str, lower: &str, context: usize) -> (String, usize, usize, bo
     )
 }
 
-/// A row a search read: rowid, time, role, turn, line, text.
-type Found = (i64, Option<i64>, i64, i64, i64, String);
+/// Whether a doc written at `at` is within `window`.
+fn within(window: Option<(i64, i64)>, at: Option<i64>) -> bool {
+    matches!((window, at), (Some((from, to)), Some(at)) if from <= at && at <= to)
+}
+
+/// What a doc must hold, as SQL: each text as a `LIKE` (which the trigram index serves), and the
+/// query's role and time filters.
+struct Words {
+    /// The first text, ASCII-lowercased: a hit's snippet is cut around it.
+    first: String,
+    /// The conditions, `?` for each of `args` in order.
+    sql: String,
+    args: Vec<rusqlite::types::Value>,
+}
+
+impl Words {
+    /// None when the query's text is empty.
+    fn of(q: &Query) -> Option<Self> {
+        let first = q.text.trim();
+        if first.is_empty() {
+            return None;
+        }
+        let mut words =
+            Self { first: first.to_ascii_lowercase(), sql: String::new(), args: Vec::new() };
+        let texts =
+            std::iter::once(first).chain(q.also.iter().map(|w| w.trim()).filter(|w| !w.is_empty()));
+        for (i, text) in texts.enumerate() {
+            if i > 0 {
+                words.sql.push_str(" AND ");
+            }
+            words.sql.push_str("text LIKE ?");
+            words.args.push(format!("%{text}%").into());
+            // No ESCAPE (FTS5 serves an escaped pattern with no index): a `%` or `_` is a wildcard
+            // in the LIKE, so the text itself is checked too.
+            if text.contains(['%', '_']) {
+                words.sql.push_str(" AND instr(lower(text), ?) > 0");
+                words.args.push(text.to_ascii_lowercase().into());
+            }
+        }
+        if let Some(role) = q.role {
+            words.sql.push_str(&format!(" AND role = {}", role.code()));
+        }
+        if let Some(since) = q.since_ms {
+            words.sql.push_str(&format!(" AND at >= {since}"));
+        }
+        Some(words)
+    }
+}

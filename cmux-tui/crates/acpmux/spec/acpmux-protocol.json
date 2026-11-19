@@ -1043,6 +1043,14 @@
     {
       "kind": "request",
       "name": "_acpmux/transcript_search",
+      "params": {
+        "$ref": "#/types/TranscriptSearchParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transcript_read",
       "params": true,
       "result": true
     },
@@ -7551,6 +7559,26 @@
         "name",
         "source"
       ],
+      "type": "object"
+    },
+    "TranscriptSearchParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "context": true,
+        "harnessSessionId": true,
+        "host": true,
+        "limit": true,
+        "offset": true,
+        "order": true,
+        "query": true,
+        "role": true,
+        "sessionId": true,
+        "sinceMs": true,
+        "window": true
+      },
       "type": "object"
     },
     "TrustGetParams": {

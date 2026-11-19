@@ -13,6 +13,11 @@
 //! (`ACPMUX_SESSION_ID`). A name or id is resolved as `acpmux resolve` does, so a peer's session
 //! (`HOST/NAME`) is searched on that peer. A daemon too old to answer is not needed: the search
 //! then runs in this process, on this machine's transcripts.
+//!
+//! `acpmux search --show SESSION:LINE [--before N] [--after N] [--subagent NAME] [--no-tools]
+//! [--max-bytes N]`, or `--show SESSION --turn N`: the text at a hit (its header names its session,
+//! line, turn and subagent): the message whole, as written, and the ones next to it, or the whole
+//! turn (`_acpmux/transcript_read`, `transcript_read.rs`).
 
 use std::io::IsTerminal as _;
 
@@ -22,13 +27,38 @@ use serde_json::{Value, json};
 
 use crate::cli::output::{age, print_json};
 use crate::rpc::method;
+use crate::transcript_read as read;
 use crate::transcript_search::{self as search, Params};
 
 #[derive(Args, Debug, Clone)]
 pub struct SearchArgs {
     /// The text to find, as written (any case), anywhere in a prompt, a reply or a tool call.
-    #[arg(required = true)]
+    #[arg(required_unless_present = "show")]
     pub text: Vec<String>,
+    /// Read a hit instead of searching: `SESSION:LINE` (as a hit's header names them; `self:LINE`
+    /// in this chat) prints the message at that line whole and the ones next to it; `SESSION`
+    /// with `--turn N` prints turn N.
+    #[arg(long, value_name = "SESSION:LINE", conflicts_with = "text")]
+    pub show: Option<String>,
+    /// With `--show SESSION`: read this whole turn.
+    #[arg(long, requires = "show", value_name = "N")]
+    pub turn: Option<u32>,
+    /// With `--show`: this many messages (with `--turn`, turns) before it too (default 2, with
+    /// `--turn` 0; at most 50).
+    #[arg(long, requires = "show", value_name = "N")]
+    pub before: Option<usize>,
+    /// With `--show`: this many messages (with `--turn`, turns) after it too.
+    #[arg(long, requires = "show", value_name = "N")]
+    pub after: Option<usize>,
+    /// With `--show`: the subagent transcript the hit is in (`agent-...`, as its header names it).
+    #[arg(long, requires = "show", value_name = "NAME")]
+    pub subagent: Option<String>,
+    /// With `--show`: leave tool calls and their output out of the messages around it.
+    #[arg(long, requires = "show")]
+    pub no_tools: bool,
+    /// With `--show`: at most this many bytes of text (default 32768, at most 262144).
+    #[arg(long, requires = "show", value_name = "BYTES")]
+    pub max_bytes: Option<usize>,
     /// Only this session: `self` (the one this shell runs in), a name, `HOST/NAME`, an acpmux
     /// session id, or a Claude Code or Codex session id.
     #[arg(long, short = 's')]
@@ -99,10 +129,14 @@ pub fn params(args: &SearchArgs) -> Result<Params> {
         limit: args.limit.clamp(1, search::MAX_LIMIT),
         context: args.context,
         host: args.host.clone(),
+        ..Params::default()
     })
 }
 
 pub async fn run(args: SearchArgs, json_out: bool) -> Result<()> {
+    if args.show.is_some() {
+        return show(&args, json_out).await;
+    }
     let mut p = params(&args)?;
     if let Some(key) = &args.session {
         let (id, host) = session_target(key).await?;
@@ -146,20 +180,112 @@ async fn here(p: &Params) -> Result<Value> {
     Ok(v)
 }
 
+/// `--show KEY`: `SESSION:LINE`, or `SESSION` alone (with `--turn`).
+fn show_key(key: &str) -> (&str, Option<u64>) {
+    match key.rsplit_once(':') {
+        Some((session, line)) if !session.is_empty() => match line.parse::<u64>() {
+            Ok(line) => (session, Some(line)),
+            Err(_) => (key, None),
+        },
+        _ => (key, None),
+    }
+}
+
+/// The read `--show` asks for, as the wire names it.
+fn read_params(args: &SearchArgs, session: String, host: Option<String>) -> Result<read::Params> {
+    let key = args.show.as_deref().unwrap_or_default();
+    let (_, line) = show_key(key);
+    if line.is_some() && args.turn.is_some() {
+        anyhow::bail!("--show SESSION:LINE reads a line; give --show SESSION with --turn");
+    }
+    let p = read::Params {
+        session: None,
+        harness_session: Some(session),
+        subagent: args.subagent.clone(),
+        line,
+        turn: args.turn,
+        before: args.before,
+        after: args.after,
+        tools: args.no_tools.then_some(false),
+        max_bytes: args.max_bytes,
+        host: args.host.clone().or(host),
+    };
+    // The daemon's own checks, here first: a bad key is said before anything connects.
+    read::Params::from_value(&p.to_value()).map_err(|e| match e.as_str() {
+        m if m.starts_with("line or turn") => {
+            anyhow::anyhow!("--show {key}: name a line (SESSION:LINE) or give --turn N")
+        }
+        m => anyhow::anyhow!("--show {key}: {m}"),
+    })
+}
+
+async fn show(args: &SearchArgs, json_out: bool) -> Result<()> {
+    let (session, _) = show_key(args.show.as_deref().unwrap_or_default());
+    let (mut id, mut host) = session_target(session).await?;
+    // A hit's header reads `HOST/SESSION`: the host is this machine or a peer.
+    if let Some((prefix, rest)) = id.clone().split_once('/') {
+        if prefix != crate::pairing::machine_name() && prefix != "local" {
+            host = host.or_else(|| Some(prefix.to_owned()));
+        }
+        id = rest.to_owned();
+    }
+    let p = read_params(args, id, host)?;
+    let answer = match crate::daemon::connect(true).await {
+        Ok(client) => match client.request(method::MUX_TRANSCRIPT_READ, p.to_value()).await {
+            Ok(v) => v,
+            Err(e) if not_served(&e) => read_here(&p).await?,
+            Err(e) => return Err(e),
+        },
+        Err(_) => read_here(&p).await?,
+    };
+    if json_out {
+        print_json(&answer);
+    } else {
+        print!("{}", read::text(&answer));
+    }
+    Ok(())
+}
+
+/// The read in this process, on this machine only (a daemon older than `--show`, or none).
+async fn read_here(p: &read::Params) -> Result<Value> {
+    let own = crate::pairing::machine_name();
+    if p.host.as_deref().is_some_and(|h| h != "local" && h != own) {
+        anyhow::bail!(
+            "this machine's daemon is older than `acpmux search --show`: it reads only here"
+        );
+    }
+    let p = p.clone();
+    let session = p.harness_session.clone().unwrap_or_default();
+    tokio::task::spawn_blocking(move || {
+        read::read_here(&p, &session, &search::default_roots(), Some(&own))
+    })
+    .await?
+    .map_err(|e| anyhow::anyhow!("{e}"))
+}
+
 /// What `acpmux search` prints: each hit's header line, then its snippet indented, newest first.
 pub fn text(answer: &Value, color: bool) -> String {
     let hits = answer["hits"].as_array().cloned().unwrap_or_default();
     let mut out = String::new();
     for h in &hits {
         let field = |k: &str| h[k].as_str().unwrap_or_default();
+        // The whole session id and the subagent's transcript name: what `--show` and
+        // `transcript_read` take.
         let session = field("sessionId");
-        let short = session.get(..8).unwrap_or(session);
         let host = h["host"].as_str().map(|h| format!("{h}/")).unwrap_or_default();
         let when =
             h["at"].as_u64().map(|at| format!("{} ago", age(at))).unwrap_or_else(|| "-".into());
-        let sub = if h["subagent"] == true { " (subagent)" } else { "" };
+        let sub = if h["subagent"] == true {
+            let name = std::path::Path::new(field("path"))
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            format!(" (subagent {name})")
+        } else {
+            String::new()
+        };
         out.push_str(&format!(
-            "{host}{short}{sub}  turn {}  line {}  {when}  {}\n",
+            "{host}{session}{sub}  turn {}  line {}  {when}  {}\n",
             h["turn"].as_u64().unwrap_or(0),
             h["line"].as_u64().unwrap_or(0),
             field("role"),
@@ -248,12 +374,72 @@ mod tests {
         });
         assert_eq!(
             text(&answer, false),
-            "cosmic-gray/e8f63fd9  turn 412  line 120034  -  assistant\n    …Plan:\n    the four agent pages, then\n\n1 hit in 12 ms (1 transcript, 2 KB new read first)\n"
+            "cosmic-gray/e8f63fd9-94e8-4878-bcd4-704659aba1f2  turn 412  line 120034  -  assistant\n    …Plan:\n    the four agent pages, then\n\n1 hit in 12 ms (1 transcript, 2 KB new read first)\n"
         );
         let none = json!({"hits": [], "files": 3, "tookMs": 4, "unreached": [{"host": "hb", "error": "no answer in 10 s"}]});
         assert_eq!(
             text(&none, false),
             "No transcript holds that text.\n0 hits in 4 ms (3 transcripts)\n(not searched: hb: no answer in 10 s)\n"
+        );
+    }
+
+    fn show_args(show: Option<&str>) -> SearchArgs {
+        SearchArgs {
+            text: Vec::new(),
+            session: None,
+            host: None,
+            role: None,
+            since: None,
+            limit: search::DEFAULT_LIMIT,
+            context: search::DEFAULT_CONTEXT,
+            show: show.map(str::to_owned),
+            turn: None,
+            before: None,
+            after: None,
+            subagent: None,
+            no_tools: false,
+            max_bytes: None,
+        }
+    }
+
+    #[test]
+    fn show_reads_a_line_or_a_turn_of_a_session() {
+        assert_eq!(show_key("e8f63fd9:120034"), ("e8f63fd9", Some(120_034)));
+        assert_eq!(show_key("self:7"), ("self", Some(7)));
+        assert_eq!(show_key("hb/coord"), ("hb/coord", None));
+        assert_eq!(show_key(":7"), (":7", None));
+
+        let mut args = show_args(Some("s1:12"));
+        args.before = Some(1);
+        args.no_tools = true;
+        let p = read_params(&args, "s1".into(), Some("hb".into())).unwrap();
+        assert_eq!((p.line, p.turn, p.before, p.tools), (Some(12), None, Some(1), Some(false)));
+        assert_eq!(p.harness_session.as_deref(), Some("s1"));
+        assert_eq!(p.host.as_deref(), Some("hb"));
+
+        let mut turn = show_args(Some("s1"));
+        turn.turn = Some(3);
+        assert_eq!(read_params(&turn, "s1".into(), None).unwrap().turn, Some(3));
+        let err = read_params(&show_args(Some("s1")), "s1".into(), None).unwrap_err().to_string();
+        assert!(err.contains("name a line (SESSION:LINE) or give --turn N"), "{err}");
+        let mut both = show_args(Some("s1:4"));
+        both.turn = Some(1);
+        assert!(read_params(&both, "s1".into(), None).is_err());
+    }
+
+    #[test]
+    fn a_subagent_hit_names_its_transcript() {
+        let answer = json!({
+            "hits": [{
+                "host": null, "sessionId": "s1", "harness": "claude", "turn": 2, "line": 9,
+                "at": null, "role": "tool", "subagent": true,
+                "path": "/h/.claude/projects/p/s1/subagents/agent-a1b2.jsonl",
+                "snippet": "x", "matchStart": 0, "matchLen": 1, "cutBefore": false, "cutAfter": false,
+            }],
+            "files": 2, "tookMs": 1, "unreached": [],
+        });
+        assert!(
+            text(&answer, false).starts_with("s1 (subagent agent-a1b2)  turn 2  line 9  -  tool\n")
         );
     }
 
@@ -267,6 +453,7 @@ mod tests {
             since: Some("2d".into()),
             limit: 999,
             context: 100,
+            ..show_args(None)
         };
         let p = params(&args).unwrap();
         assert_eq!(p.query, "four agent pages");

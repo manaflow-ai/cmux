@@ -1994,6 +1994,41 @@
   "breaks": true
  },
  {
+  "name": "Find in Chat searches its own chat's transcript",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/transcript_search",
+   "params": {
+    "sessionId": "s",
+    "query": "four agent pages",
+    "order": "transcript",
+    "window": {"fromMs": 1, "toMs": 2},
+    "limit": 200,
+    "offset": 0,
+    "context": 120
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "Find in Chat never searches another transcript or a peer",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/transcript_search",
+   "params": {
+    "sessionId": "s",
+    "query": "x",
+    "harnessSessionId": "other",
+    "host": "all"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
   "name": "_acpmux/peers every known param",
   "frame": {
    "jsonrpc": "2.0",

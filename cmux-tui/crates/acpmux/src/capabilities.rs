@@ -172,6 +172,8 @@ pub const CAPABILITIES: &[Capability] = &[
     // What was said in every Claude Code and Codex transcript, here and on peers
     // (`transcript_search.rs`).
     Capability { id: "transcript-search-v1", wire: &[method::MUX_TRANSCRIPT_SEARCH] },
+    // The text around a transcript search hit, here or on a peer (`transcript_read.rs`).
+    Capability { id: "transcript-read-v1", wire: &[method::MUX_TRANSCRIPT_READ] },
     // What turns cost, indexed by day and session (`hub/ledger`).
     Capability { id: "cost-ledger-v1", wire: &[method::MUX_LEDGER] },
     // The team's agent spend from cmux-platform (`server/chats/team_audit.rs`).

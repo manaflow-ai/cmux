@@ -128,6 +128,32 @@
   white-space: nowrap;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* Still searching (Find in Chat asking the transcript index, or paging in a hit's turn): the count
+   it has so far reads dimmer and breathes; before any count, a dot stands in for it. */
+.find-pill__count[data-busy] {
+  opacity: 0.6;
+  animation: find-pill-busy 1.2s ease-in-out infinite;
+}
+.find-pill__count[data-busy]:empty::after {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: middle;
+}
+@keyframes find-pill-busy {
+  50% {
+    opacity: 0.3;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .find-pill__count[data-busy] {
+    animation: none;
+  }
+}
 /* Nothing matched: the count reads as an answer, in the danger ink. */
 .find-pill__count[data-none] {
   color: var(--agent-danger, var(--cmux-app-danger, var(--cmux-text, CanvasText)));

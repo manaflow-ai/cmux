@@ -31,22 +31,27 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
     /// A message of the chat that holds every word of the query: its turn (`_acpmux/chat_transcript`'s
     /// turns), whether it is the prompt or the answer, a short snippet of it, the snippet's characters
     /// (Unicode scalar offsets) that are part of a word, and how many of the chat's messages hold them.
+    /// `atMs` is the message's time (ms since the epoch) when acpmux found it in the transcript index
+    /// (`chats/deep.rs`: a message older than the text it holds of the chat); nil otherwise.
     public nonisolated struct Said: Hashable, Sendable {
         public let turn: Int
         public let isAnswer: Bool
         public let snippet: String
         public let highlights: [Int]
         public let matches: Int
+        public let atMs: Int64?
 
-        public init(turn: Int, isAnswer: Bool, snippet: String, highlights: [Int] = [], matches: Int = 1) {
+        public init(turn: Int, isAnswer: Bool, snippet: String, highlights: [Int] = [], matches: Int = 1, atMs: Int64? = nil) {
             (self.turn, self.isAnswer, self.snippet, self.highlights, self.matches) = (turn, isAnswer, snippet, highlights, matches)
+            self.atMs = atMs
         }
 
         init?(json: [String: Any]?) {
             guard let json, let snippet = json["snippet"] as? String, let turn = (json["turn"] as? NSNumber)?.intValue else { return nil }
             self.init(turn: turn, isAnswer: json["role"] as? String == "answer", snippet: snippet,
                       highlights: (json["highlights"] as? [NSNumber] ?? []).map(\.intValue),
-                      matches: (json["matches"] as? NSNumber)?.intValue ?? 1)
+                      matches: (json["matches"] as? NSNumber)?.intValue ?? 1,
+                      atMs: (json["at"] as? NSNumber)?.int64Value)
         }
     }
 

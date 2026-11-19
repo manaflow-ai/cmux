@@ -313,3 +313,208 @@ fn roots_find_claude_sessions_subagents_and_codex_rollouts() {
     assert!(roots.session("../x").is_empty());
     assert!(roots.session("missing").is_empty());
 }
+
+fn claude_reply(id: &str, text: &str, at: &str) -> String {
+    json!({"type": "assistant", "timestamp": at,
+        "message": {"id": id, "role": "assistant", "content": [{"type": "text", "text": text}]}})
+    .to_string()
+}
+
+/// A reply's doc carries the harness message id acpmux reports on its chunks; a prompt's and a
+/// tool's do not.
+#[test]
+fn a_reply_doc_carries_its_harness_message_id() {
+    let mut state = LineState::default();
+    let reply = claude_reply("msg_01abc", "the answer", "2026-11-18T09:00:00Z");
+    let docs = parse::line(Harness::Claude, reply.as_bytes(), &mut state).docs;
+    assert_eq!(docs[0].message.as_deref(), Some("msg_01abc"));
+    let prompt = json!({"type": "user", "message": {"id": "u1", "content": "a prompt"}});
+    let docs = parse::line(Harness::Claude, prompt.to_string().as_bytes(), &mut state).docs;
+    assert_eq!(docs[0].message, None);
+    let tool = json!({"type": "assistant", "message": {"id": "msg_02", "content": [
+        {"type": "tool_use", "id": "t", "name": "Bash", "input": {"command": "ls"}}]}});
+    let docs = parse::line(Harness::Claude, tool.to_string().as_bytes(), &mut state).docs;
+    assert_eq!(docs[0].message, None);
+    let codex = json!({"type": "response_item", "payload": {"type": "message", "role": "assistant",
+        "id": "item_7", "content": [{"type": "output_text", "text": "done"}]}});
+    let docs = parse::line(Harness::Codex, codex.to_string().as_bytes(), &mut state).docs;
+    assert_eq!(docs[0].message.as_deref(), Some("item_7"));
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("m.jsonl");
+    append(&path, &[claude_user("say the answer", "2026-11-18T09:00:00Z"), reply]);
+    let index = Index::in_memory().unwrap();
+    index.catch_up(&source(&path, "m")).unwrap();
+    let hits = index.search(&Query::new("the answer")).unwrap();
+    assert_eq!(hits.len(), 2);
+    assert_eq!(hits[0].message_id.as_deref(), Some("msg_01abc"));
+    assert_eq!(hits[1].message_id, None);
+}
+
+/// Find in Chat's reads: oldest first by place, the visible span's hits first, paged, and how
+/// many there are in all.
+#[test]
+fn a_page_orders_by_place_puts_its_window_first_skips_and_counts() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("p.jsonl");
+    let sub = dir.path().join("p/subagents/agent-1.jsonl");
+    std::fs::create_dir_all(sub.parent().unwrap()).unwrap();
+    let at = |s: u32| format!("2026-11-18T09:00:{s:02}Z");
+    append(
+        &main,
+        &(0..6).map(|i| claude_user(&format!("needle {i} needle"), &at(i * 2))).collect::<Vec<_>>(),
+    );
+    append(&sub, &[claude_user("needle in a subagent", &at(1))]);
+    let index = Index::in_memory().unwrap();
+    // The subagent's transcript is read first: place order still follows the paths.
+    index.catch_up(&Source { subagent: true, ..source(&sub, "p") }).unwrap();
+    index.catch_up(&source(&main, "p")).unwrap();
+    let mut q = Query::new("needle");
+    q.sessions = Some(vec!["p".into()]);
+    let page = index.page(&q).unwrap();
+    assert_eq!(page.total, Some(7));
+    let newest: Vec<_> = page.hits.iter().map(|h| h.at_ms).collect();
+    assert!(newest.windows(2).all(|w| w[0] >= w[1]), "newest first by default");
+    assert_eq!(page.hits[0].matches, 2, "the doc holds the text twice");
+
+    q.order = crate::Order::Transcript;
+    let lines = |page: &crate::Page| {
+        page.hits.iter().map(|h| (h.subagent, h.line, h.in_window)).collect::<Vec<_>>()
+    };
+    let page = index.page(&q).unwrap();
+    assert_eq!(
+        lines(&page),
+        [
+            (false, 1, false),
+            (false, 2, false),
+            (false, 3, false),
+            (false, 4, false),
+            (false, 5, false),
+            (false, 6, false),
+            (true, 1, false)
+        ],
+        "by path (p.jsonl before p/subagents/...), then line"
+    );
+    let ms = |s: u32| parse::parse_rfc3339_ms(&at(s)).unwrap();
+    q.window = Some((ms(4), ms(6)));
+    let page = index.page(&q).unwrap();
+    assert_eq!(
+        lines(&page)[..3],
+        [(false, 3, true), (false, 4, true), (false, 1, false)],
+        "the window's hits first, then the rest in order"
+    );
+    q.offset = 5;
+    q.limit = 5;
+    let page = index.page(&q).unwrap();
+    assert_eq!(lines(&page), [(false, 6, false), (true, 1, false)]);
+    assert_eq!(page.total, Some(7), "the total is of every hit, not the page");
+}
+
+/// Past [`crate::EXACT_DOCS`] a page is read with bounded queries in the same order and gives
+/// no total.
+#[test]
+fn a_query_past_the_exact_bound_reads_its_page_in_order_without_a_total() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("big.jsonl");
+    let n = crate::EXACT_DOCS + 50;
+    let base = parse::parse_rfc3339_ms("2026-11-18T00:00:00Z").unwrap();
+    let stamp = |i: usize| {
+        let s = i as i64;
+        format!("2026-11-18T{:02}:{:02}:{:02}Z", s / 3600, (s / 60) % 60, s % 60)
+    };
+    let lines: Vec<String> =
+        (0..n).map(|i| claude_user(&format!("common word {i}"), &stamp(i))).collect();
+    append(&path, &lines);
+    let index = Index::in_memory().unwrap();
+    index.catch_up(&source(&path, "big")).unwrap();
+    for sessions in [None, Some(vec!["big".to_owned()])] {
+        let mut q = Query::new("common word");
+        q.sessions = sessions;
+        q.limit = 3;
+        let page = index.page(&q).unwrap();
+        assert_eq!(page.total, None);
+        assert_eq!(
+            page.hits.iter().map(|h| h.line).collect::<Vec<_>>(),
+            [n as u64, n as u64 - 1, n as u64 - 2]
+        );
+        q.order = crate::Order::Transcript;
+        q.offset = 10;
+        assert_eq!(
+            index.page(&q).unwrap().hits.iter().map(|h| h.line).collect::<Vec<_>>(),
+            [11, 12, 13]
+        );
+        q.offset = 0;
+        q.window = Some((base + 100_000, base + 101_000));
+        let page = index.page(&q).unwrap();
+        assert_eq!(
+            page.hits.iter().map(|h| (h.line, h.in_window)).collect::<Vec<_>>(),
+            [(101, true), (102, true), (1, false)]
+        );
+    }
+}
+
+/// An index an older build wrote (no message ids) is emptied on open and every transcript read
+/// again.
+#[test]
+fn an_index_of_the_older_schema_is_read_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("o.jsonl");
+    let db = dir.path().join("index.sqlite");
+    append(&path, &[claude_reply("msg_9", "old reply", "2026-11-18T09:00:00Z")]);
+    {
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE files(id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, harness TEXT NOT NULL,
+               session TEXT NOT NULL, subagent INTEGER NOT NULL, dev INTEGER NOT NULL, ino INTEGER NOT NULL,
+               offset INTEGER NOT NULL, seq INTEGER NOT NULL, turn INTEGER NOT NULL, line INTEGER NOT NULL,
+               guard BLOB NOT NULL);
+             CREATE VIRTUAL TABLE docs USING fts5(text, role UNINDEXED, at UNINDEXED, turn UNINDEXED,
+               line UNINDEXED, tokenize = 'trigram case_sensitive 0', detail = none);
+             INSERT INTO files VALUES (1, 'x', 'claude', 'o', 0, 0, 0, 99, 1, 0, 1, x'');
+             INSERT INTO docs(rowid, text, role, at, turn, line) VALUES (4294967297, 'old reply', 1, 0, 0, 1);
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+    }
+    let index = Index::open(&db).unwrap();
+    assert_eq!(index.stats().unwrap(), (0, 0), "emptied");
+    assert_eq!(index.catch_up(&source(&path, "o")).unwrap().docs, 1);
+    assert_eq!(
+        index.search(&Query::new("old reply")).unwrap()[0].message_id.as_deref(),
+        Some("msg_9")
+    );
+    drop(index);
+    assert_eq!(Index::open(&db).unwrap().stats().unwrap(), (1, 1), "this schema is kept");
+}
+
+/// The chats page's search of what was said: each session's newest prompt or reply holding
+/// every word, a subagent's and a tool's left out.
+#[test]
+fn chats_find_each_sessions_newest_message_holding_every_word() {
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b) = (dir.path().join("a.jsonl"), dir.path().join("b.jsonl"));
+    let sub = dir.path().join("c/subagents/agent-1.jsonl");
+    std::fs::create_dir_all(sub.parent().unwrap()).unwrap();
+    append(
+        &a,
+        &[
+            claude_user("the parser bug again", "2026-11-18T09:00:00Z"),
+            claude_reply("msg_a", "fixed the bug in the parser", "2026-11-18T09:00:05Z"),
+        ],
+    );
+    let mut tools = vec![claude_user("unrelated", "2026-11-18T10:00:00Z")];
+    tools.extend(claude_tool("grep parser bug", "parser bug", "2026-11-18T10:00:01Z"));
+    append(&b, &tools);
+    append(&sub, &[claude_user("parser bug in a subagent", "2026-11-18T11:00:00Z")]);
+    let index = Index::in_memory().unwrap();
+    for src in [source(&a, "a"), source(&b, "b"), Source { subagent: true, ..source(&sub, "c") }] {
+        index.catch_up(&src).unwrap();
+    }
+    let found = index.chats(&["parser".into(), "bug".into()], 1000, 40).unwrap();
+    assert_eq!(found.len(), 1, "a tool's text and a subagent's are not what a chat said");
+    let (hit, count) = &found[0];
+    assert_eq!((hit.session.as_str(), *count), ("a", 2));
+    assert_eq!(hit.message_id.as_deref(), Some("msg_a"), "the newest of the two");
+    assert!(index.chats(&["parser".into(), "absent".into()], 1000, 40).unwrap().is_empty());
+    assert!(index.chats(&[], 1000, 40).unwrap().is_empty());
+}

@@ -289,6 +289,11 @@ keyed! {
     TrustGetParams: ["cwd", "sessionId", "peer"];
     /// `acp.trust.set`.
     TrustSetParams: ["cwd", "level", "sessionId", "peer"];
+    /// `_acpmux/transcript_search` (`transcript_search.rs`).
+    TranscriptSearchParams: [
+        "query", "sessionId", "harnessSessionId", "role", "sinceMs", "limit", "context", "host",
+        "order", "window", "offset",
+    ];
     /// `_acpmux/warm`.
     WarmParams: ["sessionIds", "limit"];
     /// `_acpmux/watch_take_over`.

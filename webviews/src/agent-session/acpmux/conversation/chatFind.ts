@@ -4,7 +4,7 @@
 // is virtualized: matches come from the rows' text, and a row draws its highlights once it mounts.
 // The current match opens what hides it: its turn's "Worked for" fold (App.tsx) and, through
 // FindReveal, the tool group or call that holds it (cx-ncc.70).
-import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { commandFolder } from "./commandFolder";
 import { execParts, execText, execView, isCmuxExec } from "./cmuxExec";
@@ -31,6 +31,21 @@ import { stripsEnvelopeImages } from "../toolImages";
 import { foldFind } from "../../../find/fold";
 import { rowsWithLiveOutput } from "../liveToolOutput";
 import { clearAdaptiveFind, paintAdaptiveFind, type FindColors } from "../../../ui/findPaint";
+import {
+  findSteps,
+  hitLoaded,
+  INDEX_DEBOUNCE_MS,
+  INDEX_PAGE,
+  INDEX_PAGES,
+  landedStep,
+  mergeHits,
+  nearestStep,
+  WINDOW_PAGE,
+  type FindIndexSource,
+  type FindStep,
+  type IndexHit,
+} from "./findIndex";
+import type { FindRevealValue } from "./findReveal";
 
 export { foldFind };
 
@@ -270,11 +285,27 @@ export function findMatches(rows: readonly AcpmuxRow[], query: string): FindMatc
 export type ChatFind = {
   open: boolean;
   query: string;
+  /** The matches in the loaded rows, in order. */
   matches: FindMatch[];
-  /** The index in `matches` of the current match; 0 when there are none. */
+  /** The index in `matches` of the current match; 0 when there are none; -1 while the current one
+   * is an index hit in a turn not loaded yet (`pending`). */
   active: number;
+  /** Where the reader is among every match, the index's hits in turns not loaded included (the
+   * bar's "3 of 41"); 0 when there are none. */
+  position: number;
+  /** The loaded matches and the index's hits outside them. */
+  total: number;
+  /** The index is still answering, or the current hit's turn is paging in. */
+  busy: boolean;
+  /** The current index hit, while no loaded row holds it. */
+  pending?: IndexHit;
+  /** How far the daemon's index answered this query: `absent` when the chat has none (an older
+   * acpmux, a host that does not relay it), and Find reads the loaded rows alone. */
+  index: "none" | "searching" | "window" | "whole" | "absent";
   /** Opens the bar, with `text` as the query when given. Bumps `focusRequest`. */
   show: (text?: string) => void;
+  /** Opens the bar on `query` with the match nearest `atMs` current (a `find:` reveal, findReveal.ts). */
+  reveal: (find: FindRevealValue) => void;
   hide: () => void;
   setQuery: (query: string) => void;
   next: () => void;
@@ -284,29 +315,168 @@ export type ChatFind = {
 };
 
 /** What a find bar (ChatFindBar) reads: the chat's find, or another view's (the changes view). */
-export type FindBarState = Omit<ChatFind, "matches"> & { matches: readonly unknown[] };
+export type FindBarState = Omit<
+  ChatFind,
+  "matches" | "position" | "total" | "busy" | "pending" | "index" | "reveal"
+> & {
+  matches: readonly unknown[];
+  /** Where the reader is among `total`, when that counts more than `matches` (the transcript index). */
+  position?: number;
+  total?: number;
+  /** Still searching: no "No results" yet. */
+  busy?: boolean;
+};
 
 /// No matches while the bar is closed: one value, so the find a closed bar hands the transcript
 /// keeps its identity as the rows change (VirtualTranscript skips a render its props do not change).
 const NO_MATCHES: FindMatch[] = [];
+const NO_HITS: IndexHit[] = [];
 
-/** The find state of a transcript of `rows`. */
-export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
+/** The current step, kept by its key (FindStep.key); its hit and time find it again once it is gone. */
+type CurrentStep = { key: string; hit?: IndexHit; at: number };
+const stepIdentity = (step: FindStep): CurrentStep => ({
+  key: step.key,
+  at: step.at,
+  ...(step.hit && { hit: step.hit }),
+});
+
+type IndexAnswerState = { key: string; hits: IndexHit[]; phase: "window" | "whole" | "absent" };
+
+/** The newest of `hits` (an acpmux before `order` answers newest first). */
+const newestHit = (hits: readonly IndexHit[]) =>
+  hits.reduce<IndexHit | undefined>((best, hit) => (!best || hit.at > best.at ? hit : best), undefined);
+
+/** The find state of a transcript of `rows`; `index` adds the daemon's hits in turns not loaded
+ * (findIndex.ts). Without one, or when the daemon has no index, Find reads the loaded rows alone. */
+export function useChatFind(rows: readonly AcpmuxRow[], index?: FindIndexSource): ChatFind {
   const [open, setOpen] = useState(false);
   const [query, setQueryState] = useState("");
-  const [active, setActive] = useState(0);
+  // The current step by its identity (FindStep.key), so it stays put as answers and pages land;
+  // undefined while it is the default one.
+  // With it, the hit the step was, so the match that stands for it is current once its turn lands,
+  // and the step's time, so a match whose row went hands its place to the nearest one.
+  const [currentStep, setCurrentStep] = useState<CurrentStep>();
+  const currentKey = currentStep?.key;
+  // A `find:` reveal's time: the default step is the one nearest it.
+  const [near, setNear] = useState<number>();
   const [focusRequest, setFocusRequest] = useState(0);
+  const [answer, setAnswer] = useState<IndexAnswerState>();
+  // The hit whose turn is paging in.
+  const [loading, setLoading] = useState<string>();
   const matchesCache = useRef<FindMatchesCache | undefined>(undefined);
+  // While Find is open the pane draws every output update (ChatFindScope.tsx); a running
+  // command's output from before it opened is in liveToolOutput.ts, not `rows`.
+  const searched = useMemo(() => (open ? rowsWithLiveOutput(rows) : rows), [open, rows]);
   const matches = useMemo(() => {
     if (!open) return NO_MATCHES;
-    // While Find is open the pane draws every output update (ChatFindScope.tsx); a running
-    // command's output from before it opened is in liveToolOutput.ts, not `rows`.
-    const result = findMatchesIncremental(rowsWithLiveOutput(rows), query, matchesCache.current);
+    const result = findMatchesIncremental(searched, query, matchesCache.current);
     matchesCache.current = result.cache;
     return result.matches;
-  }, [open, rows, query]);
-  const count = matches.length;
-  const current = count ? Math.min(active, count - 1) : 0;
+  }, [open, searched, query]);
+  // The newest rows and index for the asks below, written after render (a render may be discarded).
+  const rowsNow = useRef(searched);
+  const indexNow = useRef(index);
+  useLayoutEffect(() => {
+    rowsNow.current = searched;
+    indexNow.current = index;
+  }, [searched, index]);
+  // Two asks per query once typing settles: the rows on screen first (`window`), drawn at once, then
+  // the whole chat, page by page until a page's newest hit is loaded (the rest are newer still).
+  // A newer query or another chat drops what an older ask answers.
+  const searchKey = open && index && foldFind(query).trim() ? `${index.key}\u0000${query}` : undefined;
+  useEffect(() => {
+    const source = indexNow.current;
+    if (!searchKey || !source) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      void (async () => {
+        const window = source.window?.();
+        if (window) {
+          const first = await source.search({ query, window, limit: WINDOW_PAGE }).catch(() => undefined);
+          if (!live) return;
+          if (first) setAnswer({ key: searchKey, hits: mergeHits(first.hits), phase: "window" });
+        }
+        let hits: IndexHit[] = [];
+        for (let page = 0; page < INDEX_PAGES; page++) {
+          const read = await source
+            .search({ query, limit: INDEX_PAGE, ...(page > 0 && { offset: page * INDEX_PAGE }) })
+            .catch(() => undefined);
+          if (!live) return;
+          if (!read) {
+            if (page === 0) return setAnswer({ key: searchKey, hits: [], phase: "absent" });
+            break;
+          }
+          hits = mergeHits(hits, read.hits);
+          const newest = newestHit(read.hits);
+          const counted = read.total !== undefined && (page + 1) * INDEX_PAGE >= read.total;
+          if (read.hits.length < INDEX_PAGE || counted || !newest || hitLoaded(newest, rowsNow.current, source)) break;
+        }
+        setAnswer({ key: searchKey, hits, phase: "whole" });
+      })();
+    }, INDEX_DEBOUNCE_MS);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one search per query and chat
+  }, [searchKey]);
+  const answered = answer !== undefined && answer.key === searchKey ? answer : undefined;
+  const phase: ChatFind["index"] = !searchKey ? "none" : (answered?.phase ?? "searching");
+  const hits = answered?.hits ?? NO_HITS;
+  // The hits no loaded row holds: a loaded one is a local match already.
+  const unloaded = useMemo(
+    () => (hits.length && index ? hits.filter((hit) => !hitLoaded(hit, searched, index)) : NO_HITS),
+    [hits, searched, index],
+  );
+  const steps = useMemo(() => findSteps(matches, searched, unloaded), [matches, searched, unloaded]);
+  const settled = phase !== "searching" && phase !== "window";
+  let position = currentKey === undefined ? -1 : steps.findIndex((step) => step.key === currentKey);
+  if (position < 0 && currentStep !== undefined && steps.length) {
+    const hit = currentStep.hit;
+    position = hit ? landedStep(steps, hit, index?.rowsOfMessage) : nearestStep(steps, currentStep.at);
+    if (position < 0) position = nearestStep(steps, hit?.at ?? 0);
+  }
+  if (currentKey === undefined && steps.length) {
+    // The default: the step nearest a reveal's time, else the first loaded match (as before the
+    // index), else the newest hit, the nearest to the loaded rows.
+    const firstLoaded = steps.findIndex((step) => step.match);
+    position = near !== undefined ? nearestStep(steps, near) : firstLoaded >= 0 ? firstLoaded : steps.length - 1;
+  }
+  position = Math.max(0, position);
+  const current = steps[position];
+  // The current step is kept by its key: once the answers are in, the default stays where it is as
+  // more pages land, and a hit that landed hands its place to its match.
+  useLayoutEffect(() => {
+    if (!current || current.key === currentKey || (currentKey === undefined && !settled)) return;
+    setCurrentStep(stepIdentity(current));
+  }, [current, currentKey, settled]);
+  // Stepping to a hit in a turn not loaded pages the transcript in through it (bounded); the match
+  // that stands for it then becomes current, and the transcript scrolls to it as to any match.
+  const pending = current?.hit;
+  const pendingKey = pending ? current.key : undefined;
+  const loadable = pendingKey !== undefined && (currentKey === pendingKey || settled);
+  const asked = useRef(new Set<string>());
+  useEffect(() => {
+    asked.current = new Set();
+  }, [searchKey]);
+  useEffect(() => {
+    const source = indexNow.current;
+    if (!open || !pending || !pendingKey || !loadable || !source || asked.current.has(pendingKey)) return;
+    asked.current.add(pendingKey);
+    setLoading(pendingKey);
+    void source
+      .load(pending)
+      .catch(() => false)
+      .finally(() => setLoading((now) => (now === pendingKey ? undefined : now)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one load per hit
+  }, [open, pendingKey, loadable]);
+  const busy = phase === "searching" || phase === "window" || (loading !== undefined && loading === pendingKey);
+  const total = steps.length;
+  const active = current?.match ? current.matchIndex : current ? -1 : 0;
+  const stepsNow = useRef({ steps, position });
+  useLayoutEffect(() => {
+    stepsNow.current = { steps, position };
+  }, [steps, position]);
   // Where focus was when the bar opened, so closing it puts the reader back there.
   const opener = useRef<HTMLElement | null>(null);
   const show = useCallback((text?: string) => {
@@ -315,10 +485,18 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
     setOpen(true);
     if (text) {
       setQueryState(text);
-      setActive(0);
+      setCurrentStep(undefined);
+      setNear(undefined);
     }
     setFocusRequest((request) => request + 1);
   }, []);
+  const reveal = useCallback(
+    (find: FindRevealValue) => {
+      show(find.query);
+      setNear(find.atMs);
+    },
+    [show],
+  );
   const hide = useCallback(() => {
     setOpen(false);
     const target = opener.current;
@@ -330,21 +508,59 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   }, []);
   const setQuery = useCallback((next: string) => {
     setQueryState(next);
-    setActive(0);
+    setCurrentStep(undefined);
+    setNear(undefined);
   }, []);
-  const step = useCallback(
-    (by: number) => {
-      if (!count) return;
-      setOpen(true);
-      setActive((index) => (Math.min(index, count - 1) + by + count) % count);
-    },
-    [count],
-  );
+  // From the steps of this render (a ref), so the callbacks keep their identity as rows stream in.
+  const step = useCallback((by: number) => {
+    const { steps: all, position: at } = stepsNow.current;
+    if (!all.length) return;
+    setOpen(true);
+    const to = all[(Math.min(at, all.length - 1) + by + all.length) % all.length]!;
+    // A hit a bounded load stopped short of is asked for again when the reader steps to it again.
+    asked.current.delete(to.key);
+    setCurrentStep(stepIdentity(to));
+  }, []);
   const next = useCallback(() => step(1), [step]);
   const previous = useCallback(() => step(-1), [step]);
+  const shownPosition = total ? position : 0;
   return useMemo(
-    () => ({ open, query, matches, active: current, show, hide, setQuery, next, previous, focusRequest }),
-    [open, query, matches, current, show, hide, setQuery, next, previous, focusRequest],
+    () => ({
+      open,
+      query,
+      matches,
+      active,
+      position: shownPosition,
+      total,
+      busy,
+      ...(pending && { pending }),
+      index: phase,
+      show,
+      reveal,
+      hide,
+      setQuery,
+      next,
+      previous,
+      focusRequest,
+    }),
+    [
+      open,
+      query,
+      matches,
+      active,
+      shownPosition,
+      total,
+      busy,
+      pending,
+      phase,
+      show,
+      reveal,
+      hide,
+      setQuery,
+      next,
+      previous,
+      focusRequest,
+    ],
   );
 }
 

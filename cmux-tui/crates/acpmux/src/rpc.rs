@@ -635,6 +635,9 @@ pub mod method {
     /// What was said in the Claude Code and Codex transcripts here (and on peers), newest first
     /// (`transcript_search.rs`); the local socket, the app and peers only.
     pub const MUX_TRANSCRIPT_SEARCH: &str = "_acpmux/transcript_search";
+    /// The text around a transcript search hit: the message at a line and the ones next to it,
+    /// or a turn (`transcript_read.rs`); the local socket, the app and peers only.
+    pub const MUX_TRANSCRIPT_READ: &str = "_acpmux/transcript_read";
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
     pub const MUX_STATS: &str = "_acpmux/stats";

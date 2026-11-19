@@ -10,8 +10,9 @@
 pub mod index;
 pub mod locate;
 pub mod parse;
+pub mod read;
 
-pub use index::{CatchUp, Error, Hit, Index, Query, Result};
+pub use index::{CatchUp, EXACT_DOCS, Error, Hit, Index, Order, Page, Query, Result};
 pub use locate::{Roots, Source};
 pub use parse::{Harness, Role};
 
@@ -24,6 +25,8 @@ pub struct Searched {
     pub caught_up: CatchUp,
     pub catch_up_ms: u64,
     pub query_ms: u64,
+    /// How many docs in the search's scope hold its text ([`Page::total`]).
+    pub total: Option<u64>,
 }
 
 /// Catches up `sources` (the transcripts `q` covers) and finds `q` in them.
@@ -38,9 +41,10 @@ pub fn search(index: &Index, sources: &[Source], q: &Query) -> Result<(Vec<Hit>,
     }
     done.catch_up_ms = started.elapsed().as_millis() as u64;
     let asked = std::time::Instant::now();
-    let hits = index.search(q)?;
+    let page = index.page(q)?;
+    done.total = page.total;
     done.query_ms = asked.elapsed().as_millis() as u64;
-    Ok((hits, done))
+    Ok((page.hits, done))
 }
 
 #[cfg(test)]

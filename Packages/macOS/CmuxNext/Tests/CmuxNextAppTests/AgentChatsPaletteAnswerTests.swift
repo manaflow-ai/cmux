@@ -226,6 +226,19 @@ import Testing
         #expect(opened.first?.1 == "said:answer:zephyrine", "it opens at the answer that holds the word")
     }
 
+    /// A message older than the text acpmux holds of a chat is found in the transcript index (acpmux
+    /// `chats/deep.rs`): its match carries the message's time, and the row opens Find in Chat at the
+    /// index hit nearest it (`find:<atMs>:<query>`), not `said:`.
+    @Test func aChatFoundInTheTranscriptIndexOpensFindInChatAtTheHitsTime() throws {
+        let json: [String: Any] = ["turn": 0, "role": "prompt", "snippet": "…the zephyrine plan", "matches": 2,
+                                   "at": NSNumber(value: Int64(1_794_000_000_000))]
+        let said = try #require(AcpmuxChat.Said(json: json))
+        #expect(said.atMs == 1_794_000_000_000)
+        #expect(AgentChatsPalettePage.saidReveal(said, query: "zephyrine plan") == "find:1794000000000:zephyrine plan")
+        let held = AcpmuxChat.Said(turn: 3, isAnswer: true, snippet: "x")
+        #expect(AgentChatsPalettePage.saidReveal(held, query: "x") == "said:answer:x", "a held message opens as before")
+    }
+
     /// Review of #38431, F2: a query typed while acpmux still reads chats for the first time keeps its
     /// stream open (each answer shows), so a chat whose words are read later still appears; the stream ends
     /// with the answer that is no longer `filling`.

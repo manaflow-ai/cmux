@@ -96,6 +96,10 @@ pub const MAX_TOOL_BYTES: usize = 8 * 1024;
 pub struct Doc {
     pub role: Role,
     pub text: String,
+    /// The harness's id of the reply the text is from, as acpmux reports it on the reply's
+    /// chunks (`agent_message_chunk.messageId`): Claude Code's `message.id` (`msg_...`), a Codex
+    /// item's `id` when its rollout line has one. Only the agent's reply text has one.
+    pub message: Option<String>,
 }
 
 /// What is carried from one line to the next: the turn the next doc is in.
@@ -145,11 +149,16 @@ fn claude(record: &Value, state: &mut LineState, docs: &mut Vec<Doc>) {
     let compact = record.get("isCompactSummary").and_then(Value::as_bool) == Some(true);
     let Some(content) = record.pointer("/message/content") else { return };
     let role = if kind == "user" { Role::User } else { Role::Assistant };
+    let message = record
+        .pointer("/message/id")
+        .and_then(Value::as_str)
+        .filter(|id| role == Role::Assistant && !id.is_empty());
+    let said = |text: String| Doc { message: message.map(str::to_owned), ..capped(role, text) };
     let mut prompt = false;
     match content {
         Value::String(text) => {
             prompt = role == Role::User;
-            docs.push(capped(role, text.clone()));
+            docs.push(said(text.clone()));
         }
         Value::Array(blocks) => {
             for block in blocks {
@@ -157,7 +166,7 @@ fn claude(record: &Value, state: &mut LineState, docs: &mut Vec<Doc>) {
                     "text" => {
                         if let Some(text) = block.get("text").and_then(Value::as_str) {
                             prompt |= role == Role::User;
-                            docs.push(capped(role, text.to_owned()));
+                            docs.push(said(text.to_owned()));
                         }
                     }
                     "tool_use" => {
@@ -216,7 +225,14 @@ fn codex(record: &Value, state: &mut LineState, docs: &mut Vec<Doc>) {
                     state.turn += 1;
                     docs.push(capped(Role::User, text));
                 }
-                "assistant" => docs.push(capped(Role::Assistant, text)),
+                "assistant" => {
+                    let message = item
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .filter(|id| !id.is_empty())
+                        .map(str::to_owned);
+                    docs.push(Doc { message, ..capped(Role::Assistant, text) });
+                }
                 _ => {}
             }
         }
@@ -301,7 +317,7 @@ fn capped(role: Role, mut text: String) -> Doc {
         }
         text.truncate(end);
     }
-    Doc { role, text }
+    Doc { role, text, message: None }
 }
 
 /// `2026-11-18T09:00:00.123Z` (or with an offset) in ms since the epoch.

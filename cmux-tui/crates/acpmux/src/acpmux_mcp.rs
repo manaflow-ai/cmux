@@ -243,6 +243,7 @@ fn base_tools() -> Value {
     ]);
     if let Some(list) = all.as_array_mut() {
         list.insert(0, send::tool());
+        list.push(crate::transcript_read::mcp_tool());
         list.push(crate::github_status::definition());
     }
     all
@@ -403,6 +404,9 @@ fn served_with(
                 if name == "transcript_search" {
                     return transcript_search_tool(&daemon, &session, &args).await;
                 }
+                if name == "transcript_read" {
+                    return transcript_read_tool(&daemon, &session, &args).await;
+                }
                 if name == "machine_info" {
                     return machine_info(&daemon, &session).await;
                 }
@@ -512,7 +516,7 @@ async fn team_inbox(daemon: &Arc<Client>, args: &Value) -> Value {
     let unread_only = args.get("unreadOnly").and_then(Value::as_bool).unwrap_or(true);
     let mut params = json!({"unreadOnly": unread_only});
     if let Some(before) = args.get("before").and_then(Value::as_u64) {
-        params["before"] = json!(before);
+        crate::json_put::put(&mut params, "before", json!(before));
     }
     match daemon.request(method::MUX_TEAM_INBOX, params).await {
         Ok(result) => ok(team_result_text(&result), result),
@@ -604,12 +608,18 @@ pub(crate) async fn transcript_search_tool(
         Some("self" | "@") if session.is_empty() => {
             return error_result("this server runs in no acpmux chat: name a session".to_owned());
         }
-        Some("self" | "@") => params["sessionId"] = json!(session),
-        Some(other) => params["sessionId"] = json!(other),
+        Some("self" | "@") => crate::json_put::put(&mut params, "sessionId", json!(session)),
+        Some(other) => crate::json_put::put(&mut params, "sessionId", json!(other)),
         None => {}
     }
     match daemon.request(method::MUX_TRANSCRIPT_SEARCH, params).await {
-        Ok(r) => ok(crate::cli::search::text(&r, false), r),
+        Ok(r) => {
+            let mut text = crate::cli::search::text(&r, false);
+            if r.get("hits").and_then(Value::as_array).is_some_and(|h| !h.is_empty()) {
+                text.push_str(crate::transcript_read::SEARCH_HINT);
+            }
+            ok(text, r)
+        }
         Err(e) => refusal(e),
     }
 }
@@ -775,6 +785,35 @@ fn ls_result(all: &Value, args: &Value) -> Value {
         })
         .collect();
     ok(lines.join("\n"), json!({"sessions": slim, "more": more}))
+}
+
+/// `transcript_read`: `_acpmux/transcript_read` (`transcript_read.rs`), the text around a
+/// `transcript_search` hit; `session: self` is this server's own chat.
+pub(crate) async fn transcript_read_tool(
+    daemon: &Arc<Client>,
+    session: &str,
+    args: &Value,
+) -> Value {
+    let Some(key) = arg(args, "session") else {
+        return error_result("session is required: the hit's sessionId, or self".to_owned());
+    };
+    let key = match key {
+        "self" | "@" if session.is_empty() => {
+            return error_result("this server runs in no acpmux chat: name a session".to_owned());
+        }
+        "self" | "@" => session,
+        other => other,
+    };
+    let mut params = json!({"sessionId": key});
+    for k in ["line", "turn", "before", "after", "subagent", "tools", "maxBytes", "host"] {
+        if let Some(v) = args.get(k).filter(|v| !v.is_null()) {
+            crate::json_put::put(&mut params, k, v.clone());
+        }
+    }
+    match daemon.request(method::MUX_TRANSCRIPT_READ, params).await {
+        Ok(r) => ok(crate::transcript_read::text(&r), r),
+        Err(e) => refusal(e),
+    }
 }
 
 #[cfg(test)]

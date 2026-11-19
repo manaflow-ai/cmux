@@ -75,6 +75,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "team_ack",
             "search",
             "transcript_search",
+            "transcript_read",
             "github_status",
             "bg_start",
             "bg_list",

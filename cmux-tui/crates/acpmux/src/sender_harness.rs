@@ -24,6 +24,8 @@
 
 use serde_json::{Map, Value, json};
 
+use crate::json_put::put;
+
 /// The key a send carries the claim under, in `_meta.acpmux`.
 pub const META_KEY: &str = "senderHarness";
 /// The mux record the daemon writes it as: `{promptId, claimed?, checked?}`.
@@ -328,13 +330,6 @@ pub fn checked(
         }
     }
     Some(found)
-}
-
-/// `value[key] = field` on a JSON object, without indexing (a no-op on anything else).
-fn put(value: &mut Value, key: &str, field: Value) {
-    if let Some(map) = value.as_object_mut() {
-        map.insert(key.into(), field);
-    }
 }
 
 /// The `sender_claim` record for a prompt, or `None` with nothing to say.

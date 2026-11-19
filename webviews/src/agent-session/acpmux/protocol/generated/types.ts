@@ -2189,6 +2189,21 @@ export type ToolSummary = {
   source: string;
 } & Record<string, unknown>;
 
+export interface TranscriptSearchParams {
+  _meta?: RequestMeta;
+  context?: unknown;
+  harnessSessionId?: unknown;
+  host?: unknown;
+  limit?: unknown;
+  offset?: unknown;
+  order?: unknown;
+  query?: unknown;
+  role?: unknown;
+  sessionId?: unknown;
+  sinceMs?: unknown;
+  window?: unknown;
+}
+
 export interface TrustGetParams {
   _meta?: RequestMeta;
   cwd?: unknown;
