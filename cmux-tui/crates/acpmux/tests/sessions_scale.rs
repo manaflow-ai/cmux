@@ -335,6 +335,21 @@ impl Daemon {
     fn threads(&self) -> u64 {
         std::fs::read_dir(format!("/proc/{}/task", self.child.id())).map_or(0, |d| d.count() as u64)
     }
+
+    /// The daemon's threads by name (`/proc/PID/task/*/comm`), most first: what a thread per
+    /// peer is.
+    fn thread_names(&self) -> Value {
+        let mut names: HashMap<String, u64> = HashMap::new();
+        if let Ok(tasks) = std::fs::read_dir(format!("/proc/{}/task", self.child.id())) {
+            for task in tasks.flatten() {
+                let name = std::fs::read_to_string(task.path().join("comm")).unwrap_or_default();
+                *names.entry(name.trim().to_owned()).or_default() += 1;
+            }
+        }
+        let mut names: Vec<(String, u64)> = names.into_iter().collect();
+        names.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        Value::Object(names.into_iter().map(|(name, n)| (name, json!(n))).collect())
+    }
 }
 
 impl Drop for Daemon {
@@ -614,6 +629,7 @@ async fn run(n: usize) -> Value {
     let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
     let (rss_end, peak_rss) = daemon.rss();
     let threads = daemon.threads();
+    let thread_names = daemon.thread_names();
     watched.stop.store(true, Ordering::Relaxed);
     drop(daemon);
     // A `dhat-heap` build wrote its heap on the way out: its sites, and the peak per remote row.
@@ -643,7 +659,7 @@ async fn run(n: usize) -> Value {
         "noticesDropped": watched.dropped.load(Ordering::Relaxed),
         "noticeBytes": watched.notice_bytes.load(Ordering::Relaxed),
         "rssListed": rss_listed, "rssSteady": rss_steady, "rssEnd": rss_end, "peakRss": peak_rss,
-        "threads": threads,
+        "threads": threads, "threadNames": thread_names,
         "fanoutUs": spread(&fanout), "lostProbes": lost_probes,
         "attachLocalUs": spread(&local), "attachLocalErrors": local_errors,
         "attachRemoteUs": spread(&remote), "attachRemoteErrors": remote_errors,
