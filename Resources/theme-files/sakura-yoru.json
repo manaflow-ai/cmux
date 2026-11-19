@@ -1,10 +1,10 @@
-// Sakura Yoru: cherry blossom at night. Plum-black glass over almond blossom against the sky,
+// Sakura Yoru: cherry blossom at night. Plum-black glass over Hiroshige's blossoms at Gotenyama,
 // lantern-pink accent and a night-garden palette in every terminal. Copy it to
 // ~/.config/cmux/themes/sakura-yoru.json (yours wins over this one), edit and save: the running app
 // repaints at once, no relaunch.
 {
   "name": "Sakura Yoru",
-  "description": "Plum-black glass over blossom against the sky; lantern pink and moonlit teal.",
+  "description": "Plum-black glass over Hiroshige's Gotenyama blossoms; lantern pink and moonlit teal.",
 
   // The terminal theme and its colors.
   "appearance.theme": "Rose Pine",
@@ -34,7 +34,7 @@
   "appearance.accent": "theme",
 
   // The blossoms behind dark glass.
-  "appearance.background": "van-gogh-almond-blossom",
+  "appearance.background": "hiroshige-gotenyama",
   "appearance.backgroundOpacity": 0.8,
   "appearance.backgroundBlur": "glass",
   "appearance.glassTransparency": 0.3,

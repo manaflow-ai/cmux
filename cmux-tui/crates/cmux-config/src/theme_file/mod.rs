@@ -148,7 +148,7 @@ pub fn readable_path(config_dir: &Path, name: &str, bundled: Option<&Path>) -> O
 /// The theme files cmux ships (`Resources/theme-files`, the app's
 /// `Contents/Resources/theme-files`), so the daemon and the CLI read them
 /// with no app bundle. A user's file of the same name wins.
-const SHIPPED: [(&str, &str); 11] = [
+const SHIPPED: [(&str, &str); 13] = [
     ("charcoal", include_str!("../../../../../Resources/theme-files/charcoal.json")),
     ("classic-desktop", include_str!("../../../../../Resources/theme-files/classic-desktop.json")),
     ("claude-desktop", include_str!("../../../../../Resources/theme-files/claude-desktop.json")),
@@ -166,6 +166,8 @@ const SHIPPED: [(&str, &str); 11] = [
     ("sakura", include_str!("../../../../../Resources/theme-files/sakura.json")),
     ("sakura-yoru", include_str!("../../../../../Resources/theme-files/sakura-yoru.json")),
     ("sumi", include_str!("../../../../../Resources/theme-files/sumi.json")),
+    ("takiyasha", include_str!("../../../../../Resources/theme-files/takiyasha.json")),
+    ("thousand-li", include_str!("../../../../../Resources/theme-files/thousand-li.json")),
 ];
 
 /// The text of the shipped theme file `name`.

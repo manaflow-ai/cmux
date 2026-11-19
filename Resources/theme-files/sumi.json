@@ -1,9 +1,9 @@
-// Sumi: ink on washi. Warm paper glass over Hokusai's Mount Fuji, sumi-black text, one seal-red
+// Sumi: ink on washi. Warm paper glass over Tōhaku's pines in mist, sumi-black text, one seal-red
 // accent, a serif reading face and almost no motion. Copy it to ~/.config/cmux/themes/sumi.json
 // (yours wins over this one), edit and save: the running app repaints at once, no relaunch.
 {
   "name": "Sumi",
-  "description": "Ink on washi paper over Hokusai's Fuji; one seal-red accent, serif reading, stillness.",
+  "description": "Ink on washi paper over Tōhaku's pines in mist; one seal-red accent, serif reading, stillness.",
 
   // The terminal theme and its colors: ink tones, with the seal's red as the only loud color.
   "appearance.theme": "Kanagawa Lotus",
@@ -33,7 +33,7 @@
   "appearance.accent": "theme",
 
   // The print behind paper: mostly paper.
-  "appearance.background": "hokusai-umezawa",
+  "appearance.background": "tohaku-pine-trees",
   "appearance.backgroundOpacity": 0.86,
   "appearance.backgroundBlur": "frosted",
   "appearance.glassTransparency": 0.2,

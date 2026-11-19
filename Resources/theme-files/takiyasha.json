@@ -1,0 +1,69 @@
+// Takiyasha: samurai-era drama from Kuniyoshi's print of the skeleton spectre. Bone white on lamp
+// black, an indigo sidebar and one vermilion accent, square-cut cards and a vermilion braille
+// spinner. Copy it to ~/.config/cmux/themes/takiyasha.json (yours wins over this one), edit and save:
+// the running app repaints at once, no relaunch.
+{
+  "name": "Takiyasha",
+  "description": "Kuniyoshi's skeleton spectre: bone white on lamp black, indigo and one vermilion accent.",
+
+  // The terminal theme and its colors: woodblock inks.
+  "appearance.theme": "Kanagawa Dragon",
+  "colors": {
+    "background": "#0d0d10",
+    "foreground": "#ece4d2",
+    "cursor": "#e0402a",
+    "selection": "#25283a",
+    "accent": "#e0402a",
+    "0": "#141418",
+    "1": "#e0402a",
+    "2": "#7f9a5a",
+    "3": "#d9a441",
+    "4": "#3d5a9e",
+    "5": "#9c4f7a",
+    "6": "#4f8f95",
+    "7": "#d6cdb8",
+    "8": "#5c5a62",
+    "9": "#f2604a",
+    "10": "#9bb876",
+    "11": "#ecbf62",
+    "12": "#5e7cc2",
+    "13": "#bf6f9c",
+    "14": "#6fb0b5",
+    "15": "#f8f2e4"
+  },
+  "appearance.accent": "theme",
+
+  // The print behind smoked glass.
+  "appearance.background": "kuniyoshi-takiyasha",
+  "appearance.backgroundOpacity": 0.78,
+  "appearance.backgroundBlur": "glass",
+  "appearance.glassTransparency": 0.35,
+
+  // Outlined cards; a deep indigo sidebar of icon lines with a hairline edge.
+  "appearance.chromeStyle": "card-outlined",
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#0e1224",
+  "appearance.surfaces.sidebar.opacity": 0.82,
+  "sidebar.border": true,
+  "sidebar.sectionLook": "linesIcons",
+  "appearance.surfaces.terminal.color": "#0d0d10",
+  "appearance.surfaces.terminal.opacity": 0.86,
+  "appearance.surfaces.agentPane.color": "#0d0d10",
+  "appearance.surfaces.agentPane.opacity": 0.9,
+  "appearance.surfaces.newTabPage.color": "#0d0d10",
+  "appearance.surfaces.newTabPage.opacity": 0.5,
+  "appearance.focusIndicator": "both",
+
+  // Type: Folio's Hanken Grotesk, Menlo in the terminals.
+  "agentPane.display.font.ui": "hanken",
+  "terminal.fontFamily": "Menlo",
+  "terminal.fontSize": 13,
+
+  // Motion: a quick vermilion braille spinner.
+  "appearance.statusIndicator.style": "braille",
+  "appearance.statusIndicator.color": "#e0402a",
+  "appearance.colorTransition.curve": "spring",
+  "appearance.colorTransition.duration": 250,
+
+  "appearance.density": "cozy"
+}

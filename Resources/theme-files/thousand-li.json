@@ -1,0 +1,74 @@
+// Thousand Li: the jewel tones of Wang Ximeng's blue-green landscape scroll. Azure and malachite
+// peaks on gold silk behind dark lacquer glass, a malachite accent, a gold spinner. Copy it to
+// ~/.config/cmux/themes/thousand-li.json (yours wins over this one), edit and save: the running app
+// repaints at once, no relaunch.
+{
+  "name": "Thousand Li",
+  "description": "Wang Ximeng's azure and malachite mountains on gold silk, behind dark lacquer glass.",
+
+  // The terminal theme and its colors: mineral blues and greens, silk gold, cinnabar.
+  "appearance.theme": "Kanagawa Wave",
+  "colors": {
+    "background": "#0c1a1c",
+    "foreground": "#efe6cc",
+    "cursor": "#e2b65a",
+    "selection": "#1f3b3c",
+    "accent": "#3fb39a",
+    "0": "#10211f",
+    "1": "#d2553a",
+    "2": "#3fb39a",
+    "3": "#e2b65a",
+    "4": "#3f8fc9",
+    "5": "#b07aa8",
+    "6": "#4fc1c4",
+    "7": "#d9cfb3",
+    "8": "#5a6f66",
+    "9": "#e8734f",
+    "10": "#6fd3b8",
+    "11": "#f0cd7e",
+    "12": "#6aaee0",
+    "13": "#cc9ac4",
+    "14": "#7ad8da",
+    "15": "#fbf5e4"
+  },
+  "appearance.accent": "theme",
+  "appearance.saturation": 1.2,
+
+  // The scroll behind lacquer glass.
+  "appearance.background": "wang-ximeng-thousand-li",
+  "appearance.backgroundOpacity": 0.74,
+  "appearance.backgroundBlur": "glass",
+  "appearance.glassTransparency": 0.4,
+  "appearance.wallpaperTint": true,
+
+  // Floating panes; a deep lacquer sidebar with a gold hairline, sections as trays.
+  "appearance.chromeStyle": "floating",
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#081312",
+  "appearance.surfaces.sidebar.opacity": 0.78,
+  "sidebar.border": true,
+  "sidebar.sectionLook": "tray",
+  "appearance.surfaces.terminal.color": "#0c1a1c",
+  "appearance.surfaces.terminal.opacity": 0.84,
+  "appearance.surfaces.agentPane.color": "#0c1a1c",
+  "appearance.surfaces.agentPane.opacity": 0.88,
+  "appearance.surfaces.newTabPage.color": "#0c1a1c",
+  "appearance.surfaces.newTabPage.opacity": 0.45,
+  "appearance.surfaces.home.color": "#0c1a1c",
+  "appearance.surfaces.home.opacity": 0.45,
+  "browser.omnibar.glass": "regular",
+
+  // Type: Folio's Hanken Grotesk in the chat, serif for reading.
+  "agentPane.display.font.ui": "hanken",
+  "agentPane.display.font.preset": "serif",
+  "terminal.fontFamily": "Menlo",
+  "terminal.fontSize": 13,
+
+  // Motion: a gold arc, colors that ease in slowly.
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.color": "#e2b65a",
+  "appearance.colorTransition.curve": "easeInOut",
+  "appearance.colorTransition.duration": 400,
+
+  "appearance.density": "comfortable"
+}

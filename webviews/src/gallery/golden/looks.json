@@ -198,6 +198,35 @@
           "themeFile": "Resources/theme-files/earthly-delights.json"
         }
       }
+    },
+    {
+      "id": "thousand-li",
+      "title": "Thousand Li",
+      "note": "A flagship theme file. Wang Ximeng's azure and malachite mountains on gold silk, behind dark lacquer glass. Drawn in dark; the other scheme keeps the default.",
+      "settings": {
+        "agentPane.display.font.ui": "hanken",
+        "agentPane.display.font.preset": "serif"
+      },
+      "schemes": {
+        "light": {},
+        "dark": {
+          "themeFile": "Resources/theme-files/thousand-li.json"
+        }
+      }
+    },
+    {
+      "id": "takiyasha",
+      "title": "Takiyasha",
+      "note": "A flagship theme file. Kuniyoshi's skeleton spectre: bone white on lamp black, indigo and one vermilion accent. Drawn in dark; the other scheme keeps the default.",
+      "settings": {
+        "agentPane.display.font.ui": "hanken"
+      },
+      "schemes": {
+        "light": {},
+        "dark": {
+          "themeFile": "Resources/theme-files/takiyasha.json"
+        }
+      }
     }
   ]
 }

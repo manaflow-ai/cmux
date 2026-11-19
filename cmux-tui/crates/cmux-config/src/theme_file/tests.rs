@@ -240,6 +240,8 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
         "frutiger-aero-2027",
         "one-bit",
         "earthly-delights",
+        "thousand-li",
+        "takiyasha",
     ] {
         assert!(list.iter().any(|name| name == look), "{look} in {list:?}");
     }
