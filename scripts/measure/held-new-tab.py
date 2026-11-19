@@ -229,6 +229,9 @@ report, the --build file, each take's record and signpost stream and the film's 
 when each row measured what it names; 2 when a row did not (an INVALID row, a finding) and each round still has a
 valid row; 1 when the preflight failed or a round has no valid row (the run ends after that round); 3 when it
 cannot run as asked (no report file then). See `exit_code`.
+With --letter-cases N the tool runs, after the rows, N cases of each form of new-tab-letters.py (a letter after a
+New Tab key, as key sequences in a page's window): the report's `letter_cases`. A case changes no exit code. With
+--letter-only the session is made and the cases run with no row.
 Run on a fleet GUI host (held-new-tab.sh), never on a Mac that someone works on.
 """
 import argparse, ctypes, importlib.util, json, os, re, select, signal, socket, subprocess, sys, tarfile, threading, time, traceback
@@ -248,6 +251,7 @@ REPEAT_RULE = "the system's: each new key-down of T starts its repeats again aft
 SEED_LIMIT = ("the page tabs have no favicon and the terminals have one folder: the new tab page's favicon work and "
               "its list of folders are not in these rows")
 RECENT = BENCH.load("recent_pages", os.path.join(os.path.dirname(os.path.abspath(__file__)), "recent-pages.py"))
+LETTERS = BENCH.load("new_tab_letters", os.path.join(os.path.dirname(os.path.abspath(__file__)), "new-tab-letters.py"))
 RECENT_LIMIT = ("the page tabs of the session have no favicon and the terminals have one folder: the new tab page's list "
                 "of folders is not in these rows, and its favicon work is only that of the recent pages which "
                 "`recent_pages` names, with the limits that it names")
@@ -1614,7 +1618,7 @@ def run_rows(opts, app, signposts, report, form):
     state, openers, no_openers = BENCH.start_state(builder, workspace), {}, None
     takes = [(r, n) for r in range(opts.rounds) for n in ROWS] + [("wide", "hold")] + ([("sample", "hold")] if opts.sample_s else []) \
         + ([("film", "mixed")] if opts.film else [])
-    for index, name in takes:
+    for index, name in [] if opts.letter_only else takes:
         wide, sample, record = index == "wide", index == "sample", {}
         # The wider recording has a scenario name of its own: a reader that groups the rows by `scenario` (the bench
         # `newtab` does) then keeps it out of the numbers of `hold` and lists it as a scenario of its own.
@@ -1770,6 +1774,9 @@ def run_rows(opts, app, signposts, report, form):
         if name == ROWS[-1] and not any(valid(r) for r in report["rows"] if r.get("round") == index):
             report["failures"].append(f"round {index} has no valid row: the run ends here")
             return
+    if opts.letter_cases:
+        # After the rows, in the session that they left (new-tab-letters.py, LIMITS). A case changes no exit code.
+        report["letter_cases"] = LETTERS.Letters(builder, app.rpc, STRESS.wait).run(opts.letter_cases)
 
 
 def main():
@@ -1800,6 +1807,9 @@ def main():
                              "sequences in the key window; one-key: the launcher's launch, each key-down one call; auto: activate, then one-key")
     parser.add_argument("--display", default="real", help="what the entry script says of the display, for the preflight's first line")
     parser.add_argument("--build", help="the JSON of build-flags.py: the form of the app's build, for the report and the artifact")
+    parser.add_argument("--letter-cases", type=int, default=0,
+                        help="after the rows: this many cases of each form of new-tab-letters.py (a letter after a New Tab key; 0: none)")
+    parser.add_argument("--letter-only", action="store_true", help="the session and the letter cases, with no row")
     for internal in ("--row", "--socket", "--workspace", "--pane", "--sample-pid"):
         parser.add_argument(internal, help=argparse.SUPPRESS)
     parser.add_argument("--keep", type=int, default=0, help=argparse.SUPPRESS)
@@ -1856,6 +1866,8 @@ def main():
             after = page_engine(app.rpc)
             report["page_engine"] = {"engine": after["engine"], "at_launch": engine, "after_the_rows": after, "limit": ENGINE_LIMIT}
             app.stop()
+    if opts.letter_cases:
+        report.setdefault("letter_cases", {"not_run": "the run ended before the letter cases"})
     with open(os.path.join(opts.out, "report.json"), "w") as f:
         json.dump(report, f, indent=1)
     print("HELD-NEW-TAB " + json.dumps(report), flush=True)
@@ -1864,7 +1876,7 @@ def main():
             print(f"held-new-tab: artifact {opts.artifact}: {len(pack(opts.out, opts.film, opts.artifact, opts.build))} files", flush=True)
         except (OSError, tarfile.TarError) as error:
             print(f"held-new-tab: no artifact {opts.artifact}: {error!r}", flush=True)
-    return exit_code(report, opts.rounds)
+    return exit_code(report, 0 if opts.letter_only else opts.rounds)
 
 
 if __name__ == "__main__":
