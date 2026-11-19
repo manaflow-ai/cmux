@@ -18,7 +18,7 @@ use cmux_rd_core::flow::Rect;
 use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
-use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
+use cmux_rd_engine::{EncodeRequest, Encoded, EngineConfig, MediaEngine, Output};
 use cmux_rd_proto::{DatagramHeader, DatagramKind};
 use std::collections::VecDeque;
 
@@ -494,11 +494,19 @@ impl MediaSession {
     fn send_encoded(&mut self, carrier: &mut dyn Carrier) -> Res<()> {
         let Some(Done { req, result }) = self.encoder.take_done()? else { return Ok(()) };
         let frame = result?;
+        let idr = frame.idr.then(|| idr_reason(&req, frame.idr_cause));
+        if let Some(reason) = idr {
+            // Every keyframe says why, timing log or not: one costs many delta frames' bytes.
+            eprintln!(
+                "cmux-rd host: idr stream={} frame={} reason={reason} bytes={}",
+                req.stream,
+                req.frame,
+                frame.access_unit.len()
+            );
+        }
         // Logged after the send, with the send time (`sent_us`).
         let logged = self.timing.is_some().then(|| {
             let len = frame.access_unit.len();
-            // An IDR the engine did not ask for is the encoder's own choice.
-            let idr = frame.idr.then(|| req.idr_reason.map_or("encoder", |r| r.as_str()));
             (frame.picked_times, frame.t_capture_us, frame.encoded_us, len, idr)
         });
         self.encode_ms.push_back(frame.encode_ms);
@@ -728,14 +736,38 @@ impl MediaSession {
     }
 }
 
+/// Why an encoded IDR is one: the engine's ask, else the encoder's own cause, else
+/// `encoder` for an encoder that cannot say.
+fn idr_reason(req: &EncodeRequest, cause: Option<&'static str>) -> &'static str {
+    req.idr_reason.map(|r| r.as_str()).or(cause).unwrap_or("encoder")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::viewer_silent_too_long;
+    use super::{idr_reason, viewer_silent_too_long};
+    use cmux_rd_core::flow::Rect;
+    use cmux_rd_engine::{EncodeRequest, IdrReason};
 
     #[test]
     fn viewer_silence_allows_the_ninety_second_reattach_window() {
         assert!(!viewer_silent_too_long(90_000_000));
         assert!(viewer_silent_too_long(90_000_001));
+    }
+
+    #[test]
+    fn an_idr_names_the_engines_ask_then_the_encoders_cause() {
+        let req = |reason| EncodeRequest {
+            stream: 0,
+            frame: 9,
+            damage: Rect { x: 0, y: 0, width: 16, height: 16 },
+            force_idr: reason.is_some(),
+            idr_reason: reason,
+            target_kbps: 8_000,
+        };
+        assert_eq!(idr_reason(&req(Some(IdrReason::Recovery)), None), "recovery");
+        assert_eq!(idr_reason(&req(Some(IdrReason::Start)), Some("resize")), "start");
+        assert_eq!(idr_reason(&req(None), Some("scene_change")), "scene_change");
+        assert_eq!(idr_reason(&req(None), None), "encoder");
     }
 }
 

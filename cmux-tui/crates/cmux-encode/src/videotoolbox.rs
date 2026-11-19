@@ -187,6 +187,8 @@ pub struct VideoToolbox {
     /// The color tag the session carries (surface path); `None` until set.
     color: Option<ColorTag>,
     name: String,
+    /// Why the last frame was an IDR nobody asked for (see [`H264Encoder::idr_cause`]).
+    idr_cause: Option<&'static str>,
 }
 
 // SAFETY: the session and buffer are used from one thread at a time (the media loop).
@@ -423,6 +425,7 @@ impl VideoToolbox {
             baseline,
             kbps: kbps.max(100),
             color: None,
+            idr_cause: None,
             name: format!(
                 "videotoolbox h264 {} low-latency-rc realtime no-reordering gop=inf",
                 if baseline { "constrained-baseline" } else { "high" }
@@ -549,6 +552,7 @@ impl H264Encoder for VideoToolbox {
         let resized = self.ensure_session(self.width, self.height)?;
         self.fill(pic)?;
         let pb = self.pixel_buffer;
+        self.idr_cause = (resized && !force_idr).then_some("resize");
         self.encode_buffer(pb, force_idr || resized, pts, out)
     }
 
@@ -565,6 +569,10 @@ impl H264Encoder for VideoToolbox {
 
     fn name(&self) -> String {
         self.name.clone()
+    }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        self.idr_cause
     }
 }
 
