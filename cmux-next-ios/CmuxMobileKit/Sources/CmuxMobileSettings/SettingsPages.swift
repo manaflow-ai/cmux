@@ -138,7 +138,7 @@ struct AccountPage: View {
             Button("Delete Account", role: .destructive) { Task { await delete() } }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text(String(localized: "mobile.account.deleteAppStore.message", defaultValue: "Deleting your account doesn't cancel the App Store subscription: Apple keeps charging until you cancel it there. Deletion is permanent and signs you out everywhere.", bundle: .module))
+            Text(String(localized: "mobile.account.deleteAppStore.message", defaultValue: "Deleting your cmux account doesn't cancel your App Store subscription: cancel it in the App Store. Deletion signs you out everywhere and is permanent.", bundle: .module))
         }
         .alert("Account not deleted", isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } })) {
             Button("OK", role: .cancel) {}
