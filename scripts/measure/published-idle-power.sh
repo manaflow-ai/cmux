@@ -23,11 +23,30 @@ import datetime
 import json
 import os
 import plistlib
+import platform
 import subprocess
 import sys
 sys.path.insert(0, os.path.abspath('scripts/cmux-next'))
 import bench_memory as bm
 import bench_power as bp
+
+# This comparison includes payload processes launched outside the app bundle
+# (for example agent executables). Keep the shared bundle-only sampler's
+# default scope unchanged; expand just this observer to every descendant.
+bundle_owned = bm.owned
+def observed_owned(app_pid, app_bundle):
+    found = dict(bundle_owned(app_pid, app_bundle))
+    children = {}
+    for child_pid, parent_pid, command in bm.process_table():
+        children.setdefault(parent_pid, []).append((child_pid, command))
+    stack = list(found)
+    while stack:
+        for child_pid, command in children.get(stack.pop(), []):
+            if child_pid not in found:
+                found[child_pid] = (bm.kind_of(command, app_bundle), command)
+                stack.append(child_pid)
+    return found
+bm.owned = observed_owned
 
 bundle, pid, label, seconds, out = sys.argv[1:]
 bundle, pid, seconds = os.path.realpath(bundle), int(pid), int(seconds)
@@ -71,8 +90,10 @@ after = bm.owned(pid, bundle)
 last = {p: bp.counters(p) for p in owned}
 valid = set(owned) == set(after) and all(first[p] is not None and last[p] is not None for p in owned)
 result.update(start=start, end=utc(), bundle=bundle, pid=pid,
+              host=platform.node().split('.')[0], os=platform.platform(), chip=platform.machine(),
               version=info.get('CFBundleShortVersionString'), bundle_id=info.get('CFBundleIdentifier'),
               members_before=owned, members_after=after, valid=valid, top_status=top.returncode,
+              process_scope='bundle-owned processes and all observed descendants',
               validity_scope='stable observed membership and readable endpoint counters; transient processes may be missed',
               capture_status=capture_status, capture_error=capture_error)
 result['existing_daemons'] = [{'pid': p, 'command': cmd, 'before': first, 'after': bp.counters(p)}

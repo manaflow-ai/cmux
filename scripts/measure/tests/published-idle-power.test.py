@@ -17,7 +17,7 @@ SOURCE = (Path(__file__).parents[1] / 'published-idle-power.sh').read_text().spl
 
 
 class ObserverTests(unittest.TestCase):
-    def observe(self, *, exits=False, unreadable=False, capture_hangs=False, top_hangs=False, measure_fails=False):
+    def observe(self, *, exits=False, unreadable=False, capture_hangs=False, top_hangs=False, measure_fails=False, descendants=False):
         with tempfile.TemporaryDirectory() as root:
             bundle = Path(root) / 'Test.app'
             (bundle / 'Contents').mkdir(parents=True)
@@ -30,7 +30,9 @@ class ObserverTests(unittest.TestCase):
                 calls.append(True)
                 return {} if exits and len(calls) > 1 else membership
             bm.owned = owned
-            bm.process_table = lambda: []
+            bm.process_table = lambda: [(44, 43, '/usr/bin/node helper'), (43, 42, '/usr/local/bin/claude'),
+                                       (99, 1, '/usr/local/bin/claude')] if descendants else []
+            bm.kind_of = lambda command, _: command.split()[0].rsplit('/', 1)[-1]
             bp = types.ModuleType('bench_power')
             counter_calls = []
             def counters(_):
@@ -97,6 +99,11 @@ class ObserverTests(unittest.TestCase):
         _, child, error = self.observe(measure_fails=True)
         self.assertIsInstance(error, RuntimeError)
         self.assertTrue(child.terminated)
+
+    def test_external_nested_agent_children_count_but_unrelated_agents_do_not(self):
+        report, _, error = self.observe(descendants=True)
+        self.assertIsNone(error)
+        self.assertEqual(set(report['members_before']), {'42', '43', '44'})
 
 
 if __name__ == '__main__':
