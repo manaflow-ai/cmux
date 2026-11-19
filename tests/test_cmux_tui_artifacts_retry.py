@@ -34,6 +34,12 @@ def job(job_id, conclusion):
     return {"id": job_id, "name": f"job {job_id}", "conclusion": conclusion}
 
 
+def started(job_id, conclusion):
+    """A job a runner took: it has a runner name and steps."""
+    return {**job(job_id, conclusion), "runner_name": "cmux-gcp-lane-build-x64-3", "runner_id": 41,
+            "steps": [{"name": "Set up job", "conclusion": "success"}]}
+
+
 PREFLIGHT = {"id": 99, "name": "cmux-tui tree preflight", "conclusion": "success"}
 
 
@@ -99,9 +105,41 @@ class RetryPolicyTests(unittest.TestCase):
                 decision = retry.decide(run(), tree_jobs(job(1, "success"), job(2, conclusion), job(3, "skipped")), {})
                 self.assertEqual(decision.action, "rerun-failed-jobs")
                 self.assertIn("job 2", decision.reason)
-        # A run that someone cancelled ends `cancelled` and stays as it is.
-        cancelled = retry.decide(run(conclusion="cancelled"), tree_jobs(job(2, "cancelled")), {})
+        # A run that someone cancelled while a job ran ends `cancelled` and stays as it is.
+        cancelled = retry.decide(run(conclusion="cancelled"), tree_jobs(started(2, "cancelled")), {})
         self.assertEqual(cancelled.action, "skip")
+
+    def test_a_run_cancelled_before_a_runner_took_it_is_retried(self):
+        # 2026-11-19, run 44445358522 (a6082e85): its tree preflight queued on cmux-gcp-lane-build-x64 from
+        # 02:34Z, the queue janitor cancelled it at 04:33Z with no runner, and nothing reran it, so the commit
+        # never got a manifest or the mac-live.json `cmux app try` reads. The rerun is attempt 2 (Blacksmith).
+        preflight = {**job(99, "cancelled"), "name": "cmux-tui tree preflight", "runner_name": "", "steps": []}
+        decision = retry.decide(run(conclusion="cancelled"), [preflight, job(3, "skipped")], {})
+        self.assertEqual(decision.action, "rerun-failed-jobs")
+        self.assertIn("cmux-tui tree preflight", decision.reason)
+        # A later job lost the queue after the preflight ran: the same.
+        decision = retry.decide(run(conclusion="cancelled"), tree_jobs(job(2, "cancelled"), job(3, "skipped")), {})
+        self.assertEqual(decision.action, "rerun-failed-jobs")
+        self.assertEqual(retry.decide(run(conclusion="cancelled", run_attempt=3),
+                                      tree_jobs(job(2, "cancelled")), {}).action, "skip")
+
+    def test_a_cancelled_run_is_retried_only_when_no_cancelled_job_started(self):
+        for jobs in (
+            tree_jobs(job(2, "cancelled"), started(3, "cancelled")),  # one ran: someone stopped the run
+            tree_jobs(job(2, "cancelled"), job(3, "failure")),        # a real failure rides along
+            tree_jobs(job(2, "success")),                             # nothing cancelled
+        ):
+            with self.subTest(jobs=jobs):
+                self.assertEqual(retry.decide(run(conclusion="cancelled"), jobs, {}).action, "skip")
+
+    def test_a_cancelled_run_is_retried_only_on_feat_pushes(self):
+        for overrides in ({"head_branch": "cmux-tui-pin-0123456789ab"}, {"head_branch": "op-next-theme/accent"},
+                          {"event": "workflow_dispatch"}):
+            with self.subTest(overrides=overrides):
+                decision = retry.decide(run(conclusion="cancelled", **overrides), tree_jobs(job(2, "cancelled")), {})
+                self.assertEqual(decision.action, "skip")
+        # main's same-named workflow has no tree preflight.
+        self.assertEqual(retry.decide(run(conclusion="cancelled"), [job(2, "cancelled")], {}).action, "skip")
 
 
 if __name__ == "__main__":
