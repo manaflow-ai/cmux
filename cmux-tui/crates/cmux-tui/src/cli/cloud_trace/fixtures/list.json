@@ -1,0 +1,19 @@
+{
+  "window_ms": 86400000,
+  "since_ms": 1795525200000,
+  "traces": [
+    {"trace": "tr_cli_0123456789abcdef", "machine": "vm_0123456789abcdefghij", "started_at": 1795611600000, "total_ms": 20000, "path": "spare", "hops_seen": ["click", "api", "placement", "provider_create", "boot", "network", "agent_auth", "first_token"]},
+    {"trace": "app-idempotency-key-0001", "machine": null, "started_at": 1795611500000, "total_ms": 1500, "path": null, "hops_seen": ["api", "placement"]}
+  ],
+  "hops": {
+    "click": {"n": 1, "p50_ms": 200, "p95_ms": 200},
+    "api": {"n": 2, "p50_ms": 1000, "p95_ms": 1500},
+    "placement": {"n": 2, "p50_ms": 300, "p95_ms": 400},
+    "provider_create": {"n": 1, "p50_ms": 200, "p95_ms": 200},
+    "restore": {"n": 0, "p50_ms": null, "p95_ms": null},
+    "boot": {"n": 1, "p50_ms": 4000, "p95_ms": 4000},
+    "network": {"n": 1, "p50_ms": 1300, "p95_ms": 1300},
+    "agent_auth": {"n": 1, "p50_ms": 8000, "p95_ms": 8000},
+    "first_token": {"n": 1, "p50_ms": 5800, "p95_ms": 5800}
+  }
+}

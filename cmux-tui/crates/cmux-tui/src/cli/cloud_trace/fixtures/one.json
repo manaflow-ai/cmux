@@ -1,0 +1,20 @@
+{
+  "trace": "tr_cli_0123456789abcdef",
+  "machine": "vm_0123456789abcdefghij",
+  "started_at": 1795611600000,
+  "total_ms": 20000,
+  "path": "spare",
+  "spans": [
+    {"hop": "click", "start_ms": 1795611600000, "end_ms": 1795611600200, "source": "cli", "attrs": {"outcome": "ok"}},
+    {"hop": "api", "start_ms": 1795611600200, "end_ms": 1795611601200, "source": "platform", "attrs": {}},
+    {"hop": "placement", "start_ms": 1795611600300, "end_ms": 1795611600700, "source": "platform", "attrs": {}},
+    {"hop": "network", "start_ms": 1795611600700, "end_ms": 1795611600900, "source": "platform", "attrs": {"part": "prepare"}},
+    {"hop": "provider_create", "start_ms": 1795611600900, "end_ms": 1795611601100, "source": "platform", "attrs": {"path": "spare"}},
+    {"hop": "network", "start_ms": 1795611601100, "end_ms": 1795611601200, "source": "platform", "attrs": {"part": "attach"}},
+    {"hop": "boot", "start_ms": 1795611601200, "end_ms": 1795611605200, "source": "platform", "attrs": {}},
+    {"hop": "network", "start_ms": 1795611605200, "end_ms": 1795611606200, "source": "cli", "attrs": {"part": "connect"}},
+    {"hop": "agent_auth", "start_ms": 1795611606200, "end_ms": 1795611614200, "source": "machine", "attrs": {}},
+    {"hop": "agent_auth", "start_ms": 1795611606000, "end_ms": 1795611615000, "source": "cli", "attrs": {}},
+    {"hop": "first_token", "start_ms": 1795611614200, "end_ms": 1795611620000, "source": "cli", "attrs": {}}
+  ]
+}
