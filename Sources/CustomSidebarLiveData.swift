@@ -81,6 +81,14 @@ final class CustomSidebarDataChangeMonitor {
     /// True while at least one sidebar holds the monitor.
     var isObserving: Bool { retainCount > 0 }
 
+    /// True while any subscription or observation task is live. `stop()`
+    /// tears them all down synchronously, so this is false right after the
+    /// last ``release()``.
+    var hasLiveSubscriptions: Bool {
+        !cancellables.isEmpty || !workspaceCancellables.isEmpty
+            || !workspaceTasks.isEmpty || !globalTasks.isEmpty
+    }
+
     private func signal() {
         changes.send()
     }

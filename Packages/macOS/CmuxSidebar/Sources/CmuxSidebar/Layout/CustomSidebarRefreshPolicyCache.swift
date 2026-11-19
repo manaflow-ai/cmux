@@ -59,8 +59,11 @@ public final class CustomSidebarRefreshPolicyCache {
             return entry.policy
         }
         let candidates = Self.candidateExtensions.map { base.appendingPathExtension($0) }
+        // Stat the symlink target, not the link: a dotfiles-managed sidebar
+        // is often a symlink, and editing its target leaves the link's own
+        // date unchanged.
         let dates = candidates.map { url in
-            (try? fileManager.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
+            (try? fileManager.attributesOfItem(atPath: url.resolvingSymlinksInPath().path)[.modificationDate]) as? Date
         }
         if var entry = entries[base], entry.modificationDates == dates {
             entry.checkedAt = now

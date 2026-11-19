@@ -83,20 +83,19 @@ import Testing
         #expect(replayed)
     }
 
-    @Test func releasedMonitorStopsObserving() async throws {
+    @Test func releasedMonitorTearsDownEverySubscription() throws {
         let manager = TabManager()
-        let workspace = try #require(manager.selectedWorkspace)
         let monitor = manager.customSidebarDataChangeMonitor
         monitor.retain()
+        #expect(monitor.hasLiveSubscriptions)
+        monitor.retain()
         monitor.release()
+        #expect(monitor.hasLiveSubscriptions, "one holder remains")
+
+        monitor.release()
+
         #expect(!monitor.isObserving)
-        let before = monitor.revision
-
-        workspace.setCustomTitle("Not observed")
-
-        // With no subscriptions nothing can bump it; the bound covers the
-        // coalesce window a live monitor would have used.
-        #expect(!(await waitForRevision(after: before, of: monitor, timeout: .milliseconds(1_500))))
+        #expect(!monitor.hasLiveSubscriptions)
     }
 
     @Test func monitorIsSharedPerTabManager() {

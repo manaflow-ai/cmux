@@ -67,6 +67,21 @@ struct CustomSidebarRefreshPolicyCacheTests {
         #expect(reads == 1)
     }
 
+    /// Editing a symlinked sidebar's target (dotfiles) must be noticed even
+    /// though the link itself doesn't change.
+    @Test func editingASymlinkTargetIsNoticed() throws {
+        let directory = try Directory()
+        let target = try directory.write("target.js", "Text(\"a\")", modified: start)
+        let link = directory.url.appendingPathComponent("side.js")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        let cache = CustomSidebarRefreshPolicyCache()
+        #expect(cache.policy(fileURL: link, now: start) == .onDataChange)
+
+        _ = try directory.write("target.js", "Text(clock.time)", modified: start.addingTimeInterval(10))
+        let later = start.addingTimeInterval(CustomSidebarRefreshPolicyCache.recheckInterval + 1)
+        #expect(cache.policy(fileURL: link, now: later) == .everySecond)
+    }
+
     /// An existing file that can't be read must not freeze a clock sidebar:
     /// tick, and read again on the next lookup.
     @Test func unreadableFileTicksAndIsRetried() throws {
