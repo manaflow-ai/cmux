@@ -427,6 +427,7 @@ struct CloudMove {
             }
             return session
         }
+        for candidate in Set(result.candidates.filter { !$0.isEmpty }) { await hedge.delete(candidate) }
         throw Failure(message: result.error ?? CloudMoveStrings.notConnected(first.machine.title, because: first.linkEnded == nil ? nil : first.linkRefusal.reason), retry: .move(machineID: first.machineID))
     }
 
