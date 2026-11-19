@@ -99,7 +99,7 @@ public final class AppStatusItems {
     /// The menu bar item's menu rows (place `menuBar`): a fresh view of each item's drawn scene, made as
     /// the menu opens. An item whose scene has not drawn yet is left out.
     public func menuBarRows() -> [NSView] {
-        entries(at: .menuBar).compactMap { entry in
+        entries(at: .menuBar).map { entry -> NSView in
             let scene = entry.mount.makeView()
             scene.setAccessibilityLabel(entry.item.title)
             return AppStatusMenuRow(scene: scene)

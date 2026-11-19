@@ -46,8 +46,8 @@ public final class AppStatusStripView: NSView {
 
     private func rebuild() {
         let entries = items.entries(at: .titlebar)
-        let wanted = entries.map { ($0.item.app, $0.mount.id) }
-        guard wanted.map(\.0) != views.map(\.app) || wanted.map(\.1) != views.map(\.mount) else {
+        let wanted = entries.map(\.mount.id)
+        guard wanted != views.map({ $0.mount }) else {
             sizeChanged()
             return
         }
