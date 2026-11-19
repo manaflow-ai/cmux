@@ -1,0 +1,67 @@
+name: CI owned-first spill
+
+# The nightly path's tree jobs (feat-cmux-next's cmux-tui-artifacts.yml) queue on our own GCP Linux labels on attempt
+# 1 and take the Blacksmith pools on attempt 2+; no one-shot runner census decides that route any more (feat-cmux-next
+# tests/test_ci_owned_first_not_census_frozen.py). GitHub never moves a queued job, so this sweep is the bound: a run
+# with a job queued on an owned label past SPILL_MINUTES, and nothing of it running, is cancelled and its failed and
+# cancelled jobs re-run as attempt 2. scripts/ci/owned_first_spill.py holds the rules. Scheduled workflows run from
+# the default branch, so this file lives on main and checks out main's script.
+#
+# 2026-11-19: run 44464326281's daemon tests were frozen onto blacksmith-16vcpu-ubuntu-2404 by one census reading
+# and queued there from 05:23Z while the GCP runners freed up (Leo: "why would it move OFF of gcp and into blacksmith
+# if it was already linux 16!?").
+#
+# Keyless: the cmux-bot App token (GITHUB_TOKEN with actions: write without it), never a person's login. A manual
+# dispatch defaults to a dry run. vars.CI_OWNED_FIRST_SPILL_MINUTES overrides the 20-minute bound when set.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report what would be spilled without cancelling anything"
+        required: true
+        default: true
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  # One sweep at a time; a queued sweep waits, and a sweep mid-spill is never cancelled.
+  group: ci-owned-first-spill
+  cancel-in-progress: false
+
+jobs:
+  spill:
+    name: Spill owned-first jobs past their bound
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: polls the Actions API; never takes an owned runner it may be freeing
+    timeout-minutes: 15
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Checkout trusted spill
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+
+      - name: Spill owned-first jobs queued past the bound
+        env:
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+          SPILL_MINUTES: ${{ vars.CI_OWNED_FIRST_SPILL_MINUTES }}
+        run: python3 scripts/ci/owned_first_spill.py
