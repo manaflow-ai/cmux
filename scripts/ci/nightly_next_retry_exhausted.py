@@ -18,52 +18,40 @@ import json
 import os
 import re
 import sys
-import urllib.error
-import urllib.request
+import subprocess
 
 LABEL = "nightly-next-feed-stale"
 # This run's own bookkeeping jobs: they fail because the build did, never first.
 SKIP_JOBS = {"retry-nightly-next", "report-nightly-failure", "close-nightly-failure-issue"}
 FAILED = ("failure", "timed_out", "cancelled")
-LOG_STAMP = re.compile(r"^﻿?\d{4}-\d\d-\d\dT[0-9:.]+Z ")
+LOG_STAMP = re.compile(r"^\ufeff?\d{4}-\d\d-\d\dT[0-9:.]+Z ")
 LOG_MAX_LINES = 2_000_000
 
 
 class GitHub:
-    def __init__(self, repo: str, token: str):
-        self.base = f"{os.environ.get('GITHUB_API_URL', 'https://api.github.com')}/repos/{repo}"
-        self.token = token
+    """GitHub through `gh api`: the job installs gh_budget_wait.sh as `gh`, so a spent rate limit is waited out
+    (as every other gh call in the job) instead of losing the comment."""
 
-    def _request(self, url: str, method: str = "GET", body: dict | None = None):
-        data = json.dumps(body).encode() if body is not None else None
-        request = urllib.request.Request(url, data=data, method=method, headers={
-            "Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-nightly-next-retry"})
-        return urllib.request.urlopen(request, timeout=30)
+    def __init__(self, repo: str):
+        self.repo = repo
+
+    def _gh(self, args: list[str], body: dict | None = None) -> str:
+        done = subprocess.run(["gh", "api", *args], input=json.dumps(body) if body is not None else None,
+                              capture_output=True, text=True, timeout=600)
+        if done.returncode != 0:
+            raise OSError(f"gh api {' '.join(args)}: exit {done.returncode}: {done.stderr.strip()[-300:]}")
+        return done.stdout
 
     def call(self, method: str, path: str, body: dict | None = None):
-        with self._request(self.base + path, method, body) as response:
-            text = response.read().decode()
-        return json.loads(text) if text else {}
+        args = ["-X", method, f"repos/{self.repo}{path}"]
+        if body is not None:
+            args += ["--input", "-"]
+        text = self._gh(args, body)
+        return json.loads(text) if text.strip() else {}
 
     def job_log(self, job_id: int):
-        """The job's log lines. The API redirects to a signed blob URL that refuses an Authorization header."""
-        class Stop(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, *args, **kwargs):
-                return None
-        request = urllib.request.Request(f"{self.base}/actions/jobs/{job_id}/logs", headers={
-            "Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json"})
-        try:
-            response = urllib.request.build_opener(Stop).open(request, timeout=30)
-        except urllib.error.HTTPError as error:
-            location = error.headers.get("Location") if error.code in (301, 302, 303, 307, 308) else None
-            if not location:
-                raise
-            response = urllib.request.urlopen(urllib.request.Request(
-                location, headers={"User-Agent": "cmux-nightly-next-retry"}), timeout=60)
-        with response:
-            for raw in response:
-                yield raw.decode("utf-8", "replace")
+        """The job's log lines (gh follows the redirect to the signed blob URL)."""
+        return self._gh([f"repos/{self.repo}/actions/jobs/{job_id}/logs"]).splitlines(keepends=True)
 
 
 def first_failed(jobs: list[dict]) -> tuple[dict | None, str]:
@@ -98,7 +86,7 @@ def message(gh, run_id: str, attempt: str, sha: str, server: str, repo: str) -> 
     run_url = f"{server}/{repo}/actions/runs/{run_id}"
     try:
         jobs = gh.call("GET", f"/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")["jobs"]
-    except (OSError, KeyError, ValueError) as error:
+    except (OSError, KeyError, ValueError, TypeError) as error:
         jobs = []
         print(f"::warning::could not read the jobs of {run_url}: {error!r}")
     job, step = first_failed(jobs)
@@ -108,7 +96,7 @@ def message(gh, run_id: str, attempt: str, sha: str, server: str, repo: str) -> 
         where = f"{job.get('name', '?')} / {step}" if step else str(job.get("name", "?"))
         try:
             line = error_line(gh.job_log(job["id"]))
-        except (OSError, KeyError, ValueError) as error:
+        except Exception as error:  # noqa: BLE001 - a lost error line never loses the comment
             print(f"::warning::could not read the log of job {job.get('id')}: {error!r}")
     head = f"nightly-next stopped retrying: run {run_url} (attempt {attempt}) on head `{sha}` failed after two loop retries in a row."
     failing = f"First failing step: \"{where}\"" + (f"\n\n```\n{line}\n```" if line else " (no error line read).")
@@ -117,7 +105,9 @@ def message(gh, run_id: str, attempt: str, sha: str, server: str, repo: str) -> 
 
 
 def post(gh, body: str) -> str:
-    open_issues = sorted(gh.call("GET", f"/issues?labels={LABEL}&state=open&per_page=100"), key=lambda i: i["number"])
+    # The issues list also returns pull requests: only an issue is the feed-stale incident.
+    open_issues = sorted((i for i in gh.call("GET", f"/issues?labels={LABEL}&state=open&per_page=100") if "pull_request" not in i),
+                         key=lambda i: i["number"])
     if open_issues:
         number = open_issues[0]["number"]
         gh.call("POST", f"/issues/{number}/comments", {"body": body})
@@ -133,16 +123,15 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--attempt", required=True)
     parser.add_argument("--sha", required=True)
     args = parser.parse_args(argv)
-    token = os.environ.get("GH_TOKEN", "")
-    if not token:
+    if not os.environ.get("GH_TOKEN"):
         print("GH_TOKEN is required", file=sys.stderr)
         return 1
-    gh = GitHub(args.repo, token)
+    gh = GitHub(args.repo)
     body = message(gh, args.run_id, args.attempt, args.sha, os.environ.get("GITHUB_SERVER_URL", "https://github.com"), args.repo)
     print(body)
     try:
         print(post(gh, body))
-    except (OSError, KeyError, ValueError) as error:
+    except (OSError, KeyError, ValueError, TypeError) as error:
         print(f"::error::nightly-next stopped retrying and the {LABEL} issue could not be updated: {error!r}")
         return 1
     return 0

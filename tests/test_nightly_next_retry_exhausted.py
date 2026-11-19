@@ -61,7 +61,8 @@ class FakeGitHub:
 
 class RetryExhausted(unittest.TestCase):
     def test_comments_on_the_open_feed_stale_issue_with_head_step_and_error(self):
-        gh = FakeGitHub([{"number": 812}, {"number": 640}])
+        # A labelled pull request (lower number) is not the incident: the issues list returns both.
+        gh = FakeGitHub([{"number": 812}, {"number": 500, "pull_request": {}}, {"number": 640}])
         body = mod.message(gh, "44478285964", "1", SHA, "https://github.com", "o/r")
         self.assertEqual(mod.post(gh, body), "commented on #640")
         [(method, path, sent)] = gh.writes
