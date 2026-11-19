@@ -611,6 +611,11 @@ mod claude {
             }
             _ => paths.claude_json.clone(),
         };
+        // An add never replaces a server the person already has under that name (its env and
+        // args would be lost): they remove it first, as `claude mcp add` asks.
+        let taken = || {
+            format!("Claude Code already has a {} server named {name}: remove it first", scope.id())
+        };
         let mut missing = false;
         let changed = fsio::update(&file, |old| {
             let mut json = parse_or_new(old, &file)?;
@@ -618,19 +623,24 @@ mod claude {
             let key = project.as_deref().map(|p| project_key(&json, p));
             match (scope, edit) {
                 (Scope::User | Scope::Project, Edit::Add(server)) => {
-                    json.object_at("mcpServers")
-                        .ok_or("mcpServers is not an object")?
-                        .set(name, entry(server));
+                    let servers =
+                        json.object_at("mcpServers").ok_or("mcpServers is not an object")?;
+                    if servers.get(name).is_some() {
+                        return Err(taken());
+                    }
+                    servers.set(name, entry(server));
                 }
                 (Scope::Local, Edit::Add(server)) => {
                     let key = key.clone().unwrap_or_default();
                     let projects = json.object_at("projects").ok_or("projects is not an object")?;
                     let folder =
                         projects.object_at(&key).ok_or("the folder's entry is not an object")?;
-                    folder
-                        .object_at("mcpServers")
-                        .ok_or("mcpServers is not an object")?
-                        .set(name, entry(server));
+                    let servers =
+                        folder.object_at("mcpServers").ok_or("mcpServers is not an object")?;
+                    if servers.get(name).is_some() {
+                        return Err(taken());
+                    }
+                    servers.set(name, entry(server));
                 }
                 (Scope::User | Scope::Project, Edit::Remove) => {
                     missing = json.get_mut("mcpServers").and_then(|m| m.remove(name)).is_none();
@@ -1094,6 +1104,14 @@ mod codex {
                 }
                 (Edit::Add(server), _) => {
                     let servers = servers_table(&mut doc)?;
+                    if servers.contains_key(name) {
+                        // Never replaces the person's own entry (its env and args would go).
+                        return Err(format!(
+                            "Codex already has a {} server named {name} in {}: remove it first",
+                            scope.id(),
+                            file.display()
+                        ));
+                    }
                     servers.insert(name, Item::Table(new_table(server)));
                 }
                 (Edit::Remove, _) => {
